@@ -249,10 +249,13 @@ dotnet_diagnostic.IDE0072.severity = error  # add missing cases to switch
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Curia.Canon.Tests" />
-    <InternalsVisibleTo Include="Curia.Canon.Sodium" />
   </ItemGroup>
 </Project>
 ```
+
+`InternalsVisibleTo` names only the matching test assembly (CS-5). `Curia.Canon.Sodium`
+never needs it: the adapters implement `IContentSigner`/`IContentVerifier`, which take
+`ReadOnlySpan<byte>`, so they never touch `CanonicalBytes`' internal constructor.
 
 `tests/Curia.Canon.Tests/Curia.Canon.Tests.csproj`:
 
@@ -293,13 +296,6 @@ Create the solution:
 dotnet new sln -n Curia
 dotnet sln add src/Curia.Canon/Curia.Canon.csproj tests/Curia.Canon.Tests/Curia.Canon.Tests.csproj
 ```
-
-**Note on `InternalsVisibleTo Curia.Canon.Sodium`:** CS-5 forbids sharing internals
-*between production assemblies*. `Curia.Canon.Sodium` needs to construct
-`CanonicalBytes`, whose constructor is `internal` by design (Task 7). Resolve this
-in Task 11 by giving `CanonicalBytes` no cross-assembly need — Sodium implements
-only `IContentSigner`/`IContentVerifier`, which take `ReadOnlySpan<byte>`. **Remove
-this `InternalsVisibleTo` line in Task 11** and confirm Sodium still compiles.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -446,9 +442,9 @@ write("unicode", "already-nfc-idempotent",
       '{"k":"Å"}', '{"k":"Å"}', req="R6.9", note="NFC input unchanged")
 write("unicode", "singleton-ohm",
       '{"k":"Ω"}', '{"k":"Ω"}', req="R6.9", note="ohm sign is a singleton decomposition to omega")
-write("unicode", "unicode17-only-codepoint",
+write("unicode", "unicode16-recent-codepoint",
       '{"k":"\U000105C0"}', '{"k":"\U000105C0"}', req="R6.34",
-      note="Todhri letter A: assigned in Unicode 16.0, no canonical decomposition, must round-trip identically in both toolchains")
+      note="Todhri letter A, assigned in Unicode 16.0 (the pinned version) with no canonical decomposition; must round-trip identically in both toolchains. A genuine 16.0-vs-17.0 delta vector is added in Plan 2, where the differential harness can measure the actual delta instead of guessing at it")
 
 # --- numbers: ECMAScript serialization ---
 for name, src, out, note in [
@@ -643,6 +639,13 @@ public sealed class ResultTests
     }
 
     [Fact]
+    public void ToFailureRetypesAFailureAndRejectsASuccess()
+    {
+        Assert.Equal("curia/test/boom", Result<int>.Fail(Boom).ToFailure<string>().Match(_ => "", e => e.Type));
+        Assert.Throws<InvalidOperationException>(() => Result<int>.Ok(1).ToFailure<string>());
+    }
+
+    [Fact]
     public void DigestRendersLowercaseHexAndPrefixedForm()
     {
         var digest = new EnvelopeDigest(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
@@ -698,6 +701,15 @@ public readonly struct Result<T>
 
     public Result<TNext> Bind<TNext>(Func<T, Result<TNext>> f) =>
         _error is null ? f(_value) : Result<TNext>.Fail(_error);
+
+    /// <summary>
+    /// Re-types a failure so it can propagate through a signature returning a different T.
+    /// Throws when called on a success, because that is a caller bug, not a domain failure.
+    /// </summary>
+    public Result<TOther> ToFailure<TOther>() =>
+        _error is null
+            ? throw new InvalidOperationException("ToFailure called on a successful result")
+            : Result<TOther>.Fail(_error);
 
     /// <summary>Test and adapter convenience; prefer <see cref="Match{TOut}"/> in domain code.</summary>
     public bool TryGetValue(out T value, out Error? error)
@@ -1597,8 +1609,7 @@ public static class EnvelopeParser
     {
         var parsed = JsonReader.Parse(utf8, limits);
         if (!parsed.IsOk)
-            return parsed.Match(_ => Result<SubmissionDocument>.Fail(CanonErrors.Malformed("unreachable")),
-                                Result<SubmissionDocument>.Fail);
+            return parsed.ToFailure<SubmissionDocument>();
 
         var root = parsed.Match(v => v, _ => JsonValue.Null.Instance);
         if (root is not JsonValue.Object wire)
@@ -1923,8 +1934,7 @@ public sealed class DetachedJws
     {
         var parsedHeader = ReadProtectedHeader(sig);
         if (!parsedHeader.IsOk)
-            return parsedHeader.Match(_ => Result<VerifiedContent>.Fail(JwsErrors.Malformed("unreachable")),
-                                      Result<VerifiedContent>.Fail);
+            return parsedHeader.ToFailure<VerifiedContent>();
 
         var header = parsedHeader.Match(h => h, _ => null!);
 
