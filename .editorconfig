@@ -1,0 +1,8 @@
+root = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+dotnet_diagnostic.CS8509.severity = error   # switch expression not exhaustive
+dotnet_diagnostic.CS8524.severity = error   # unnamed enum value in switch
+dotnet_diagnostic.IDE0072.severity = error  # add missing cases to switch
