@@ -435,13 +435,20 @@ write("ordering", "bmp-only-control",
       '{"a":1,"b":2,"A":3}', '{"A":3,"a":1,"b":2}',
       req="R6.8", note="ASCII ordering is uppercase-before-lowercase, not case-insensitive")
 
-# --- unicode: NFC behaviour, incl. characters new in Unicode 17.0 ---
+# --- unicode: NFC behaviour ---
+# EVERY codepoint below is written as a \u escape, never as a literal character.
+# Literal NFD text does not survive being written through normalizing tooling: it
+# silently arrives already composed, turning the vector into an identity mapping
+# that passes even when NFC is never applied. Escapes are plain ASCII end to end.
 write("unicode", "nfd-to-nfc-composed",
-      '{"k":"Å"}', '{"k":"Å"}', req="R6.9", note="A + combining ring -> angstrom")
+      '{"k":"\u0041\u030A"}', '{"k":"\u00C5"}', req="R6.9",
+      note="A + combining ring above -> precomposed angstrom")
 write("unicode", "already-nfc-idempotent",
-      '{"k":"Å"}', '{"k":"Å"}', req="R6.9", note="NFC input unchanged")
+      '{"k":"\u00C5"}', '{"k":"\u00C5"}', req="R6.9",
+      note="NFC input unchanged (identity by design)")
 write("unicode", "singleton-ohm",
-      '{"k":"Ω"}', '{"k":"Ω"}', req="R6.9", note="ohm sign is a singleton decomposition to omega")
+      '{"k":"\u2126"}', '{"k":"\u03A9"}', req="R6.9",
+      note="ohm sign -> greek capital omega, a singleton decomposition")
 write("unicode", "unicode16-recent-codepoint",
       '{"k":"\U000105C0"}', '{"k":"\U000105C0"}', req="R6.34",
       note="Todhri letter A, assigned in Unicode 16.0 (the pinned version) with no canonical decomposition; must round-trip identically in both toolchains. A genuine 16.0-vs-17.0 delta vector is added in Plan 2, where the differential harness can measure the actual delta instead of guessing at it")
