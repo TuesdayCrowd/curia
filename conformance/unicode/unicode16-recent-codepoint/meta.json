@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.34",
+  "note": "Todhri letter A, assigned in Unicode 16.0 (the pinned version) with no canonical decomposition; must round-trip identically in both toolchains. A genuine 16.0-vs-17.0 delta vector is added in Plan 2, where the differential harness can measure the actual delta instead of guessing at it"
+}

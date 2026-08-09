@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.15",
+  "note": "a RAW 0x00 byte in the wire stream, unlike c4/vector-09 which is the escape"
+}

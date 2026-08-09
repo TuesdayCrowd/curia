@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.8",
+  "note": "UTF-16 order puts the surrogate pair first; UTF-8 byte order does not"
+}
