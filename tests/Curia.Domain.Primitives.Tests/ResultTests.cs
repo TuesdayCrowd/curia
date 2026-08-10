@@ -44,4 +44,34 @@ public sealed class ResultTests
         Assert.Equal("deadbeef", digest.ToHex());
         Assert.Equal("sha256:deadbeef", digest.ToPrefixed());
     }
+
+    [Fact]
+    public void DigestEqualityComparesContentNotArrayIdentity()
+    {
+        var a = new EnvelopeDigest(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+        var b = new EnvelopeDigest(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+        var c = new EnvelopeDigest(new byte[] { 0x00, 0x01, 0x02, 0x03 });
+
+        Assert.Equal(a, b);
+        Assert.True(a == b);
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+
+        Assert.NotEqual(a, c);
+        Assert.False(a == c);
+
+        Assert.Single(new HashSet<EnvelopeDigest> { a, b });
+    }
+
+    [Fact]
+    public void UninitializedResultRejectsEveryOperation()
+    {
+        var uninitialized = default(Result<int>);
+
+        Assert.Throws<InvalidOperationException>(() => _ = uninitialized.IsOk);
+        Assert.Throws<InvalidOperationException>(() => uninitialized.Match(v => v, _ => -1));
+        Assert.Throws<InvalidOperationException>(() => uninitialized.Map(v => v));
+        Assert.Throws<InvalidOperationException>(() => uninitialized.Bind(v => Result<int>.Ok(v)));
+        Assert.Throws<InvalidOperationException>(() => uninitialized.ToFailure<string>());
+        Assert.Throws<InvalidOperationException>(() => uninitialized.TryGetValue(out _, out _));
+    }
 }
