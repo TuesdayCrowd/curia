@@ -5,4 +5,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Curia.Canon.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
+  </ItemGroup>
 </Project>
