@@ -143,6 +143,42 @@ Verified available: `NSec.Cryptography` 26.4.0, `CsCheck` 4.8.0,
 `NetArchTest.Rules` 1.3.2, `Ulid` 1.4.1, `jose-jwt` 5.3.0,
 `Microsoft.Extensions.TimeProvider.Testing` 10.8.0.
 
+### 3.4 Canonicalization splits in two — and R6.8 needs an erratum
+
+This amendment was forced by implementation and is the most consequential of the
+four. **R6.8 and R6.9 are not jointly satisfiable as written.**
+
+R6.8 says canonicalization "SHALL follow JSON Canonicalization Scheme, RFC 8785."
+R6.9 says all string fields "SHALL be normalized to Unicode NFC as a step within
+the canonicalization function." But RFC 8785 deliberately performs **no** Unicode
+normalization, and two of the six conformance vectors its author published exist
+specifically to prove it: `input-unicode.json` is literally named "Unnormalized
+Unicode," and `input-weird.json` uses `U+FB33` as an object key.
+
+`U+FB33` is the decisive case. It sits on Unicode's Composition Exclusion list, so
+NFC decomposes it and never recomposes — changing its leading UTF-16 code unit
+from `0xFB33` to `0x05D3` and therefore changing **where it sorts**. NFC does not
+merely alter bytes there; it reorders the object. No partial application escapes
+this: applying NFC to keys alone breaks `weird`, to values alone breaks `unicode`.
+
+**Resolution.** Canonicalization is two functions with distinct names, not
+overloads, so the wrong semantics cannot be selected by accident:
+
+- `Canonicalize(JsonValue)` — pure RFC 8785. All six official vectors pass.
+- `CanonicalizeWithNfc(JsonValue)` — NFC, then the pure core. Satisfies R6.9, C.4
+  vector 5, and the `unicode/` family.
+- `CanonicalizeEnvelope(EnvelopeDocument)` — delegates to the profile. This is the
+  path everything signed takes.
+
+`EnvelopeDocument.Root` is public, so `Canonicalize(doc.Root)` would skip NFC; the
+XML doc on `Canonicalize` warns against it, since the type system does not.
+
+**Erratum for the source documents.** R6.8's claim to "follow RFC 8785" is
+imprecise and should be corrected before a third party implements from it: Cūria's
+envelope canonicalization is **RFC 8785 plus a mandatory NFC step** — a documented
+profile, not bare conformance. An implementer reading R6.8 alone would build
+something incompatible. This belongs in the errata document alongside A1–A20.
+
 ## 4. The frozen API surface
 
 ```csharp
@@ -153,10 +189,18 @@ public static class EnvelopeParser                      // §6.4 phase ① ADMIT
     public static Result<SubmissionDocument> Parse(ReadOnlySpan<byte> utf8, AdmitLimits limits);
 }
 
-public static class CanonicalJson                       // RFC 8785 + R6.9 + R6.34
+public static class CanonicalJson                       // see §3.4 for the split
 {
     public const string UnicodeVersion = "16.0";        // R6.34, §5.2 below
-    public static Result<CanonicalBytes> Canonicalize(EnvelopeDocument doc);
+
+    // Pure RFC 8785. Normalizes nothing. Conformance target for conformance/rfc8785/.
+    public static Result<CanonicalBytes> Canonicalize(JsonValue value);
+
+    // The Cūria profile (R6.9): NFC keys and string values, then delegate to the core.
+    public static Result<CanonicalBytes> CanonicalizeWithNfc(JsonValue value);
+
+    // What everything signed goes through. Delegates to CanonicalizeWithNfc.
+    public static Result<CanonicalBytes> CanonicalizeEnvelope(EnvelopeDocument doc);
 }
 
 public static class Digests
@@ -225,6 +269,27 @@ oversize and excessive nesting to be rejected before canonicalization.
 
 Caps are checked **before** parsing completes, per §6.4 phase ①'s note that
 canonicalizing adversarial JSON is itself an attack surface.
+
+**Depth counts containers, not values.** The check fires on `StartObject` and
+`StartArray` only, so a scalar nested inside exactly 32 containers is accepted and
+33 is rejected — matching `conformance/admit-reject/over-nested`'s own note, "33
+levels exceeds the depth cap of 32." Counting the leaf as a level would silently
+make the effective cap 31. A second implementation choosing its own counting
+convention could satisfy the single pinned vector while disagreeing at an
+untested boundary, so the rule is stated here rather than left to the vector.
+
+**Two further ADMIT rejections, added during implementation.** Both were found by
+the property suite or the whole-branch review rather than by reading, and both
+are frozen alongside the caps above.
+
+| Rule | Slug | Why |
+|---|---|---|
+| Unicode noncharacters rejected — `U+FDD0`–`U+FDEF`, plus `U+FFFE`/`U+FFFF` in all 17 planes (66 code points) | `curia/admit/noncharacter` | .NET's NFC throws on `U+FFFE` alone — it is the byte-order mark reversed, so ICU treats it as a wrong-endianness marker. That is a platform quirk, not a Unicode rule, and Rust's normalizer would pass it through. Rejecting the whole class is a rule a second implementer can apply from Unicode §23.7 ("not for interchange"); "reject what .NET throws on" is not. Without this, admitted content could throw inside the canonicalizer on the envelope signing path. |
+| Non-finite numbers rejected — any literal overflowing to ±Infinity | `curia/admit/non-finite-number` | `Utf8JsonReader.GetDouble()` returns `+Infinity` for `1e400` without throwing, and the canonicalizer then emitted `{"a":Infinity}` — not valid JSON — while reporting success. Node yields `null`; Rust `serde_json` rejects at parse. Rejecting matches `serde_json`'s natural default, buying cross-implementation agreement. **Underflow is unaffected:** `1e-400` is accepted and canonicalizes to `0`, matching Node. |
+
+Both carry conformance vectors (`conformance/admit-reject/noncharacter/` and
+`.../non-finite-number/`), because the second implementation is written against
+the vector set and a rule with no vector does not bind it.
 
 ### 5.2 Unicode version — and a divergence already present
 

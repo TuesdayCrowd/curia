@@ -691,11 +691,22 @@ public readonly struct Result<T>
 {
     private readonly T _value;
     private readonly Error? _error;
+    private readonly bool _initialized;
 
-    private Result(T value) { _value = value; _error = null; }
-    private Result(Error error) { _value = default!; _error = error; }
+    private Result(T value) { _value = value; _error = null; _initialized = true; }
+    private Result(Error error) { _value = default!; _error = error; _initialized = true; }
 
-    public bool IsOk => _error is null;
+    // Without _initialized, default(Result<T>) has a null _error and therefore reads
+    // as Ok(default(T)) — the zero value of a fallibility type silently reporting
+    // success. Every entry point below rejects an uninitialized instance.
+    private void EnsureInitialized()
+    {
+        if (!_initialized)
+            throw new InvalidOperationException(
+                $"Result<{typeof(T).Name}> was never initialized; use Result<T>.Ok or Result<T>.Fail.");
+    }
+
+    public bool IsOk { get { EnsureInitialized(); return _error is null; } }
 
     public static Result<T> Ok(T value) => new(value);
     public static Result<T> Fail(Error error) => new(error);
@@ -736,6 +747,19 @@ namespace Curia.Domain.Primitives;
 /// <summary>SHA-256 over the canonical envelope bytes (R6.4). Not the transparency-log leaf digest.</summary>
 public readonly record struct EnvelopeDigest(ReadOnlyMemory<byte> Sha256)
 {
+    // ReadOnlyMemory<byte> equality compares the array reference, offset, and length —
+    // not the bytes. Inheriting that would make two digests of identical content
+    // unequal, silently breaking deduplication, prev revision chains, and refs
+    // matching, all of which read `==` as "same hash".
+    public bool Equals(EnvelopeDigest other) => Sha256.Span.SequenceEqual(other.Sha256.Span);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.AddBytes(Sha256.Span);
+        return hash.ToHashCode();
+    }
+
     public string ToHex() => Convert.ToHexStringLower(Sha256.Span);
     public string ToPrefixed() => "sha256:" + ToHex();
 }
@@ -987,7 +1011,13 @@ public static class JsonReader
         {
             CommentHandling = JsonCommentHandling.Disallow,
             AllowTrailingCommas = false,
-            MaxDepth = limits.MaxDepth,
+            // Deliberately ABOVE our cap, so our own depth counter is what detects a
+            // depth violation. If the reader detects it first, the only signal is a
+            // JsonException, and classifying that requires sniffing its message —
+            // which misfires, because the reader's end-of-input error also contains
+            // the word "depth" ("Expected depth to be zero at the end of the JSON
+            // payload"). That would report plain truncated input as depth-exceeded.
+            MaxDepth = limits.MaxDepth + 2,
         };
 
         var reader = new Utf8JsonReader(utf8, options);
@@ -1006,11 +1036,10 @@ public static class JsonReader
         }
         catch (JsonException ex)
         {
-            // Utf8JsonReader signals depth violations and malformed input by throwing.
-            return Result<JsonValue>.Fail(
-                ex.Message.Contains("depth", StringComparison.OrdinalIgnoreCase)
-                    ? CanonErrors.DepthExceeded(limits.MaxDepth)
-                    : CanonErrors.Malformed(ex.Message));
+            // Depth is owned by our own counter (see MaxDepth above), so anything the
+            // reader throws is malformed input. Never classify by message substring:
+            // an error message is a diagnostic, not an API.
+            return Result<JsonValue>.Fail(CanonErrors.Malformed(ex.Message));
         }
     }
 
@@ -2036,7 +2065,7 @@ but commit -b canon-impl -m "Add detached JWS with RFC 7797 profile and algorith
 
 **Files:**
 - Create: `src/Curia.Canon.Sodium/Curia.Canon.Sodium.csproj`, `Ed25519Adapter.cs`, `Es256Adapter.cs`
-- Modify: `src/Curia.Canon/Curia.Canon.csproj` (remove the `InternalsVisibleTo Curia.Canon.Sodium` line added in Task 1)
+- Verify (no change expected): `src/Curia.Canon/Curia.Canon.csproj` grants no `InternalsVisibleTo` to `Curia.Canon.Sodium`
 - Test: `tests/Curia.Canon.Sodium.Tests/AdapterTests.cs`
 
 **Interfaces:**
@@ -2180,10 +2209,10 @@ public sealed class Es256Adapter : IContentSigner, IContentVerifier
 </Project>
 ```
 
-Remove `<InternalsVisibleTo Include="Curia.Canon.Sodium" />` from
-`src/Curia.Canon/Curia.Canon.csproj` and confirm the build still succeeds. The
-adapters take `ReadOnlySpan<byte>`, so they never need `CanonicalBytes`' internal
-constructor — which is what CS-5 wants.
+`Curia.Canon` must NOT grant `InternalsVisibleTo` to this project (CS-5 forbids
+sharing internals between production assemblies). The adapters take
+`ReadOnlySpan<byte>` and never need `CanonicalBytes`' internal constructor, so no
+grant is required — confirm none exists rather than removing one.
 
 - [ ] **Step 4: Run tests**
 
