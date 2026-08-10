@@ -132,18 +132,53 @@ public static class JsonReader
     /// throws InvalidOperationException instead, before this code ever sees a string to
     /// inspect. That failure is mapped explicitly to the specific slug (R6.15) rather than
     /// left to surface as an unhandled exception or collapse into a generic "malformed".
+    ///
+    /// Also rejects any Unicode noncharacter (see <see cref="IsNoncharacter"/>) found in the
+    /// decoded string. This is the single call site for both object property names and
+    /// string values (see ReadObject/ReadString), so the rule applies uniformly to both.
+    /// Enforcing it here, at ADMIT, rather than downstream in canonicalization matters
+    /// concretely: a real .NET bug means <c>string.Normalize(NormalizationForm.FormC)</c>
+    /// throws ArgumentException on U+FFFE specifically (ICU reads it as a reversed byte-order
+    /// mark), so without this check, an admitted document carrying U+FFFE reached
+    /// CanonicalizeWithNfc and crashed instead of returning a Result.Fail (CS-10). Rejecting
+    /// the whole noncharacter class at ADMIT — not just the one code point .NET happens to
+    /// throw on — keeps the rule a fact about the Unicode standard rather than a platform
+    /// quirk, so a second-language implementation can apply it from the spec text alone and
+    /// agree with this one on every noncharacter, not only the one ICU is picky about.
     /// </summary>
     private static Result<string> ReadStringValue(ref Utf8JsonReader reader)
     {
+        string value;
         try
         {
-            return Result<string>.Ok(reader.GetString()!);
+            value = reader.GetString()!;
         }
         catch (InvalidOperationException)
         {
             return Result<string>.Fail(CanonErrors.UnpairedSurrogate());
         }
+
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (IsNoncharacter(rune.Value))
+                return Result<string>.Fail(CanonErrors.Noncharacter());
+        }
+
+        return Result<string>.Ok(value);
     }
+
+    /// <summary>
+    /// True when <paramref name="codePoint"/> is one of the 66 Unicode noncharacters
+    /// (Unicode 16.0 §23.7): U+FDD0-U+FDEF, or the last two code points of any plane
+    /// (U+FFFE/U+FFFF through U+10FFFE/U+10FFFF). <c>codePoint &amp; 0xFFFE == 0xFFFE</c>
+    /// catches both "...FFFE" and "...FFFF" endings for any plane in one comparison, since
+    /// masking off the low bit of 0xFFFF also yields 0xFFFE. Internal rather than private:
+    /// Curia.Canon.Tests (InternalsVisibleTo) reuses this exact rule in the property suite's
+    /// generators, which construct JsonValue trees directly and so must mirror ADMIT's own
+    /// rejection rules by hand rather than diverging with a second, hand-rolled definition.
+    /// </summary>
+    internal static bool IsNoncharacter(int codePoint) =>
+        (codePoint is >= 0xFDD0 and <= 0xFDEF) || (codePoint & 0xFFFE) == 0xFFFE;
 
     private static Result<JsonValue> ReadObject(ref Utf8JsonReader reader, AdmitLimits limits, int depth)
     {

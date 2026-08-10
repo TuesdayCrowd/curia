@@ -59,6 +59,39 @@ public sealed class JsonReaderTests
         Assert.Equal("curia/admit/unpaired-surrogate", slug);
     }
 
+    /// <summary>
+    /// Unicode §23.7: 66 code points permanently reserved and "not for interchange" --
+    /// U+FDD0-U+FDEF, plus the last two code points of every plane. Built via
+    /// char.ConvertFromUtf32 at test-run time rather than embedding the raw character in
+    /// this source file, since this repo has previously lost non-BMP/noncharacter code
+    /// points between authoring and disk (see VectorLoaderTests' EveryR6NineTransformation-
+    /// VectorActuallyTransforms comment and the ordering/non-bmp-vs-e000 fix).
+    /// </summary>
+    [Theory]
+    [InlineData(0xFDD0)]   // start of the FDD0-FDEF reserved block
+    [InlineData(0xFDEF)]   // end of that block
+    [InlineData(0xFFFE)]   // BMP plane-0 noncharacter (the one that also throws in Normalize)
+    [InlineData(0xFFFF)]   // BMP plane-0 noncharacter
+    [InlineData(0x1FFFE)]  // plane-1 noncharacter, requires a UTF-16 surrogate pair
+    [InlineData(0x10FFFF)] // plane-16 noncharacter, the last code point in Unicode at all
+    public void RejectsUnicodeNoncharacterInAStringValue(int codePoint)
+    {
+        var ch = char.ConvertFromUtf32(codePoint);
+        var slug = Parse($$"""{"a":"{{ch}}"}""").Match(_ => "ok", e => e.Type);
+        Assert.Equal("curia/admit/noncharacter", slug);
+    }
+
+    [Fact]
+    public void RejectsUnicodeNoncharacterInAnObjectKey()
+    {
+        // Same rule, same slug, for the key position -- object keys and string values both
+        // go through JsonReader's shared ReadStringValue, so this pins that the check
+        // actually runs for both call sites rather than only the value one.
+        var ch = char.ConvertFromUtf32(0xFFFE);
+        var slug = Parse($$"""{"{{ch}}":1}""").Match(_ => "ok", e => e.Type);
+        Assert.Equal("curia/admit/noncharacter", slug);
+    }
+
     [Fact]
     public void RejectsExcessiveNestingBeforeExhaustingTheStack()
     {

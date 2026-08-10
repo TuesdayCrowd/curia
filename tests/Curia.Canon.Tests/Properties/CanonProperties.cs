@@ -15,8 +15,8 @@ namespace Curia.Canon.Tests.Properties;
 /// examples someone thought to write down -- that is the entire reason this suite is
 /// property-based rather than example-based.
 ///
-/// Generator honesty: two categories of input are deliberately excluded, and both are
-/// documented here rather than silently dropped:
+/// Generator honesty: three categories of input are deliberately excluded, and all three
+/// are documented here rather than silently dropped:
 ///
 ///  - Unpaired surrogates. <see cref="JsonReader.Parse"/> rejects them at ADMIT
 ///    (curia/admit/unpaired-surrogate), so a string containing one is not a document the
@@ -26,6 +26,22 @@ namespace Curia.Canon.Tests.Properties;
 ///    does not round-trip through JsonReader.Parse but would otherwise let .Normalize()
 ///    and the reader disagree on ill-formed UTF-16 for reasons that have nothing to do
 ///    with the NFC property being tested.
+///  - Unicode noncharacters (Unicode 16.0 §23.7). <see cref="JsonReader.Parse"/> rejects
+///    these too (curia/admit/noncharacter), for the same reason: a document ADMIT refuses
+///    was never going to reach canonicalization from real input, so generating one and
+///    asserting a canonicalization property about it proves nothing. This exclusion has a
+///    second, sharper justification specific to this suite's own history: a property test
+///    run (seed 01AW7nJDoii1) generated a string containing U+FFFE and P5 crashed with
+///    ArgumentException from string.Normalize(FormC) -- .NET/ICU reads that one
+///    noncharacter as a reversed byte-order mark. That crash was real evidence of a
+///    production defect (JsonReader admitted U+FFFE, and CanonicalizeWithNfc had no way to
+///    report failure on it other than throwing, violating CS-10), now fixed at ADMIT; see
+///    JsonReader.IsNoncharacter and CanonicalJsonTests.AdmitRejectsNoncharacterBeforeCanon-
+///    icalizationCanEverSeeIt. <see cref="HasNoncharacter"/> mirrors that ADMIT rule here
+///    because these generators construct JsonValue trees directly and so bypass
+///    JsonReader.Parse entirely when first built -- P3 is the only property that later
+///    routes back through Parse, but every generator below filters consistently rather
+///    than only the one property that would otherwise visibly fail.
 ///  - Duplicate object keys. <see cref="JsonReader.Parse"/> rejects them too
 ///    (curia/admit/duplicate-key). <see cref="GenValue"/> deduplicates generated member
 ///    lists by key before building a <see cref="JsonValue.Object"/> so P3's reparse step
@@ -65,8 +81,33 @@ public sealed class CanonProperties
         return false;
     }
 
+    /// <summary>
+    /// True when <paramref name="s"/> contains a Unicode noncharacter (Unicode 16.0 §23.7).
+    /// Only ever called on strings <see cref="HasUnpairedSurrogate"/> has already cleared,
+    /// so EnumerateRunes here is always operating on well-formed UTF-16. Reuses
+    /// <see cref="JsonReader.IsNoncharacter"/> (internal; this assembly has
+    /// InternalsVisibleTo) rather than a second hand-rolled definition of the same 66 code
+    /// points, so the generator can never quietly drift from what ADMIT actually rejects.
+    /// </summary>
+    private static bool HasNoncharacter(string s)
+    {
+        foreach (var rune in s.EnumerateRunes())
+        {
+            if (JsonReader.IsNoncharacter(rune.Value))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True when JsonReader.Parse would reject a string containing <paramref name="s"/> --
+    /// see the type-level remarks for why every string generator below filters through
+    /// this rather than letting ADMIT-illegal input reach a property.
+    /// </summary>
+    private static bool IsAdmitRejectedString(string s) => HasUnpairedSurrogate(s) || HasNoncharacter(s);
+
     private static readonly Gen<string> GenKey =
-        Gen.String[GenUnicodeChar, 0, 8].Where(s => !HasUnpairedSurrogate(s));
+        Gen.String[GenUnicodeChar, 0, 8].Where(s => !IsAdmitRejectedString(s));
 
     private static Gen<JsonValue> GenValue(int depth) =>
         depth <= 0
@@ -167,7 +208,7 @@ public sealed class CanonProperties
 
     [Fact]
     public void P5_CanonicalizationIsUnicodeStable() =>
-        Gen.String[GenUnicodeChar, 0, 20].Where(s => !HasUnpairedSurrogate(s)).Sample(s =>
+        Gen.String[GenUnicodeChar, 0, 20].Where(s => !IsAdmitRejectedString(s)).Sample(s =>
         {
             var nfd = new JsonValue.Object([new("k", new JsonValue.String(s.Normalize(NormalizationForm.FormD)))]);
             var nfc = new JsonValue.Object([new("k", new JsonValue.String(s.Normalize(NormalizationForm.FormC)))]);

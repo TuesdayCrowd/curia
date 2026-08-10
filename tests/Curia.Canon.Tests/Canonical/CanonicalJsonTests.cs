@@ -187,4 +187,44 @@ public sealed class CanonicalJsonTests
             .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
         Assert.NotEqual(pure, nfcProfile);
     }
+
+    /// <summary>
+    /// U+FFFE is a Unicode noncharacter that string.Normalize(NormalizationForm.FormC)
+    /// throws ArgumentException on (verified directly against this runtime: ICU reads it as
+    /// a reversed byte-order mark rather than text). Before JsonReader rejected
+    /// noncharacters, an admitted document carrying U+FFFE reached CanonicalizeWithNfc —
+    /// the function CanonicalizeEnvelope always uses for signing/verification — and crashed
+    /// there instead of returning Result.Fail, violating CS-10 (fallibility is a value).
+    /// This pins the actual fix: ADMIT rejects the document before any JsonValue exists to
+    /// hand to CanonicalizeWithNfc, so that throw is unreachable from wire input, not merely
+    /// rare. See JsonReaderTests.RejectsUnicodeNoncharacterInAStringValue for the ADMIT-level
+    /// rejection pinned directly, and conformance/admit-reject/noncharacter/ for the vector.
+    /// </summary>
+    [Fact]
+    public void AdmitRejectsNoncharacterBeforeCanonicalizationCanEverSeeIt()
+    {
+        var json = $$"""{"a":"{{char.ConvertFromUtf32(0xFFFE)}}"}""";
+
+        var result = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/noncharacter", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// The other half of the same evidence: this documents *why* ADMIT, not
+    /// CanonicalizeWithNfc itself, had to be the enforcement point. CanonicalizeWithNfc's
+    /// contract is "the caller already admitted this" — it is not, and does not need to be,
+    /// defensive against content ADMIT has already promised never to hand it. Bypassing
+    /// ADMIT (as no real caller in this codebase does — EnvelopeParser.Parse always calls
+    /// JsonReader.Parse first) and constructing the JsonValue tree directly still reproduces
+    /// the original crash, confirming the fix belongs at the gate, not inside the writer.
+    /// </summary>
+    [Fact]
+    public void CanonicalizeWithNfcStillThrowsOnANoncharacterIfAdmitIsBypassed()
+    {
+        var value = new JsonValue.Object([new("a", new JsonValue.String(char.ConvertFromUtf32(0xFFFE)))]);
+
+        Assert.Throws<ArgumentException>(() => CanonicalJson.CanonicalizeWithNfc(value));
+    }
 }
