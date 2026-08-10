@@ -85,13 +85,26 @@ public static class JsonReader
         // The sole authority for curia/admit/depth-exceeded -- see the MaxDepth headroom
         // comment in Parse for why the reader's own JsonReaderOptions.MaxDepth is set above
         // limits.MaxDepth rather than equal to it.
-        if (depth > limits.MaxDepth)
-            return Result<JsonValue>.Fail(CanonErrors.DepthExceeded(limits.MaxDepth));
-
+        //
+        // The check applies only to containers (StartObject/StartArray), never to leaf
+        // values: depth counts levels of nesting, and a leaf sitting inside the
+        // limits.MaxDepth-th container is not itself an additional level of nesting. Applying
+        // the check uniformly to every token (the earlier, buggy shape of this method) rejected
+        // a scalar nested inside exactly limits.MaxDepth containers -- checked at depth
+        // limits.MaxDepth + 1 -- making the effective accepted maximum limits.MaxDepth - 1
+        // levels of content instead of limits.MaxDepth. See
+        // conformance/admit-reject/over-nested/meta.json: "33 levels exceeds the depth cap of
+        // 32" -- 32 must be accepted, 33 rejected.
         switch (reader.TokenType)
         {
-            case JsonTokenType.StartObject: return ReadObject(ref reader, limits, depth);
-            case JsonTokenType.StartArray: return ReadArray(ref reader, limits, depth);
+            case JsonTokenType.StartObject:
+                return depth > limits.MaxDepth
+                    ? Result<JsonValue>.Fail(CanonErrors.DepthExceeded(limits.MaxDepth))
+                    : ReadObject(ref reader, limits, depth);
+            case JsonTokenType.StartArray:
+                return depth > limits.MaxDepth
+                    ? Result<JsonValue>.Fail(CanonErrors.DepthExceeded(limits.MaxDepth))
+                    : ReadArray(ref reader, limits, depth);
             case JsonTokenType.String: return ReadString(ref reader, limits);
             case JsonTokenType.Number: return Result<JsonValue>.Ok(new JsonValue.Number(reader.GetDouble()));
             case JsonTokenType.True: return Result<JsonValue>.Ok(new JsonValue.Bool(true));

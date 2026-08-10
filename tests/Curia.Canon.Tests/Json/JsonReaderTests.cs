@@ -67,6 +67,29 @@ public sealed class JsonReaderTests
     }
 
     [Fact]
+    public void AcceptsNestingExactlyAtTheDepthCap()
+    {
+        // R6.15 boundary, pinned against a real earlier off-by-one: MaxDepth (32) containers
+        // wrapping a leaf value must be ACCEPTED. The cap governs container nesting, not the
+        // leaf value found inside the innermost container -- a leaf one level past the last
+        // legal container is not itself an extra level of nesting.
+        var atCap = string.Concat(Enumerable.Repeat("""{"a":""", AdmitLimits.Default.MaxDepth))
+            + "1" + new string('}', AdmitLimits.Default.MaxDepth);
+        Assert.True(Parse(atCap).IsOk);
+    }
+
+    [Fact]
+    public void RejectsNestingOneContainerBeyondTheDepthCap()
+    {
+        // The other half of the same boundary: MaxDepth + 1 (33) containers must be REJECTED.
+        // Mirrors conformance/admit-reject/over-nested, whose meta.json says exactly this:
+        // "33 levels exceeds the depth cap of 32".
+        var overCap = string.Concat(Enumerable.Repeat("""{"a":""", AdmitLimits.Default.MaxDepth + 1))
+            + "1" + new string('}', AdmitLimits.Default.MaxDepth + 1);
+        Assert.Equal("curia/admit/depth-exceeded", Parse(overCap).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
     public void RejectsOversizeInputBeforeParsing()
     {
         var big = new byte[AdmitLimits.Default.MaxBytes + 1];
