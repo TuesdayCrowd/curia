@@ -65,11 +65,11 @@ public sealed class DetachedJws
     {
         ArgumentNullException.ThrowIfNull(sig);
 
-        var parsedHeader = ReadProtectedHeader(sig);
-        if (!parsedHeader.IsOk)
-            return parsedHeader.ToFailure<VerifiedContent>();
+        if (!TrySplit(sig.Compact, out var parts, out var splitError))
+            return Result<VerifiedContent>.Fail(splitError!);
 
-        var header = parsedHeader.Match(h => h, _ => null!);
+        if (!ParseHeader(parts[0]).TryGetValue(out var header, out var headerError))
+            return Result<VerifiedContent>.Fail(headerError!);
 
         // Reject before verifying: every header check runs before any adapter is touched.
         if (header.Typ != ExpectedTyp) return Result<VerifiedContent>.Fail(JwsErrors.TypMismatch(header.Typ));
@@ -79,8 +79,7 @@ public sealed class DetachedJws
         if (!_verifiers.TryGetValue(header.Alg, out var verifier))
             return Result<VerifiedContent>.Fail(JwsErrors.AlgNotAllowed(header.Alg));
 
-        var parts = sig.Compact.Split('.');
-        if (parts.Length != 3 || parts[1].Length != 0)
+        if (parts[1].Length != 0)
             return Result<VerifiedContent>.Fail(JwsErrors.Malformed("detached JWS must have an empty payload segment"));
 
         if (!Base64Url.IsValid(parts[2]))
@@ -105,17 +104,51 @@ public sealed class DetachedJws
     {
         ArgumentNullException.ThrowIfNull(sig);
 
-        var parts = sig.Compact.Split('.');
-        if (parts.Length != 3)
-            return Result<JwsProtectedHeader>.Fail(JwsErrors.Malformed("expected three dot-separated segments"));
+        return TrySplit(sig.Compact, out var parts, out var splitError)
+            ? ParseHeader(parts[0])
+            : Result<JwsProtectedHeader>.Fail(splitError!);
+    }
 
-        if (!Base64Url.IsValid(parts[0]))
+    /// <summary>
+    /// Splits the compact serialization into its three segments, or fails. Shared by
+    /// <see cref="Verify"/> and <see cref="ReadProtectedHeader"/> so the wire string is
+    /// parsed once per call rather than twice. <paramref name="compact"/> is
+    /// attacker-supplied (<see cref="JwsSignature"/> is built directly from wire content
+    /// with no construction-time validation), so <c>null</c> is reachable input here, not
+    /// a caller bug — it must fail this check rather than reach <c>.Split('.')</c>.
+    /// </summary>
+    private static bool TrySplit(string? compact, out string[] parts, out Error? error)
+    {
+        if (string.IsNullOrEmpty(compact))
+        {
+            parts = [];
+            error = JwsErrors.Malformed("compact serialization is null or empty");
+            return false;
+        }
+
+        var split = compact.Split('.');
+        if (split.Length != 3)
+        {
+            parts = [];
+            error = JwsErrors.Malformed("expected three dot-separated segments");
+            return false;
+        }
+
+        parts = split;
+        error = null;
+        return true;
+    }
+
+    /// <summary>Decodes and structurally validates one already-split header segment.</summary>
+    private static Result<JwsProtectedHeader> ParseHeader(string headerSegment)
+    {
+        if (!Base64Url.IsValid(headerSegment))
             return Result<JwsProtectedHeader>.Fail(JwsErrors.Malformed("protected header is not base64url"));
 
         JsonDocument doc;
         try
         {
-            doc = JsonDocument.Parse(Base64Url.DecodeFromChars(parts[0]));
+            doc = JsonDocument.Parse(Base64Url.DecodeFromChars(headerSegment));
         }
         catch (JsonException)
         {

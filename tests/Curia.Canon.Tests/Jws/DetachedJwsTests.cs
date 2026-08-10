@@ -198,4 +198,87 @@ public sealed class DetachedJwsTests
         Assert.Equal("curia/jws/alg-not-allowed", jws.Verify(canonical, hs256, Pub).Match(_ => "ok", e => e.Type));
         Assert.Equal(0, counting.VerifyCalls);
     }
+
+    // A null Compact is reachable input: JwsSignature is built from attacker-supplied wire
+    // content (EnvelopeParser hands a raw string straight into the record). Both entry
+    // points must return Result.Fail rather than let ArgumentNullException.ThrowIfNull(sig)
+    // pass a null sig.Compact through to .Split('.').
+
+    [Fact]
+    public void VerifyRejectsANullCompactSerializationWithoutThrowing()
+    {
+        var forged = new JwsSignature(null!);
+        Assert.Equal("curia/jws/malformed",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void ReadProtectedHeaderRejectsANullCompactSerializationWithoutThrowing()
+    {
+        var forged = new JwsSignature(null!);
+        Assert.Equal("curia/jws/malformed",
+            DetachedJws.ReadProtectedHeader(forged).Match(_ => "ok", e => e.Type));
+    }
+
+    // The following pin behavior that is already correct today, so a future refactor of
+    // ReadB64/ReadCrit/the segment-count check has a test to break.
+
+    [Fact]
+    public void RejectsWhenCritIsAbsentEntirely()
+    {
+        var forged = Forge("""{"alg":"EdDSA","kid":"k","typ":"curia-post+jws","b64":false}""");
+        Assert.Equal("curia/jws/crit-unsupported",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void RejectsWhenCritIsAnEmptyArray()
+    {
+        var forged = Forge("""{"alg":"EdDSA","kid":"k","typ":"curia-post+jws","b64":false,"crit":[]}""");
+        Assert.Equal("curia/jws/crit-unsupported",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void RejectsWhenB64IsAbsentEntirely()
+    {
+        // RFC 7797: b64 defaults to true when absent, and true is exactly what's rejected here.
+        var forged = Forge("""{"alg":"EdDSA","kid":"k","typ":"curia-post+jws","crit":["b64"]}""");
+        Assert.Equal("curia/jws/b64-must-be-false",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void RejectsTypThatDiffersOnlyByCase()
+    {
+        var forged = Forge("""{"alg":"EdDSA","kid":"k","typ":"CURIA-POST+JWS","b64":false,"crit":["b64"]}""");
+        Assert.Equal("curia/jws/typ-mismatch",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void RejectsATwoSegmentToken()
+    {
+        var forged = new JwsSignature("headerpart.sigpart");
+        Assert.Equal("curia/jws/malformed",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void RejectsAFourSegmentToken()
+    {
+        var forged = new JwsSignature("a.b.c.d");
+        Assert.Equal("curia/jws/malformed",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void RejectsANonEmptyPayloadSegmentReachingVerify()
+    {
+        var h = Base64Url(Encoding.UTF8.GetBytes(
+            """{"alg":"EdDSA","kid":"k","typ":"curia-post+jws","b64":false,"crit":["b64"]}"""));
+        var forged = new JwsSignature($"{h}.not-empty.{Base64Url(new byte[32])}");
+        Assert.Equal("curia/jws/malformed",
+            Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
 }
