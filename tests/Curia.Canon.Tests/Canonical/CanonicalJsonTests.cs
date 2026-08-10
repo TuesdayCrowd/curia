@@ -62,6 +62,54 @@ public sealed class CanonicalJsonTests
         return data;
     }
 
+    /// <summary>
+    /// Closes the coverage gap that let JsonNumber.Serialize's shortest-round-trip and
+    /// exponent-threshold bugs ship undetected: numbers/ vectors existed on disk, but
+    /// nothing in the committed suite actually canonicalized and compared them.
+    /// VectorLoaderTests only checks that each vector cites a requirement and declares
+    /// an expected form -- it never calls CanonicalJson at all.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(NumbersVectors))]
+    public void NumbersVector(string name, byte[] input, byte[] expected)
+    {
+        _ = name;
+        var parsed = JsonReader.Parse(input, AdmitLimits.Default)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+        var actual = CanonicalJson.CanonicalizeWithNfc(parsed)
+            .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
+        Assert.Equal(expected, actual);
+    }
+
+    public static TheoryData<string, byte[], byte[]> NumbersVectors()
+    {
+        var data = new TheoryData<string, byte[], byte[]>();
+        foreach (var v in VectorLoader.Load("numbers"))
+            data.Add(v.Name, v.Input, v.ExpectedCanonical!);
+        return data;
+    }
+
+    /// <summary>Same gap, for unicode/ -- including the key-normalization vector below.</summary>
+    [Theory]
+    [MemberData(nameof(UnicodeVectors))]
+    public void UnicodeVector(string name, byte[] input, byte[] expected)
+    {
+        _ = name;
+        var parsed = JsonReader.Parse(input, AdmitLimits.Default)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+        var actual = CanonicalJson.CanonicalizeWithNfc(parsed)
+            .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
+        Assert.Equal(expected, actual);
+    }
+
+    public static TheoryData<string, byte[], byte[]> UnicodeVectors()
+    {
+        var data = new TheoryData<string, byte[], byte[]>();
+        foreach (var v in VectorLoader.Load("unicode"))
+            data.Add(v.Name, v.Input, v.ExpectedCanonical!);
+        return data;
+    }
+
     [Fact]
     [SuppressMessage(
         "Naming",

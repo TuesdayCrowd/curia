@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.8",
+  "note": "one order of magnitude below .NET's own threshold; still fixed notation in ECMAScript"
+}

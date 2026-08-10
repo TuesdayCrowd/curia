@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.8",
+  "note": "ECMAScript fixed/exponential threshold is n <= -6, not .NET's ~1e-5"
+}
