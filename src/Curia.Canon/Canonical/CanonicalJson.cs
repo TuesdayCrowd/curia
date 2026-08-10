@@ -34,7 +34,16 @@ public static class CanonicalJson
     /// <summary>Pinned per R6.34; changes only with an envelope schema version bump.</summary>
     public const string UnicodeVersion = "16.0";
 
-    /// <summary>Pure RFC 8785. Normalizes nothing. See the type-level remarks.</summary>
+    /// <summary>
+    /// Pure RFC 8785. Normalizes nothing. See the type-level remarks.
+    ///
+    /// Warning: performs no Unicode normalization (R6.9). Do not call this on envelope
+    /// content -- <see cref="EnvelopeDocument.Root"/> being public makes
+    /// <c>Canonicalize(doc.Root)</c> a one-line way to reach this function instead of
+    /// <see cref="CanonicalizeEnvelope"/>, silently skipping the NFC step signing and
+    /// verification depend on. <see cref="CanonicalizeEnvelope"/> is the entry point for
+    /// anything that will be signed or verified.
+    /// </summary>
     public static Result<CanonicalBytes> Canonicalize(JsonValue value)
     {
         var sb = new StringBuilder();

@@ -106,12 +106,35 @@ public static class JsonReader
                     ? Result<JsonValue>.Fail(CanonErrors.DepthExceeded(limits.MaxDepth))
                     : ReadArray(ref reader, limits, depth);
             case JsonTokenType.String: return ReadString(ref reader, limits);
-            case JsonTokenType.Number: return Result<JsonValue>.Ok(new JsonValue.Number(reader.GetDouble()));
+            case JsonTokenType.Number: return ReadNumber(ref reader);
             case JsonTokenType.True: return Result<JsonValue>.Ok(new JsonValue.Bool(true));
             case JsonTokenType.False: return Result<JsonValue>.Ok(new JsonValue.Bool(false));
             case JsonTokenType.Null: return Result<JsonValue>.Ok(JsonValue.Null.Instance);
             default: return Result<JsonValue>.Fail(CanonErrors.Malformed($"unexpected token {reader.TokenType}"));
         }
+    }
+
+    /// <summary>
+    /// A syntactically valid number literal can still overflow a double: Utf8JsonReader.
+    /// GetDouble() returns +/-Infinity for e.g. <c>1e400</c> rather than throwing, so
+    /// without this check that value would become a <see cref="JsonValue.Number"/> and
+    /// CanonicalJson.Canonicalize would go on to emit the literal <c>Infinity</c> -- not
+    /// valid JSON, and something neither Node's JSON.parse/stringify round-trip nor Rust's
+    /// serde_json (which rejects the literal at parse time with "number out of range")
+    /// would ever produce. Rejecting the whole non-finite class at ADMIT, rather than
+    /// repairing it to <c>null</c> or 0, is the same reasoning that decided the Unicode-
+    /// noncharacter rule: pick the rule a second-language implementer can apply from the
+    /// spec text alone, which "reject non-finite" is and "silently substitute a value" is
+    /// not. Underflow is unaffected and deliberately so -- a literal too small to
+    /// represent (e.g. <c>1e-400</c>) rounds to positive zero, an entirely ordinary finite
+    /// double, and remains accepted.
+    /// </summary>
+    private static Result<JsonValue> ReadNumber(ref Utf8JsonReader reader)
+    {
+        var value = reader.GetDouble();
+        return double.IsFinite(value)
+            ? Result<JsonValue>.Ok(new JsonValue.Number(value))
+            : Result<JsonValue>.Fail(CanonErrors.NonFiniteNumber());
     }
 
     private static Result<JsonValue> ReadString(ref Utf8JsonReader reader, AdmitLimits limits)

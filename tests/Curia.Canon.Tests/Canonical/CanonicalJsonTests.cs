@@ -152,6 +152,17 @@ public sealed class CanonicalJsonTests
         Assert.Equal("16.0", CanonicalJson.UnicodeVersion);
 
     /// <summary>
+    /// Companion to JsonReaderTests.AcceptsNumberLiteralThatUnderflowsToZero: a literal
+    /// too small to represent underflows to positive zero at ADMIT, and must canonicalize
+    /// exactly like any other zero. Distinct from the overflow case (1e400), which ADMIT
+    /// rejects outright with curia/admit/non-finite-number rather than letting it reach
+    /// this function at all -- see conformance/admit-reject/non-finite-number/.
+    /// </summary>
+    [Fact]
+    public void UnderflowToZeroCanonicalizesAsZero() =>
+        Assert.Equal("""{"a":0}""", CanonicalizeWithNfc("""{"a":1e-400}"""));
+
+    /// <summary>
     /// The split's contract: on already-NFC input, the pure and NFC-profile functions
     /// must agree byte-for-byte, because CanonicalizeWithNfc delegates to Canonicalize
     /// after normalizing, and normalization is a no-op on content that is already NFC.

@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.15",
+  "note": "1e400 overflows a double to +Infinity, which RFC 8785 cannot represent; matches serde_json's default of rejecting the literal at parse time"
+}

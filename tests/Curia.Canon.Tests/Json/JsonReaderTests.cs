@@ -157,6 +157,41 @@ public sealed class JsonReaderTests
         Assert.Equal("curia/admit/string-too-long", Parse(json).Match(_ => "ok", e => e.Type));
     }
 
+    /// <summary>
+    /// Utf8JsonReader.GetDouble() returns +/-Infinity for a syntactically valid literal
+    /// whose magnitude overflows a double (e.g. 1e400), rather than throwing -- and
+    /// nothing downstream checked finiteness, so JsonReader.Parse and
+    /// CanonicalJson.Canonicalize (both independently frozen, independently
+    /// conformance-tested entry points) would admit the value and then emit the invalid
+    /// JSON literal "Infinity". Rejecting the whole non-finite class at ADMIT, the same
+    /// place the noncharacter rule lives, means such a value can never become a JsonValue
+    /// at all -- matching serde_json's default behavior, which rejects the literal at
+    /// parse time with "number out of range". See conformance/admit-reject/non-finite-number/.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"a":1e400}""")]
+    [InlineData("""{"a":-1e400}""")]
+    public void RejectsNumberLiteralsThatOverflowToNonFinite(string json)
+    {
+        var slug = Parse(json).Match(_ => "ok", e => e.Type);
+        Assert.Equal("curia/admit/non-finite-number", slug);
+    }
+
+    /// <summary>
+    /// The other half of the same boundary, and the regression this test exists to guard:
+    /// underflow to zero is IEEE 754 doing exactly what it should -- 1e-400 rounds to
+    /// positive zero, an entirely ordinary finite double -- so it must still be ACCEPTED.
+    /// Only overflow to +/-Infinity is a defect; conflating the two directions and
+    /// rejecting both would itself be a bug.
+    /// </summary>
+    [Fact]
+    public void AcceptsNumberLiteralThatUnderflowsToZero()
+    {
+        var value = Parse("""{"a":1e-400}""").Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+        var obj = Assert.IsType<JsonValue.Object>(value);
+        Assert.Equal(0.0, Assert.IsType<JsonValue.Number>(obj.Members[0].Value).Value);
+    }
+
     [Theory]
     [MemberData(nameof(RejectionVectors))]
     public void ConformanceRejectionVectorsAreRejectedWithTheDeclaredSlug(string name, byte[] input, string slug)

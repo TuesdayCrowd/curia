@@ -14,6 +14,7 @@ public static class CanonErrors
     public static Error SizeExceeded(int max) => new("curia/admit/size-exceeded", "Payload too large", $"max {max} bytes");
     public static Error MembersExceeded(int max) => new("curia/admit/members-exceeded", "Too many object members", $"max {max}");
     public static Error StringTooLong(int max) => new("curia/admit/string-too-long", "String too long", $"max {max} bytes");
+    public static Error NonFiniteNumber() => new("curia/admit/non-finite-number", "Number literal overflows a double to a non-finite value");
     public static Error Malformed(string detail) => new("curia/admit/malformed", "Malformed JSON", detail);
     public static Error NonIntegerNumber() => new("curia/admit/non-integer-number", "Envelope numerics must be integers (R6.33)");
     public static Error UnsafeInteger() => new("curia/admit/unsafe-integer", "Integer outside the I-JSON safe range (R6.33)");
