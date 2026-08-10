@@ -39,7 +39,21 @@ public static class JsonReader
         {
             CommentHandling = JsonCommentHandling.Disallow,
             AllowTrailingCommas = false,
-            MaxDepth = limits.MaxDepth,
+            // Deliberately above limits.MaxDepth: our own depth: parameter in ReadValue is
+            // the sole authority for curia/admit/depth-exceeded (see the comment there). If
+            // this were set to limits.MaxDepth, the reader's own internal counter would trip
+            // first on every legitimate depth-cap violation, forcing the catch clause below
+            // to recover the specific slug by sniffing the exception message -- and that
+            // message-substring approach is unreliable, because Utf8JsonReader reuses the
+            // word "depth" for an unrelated end-of-input error ("Expected depth to be zero at
+            // the end of the JSON payload"), which a truncated-but-shallow document like `{`
+            // or `{"a":` also triggers. The +2 headroom (not just +1) leaves margin for the
+            // reader to always finish delivering the (limits.MaxDepth + 1)-th StartObject/
+            // StartArray token -- the one our own check rejects on -- confirmed empirically:
+            // Utf8JsonReader.Read() tolerates exactly MaxDepth opening brackets before
+            // throwing on the next one, so headroom of 1 would already suffice; +2 keeps a
+            // one-level buffer against off-by-one drift in that counting across .NET versions.
+            MaxDepth = limits.MaxDepth + 2,
         };
 
         var reader = new Utf8JsonReader(utf8, options);
@@ -58,16 +72,19 @@ public static class JsonReader
         }
         catch (JsonException ex)
         {
-            // Utf8JsonReader signals depth violations and malformed input by throwing.
-            return Result<JsonValue>.Fail(
-                ex.Message.Contains("depth", StringComparison.OrdinalIgnoreCase)
-                    ? CanonErrors.DepthExceeded(limits.MaxDepth)
-                    : CanonErrors.Malformed(ex.Message));
+            // With the headroom above, our own depth check always wins the race for a real
+            // depth-cap violation, so anything that reaches here is a genuine structural
+            // failure (truncated input, invalid syntax) rather than the depth cap -- no
+            // substring inspection needed or wanted.
+            return Result<JsonValue>.Fail(CanonErrors.Malformed(ex.Message));
         }
     }
 
     private static Result<JsonValue> ReadValue(ref Utf8JsonReader reader, AdmitLimits limits, int depth)
     {
+        // The sole authority for curia/admit/depth-exceeded -- see the MaxDepth headroom
+        // comment in Parse for why the reader's own JsonReaderOptions.MaxDepth is set above
+        // limits.MaxDepth rather than equal to it.
         if (depth > limits.MaxDepth)
             return Result<JsonValue>.Fail(CanonErrors.DepthExceeded(limits.MaxDepth));
 

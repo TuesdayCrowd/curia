@@ -74,6 +74,34 @@ public sealed class JsonReaderTests
     }
 
     [Theory]
+    [InlineData("{")]
+    [InlineData("""{"a":""")]
+    [InlineData("[1,")]
+    public void RejectsTruncatedInputAsMalformedNotDepthExceeded(string json)
+    {
+        // Utf8JsonReader signals a truncated-but-shallow document with the same word
+        // ("Expected depth to be zero at the end of the JSON payload...") it uses for its
+        // own MaxDepth violations. None of these inputs come close to the depth cap, so
+        // classifying by message substring would misdiagnose truncation as nesting.
+        var slug = Parse(json).Match(_ => "ok", e => e.Type);
+        Assert.Equal("curia/admit/malformed", slug);
+    }
+
+    [Fact]
+    public void RejectsObjectsWithMoreMembersThanTheCap()
+    {
+        var json = "{" + string.Join(",", Enumerable.Range(0, AdmitLimits.Default.MaxMembersPerObject + 1).Select(i => $"\"k{i}\":0")) + "}";
+        Assert.Equal("curia/admit/members-exceeded", Parse(json).Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void RejectsStringsLongerThanTheCap()
+    {
+        var json = "{\"a\":\"" + new string('x', AdmitLimits.Default.MaxStringBytes + 1) + "\"}";
+        Assert.Equal("curia/admit/string-too-long", Parse(json).Match(_ => "ok", e => e.Type));
+    }
+
+    [Theory]
     [MemberData(nameof(RejectionVectors))]
     public void ConformanceRejectionVectorsAreRejectedWithTheDeclaredSlug(string name, byte[] input, string slug)
     {
