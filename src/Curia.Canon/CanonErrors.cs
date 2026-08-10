@@ -16,4 +16,6 @@ public static class CanonErrors
     public static Error Malformed(string detail) => new("curia/admit/malformed", "Malformed JSON", detail);
     public static Error NonIntegerNumber() => new("curia/admit/non-integer-number", "Envelope numerics must be integers (R6.33)");
     public static Error UnsafeInteger() => new("curia/admit/unsafe-integer", "Integer outside the I-JSON safe range (R6.33)");
+    public static Error MissingEnvelope() => new("curia/admit/missing-envelope", "Submission has no envelope object");
+    public static Error MissingSignature() => new("curia/admit/missing-signature", "Submission has no detached signature");
 }

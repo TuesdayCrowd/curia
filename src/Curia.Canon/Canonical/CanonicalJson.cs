@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using Curia.Canon.Envelope;
 using Curia.Canon.Json;
 using Curia.Domain.Primitives;
 
@@ -44,6 +45,23 @@ public static class CanonicalJson
     /// <summary>The Cūria profile (R6.9). See the type-level remarks.</summary>
     public static Result<CanonicalBytes> CanonicalizeWithNfc(JsonValue value) =>
         Canonicalize(NormalizeToNfc(value));
+
+    /// <summary>
+    /// Canonicalizes an <see cref="EnvelopeDocument"/> for signing, verification, and
+    /// digesting. Always the Cūria profile (R6.9) — an envelope is exactly the signed
+    /// content R6.9 governs — never the bare RFC 8785 <see cref="Canonicalize"/>. Named
+    /// distinctly rather than added as a <c>Canonicalize(EnvelopeDocument)</c> overload:
+    /// an overload sharing the "Canonicalize" name would let a caller reach the NFC
+    /// profile by typing the same short name used for the pure-RFC-8785 function on a
+    /// plain <see cref="JsonValue"/>, reintroducing by the back door exactly the
+    /// wrong-semantics-by-accident hazard <see cref="CanonicalizeWithNfc"/>'s distinct
+    /// name exists to prevent (see the type-level remarks).
+    /// </summary>
+    public static Result<CanonicalBytes> CanonicalizeEnvelope(EnvelopeDocument doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        return CanonicalizeWithNfc(doc.Root);
+    }
 
     /// <summary>
     /// Rebuilds the tree with every object key and string value NFC-normalized. A new
