@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Xml.Linq;
 using NetArchTest.Rules;
 using Xunit;
 
@@ -28,18 +29,44 @@ public sealed class LayeringTests
     private static Assembly Canon => typeof(Curia.Canon.Canonical.CanonicalJson).Assembly;
     private static Assembly Sodium => typeof(Curia.Canon.Sodium.Ed25519Adapter).Assembly;
 
+    /// <summary>
+    /// CS-6: "Curia.Canon SHALL reference no package." Reads Curia.Canon.csproj's own
+    /// declared &lt;PackageReference&gt; items directly, rather than reflecting over the
+    /// built assembly's AssemblyRef table the way CS6_OnlySodiumReferencesNativeCrypto and
+    /// CS7_CanonDoesNotDependOnSodium below still do (via Assembly.GetReferencedAssemblies
+    /// and NetArchTest, both of which walk compiled IL, not project files).
+    ///
+    /// Those two checks are the right tool for their own questions ("does compiled Canon
+    /// code actually use NSec" / "does compiled Canon code actually depend on Sodium
+    /// types"), but an assembly-reflection approach is the wrong tool for THIS
+    /// requirement: the C# compiler only emits an AssemblyRef for a package whose types
+    /// are actually referenced somewhere in the IL. A &lt;PackageReference&gt; added to
+    /// Curia.Canon.csproj but never used by any code -- exactly the "sits in the project
+    /// file indefinitely, picked up by SBOM tooling and the supply-chain surface, while
+    /// this test stays green" failure mode CS-6 exists to catch -- leaves no AssemblyRef
+    /// behind at all, so the original Assembly.GetReferencedAssemblies()-based version of
+    /// this test could never detect it (confirmed: see the Task 10 fix report's
+    /// falsification evidence).
+    ///
+    /// The project file is also the more direct, authoritative source for this specific
+    /// requirement: "Curia.Canon references no package" is a statement about what
+    /// Curia.Canon.csproj declares, and that file is where a violation would first be
+    /// introduced. packages.lock.json would work too (it is committed per project and
+    /// distinguishes direct from transitive dependencies), but it is a restore-generated
+    /// artifact one step removed from the csproj, so reading the csproj directly avoids
+    /// depending on restore having already run to reflect a just-added reference.
+    /// </summary>
     [Fact]
     public void CS6_CanonReferencesNoPackage()
     {
-        var offenders = Canon.GetReferencedAssemblies()
-            .Select(a => a.Name!)
-            .Where(n => !n.StartsWith("System", StringComparison.Ordinal)
-                     && n != "netstandard"
-                     && !n.StartsWith("Curia.", StringComparison.Ordinal))
+        var csprojPath = FindProjectFile("Curia.Canon");
+        var offenders = XDocument.Load(csprojPath)
+            .Descendants("PackageReference")
+            .Select(e => e.Attribute("Include")?.Value ?? "(unnamed)")
             .ToArray();
 
         Assert.True(offenders.Length == 0,
-            "Curia.Canon must reference no package (CS-6). Found: " + string.Join(", ", offenders));
+            $"Curia.Canon must reference no package (CS-6). Found in {csprojPath}: " + string.Join(", ", offenders));
     }
 
     [Fact]
@@ -59,5 +86,22 @@ public sealed class LayeringTests
         Assert.True(result.IsSuccessful,
             "Canon must not depend on its adapter (CS-7). Offenders: " +
             string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    /// <summary>
+    /// Walks up from the test assembly's output directory to the repo root (the first
+    /// ancestor containing a `src` directory), mirroring the same path-discovery idiom
+    /// Curia.Canon.Tests.Vectors.VectorLoader.FindRoot already uses in this solution to
+    /// locate `conformance/` without a hardcoded absolute or excessively relative path.
+    /// </summary>
+    private static string FindProjectFile(string projectName)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src")))
+            dir = dir.Parent;
+
+        return dir is null
+            ? throw new InvalidOperationException("Could not find repo root (a 'src' directory) above " + AppContext.BaseDirectory)
+            : Path.Combine(dir.FullName, "src", projectName, projectName + ".csproj");
     }
 }

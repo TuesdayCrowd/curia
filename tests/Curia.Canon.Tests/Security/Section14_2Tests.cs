@@ -9,9 +9,12 @@ using Xunit;
 namespace Curia.Canon.Tests.Security;
 
 /// <summary>
-/// §14.2 (R14.3) security test suite, one test per bullet in scope for Increment 1. Test
-/// names match the spec bullet text so a reviewer can check coverage by reading test
-/// names against the whitepaper directly, rather than tracing through assertions.
+/// §14.2 (R14.3) security test suite: one test per §14.2 bullet in scope for Increment 1,
+/// plus one closely related ADMIT regression (raw NUL byte) that is not itself a §14.2
+/// bullet -- see its own doc comment for why it earns a place here anyway. Test names for
+/// the §14.2-derived tests match the spec bullet text so a reviewer can check coverage by
+/// reading test names against the whitepaper directly, rather than tracing through
+/// assertions; do not expect every name below to resolve to a bullet by that method alone.
 ///
 /// Most §14.2 bullets govern a token layer, PDP, event store, or content-screening
 /// pipeline that does not exist yet -- this increment is Canon only: ADMIT, RFC 8785
