@@ -116,7 +116,8 @@ pub fn verify(compact: &str, payload: &[u8], jwks: &JwkSet) -> Result<VerifiedHe
     // duplicated `alg` can never be resolved by "whichever occurrence the
     // parser or a later reader happens to prefer". See
     // `reject_duplicate_members`'s doc comment.
-    reject_duplicate_members(&header_value).map_err(|_| JwsError::ProtectedHeaderDuplicateMember)?;
+    reject_duplicate_members(&header_value)
+        .map_err(|_| JwsError::ProtectedHeaderDuplicateMember)?;
     let header = as_object(&header_value).ok_or(JwsError::ProtectedHeaderMalformed)?;
 
     // Step 3: the algorithm gate. This runs first — before typ/b64/crit,
@@ -135,9 +136,9 @@ pub fn verify(compact: &str, payload: &[u8], jwks: &JwkSet) -> Result<VerifiedHe
     // site, which review confirmed was provably unreachable but held that
     // invariant only in a comment, not in the type.)
     let alg_str = get_str(header, "alg");
-    let (algorithm, alg_owned) = match alg_str.and_then(|s| {
-        Algorithm::from_header_value(s).map(|algorithm| (algorithm, s.to_string()))
-    }) {
+    let (algorithm, alg_owned) = match alg_str
+        .and_then(|s| Algorithm::from_header_value(s).map(|algorithm| (algorithm, s.to_string())))
+    {
         Some(pair) => pair,
         None => {
             return Err(JwsError::AlgorithmNotAllowed {
@@ -191,7 +192,10 @@ pub fn verify(compact: &str, payload: &[u8], jwks: &JwkSet) -> Result<VerifiedHe
         _ => return Err(JwsError::KeyAlgorithmMismatch),
     }
 
-    Ok(VerifiedHeader { kid, alg: alg_owned })
+    Ok(VerifiedHeader {
+        kid,
+        alg: alg_owned,
+    })
 }
 
 /// Errata D3 / proposed R6.37: `ASCII(BASE64URL(UTF8(protected header)))`,
@@ -212,9 +216,15 @@ fn build_signing_input(protected_b64: &str, payload: &[u8]) -> Vec<u8> {
 /// than left to `str::split`'s `None`s to surface confusingly later.
 fn split_compact(compact: &str) -> Result<(&str, &str, &str), JwsError> {
     let mut parts = compact.split('.');
-    let protected = parts.next().ok_or(JwsError::MalformedCompactSerialization)?;
-    let payload = parts.next().ok_or(JwsError::MalformedCompactSerialization)?;
-    let signature = parts.next().ok_or(JwsError::MalformedCompactSerialization)?;
+    let protected = parts
+        .next()
+        .ok_or(JwsError::MalformedCompactSerialization)?;
+    let payload = parts
+        .next()
+        .ok_or(JwsError::MalformedCompactSerialization)?;
+    let signature = parts
+        .next()
+        .ok_or(JwsError::MalformedCompactSerialization)?;
     if parts.next().is_some() {
         return Err(JwsError::MalformedCompactSerialization);
     }
@@ -461,12 +471,20 @@ impl std::fmt::Display for JwsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JwsError::MalformedCompactSerialization => {
-                write!(f, "compact JWS does not have exactly three '.'-separated segments")
+                write!(
+                    f,
+                    "compact JWS does not have exactly three '.'-separated segments"
+                )
             }
             JwsError::PayloadNotDetached => {
-                write!(f, "payload segment is non-empty; a detached JWS carries no payload segment")
+                write!(
+                    f,
+                    "payload segment is non-empty; a detached JWS carries no payload segment"
+                )
             }
-            JwsError::ProtectedHeaderNotBase64 => write!(f, "protected header is not valid base64url"),
+            JwsError::ProtectedHeaderNotBase64 => {
+                write!(f, "protected header is not valid base64url")
+            }
             JwsError::ProtectedHeaderMalformed => {
                 write!(f, "protected header is not a JSON object")
             }
@@ -474,7 +492,10 @@ impl std::fmt::Display for JwsError {
                 write!(f, "protected header has a duplicate member name")
             }
             JwsError::AlgorithmNotAllowed { alg: Some(alg) } => {
-                write!(f, "algorithm `{alg}` is not allowed (only EdDSA and ES256 are)")
+                write!(
+                    f,
+                    "algorithm `{alg}` is not allowed (only EdDSA and ES256 are)"
+                )
             }
             JwsError::AlgorithmNotAllowed { alg: None } => {
                 write!(f, "header has no usable `alg` string")
@@ -487,10 +508,16 @@ impl std::fmt::Display for JwsError {
             JwsError::Key(inner) => write!(f, "{inner}"),
             JwsError::KeyNotFound { kid } => write!(f, "no key found for kid `{kid}`"),
             JwsError::KeyAlgorithmMismatch => {
-                write!(f, "the resolved key's type does not match the header's `alg`")
+                write!(
+                    f,
+                    "the resolved key's type does not match the header's `alg`"
+                )
             }
             JwsError::SignatureMalformed => {
-                write!(f, "signature bytes are not the expected fixed-width raw form")
+                write!(
+                    f,
+                    "signature bytes are not the expected fixed-width raw form"
+                )
             }
             JwsError::SignatureInvalid => write!(f, "signature does not verify"),
         }
@@ -525,7 +552,12 @@ mod tests {
     /// (currently stubbed) `canonicalize_with_nfc`.
     #[test]
     fn positive_fixtures_verify() {
-        for case in ["ed25519-minimal", "ed25519-full", "ed25519-unicode", "es256-minimal"] {
+        for case in [
+            "ed25519-minimal",
+            "ed25519-full",
+            "ed25519-unicode",
+            "es256-minimal",
+        ] {
             let canonical = load(case, "expected.canonical");
             let jwks = JwkSet::parse(&load(case, "jwks.json")).unwrap();
             let compact = signature_of(case);
@@ -613,7 +645,11 @@ mod tests {
             ));
             let compact = format!("{header}..");
             let err = verify(&compact, b"anything", &jwks).unwrap_err();
-            assert_eq!(err.predicate(), "curia/jws/algorithm-not-allowed", "alg={hs}");
+            assert_eq!(
+                err.predicate(),
+                "curia/jws/algorithm-not-allowed",
+                "alg={hs}"
+            );
         }
     }
 
@@ -652,7 +688,10 @@ mod tests {
 
     fn base_header_fields() -> (String, String) {
         // Returns (kid, jwks-relative-case) shared by these tests.
-        ("conformance-ed25519-minimal".to_string(), "ed25519-minimal".to_string())
+        (
+            "conformance-ed25519-minimal".to_string(),
+            "ed25519-minimal".to_string(),
+        )
     }
 
     #[test]
@@ -734,7 +773,11 @@ mod tests {
     #[test]
     fn wrong_segment_count_is_rejected() {
         let jwks = JwkSet::parse(&load("ed25519-minimal", "jwks.json")).unwrap();
-        for compact in ["only-one-segment", "two.segments", "four.segments.here.oops"] {
+        for compact in [
+            "only-one-segment",
+            "two.segments",
+            "four.segments.here.oops",
+        ] {
             let err = verify(compact, b"anything", &jwks).unwrap_err();
             assert_eq!(
                 err.predicate(),
@@ -762,7 +805,11 @@ mod tests {
         let protected_b64 = compact.split('.').next().unwrap().to_string();
         let signature_b64 = compact.rsplit('.').next().unwrap();
         let raw = URL_SAFE_NO_PAD.decode(signature_b64).unwrap();
-        assert_eq!(raw.len(), 64, "fixture signature must be raw R||S to start with");
+        assert_eq!(
+            raw.len(),
+            64,
+            "fixture signature must be raw R||S to start with"
+        );
         let (r, s) = raw.split_at(32);
 
         let der = der_encode_ecdsa_signature(r, s);
@@ -907,7 +954,10 @@ mod tests {
         let compact = format!("{header}..");
         let jwks = JwkSet::parse(&load("ed25519-minimal", "jwks.json")).unwrap();
         let err = verify(&compact, b"anything", &jwks).unwrap_err();
-        assert_eq!(err.predicate(), "curia/jws/protected-header-duplicate-member");
+        assert_eq!(
+            err.predicate(),
+            "curia/jws/protected-header-duplicate-member"
+        );
     }
 
     /// `JwsError::Key`/`From<JwkError>` is forward plumbing for Task 6
@@ -944,15 +994,19 @@ mod tests {
     /// `--envelope`/`--jwks` reads have no size cap (Task 6's file).
     #[test]
     fn duplicate_scan_stays_fast_at_scale() {
-        let members: Vec<(String, Value)> =
-            (0..50_000).map(|i| (format!("member-{i}"), Value::Null)).collect();
+        let members: Vec<(String, Value)> = (0..50_000)
+            .map(|i| (format!("member-{i}"), Value::Null))
+            .collect();
         let big_header = Value::Object(members);
 
         let start = std::time::Instant::now();
         let result = reject_duplicate_members(&big_header);
         let elapsed = start.elapsed();
 
-        assert!(result.is_ok(), "50,000 unique member names must not be flagged as duplicates");
+        assert!(
+            result.is_ok(),
+            "50,000 unique member names must not be flagged as duplicates"
+        );
         assert!(
             elapsed < std::time::Duration::from_secs(1),
             "duplicate-member scan over 50,000 unique names took {elapsed:?}; a linear \
@@ -969,12 +1023,16 @@ mod tests {
     #[ignore]
     fn duplicate_scan_scaling_benchmark() {
         for n in [2_000usize, 10_000, 32_000, 50_000, 100_000] {
-            let members: Vec<(String, Value)> =
-                (0..n).map(|i| (format!("member-{i}"), Value::Null)).collect();
+            let members: Vec<(String, Value)> = (0..n)
+                .map(|i| (format!("member-{i}"), Value::Null))
+                .collect();
             let object = Value::Object(members);
             let start = std::time::Instant::now();
             reject_duplicate_members(&object).unwrap();
-            println!("jws::reject_duplicate_members n={n:>7} -> {:?}", start.elapsed());
+            println!(
+                "jws::reject_duplicate_members n={n:>7} -> {:?}",
+                start.elapsed()
+            );
         }
     }
 }

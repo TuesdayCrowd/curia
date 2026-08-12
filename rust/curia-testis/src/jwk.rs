@@ -141,7 +141,10 @@ fn parse_okp(object: &[(String, Value)]) -> Result<PublicKey, JwkError> {
     let x_bytes = decode_coordinate(x, "x")?;
     let array: [u8; 32] = x_bytes
         .try_into()
-        .map_err(|_| JwkError::CoordinateWrongLength { field: "x", expected: 32 })?;
+        .map_err(|_| JwkError::CoordinateWrongLength {
+            field: "x",
+            expected: 32,
+        })?;
     let verifying_key =
         ed25519_dalek::VerifyingKey::from_bytes(&array).map_err(|_| JwkError::KeyInvalid)?;
     Ok(PublicKey::Ed25519(verifying_key))
@@ -158,10 +161,16 @@ fn parse_ec(object: &[(String, Value)]) -> Result<PublicKey, JwkError> {
     let x_bytes = decode_coordinate(x, "x")?;
     let y_bytes = decode_coordinate(y, "y")?;
     if x_bytes.len() != 32 {
-        return Err(JwkError::CoordinateWrongLength { field: "x", expected: 32 });
+        return Err(JwkError::CoordinateWrongLength {
+            field: "x",
+            expected: 32,
+        });
     }
     if y_bytes.len() != 32 {
-        return Err(JwkError::CoordinateWrongLength { field: "y", expected: 32 });
+        return Err(JwkError::CoordinateWrongLength {
+            field: "y",
+            expected: 32,
+        });
     }
 
     // SEC1 uncompressed point encoding: 0x04 || X || Y (RFC 7518 §6.2.1.2/.3
@@ -297,7 +306,10 @@ pub enum JwkError {
     /// A coordinate field (`x` or `y`) is not valid base64url.
     CoordinateNotBase64(&'static str),
     /// A coordinate field decoded to the wrong byte length for its curve.
-    CoordinateWrongLength { field: &'static str, expected: usize },
+    CoordinateWrongLength {
+        field: &'static str,
+        expected: usize,
+    },
     /// A coordinate decoded to the right length and encoding but is not a
     /// valid key for its algorithm — e.g. an Ed25519 `x` that is not a
     /// valid compressed Edwards point, or an EC point not on P-256.
@@ -333,7 +345,10 @@ impl std::fmt::Display for JwkError {
         match self {
             JwkError::NotJson => write!(f, "JWKS is not valid JSON"),
             JwkError::DuplicateMember => {
-                write!(f, "an object in the JWKS document has a duplicate member name")
+                write!(
+                    f,
+                    "an object in the JWKS document has a duplicate member name"
+                )
             }
             JwkError::NotObject => write!(f, "JWKS top-level value is not an object"),
             JwkError::MissingKeys => write!(f, "JWKS object has no `keys` member"),
@@ -341,10 +356,16 @@ impl std::fmt::Display for JwkError {
             JwkError::KeyEntryNotObject => write!(f, "a `keys` entry is not an object"),
             JwkError::MissingKty => write!(f, "a key entry has no `kty`"),
             JwkError::KeyMalformed => {
-                write!(f, "a key entry is missing a required field or has the wrong type")
+                write!(
+                    f,
+                    "a key entry is missing a required field or has the wrong type"
+                )
             }
             JwkError::UnsupportedKeyType(kty) => {
-                write!(f, "unsupported `kty`: `{kty}` (only `OKP` and `EC` are supported)")
+                write!(
+                    f,
+                    "unsupported `kty`: `{kty}` (only `OKP` and `EC` are supported)"
+                )
             }
             JwkError::UnsupportedCurve(crv) => write!(f, "unsupported `crv`: `{crv}`"),
             JwkError::CoordinateNotBase64(field) => {
@@ -354,7 +375,10 @@ impl std::fmt::Display for JwkError {
                 write!(f, "`{field}` did not decode to {expected} bytes")
             }
             JwkError::KeyInvalid => {
-                write!(f, "key material does not decode to a valid point/key for its curve")
+                write!(
+                    f,
+                    "key material does not decode to a valid point/key for its curve"
+                )
             }
         }
     }
@@ -368,16 +392,14 @@ mod tests {
 
     fn ed25519_minimal_jwks() -> Vec<u8> {
         std::fs::read(
-            crate::conformance::conformance_dir()
-                .join("envelope/ed25519-minimal/jwks.json"),
+            crate::conformance::conformance_dir().join("envelope/ed25519-minimal/jwks.json"),
         )
         .expect("fixture jwks.json must exist")
     }
 
     fn es256_minimal_jwks() -> Vec<u8> {
         std::fs::read(
-            crate::conformance::conformance_dir()
-                .join("envelope/es256-minimal/jwks.json"),
+            crate::conformance::conformance_dir().join("envelope/es256-minimal/jwks.json"),
         )
         .expect("fixture jwks.json must exist")
     }
@@ -442,8 +464,10 @@ mod tests {
     #[test]
     fn rejects_ed25519_x_of_wrong_length() {
         // Valid base64url, wrong decoded length (16 bytes, not 32).
-        let err = JwkSet::parse(br#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"AAAAAAAAAAAAAAAAAAAAAA"}]}"#)
-            .unwrap_err();
+        let err = JwkSet::parse(
+            br#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"AAAAAAAAAAAAAAAAAAAAAA"}]}"#,
+        )
+        .unwrap_err();
         assert_eq!(err.predicate(), "curia/jws/key-malformed");
     }
 
@@ -463,10 +487,9 @@ mod tests {
     /// sharing a value, a single object with the same name twice.
     #[test]
     fn rejects_duplicate_member_inside_a_jwk_entry() {
-        let err = JwkSet::parse(
-            br#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"AAAA","x":"BBBB"}]}"#,
-        )
-        .unwrap_err();
+        let err =
+            JwkSet::parse(br#"{"keys":[{"kty":"OKP","crv":"Ed25519","x":"AAAA","x":"BBBB"}]}"#)
+                .unwrap_err();
         assert_eq!(err, JwkError::DuplicateMember);
         assert_eq!(err.predicate(), "curia/jws/jwks-duplicate-member");
     }
@@ -475,8 +498,9 @@ mod tests {
     /// wrapper object itself, not inside any entry.
     #[test]
     fn rejects_duplicate_member_on_the_wrapper_object() {
-        let err = JwkSet::parse(br#"{"keys":[],"keys":[{"kty":"OKP","crv":"Ed25519","x":"AAAA"}]}"#)
-            .unwrap_err();
+        let err =
+            JwkSet::parse(br#"{"keys":[],"keys":[{"kty":"OKP","crv":"Ed25519","x":"AAAA"}]}"#)
+                .unwrap_err();
         assert_eq!(err, JwkError::DuplicateMember);
         assert_eq!(err.predicate(), "curia/jws/jwks-duplicate-member");
     }
@@ -495,9 +519,15 @@ mod tests {
         .expect("fixture private-keys.json must exist");
         let set = JwkSet::parse(&bytes)
             .expect("two entries sharing a kid must parse, not be rejected as duplicate members");
-        assert_eq!(set.keys().len(), 2, "both entries must be kept, not deduplicated");
+        assert_eq!(
+            set.keys().len(),
+            2,
+            "both entries must be kept, not deduplicated"
+        );
         assert!(
-            set.keys().iter().all(|k| k.kid.as_deref() == Some("conformance-wrong-key")),
+            set.keys()
+                .iter()
+                .all(|k| k.kid.as_deref() == Some("conformance-wrong-key")),
             "both entries do in fact share the same kid, by fixture construction"
         );
         assert!(set.find_by_kid("conformance-wrong-key").is_some());
@@ -524,15 +554,19 @@ mod tests {
     /// produces on this machine.
     #[test]
     fn duplicate_scan_stays_fast_at_scale() {
-        let members: Vec<(String, Value)> =
-            (0..50_000).map(|i| (format!("member-{i}"), Value::Null)).collect();
+        let members: Vec<(String, Value)> = (0..50_000)
+            .map(|i| (format!("member-{i}"), Value::Null))
+            .collect();
         let big_object = Value::Object(members);
 
         let start = std::time::Instant::now();
         let result = reject_duplicate_members(&big_object);
         let elapsed = start.elapsed();
 
-        assert!(result.is_ok(), "50,000 unique member names must not be flagged as duplicates");
+        assert!(
+            result.is_ok(),
+            "50,000 unique member names must not be flagged as duplicates"
+        );
         assert!(
             elapsed < std::time::Duration::from_secs(1),
             "duplicate-member scan over 50,000 unique names took {elapsed:?}; a linear \
@@ -549,12 +583,16 @@ mod tests {
     #[ignore]
     fn duplicate_scan_scaling_benchmark() {
         for n in [2_000usize, 10_000, 32_000, 50_000, 100_000] {
-            let members: Vec<(String, Value)> =
-                (0..n).map(|i| (format!("member-{i}"), Value::Null)).collect();
+            let members: Vec<(String, Value)> = (0..n)
+                .map(|i| (format!("member-{i}"), Value::Null))
+                .collect();
             let object = Value::Object(members);
             let start = std::time::Instant::now();
             reject_duplicate_members(&object).unwrap();
-            println!("jwk::reject_duplicate_members n={n:>7} -> {:?}", start.elapsed());
+            println!(
+                "jwk::reject_duplicate_members n={n:>7} -> {:?}",
+                start.elapsed()
+            );
         }
     }
 }

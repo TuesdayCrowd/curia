@@ -60,7 +60,9 @@ mod tests {
     fn output_is_lowercase_hex_no_prefix() {
         let digest = sha256_digest(b"curia").unwrap();
         assert_eq!(digest.len(), 64);
-        assert!(digest.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(digest
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         assert!(!digest.starts_with("0x"));
         assert!(!digest.starts_with("sha256:"));
     }
@@ -98,7 +100,11 @@ mod tests {
         }
         for v in &corpus.envelope {
             let actual = sha256_digest(&v.expected_canonical).unwrap();
-            assert_eq!(actual, v.expected_digest, "digest mismatch for envelope/{}", v.case);
+            assert_eq!(
+                actual, v.expected_digest,
+                "digest mismatch for envelope/{}",
+                v.case
+            );
             checked += 1;
         }
         assert!(checked > 0, "expected at least one digest vector to check");
