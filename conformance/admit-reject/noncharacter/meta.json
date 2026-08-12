@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.15",
+  "note": "U+FFFE is a permanently reserved Unicode noncharacter (Unicode 16.0 section 23.7), not for interchange"
+}

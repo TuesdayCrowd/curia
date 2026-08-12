@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.33",
+  "note": "2^53+1 does not round-trip through a double"
+}

@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.33",
+  "note": "I-JSON-exact: envelope numerics are integers only"
+}

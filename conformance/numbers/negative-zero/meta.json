@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.8",
+  "note": "ECMAScript renders -0 as 0"
+}

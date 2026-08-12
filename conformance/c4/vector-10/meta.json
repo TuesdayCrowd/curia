@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.8",
+  "note": "UTF-16 code-unit ordering, not locale collation"
+}

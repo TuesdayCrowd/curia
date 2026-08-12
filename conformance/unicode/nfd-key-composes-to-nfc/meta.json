@@ -1,0 +1,4 @@
+{
+  "requirement": "R6.9",
+  "note": "NFD object key -> NFC object key (not just values)"
+}
