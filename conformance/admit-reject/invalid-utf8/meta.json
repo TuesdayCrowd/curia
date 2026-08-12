@@ -1,4 +1,5 @@
 {
+  "profile": "admit",
   "requirement": "R6.15",
   "note": "0xFF is never valid UTF-8"
 }

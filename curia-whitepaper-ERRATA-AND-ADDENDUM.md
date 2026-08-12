@@ -7,17 +7,19 @@
 |---|---|
 | **Document** | Errata and enhancement addendum |
 | **Applies to** | White paper v1.0, 8 August 2026 |
-| **Version** | 1.1-draft |
-| **Date** | 8 August 2026 |
+| **Version** | 1.2-draft |
+| **Date** | 11 August 2026 |
 | **Organization** | TuesdayCrowd |
 | **Status** | Review — proposes changes for incorporation into v1.1 |
+| **Part D added** | 11 August 2026, from the Increment 1 implementation |
 | **License** | UNLICENSE (this document and all original code herein) |
 
 ---
 
 ## Scope and method
 
-This document does three things, in order of decreasing certainty.
+This document does four things. Parts A through C, in order of decreasing
+certainty, were derived by reading. Part D was derived by building.
 
 **Part A** records errata: statements in v1.0 that are wrong, internally
 inconsistent, or point at the wrong target. Each entry names the location, the
@@ -33,8 +35,16 @@ text, numbered to extend the existing scheme without colliding with it.
 argued, not asserted, and each states its cost. Several exist to close open
 decisions from §16 of v1.0; those say so explicitly.
 
+**Part D** records what the Increment 1 implementation proved. The §6
+canonicalization, envelope-admission, digest, and detached-JWS layer now exists and
+passes RFC 8785's own official conformance vectors; reaching that state established
+that several v1.0 statements are wrong, unimplementable, or insufficient to
+reimplement from. Part D's entries are ordered by whether an independent second
+implementation working from these documents and the published vectors alone would
+diverge — D1 through D6 would, D7 through D9 would not.
+
 The numbering convention: errata are `A<n>`, gaps are `B<n>`, enhancements are
-`C<n>`. Proposed requirements continue the v1.0 `R<section>.<n>` sequence from
+`C<n>`, implementation findings are `D<n>`. Proposed requirements continue the v1.0 `R<section>.<n>` sequence from
 the highest existing number in each section, so incorporation into v1.1 is a
 merge, not a renumber — with one deliberate exception (A8) where renumbering is
 itself the fix.
@@ -672,6 +682,231 @@ should enjoy its own.
 
 ---
 
+
+# Part D — Findings from the Increment 1 implementation
+
+Part D differs from Parts A–C in provenance. Those were derived by reading. These
+were derived by *building* — the canonicalization, envelope-admission, digest, and
+detached-JWS layer of §6 now exists, passes RFC 8785's own official conformance
+vectors, and in the course of reaching that state proved several statements in v1.0
+wrong, unimplementable, or insufficient to reimplement from.
+
+That distinction matters for how these should be read. An erratum found by reading
+is a claim about the text. An erratum found by building is a claim about the text
+*plus* a demonstration that a competent implementer following it lands somewhere
+else.
+
+The entries are ordered by a single criterion: **whether an independent second
+implementation, written from these documents and the published conformance vectors
+alone, would diverge.** D1–D6 are blocking in that sense. D7–D9 are corrections
+worth making that the vector corpus already constrains in practice.
+
+## D1 — R6.8 and R6.9 are not jointly satisfiable
+
+**Location:** §6.3, R6.8 and R6.9. **Class:** unimplementable as written.
+
+R6.8 requires canonicalization to "follow JSON Canonicalization Scheme, RFC 8785."
+R6.9 requires all string fields to be "normalized to Unicode NFC as a *step within
+the canonicalization function*." The surrounding prose reinforces the single-function
+reading, and the companion C# scoping document transcribed it literally as one entry
+point commented "RFC 8785 + R6.9 · NFC applied inside."
+
+**RFC 8785 performs no Unicode normalization, by design.** Two of the six conformance
+vectors its author publishes exist to prove exactly that: `input-unicode.json` is
+named "Unnormalized Unicode" and its expected output preserves an NFD combining
+sequence untouched; `input-weird.json` places `U+FB33` (HEBREW LETTER DALET WITH
+DAGESH) in an object key.
+
+`U+FB33` is the case that settles it. It sits on Unicode's Composition Exclusion
+list, so NFC *decomposes* it to `U+05D3 U+05BC` and never recomposes. That changes
+its leading UTF-16 code unit from `0xFB33` to `0x05D3`, and therefore changes **where
+it sorts** under R6.8's own key-ordering rule. NFC inside canonicalization does not
+merely alter bytes; it reorders the object. No partial application escapes this:
+normalizing keys alone breaks `unicode.json`, values alone breaks `weird.json`.
+
+**Fix.** Replace R6.8 and R6.9 with two separately conformant functions:
+
+**R6.8 (revised)** Implementations SHALL provide `Canonicalize`, a pure RFC 8785
+function performing **no** Unicode normalization, which reproduces RFC 8785's own
+published conformance vectors byte-for-byte — including `weird.json`'s `U+FB33` key
+in its unnormalized position.
+
+**R6.9 (revised)** Implementations SHALL provide `CanonicalizeWithNfc`, which
+**first** normalizes to NFC every string occurring anywhere in the document — object
+member names and string values alike, at every level of nesting — producing a
+normalized tree, and **then** canonicalizes that tree with `Canonicalize`. The order
+is normative and is the entire content of this correction: because normalization can
+change a key's sort position, normalizing after ordering yields different bytes than
+normalizing before it.
+
+Every signed envelope SHALL be canonicalized through `CanonicalizeWithNfc`. An
+implementation SHALL NOT attempt to satisfy both requirements with a single pass.
+
+**On "string fields."** R6.9's original wording is ambiguous in a way that matters:
+read in the ordinary JSON sense, a "field" is a value, not a member name. An
+implementation normalizing only values passes v1.0's Appendix C.4 vectors 4 and 5 —
+neither of which places a decomposable character in key position — while silently
+producing different bytes than a conforming one for any envelope whose key needs
+composition. The revised text says "member names and string values alike" for this
+reason, and the published corpus now carries a key-normalizing vector.
+
+## D2 — The published vectors do not say which function they test
+
+**Location:** Appendix C.4; the published conformance corpus. **Class:** normative gap.
+
+Given D1, the corpus is partitioned: the vendored RFC 8785 vectors test
+`Canonicalize`, while the Cūria families test `CanonicalizeWithNfc`. Nothing in the
+documents or the corpus records that partition.
+
+This is worse than an omission, because the wrong answer is *attractive*. An
+implementer who tries to satisfy every vector with one function will find that
+weakening or dropping NFC makes strictly more vectors pass — and may reasonably
+conclude that NFC was the mistake. The corpus would be agreeing with them.
+
+**R6.36** Every published conformance vector SHALL declare which canonicalization
+function it constrains. A vector that does not name its target function is
+unusable by an independent implementation and SHALL NOT be published.
+
+## D3 — "Detached" cites a mechanism the protected header does not use
+
+**Location:** References [7]; §6.2, Figure 6 step 5; Appendix C.3. **Class:** wrong
+citation with a correctness consequence.
+
+The corpus explains "detached" exactly once, in the References entry for RFC 7515:
+"Appendix F specifies detached content, the mode §6 depends on."
+
+RFC 7515 Appendix F is a **different mechanism** from the one Appendix C.3's header
+actually specifies. Under Appendix F the payload is still base64url-encoded when the
+signing input is computed; only the wire serialization omits that segment. Under
+RFC 7797 — which is what `b64: false` with `crit: ["b64"]` invokes — the signing
+input contains the payload's **raw bytes**, unencoded.
+
+An implementer who reads the References entry, and treats `b64` and `crit` as inert
+header fields to reproduce rather than as instructions that change a formula, will
+sign `ASCII(BASE64URL(header)) ‖ "." ‖ BASE64URL(canonical)`. Every signature so
+produced is well-formed, self-consistent, and verifies against that implementation —
+and against no other. This is the single highest-consequence citation error in the
+document set.
+
+**Fix.** The References entry for [7] SHALL cite RFC 7797 for the unencoded-payload
+option and describe Appendix F only as the source of the empty-payload wire
+serialization. Add:
+
+**R6.37** The JWS signing input SHALL be `ASCII(BASE64URL(UTF8(protected header)))`
+followed by `0x2E` followed by the **raw canonical bytes**, unencoded, per RFC 7797.
+The payload segment of the compact serialization SHALL be empty. A verifier SHALL
+reject a JWS whose `crit` is not exactly `["b64"]`, and SHALL reject `b64: true`.
+
+## D4 — The JWK representation of an Ed25519 key is never specified
+
+**Location:** §4.4, R4.15/R4.16; References [7]. **Class:** normative gap.
+
+R4.15 makes Ed25519 a required algorithm and R4.16 requires agents to publish public
+keys as a JWK Set. The References cite RFC 7517 and RFC 7518 — which define JWK
+shapes for RSA and for `EC` curves with two coordinates, and **do not cover Ed25519
+at all**. The octet-key-pair form (`kty: "OKP"`, `crv: "Ed25519"`, single coordinate
+`x`) is RFC 8037, cited nowhere in the corpus.
+
+A verifier's entire external interface is the key set. An implementer must either
+independently discover RFC 8037 or guess — and a plausible guess, reusing the `EC`
+shape with `x`/`y`, is well-formed JSON that parses and then fails to verify anything.
+
+**R4.21** Ed25519 public keys SHALL be represented as JWK octet key pairs per
+RFC 8037: `kty: "OKP"`, `crv: "Ed25519"`, and `x` holding the base64url-encoded
+32-byte public key with no padding. ECDSA P-256 keys SHALL use the RFC 7518 `EC`
+form with `crv: "P-256"`. RFC 8037 SHALL be added to the References.
+
+## D5 — "Safe range" is an undefined term, and its bounds are untested
+
+**Location:** Errata B5, R6.33. **Class:** underspecified.
+
+R6.33 constrains envelope numerics to "integers within the safe range" without
+stating the range. The published vectors exercise `2^53 − 1` (accept) and `2^53 + 1`
+(reject), which leaves two questions open that neither the text nor the corpus
+answers: the behavior at exactly `2^53`, and the entire negative bound.
+
+`2^53` is representable exactly as an IEEE-754 double, so an implementer reading
+"safe range" as "exactly representable" accepts it, while one reading RFC 7493 §2.2
+rejects it. Both readings are defensible and the corpus contains no oracle.
+
+**R6.33 (revised)** Envelope numeric values SHALL be integers `n` satisfying
+`−(2^53 − 1) ≤ n ≤ 2^53 − 1`, inclusive, per RFC 7493 §2.2. The bound is symmetric.
+`2^53` and `−2^53` SHALL be rejected. Values that are not integers, and values that
+are not finite, SHALL be rejected rather than rounded or coerced. Published vectors
+SHALL exercise both bounds and both rejections.
+
+## D6 — Depth counting is unstated and the single vector does not determine it
+
+**Location:** §6.4, R6.15; Figure 6. **Class:** underspecified.
+
+R6.15 requires "excessive nesting" to be rejected without defining a limit or a
+counting convention. The published vector rejects a 33-container document against a
+cap of 32 — which is satisfied both by counting containers and by counting containers
+plus the leaf value, since the two differ by exactly one and only one boundary is
+pinned. The two conventions disagree about every document at the boundary.
+
+**R6.15 (addendum)** Nesting depth SHALL count container openings — objects and
+arrays — and SHALL NOT count the scalar value at the innermost level. A document
+whose innermost value sits inside exactly `MaxDepth` containers SHALL be accepted;
+one nested a further level SHALL be rejected. Published vectors SHALL pin both sides
+of the boundary, not one.
+
+## D7 — R6.15's enumeration omits rules an interoperable ADMIT phase requires
+
+**Location:** §6.4, R6.15. **Class:** normative gap. **Non-blocking:** the published
+corpus pins each of these with an `expect-reject` marker, so a second implementation
+has an oracle even though the text does not describe one.
+
+R6.15 enumerates invalid UTF-8, unpaired surrogates, embedded NUL bytes, oversize
+payloads, and excessive nesting. Implementation established four further rejections
+that a conforming ADMIT phase requires, and that the corpus now carries:
+
+| Rejection | Why the text must state it as a class |
+|---|---|
+| Duplicate object member names | JCS and I-JSON both forbid them; common parsers silently accept last-wins, so implementations diverge without a stated rule |
+| Unicode noncharacters (`U+FDD0`–`U+FDEF`, `U+FFFE`/`U+FFFF` in all 17 planes) | One platform's NFC throws on `U+FFFE` alone — it is the byte-order mark reversed. Stating the rule as "noncharacters are not for interchange" (Unicode §23.7) is implementable anywhere; stating it as one platform's behavior is not |
+| Non-finite numbers | A literal such as `1e400` parses to infinity without error on some platforms and is rejected outright on others. Underflow to zero is correct and SHALL NOT be rejected |
+| Numerics outside D5's bounds | See R6.33 (revised) |
+
+**R6.15 (revised enumeration)** adds the four rows above. Each SHALL be stated as a
+property of the input, never as a platform's observed behavior — a second
+implementation must be derivable from this text, not from another implementation's
+runtime.
+
+## D8 — Appendix C.4 rows 9 and 10 are transcription hazards
+
+**Location:** Appendix C.4, rows 9 and 10. **Class:** presentational.
+
+Both rows are byte-correct as stored, verified by hex dump. Both have nonetheless
+been transcribed wrongly in practice, repeatedly and by independent readers, because
+their content is invisible on the page: row 9's cells contain the six-character
+escape sequence for U+0000, and row 10 turns on a character distinction that renders
+identically in most typefaces.
+
+This is not a defect in the vectors; it is a defect in relying on a typeset table as
+the distribution format for byte-exact test data.
+
+**R6.11 (addendum)** The conformance vector set SHALL be published as files whose
+bytes are the specification, with the appendix table serving as commentary. Where a
+vector's content is not visually distinguishable on the page, the appendix SHALL
+state its bytes in hexadecimal alongside the rendered form.
+
+## D9 — Corrections carrying no requirement change
+
+Verified during the sweep, recorded for the v1.2 pass. None affects an
+implementation of §6.
+
+| # | Location | Defect |
+|---|---|---|
+| D9.1 | Table 4, "Tampering" and "Info disclosure" rows | §10 cross-references point at the pre-renumbering targets |
+| D9.2 | Table 5, "Tool/snippet weaponization" row | Same class of stale §10 pointer |
+| D9.3 | Table 9, `content_type` row; Figure 9 | Cite §10.3 where A3's own correction points elsewhere |
+| D9.4 | Errata A2's own location list | Omits the List of Figures plain-number row and wrongly includes Figure 9 — an erratum with an erratum |
+| D9.5 | Table 6, credential lifecycle | The `active` row omits `quarantined` as an exit, though `quarantined`'s own entry implies it |
+| D9.6 | Published digest fixtures | Encoded as 64 lowercase hex characters with no prefix; stated nowhere, discoverable only by opening a file |
+
+---
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -698,6 +933,15 @@ should enjoy its own.
 | R12.16 | Log-key history discipline (R4.19 applied to the log) | B3 |
 | R12.17 | Log-key compromise runbook anchored to witnessed heads | B3 |
 | R14.6 | Differential canonicalization fuzzing across the dual implementations | C8 |
+| R4.21 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
+| R6.8 (rev.) | `Canonicalize` — pure RFC 8785, no normalization, reproduces the RFC's own vectors | D1 |
+| R6.9 (rev.) | `CanonicalizeWithNfc` — NFC every key and value recursively **first**, then canonicalize | D1 |
+| R6.11 (add.) | Vectors published as files; bytes stated in hex where not visually distinguishable | D8 |
+| R6.15 (rev.) | Enumeration adds duplicate keys, Unicode noncharacters, non-finite numbers, out-of-range integers | D7 |
+| R6.15 (add.) | Depth counts container openings, not the innermost scalar; both sides of the boundary pinned | D6 |
+| R6.33 (rev.) | Explicit symmetric bound `−(2^53 − 1) ≤ n ≤ 2^53 − 1`; `2^53` rejected | D5 |
+| R6.36 | Every published vector declares which canonicalization function it constrains | D2 |
+| R6.37 | Signing input is the raw canonical bytes per RFC 7797, not base64url-encoded | D3 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected
 citations SP 800-207 §5.7, RFC 7797, RFC 8707; cross-reference repairs; §10

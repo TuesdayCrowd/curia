@@ -1,4 +1,5 @@
 {
+  "profile": "admit",
   "requirement": "R6.15",
   "note": "33 levels exceeds the depth cap of 32"
 }

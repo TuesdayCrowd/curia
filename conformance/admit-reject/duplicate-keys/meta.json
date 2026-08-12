@@ -1,4 +1,5 @@
 {
+  "profile": "admit",
   "requirement": "R6.15",
   "note": "System.Text.Json tolerates this silently; JCS and I-JSON do not. Proposed C.4 vector 11"
 }

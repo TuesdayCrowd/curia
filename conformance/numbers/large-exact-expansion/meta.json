@@ -1,4 +1,5 @@
 {
+  "profile": "canonicalize-with-nfc",
   "requirement": "R6.8",
   "note": "shortest round-trip digits, not F0's exact binary expansion"
 }
