@@ -24,7 +24,9 @@
 
 use std::fmt;
 
+pub mod canonical;
 pub mod conformance;
+pub mod json;
 
 /// The predicate name `curia-testis` reports for any check it cannot yet
 /// perform. This is deliberately outside the `curia/...` slug namespace real
@@ -77,18 +79,13 @@ impl fmt::Display for NotImplementedError {
 impl std::error::Error for NotImplementedError {}
 
 /// `Canonicalize` — pure RFC 8785 canonicalization, performing **no**
-/// Unicode normalization. Errata D1 (revised R6.8). Implemented in Task 2.
+/// Unicode normalization. Errata D1 (revised R6.8). Implemented in Task 2;
+/// see [`canonical::canonicalize`] for the algorithm and its derivation.
 ///
 /// `input` is taken by reference because a rejecting canonicalizer must
 /// never need to have admitted, repaired, or otherwise mutated its input
 /// first (see CLAUDE.md's "no mutation between verify and persist").
-pub fn canonicalize(input: &[u8]) -> Result<Vec<u8>, NotImplementedError> {
-    let _ = input;
-    Err(NotImplementedError::new(
-        "Canonicalize (pure RFC 8785, no normalization; conformance/rfc8785/ \
-         and the rfc8785 profile) is not implemented; see Task 2.",
-    ))
-}
+pub use canonical::canonicalize;
 
 /// `CanonicalizeWithNfc` — NFC-normalizes every object member name and
 /// string value, recursively, *then* canonicalizes with [`canonicalize`].

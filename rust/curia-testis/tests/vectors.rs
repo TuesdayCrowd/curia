@@ -25,7 +25,6 @@ use base64::Engine;
 use curia_testis::conformance::{
     Corpus, DirectoryVector, EnvelopeVector, Expectation, Profile, Rfc8785Vector,
 };
-use curia_testis::NotImplementedError;
 
 fn corpus() -> &'static Corpus {
     static CORPUS: OnceLock<Corpus> = OnceLock::new();
@@ -128,8 +127,17 @@ fn rfc8785() {
 // admit-reject carries profile `admit`.
 // ---------------------------------------------------------------------
 
-fn check_canonicalize(
-    canonicalize_fn: fn(&[u8]) -> Result<Vec<u8>, NotImplementedError>,
+// Generic over the error type (bounded only by `Display`), rather than the
+// concrete `fn(&[u8]) -> Result<Vec<u8>, NotImplementedError>` pointer Task 1
+// used: Task 2 gave `curia_testis::canonicalize` its own real error type
+// (`curia_testis::json::ParseError`) rather than leaving it coupled to the
+// placeholder `NotImplementedError`, so this helper — shared with
+// `curia_testis::canonicalize_with_nfc`, which is still `NotImplementedError`
+// pending Task 3 — needs to accept either. This is a type-signature
+// generalization only: it changes no assertion, no expected value, and no
+// routing decision in `check_directory_vector` below.
+fn check_canonicalize<E: std::fmt::Display>(
+    canonicalize_fn: impl Fn(&[u8]) -> Result<Vec<u8>, E>,
     input: &[u8],
     expected_canonical: &[u8],
     expected_digest: &str,
