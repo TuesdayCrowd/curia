@@ -1,0 +1,6 @@
+{
+  "profile": "envelope",
+  "requirement": "R6.37",
+  "alg": "EdDSA",
+  "note": "Every Table 9 field populated, including code_blocks, refs (post/package/url), and tags."
+}

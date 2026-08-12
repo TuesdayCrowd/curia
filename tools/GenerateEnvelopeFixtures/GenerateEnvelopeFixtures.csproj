@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>GenerateEnvelopeFixtures</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!--
+      This is a one-shot repo-side fixture generator/self-verifier for Task A of the
+      curia-testis plan (docs/superpowers/plans/2026-08-11-canon-testis.md), not a
+      shipped library. It is run by hand, its output is committed under
+      conformance/envelope/, and it is not part of the product surface CS-* governs.
+      CA1303 (do not pass string literals where a resource-table lookup is expected) is
+      suppressed because this console tool has no localization surface at all: every
+      message is a Console.WriteLine progress/report line read by whoever runs the
+      generator, not user-facing product text.
+    -->
+    <NoWarn>CA1303</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NSec.Cryptography" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Curia.Canon/Curia.Canon.csproj" />
+    <ProjectReference Include="../../src/Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
+    <ProjectReference Include="../../src/Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
+  </ItemGroup>
+</Project>

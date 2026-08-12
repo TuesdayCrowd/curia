@@ -1,0 +1,7 @@
+{
+  "profile": "envelope",
+  "requirement": "R6.2",
+  "alg": "EdDSA",
+  "note": "A validly signed envelope whose body was altered after signing. jwks.json publishes the correct signer key; the crypto check must fail because the signed bytes and the published bytes differ.",
+  "expect-verify-failure": "curia/jws/signature-invalid"
+}

@@ -1,0 +1,7 @@
+{
+  "profile": "envelope",
+  "requirement": "R6.2",
+  "alg": "EdDSA",
+  "note": "A valid signature checked against a different published key: jwks.json's only entry for this kid is NOT the key that produced the signature. The crypto check must fail even though canonicalization, the digest, and the JWS structure are all otherwise fine.",
+  "expect-verify-failure": "curia/jws/signature-invalid"
+}
