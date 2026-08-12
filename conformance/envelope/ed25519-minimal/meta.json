@@ -1,0 +1,6 @@
+{
+  "profile": "envelope",
+  "requirement": "R6.37",
+  "alg": "EdDSA",
+  "note": "Smallest valid Table 9 envelope: every optional field present as null or empty, EdDSA."
+}

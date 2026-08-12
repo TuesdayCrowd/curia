@@ -1,0 +1,24 @@
+{
+  "keys": [
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "kid": "conformance-wrong-key",
+      "alg": "EdDSA",
+      "use": "sig",
+      "x": "13PhJBFoPLoGYKbQzZtXDZsgV3HnHFM02ZFHthe-J_c",
+      "d": "I3eGp8qJWJoVs8XPkeqc44Rj5X3Bvq9y4V4ce5xK-t4",
+      "role": "actual signer (produced the published signature; deliberately NOT the key in jwks.json)"
+    },
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "kid": "conformance-wrong-key",
+      "alg": "EdDSA",
+      "use": "sig",
+      "x": "jOdJsLVc47Qm_7yh8UxRaOhjaqnKC7tHr9X7lXUCUek",
+      "d": "YVQhfru6jqIn_PNtSt77sBmGlwdn8bK5GUhG3OvD2rk",
+      "role": "published in jwks.json under this kid; does not match the signature"
+    }
+  ]
+}

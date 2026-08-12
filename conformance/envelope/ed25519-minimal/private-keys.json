@@ -1,0 +1,13 @@
+{
+  "keys": [
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "kid": "conformance-ed25519-minimal",
+      "alg": "EdDSA",
+      "use": "sig",
+      "x": "HRzJlnTufZYYTZyCDBpyP5ldQ38JlbCeDOQHgIozgg8",
+      "d": "2K0T3BwRMbGiqBV9vo33lOnLTeFNEW7lR8kTlpPXRb8"
+    }
+  ]
+}

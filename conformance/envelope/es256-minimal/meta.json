@@ -1,0 +1,6 @@
+{
+  "profile": "envelope",
+  "requirement": "R6.37",
+  "alg": "ES256",
+  "note": "Same shape as ed25519-minimal, signed with ES256 (RFC 7518 EC P-256 JWK)."
+}

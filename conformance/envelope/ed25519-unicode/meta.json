@@ -1,0 +1,6 @@
+{
+  "profile": "envelope",
+  "requirement": "R6.9",
+  "alg": "EdDSA",
+  "note": "NFC composition of both a key and a value: title carries an NFD 'i + combining diaeresis' spelling of naive (value normalization in a real Table 9 field), and one extra field's key AND value are both that same NFD text (key normalization inside an envelope)."
+}

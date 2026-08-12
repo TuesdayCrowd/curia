@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "kid": "conformance-tampered-body",
+      "alg": "EdDSA",
+      "use": "sig",
+      "x": "vK54TIZfY8u2UnaYKiIDQQxvI6hp1PYoRPgVZn2PXMk"
+    }
+  ]
+}
