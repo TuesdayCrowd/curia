@@ -26,7 +26,10 @@ use std::fmt;
 
 pub mod canonical;
 pub mod conformance;
+pub mod digest;
 pub mod json;
+pub mod jwk;
+pub mod jws;
 pub mod nfc;
 
 /// The predicate name `curia-testis` reports for any check it cannot yet
@@ -114,14 +117,12 @@ pub fn admit(input: &[u8]) -> Result<(), json::AdmitError> {
 
 /// `Digests.Sha256` — the lowercase-hex SHA-256 digest of canonical bytes, in
 /// the 64-lowercase-hex-character, no-prefix form the corpus's
-/// `expected.digest` files use (errata D9.6). Implemented in Task 5, using
-/// the `sha2` dependency pinned in `Cargo.toml`.
-pub fn sha256_digest(canonical: &[u8]) -> Result<String, NotImplementedError> {
-    let _ = canonical;
-    Err(NotImplementedError::new(
-        "SHA-256 digest of canonical bytes is not implemented; see Task 5.",
-    ))
-}
+/// `expected.digest` files use (errata D9.6). Implemented in Task 5; see
+/// [`digest::sha256_digest`] for the algorithm. `Err` is unreachable
+/// (`std::convert::Infallible`) — hashing a byte slice has no rejection
+/// condition — but the `Result` shape is kept so existing callers of this
+/// function do not need to change.
+pub use digest::sha256_digest;
 
 /// The provenance summary `curia-testis verify` prints on success.
 #[derive(Debug, Clone, PartialEq, Eq)]
