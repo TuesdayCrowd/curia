@@ -1,4 +1,5 @@
 {
+  "profile": "canonicalize-with-nfc",
   "requirement": "R6.8",
   "note": "n <= -6 exactly: the first magnitude that ECMAScript renders in exponential form"
 }

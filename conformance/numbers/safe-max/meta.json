@@ -1,4 +1,5 @@
 {
+  "profile": "canonicalize-with-nfc",
   "requirement": "R6.8",
   "note": "2^53-1 is exact"
 }
