@@ -27,6 +27,7 @@ use std::fmt;
 pub mod canonical;
 pub mod conformance;
 pub mod json;
+pub mod nfc;
 
 /// The predicate name `curia-testis` reports for any check it cannot yet
 /// perform. This is deliberately outside the `curia/...` slug namespace real
@@ -89,28 +90,26 @@ pub use canonical::canonicalize;
 
 /// `CanonicalizeWithNfc` — NFC-normalizes every object member name and
 /// string value, recursively, *then* canonicalizes with [`canonicalize`].
-/// Errata D1 (revised R6.9). Implemented in Task 3.
-pub fn canonicalize_with_nfc(input: &[u8]) -> Result<Vec<u8>, NotImplementedError> {
-    let _ = input;
-    Err(NotImplementedError::new(
-        "CanonicalizeWithNfc (RFC 8785 + NFC, R6.9; the canonicalize-with-nfc \
-         profile) is not implemented; see Task 3.",
-    ))
-}
+/// Errata D1 (revised R6.9). Implemented in Task 3; see
+/// [`nfc::canonicalize_with_nfc`] for the algorithm and its derivation.
+pub use nfc::canonicalize_with_nfc;
 
-/// The ADMIT phase: reject-or-pass, no repair. On success this would return
-/// the admitted document in a form Task 2/3 can canonicalize; Task 1 does
-/// not commit to that return type yet; `()` is a placeholder that later
-/// tasks are free to change; note that no `admit` conformance vector expects
-/// acceptance (`conformance/admit-reject/` — every case there is a
-/// rejection), so `tests/vectors.rs` only exercises the `Err` path today.
-/// Errata D5/D6/D7. Implemented in Task 4.
-pub fn admit(input: &[u8]) -> Result<(), NotImplementedError> {
-    let _ = input;
-    Err(NotImplementedError::new(
-        "The ADMIT phase (conformance/admit-reject/, the admit profile) is \
-         not implemented; see Task 4.",
-    ))
+/// The ADMIT phase: reject-or-pass, no repair. Errata D5 (numeric bounds),
+/// D6 (depth-counting convention), D7 (four rejection classes R6.15's
+/// original enumeration omits). See [`json::admit`] for the algorithm and
+/// the derivation of every `curia/admit/...` slug from
+/// `conformance/admit-reject/`.
+///
+/// The crate-level surface stays `Result<(), AdmitError>`: no
+/// `admit-reject/` vector expects acceptance, so callers of this function
+/// (in particular `tests/vectors.rs`'s `check_admit`) only ever need the
+/// `Err` path. [`json::admit`]'s own success value (the parsed document) is
+/// discarded here rather than threaded through, so that later tasks
+/// building on top of ADMIT are free to call `json::admit` directly for the
+/// value when they need it, without this function's shape constraining
+/// them.
+pub fn admit(input: &[u8]) -> Result<(), json::AdmitError> {
+    json::admit(input).map(|_| ())
 }
 
 /// `Digests.Sha256` — the lowercase-hex SHA-256 digest of canonical bytes, in

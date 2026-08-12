@@ -8,18 +8,21 @@
 //!
 //! Two things this module is *not* trying to be, on purpose:
 //!
-//! - It is not the ADMIT phase. ADMIT's frozen limits (max size, max depth
-//!   32 counting container openings only, max 1024 members per level, max
-//!   string length, the `-(2^53-1) <= n <= 2^53-1` integer bound, duplicate
-//!   key rejection) belong to Task 4, which is expected to build on this
-//!   value model rather than duplicate it. This parser enforces JSON syntax
-//!   (RFC 8259) and nothing more — it does not reject duplicate object
-//!   keys, does not enforce a member-count cap, and does not enforce the
-//!   safe-integer bound on numbers (design spec §5.4: "the canonicalizer
-//!   still implements ECMAScript number serialization in full ... the
-//!   envelope schema simply never produces input that reaches the
-//!   fractional path" — i.e. `canonicalize` must handle *any* valid JSON
-//!   number, not just I-JSON-safe ones).
+//! - `parse`/`Parser` are not the ADMIT phase. They enforce JSON syntax
+//!   (RFC 8259) and nothing more — no duplicate-key rejection, no
+//!   member-count cap, no safe-integer bound on numbers (design spec §5.4:
+//!   "the canonicalizer still implements ECMAScript number serialization in
+//!   full ... the envelope schema simply never produces input that reaches
+//!   the fractional path" — i.e. `canonicalize` must handle *any* valid
+//!   JSON number, not just I-JSON-safe ones). ADMIT's frozen limits (max
+//!   size, max depth 32 counting container openings only, max 1024 members
+//!   per level, max string length, the `-(2^53-1) <= n <= 2^53-1` integer
+//!   bound, duplicate key rejection, Unicode noncharacters, non-finite/
+//!   non-integer rejection) are implemented separately, below, by
+//!   [`admit`] and its helpers — built *on* this value model (walking the
+//!   [`Value`] tree `parse` already produces) rather than woven into the
+//!   syntax parser itself, so `parse`'s own behavior (and every vector that
+//!   already depends on it) is unchanged by Task 4.
 //! - Its recursion-depth guard (`MAX_PARSE_DEPTH`, far above 32) exists
 //!   solely so that a maliciously deep input produces a [`ParseError`]
 //!   instead of a stack overflow (which would abort the process, not
@@ -27,16 +30,20 @@
 //!   panic" than an ordinary panic would be). It is not a stand-in for
 //!   ADMIT's depth-32 rule, which is a business limit Task 4 owns.
 //!
-//! ## Why duplicate keys are out of scope here
+//! ## Why duplicate keys are out of scope for `parse` specifically
 //!
-//! No vector this module is exercised against (the vendored `rfc8785/`
-//! pairs, and the `ordering/`/`numbers/` inputs `canonicalize` is tested
-//! against directly per the Task 2 controller ruling) contains a duplicate
-//! object key. Rejecting duplicates is errata D7 / `admit-reject/duplicate-keys`'s
-//! concern, exercised through the `admit` profile against `crate::admit`
-//! (Task 4), not through `canonicalize`. If `parse` is ever handed an input
-//! with duplicate keys, every occurrence is kept in [`Value::Object`], in
-//! input order; nothing here deduplicates or rejects them.
+//! No vector `parse`/`canonicalize` are exercised against (the vendored
+//! `rfc8785/` pairs, and the `ordering/`/`numbers/` inputs `canonicalize` is
+//! tested against directly per the Task 2 controller ruling) contains a
+//! duplicate object key. `parse` never deduplicates or rejects them —
+//! every occurrence is kept in [`Value::Object`], in input order — so that
+//! [`admit`] (below), which *does* reject them per errata D7 /
+//! `admit-reject/duplicate-keys`, can see the input exactly as written
+//! rather than through a parser that already discarded the evidence.
+//! `admit`'s duplicate check compares members' *wire* names — the strings
+//! as `parse` decoded them from the input, with no Unicode normalization
+//! applied — never a normalized form; see [`admit`]'s doc comment for why
+//! that boundary is exact, not incidental.
 //!
 //! ## Why a non-finite number is rejected here, not silently emitted
 //!
@@ -52,6 +59,7 @@
 //! `parse_number` rejects it here too, independently of whatever Task 4
 //! does. See [`ParseError::NonFiniteNumber`].
 
+use std::collections::HashSet;
 use std::fmt;
 
 /// A parsed JSON value.
@@ -460,4 +468,324 @@ impl<'a> Parser<'a> {
         }
         Ok(Value::Number(value))
     }
+}
+
+// ============================================================================
+// ADMIT — §6.4 phase ①: reject-or-pass, no repair. Errata D5 (numeric
+// bounds), D6 (depth-counting convention), D7 (four rejection classes
+// R6.15's original enumeration omits). Built on top of `parse`/`Value`
+// above rather than woven into the syntax parser, per this module's
+// top-of-file note.
+// ============================================================================
+
+/// Maximum submission size, in raw bytes, checked before any parsing is
+/// attempted (design spec §5.1).
+pub const ADMIT_MAX_SUBMISSION_BYTES: usize = 1_048_576;
+
+/// Maximum nesting depth, counting container (`{`/`[`) *openings* only —
+/// never the innermost scalar (errata D6, R6.15 addendum). A document whose
+/// innermost value sits inside exactly this many containers is accepted;
+/// one nested a further level is rejected.
+pub const ADMIT_MAX_DEPTH: usize = 32;
+
+/// Maximum object members at any one nesting level (design spec §5.1:
+/// "bounds the sort in canonicalization"). Checked independently at every
+/// level, not cumulatively across the document.
+pub const ADMIT_MAX_OBJECT_MEMBERS: usize = 1_024;
+
+/// Maximum string length, in UTF-8 bytes of the *decoded* value (design
+/// spec §5.1: "256 KiB ... bounds NFC normalization cost on a single
+/// field"). Applied to object member names as well as string values —
+/// R6.15's revised enumeration states each rejection class as a property of
+/// the input, not scoped to one JSON position, and an oversize key is the
+/// same normalization-cost and interop hazard as an oversize value.
+pub const ADMIT_MAX_STRING_BYTES: usize = 262_144;
+
+/// `2^53 - 1`, the largest safe integer (RFC 7493 §2.2; errata D5).
+pub const ADMIT_MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+/// `-(2^53 - 1)`, the smallest safe integer. The bound is symmetric —
+/// errata D5 is explicit that `2^53` and `-2^53` are *both* rejected, not
+/// just the positive side the single pre-D5 vector pinned.
+pub const ADMIT_MIN_SAFE_INTEGER: f64 = -9_007_199_254_740_991.0;
+
+/// A rejection from the ADMIT phase.
+///
+/// Every rejection carries a stable slug in the `curia/admit/...`
+/// namespace — the vocabulary `conformance/admit-reject/*/expect-reject`
+/// files name (see [`AdmitError::predicate`]) — plus a human-readable
+/// `detail` that is diagnostic only and never part of the stable contract.
+/// ADMIT is reject-or-pass with no repair: there is no variant here that
+/// carries a "corrected" value, on purpose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdmitError {
+    slug: &'static str,
+    detail: String,
+}
+
+impl AdmitError {
+    fn new(slug: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            slug,
+            detail: detail.into(),
+        }
+    }
+
+    /// The stable rejection slug, e.g. `curia/admit/duplicate-key`.
+    pub fn predicate(&self) -> &str {
+        self.slug
+    }
+
+    /// A human-readable explanation of the rejection. Not part of the
+    /// stable contract — only [`AdmitError::predicate`] is.
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+impl fmt::Display for AdmitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.slug, self.detail)
+    }
+}
+
+impl std::error::Error for AdmitError {}
+
+/// The ADMIT phase: reject-or-pass, no repair (CLAUDE.md's "no mutation
+/// between verify and persist" — ADMIT never returns a corrected value,
+/// only the original input or a typed rejection). Runs, in order:
+///
+/// 1. **Submission size** ([`ADMIT_MAX_SUBMISSION_BYTES`]) against the raw
+///    byte slice — the cheapest possible check, so absurdly oversized
+///    input never reaches any of the more expensive steps below.
+/// 2. **A raw-byte scan for embedded NUL (`0x00`)**, before UTF-8
+///    validation or JSON parsing. R6.15's "embedded NUL bytes" class (D7)
+///    covers *any* NUL anywhere in the wire stream — including outside a
+///    string, where RFC 8259 syntax would reject it only as a generic
+///    unexpected character, not by name. Doing this first also means every
+///    NUL byte is accounted for before [`parse`] runs, so a later
+///    [`ParseError::RawControlInString`] (see [`map_parse_error`]) can
+///    never be a NUL in disguise.
+/// 3. **[`parse`]** — RFC 8259 syntax, UTF-8 validity, unpaired-surrogate
+///    and non-finite-number rejection, all inherited unchanged from Task
+///    2's parser. A [`ParseError`] here is remapped onto the matching
+///    `curia/admit/...` slug by [`map_parse_error`].
+/// 4. **A tree walk** ([`check_node`]) enforcing every business rule the
+///    syntax parser cannot express on its own: depth (counting container
+///    openings only — errata D6), object member count, string length,
+///    Unicode noncharacters, duplicate member names, and the symmetric
+///    safe-integer bound (errata D5), including that `2^53` and `-2^53`
+///    are rejected exactly at the boundary while underflow to `0` is
+///    accepted.
+///
+/// **Duplicate-member scope, by ruling.** The duplicate-key check compares
+/// members' *wire* names — the strings [`parse`] decoded from the input,
+/// exactly as written, with **no** Unicode normalization applied. A
+/// controller ruling scoped this deliberately: NFC normalization (R6.9,
+/// applied later, only on the path to a signature) can *manufacture* a
+/// duplicate from two wire-distinct keys that happen to normalize to the
+/// same NFC form (e.g. precomposed vs. combining-sequence "café"). That
+/// post-normalization case is a different task's concern; this function
+/// does not import or invoke any NFC helper, and does not attempt to
+/// detect it.
+///
+/// On success, returns the parsed [`Value`] — admitted, but not yet
+/// canonicalized or NFC-normalized. No `admit-reject/` vector expects
+/// acceptance, so every vector in that family exercises the `Err` path.
+pub fn admit(input: &[u8]) -> Result<Value, AdmitError> {
+    if input.len() > ADMIT_MAX_SUBMISSION_BYTES {
+        return Err(AdmitError::new(
+            "curia/admit/too-large",
+            format!(
+                "submission is {} bytes, exceeds the {}-byte cap",
+                input.len(),
+                ADMIT_MAX_SUBMISSION_BYTES
+            ),
+        ));
+    }
+
+    if let Some(pos) = input.iter().position(|&b| b == 0x00) {
+        return Err(AdmitError::new(
+            "curia/admit/nul-byte",
+            format!("raw NUL (0x00) byte at input offset {pos}"),
+        ));
+    }
+
+    let value = parse(input).map_err(map_parse_error)?;
+    check_node(&value, 0)?;
+    Ok(value)
+}
+
+/// Maps a [`ParseError`] from [`parse`] onto the ADMIT slug naming the same
+/// rejection class where the corpus names one (invalid UTF-8, unpaired
+/// surrogate, non-finite number, excessive nesting), and a generic
+/// `curia/admit/malformed-json` slug for every other syntax error, since
+/// neither R6.15 nor the corpus names those individually.
+fn map_parse_error(err: ParseError) -> AdmitError {
+    match err {
+        ParseError::InvalidUtf8 => AdmitError::new("curia/admit/invalid-utf8", err.to_string()),
+        ParseError::UnpairedSurrogate { .. } => {
+            AdmitError::new("curia/admit/unpaired-surrogate", err.to_string())
+        }
+        ParseError::NonFiniteNumber { .. } => {
+            AdmitError::new("curia/admit/non-finite-number", err.to_string())
+        }
+        // `parse`'s own stack-safety guard (`MAX_PARSE_DEPTH`, far above
+        // `ADMIT_MAX_DEPTH` — see its doc comment) and this phase's own
+        // precise depth-32 rule (`check_node`, below) are both, to a
+        // caller, "nested too deeply". Reporting the same slug regardless
+        // of which guard actually fired keeps that caller-visible contract
+        // single-valued; a document nested beyond `MAX_PARSE_DEPTH` is
+        // necessarily also nested beyond `ADMIT_MAX_DEPTH`; the two never
+        // disagree about whether to reject, only about which line of code
+        // notices first.
+        ParseError::DepthLimitExceeded { .. } => {
+            AdmitError::new("curia/admit/depth-exceeded", err.to_string())
+        }
+        // Every raw NUL byte was already rejected before `parse` ran (see
+        // `admit`), so a `RawControlInString` reaching here is a
+        // *different* unescaped control character (e.g. a literal tab or
+        // 0x01) — not a class R6.15 names, so it gets a generic slug
+        // rather than `nul-byte`.
+        ParseError::RawControlInString { .. } => {
+            AdmitError::new("curia/admit/raw-control-character", err.to_string())
+        }
+        ParseError::UnexpectedEof { .. }
+        | ParseError::UnexpectedChar { .. }
+        | ParseError::InvalidEscape { .. }
+        | ParseError::InvalidNumber { .. }
+        | ParseError::TrailingData { .. } => {
+            AdmitError::new("curia/admit/malformed-json", err.to_string())
+        }
+    }
+}
+
+/// Walks one node of an already-parsed tree, enforcing every ADMIT business
+/// rule [`parse`] cannot express on its own: depth, member count, string
+/// length, Unicode noncharacters, duplicate member names (wire-name
+/// comparison only — see [`admit`]'s doc comment), and the symmetric
+/// safe-integer bound.
+///
+/// `depth` is the number of container openings already consumed to reach
+/// `value`; recursion here can never exceed [`MAX_PARSE_DEPTH`], because
+/// `value` was itself produced by [`parse`], which enforces that bound
+/// while building the tree — so this function needs no stack-safety guard
+/// of its own.
+fn check_node(value: &Value, depth: usize) -> Result<(), AdmitError> {
+    match value {
+        Value::Null | Value::Bool(_) => Ok(()),
+        Value::Number(n) => check_number(*n),
+        Value::String(s) => check_string(s),
+        Value::Array(items) => {
+            let depth = enter_container(depth)?;
+            for item in items {
+                check_node(item, depth)?;
+            }
+            Ok(())
+        }
+        Value::Object(members) => {
+            let depth = enter_container(depth)?;
+            if members.len() > ADMIT_MAX_OBJECT_MEMBERS {
+                return Err(AdmitError::new(
+                    "curia/admit/too-many-members",
+                    format!(
+                        "object has {} members, exceeds the {}-member cap",
+                        members.len(),
+                        ADMIT_MAX_OBJECT_MEMBERS
+                    ),
+                ));
+            }
+            let mut seen: HashSet<&str> = HashSet::with_capacity(members.len());
+            for (key, _) in members {
+                if !seen.insert(key.as_str()) {
+                    return Err(AdmitError::new(
+                        "curia/admit/duplicate-key",
+                        format!("duplicate object member name `{key}`"),
+                    ));
+                }
+            }
+            for (key, val) in members {
+                check_string(key)?;
+                check_node(val, depth)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Accounts for one container opening and rejects if the resulting depth
+/// exceeds [`ADMIT_MAX_DEPTH`]. Errata D6: depth counts container openings
+/// only, never the innermost scalar, so a document whose innermost value
+/// sits inside exactly `ADMIT_MAX_DEPTH` containers is accepted, and one
+/// nested a further level is rejected — both sides of that boundary are
+/// pinned by `tests/admit_boundaries.rs`, since the published
+/// `admit-reject/over-nested` vector pins only the reject side.
+fn enter_container(depth: usize) -> Result<usize, AdmitError> {
+    let depth = depth + 1;
+    if depth > ADMIT_MAX_DEPTH {
+        return Err(AdmitError::new(
+            "curia/admit/depth-exceeded",
+            format!("nesting exceeds the {ADMIT_MAX_DEPTH}-container cap"),
+        ));
+    }
+    Ok(depth)
+}
+
+/// Checks one decoded JSON string (an object member name or a string
+/// value) against the string-length cap and the Unicode-noncharacter rule.
+fn check_string(s: &str) -> Result<(), AdmitError> {
+    if s.len() > ADMIT_MAX_STRING_BYTES {
+        return Err(AdmitError::new(
+            "curia/admit/string-too-long",
+            format!(
+                "string is {} bytes, exceeds the {}-byte cap",
+                s.len(),
+                ADMIT_MAX_STRING_BYTES
+            ),
+        ));
+    }
+    if let Some(c) = s.chars().find(|&c| is_noncharacter(c)) {
+        return Err(AdmitError::new(
+            "curia/admit/noncharacter",
+            format!("string contains Unicode noncharacter U+{:04X}", c as u32),
+        ));
+    }
+    Ok(())
+}
+
+/// Unicode §23.7 "Noncharacters, not recommended for use in open
+/// interchange": `U+FDD0..=U+FDEF` (32 code points), plus `U+xFFFE` and
+/// `U+xFFFF` in every one of the 17 planes (34 code points) — 66 total.
+/// Errata D7 / design spec §5.1's `curia/admit/noncharacter` rule states
+/// this as a property of the code point itself, deliberately not as
+/// "whatever one platform's NFC implementation happens to throw on" (the
+/// design spec's own rationale for why this class exists at all).
+fn is_noncharacter(c: char) -> bool {
+    let cp = c as u32;
+    (0xFDD0..=0xFDEF).contains(&cp) || matches!(cp & 0xFFFF, 0xFFFE | 0xFFFF)
+}
+
+/// Checks one decoded JSON number against R6.33/errata D5's I-JSON-exact
+/// numerics: an integer, and within the symmetric safe range.
+///
+/// `n` is always finite here: [`parse`] rejects a non-finite literal as
+/// [`ParseError::NonFiniteNumber`] before a `Value::Number` can exist (see
+/// [`map_parse_error`]), so finiteness is not re-checked.
+fn check_number(n: f64) -> Result<(), AdmitError> {
+    if n.fract() != 0.0 {
+        return Err(AdmitError::new(
+            "curia/admit/non-integer-number",
+            format!("{n} is not an integer; envelope numerics are I-JSON-exact (R6.33)"),
+        ));
+    }
+    if !(ADMIT_MIN_SAFE_INTEGER..=ADMIT_MAX_SAFE_INTEGER).contains(&n) {
+        return Err(AdmitError::new(
+            "curia/admit/unsafe-integer",
+            format!(
+                "{n} is outside the safe integer range \
+                 [{ADMIT_MIN_SAFE_INTEGER}, {ADMIT_MAX_SAFE_INTEGER}] (errata D5)"
+            ),
+        ));
+    }
+    Ok(())
 }
