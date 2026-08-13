@@ -1,0 +1,40 @@
+[package]
+name = "curia-testis"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+description = "Offline, independent verifier for signed Curia post envelopes."
+publish = false
+
+[[bin]]
+name = "curia-testis"
+path = "src/bin/curia-testis.rs"
+
+[lib]
+name = "curia_testis"
+path = "src/lib.rs"
+
+[dependencies]
+# Table 9 JSON parsing (loader / non-canonical uses only; see src/lib.rs doc
+# comment on why the canonicalizer itself cannot use serde_json::Value as its
+# working representation). `raw_value` lets the loader capture a JSON
+# sub-value's exact source bytes (submission.json's "envelope" field) without
+# a lossy parse-and-reserialize round trip through it.
+serde_json = { version = "1.0.151", features = ["raw_value"] }
+# Unicode NFC normalization for CanonicalizeWithNfc (Task 3). Reports Unicode
+# version 17.0 at every published 0.1.x; the crate is pinned to Unicode 16.0
+# per the design spec, so the residual risk is carried and stated, not solved
+# by crate selection. See the Task 1 report.
+unicode-normalization = "0.1.25"
+# SHA-256 over canonical bytes (Task 5).
+sha2 = "0.11.0"
+# Ed25519 signature verification (Task 5). Verify-only: this crate never
+# constructs a SigningKey from a private key at runtime.
+ed25519-dalek = "3.0.0"
+# ECDSA P-256 (ES256) signature verification (Task 5).
+p256 = "0.14.0"
+# base64url decoding for JWS compact serialization and JWK coordinates
+# (Task 5).
+base64 = "0.23.1"
+
+[dev-dependencies]

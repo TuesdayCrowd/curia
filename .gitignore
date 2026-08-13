@@ -55,3 +55,11 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Rust (rust/curia-testis, the independent verifier)
+/rust/**/target/
+# The .NET template's `[Bb]in/` rule above matches Cargo's conventional
+# `src/bin/` directory, which holds binary-target sources rather than build
+# output. Git does not descend into an excluded directory, so the directory
+# itself must be re-included, not the files inside it.
+!/rust/**/src/bin/
