@@ -1,0 +1,16 @@
+(version 1)
+
+;; Allow everything this process would normally be permitted to do (file
+;; I/O, process bookkeeping, etc.) except network access, which is denied
+;; unconditionally. This is the inverse shape of a default-deny profile:
+;; instead of hand-enumerating every OS primitive `curia-testis` needs just
+;; to launch (which risks the test passing only because the *sandbox*
+;; happened to grant enough baseline OS access, not because the binary
+;; is actually network-free), we start from "everything is allowed" and
+;; subtract network — so a pass here means specifically and only "this
+;; process never touched the network," not "this process launched inside
+;; a permissive-enough sandbox."
+(allow default)
+
+(deny network*)
+(deny system-socket)

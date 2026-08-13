@@ -84,12 +84,16 @@
 //! (decomposed, `e` + `U+0301` COMBINING ACUTE ACCENT) both normalize to the
 //! same four-character `café`. ADMIT's duplicate-key rule (Task 4,
 //! `conformance/admit-reject/duplicate-keys`) cannot see this collision: it
-//! runs before normalization, on raw byte-identical keys only. And nothing
-//! upstream of this function currently *runs* ADMIT at all —
-//! `verify_envelope` is still a stub, so Task 6's pipeline that would let
-//! ADMIT catch a raw duplicate before `canonicalize_with_nfc` ever sees the
-//! input does not exist yet. Left unchecked,
-//! `canonicalize_with_nfc` would silently emit a canonical object with two
+//! runs before normalization, on raw byte-identical keys only. Task 6's
+//! `crate::envelope::verify_envelope` now does run ADMIT immediately in
+//! front of this function (Ruling #1), which means a *raw* duplicate is
+//! caught before `canonicalize_with_nfc` ever sees that particular input —
+//! but `canonicalize_with_nfc` is also called directly, with no ADMIT gate
+//! in front of it at all, by the `c4`/`ordering`/`unicode`/`numbers` family
+//! harness (`conformance/README.md`: "the pure functions stay free of
+//! ADMIT"), so this function still cannot assume ADMIT ran, and still needs
+//! its own check. Left unchecked, `canonicalize_with_nfc` would silently
+//! emit a canonical object with two
 //! members sharing one key — not valid I-JSON, and exactly the kind of
 //! divergence R6.9 exists to prevent, since which of the two colliding
 //! members "wins" a re-parse depends on the reader (some libraries keep the
@@ -219,8 +223,8 @@ pub enum NfcError {
 }
 
 impl NfcError {
-    /// A stable predicate slug, in the same spirit as
-    /// [`crate::NotImplementedError::predicate`] and the corpus's
+    /// A stable predicate slug, in the same spirit as every other
+    /// `curia/<layer>/<condition>` slug in this crate and the corpus's
     /// `expect-reject`/`expect-verify-failure` slugs.
     ///
     /// [`NfcError::DuplicateRawKey`] deliberately returns ADMIT's own
@@ -228,9 +232,14 @@ impl NfcError {
     /// invention: the raw-identical-keys condition is exactly what
     /// `conformance/admit-reject/duplicate-keys` pins, and a verifier
     /// should report the same predicate for the same defect no matter
-    /// which layer happened to notice it — this module notices it only
-    /// because nothing upstream runs ADMIT in front of
-    /// `canonicalize_with_nfc` yet (`verify_envelope` is still a stub).
+    /// which layer happened to notice it. `crate::envelope::verify_envelope`
+    /// (Task 6) now does run ADMIT in front of this function's call to
+    /// `canonicalize_with_nfc`, so a raw duplicate anywhere in a submission
+    /// is caught by ADMIT itself before this module ever sees it on that
+    /// path — but `canonicalize_with_nfc` is still called directly
+    /// elsewhere (the `c4`/`ordering`/`unicode`/`numbers` family harness,
+    /// per `conformance/README.md`'s "the pure functions stay free of
+    /// ADMIT"), so this variant, and the slug reuse, both remain live.
     ///
     /// [`NfcError::DuplicateNormalizedKey`] gets its own
     /// `curia/canon/duplicate-normalized-key` slug because it is a
@@ -239,7 +248,13 @@ impl NfcError {
     /// needs to be able to tell apart from a raw duplicate.
     pub fn predicate(&self) -> &str {
         match self {
-            NfcError::Parse(_) => "curia-testis/nfc/parse-error",
+            // Task 6 cleanup: this used to be `curia-testis/nfc/parse-error`
+            // — wrong root (every other real predicate in this crate is
+            // `curia/<layer>/<condition>`, never `curia-testis/...`) and it
+            // invented an `nfc` layer where `canon` already exists (see
+            // `DuplicateNormalizedKey`'s `curia/canon/duplicate-normalized-key`,
+            // right below, in the very same enum). Renamed to match.
+            NfcError::Parse(_) => "curia/canon/parse-error",
             NfcError::DuplicateRawKey { .. } => "curia/admit/duplicate-key",
             NfcError::DuplicateNormalizedKey { .. } => "curia/canon/duplicate-normalized-key",
         }
@@ -377,8 +392,10 @@ fn normalize_value(value: &Value) -> Result<Value, NfcError> {
             // unlike Fix round 2's combined pass). Still O(n) per object,
             // same bound as pass 1: two linear passes remain linear overall,
             // not quadratic, and this function still cannot assume ADMIT's
-            // member-count cap gated what reached it (`verify_envelope` is
-            // still a stub; Task 6 wires ADMIT in front of this function).
+            // member-count cap gated what reached it — `verify_envelope`
+            // (Task 6) does run ADMIT first on that path, but
+            // `canonicalize_with_nfc` is also reachable directly, with no
+            // ADMIT gate at all, from the family harness.
             let mut normalized: Vec<(String, Value)> = Vec::with_capacity(members.len());
             let mut normalized_seen: HashSet<String> = HashSet::with_capacity(members.len());
             for (raw_key, val) in members {
@@ -412,7 +429,17 @@ fn nfc(s: &str) -> String {
 /// [`crate::canonical::canonicalize`] immediately re-parses this output and
 /// re-derives ordering, escaping, and number formatting itself. This
 /// function's only obligation is losslessness — see the module doc comment.
-fn encode(value: &Value, out: &mut Vec<u8>) {
+///
+/// `pub(crate)`, not private: Task 6's `crate::envelope` reuses this exact
+/// lossless re-encoder to turn the `envelope` sub-object of an
+/// already-ADMITted submission `Value` back into bytes for
+/// [`canonicalize_with_nfc`], rather than writing a second copy of the same
+/// "any valid, round-trippable JSON" encoding logic. Sharing one
+/// implementation means there is exactly one place this crate ever answers
+/// "how do I turn a parsed `Value` back into bytes losslessly," the same
+/// reasoning the module doc comment gives for reusing
+/// [`crate::canonical::canonicalize`] itself rather than forking it.
+pub(crate) fn encode(value: &Value, out: &mut Vec<u8>) {
     match value {
         Value::Null => out.extend_from_slice(b"null"),
         Value::Bool(true) => out.extend_from_slice(b"true"),

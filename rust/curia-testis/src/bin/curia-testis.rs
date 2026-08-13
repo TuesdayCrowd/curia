@@ -15,21 +15,22 @@
 //! only checks for a nonzero exit code should not have to guess which one it
 //! got.
 //!
-//! Task 1 wires this contract up but cannot yet satisfy it:
-//! [`curia_testis::verify_envelope`] is a stub, so `verify` always exits 1
-//! naming [`curia_testis::NOT_IMPLEMENTED_PREDICATE`] on stderr. Tasks 2-6
-//! make it real; this file's argument surface and both output shapes are
-//! what `tests/envelope.rs` (Task 6) is expected to test, so they should not
-//! need to change out from under it.
+//! Task 1 fixed this contract; Task 6 makes it real:
+//! [`curia_testis::verify_envelope`] is fully implemented, so `verify` exits
+//! 0 on success (printing author/kid/alg/digest to stdout) or 1 on failure,
+//! naming the specific failing predicate
+//! ([`curia_testis::envelope::VerifyEnvelopeError::predicate`]) on stderr —
+//! never merely "verification failed."
 
 #![forbid(unsafe_code)]
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use curia_testis::NotImplementedError;
+use curia_testis::envelope::VerifyEnvelopeError;
 
 const USAGE: &str = "\
 curia-testis - offline, independent verifier for signed Curia post envelopes
@@ -43,9 +44,36 @@ EXIT CODES:
     2  usage error (bad arguments, or a path that could not be read)
 ";
 
+/// Deliberate, documented bound on `--jwks`, per the Task 6 brief's ruling
+/// that the CLI's `fs::read` of that file must not stay unbounded.
+///
+/// A real JWKS is small — this crate's own fixtures are a few hundred bytes,
+/// one key each — but a Forum could legitimately publish one JWKS covering
+/// many agents at once, so the bound has to be generous relative to
+/// [`curia_testis::json::ADMIT_MAX_SUBMISSION_BYTES`] (the 1 MiB cap ADMIT
+/// applies to an *envelope* submission), not equal to it. 8 MiB is chosen
+/// deliberately: a JWKS entry (`kty`/`crv`/`kid`/`x`[/`y`], all short
+/// base64url strings) costs on the order of 150-300 bytes, so 8 MiB holds
+/// tens of thousands of keys — far beyond any realistic single-Forum JWKS —
+/// while still bounding the worst case (a corrupted, truncated, or hostile
+/// `--jwks` path) to a fixed, small amount of memory rather than reading an
+/// arbitrarily large file in full before any check runs.
+///
+/// This is a CLI-level, operator-facing bound, not a verification predicate:
+/// exceeding it is a usage error (exit code 2, "you pointed me at a bad
+/// file"), not a claim about the envelope's authorship — unlike ADMIT's
+/// submission-size cap, which *is* part of what `verify_envelope` decides
+/// and is reported as a `curia/admit/too-large` verification failure (exit
+/// code 1). `--envelope` is deliberately *not* given an analogous CLI-level
+/// cap for exactly this reason: ADMIT already is the size gate for a
+/// submission, and pre-capping the read here would just reclassify that
+/// same rejection from "verification failed" to "usage error," which is the
+/// wrong exit code for it.
+const CLI_MAX_JWKS_BYTES: u64 = 8 * 1024 * 1024;
+
 enum CliError {
     Usage(String),
-    Verification(NotImplementedError),
+    Verification(VerifyEnvelopeError),
 }
 
 fn main() -> ExitCode {
@@ -108,21 +136,47 @@ fn parse_verify_args(args: &[String]) -> Result<VerifyArgs, CliError> {
     Ok(VerifyArgs { envelope, jwks })
 }
 
+/// Reads `path` in full, refusing to read past `max_bytes + 1` bytes. A
+/// file at or under `max_bytes` is returned whole; a file over it is
+/// rejected as a usage error naming the cap, without ever holding more than
+/// `max_bytes + 1` bytes in memory at once — this does not trust the file's
+/// metadata length (which a hostile or unusual filesystem entry could
+/// misreport), only what `Read` actually delivers, capped by
+/// [`std::io::Read::take`].
+fn read_bounded(path: &Path, max_bytes: u64, what: &str) -> Result<Vec<u8>, CliError> {
+    let file = fs::File::open(path).map_err(|source| {
+        CliError::Usage(format!("cannot read {what} {}: {source}", path.display()))
+    })?;
+    let mut limited = file.take(max_bytes + 1);
+    let mut buf = Vec::new();
+    limited.read_to_end(&mut buf).map_err(|source| {
+        CliError::Usage(format!("cannot read {what} {}: {source}", path.display()))
+    })?;
+    if buf.len() as u64 > max_bytes {
+        return Err(CliError::Usage(format!(
+            "{what} {} exceeds the {max_bytes}-byte cap",
+            path.display()
+        )));
+    }
+    Ok(buf)
+}
+
 fn run_verify(args: &[String]) -> Result<(), CliError> {
     let parsed = parse_verify_args(args)?;
 
+    // ADMIT applies its own 1 MiB submission-size cap inside
+    // `verify_envelope` itself and reports it as a verification failure
+    // (curia/admit/too-large, exit code 1) — that is the correct gate for
+    // an envelope, so `--envelope` is read here without a CLI-level cap of
+    // its own. See `CLI_MAX_JWKS_BYTES`'s doc comment for why `--jwks` is
+    // different.
     let submission = fs::read(&parsed.envelope).map_err(|source| {
         CliError::Usage(format!(
             "cannot read --envelope {}: {source}",
             parsed.envelope.display()
         ))
     })?;
-    let jwks = fs::read(&parsed.jwks).map_err(|source| {
-        CliError::Usage(format!(
-            "cannot read --jwks {}: {source}",
-            parsed.jwks.display()
-        ))
-    })?;
+    let jwks = read_bounded(&parsed.jwks, CLI_MAX_JWKS_BYTES, "--jwks")?;
 
     match curia_testis::verify_envelope(&submission, &jwks) {
         Ok(provenance) => {

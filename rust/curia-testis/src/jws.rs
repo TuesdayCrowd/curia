@@ -468,7 +468,30 @@ impl JwsError {
 }
 
 impl std::fmt::Display for JwsError {
+    /// **Task 6 fix.** Previously every arm here printed only a
+    /// human-readable detail, with no predicate slug anywhere in the
+    /// rendered string — unlike [`crate::json::AdmitError`] and
+    /// [`crate::nfc::NfcError`], whose `Display` impls always lead with
+    /// `{slug}: `. That inconsistency became a real defect once
+    /// `curia_testis::verify_envelope` (Task 6) started printing `Display`
+    /// output directly to the CLI's stderr: for the two negative envelope
+    /// fixtures (`tampered-body`, `wrong-key`), the CLI printed
+    /// `"error: signature does not verify"` with no `curia/jws/...` slug
+    /// anywhere — failing the CLI contract's "name the failing predicate,"
+    /// caught by `tests/envelope.rs`'s
+    /// `verify_fails_on_tampered_body_exit_1_names_signature_invalid`.
+    ///
+    /// `Key(inner)` is deliberately **not** given its own prefix here: once
+    /// [`crate::jwk::JwkError`]'s own `Display` carries the same fix,
+    /// `inner`'s rendering already leads with the identical slug
+    /// [`JwsError::predicate`] would compute for this variant (it delegates
+    /// to `inner.predicate()` — see that method). Prefixing again here
+    /// would double it (`"slug: slug: detail"`).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let JwsError::Key(inner) = self {
+            return write!(f, "{inner}");
+        }
+        write!(f, "{}: ", self.predicate())?;
         match self {
             JwsError::MalformedCompactSerialization => {
                 write!(

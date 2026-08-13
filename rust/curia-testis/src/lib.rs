@@ -7,80 +7,30 @@
 //! Malformed, adversarial, or truncated input produces a typed [`Result`]
 //! error, never a panic.
 //!
-//! ## Task 1 status
+//! ## Status (post Task 6)
 //!
-//! This is the crate scaffolding. Every function below that does real work
-//! — [`canonicalize`], [`canonicalize_with_nfc`], [`admit`],
-//! [`verify_envelope`] — is a stub that always returns
-//! [`NotImplementedError`]. Tasks 2 through 6 replace these bodies one at a
-//! time; `tests/vectors.rs` calls each of them against the published
-//! conformance corpus and is expected to be red until then. See
-//! `task/task-1-report.md` for the current baseline failure count.
+//! Every function below that does real work — [`canonicalize`],
+//! [`canonicalize_with_nfc`], [`admit`], [`sha256_digest`],
+//! [`verify_envelope`] — is implemented, and `tests/vectors.rs` runs the
+//! full published conformance corpus against it. [`verify_envelope`]
+//! (Task 6) is where the others are assembled end to end: it is the
+//! function `curia-testis verify --envelope <path> --jwks <path>`
+//! (`src/bin/curia-testis.rs`) calls, and the surface R6.19's offline
+//! authorship claim is about.
 //!
-//! The [`conformance`] module — the vector loader — is the one piece of this
-//! crate that Task 1 actually implements.
+//! The [`conformance`] module is the vector loader; [`envelope`] holds
+//! [`verify_envelope`] and its error type.
 
 #![forbid(unsafe_code)]
-
-use std::fmt;
 
 pub mod canonical;
 pub mod conformance;
 pub mod digest;
+pub mod envelope;
 pub mod json;
 pub mod jwk;
 pub mod jws;
 pub mod nfc;
-
-/// The predicate name `curia-testis` reports for any check it cannot yet
-/// perform. This is deliberately outside the `curia/...` slug namespace real
-/// verification predicates use (e.g. `curia/jws/signature-invalid`,
-/// `curia/admit/duplicate-key`) — the corpus's `expect-reject` and
-/// `expect-verify-failure` fixtures name those, and `curia-testis` is
-/// expected to eventually reproduce that exact vocabulary (Tasks 4 and 5).
-/// Until then, this predicate names the crate's own implementation status
-/// instead of guessing at a real one.
-pub const NOT_IMPLEMENTED_PREDICATE: &str = "curia-testis/not-implemented";
-
-/// A stand-in for a check this crate does not yet perform.
-///
-/// Every stub function in this crate returns this error rather than
-/// panicking (`todo!()` et al.), so that a test comparing its result against
-/// an expected value fails on a genuine mismatch — `Err(NotImplementedError)
-/// != Ok(expected)`, or a predicate string that does not match the
-/// corpus-declared slug — rather than aborting the test binary.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NotImplementedError {
-    detail: String,
-}
-
-impl NotImplementedError {
-    pub fn new(detail: impl Into<String>) -> Self {
-        Self {
-            detail: detail.into(),
-        }
-    }
-
-    /// The failing predicate, in the same form a real verification failure
-    /// would report it: a stable slug a caller can match on.
-    pub fn predicate(&self) -> &str {
-        NOT_IMPLEMENTED_PREDICATE
-    }
-
-    /// A human-readable explanation of what is missing and which task adds
-    /// it.
-    pub fn detail(&self) -> &str {
-        &self.detail
-    }
-}
-
-impl fmt::Display for NotImplementedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.predicate(), self.detail)
-    }
-}
-
-impl std::error::Error for NotImplementedError {}
 
 /// `Canonicalize` — pure RFC 8785 canonicalization, performing **no**
 /// Unicode normalization. Errata D1 (revised R6.8). Implemented in Task 2;
@@ -110,7 +60,10 @@ pub use nfc::canonicalize_with_nfc;
 /// discarded here rather than threaded through, so that later tasks
 /// building on top of ADMIT are free to call `json::admit` directly for the
 /// value when they need it, without this function's shape constraining
-/// them.
+/// them. [`envelope::verify_envelope`] is exactly such a caller: it calls
+/// [`json::admit`] directly (Task 6, Ruling #1) rather than through this
+/// crate-level wrapper, because it needs the admitted [`json::Value`], not
+/// just the accept/reject outcome.
 pub fn admit(input: &[u8]) -> Result<(), json::AdmitError> {
     json::admit(input).map(|_| ())
 }
@@ -134,21 +87,17 @@ pub struct Provenance {
     pub digest: String,
 }
 
-/// Verifies one signed envelope end to end: canonicalize the envelope
-/// sub-object, digest it, and verify the detached JWS in `submission` over
-/// that digest against a key in `jwks`. This is `CanonicalizeEnvelope` +
-/// `Digests.Sha256` + `DetachedJws.Verify` from `conformance/README.md`'s
-/// function table, and the whole surface `curia-testis verify` exists to
-/// exercise offline.
+/// Verifies one signed envelope end to end: ADMIT the submission,
+/// canonicalize its `envelope` sub-object, digest it, and verify the
+/// detached JWS in `submission` over that digest against a key in `jwks`.
+/// This is `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify`
+/// from `conformance/README.md`'s function table, run behind ADMIT
+/// (Task 6, Ruling #1 — see [`envelope`]'s module doc comment) — the whole
+/// surface `curia-testis verify` exists to exercise offline.
 ///
 /// `submission` is the full `{"envelope": ..., "signature": ...}` wire
 /// object (§6.2, Appendix C.3). `jwks` is a standard JWKS (`{"keys": [...]}`)
-/// of public keys. Implemented across Tasks 2, 3, and 5; wired into the CLI
-/// in Task 6.
-pub fn verify_envelope(submission: &[u8], jwks: &[u8]) -> Result<Provenance, NotImplementedError> {
-    let _ = (submission, jwks);
-    Err(NotImplementedError::new(
-        "End-to-end envelope verification (canonicalize + digest + detached \
-         JWS; the envelope profile) is not implemented; see Tasks 2, 3, and 5.",
-    ))
-}
+/// of public keys. See [`envelope::verify_envelope`] for the implementation
+/// and [`envelope::VerifyEnvelopeError`] for every way this can fail, named
+/// for the specific check that failed.
+pub use envelope::verify_envelope;

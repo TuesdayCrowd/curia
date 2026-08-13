@@ -341,7 +341,18 @@ impl JwkError {
 }
 
 impl std::fmt::Display for JwkError {
+    /// **Task 6 fix.** Previously this printed only the human-readable
+    /// detail, with no predicate slug anywhere in the rendered string —
+    /// unlike [`crate::json::AdmitError`] and [`crate::nfc::NfcError`],
+    /// whose `Display` impls always lead with `{slug}: `. That inconsistency
+    /// became a real defect once `curia_testis::verify_envelope` (Task 6)
+    /// started printing `Display` output directly to the CLI's stderr: the
+    /// CLI contract requires naming *which check failed*, and a caller
+    /// reading `"JWKS is not valid JSON"` alone has no stable string to
+    /// match on. Every variant now leads with [`JwkError::predicate`],
+    /// matching the rest of the crate.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: ", self.predicate())?;
         match self {
             JwkError::NotJson => write!(f, "JWKS is not valid JSON"),
             JwkError::DuplicateMember => {
