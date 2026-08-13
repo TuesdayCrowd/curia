@@ -25,6 +25,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{E774EEA9
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenerateEnvelopeFixtures", "tools\GenerateEnvelopeFixtures\GenerateEnvelopeFixtures.csproj", "{B9045621-7C83-4ABB-9E2D-1AB61FFAF11E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Curia.Differential", "tools\Curia.Differential\Curia.Differential.csproj", "{8B9906D8-B90B-4349-B5CA-A8517F955331}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -131,6 +133,18 @@ Global
 		{B9045621-7C83-4ABB-9E2D-1AB61FFAF11E}.Release|x64.Build.0 = Release|Any CPU
 		{B9045621-7C83-4ABB-9E2D-1AB61FFAF11E}.Release|x86.ActiveCfg = Release|Any CPU
 		{B9045621-7C83-4ABB-9E2D-1AB61FFAF11E}.Release|x86.Build.0 = Release|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Debug|x64.Build.0 = Debug|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Debug|x86.Build.0 = Debug|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Release|x64.ActiveCfg = Release|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Release|x64.Build.0 = Release|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Release|x86.ActiveCfg = Release|Any CPU
+		{8B9906D8-B90B-4349-B5CA-A8517F955331}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -144,5 +158,6 @@ Global
 		{30EA8FD7-800E-4396-9CA6-373BBE5C2F86} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{68887395-B54F-41D1-B95E-71DE5BF396F1} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{B9045621-7C83-4ABB-9E2D-1AB61FFAF11E} = {E774EEA9-4C28-4C1C-B566-8F80213A2353}
+		{8B9906D8-B90B-4349-B5CA-A8517F955331} = {E774EEA9-4C28-4C1C-B566-8F80213A2353}
 	EndGlobalSection
 EndGlobal

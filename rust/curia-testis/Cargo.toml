@@ -10,6 +10,10 @@ publish = false
 name = "curia-testis"
 path = "src/bin/curia-testis.rs"
 
+[[bin]]
+name = "curia-differential"
+path = "src/bin/curia-differential.rs"
+
 [lib]
 name = "curia_testis"
 path = "src/lib.rs"
