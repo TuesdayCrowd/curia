@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Canon.Canonical;
@@ -89,24 +90,42 @@ public sealed class CanonicalJsonTests
         return data;
     }
 
-    /// <summary>Same gap, for unicode/ -- including the key-normalization vector below.</summary>
+    /// <summary>
+    /// Same gap, for unicode/ -- including the key-normalization vector below.
+    /// </summary>
+    /// <remarks>
+    /// A unicode/ vector may carry <c>expect-reject</c> instead of
+    /// <c>expected.canonical</c>. That combination did not originally exist:
+    /// <c>expect-reject</c> was defined only for the <c>admit</c> profile, on the
+    /// assumption that canonicalization either succeeds or is never reached. The
+    /// NFC-collision finding disproved it -- normalizing two distinct member names
+    /// can make them equal, and ADMIT cannot catch that, because the input
+    /// genuinely has no duplicate. So <see cref="CanonicalJson.CanonicalizeWithNfc"/>
+    /// itself must reject, and the corpus needs a way to say so.
+    /// </remarks>
     [Theory]
     [MemberData(nameof(UnicodeVectors))]
-    public void UnicodeVector(string name, byte[] input, byte[] expected)
+    public void UnicodeVector(string name, byte[] input, byte[]? expected, string? expectRejectSlug)
     {
         _ = name;
         var parsed = JsonReader.Parse(input, AdmitLimits.Default)
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
-        var actual = CanonicalJson.CanonicalizeWithNfc(parsed)
-            .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
-        Assert.Equal(expected, actual);
+        var result = CanonicalJson.CanonicalizeWithNfc(parsed);
+
+        if (expectRejectSlug is not null)
+        {
+            Assert.Equal(expectRejectSlug, result.Match(_ => "unexpectedly succeeded", e => e.Type));
+            return;
+        }
+
+        Assert.Equal(expected, result.Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)));
     }
 
-    public static TheoryData<string, byte[], byte[]> UnicodeVectors()
+    public static TheoryData<string, byte[], byte[]?, string?> UnicodeVectors()
     {
-        var data = new TheoryData<string, byte[], byte[]>();
+        var data = new TheoryData<string, byte[], byte[]?, string?>();
         foreach (var v in VectorLoader.Load("unicode"))
-            data.Add(v.Name, v.Input, v.ExpectedCanonical!);
+            data.Add(v.Name, v.Input, v.ExpectedCanonical, v.ExpectRejectSlug);
         return data;
     }
 
@@ -206,8 +225,8 @@ public sealed class CanonicalJsonTests
     /// noncharacters, an admitted document carrying U+FFFE reached CanonicalizeWithNfc —
     /// the function CanonicalizeEnvelope always uses for signing/verification — and crashed
     /// there instead of returning Result.Fail, violating CS-10 (fallibility is a value).
-    /// This pins the actual fix: ADMIT rejects the document before any JsonValue exists to
-    /// hand to CanonicalizeWithNfc, so that throw is unreachable from wire input, not merely
+    /// This pins the primary fix: ADMIT rejects the document before any JsonValue exists to
+    /// hand to CanonicalizeWithNfc, so that failure is unreachable from wire input, not merely
     /// rare. See JsonReaderTests.RejectsUnicodeNoncharacterInAStringValue for the ADMIT-level
     /// rejection pinned directly, and conformance/admit-reject/noncharacter/ for the vector.
     /// </summary>
@@ -223,19 +242,146 @@ public sealed class CanonicalJsonTests
     }
 
     /// <summary>
-    /// The other half of the same evidence: this documents *why* ADMIT, not
-    /// CanonicalizeWithNfc itself, had to be the enforcement point. CanonicalizeWithNfc's
-    /// contract is "the caller already admitted this" — it is not, and does not need to be,
-    /// defensive against content ADMIT has already promised never to hand it. Bypassing
+    /// The defense-in-depth half of the same evidence: CanonicalizeWithNfc's contract is
+    /// "the caller already admitted this," but CS-10 forbids an unhandled exception
+    /// regardless of whether a real caller could ever violate that contract. Bypassing
     /// ADMIT (as no real caller in this codebase does — EnvelopeParser.Parse always calls
-    /// JsonReader.Parse first) and constructing the JsonValue tree directly still reproduces
-    /// the original crash, confirming the fix belongs at the gate, not inside the writer.
+    /// JsonReader.Parse first) and constructing the JsonValue tree directly used to
+    /// reproduce the original crash; NormalizeString now catches the ArgumentException
+    /// string.Normalize throws for this input and returns Result.Fail instead, so the
+    /// primary fix (ADMIT rejecting the input before it becomes a JsonValue) is backed by
+    /// a second, independent guarantee that this function itself never crashes.
     /// </summary>
     [Fact]
-    public void CanonicalizeWithNfcStillThrowsOnANoncharacterIfAdmitIsBypassed()
+    public void CanonicalizeWithNfcFailsRatherThanThrowsOnANoncharacterIfAdmitIsBypassed()
     {
         var value = new JsonValue.Object([new("a", new JsonValue.String(char.ConvertFromUtf32(0xFFFE)))]);
 
-        Assert.Throws<ArgumentException>(() => CanonicalJson.CanonicalizeWithNfc(value));
+        var result = CanonicalJson.CanonicalizeWithNfc(value);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/canon/normalization-failed", result.Match(_ => "ok", e => e.Type));
     }
+
+    // -- curia/canon/duplicate-normalized-key (P22 non-repudiation defect) --------------
+
+    /// <summary>
+    /// The reproducer: hex 7b22636166c3a9223a312c2263616665cc81223a327d, i.e.
+    /// {"café":1,"café":2} where the first key is precomposed U+00E9 and the second
+    /// is "cafe" + COMBINING ACUTE ACCENT (U+0301) -- distinct on the wire, so ADMIT's
+    /// duplicate-key check (raw bytes only) cannot see the collision. R6.9 then mandates
+    /// the NFC step that makes them equal. Before this fix, CanonicalizeWithNfc emitted
+    /// {"café":1,"café":2} -- a duplicate member in the signed canonical form, meaning two
+    /// distinct wire documents could share one signature.
+    /// </summary>
+    [Fact]
+    public void RejectsDuplicateNormalizedKeyFromDistinctWireCombiningForms()
+    {
+        var json = "{\"café\":1,\"café\":2}";
+        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException($"parse failed: {e.Type}"));
+
+        var result = CanonicalJson.CanonicalizeWithNfc(parsed);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/canon/duplicate-normalized-key", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>Same collision, members reversed: the check must not depend on which of the two colliding names was admitted first.</summary>
+    [Fact]
+    public void RejectsDuplicateNormalizedKeyRegardlessOfWhichCombiningFormComesFirst()
+    {
+        var json = "{\"café\":2,\"café\":1}";
+        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException($"parse failed: {e.Type}"));
+
+        var result = CanonicalJson.CanonicalizeWithNfc(parsed);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/canon/duplicate-normalized-key", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>The check is not limited to the document root: a collision inside a nested object must be caught too.</summary>
+    [Fact]
+    public void RejectsDuplicateNormalizedKeyInsideANestedObject()
+    {
+        var json = "{\"outer\":{\"café\":1,\"café\":2}}";
+        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException($"parse failed: {e.Type}"));
+
+        var result = CanonicalJson.CanonicalizeWithNfc(parsed);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/canon/duplicate-normalized-key", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// An object with both a raw duplicate ("a" twice) and a separate NFC collision
+    /// ("café" precomposed vs. decomposed) must report the raw duplicate, using ADMIT's
+    /// own curia/admit/duplicate-key predicate -- never curia/canon/duplicate-normalized-key,
+    /// which would misdescribe a raw duplicate as something normalization created. Built by
+    /// direct JsonValue construction (bypassing JsonReader/ADMIT, which would otherwise
+    /// reject the raw "a" duplicate itself before this function's own check ever ran) so
+    /// this function's internal precedence rule is exercised directly, mirroring
+    /// curia-testis's nfc.rs three ordering permutations
+    /// (raw_duplicate_always_wins_when_raw_duplicate_is_first /
+    /// _when_nfc_collision_is_first / _with_an_unrelated_key_between_them).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(BothDefectsMemberOrderings))]
+    public void RawDuplicateAlwaysWinsOverAnNfcCollisionRegardlessOfMemberOrder(
+        ImmutableArray<KeyValuePair<string, JsonValue>> members)
+    {
+        var value = new JsonValue.Object(members);
+
+        var result = CanonicalJson.CanonicalizeWithNfc(value);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/duplicate-key", result.Match(_ => "ok", e => e.Type));
+    }
+
+    public static TheoryData<ImmutableArray<KeyValuePair<string, JsonValue>>> BothDefectsMemberOrderings()
+    {
+        KeyValuePair<string, JsonValue> RawA1 = new("a", new JsonValue.Number(1));
+        KeyValuePair<string, JsonValue> RawA2 = new("a", new JsonValue.Number(2));
+        KeyValuePair<string, JsonValue> CafePrecomposed = new("café", new JsonValue.Number(3));
+        KeyValuePair<string, JsonValue> CafeDecomposed = new("café", new JsonValue.Number(4));
+        KeyValuePair<string, JsonValue> Unrelated = new("z", new JsonValue.Number(5));
+
+        var data = new TheoryData<ImmutableArray<KeyValuePair<string, JsonValue>>>
+        {
+            // Raw duplicate pair appears before the NFC-collision pair.
+            ImmutableArray.Create(RawA1, RawA2, CafePrecomposed, CafeDecomposed),
+            // NFC-collision pair appears before the raw duplicate pair.
+            ImmutableArray.Create(CafePrecomposed, CafeDecomposed, RawA1, RawA2),
+            // An unrelated key sits between the two members of each colliding pair.
+            ImmutableArray.Create(RawA1, Unrelated, CafePrecomposed, RawA2, CafeDecomposed),
+        };
+        return data;
+    }
+
+    // -- Controls: inputs that must still succeed --------------------------------------
+
+    [Fact]
+    public void AcceptsGenuinelyDistinctKeys() =>
+        Assert.Equal("""{"a":1,"b":2}""", CanonicalizeWithNfc("""{"a":1,"b":2}"""));
+
+    /// <summary>Two normalized names colliding in *different* objects is not a defect -- the check is scoped to one object's own member list (RFC 8785 §3.2.3).</summary>
+    [Fact]
+    public void AcceptsTheSameNormalizedNameInDifferentObjects()
+    {
+        var json = "{\"one\":{\"café\":1},\"two\":{\"café\":2}}";
+        var expected = "{\"one\":{\"café\":1},\"two\":{\"café\":2}}";
+
+        Assert.Equal(expected, CanonicalizeWithNfc(json));
+    }
+
+    [Fact]
+    public void AcceptsKeysAlreadyInNfc() =>
+        Assert.Equal("{\"café\":1}", CanonicalizeWithNfc("{\"café\":1}"));
+
+    /// <summary>Case differs but NFC does not fold case; "Cafe" and "cafe" remain distinct keys.</summary>
+    [Fact]
+    public void AcceptsKeysDifferingOnlyByCase() =>
+        Assert.Equal("""{"Cafe":1,"cafe":2}""", CanonicalizeWithNfc("""{"Cafe":1,"cafe":2}"""));
 }

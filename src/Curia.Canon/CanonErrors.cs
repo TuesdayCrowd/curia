@@ -20,4 +20,22 @@ public static class CanonErrors
     public static Error UnsafeInteger() => new("curia/admit/unsafe-integer", "Integer outside the I-JSON safe range (R6.33)");
     public static Error MissingEnvelope() => new("curia/admit/missing-envelope", "Submission has no envelope object");
     public static Error MissingSignature() => new("curia/admit/missing-signature", "Submission has no detached signature");
+
+    // Curia.Canon layer (post-ADMIT canonicalization, R6.9): conditions that only exist
+    // once a tree is being normalized, not visible to ADMIT's raw-wire-bytes checks.
+    // `DuplicateKey` above is deliberately reused (not re-slugged) when
+    // CanonicalJson.CanonicalizeWithNfc finds two byte-identical raw member names --
+    // it is the same defect ADMIT's own duplicate-key check exists to catch, just
+    // noticed by a caller that reached this layer without ADMIT having run first
+    // (mirrors curia-testis's nfc.rs, which reuses its own admit slug for the same
+    // reason: a verifier should report the same predicate for the same defect
+    // regardless of which layer noticed it).
+    public static Error DuplicateNormalizedKey(string key) => new(
+        "curia/canon/duplicate-normalized-key",
+        "Two distinct object member names normalize (NFC) to the same string",
+        key);
+    public static Error NormalizationFailed(string detail) => new(
+        "curia/canon/normalization-failed",
+        "Unicode NFC normalization failed for a string in the document (R6.9)",
+        detail);
 }
