@@ -13,6 +13,7 @@
 //! mechanism for integration tests to find a sibling binary target) and
 //! asserts on its exit code and both output streams.
 
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -28,6 +29,20 @@ fn envelope_fixture(case: &str, file: &str) -> PathBuf {
 }
 
 fn run_cli(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_curia-testis"))
+        .args(args)
+        .output()
+        .expect("failed to spawn the curia-testis binary")
+}
+
+/// Like [`run_cli`], but accepts raw [`OsStr`] arguments rather than `&str`
+/// — the only way to hand the binary an argument that is not valid UTF-8 at
+/// all, which `Command::args(&[&str])` cannot express (a `&str` is already
+/// guaranteed valid UTF-8 before this function ever sees it). `Command`
+/// itself accepts `impl AsRef<OsStr>` arguments and passes them to
+/// `execve`-family calls unmodified — no UTF-8 conversion happens between
+/// this process and the child.
+fn run_cli_os(args: &[&OsStr]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_curia-testis"))
         .args(args)
         .output()
@@ -261,6 +276,83 @@ fn nonexistent_jwks_path_is_a_usage_error() {
 }
 
 // ---------------------------------------------------------------------
+// Fix round 1 — Critical: a non-UTF-8 argument must not panic.
+//
+// `std::env::args()` panics outright on any argument that is not valid
+// UTF-8 (the reviewer reproduced this directly against the pre-fix binary
+// via `execve` with a raw invalid byte: exit 101, an `unwrap()` inside the
+// stdlib's own convenience wrapper). This was the one boundary none of the
+// existing fuzzing (1,513,177 ADMIT cases, 2,000,000+ canonicalizer cases,
+// 65 JWS/JWK adversarial probes) ever touched, because none of it drove
+// `argv` — every prior fuzz target was a function called directly, not a
+// process spawned with attacker-controlled command-line bytes.
+// ---------------------------------------------------------------------
+
+/// Builds an `OsStr` containing a byte sequence that is **not** valid
+/// UTF-8 at all — not merely non-ASCII, but structurally invalid (a lone
+/// continuation byte with no valid lead byte can never appear in
+/// well-formed UTF-8). `std::os::unix::ffi::OsStrExt::from_bytes` is exact:
+/// unlike `String::from_utf8_lossy` (which would silently replace the bad
+/// bytes with `U+FFFD` and defeat the whole point of this test), it hands
+/// the raw bytes through to the OS unchanged.
+#[cfg(unix)]
+fn invalid_utf8_os_string() -> OsString {
+    use std::os::unix::ffi::OsStrExt;
+    // 0xFF and 0xFE are not valid UTF-8 lead or continuation bytes under
+    // any circumstance (RFC 3629 never assigns them a role); this is
+    // deliberately not an "edge case" like an overlong encoding or a
+    // truncated multi-byte sequence — it is unconditionally invalid.
+    OsStr::from_bytes(b"\xFF\xFE\xFFbadpath").to_os_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_non_utf8_argument_is_a_usage_error_not_a_panic() {
+    let jwks = envelope_fixture("ed25519-minimal", "jwks.json");
+    let bad_value = invalid_utf8_os_string();
+    let output = run_cli_os(&[
+        OsStr::new("verify"),
+        OsStr::new("--envelope"),
+        &bad_value,
+        OsStr::new("--jwks"),
+        jwks.as_os_str(),
+    ]);
+
+    // The pre-fix binary aborted with SIGABRT/exit 101 (a Rust panic) here.
+    // A process killed by a signal has no exit code at all under
+    // `std::process::ExitStatus` on Unix — `.code()` returns `None` — so
+    // asserting a *specific* exit code (2) is already a stronger check
+    // than merely "did not panic": it fails both on the old panic and on
+    // any other non-graceful termination.
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a non-UTF-8 argument must be reported as a usage error (exit 2), not panic; \
+         got status {:?}, stderr: {}",
+        output.status,
+        stderr_of(&output)
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("not valid UTF-8"),
+        "stderr should explain the argument was not valid UTF-8; got: {stderr:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_non_utf8_subcommand_is_also_a_usage_error_not_a_panic() {
+    // Not just the flag *value* — the subcommand token itself, and (by the
+    // same code path) a flag *name*, must be equally panic-free, since
+    // `to_utf8_args` converts every argument up front rather than only the
+    // ones a later branch happens to inspect.
+    let bad = invalid_utf8_os_string();
+    let output = run_cli_os(&[&bad]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr_of(&output).contains("not valid UTF-8"));
+}
+
+// ---------------------------------------------------------------------
 // Malformed content, read successfully but rejected — exit 1, exit 2, or
 // (for a submission ADMIT itself rejects) exit 1 naming the ADMIT slug,
 // exercised through the real binary rather than only the library.
@@ -346,6 +438,87 @@ fn a_jwks_file_at_exactly_the_real_fixture_size_still_works() {
         jwks.to_str().unwrap(),
     ]);
     assert!(output.status.success());
+}
+
+// ---------------------------------------------------------------------
+// Fix round 1 — Important: `--envelope` is now bounded too (a generous
+// multiple of ADMIT's own submission cap, not equal to it — see
+// ENVELOPE_READ_CAP_MULTIPLE's doc comment in src/bin/curia-testis.rs for
+// why those are different concerns that both needed addressing).
+// ---------------------------------------------------------------------
+
+#[test]
+fn an_envelope_between_admit_cap_and_cli_cap_still_gets_admits_own_verdict() {
+    // 1.5 MiB: over ADMIT_MAX_SUBMISSION_BYTES (1 MiB), comfortably under
+    // the CLI's own read cap (8 MiB, ENVELOPE_READ_CAP_MULTIPLE = 8). This
+    // file is read in full by the CLI and handed to verify_envelope, which
+    // still runs ADMIT, which still rejects it — so this must surface as a
+    // *verification failure* (exit 1, curia/admit/too-large), never a
+    // usage error. This is the exact reclassification the original Task 6
+    // report argued against, now re-confirmed as still true after adding
+    // the CLI-level cap for the memory concern.
+    let dir = scratch_dir("envelope-between-caps");
+    let envelope_path = dir.join("submission.json");
+    let admit_cap: usize = 1024 * 1024;
+    let size = admit_cap + admit_cap / 2;
+    std::fs::write(&envelope_path, vec![b'x'; size]).unwrap();
+    let jwks = envelope_fixture("ed25519-minimal", "jwks.json");
+
+    let output = run_cli(&[
+        "verify",
+        "--envelope",
+        envelope_path.to_str().unwrap(),
+        "--jwks",
+        jwks.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a file between ADMIT's cap and the CLI's own cap must still reach ADMIT and be \
+         rejected as a verification failure, not a usage error; stderr: {}",
+        stderr_of(&output)
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("curia/admit/too-large"),
+        "must be ADMIT's own too-large predicate, not a CLI-level cap message; got: {stderr:?}"
+    );
+}
+
+#[test]
+fn an_envelope_file_over_the_cli_cap_is_a_usage_error() {
+    // Past the CLI's own read cap: the read is truncated and rejected
+    // before verify_envelope (and therefore ADMIT) ever runs — the case
+    // the memory-blowup finding was about (a 200 MB --envelope file
+    // previously peaked at ~212 MB RSS; this must never fully materialize
+    // a file this large in memory).
+    let dir = scratch_dir("envelope-over-cli-cap");
+    let envelope_path = dir.join("submission.json");
+    let cli_cap: usize = 8 * 1024 * 1024;
+    std::fs::write(&envelope_path, vec![b'x'; cli_cap + 1]).unwrap();
+    let jwks = envelope_fixture("ed25519-minimal", "jwks.json");
+
+    let output = run_cli(&[
+        "verify",
+        "--envelope",
+        envelope_path.to_str().unwrap(),
+        "--jwks",
+        jwks.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a file over the CLI's --envelope read cap must be a usage error, not a \
+         verification failure; stderr: {}",
+        stderr_of(&output)
+    );
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("--envelope") && stderr.contains("cap"),
+        "stderr should explain the file exceeded the --envelope cap; got: {stderr:?}"
+    );
 }
 
 /// A fresh scratch directory under the OS temp dir, unique to this test
