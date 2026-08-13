@@ -33,7 +33,8 @@
 //!
 //! Every vector whose `meta.json` declares `"profile":
 //! "canonicalize-with-nfc"` per `conformance/README.md`'s profile table:
-//! `c4/` (10), `ordering/` (3), `unicode/` (5), `numbers/` (9) — 27 total,
+//! `c4/` (10), `ordering/` (3), `unicode/` (6, one of them a reject vector),
+//! `numbers/` (9) — 27 canonical-bytes vectors,
 //! loaded via `Corpus`'s existing per-family `Vec<DirectoryVector>` fields,
 //! all of which carry that one profile (Task 2's report confirmed this by
 //! grep before either task assumed it). The `envelope/` family's six
@@ -99,6 +100,15 @@ fn assert_family_matches(family: &'static str, vectors: &[DirectoryVector], expe
         "conformance/{family}/ vector count"
     );
     for v in vectors {
+        // A canonicalization family may now contain `expect-reject` vectors:
+        // `canonicalize_with_nfc` must reject a document whose member names
+        // collide only *after* normalization, which ADMIT cannot catch because
+        // the input genuinely has no duplicate. Those vectors are checked by
+        // `tests/vectors.rs`; this file exists to pin the canonical-bytes claim
+        // independently of the digest gate, so it has nothing to say about them.
+        if matches!(v.expectation, Expectation::Reject { .. }) {
+            continue;
+        }
         assert_matches_expected_canonical(family, v);
     }
 }
@@ -115,7 +125,7 @@ fn ordering_matches_expected_canonical() {
 
 #[test]
 fn unicode_matches_expected_canonical() {
-    assert_family_matches("unicode", &corpus().unicode, 5);
+    assert_family_matches("unicode", &corpus().unicode, 6);
 }
 
 #[test]

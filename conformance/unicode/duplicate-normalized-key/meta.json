@@ -1,0 +1,5 @@
+{
+  "profile": "canonicalize-with-nfc",
+  "requirement": "R6.9",
+  "note": "Headline finding of the three-way differential run (Task 7 / errata E1). {\"café\":1,\"café\":2} where the first key is precomposed U+00E9 and the second is 'cafe' + combining acute U+0301: two distinct wire keys, identical after NFC. Decided by R6.9 (addendum): 'CanonicalizeWithNfc SHALL reject, as curia/canon/duplicate-normalized-key, any object in which two or more member names distinct on the wire become identical after normalization.' ADMIT alone cannot catch this -- the two wire-level keys are byte-distinct, so it accepts; the collision exists only after CanonicalizeWithNfc's own NFC step runs. Direct bearing on signature non-repudiation (R6.9's own purpose): before this rule, two distinct wire documents could canonicalize to the same (ambiguous, non-re-parseable) bytes and share one signature."
+}

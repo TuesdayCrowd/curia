@@ -8,6 +8,28 @@ rejected instead has `expect-reject` containing the RFC 9457 error slug.
 Every vector has `meta.json` with `{"profile": "...", "requirement": "R6.8",
 "note": "..."}`. A vector citing no requirement does not belong in the set.
 
+**`expect-reject` is not confined to the `admit` profile.** It originally was, on
+the assumption that canonicalization either succeeds or is never reached. That
+assumption is false: normalizing two distinct member names can make them equal,
+and ADMIT cannot catch it because the input genuinely has no duplicate — so
+`CanonicalizeWithNfc` itself has to reject, and a vector has to be able to say
+so. A vector under any profile may therefore carry `expect-reject` instead of
+`expected.canonical`/`expected.digest`, meaning *the function this profile names
+must fail with this slug*. `unicode/duplicate-normalized-key/` is the first such
+vector.
+
+**A vector's `input.json` is fed to the function under test verbatim.** A harness
+that wraps, unwraps, re-encodes, or otherwise transforms those bytes first is not
+running that vector — it is running a different one it invented, and the
+published vector then constrains nothing. This was not hypothetical: one
+implementation satisfied two `admit-reject/` vectors by wrapping each bare
+document in a synthetic `{"envelope": ..., "signature": ...}` shell, and the
+divergence that hid went unnoticed until a differential run fed the published
+bytes as published. See errata E6. Corollary: a behaviour only reachable by
+bypassing an earlier phase is **not expressible as a vector** — the precedence
+rule between a raw duplicate member and a normalization-induced one lives behind
+ADMIT, so it is pinned by unit tests in both implementations rather than here.
+
 ## Which function a vector constrains
 
 **Read this before implementing.** The corpus is partitioned across two

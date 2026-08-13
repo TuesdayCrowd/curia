@@ -181,6 +181,43 @@ fn check_admit(input: &[u8], expected_slug: &str) -> Result<(), String> {
     }
 }
 
+/// A canonicalization vector that must *fail*.
+///
+/// `expect-reject` was originally defined only for the `admit` profile, on the
+/// assumption that canonicalization either succeeds or is never reached. The
+/// NFC-collision finding disproved that: normalizing two distinct member names
+/// can make them equal, and the only correct response is for
+/// `CanonicalizeWithNfc` itself to reject — ADMIT cannot see the collision,
+/// because the input genuinely has no duplicate. So the corpus format needs to
+/// express "this canonicalization must fail with this predicate", and this is
+/// the check that reads it.
+fn check_canonicalize_rejects<E: std::fmt::Display>(
+    canonicalize_fn: impl Fn(&[u8]) -> Result<Vec<u8>, E>,
+    input: &[u8],
+    expected_slug: &str,
+) -> Result<(), String> {
+    match canonicalize_fn(input) {
+        Ok(bytes) => Err(format!(
+            "expected rejection `{expected_slug}`, but canonicalization \
+             succeeded and produced {} bytes",
+            bytes.len()
+        )),
+        // The error's Display begins with its predicate slug followed by ": ",
+        // which is the shape every slug-bearing error in this crate uses.
+        Err(e) => {
+            let rendered = e.to_string();
+            let predicate = rendered.split(':').next().unwrap_or("").trim();
+            if predicate == expected_slug {
+                Ok(())
+            } else {
+                Err(format!(
+                    "rejected with predicate `{predicate}`, want `{expected_slug}`"
+                ))
+            }
+        }
+    }
+}
+
 fn check_directory_vector(v: &DirectoryVector) -> Result<(), String> {
     match (v.profile, &v.expectation) {
         (Profile::Rfc8785, Expectation::Canonicalize { canonical, digest }) => {
@@ -193,6 +230,12 @@ fn check_directory_vector(v: &DirectoryVector) -> Result<(), String> {
                 canonical,
                 digest,
             )
+        }
+        (Profile::Rfc8785, Expectation::Reject { slug }) => {
+            check_canonicalize_rejects(curia_testis::canonicalize, &v.input, slug)
+        }
+        (Profile::CanonicalizeWithNfc, Expectation::Reject { slug }) => {
+            check_canonicalize_rejects(curia_testis::canonicalize_with_nfc, &v.input, slug)
         }
         (Profile::Admit, Expectation::Reject { slug }) => check_admit(&v.input, slug),
         (profile, expectation) => Err(format!(
@@ -355,7 +398,7 @@ fn envelope() {
 // ---------------------------------------------------------------------
 // A whole-corpus sanity check, independent of any canonicalization logic:
 // the loader itself must find every vector the controller counted by hand
-// (42 vector directories, per CHARTER.md, plus the 6 vendored rfc8785 file
+// (50 vector directories, per CHARTER.md, plus the 6 vendored rfc8785 file
 // pairs). This is not one of Step 3's per-family assertions; it exists so a
 // future change to the loader that silently drops a family (e.g. an empty
 // Vec from a typo'd directory name) fails here instead of just quietly
@@ -373,7 +416,7 @@ fn corpus_size_matches_charter() {
             + c.numbers.len()
             + c.admit_reject.len()
             + c.envelope.len(),
-        42,
+        43,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
          + admit-reject + envelope)"
     );

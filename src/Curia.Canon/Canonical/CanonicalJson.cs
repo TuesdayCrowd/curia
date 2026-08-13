@@ -52,8 +52,13 @@ public static class CanonicalJson
     }
 
     /// <summary>The Cūria profile (R6.9). See the type-level remarks.</summary>
-    public static Result<CanonicalBytes> CanonicalizeWithNfc(JsonValue value) =>
-        Canonicalize(NormalizeToNfc(value));
+    public static Result<CanonicalBytes> CanonicalizeWithNfc(JsonValue value)
+    {
+        var normalized = NormalizeToNfc(value);
+        return normalized.TryGetValue(out var tree, out var error)
+            ? Canonicalize(tree)
+            : Result<CanonicalBytes>.Fail(error!);
+    }
 
     /// <summary>
     /// Canonicalizes an <see cref="EnvelopeDocument"/> for signing, verification, and
@@ -76,31 +81,137 @@ public static class CanonicalJson
     /// Rebuilds the tree with every object key and string value NFC-normalized. A new
     /// tree rather than a mutation, because <see cref="JsonValue"/> is immutable and this
     /// runs on every canonicalize call rather than touching stored content (§6.4).
+    ///
+    /// Fallible for two reasons, both caught here because this is where the normalized
+    /// tree is built -- the only place either condition first exists to detect:
+    ///
+    /// <list type="bullet">
+    /// <item>Normalizing an object's member names can make two distinct raw wire keys
+    /// equal (e.g. precomposed "café" vs. "cafe" + combining acute, U+0301) --
+    /// <see cref="NormalizeObject"/> rejects the collision rather than silently emitting
+    /// a canonical object with two members sharing one key, which would not be valid
+    /// I-JSON and would let two distinct wire documents share one canonical digest and
+    /// signature (a non-repudiation defect).</item>
+    /// <item><c>string.Normalize(NormalizationForm.FormC)</c> throws
+    /// <see cref="ArgumentException"/> on some inputs .NET's ICU-backed implementation
+    /// treats as invalid code points (observed for U+FFFE, a Unicode noncharacter read
+    /// as a reversed byte-order mark). ADMIT rejects noncharacters before a
+    /// <see cref="JsonValue"/> exists to reach this function on any real call path, but
+    /// CS-10 requires domain fallibility to be a value even so -- see
+    /// <see cref="NormalizeString"/>.</item>
+    /// </list>
     /// </summary>
-    private static JsonValue NormalizeToNfc(JsonValue value)
+    private static Result<JsonValue> NormalizeToNfc(JsonValue value)
     {
         switch (value)
         {
             case JsonValue.Object o:
-                return new JsonValue.Object(o.Members
-                    .Select(m => new KeyValuePair<string, JsonValue>(
-                        m.Key.Normalize(NormalizationForm.FormC), NormalizeToNfc(m.Value)))
-                    .ToImmutableArray());
+                return NormalizeObject(o);
             case JsonValue.Array a:
-                return new JsonValue.Array(a.Items.Select(NormalizeToNfc).ToImmutableArray());
+                return NormalizeArray(a);
             case JsonValue.String s:
-                return new JsonValue.String(s.Value.Normalize(NormalizationForm.FormC));
+                return NormalizeString(s.Value).Map(n => (JsonValue)new JsonValue.String(n));
             case JsonValue.Number n:
-                return n;
+                return Result<JsonValue>.Ok(n);
             case JsonValue.Bool b:
-                return b;
+                return Result<JsonValue>.Ok(b);
             case JsonValue.Null n:
-                return n;
+                return Result<JsonValue>.Ok(n);
             default:
                 // Unreachable: JsonValue is closed to this assembly (CS-11). A new case
                 // added there without updating this switch fails loudly here rather than
                 // silently dropping the case's content from a signed document.
                 throw new ArgumentOutOfRangeException(nameof(value), value, "Unhandled JsonValue case");
+        }
+    }
+
+    /// <summary>
+    /// Normalizes one object's own member list. Two linear passes over the *same*
+    /// member list, not one combined scan, so the outcome is independent of member
+    /// order (mirrors curia-testis's <c>nfc.rs</c>, whose own fix history records why a
+    /// single combined pass is wrong: it makes the reported slug depend on which
+    /// collision the scan happens to reach first, and the corpus pins exact slugs).
+    ///
+    /// Pass 1 rejects a raw, byte-identical duplicate member name with the same
+    /// <c>curia/admit/duplicate-key</c> predicate ADMIT itself uses -- this is the
+    /// identical defect, just noticed by a caller that reached this function without
+    /// ADMIT having run first, and a verifier should report the same slug for the same
+    /// defect regardless of which layer noticed it. Pass 1 runs to completion, over
+    /// every member, before pass 2 computes a single normalized name, which is what
+    /// makes a raw duplicate always win over an NFC-created collision in the same
+    /// object -- regardless of which pair appears earlier -- rather than whichever
+    /// defect the scan happens to reach first.
+    ///
+    /// Pass 2 normalizes every remaining (by definition raw-unique) member name and
+    /// value, rejecting with the distinct <c>curia/canon/duplicate-normalized-key</c>
+    /// predicate when two raw-distinct names normalize to the same string. The check is
+    /// scoped to this one object's member list, not the whole document: RFC 8785
+    /// §3.2.3 ordering and duplicate-freedom are properties of one member list, so two
+    /// equal normalized names in different objects (siblings or otherwise) are fine.
+    /// </summary>
+    private static Result<JsonValue> NormalizeObject(JsonValue.Object o)
+    {
+        var rawSeen = new HashSet<string>(o.Members.Length, StringComparer.Ordinal);
+        foreach (var member in o.Members)
+        {
+            if (!rawSeen.Add(member.Key))
+                return Result<JsonValue>.Fail(CanonErrors.DuplicateKey(member.Key));
+        }
+
+        var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>(o.Members.Length);
+        var normalizedSeen = new HashSet<string>(o.Members.Length, StringComparer.Ordinal);
+        foreach (var member in o.Members)
+        {
+            var keyResult = NormalizeString(member.Key);
+            if (!keyResult.TryGetValue(out var normalizedKey, out var keyError))
+                return Result<JsonValue>.Fail(keyError!);
+
+            if (!normalizedSeen.Add(normalizedKey))
+                return Result<JsonValue>.Fail(CanonErrors.DuplicateNormalizedKey(normalizedKey));
+
+            var valueResult = NormalizeToNfc(member.Value);
+            if (!valueResult.TryGetValue(out var normalizedValue, out var valueError))
+                return Result<JsonValue>.Fail(valueError!);
+
+            members.Add(new KeyValuePair<string, JsonValue>(normalizedKey, normalizedValue));
+        }
+
+        return Result<JsonValue>.Ok(new JsonValue.Object(members.MoveToImmutable()));
+    }
+
+    /// <summary>Normalizes every element of an array; order is preserved (R6.8).</summary>
+    private static Result<JsonValue> NormalizeArray(JsonValue.Array a)
+    {
+        var items = ImmutableArray.CreateBuilder<JsonValue>(a.Items.Length);
+        foreach (var item in a.Items)
+        {
+            var itemResult = NormalizeToNfc(item);
+            if (!itemResult.TryGetValue(out var normalizedItem, out var error))
+                return Result<JsonValue>.Fail(error!);
+            items.Add(normalizedItem);
+        }
+
+        return Result<JsonValue>.Ok(new JsonValue.Array(items.MoveToImmutable()));
+    }
+
+    /// <summary>
+    /// NFC-normalizes one string, catching the <see cref="ArgumentException"/>
+    /// <c>string.Normalize(NormalizationForm.FormC)</c> throws on some inputs (CS-10:
+    /// domain fallibility must be a value, never an unhandled exception). ADMIT rejects
+    /// the one input class this is known to be reachable on (Unicode noncharacters --
+    /// see the caller's remarks) before wire content ever becomes a
+    /// <see cref="JsonValue"/>, but this function's contract does not get to assume its
+    /// caller ran ADMIT first, so the catch stays regardless.
+    /// </summary>
+    private static Result<string> NormalizeString(string s)
+    {
+        try
+        {
+            return Result<string>.Ok(s.Normalize(NormalizationForm.FormC));
+        }
+        catch (ArgumentException ex)
+        {
+            return Result<string>.Fail(CanonErrors.NormalizationFailed(ex.Message));
         }
     }
 

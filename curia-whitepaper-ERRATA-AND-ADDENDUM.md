@@ -7,19 +7,21 @@
 |---|---|
 | **Document** | Errata and enhancement addendum |
 | **Applies to** | White paper v1.0, 8 August 2026 |
-| **Version** | 1.2-draft |
-| **Date** | 11 August 2026 |
+| **Version** | 1.3-draft |
+| **Date** | 12 August 2026 |
 | **Organization** | TuesdayCrowd |
 | **Status** | Review — proposes changes for incorporation into v1.1 |
 | **Part D added** | 11 August 2026, from the Increment 1 implementation |
+| **Part E added** | 12 August 2026, from the three-way differential comparison (`Curia.Canon` vs. `curia-testis` vs. an independent RFC 8785 oracle) |
 | **License** | UNLICENSE (this document and all original code herein) |
 
 ---
 
 ## Scope and method
 
-This document does four things. Parts A through C, in order of decreasing
-certainty, were derived by reading. Part D was derived by building.
+This document does five things. Parts A through C, in order of decreasing
+certainty, were derived by reading. Part D was derived by building. Part E was
+derived by building twice, independently, and comparing the results.
 
 **Part A** records errata: statements in v1.0 that are wrong, internally
 inconsistent, or point at the wrong target. Each entry names the location, the
@@ -43,8 +45,25 @@ reimplement from. Part D's entries are ordered by whether an independent second
 implementation working from these documents and the published vectors alone would
 diverge — D1 through D6 would, D7 through D9 would not.
 
+**Part E** records what a second, independently written implementation and a
+three-way differential comparison against it proved. `curia-testis` (Rust) was
+built in a cleanroom holding only the specification documents and the published
+conformance corpus — no access to `Curia.Canon`'s source — then run against
+`Curia.Canon` and a from-scratch Node RFC 8785 oracle over 22,515 compared lines.
+Part D's evidence was one implementer's difficulty reaching a working state from
+this text. Part E's evidence is two implementers, each individually competent and
+each reaching a working state, disagreeing with each other at seams neither the
+white paper nor the errata through Part D closes — a claim about the text stronger
+than either implementation's testimony alone, because agreement between two
+independent readings is evidence and disagreement between them is stronger
+evidence still. Part E's entries are ordered by the same criterion as Part D's:
+E1 through E5 are places an independent third implementation would diverge from
+at least one of the first two; E6 is a corpus-integrity finding rather than an
+implementation divergence; E7 is a platform artifact carrying no normative change.
+
 The numbering convention: errata are `A<n>`, gaps are `B<n>`, enhancements are
-`C<n>`, implementation findings are `D<n>`. Proposed requirements continue the v1.0 `R<section>.<n>` sequence from
+`C<n>`, implementation findings are `D<n>`, cross-implementation findings are
+`E<n>`. Proposed requirements continue the v1.0 `R<section>.<n>` sequence from
 the highest existing number in each section, so incorporation into v1.1 is a
 merge, not a renumber — with one deliberate exception (A8) where renumbering is
 itself the fix.
@@ -907,6 +926,417 @@ implementation of §6.
 
 ---
 
+# Part E — Findings from the three-way differential comparison
+
+Part E differs from Part D in provenance, not only in method. Part D's findings
+came from building one implementation and discovering, in the course of reaching
+a working state, that the specification could not be followed as written. Part
+E's findings come from building a *second* implementation — `curia-testis`, in
+Rust, written in a cleanroom holding only the specification documents and the
+published conformance corpus, with no access to `Curia.Canon`'s source — and then
+running both against each other and against a third, independent RFC 8785 oracle
+(a from-scratch implementation in Node) over 22,515 compared lines drawn from a
+seeded, reproducible generator (7,500 documents, half adversarial) plus 15
+hand-built cases for boundaries the generator cannot reach by construction.
+
+An erratum found by reading is a claim about the text. An erratum found by
+building is a claim about the text plus a demonstration that a competent
+implementer following it lands somewhere else. An erratum found by differential
+comparison of two independent implementations is the same claim, doubled: not one
+competent implementer landing somewhere else, but two, independently, landing in
+two different somewhere-elses. A single implementation's departure from the text
+could be that implementation's mistake; two independently written implementations
+departing from *each other*, at a seam the text does not resolve, means the seam
+was open for both of them.
+
+Every divergence recorded here was checked by three independent verification
+lenses before being called real: whether RFC 8785, RFC 7493, and ECMA-262 settle
+the question (the RFC lens); whether this project's own specification, read in
+its stated precedence order, settles it (the Cūria-spec lens); and whether the
+divergence reproduces cleanly outside the harness, ruling out a harness artifact
+rather than a specification gap (the reproducibility lens). One of the run's
+fifteen divergence classes turned out to be exactly that — a decoding bug in the
+Node oracle itself, not in either implementation under test — and is not recorded
+below for that reason; the fix belongs in the oracle, not in this document. Where
+the three lenses did not agree on a verdict, the split is recorded rather than
+smoothed into a false unanimity, in the same spirit as Part D's own discipline
+that a defect worth fixing is not always a defect everyone would characterize
+identically.
+
+Entries are ordered, as in Part D, by whether an independent third
+implementation — given only these documents and the published corpus — would
+land somewhere different from the other two. E1 through E4 are behavioral: two
+implementations, each a defensible reading of the current text, produced
+different accept/reject verdicts or different canonical bytes for the same
+input. E5 is a divergence in vocabulary rather than verdict — both
+implementations reject the same inputs and disagree only on what to call the
+rejection — real, but lower stakes, and placed after the verdict-affecting
+entries for that reason. E6 is not a divergence between implementations at all:
+it is a case where a test harness's own handling of a published vector defeated
+the guarantee R6.11 exists to provide, discovered only because the differential
+run needed to trust that vector and found it had not actually been exercised.
+E7 records a platform artifact, not a specification defect, and changes nothing
+normative.
+
+## E1 — Normalization can manufacture a duplicate member name neither R6.9 nor ADMIT is positioned to catch
+
+**Location:** R6.9 (revised, D1); R6.15 (revised enumeration, D7), the
+duplicate-member-name row. **Class:** normative gap.
+
+Two requirements each hold on their own and fail together. R6.9 (revised)
+requires `CanonicalizeWithNfc` to normalize "every string occurring anywhere in
+the document — object member names and string values alike... **first**," and
+only then canonicalize. R6.15 (revised enumeration) requires duplicate object
+member names to be rejected, and the published `admit-reject/duplicate-keys`
+vector pins that rejection — but ADMIT runs on the wire-parsed document, before
+R6.9's normalization step exists to run at all. Neither requirement states what
+happens when two member names that are byte-distinct on the wire — and therefore
+invisible to ADMIT's check — become identical only after NFC normalizes them.
+`"café"` (precomposed U+00E9) and `"café"` (`e` + combining acute, U+0301) are
+two distinct wire keys; both normalize to the same four-character string.
+
+This is not a corner case an implementer can miss through carelessness — it is
+the composition of two requirements that were each individually complete and
+jointly silent, exactly the seam this document's own closing note names as its
+recurring failure mode. The differential run confirmed it at the byte level: the
+run's headline finding (114 occurrences of hex
+`7b22636166c3a9223a312c2263616665cc81223a327d`, i.e. `{"café":1,"café":2}`)
+found `CanonicalizeWithNfc` accepting the document and emitting canonical bytes
+with the same precomposed key twice — not valid I-JSON, not re-parseable to a
+single unambiguous value, and, because canonical bytes are exactly what gets
+digested and signed (R6.9's own purpose), a case where two distinct wire
+documents can share one signature. That is a direct violation of the
+non-repudiation property §6 exists to provide.
+
+Both implementations carried this gap at some point in their build. `curia-testis`'s
+`nfc.rs` documents finding and fixing it across three internal iterations ("Fix
+rounds 1–3"): first adding the post-normalization check at all, then separating
+it from the pre-existing raw-duplicate check into two distinctly slugged
+conditions (`curia/admit/duplicate-key` reused for the raw case, a new
+`curia/canon/duplicate-normalized-key` for the normalization-induced case), then
+— significant on its own — making the choice between the two order-independent:
+an object containing both a raw duplicate and a separate NFC collision always
+reports the raw-duplicate predicate, regardless of which pair appears earlier in
+the member list, specifically because a second implementation checking raw
+duplicates before normalizing (the more natural order, since parsing precedes
+normalizing) would always reach the same conclusion, and letting the outcome
+depend on member order would manufacture a release-blocking divergence between
+two implementations that were each individually correct. None of this reasoning
+appears in R6.9 or R6.15; it was derived once, inside a single implementation's
+fix history, and would have to be independently rediscovered by a third.
+
+**R6.9 (addendum)** Duplicate-member-name rejection (R6.15) SHALL be evaluated
+against the member names that result from `CanonicalizeWithNfc`'s NFC
+normalization step, not only against the wire-parsed names ADMIT inspects.
+`CanonicalizeWithNfc` SHALL reject, as `curia/canon/duplicate-normalized-key`,
+any object in which two or more member names distinct on the wire become
+identical after normalization — including when ADMIT has already accepted the
+document because its wire-level names were pairwise distinct. Where an object
+exhibits both a raw wire-level duplicate and a separate normalization-induced
+collision, the raw duplicate SHALL be reported (as `curia/admit/duplicate-key`,
+the same predicate ADMIT itself uses for the identical defect); this precedence
+is normative specifically so the outcome does not depend on member order, which
+would otherwise make two independently correct implementations disagree about
+which slug a dual-defect document produces.
+
+## E2 — Whether the pure canonicalization functions must re-enforce ADMIT's policy caps
+
+**Location:** R6.8 (revised, D1); R6.9 (revised, D1); `conformance/README.md`'s
+function-partition table. **Class:** underspecified.
+
+Neither R6.8 (revised) nor R6.9 (revised) states whether `Canonicalize` and
+`CanonicalizeWithNfc`, called directly on a document that never passed through
+ADMIT, must reproduce ADMIT's rejections. The corpus's own README documents the
+`admit` profile as testing "the ADMIT phase" where "canonicalization is never
+reached" — which settles what ADMIT-profile vectors mean, but says nothing about
+what the canonicalization functions themselves owe a caller that skips ADMIT and
+hands them a document directly, which every non-`admit`-profile vector does by
+construction.
+
+The two implementations disagree, and disagree in a way that reveals a real
+design question rather than a simple bug. `curia-testis` deliberately keeps its
+pure functions ADMIT-independent — `canonicalize_with_nfc` is "also called
+directly, with no ADMIT gate in front of it at all," by the family harness
+driving the `c4`/`ordering`/`unicode`/`numbers` corpus, so it "still cannot
+assume ADMIT ran" — and correspondingly accepts a 33-container document, a
+1,025-member object, an over-long string, and a raw noncharacter, canonicalizing
+each without complaint. `Curia.Canon`'s `Canonicalize`/`CanonicalizeWithNfc` have
+no code path that bypasses ADMIT's depth, member-count, size, or string-length
+checks, and reject the same inputs. This single root cause carried 1,068 compared
+lines — the largest volume of any finding in the run — 534 under bare
+`canonicalize` and a further 534 (147 depth, 116 members, 1 noncharacter, 270
+string) under `canonicalize_nfc`'s parallel reject-slug bucketing of the same
+underlying defect.
+
+The two readings are not equally weighted once the caps are separated by kind.
+RFC 8785 has a well-defined canonical output for a 40-level-deep, well-formed
+JSON document — depth, member count, and byte size are Cūria's own DoS-shaped
+ADMIT policy, not a well-definedness question RFC 8785 has any opinion about, and
+a noncharacter is (Unicode §23.7) "not recommended for interchange," not an
+invalid scalar value, so rejecting it is the same kind of policy call. A raw
+duplicate key and an unpaired surrogate are different in kind: RFC 8785 has **no**
+defined canonical output for either — JCS states duplicate-key-free input as a
+precondition, not a case its algorithm handles — so a pure function that stays
+free of ADMIT and emits *something* for `{"a":1,"a":2}` is emitting an output the
+specification it claims to implement does not define, independent of whether
+ADMIT policy is in scope at all. `curia-testis`'s pure `canonicalize` does exactly
+this today (108 occurrences), silently keeping the wire's own tie-break rather
+than rejecting.
+
+This distinction was not unanimous across the three verification lenses. Two of
+three (the RFC lens and the reproducibility lens) read Rust's behavior on raw
+duplicates as a defensible design choice — "the pure function's job is RFC 8785,
+and RFC 8785 states no rule about duplicate keys either" — genuinely
+real-but-unspecified, not a defect. The third (the Cūria-spec lens) dissented
+specifically on well-definedness grounds: a duplicate key is not a policy
+question the pure function is free to defer, because there is no canonical
+output to defer *to*. The rule below sides with the dissent and is recorded as
+this document's judgment call for exactly that reason — a future implementer who
+reads only the majority position and treats duplicate keys the same as depth
+caps would be reproducing the disagreement, not resolving it.
+
+**R6.38** `Canonicalize` and `CanonicalizeWithNfc` SHALL NOT re-enforce ADMIT's
+policy limits (R6.39: nesting depth, member count, submission size, string
+length). Each function SHALL accept and correctly canonicalize a well-formed
+document that exceeds one or more of those limits: RFC 8785 defines a canonical
+output for such a document, and the limits are a resource-exhaustion policy
+external to §6.3's well-definedness, not a property of it. A Unicode
+noncharacter SHALL be treated the same way — a noncharacter is a valid Unicode
+scalar value (Unicode §23.7) that ADMIT rejects as policy, not a value RFC 8785
+or NFC leaves undefined.
+
+`Canonicalize` and `CanonicalizeWithNfc` SHALL, independently of ADMIT and
+regardless of whether ADMIT already ran, reject a raw duplicate object member
+name and an unpaired UTF-16 surrogate. RFC 8785 defines no canonical output for
+either condition; accepting one is not a permissive reading of an underspecified
+rule but an output outside what RFC 8785 defines. This obligation is independent
+of the first paragraph's exemption: only the four caps and the noncharacter case
+are policy in the sense that paragraph excuses; duplicate keys and unpaired
+surrogates are not.
+
+One robustness note travels with this fix rather than beside it. `CanonicalizeWithNfc`'s
+NFC step, on at least one platform observed during this run, throws rather than
+returns on some noncharacter input (documented for U+FFFE, which reads as a
+reversed byte-order mark) — a case ADMIT screens out today before any such string
+reaches that call. R6.38 requires a noncharacter to reach `CanonicalizeWithNfc`
+directly and be canonicalized, not rejected; an implementation whose NFC step is
+not independently hardened against this input class will newly crash on adopting
+R6.38, rather than return a rejecting result, which is a distinct defect from the
+accept/reject question R6.38 settles. Fixing the scope question does not fix a
+platform's normalization behavior, and an implementer adopting R6.38 SHOULD
+verify its NFC step tolerates every character the requirement now obligates it
+to accept.
+
+## E3 — ADMIT's four size-shaped caps exist in no normative document
+
+**Location:** R6.15 (revised enumeration, D7); R6.39 (above), which now
+presupposes stated values for the caps it enumerates. **Class:** normative gap.
+
+D6 closed the *counting convention* for depth ("containers, not the innermost
+scalar") and left the *magnitude* — how many containers, how many members, how
+many bytes, how long a string — unstated, because the single published depth
+vector pinned only one boundary. This run found the same gap recurs at every one
+of ADMIT's four size-shaped caps, not only depth, and confirmed that no
+normative document states any of the four numbers.
+
+Depth 32, 1,024 members per object, a 1 MiB (1,048,576-byte) submission cap, and
+a 256 KiB (262,144-byte) string cap appear, byte-for-byte identical, in both
+implementations — `Curia.Canon`'s `AdmitLimits.Default` and `curia-testis`'s
+`ADMIT_MAX_DEPTH`/`ADMIT_MAX_OBJECT_MEMBERS`/`ADMIT_MAX_SUBMISSION_BYTES`/
+`ADMIT_MAX_STRING_BYTES`. Neither the white paper, the errata, nor the scoping
+document states any of the four values; both trace only to a shared
+task-planning document, which is not part of the specification set this
+repository's own precedence rule names. `AdmitLimits`'s own doc comment cites a
+source for the caps — "Caps frozen by R15.1. See spec §5.1" — and neither half
+of that citation holds up on inspection: R15.1 requires that whichever envelope
+schema, canonicalization rule, and digest computation Phase 1 fixes SHALL NOT
+change without a version bump; it says nothing about what value to fix them at,
+and §5.1 of the white paper is "Are JWTs useful here? A direct answer," unrelated
+to ADMIT. A future implementer following that citation to its stated source
+finds nothing there.
+
+This is the same class of gap D6 closed for depth's counting convention, one
+level up: a magnitude both existing implementations happen to agree on because
+they shared a planning document, not because either derived it from a
+specification text a third implementer could also read. The published corpus is
+silent at exactly the boundary that matters — no `admit-reject/` vector exists
+today for member count or overall submission size at all, and the vectors that
+do exist for depth and string length each pin only one side of their boundary.
+
+**R6.39** ADMIT's four size-shaped limits SHALL be exactly: maximum nesting
+depth 32 containers (R6.15's counting convention, D6); maximum 1,024 members per
+object; maximum submission size 1 MiB (1,048,576 bytes); maximum string length
+256 KiB (262,144 bytes), measured in UTF-8 bytes. These are Phase 1 frozen values
+under R15.1 and change only with a schema version bump. Published vectors SHALL
+exercise both sides of each of the four boundaries — the value at the limit
+(accepted) and one past it (rejected) — for member count and submission size,
+neither of which the corpus pins today.
+
+## E4 — R6.33's scope is ambiguous, and the corpus vector already assumes the answer
+
+**Location:** R6.33 (revised, D5); `conformance/admit-reject/non-integer-number/`,
+`.../unsafe-integer/`. **Class:** underspecified.
+
+R6.33 (revised) opens "Envelope numeric values SHALL be integers `n`
+satisfying..." — text whose most direct reading scopes the rule to numeric
+fields appearing within an envelope's schema (the requirement's own origin,
+Errata B5, is about `predicted_endorsement_bp` in a vote payload). But the
+vector that exercises it, `admit-reject/non-integer-number/`, publishes
+`{"n":1.5}` — a bare document, not wrapped in `{"envelope": ...,
+"signature": ...}` — under `"profile": "admit"`, which `conformance/README.md`
+defines as "the ADMIT phase... input must be rejected," a generic per-document
+rule with no envelope-shape precondition. `admit-reject/unsafe-integer/` does
+the same. The requirement text and the vector meant to pin it disagree about
+what triggers the rule at all.
+
+Each implementation resolved the disagreement differently, and both "passed" the
+vector while implementing different rules. `Curia.Canon`'s check lived only in
+the envelope-specific parsing path, reachable solely from a submission already
+shaped as `{"envelope": ..., "signature": ...}`; its generic-parser conformance
+test filters these two vectors out with the comment "Vectors citing R6.33 are
+envelope-level numeric rules, enforced in Task 6, not here," and its
+envelope-parser test suite satisfies the vector only by synthetically wrapping
+the bare vector input in a fabricated envelope shell before feeding it to the
+parser — the same defect recorded from the other side as E6, below.
+`curia-testis` read R6.33 as ADMIT-generic from the start, reached for every
+number ADMIT parses "at any depth, in any document" — which is also the only
+reading under which the published bare-document vector is testable as published
+at all. The generic reading is correct: a bare `{"n":1.5}` document is exactly
+what the vector says must be rejected, and there is no way to reject it under a
+reading scoped to envelope-schema fields. But the requirement's own text never
+says so, and an implementer who trusted the text over the vector's shape would
+build the narrower, non-conforming rule and never notice, because nothing in
+R6.33 as written contradicts the choice.
+
+**R6.33 (rev. 2)** The numeric constraint of R6.33 (revised) applies to every
+number ADMIT parses, in any document, at any depth — not only to fields that
+will become part of an envelope's signed schema. A submission need not be
+envelope-shaped, need not carry a `signature`, and need not parse as a Table 9
+field for this rule to apply: any JSON number outside the stated bounds,
+wherever it occurs in a document ADMIT is asked to admit, SHALL be rejected.
+"Envelope numeric values" in the original text names the motivating case
+(R8.29's meta-prediction), not the rule's scope.
+
+**Prerequisite, demonstrated.** R6.33 (rev. 2) cannot be adopted by an
+implementation whose parser and ADMIT gate are the same operation, and the
+attempt was made and measured. Moving `Curia.Canon`'s numeric check into
+`JsonReader.Parse` — the only path from bytes to a `JsonValue` that
+implementation has — immediately failed five conformance vectors that had been
+passing: the RFC author's own `rfc8785/input-values.json`, whose numbers include
+`4.5`, `0.002`, `1e-27` and `1e+30`, and four of the nine `numbers/` vectors
+(`exponent-switch` `1e-7`, `small-fraction-boundary` `1e-5`,
+`small-fraction-just-below` `1e-6`, and `large-exact-expansion`
+`123456789012345680000`, an integer far above `2^53 − 1`). Every one of those is
+a document RFC 8785 requires a conforming canonicalizer to process, and none of
+them is admissible under R6.33.
+
+The two rules are not in conflict; the conflation of two operations is. ADMIT
+decides what may be *submitted*; canonicalization must serve any document RFC
+8785 defines an output for, including documents ADMIT would refuse. `curia-testis`
+separates them — `json::parse` carries no ADMIT limits, `json::admit` carries all
+of them — and satisfies both rules with no tension. An implementation that routes
+canonicalization through its ADMIT gate must separate the two paths **before**
+adopting R6.33 (rev. 2); see E2, which is the same architectural observation
+approached from the canonicalization side.
+
+Stated as a requirement, because an implementer reaching E4 will otherwise make
+the same move:
+
+**R6.41** An implementation SHALL provide a path from input bytes to a parsed
+document that applies no ADMIT policy cap, distinct from the ADMIT phase itself.
+Canonicalization SHALL use that path. A document RFC 8785 defines a canonical
+form for SHALL be canonicalizable whether or not ADMIT would admit it.
+
+## E5 — Slug vocabulary nothing pins diverged; vocabulary the corpus pins did not
+
+**Location:** R6.15 (revised enumeration, D7); `conformance/admit-reject/`.
+**Class:** corpus defect.
+
+D7 already established that ADMIT's rejection classes must be named as
+properties of the input, not left to a platform's observed behavior — and,
+where the corpus pins an exact slug, the two implementations matched it exactly
+across all nine currently published `admit-reject/` vectors, with no exceptions.
+Where no vector exists, the same two implementations independently chose
+different words for the identical condition:
+
+| Condition | `Curia.Canon` | `curia-testis` |
+|---|---|---|
+| Generic RFC 8259 syntax failure, no other rule implicated | `curia/admit/malformed` | `curia/admit/malformed-json` |
+| Object member count over the cap | `curia/admit/members-exceeded` | `curia/admit/too-many-members` |
+| Submission size over the cap | `curia/admit/size-exceeded` | `curia/admit/too-large` |
+
+This is not a defect in either implementation — every observed pair of slugs
+describes the same rejection, correctly. It is a direct measurement of the
+corpus's own mechanism: a pinned vector produced unanimous agreement in every one
+of nine cases; an unpinned condition produced disagreement in every one of these
+three. Nothing about the run suggests one side's word choice was more "correct"
+than the other's, and adopting one is a naming decision, not a technical
+finding — the fix is to make the decision once, in the specification, rather
+than leave it to whichever implementation a caller happens to be scripted
+against.
+
+**R6.40** The following RFC 9457 error slugs are normative and SHALL be used
+exactly as given: `curia/admit/malformed-json` for a document that fails RFC
+8259 syntax with no other ADMIT rule implicated; `curia/admit/members-exceeded`
+for R6.39's member-count cap; `curia/admit/size-exceeded` for R6.39's
+submission-size cap. (These follow the naming pattern already established by
+`curia/admit/depth-exceeded` and `curia/admit/duplicate-key` — a condition name,
+not a generic outcome word — for the same reason those were chosen.) Published
+vectors SHALL pin every slug this document names; a rejection condition without
+a pinning vector SHALL be treated as unspecified vocabulary until one exists,
+per this entry's own evidence.
+
+## E6 — A published vector, rewritten before being fed, constrained nothing
+
+**Location:** R6.11 (addendum, D8). **Class:** normative gap.
+
+D8 already established that the conformance vectors' bytes, not the appendix
+table's typeset rendering, are the specification. What it did not anticipate is
+a test harness altering those bytes at the point of use and still claiming to
+exercise the vector. One implementation's numeric-rejection test loads every
+`admit-reject/` vector citing R6.33, then — before calling its envelope parser —
+splices the vector's raw input bytes into a synthetic wrapper,
+`{"envelope":<vector-bytes>,"signature":"a..b"}`, and feeds that instead.
+`admit-reject/non-integer-number/input.json` is `{"n":1.5}`; what actually
+reaches the parser under test is `{"envelope":{"n":1.5},"signature":"a..b"}` —
+a different document, exercising a different code path than the one the
+vector's own `"profile": "admit"` designates, and passing for a reason the
+vector's author did not intend and its `meta.json` does not describe.
+
+The consequence is not cosmetic; it is the mechanism behind E4. This
+transformation let the check live *only* inside the envelope-shaped path while
+the vector nominally "passed," because the test exercising it never actually
+sent the bare document the vector publishes. A second test suite, covering the
+same vectors from the generic-parser side, filters them out entirely rather than
+wrapping them, with the comment "Vectors citing R6.33 are envelope-level numeric
+rules, enforced in Task 6, not here" — so between the two suites, the published
+bare-document vector was never fed, byte-identical, to any code path at all. A
+conformance vector that no test exercises unmodified provides exactly the same
+assurance as one that does not exist, while looking, from a passing test-run
+log, exactly like one that does.
+
+**R6.11 (addendum 2)** A conformance vector's input bytes SHALL be fed to the
+function or phase its `meta.json` names exactly as published — unpadded,
+unwrapped, and otherwise unmodified. An implementation MAY route a vector to a
+different entry point than the one its `profile` designates only by first
+demonstrating byte-for-byte equivalence of that routing (for example: proving an
+ADMIT-profile bare document and its trivial envelope-wrapped restatement are
+rejected for the *same* reason, not merely that both are rejected); silently
+constructing a different document and testing that instead does not exercise the
+vector, regardless of whether the test suite reports it as passing.
+
+## E7 — Corrections carrying no requirement change
+
+Verified during the sweep, recorded because R6.8 (revised)'s deference to
+ECMA-262 is load-bearing and the direction of the mistake matters to whoever
+hits it next.
+
+| # | Location | Note |
+|---|---|---|
+| E7.1 | R6.8 (revised); RFC 8785 §3.2.2.3 | `curia-testis`'s first working number formatter diverged from ECMA-262 `Number::toString` specifically on exact ties — a value sitting precisely halfway between two shortest round-trip decimal representations (reproduced at `629266065803222.25`) — where ECMA-262 mandates round-half-to-even and Rust's shortest-round-trip formatting chose the other candidate. Confirmed against node, which implements ECMA-262's algorithm directly, and against .NET, which agreed with node on every case checked: the defect was in one platform's float-formatting behavior, not in Cūria's specification of what RFC 8785 requires. Worth stating explicitly rather than silently fixing, because R6.8 (revised)'s conformance target is ECMA-262 itself, deferred to via RFC 8785 §3.2.2.3, and that deference is only as strong as each platform's float formatter actually being ECMA-262-conformant on ties — a guarantee no language's standard library documents, and one this run caught only because a third, independent oracle was in the comparison. An implementer choosing a fourth language SHOULD verify tie-breaking behavior against ECMA-262 directly rather than trust a "shortest round-trip" formatter's marketing: the two properties are not the same guarantee, and the corpus's `numbers/` family contains no exact-tie vector to catch a divergence of this kind either. |
+
+---
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -942,6 +1372,12 @@ implementation of §6.
 | R6.33 (rev.) | Explicit symmetric bound `−(2^53 − 1) ≤ n ≤ 2^53 − 1`; `2^53` rejected | D5 |
 | R6.36 | Every published vector declares which canonicalization function it constrains | D2 |
 | R6.37 | Signing input is the raw canonical bytes per RFC 7797, not base64url-encoded | D3 |
+| R6.9 (add.) | Duplicate-member rejection evaluated post-normalization; raw duplicate wins, order-independently | E1 |
+| R6.38 | Pure canonicalization functions skip ADMIT's policy caps but independently reject raw duplicates and unpaired surrogates | E2 |
+| R6.39 | ADMIT's four size-shaped caps pinned: depth 32, 1,024 members, 1 MiB submission, 256 KiB string | E3 |
+| R6.33 (rev. 2) | R6.33's numeric bound applies ADMIT-generically, not only to envelope-schema fields | E4 |
+| R6.40 | Slug vocabulary pinned: `malformed-json`, `members-exceeded`, `size-exceeded` | E5 |
+| R6.11 (add. 2) | A vector's bytes SHALL be fed unmodified to the function/phase its `meta.json` names | E6 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected
 citations SP 800-207 §5.7, RFC 7797, RFC 8707; cross-reference repairs; §10

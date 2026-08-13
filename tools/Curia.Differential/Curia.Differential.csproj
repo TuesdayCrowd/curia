@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Curia.Differential</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!--
+      This is the C# endpoint of Task 7's differential harness
+      (docs/superpowers/plans/2026-08-11-canon-testis.md): an NDJSON pipe over stdin/stdout
+      that an external comparison script drives to diff this project's behavior against the
+      Rust curia-testis endpoint and a node oracle, byte for byte. It is not a shipped
+      product surface CS-* governs; it is a thin driver over Curia.Canon's real ADMIT and
+      canonicalization entry points, added so the comparison has something to call.
+    -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Curia.Canon/Curia.Canon.csproj" />
+    <ProjectReference Include="../../src/Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
+  </ItemGroup>
+</Project>
