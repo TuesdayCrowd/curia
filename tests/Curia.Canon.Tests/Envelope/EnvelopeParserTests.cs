@@ -2,7 +2,6 @@ using System.Text;
 using Curia.Canon.Canonical;
 using Curia.Canon.Envelope;
 using Curia.Canon.Json;
-using Curia.Canon.Tests.Vectors;
 using Curia.Domain.Primitives;
 using Xunit;
 
@@ -47,7 +46,7 @@ public sealed class EnvelopeParserTests
     public void RejectsATopLevelValueThatIsNotAnObject()
     {
         var slug = Parse("""[1,2,3]""").Match(_ => "ok", e => e.Type);
-        Assert.Equal("curia/admit/malformed", slug);
+        Assert.Equal("curia/admit/malformed-json", slug);
     }
 
     [Fact]
@@ -66,23 +65,20 @@ public sealed class EnvelopeParserTests
         Assert.Equal("curia/admit/unsafe-integer", slug);
     }
 
-    [Theory]
-    [MemberData(nameof(NumericRejectionVectors))]
-    public void ConformanceNumericRejectionVectors(string name, byte[] input, string slug)
-    {
-        _ = name;
-        var wrapped = Encoding.UTF8.GetBytes(
-            $$"""{"envelope":{{Encoding.UTF8.GetString(input)}},"signature":"a..b"}""");
-        Assert.Equal(slug, EnvelopeParser.Parse(wrapped, AdmitLimits.Default).Match(_ => "ok", e => e.Type));
-    }
-
-    public static TheoryData<string, byte[], string> NumericRejectionVectors()
-    {
-        var data = new TheoryData<string, byte[], string>();
-        foreach (var v in VectorLoader.Load("admit-reject").Where(v => v.Requirement == "R6.33"))
-            data.Add(v.Name, v.Input, v.ExpectRejectSlug!);
-        return data;
-    }
+    // ConformanceNumericRejectionVectors previously lived here: it satisfied the two R6.33
+    // admit-reject/ vectors by splicing their bare-document bytes into a synthetic
+    // {"envelope":<vector-bytes>,"signature":"a..b"} shell before feeding EnvelopeParser --
+    // a different document than the one published, exercising the envelope-shaped code path
+    // rather than the "profile": "admit" (bare document) one the vectors actually declare
+    // (errata E6, R6.11 addendum 2; this is the exact defect E6 records). It is deleted, not
+    // fixed in place: now that R6.33 (rev. 2) is ADMIT-generic, JsonReaderTests.
+    // ConformanceRejectionVectorsAreRejectedWithTheDeclaredSlug feeds both vectors' bytes
+    // verbatim to JsonReader.Parse -- the real ADMIT entry point their profile names -- so
+    // no synthetic wrapper is needed to exercise them at all. The two tests immediately
+    // above (RejectsANonIntegerNumberAnywhereInTheEnvelope /
+    // RejectsAnIntegerOutsideTheSafeRange) remain as the envelope-shaped regression case:
+    // unlike the deleted theory, they build a genuine envelope directly rather than
+    // transforming a bare-document vector's bytes into one.
 
     [Fact]
     public void DigestOfTheCanonicalFormIsStableAndPrefixed()

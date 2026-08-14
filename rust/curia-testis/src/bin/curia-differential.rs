@@ -76,15 +76,14 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use serde_json::{json, Value};
 
-/// Reused rather than invented: [`curia_testis::nfc::NfcError::Parse`]
-/// already names this exact condition — the input did not parse as JSON at
-/// all — `curia/canon/parse-error`, for [`curia_testis::canonicalize_with_nfc`].
-/// [`curia_testis::canonicalize`] (pure RFC 8785, no NFC) can fail the same
-/// way, through a bare [`curia_testis::json::ParseError`] that has no
-/// `predicate()` of its own; giving it this same slug means the comparison
-/// side of the harness sees one predicate for "not JSON at all" from either
-/// canonicalization function, not two spellings of the same fact.
-const CANON_PARSE_ERROR_SLUG: &str = "curia/canon/parse-error";
+// Canonicalization failures report the *condition*, via
+// [`curia_testis::json::ParseError::predicate`] and
+// [`curia_testis::nfc::NfcError::predicate`] — not a single generic
+// "did not parse" slug. The differential harness found why that matters: a
+// duplicate member name was reported here as `curia/canon/parse-error` while
+// the C# implementation called the same rejection `curia/admit/duplicate-key`,
+// which reads as a divergence between implementations when it is only a
+// divergence in how one of them names a layer.
 
 fn main() -> ExitCode {
     let stdin = io::stdin();
@@ -202,7 +201,7 @@ fn dispatch(op: &str, input: &[u8]) -> Result<Vec<u8>, String> {
             Err(err) => Err(err.predicate().to_owned()),
         },
         "canonicalize" => {
-            curia_testis::canonicalize(input).map_err(|_err| CANON_PARSE_ERROR_SLUG.to_owned())
+            curia_testis::canonicalize(input).map_err(|err| err.predicate().to_owned())
         }
         "canonicalize_nfc" => {
             curia_testis::canonicalize_with_nfc(input).map_err(|err| err.predicate().to_owned())

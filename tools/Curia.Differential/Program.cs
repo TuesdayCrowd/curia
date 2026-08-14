@@ -8,12 +8,20 @@ using Curia.Domain.Primitives;
 
 // Curia.Differential is the C# endpoint of Task 7's differential harness
 // (docs/superpowers/plans/2026-08-11-canon-testis.md): an NDJSON pipe driving the real
-// Curia.Canon implementation -- JsonReader.Parse for ADMIT, CanonicalJson.Canonicalize for
-// the pure RFC 8785 path, CanonicalJson.CanonicalizeWithNfc for the Curia profile -- so an
-// external comparison script can diff its behavior byte-for-byte against curia-testis
-// (Rust) and a node oracle without either endpoint knowing the other exists. See
-// conformance/README.md for the shared vocabulary (error slugs, profile names) this
-// endpoint must reproduce exactly.
+// Curia.Canon implementation -- JsonReader.Parse for ADMIT, JsonReader.ParseUnrestricted
+// feeding CanonicalJson.Canonicalize for the pure RFC 8785 path and
+// CanonicalJson.CanonicalizeWithNfc for the Curia profile (R6.41) -- so an external
+// comparison script can diff its behavior byte-for-byte against curia-testis (Rust) and a
+// node oracle without either endpoint knowing the other exists. See conformance/README.md
+// for the shared vocabulary (error slugs, profile names) this endpoint must reproduce
+// exactly.
+//
+// The canonicalize/canonicalize_nfc ops used to route through JsonReader.Parse (ADMIT) --
+// exactly the conflation errata E2/E4 identified from this run's own findings: `curia-testis`
+// keeps its pure canonicalize functions ADMIT-independent, so a C# endpoint gated by ADMIT
+// first was comparing two different operations under the same op name, and every one of the
+// 1,068 compared lines E2 attributes to this root cause came from exactly this endpoint. Both
+// ops now parse via ParseUnrestricted, matching curia-testis's own architecture.
 //
 // Wire protocol: one JSON object per line in, one JSON object per line out, same order.
 // Input:  {"id":"...","op":"admit"|"canonicalize"|"canonicalize_nfc","input_b64":"..."}
@@ -78,13 +86,16 @@ static string Admit(string id, byte[] inputBytes)
         error => Failure(id, error.Type));
 }
 
-// op:"canonicalize" / op:"canonicalize_nfc" -- both parse with the same ADMIT phase
-// first (canonicalization is never reached on input ADMIT itself would reject), then
-// diverge on which CanonicalJson entry point runs. A parse failure reports exactly the
-// slug ADMIT produced -- never a different, invented one.
+// op:"canonicalize" / op:"canonicalize_nfc" -- both parse via ParseUnrestricted (R6.41),
+// not the ADMIT-gated Parse: canonicalization must serve any document RFC 8785 defines an
+// output for, including one ADMIT's R6.39 caps or R6.33's numeric bound would refuse (the
+// RFC author's own rfc8785/input-values.json among them -- see errata E4). A parse failure
+// here is therefore a well-definedness rejection (invalid UTF-8, an unpaired surrogate, a
+// raw duplicate member name, a non-finite number), never an ADMIT policy rejection, and the
+// two diverge on which CanonicalJson entry point runs afterward.
 static string Canonicalize(string id, byte[] inputBytes, bool withNfc)
 {
-    var parsed = JsonReader.Parse(inputBytes, AdmitLimits.Default);
+    var parsed = JsonReader.ParseUnrestricted(inputBytes);
     if (!parsed.TryGetValue(out var value, out var parseError))
         return Failure(id, parseError!.Type);
 

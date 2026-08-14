@@ -404,12 +404,12 @@ mod tests {
     #[test]
     fn an_oversized_submission_is_rejected_by_admit() {
         // Bigger than ADMIT_MAX_SUBMISSION_BYTES; must be rejected as
-        // too-large, not read further.
+        // size-exceeded, not read further.
         let padding = "x".repeat(json::ADMIT_MAX_SUBMISSION_BYTES + 1);
         let submission = format!(r#"{{"envelope":{{"author":"{padding}"}},"signature":"a.."}}"#);
         let jwks = load("ed25519-minimal", "jwks.json");
         let err = verify_envelope(submission.as_bytes(), &jwks).unwrap_err();
-        assert_eq!(err.predicate(), "curia/admit/too-large");
+        assert_eq!(err.predicate(), "curia/admit/size-exceeded");
     }
 
     // -----------------------------------------------------------------

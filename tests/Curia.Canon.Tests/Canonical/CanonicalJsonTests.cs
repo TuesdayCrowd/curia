@@ -19,7 +19,9 @@ public sealed class CanonicalJsonTests
 {
     private static string CanonicalizeWithNfc(string json)
     {
-        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+        // R6.41: canonicalization tests parse via ParseUnrestricted, not the ADMIT-gated
+        // Parse -- see JsonReader.ParseUnrestricted's remarks.
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException($"parse failed: {e.Type}"));
         var bytes = CanonicalJson.CanonicalizeWithNfc(parsed)
             .Match(b => b, e => throw new Xunit.Sdk.XunitException($"canonicalize failed: {e.Type}"));
@@ -31,7 +33,7 @@ public sealed class CanonicalJsonTests
     public void AppendixC4Vector(string name, byte[] input, byte[] expected)
     {
         _ = name;
-        var parsed = JsonReader.Parse(input, AdmitLimits.Default)
+        var parsed = JsonReader.ParseUnrestricted(input)
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
         var actual = CanonicalJson.CanonicalizeWithNfc(parsed)
             .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
@@ -51,7 +53,7 @@ public sealed class CanonicalJsonTests
     public void Utf16CodeUnitOrdering(string name, byte[] input, byte[] expected)
     {
         _ = name;
-        var parsed = JsonReader.Parse(input, AdmitLimits.Default).Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+        var parsed = JsonReader.ParseUnrestricted(input).Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
         Assert.Equal(expected, CanonicalJson.CanonicalizeWithNfc(parsed).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)));
     }
 
@@ -75,7 +77,12 @@ public sealed class CanonicalJsonTests
     public void NumbersVector(string name, byte[] input, byte[] expected)
     {
         _ = name;
-        var parsed = JsonReader.Parse(input, AdmitLimits.Default)
+        // R6.41: several numbers/ vectors (large-exact-expansion's 123456789012345680000
+        // among them) are outside R6.33's ADMIT-enforced safe-integer bound, and
+        // exponent-switch/small-fraction-boundary/small-fraction-just-below are non-integer
+        // -- exactly the documents ParseUnrestricted exists to still canonicalize (errata
+        // E4's "Prerequisite, demonstrated"). Parse (ADMIT) would reject all four here.
+        var parsed = JsonReader.ParseUnrestricted(input)
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
         var actual = CanonicalJson.CanonicalizeWithNfc(parsed)
             .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
@@ -108,7 +115,7 @@ public sealed class CanonicalJsonTests
     public void UnicodeVector(string name, byte[] input, byte[]? expected, string? expectRejectSlug)
     {
         _ = name;
-        var parsed = JsonReader.Parse(input, AdmitLimits.Default)
+        var parsed = JsonReader.ParseUnrestricted(input)
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
         var result = CanonicalJson.CanonicalizeWithNfc(parsed);
 
@@ -189,7 +196,7 @@ public sealed class CanonicalJsonTests
     [Fact]
     public void PureAndNfcProfileAgreeOnAlreadyNfcInput()
     {
-        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes("""{"a":"café"}"""), AdmitLimits.Default)
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes("""{"a":"café"}"""))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
         var pure = CanonicalJson.Canonicalize(parsed)
             .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
@@ -209,7 +216,7 @@ public sealed class CanonicalJsonTests
     {
         // "A" + COMBINING RING ABOVE (NFD) — the official rfc8785 "unicode" vector's own
         // case. Pure JCS must preserve it; the NFC profile must compose it to "Å" (U+00C5).
-        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes("""{"a":"Å"}"""), AdmitLimits.Default)
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes("""{"a":"Å"}"""))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
         var pure = CanonicalJson.Canonicalize(parsed)
             .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
@@ -242,25 +249,78 @@ public sealed class CanonicalJsonTests
     }
 
     /// <summary>
-    /// The defense-in-depth half of the same evidence: CanonicalizeWithNfc's contract is
-    /// "the caller already admitted this," but CS-10 forbids an unhandled exception
-    /// regardless of whether a real caller could ever violate that contract. Bypassing
-    /// ADMIT (as no real caller in this codebase does — EnvelopeParser.Parse always calls
-    /// JsonReader.Parse first) and constructing the JsonValue tree directly used to
-    /// reproduce the original crash; NormalizeString now catches the ArgumentException
-    /// string.Normalize throws for this input and returns Result.Fail instead, so the
-    /// primary fix (ADMIT rejecting the input before it becomes a JsonValue) is backed by
-    /// a second, independent guarantee that this function itself never crashes.
+    /// R6.38 (errata E2): CanonicalizeWithNfc must accept and correctly canonicalize a
+    /// Unicode noncharacter -- "treated the same way" as a document exceeding one of R6.39's
+    /// caps, because a noncharacter is a valid Unicode scalar value ADMIT excludes as
+    /// policy, not one RFC 8785 or NFC leaves undefined. This test previously asserted the
+    /// opposite (Result.Fail with curia/canon/normalization-failed): before R6.38, that was
+    /// the correct fix for the crash string.Normalize(NormalizationForm.FormC) throws on
+    /// U+FFFE on this runtime (CS-10: fallibility must be a value, not an unhandled
+    /// exception) -- but "fails gracefully instead of crashing" and "succeeds" are different
+    /// guarantees, and errata E2's own robustness note calls the gap between them "a
+    /// distinct defect from the accept/reject question R6.38 settles." NormalizeString now
+    /// works around the platform defect (splitting the string at noncharacter boundaries,
+    /// each of which is normalization-inert by Unicode's own stability guarantee -- see its
+    /// remarks) so this succeeds rather than fails.
+    ///
+    /// Bypassing ADMIT (as no real caller in this codebase does -- EnvelopeParser.Parse
+    /// always calls JsonReader.Parse first) by constructing the JsonValue tree directly is
+    /// what makes this reachable at all: the real ingest pipeline never hands
+    /// CanonicalizeWithNfc a document ADMIT has not already screened. See
+    /// ParseUnrestrictedThenCanonicalizeWithNfcAcceptsANoncharacter below for the
+    /// production-shaped way (R6.41) a noncharacter now reaches this function without a
+    /// hand-built JsonValue tree.
     /// </summary>
     [Fact]
-    public void CanonicalizeWithNfcFailsRatherThanThrowsOnANoncharacterIfAdmitIsBypassed()
+    public void CanonicalizeWithNfcAcceptsANoncharacterWhenAdmitIsBypassed()
     {
         var value = new JsonValue.Object([new("a", new JsonValue.String(char.ConvertFromUtf32(0xFFFE)))]);
 
         var result = CanonicalJson.CanonicalizeWithNfc(value);
 
-        Assert.False(result.IsOk);
-        Assert.Equal("curia/canon/normalization-failed", result.Match(_ => "ok", e => e.Type));
+        var canonical = result.Match(b => Encoding.UTF8.GetString(b.Span), e => throw new Xunit.Sdk.XunitException(e.Type));
+        Assert.Equal($$"""{"a":"{{char.ConvertFromUtf32(0xFFFE)}}"}""", canonical);
+    }
+
+    /// <summary>
+    /// R6.41 and R6.38 composed end to end: ParseUnrestricted is the actual, production-shaped
+    /// way a noncharacter reaches CanonicalizeWithNfc without ADMIT having run, not only a
+    /// hand-built JsonValue tree (the test above). Also exercises a noncharacter embedded
+    /// alongside ordinary text in the same string value ("a￾b"), not only a bare
+    /// noncharacter -- the NormalizeString split path must reassemble both sides correctly.
+    /// </summary>
+    [Fact]
+    public void ParseUnrestrictedThenCanonicalizeWithNfcAcceptsANoncharacter()
+    {
+        var json = $$"""{"a":"x{{char.ConvertFromUtf32(0xFFFE)}}y"}""";
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json))
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        var canonical = CanonicalJson.CanonicalizeWithNfc(parsed)
+            .Match(b => Encoding.UTF8.GetString(b.Span), e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        Assert.Equal(json, canonical);
+    }
+
+    /// <summary>
+    /// The other half of R6.38's first paragraph (the R6.39-cap exemption, not the
+    /// noncharacter exemption): a document ADMIT would refuse for nesting depth must still
+    /// canonicalize correctly when reached via ParseUnrestricted. Mirrors
+    /// JsonReaderTests.RejectsExcessiveNestingBeforeExhaustingTheStack's boundary (33 levels)
+    /// on the ADMIT side.
+    /// </summary>
+    [Fact]
+    public void CanonicalizesADocumentExceedingTheAdmitDepthCap()
+    {
+        var overCap = string.Concat(Enumerable.Repeat("""{"a":""", AdmitLimits.Default.MaxDepth + 1))
+            + "1" + new string('}', AdmitLimits.Default.MaxDepth + 1);
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(overCap))
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        var canonical = CanonicalJson.Canonicalize(parsed)
+            .Match(b => Encoding.UTF8.GetString(b.Span), e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        Assert.Equal(overCap, canonical); // already minimal JSON: one member per level, no whitespace
     }
 
     // -- curia/canon/duplicate-normalized-key (P22 non-repudiation defect) --------------
@@ -278,7 +338,7 @@ public sealed class CanonicalJsonTests
     public void RejectsDuplicateNormalizedKeyFromDistinctWireCombiningForms()
     {
         var json = "{\"café\":1,\"café\":2}";
-        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException($"parse failed: {e.Type}"));
 
         var result = CanonicalJson.CanonicalizeWithNfc(parsed);
@@ -292,7 +352,7 @@ public sealed class CanonicalJsonTests
     public void RejectsDuplicateNormalizedKeyRegardlessOfWhichCombiningFormComesFirst()
     {
         var json = "{\"café\":2,\"café\":1}";
-        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException($"parse failed: {e.Type}"));
 
         var result = CanonicalJson.CanonicalizeWithNfc(parsed);
@@ -306,7 +366,7 @@ public sealed class CanonicalJsonTests
     public void RejectsDuplicateNormalizedKeyInsideANestedObject()
     {
         var json = "{\"outer\":{\"café\":1,\"café\":2}}";
-        var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+        var parsed = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException($"parse failed: {e.Type}"));
 
         var result = CanonicalJson.CanonicalizeWithNfc(parsed);

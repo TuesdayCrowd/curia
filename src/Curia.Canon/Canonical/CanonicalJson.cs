@@ -195,19 +195,88 @@ public static class CanonicalJson
     }
 
     /// <summary>
-    /// NFC-normalizes one string, catching the <see cref="ArgumentException"/>
-    /// <c>string.Normalize(NormalizationForm.FormC)</c> throws on some inputs (CS-10:
-    /// domain fallibility must be a value, never an unhandled exception). ADMIT rejects
-    /// the one input class this is known to be reachable on (Unicode noncharacters --
-    /// see the caller's remarks) before wire content ever becomes a
-    /// <see cref="JsonValue"/>, but this function's contract does not get to assume its
-    /// caller ran ADMIT first, so the catch stays regardless.
+    /// NFC-normalizes one string. R6.38 (errata E2) requires this to succeed on a Unicode
+    /// noncharacter, not merely fail instead of crashing: "R6.38 requires a noncharacter to
+    /// reach CanonicalizeWithNfc directly and be canonicalized, not rejected... a distinct
+    /// defect from the accept/reject question R6.38 settles." <c>string.Normalize(NormalizationForm.FormC)</c>
+    /// throws <see cref="ArgumentException"/> on this runtime for U+FFFE specifically (ICU
+    /// reads it as a reversed byte-order mark) rather than performing the identity transform
+    /// Unicode's own normalization-stability guarantee promises for it -- a noncharacter has
+    /// no canonical decomposition and combining class 0, so it can never participate in, or
+    /// be affected by, the composition of any character before or after it.
+    ///
+    /// The fast path below (no noncharacter present) is what every real signed envelope
+    /// takes, because ADMIT already rejects noncharacters before wire content becomes a
+    /// <see cref="JsonValue"/> on any call path reachable from real input; this function's
+    /// contract does not get to assume its caller ran ADMIT first, though (R6.38 requires
+    /// <see cref="CanonicalizeWithNfc"/> itself, not only ADMIT, to accept a noncharacter --
+    /// e.g. when a caller reaches it via <see cref="Json.JsonReader.ParseUnrestricted"/> or
+    /// builds a <see cref="JsonValue"/> tree directly), so the slow path exists precisely for
+    /// that caller: it relies on the same combining-class-0 guarantee to split the string at
+    /// each noncharacter, normalize the noncharacter-free runs independently (each of which
+    /// normalizes exactly as it would as part of the whole string, since a noncharacter
+    /// cannot be part of either run's combining sequence), and splice the noncharacters back
+    /// in unchanged -- producing output byte-identical to what a platform whose normalizer
+    /// does not choke on the input would produce in one pass.
     /// </summary>
     private static Result<string> NormalizeString(string s)
     {
+        if (!ContainsNoncharacter(s))
+            return NormalizeRun(s);
+
+        var sb = new StringBuilder(s.Length);
+        var run = new StringBuilder();
+        foreach (var rune in s.EnumerateRunes())
+        {
+            if (JsonReader.IsNoncharacter(rune.Value))
+            {
+                if (run.Length > 0)
+                {
+                    if (!NormalizeRun(run.ToString()).TryGetValue(out var normalizedRun, out var runError))
+                        return Result<string>.Fail(runError!);
+                    sb.Append(normalizedRun);
+                    run.Clear();
+                }
+
+                sb.Append(rune);
+            }
+            else
+            {
+                run.Append(rune);
+            }
+        }
+
+        if (run.Length > 0)
+        {
+            if (!NormalizeRun(run.ToString()).TryGetValue(out var lastRun, out var lastError))
+                return Result<string>.Fail(lastError!);
+            sb.Append(lastRun);
+        }
+
+        return Result<string>.Ok(sb.ToString());
+    }
+
+    private static bool ContainsNoncharacter(string s)
+    {
+        foreach (var rune in s.EnumerateRunes())
+        {
+            if (JsonReader.IsNoncharacter(rune.Value))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Normalizes one noncharacter-free run. Isolated from <see cref="NormalizeString"/> so
+    /// the noncharacter-splitting slow path there can reuse the identical try/catch instead
+    /// of duplicating it (CS-10: fallibility is a value here too, in the unlikely case a
+    /// run-local defect the noncharacter split does not anticipate ever surfaces).
+    /// </summary>
+    private static Result<string> NormalizeRun(string run)
+    {
         try
         {
-            return Result<string>.Ok(s.Normalize(NormalizationForm.FormC));
+            return Result<string>.Ok(run.Normalize(NormalizationForm.FormC));
         }
         catch (ArgumentException ex)
         {

@@ -108,8 +108,15 @@ pub fn verify(compact: &str, payload: &[u8], jwks: &JwkSet) -> Result<VerifiedHe
     let header_bytes = URL_SAFE_NO_PAD
         .decode(protected_b64)
         .map_err(|_| JwsError::ProtectedHeaderNotBase64)?;
-    let header_value =
-        json::parse(&header_bytes).map_err(|_| JwsError::ProtectedHeaderMalformed)?;
+    let header_value = json::parse(&header_bytes).map_err(|e| match e {
+        // See the equivalent note in `jwk.rs`: `json::parse` now rejects
+        // duplicate member names as a well-definedness violation, before
+        // this module's own `reject_duplicate_members` walk runs. The
+        // predicate must still name the duplicate, not a generic malformed
+        // header — a duplicated `alg` is the case this slug exists for.
+        json::ParseError::DuplicateMember { .. } => JwsError::ProtectedHeaderDuplicateMember,
+        _ => JwsError::ProtectedHeaderMalformed,
+    })?;
     // Fix round 1: reject a duplicate member name in the header (or in any
     // object nested inside it) before reading a single field out of it —
     // in particular before the `alg` extraction just below, so a

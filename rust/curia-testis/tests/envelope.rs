@@ -453,7 +453,7 @@ fn an_envelope_between_admit_cap_and_cli_cap_still_gets_admits_own_verdict() {
     // the CLI's own read cap (8 MiB, ENVELOPE_READ_CAP_MULTIPLE = 8). This
     // file is read in full by the CLI and handed to verify_envelope, which
     // still runs ADMIT, which still rejects it — so this must surface as a
-    // *verification failure* (exit 1, curia/admit/too-large), never a
+    // *verification failure* (exit 1, curia/admit/size-exceeded), never a
     // usage error. This is the exact reclassification the original Task 6
     // report argued against, now re-confirmed as still true after adding
     // the CLI-level cap for the memory concern.
@@ -481,8 +481,8 @@ fn an_envelope_between_admit_cap_and_cli_cap_still_gets_admits_own_verdict() {
     );
     let stderr = stderr_of(&output);
     assert!(
-        stderr.contains("curia/admit/too-large"),
-        "must be ADMIT's own too-large predicate, not a CLI-level cap message; got: {stderr:?}"
+        stderr.contains("curia/admit/size-exceeded"),
+        "must be ADMIT's own size-exceeded predicate, not a CLI-level cap message; got: {stderr:?}"
     );
 }
 

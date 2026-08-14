@@ -35,8 +35,12 @@ public sealed class Section14_2Tests
     private static string Reject(string wireJson) =>
         EnvelopeParser.Parse(Encoding.UTF8.GetBytes(wireJson), AdmitLimits.Default).Match(_ => "accepted", e => e.Type);
 
+    // R6.41: this helper only ever feeds canonicalization (via CanonicalizeAsEnvelopeContent
+    // and the algorithm-confusion test below), never ADMIT -- Reject above is the ADMIT
+    // entry point this suite's actual §14.2 admission bullets exercise -- so it parses via
+    // ParseUnrestricted, not the ADMIT-gated Parse.
     private static JsonValue Parse(string json) =>
-        JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+        JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
 
     /// <summary>

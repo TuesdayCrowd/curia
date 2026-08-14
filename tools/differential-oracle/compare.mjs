@@ -158,7 +158,7 @@ function buildSupplementalCases() {
   //    ParseError::RawControlInString -> "curia/admit/raw-control-character"
   //    branch; .NET's Utf8JsonReader rejects the same byte as an ordinary
   //    JsonException, which JsonReader.Parse's catch-all folds into the generic
-  //    "curia/admit/malformed" slug. No generator category produces this
+  //    "curia/admit/malformed-json" slug. No generator category produces this
   //    (malformed-nul only ever uses 0x00).
   add('raw-control-character', 'admit', Buffer.from('{"a":"x\x01y"}', 'binary'));
 

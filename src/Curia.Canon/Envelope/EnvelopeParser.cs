@@ -3,11 +3,17 @@ using Curia.Domain.Primitives;
 
 namespace Curia.Canon.Envelope;
 
-/// <summary>ADMIT phase ① for the submission wire format (§6.4, R6.15, R6.33).</summary>
+/// <summary>
+/// ADMIT phase ① for the submission wire format (§6.4, R6.15). R6.33 (rev. 2)'s numeric
+/// bound is no longer checked here: it applies to every number ADMIT parses, in any
+/// document, at any depth (errata E4) -- not only fields inside "envelope" -- so it is
+/// enforced once, generically, inside <see cref="JsonReader.Parse"/> itself. The call below
+/// already rejects a submission carrying an out-of-bound number anywhere in the wire
+/// object, envelope-shaped or not, before this method's own envelope/signature-presence
+/// checks ever run.
+/// </summary>
 public static class EnvelopeParser
 {
-    private const long SafeMax = 9_007_199_254_740_991;   // 2^53 - 1
-
     public static Result<SubmissionDocument> Parse(ReadOnlySpan<byte> utf8, AdmitLimits limits)
     {
         var parsed = JsonReader.Parse(utf8, limits);
@@ -26,22 +32,7 @@ public static class EnvelopeParser
         if (signature is not JsonValue.String signatureString)
             return Result<SubmissionDocument>.Fail(CanonErrors.MissingSignature());
 
-        var numeric = CheckNumerics(envelopeObject);
-        if (numeric is not null)
-            return Result<SubmissionDocument>.Fail(numeric);
-
         return Result<SubmissionDocument>.Ok(
             new SubmissionDocument(new EnvelopeDocument(envelopeObject), new JwsSignature(signatureString.Value)));
     }
-
-    /// <summary>R6.33: envelope numerics are I-JSON-exact integers within the safe range.</summary>
-    private static Error? CheckNumerics(JsonValue value) => value switch
-    {
-        JsonValue.Number n when !double.IsInteger(n.Value) => CanonErrors.NonIntegerNumber(),
-        JsonValue.Number n when Math.Abs(n.Value) > SafeMax => CanonErrors.UnsafeInteger(),
-        JsonValue.Number => null,
-        JsonValue.Object o => o.Members.Select(m => CheckNumerics(m.Value)).FirstOrDefault(e => e is not null),
-        JsonValue.Array a => a.Items.Select(CheckNumerics).FirstOrDefault(e => e is not null),
-        _ => null,
-    };
 }

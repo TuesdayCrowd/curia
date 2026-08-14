@@ -69,7 +69,16 @@ pub struct JwkSet {
 impl JwkSet {
     /// Parses a JWKS document from raw bytes.
     pub fn parse(bytes: &[u8]) -> Result<Self, JwkError> {
-        let value = json::parse(bytes).map_err(|_| JwkError::NotJson)?;
+        // `json::parse` rejects duplicate member names itself, as a
+        // well-definedness violation, so it now fires before this module's own
+        // recursive `reject_duplicate_members` walk can. Map it back to the
+        // specific predicate rather than letting it degrade to "not valid
+        // JSON": the condition is a duplicate member, and a verifier that
+        // reported a generic parse failure for it would name the wrong check.
+        let value = json::parse(bytes).map_err(|e| match e {
+            json::ParseError::DuplicateMember { .. } => JwkError::DuplicateMember,
+            _ => JwkError::NotJson,
+        })?;
         // Fix round 1: reject a duplicate member name anywhere in the
         // document — the JWKS wrapper object itself, or any individual
         // `keys` entry — rather than resolving it by position. See

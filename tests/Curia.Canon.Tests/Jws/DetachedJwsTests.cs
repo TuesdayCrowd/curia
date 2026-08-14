@@ -39,8 +39,10 @@ public sealed class DetachedJwsTests
         new Dictionary<string, IContentSigner> { ["EdDSA"] = Stub },
         new Dictionary<string, IContentVerifier> { ["EdDSA"] = Stub });
 
+    // R6.41: this helper's whole job is turning bytes into canonical bytes, not testing
+    // ADMIT -- it parses via ParseUnrestricted, not the ADMIT-gated Parse.
     private static CanonicalBytes Canonical(string json) =>
-        CanonicalJson.Canonicalize(JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default)
+        CanonicalJson.Canonicalize(JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json))
             .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type)))
             .Match(b => b, e => throw new Xunit.Sdk.XunitException(e.Type));
 
