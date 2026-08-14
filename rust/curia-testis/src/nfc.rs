@@ -293,7 +293,17 @@ impl std::error::Error for NfcError {
 
 impl From<ParseError> for NfcError {
     fn from(e: ParseError) -> Self {
-        NfcError::Parse(e)
+        match e {
+            // `json::parse` now rejects duplicate member names itself, as a
+            // well-definedness violation, so it fires before this module's own
+            // pass-1 raw-duplicate scan can. Route it to the variant that
+            // already names that exact condition rather than letting it
+            // degrade to a generic parse failure: the caller-visible predicate
+            // must not depend on which layer happened to notice first, which
+            // is the same rule the raw/normalized precedence ruling rests on.
+            ParseError::DuplicateMember { name, .. } => NfcError::DuplicateRawKey { key: name },
+            other => NfcError::Parse(other),
+        }
     }
 }
 

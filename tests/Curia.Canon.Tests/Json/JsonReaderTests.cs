@@ -140,7 +140,7 @@ public sealed class JsonReaderTests
         // own MaxDepth violations. None of these inputs come close to the depth cap, so
         // classifying by message substring would misdiagnose truncation as nesting.
         var slug = Parse(json).Match(_ => "ok", e => e.Type);
-        Assert.Equal("curia/admit/malformed", slug);
+        Assert.Equal("curia/admit/malformed-json", slug);
     }
 
     [Fact]
@@ -197,14 +197,25 @@ public sealed class JsonReaderTests
     public void ConformanceRejectionVectorsAreRejectedWithTheDeclaredSlug(string name, byte[] input, string slug)
     {
         _ = name;
-        // Vectors citing R6.33 are envelope-level numeric rules, enforced in Task 6, not here.
+        // Every admit-reject/ vector, R6.33's two (non-integer-number, unsafe-integer)
+        // included, fed byte-for-byte unwrapped to the real ADMIT entry point (R6.11
+        // addendum 2 / errata E6). R6.33 (rev. 2) makes the numeric bound ADMIT-generic --
+        // "every number ADMIT parses, in any document, at any depth" -- so JsonReader.Parse
+        // is exactly the entry point these two vectors' own "profile": "admit" designates,
+        // and no envelope wrapper is needed or permitted to exercise them. Previously this
+        // filter excluded R6.33 vectors with the comment "envelope-level numeric rules,
+        // enforced in Task 6, not here", and EnvelopeParserTests satisfied them instead by
+        // splicing the vector bytes into a synthetic {"envelope":...,"signature":"a..b"}
+        // shell -- a different document than the one published, exercising a different code
+        // path (errata E6, E4). That test is gone; this is the single place both vectors are
+        // now exercised, as published.
         Assert.Equal(slug, Parse(input).Match(_ => "ok", e => e.Type));
     }
 
     public static TheoryData<string, byte[], string> RejectionVectors()
     {
         var data = new TheoryData<string, byte[], string>();
-        foreach (var v in VectorLoader.Load("admit-reject").Where(v => v.Requirement == "R6.15"))
+        foreach (var v in VectorLoader.Load("admit-reject"))
             data.Add(v.Name, v.Input, v.ExpectRejectSlug!);
         return data;
     }

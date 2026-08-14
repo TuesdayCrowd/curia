@@ -27,25 +27,35 @@ namespace Curia.Canon.Tests.Properties;
 ///    and the reader disagree on ill-formed UTF-16 for reasons that have nothing to do
 ///    with the NFC property being tested.
 ///  - Unicode noncharacters (Unicode 16.0 §23.7). <see cref="JsonReader.Parse"/> rejects
-///    these too (curia/admit/noncharacter), for the same reason: a document ADMIT refuses
-///    was never going to reach canonicalization from real input, so generating one and
-///    asserting a canonicalization property about it proves nothing. This exclusion has a
-///    second, sharper justification specific to this suite's own history: a property test
-///    run (seed 01AW7nJDoii1) generated a string containing U+FFFE and P5 crashed with
-///    ArgumentException from string.Normalize(FormC) -- .NET/ICU reads that one
-///    noncharacter as a reversed byte-order mark. That crash was real evidence of a
-///    production defect (JsonReader admitted U+FFFE, and CanonicalizeWithNfc had no way to
-///    report failure on it other than throwing, violating CS-10), now fixed at ADMIT; see
-///    JsonReader.IsNoncharacter and CanonicalJsonTests.AdmitRejectsNoncharacterBeforeCanon-
-///    icalizationCanEverSeeIt. <see cref="HasNoncharacter"/> mirrors that ADMIT rule here
-///    because these generators construct JsonValue trees directly and so bypass
-///    JsonReader.Parse entirely when first built -- P3 is the only property that later
-///    routes back through Parse, but every generator below filters consistently rather
-///    than only the one property that would otherwise visibly fail.
+///    these too (curia/admit/noncharacter), so a string containing one is not a document
+///    ADMIT ever admits from real wire input -- excluding it here keeps this suite scoped
+///    to what the real ingest pipeline can produce, even though it is no longer excluded
+///    for correctness: a property test run (seed 01AW7nJDoii1) once generated a string
+///    containing U+FFFE and P5 crashed with ArgumentException from string.Normalize(FormC)
+///    -- .NET/ICU reads that one noncharacter as a reversed byte-order mark. That crash was
+///    real evidence of a production defect, originally fixed only at ADMIT (JsonReader
+///    rejects the code point before a JsonValue exists to reach CanonicalizeWithNfc at
+///    all). R6.38 (errata E2) later required CanonicalizeWithNfc itself to accept and
+///    correctly canonicalize a noncharacter when a caller reaches it without ADMIT having
+///    run -- e.g. via <see cref="JsonReader.ParseUnrestricted"/>, which P3 below now uses --
+///    so NormalizeString was hardened a second time to succeed on U+FFFE rather than merely
+///    fail without crashing (CanonicalJsonTests.CanonicalizeWithNfcAcceptsANoncharacterWhen-
+///    AdmitIsBypassed pins this directly). See JsonReader.IsNoncharacter and
+///    CanonicalJsonTests.AdmitRejectsNoncharacterBeforeCanonicalizationCanEverSeeIt for the
+///    ADMIT-side rejection this suite's own exclusion mirrors. <see cref="HasNoncharacter"/>
+///    filters every generator below regardless, because these generators construct
+///    JsonValue trees directly and so bypass JsonReader.Parse/ParseUnrestricted entirely
+///    when first built -- P3 is the only property that later reparses at all (via
+///    ParseUnrestricted, not the ADMIT-gated Parse: reparsing canonical output to test
+///    idempotency is canonicalization's own concern, not ADMIT's), but every generator
+///    below filters consistently rather than only the one property that would otherwise
+///    visibly differ.
 ///  - Duplicate object keys. <see cref="JsonReader.Parse"/> rejects them too
-///    (curia/admit/duplicate-key). <see cref="GenValue"/> deduplicates generated member
-///    lists by key before building a <see cref="JsonValue.Object"/> so P3's reparse step
-///    never sees a document ADMIT would already have refused.
+///    (curia/admit/duplicate-key), and this remains a well-definedness rule R6.38 does not
+///    exempt (RFC 8785 defines no canonical output for a duplicate member name -- see
+///    JsonReader.ParseUnrestricted's remarks). <see cref="GenValue"/> deduplicates generated
+///    member lists by key before building a <see cref="JsonValue.Object"/> so P3's reparse
+///    step never sees a document neither parse path would admit.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -193,7 +203,9 @@ public sealed class CanonProperties
         GenJson.Sample(v =>
         {
             var once = Canon(v);
-            var reparsed = JsonReader.Parse(once, AdmitLimits.Default).Match(x => x, e => throw new Xunit.Sdk.XunitException(e.Type));
+            // R6.41: reparsing canonical output to test idempotency is canonicalization's own
+            // concern, not ADMIT's -- ParseUnrestricted, not the ADMIT-gated Parse.
+            var reparsed = JsonReader.ParseUnrestricted(once).Match(x => x, e => throw new Xunit.Sdk.XunitException(e.Type));
             return Canon(reparsed).AsSpan().SequenceEqual(once);
         }, iter: 1000);
 

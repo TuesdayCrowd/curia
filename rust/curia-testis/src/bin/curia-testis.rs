@@ -76,7 +76,7 @@ const CLI_MAX_JWKS_BYTES: u64 = 8 * 1024 * 1024;
 /// for leaving `--envelope` uncapped, and that argument still holds on its
 /// own terms: ADMIT already is the authoritative size gate for a
 /// *submission*, and it reports an oversized one as a verification failure
-/// (`curia/admit/too-large`, exit code 1) — the correct classification,
+/// (`curia/admit/size-exceeded`, exit code 1) — the correct classification,
 /// since "this envelope is too large" is a property of the envelope, not of
 /// the command line that named it. A CLI-level cap set *at* ADMIT's own 1
 /// MiB would silently reclassify that exact rejection into a usage error
@@ -86,10 +86,10 @@ const CLI_MAX_JWKS_BYTES: u64 = 8 * 1024 * 1024;
 /// The fix for the memory concern without reintroducing that
 /// misclassification is to set the CLI-level cap to a **generous multiple**
 /// of ADMIT's own cap, not equal to it: any file ADMIT would actually reach
-/// a verdict on — including the too-large verdict itself, since a file
+/// a verdict on — including the size-exceeded verdict itself, since a file
 /// between 1 and `ENVELOPE_READ_CAP_MULTIPLE` MiB is still read in full and
 /// still handed to `verify_envelope`, which still calls ADMIT, which still
-/// rejects it with `curia/admit/too-large` — is unaffected by this bound.
+/// rejects it with `curia/admit/size-exceeded` — is unaffected by this bound.
 /// Only a file *far* larger than anything ADMIT would ever accept (or even
 /// bother rejecting for a size-specific reason once its own check fires)
 /// hits this CLI-level cap instead, and even then the classification is
@@ -235,7 +235,7 @@ fn run_verify(args: &[String]) -> Result<(), CliError> {
     // Fix round 1: bounded, at a generous multiple of ADMIT's own
     // submission-size cap — see ENVELOPE_READ_CAP_MULTIPLE's doc comment
     // for why this is not the same cap as ADMIT's, and does not
-    // reclassify ADMIT's own too-large verdict.
+    // reclassify ADMIT's own size-exceeded verdict.
     let envelope_cap =
         ENVELOPE_READ_CAP_MULTIPLE * curia_testis::json::ADMIT_MAX_SUBMISSION_BYTES as u64;
     let submission = read_bounded(&parsed.envelope, envelope_cap, "--envelope")?;

@@ -121,9 +121,54 @@ pub enum ParseError {
     NonFiniteNumber { pos: usize },
     /// Non-whitespace bytes remained after the single top-level JSON value.
     TrailingData { pos: usize },
+    /// Two members of one object share a name, byte-for-byte as decoded.
+    ///
+    /// This is a *well-definedness* violation, not an ADMIT policy cap, which
+    /// is why it lives here rather than only in [`admit`]: RFC 8785 §3.2.3
+    /// orders an object's members by name and defines no output at all when
+    /// two names are equal, and I-JSON forbids the input outright. A
+    /// canonicalizer that accepted it would emit bytes that do not re-parse to
+    /// a unique document — and those bytes get digested and signed.
+    ///
+    /// Found by the differential harness: this parser used to keep duplicates
+    /// so that `admit` could see the input as written, which left pure
+    /// `canonicalize` emitting `{"a":1,"a":2}` while the C# implementation and
+    /// the independent node oracle both rejected it. See errata R6.38.
+    DuplicateMember { name: String, pos: usize },
     /// Nesting exceeded the parser's stack-safety guard. Not the ADMIT
     /// depth-32 rule — see the module doc comment.
     DepthLimitExceeded { pos: usize },
+}
+
+impl ParseError {
+    /// The stable rejection slug for this condition.
+    ///
+    /// The slug names *what* was wrong with the input, not which layer
+    /// noticed. That matters because the same `ParseError` surfaces through
+    /// three different callers — [`admit`], [`crate::canonicalize`], and
+    /// [`crate::canonicalize_with_nfc`] — and a caller-visible predicate that
+    /// changed depending on the entry point would show up as a spurious
+    /// divergence when this implementation is compared against an independent
+    /// one that happens to notice the same defect at a different layer. The
+    /// differential harness found exactly that: a duplicate member name
+    /// reported as `curia/canon/parse-error` here and
+    /// `curia/admit/duplicate-key` by the C# implementation, for one input
+    /// both agreed to reject.
+    pub fn predicate(&self) -> &'static str {
+        match self {
+            ParseError::InvalidUtf8 => "curia/admit/invalid-utf8",
+            ParseError::UnpairedSurrogate { .. } => "curia/admit/unpaired-surrogate",
+            ParseError::NonFiniteNumber { .. } => "curia/admit/non-finite-number",
+            ParseError::DepthLimitExceeded { .. } => "curia/admit/depth-exceeded",
+            ParseError::DuplicateMember { .. } => "curia/admit/duplicate-key",
+            ParseError::RawControlInString { .. } => "curia/admit/raw-control-character",
+            ParseError::UnexpectedEof { .. }
+            | ParseError::UnexpectedChar { .. }
+            | ParseError::InvalidEscape { .. }
+            | ParseError::InvalidNumber { .. }
+            | ParseError::TrailingData { .. } => "curia/admit/malformed-json",
+        }
+    }
 }
 
 impl fmt::Display for ParseError {
@@ -160,6 +205,13 @@ impl fmt::Display for ParseError {
             }
             ParseError::TrailingData { pos } => {
                 write!(f, "trailing data after the JSON value at byte {pos}")
+            }
+            ParseError::DuplicateMember { name, pos } => {
+                write!(
+                    f,
+                    "object member name {name:?} appears more than once (at byte {pos}); \
+                     RFC 8785 defines no canonical form for an object with duplicate names"
+                )
             }
             ParseError::DepthLimitExceeded { pos } => {
                 write!(
@@ -258,6 +310,7 @@ impl<'a> Parser<'a> {
         self.enter_depth()?;
         self.bump(); // '{'
         let mut members = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         self.skip_whitespace();
         if self.peek() == Some('}') {
             self.bump();
@@ -269,7 +322,20 @@ impl<'a> Parser<'a> {
             if self.peek() != Some('"') {
                 return Err(ParseError::UnexpectedChar { pos: self.pos });
             }
+            let key_pos = self.pos;
             let key = self.parse_string()?;
+            // Well-definedness, not policy: RFC 8785 §3.2.3 orders members by
+            // name and defines no output when two names are equal, so a
+            // canonicalizer must not be handed such a tree. Linear via a set
+            // rather than a nested scan over `members`, because nothing
+            // upstream of this parser bounds an object's width — ADMIT's
+            // 1,024-member cap governs `admit`, not `parse`.
+            if !seen.insert(key.clone()) {
+                return Err(ParseError::DuplicateMember {
+                    name: key,
+                    pos: key_pos,
+                });
+            }
             self.skip_whitespace();
             if self.peek() != Some(':') {
                 return Err(ParseError::UnexpectedChar { pos: self.pos });
@@ -595,7 +661,7 @@ impl std::error::Error for AdmitError {}
 pub fn admit(input: &[u8]) -> Result<Value, AdmitError> {
     if input.len() > ADMIT_MAX_SUBMISSION_BYTES {
         return Err(AdmitError::new(
-            "curia/admit/too-large",
+            "curia/admit/size-exceeded",
             format!(
                 "submission is {} bytes, exceeds the {}-byte cap",
                 input.len(),
@@ -622,42 +688,11 @@ pub fn admit(input: &[u8]) -> Result<Value, AdmitError> {
 /// `curia/admit/malformed-json` slug for every other syntax error, since
 /// neither R6.15 nor the corpus names those individually.
 fn map_parse_error(err: ParseError) -> AdmitError {
-    match err {
-        ParseError::InvalidUtf8 => AdmitError::new("curia/admit/invalid-utf8", err.to_string()),
-        ParseError::UnpairedSurrogate { .. } => {
-            AdmitError::new("curia/admit/unpaired-surrogate", err.to_string())
-        }
-        ParseError::NonFiniteNumber { .. } => {
-            AdmitError::new("curia/admit/non-finite-number", err.to_string())
-        }
-        // `parse`'s own stack-safety guard (`MAX_PARSE_DEPTH`, far above
-        // `ADMIT_MAX_DEPTH` — see its doc comment) and this phase's own
-        // precise depth-32 rule (`check_node`, below) are both, to a
-        // caller, "nested too deeply". Reporting the same slug regardless
-        // of which guard actually fired keeps that caller-visible contract
-        // single-valued; a document nested beyond `MAX_PARSE_DEPTH` is
-        // necessarily also nested beyond `ADMIT_MAX_DEPTH`; the two never
-        // disagree about whether to reject, only about which line of code
-        // notices first.
-        ParseError::DepthLimitExceeded { .. } => {
-            AdmitError::new("curia/admit/depth-exceeded", err.to_string())
-        }
-        // Every raw NUL byte was already rejected before `parse` ran (see
-        // `admit`), so a `RawControlInString` reaching here is a
-        // *different* unescaped control character (e.g. a literal tab or
-        // 0x01) — not a class R6.15 names, so it gets a generic slug
-        // rather than `nul-byte`.
-        ParseError::RawControlInString { .. } => {
-            AdmitError::new("curia/admit/raw-control-character", err.to_string())
-        }
-        ParseError::UnexpectedEof { .. }
-        | ParseError::UnexpectedChar { .. }
-        | ParseError::InvalidEscape { .. }
-        | ParseError::InvalidNumber { .. }
-        | ParseError::TrailingData { .. } => {
-            AdmitError::new("curia/admit/malformed-json", err.to_string())
-        }
-    }
+    // Single source of truth: `ParseError::predicate` owns the slug for every
+    // condition, so ADMIT and the canonicalization entry points cannot drift
+    // apart on what to call the same defect. Duplicating the match here is how
+    // that drift would start.
+    AdmitError::new(err.predicate(), err.to_string())
 }
 
 /// Walks one node of an already-parsed tree, enforcing every ADMIT business
@@ -687,7 +722,7 @@ fn check_node(value: &Value, depth: usize) -> Result<(), AdmitError> {
             let depth = enter_container(depth)?;
             if members.len() > ADMIT_MAX_OBJECT_MEMBERS {
                 return Err(AdmitError::new(
-                    "curia/admit/too-many-members",
+                    "curia/admit/members-exceeded",
                     format!(
                         "object has {} members, exceeds the {}-member cap",
                         members.len(),
