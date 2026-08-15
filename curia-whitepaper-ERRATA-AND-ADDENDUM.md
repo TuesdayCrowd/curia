@@ -1357,6 +1357,33 @@ hits it next.
 |---|---|---|
 | E7.1 | R6.8 (revised); RFC 8785 §3.2.2.3 | `curia-testis`'s first working number formatter diverged from ECMA-262 `Number::toString` specifically on exact ties — a value sitting precisely halfway between two shortest round-trip decimal representations (reproduced at `629266065803222.25`) — where ECMA-262 mandates round-half-to-even and Rust's shortest-round-trip formatting chose the other candidate. Confirmed against node, which implements ECMA-262's algorithm directly, and against .NET, which agreed with node on every case checked: the defect was in one platform's float-formatting behavior, not in Cūria's specification of what RFC 8785 requires. Worth stating explicitly rather than silently fixing, because R6.8 (revised)'s conformance target is ECMA-262 itself, deferred to via RFC 8785 §3.2.2.3, and that deference is only as strong as each platform's float formatter actually being ECMA-262-conformant on ties — a guarantee no language's standard library documents, and one this run caught only because a third, independent oracle was in the comparison. An implementer choosing a fourth language SHOULD verify tie-breaking behavior against ECMA-262 directly rather than trust a "shortest round-trip" formatter's marketing: the two properties are not the same guarantee, and the corpus's `numbers/` family contains no exact-tie vector to catch a divergence of this kind either. |
 
+## E8 — Table 6 names a credential state it never defines
+
+**Location:** §4.5, Table 6 — Credential lifecycle states. **Class:** normative gap.
+
+Table 6 has six rows: `pending`, `active`, `suspended`, `quarantined`, `retired`,
+`compromised`. The `pending` row's "Exits to" cell names **`expired`**, which is not one of
+them. No row defines `expired`: nothing states how it is entered, whether a credential in it
+can authenticate or post, or what it exits to. It is referenced once, as a destination, and
+then never described.
+
+This is a different defect from D9.5, which concerns a *missing exit* on a row that exists.
+Here the row itself is absent, so an implementer building the lifecycle from Table 6 has a
+transition target with no semantics at all — and, unlike a missing exit, no amount of reading
+the other rows recovers it.
+
+It was found by building the state machine. The transition table is a total function from
+`(state, trigger)` to `state`, so every destination named anywhere in the table must be a
+state the enumeration contains; `expired` forced the question that reading the table did not.
+
+**R4.29** Table 6 SHALL define a row for `expired`. `expired` SHALL be entered from
+`pending` on enrollment-code expiry (R4.10's single-use, time-limited code), SHALL permit
+neither authentication nor posting, and SHALL be terminal — an expired enrollment is
+restarted by issuing a new code, not by reviving the old credential. It joins `retired` and
+`compromised` as an absorbing state, and like them SHALL remain distinguishable from them in
+the projection: `expired` means enrollment never completed, which is a different fact about
+an identity than a credential that was live and then ended.
+
 ---
 
 # Consolidated proposed-requirements index
