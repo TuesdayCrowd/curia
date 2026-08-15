@@ -35,6 +35,16 @@ using Curia.Domain.Primitives;
 // {"a":1,"a":2}, both implementations answered curia/admit/duplicate-key, truthfully and
 // irrelevantly, because both were answering about their parse paths.
 //
+// Two defects have now lived in that blind spot, so the enumeration R14.7 asks for is worth
+// stating as a list rather than an example. The tree-taking entry point must independently
+// reject (a) a raw duplicate member name -- errata E10, found via a silently collapsed event
+// payload -- and (b) an unpaired UTF-16 surrogate -- errata E12/E13, found via a silent U+FFFD
+// substitution at the UTF-8 encode step. Fed {"a":"\uD800"}, both implementations answer
+// curia/admit/unpaired-surrogate under op:"canonicalize", exactly as truthfully and exactly as
+// irrelevantly as they answered about duplicates: this protocol cannot make the surrogate reach
+// Canonicalize, because JsonReader rejects it while parsing. Both conditions are pinned by
+// CanonicalJsonTests instead.
+//
 // Wire protocol: one JSON object per line in, one JSON object per line out, same order.
 // Input:  {"id":"...","op":"admit"|"canonicalize"|"canonicalize_nfc","input_b64":"..."}
 // Output: {"id":"...","ok":true,"out_b64":"..."} or {"id":"...","ok":false,"slug":"..."}

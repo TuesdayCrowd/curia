@@ -1584,8 +1584,9 @@ one adapter's tests, is not a property of the port.
 
 ### A payload can be stored today that has no Cūria-profile canonical form
 
-Recorded here because it is the same class and was measured while closing this entry, but it
-is **not** fixed and should not be read as fixed.
+Recorded here because it is the same class and was measured while closing this entry. It was
+**not** fixed at the time of writing; **E12 closes it** via R11.24, and the paragraphs below
+stand as the record of what the hazard was and how long it stood.
 
 The event store canonicalizes payloads with the pure `Canonicalize`, not
 `CanonicalizeWithNfc` — correct today on the store's own reasoning that storage is not signing.
@@ -1603,6 +1604,357 @@ into a Merkle leaf or an *Acta* entry — §9's dump manifests are the obvious c
 store will already hold rows that **cannot be canonicalized for that purpose**, and the
 discovery will come at the point of signing rather than at the point of writing. That is a
 decision worth revisiting before R9's dumps exist, not after.
+
+## E12 — What a port *returns* is part of its contract, and the faithful fake is as misleading as the permissive one
+
+**Location:** R11.4; R11.21 (E11); `IEventStore` and its two adapters; `CanonicalJson`.
+**Class:** implementation divergence against a promise no document made, plus the normative
+gap that allowed it, plus the closure of E11's own open note.
+
+R11.21 settled what the two adapters **accept**. It did not settle what they **return**, and
+they differed there too. Measured against this repository's PostgreSQL 18.4:
+
+```
+appended   {"z":1,"longer_key_b":2,"a":3}
+Postgres   {"a": 3, "z": 1, "longer_key_b": 2}     jsonb re-sorts: key length, then bytewise
+fake       {"z":1,"longer_key_b":2,"a":3}          the caller's exact tree, unchanged
+```
+
+The Postgres adapter is not being careless. It canonicalizes each payload with
+`Canonicalize` before storing, so the text handed to the `jsonb` parameter is already in
+RFC 8785 §3.2.3 order. `jsonb` is a parsed binary form rather than the text it was given, and
+it applies its own key order on the way in. **The ordering is lost inside the database**,
+downstream of everything the adapter controls, and no amount of care upstream recovers it.
+
+The direction is again what makes this worth an entry. Here the fake was the **more faithful**
+of the two — it holds an object graph, so it can hand back exactly what it was handed — and
+that is as misleading as being the more permissive was in E11, for the same reason stated the
+other way round: *the fake supports a property production does not have.* Code written and
+tested against it may depend on payload member order, pass, and break against Postgres. Once
+more the shared contract suite reported agreement, because it had no case; once more the
+absence of a probe was indistinguishable from a passing one.
+
+**Byte-for-byte tree fidelity was considered and rejected as the promise.** `jsonb` cannot
+honour it at all, so adopting it would mean either changing the column type or declaring the
+in-memory adapter authoritative over the real one — and the property buys nothing: every
+digest in this system is taken over canonical bytes, and canonicalization sorts. What both
+adapters *can* honour, deterministically, is the canonical order itself: Postgres by
+re-establishing it on read, the fake by storing it.
+
+**The promise is member order, not "the canonical form", and the distinction is load-bearing.**
+"Canonical form" in this project is a *byte* concept with two profiles, and the Cūria profile
+NFC-normalizes. A store that returned "the canonical form of what was appended" in that sense
+would be normalizing stored content on the way out — §6.4's no-mutation invariant forbids
+exactly that, and R6.9 confines NFC to a step inside canonicalization, never a pass over
+stored content. Member order is the one aspect of a JSON document that carries no information
+(RFC 8259 §4: an object is an unordered collection), so reordering is the only normalization
+available here that changes no fact. The promise says precisely that and no more: array order
+and every scalar are the ones appended.
+
+The implementation note that travels with this is E10's, applied again. RFC 8785 §3.2.3's
+ordering now has two consumers — the canonical writer and the reordering the port needs — and
+one rule with two implementations is how a rule drifts. It is therefore expressed once
+(`CanonicalJson`'s member-ordering step, which also carries the duplicate-name rejection the
+sort exposes) and shared, rather than re-sorted in a second function that would agree today.
+
+**R11.22** Every port's in-memory adapter SHALL return what its production adapter returns.
+Where the two cannot agree — because the production adapter's storage layer transforms what
+it holds, and the transformation is not something the adapter can prevent — the port SHALL
+state the resulting normalization as its own promise and both adapters SHALL honour it, rather
+than the port promising a fidelity only the fake can deliver. The shared contract suite SHALL
+gain the case. An in-memory adapter that is the more *faithful* of the two misleads exactly as
+one that is the more permissive does; R11.21 and this requirement are the same rule applied to
+the two halves of a port's contract.
+
+**R11.23** The event store SHALL return every payload with each object's members in RFC 8785
+§3.2.3 order, at every depth, from every surface that hands an event back — both read paths
+and the append's own return value — whichever adapter is underneath. Array order and every
+scalar value SHALL be those that were appended: member order is the only aspect of the
+document the store is permitted to normalize, because it is the only one that carries no
+information. An implementation SHALL obtain the order from the same expression of §3.2.3 its
+canonicalizer uses, never from a second sort.
+
+### The admissibility half: E11's open note, closed
+
+E11's closing note recorded a payload that could be stored despite having no Cūria-profile
+canonical form — `{"café":1,"cafe` + `U+0301` + `":2}`, precomposed against a combining
+sequence — because the store's admissibility check used the pure `Canonicalize`. The store's
+own reasoning for the pure profile was that *storage is not signing*.
+
+That reasoning is sound, and it settles the wrong question. It governs what is **written**:
+rendering stored text through the NFC profile would normalize the caller's content on its way
+into the system of record, which is the mutation §6.4 forbids outright. It says nothing about
+what is **admitted**. Admission's only outcome is refusal, and refusal mutates nothing — so
+the no-mutation invariant supplies no argument for admitting more. What supplies an argument
+for admitting less is R11.9: this table is the system of record, replay's sole ground truth,
+and it now holds a row that provably cannot be canonicalized for signing. Nothing is lost
+today; the cost is deferred, and it is paid at signing time by whoever builds §9's dump
+manifests, rather than at write time by whoever wrote the row.
+
+So the two questions get two answers: **admit** under `CanonicalizeWithNfc`, discarding its
+output; **store** the pure-canonical rendering. The tightening is as narrow as it can be — a
+payload carrying any amount of NFD text still passes, because decomposition is not the defect
+and a *collision* is — and it costs one extra walk of the tree, which is the price of the
+store declining to accept a fact it can already prove it will not be able to sign.
+
+One thing fell out of this that was not being looked for. `Canonicalize` accepts a string
+carrying an unpaired UTF-16 surrogate and renders it as U+FFFD through UTF-8 encoding, silently;
+`CanonicalizeWithNfc` refuses the same tree. So the adapters had a *second* return divergence
+of exactly the E12 shape — Postgres substituting U+FFFD, the fake preserving the surrogate —
+and admitting under the Cūria profile closes it by construction, before either adapter's
+storage layer is involved. That `Canonicalize` accepts it at all is a defect against R6.38,
+which requires the pure canonicalization functions to reject an unpaired surrogate
+independently of ADMIT; it is recorded here as found and **not** fixed at the time of writing —
+**E13 closes it**, and also moves the slug `CanonicalizeWithNfc` reports for the same input from
+`curia/canon/normalization-failed` to the condition both parse paths already name. It is the
+fifth instance of E10's pattern, and the fifth in the same shape: a check the byte parse path
+performs, absent from the entry point whose input is a tree.
+
+**R11.24** The event store SHALL admit only a payload that has a Cūria-profile canonical form,
+evaluated with `CanonicalizeWithNfc` and its output discarded, while continuing to store the
+pure RFC 8785 rendering. "Storage is not signing" governs what an adapter writes, not what it
+admits: admission's only outcome is refusal, so nothing about the no-mutation invariant argues
+for admitting a document the system of record can already prove it will be unable to sign. The
+refusal names the condition and preserves E1's precedence between the two duplicate predicates
+— `curia/admit/duplicate-key` for a raw duplicate, `curia/canon/duplicate-normalized-key` for
+names equal only after normalization — because it is obtained from the canonicalizer rather
+than re-derived.
+
+### Error precedence, unpinned
+
+Both adapters reported `curia/admit/duplicate-key` in preference to
+`curia/domain/concurrency-conflict` when both applied. Nothing pinned it and the port did not
+promise it, so it was two implementations agreeing — the state E11 exists to name as
+insufficient.
+
+The principled basis for the order they had chosen: payload admissibility is a property of the
+arguments alone, decidable without reading anything, so it can be settled before anything is
+read. It is also the more useful answer. A concurrency conflict invites a re-read and a retry,
+which is right for a stale version and permanently wrong for a payload that will be refused
+identically on every attempt. The same argument-versus-store-state line already puts the
+empty-batch refusal first, and it is what makes an all-or-nothing batch refusal possible at
+all in an append-only log.
+
+**R11.25** Where more than one of an append's failure conditions applies to the same call, a
+store SHALL report the conditions decidable from the arguments alone — an empty batch, and
+payload admissibility — in preference to `curia/domain/concurrency-conflict`, which is a claim
+about the store's state. The precedence SHALL be stated by the port and pinned by the shared
+contract suite; two adapters that happen to agree about it are not a contract.
+
+## E13 — The fifth instance, closed; and the predicate that named a mechanism
+
+**Location:** R6.38 (E2, second paragraph); R6.40 (E5); R6.42 (E10); E12's closing paragraph
+on `Canonicalize`; `CanonicalJson`. **Class:** implementation defect against a stated
+requirement, plus the normative gap in slug vocabulary the fix exposed.
+
+E12 recorded, as found and not fixed, that `CanonicalJson.Canonicalize` accepted a string
+carrying an unpaired UTF-16 surrogate and rendered it as U+FFFD. This entry closes it. Measured
+against this repository before the fix, with a tree built directly rather than parsed:
+
+```
+Canonicalize({"a": "\uD800"})        ->  Ok, 7B 22 61 22 3A 22 EF BF BD 22 7D    ({"a":"<U+FFFD>"})
+CanonicalizeWithNfc(same tree)       ->  curia/canon/normalization-failed
+curia-testis, op=canonicalize, {"a":"\uD800"}  ->  curia/admit/unpaired-surrogate
+```
+
+The first line is the defect R6.38's second paragraph already forbids in as many words. It is
+worth being precise about *which* failure it is: the function did not crash, and it did not
+reject. It returned `Ok`, and the bytes it returned carry a different character than the tree it
+was handed — so a digest taken over them is a digest of a document nobody wrote, and a signature
+over that digest attests to it. `Encoding.UTF8.GetBytes` substitutes U+FFFD for ill-formed
+UTF-16 by documented design; it was doing its job, and it is not the defect, exactly as
+PostgreSQL's last-wins `jsonb` was not the defect in E10.
+
+**This is the fifth instance of E10's pattern and the third language it has been found in.**
+E10's table names four seams for duplicate member names; E12 named this as the fifth in the same
+*shape* — a check the byte parse path performs, absent from the entry point whose input is a
+tree — for a different condition. The project's own node oracle had the identical bug earlier
+(fixed as T2.1): a lone surrogate surviving in an in-memory string until `Buffer.from` silently
+substituted U+FFFD. JavaScript's encoder, .NET's encoder, one shape. The invariant none of the
+three stated: **a string held in a host language's own string type is not thereby a sequence of
+Unicode scalar values, and the encoder that discovers otherwise substitutes rather than
+refuses.** Rust is the exception, and instructively so — its `String` is UTF-8 by construction,
+so `json::Value::String` cannot hold an unpaired surrogate at all and its pure canonicalizer
+needs no check. That is not the Rust implementation being more careful; it is the condition
+being unrepresentable, which is why the same author writing both got one right and one wrong.
+
+**Where the check sits.** `WriteString` is the single place a string becomes canonical output —
+reached for object member names and string values alike — so putting the rejection there covers
+both positions by construction rather than by two call sites each remembering. It runs before a
+character of the string is emitted, mirroring E10's placement reasoning for the duplicate check.
+The NFC profile needed a second guard, in `NormalizeString`, ahead of normalization: not to
+change the accept/reject answer (it already refused) but to change the predicate — see below.
+`InCanonicalMemberOrder`, the third public entry point, deliberately does **not** gain the
+check: it rejects duplicate names because §3.2.3's sort is the step that has nothing to do, so
+it genuinely cannot answer, whereas reordering members around an ill-formed string is well
+defined and lossless — no string is encoded, so nothing can be substituted. R6.42 covers what it
+must do; R6.38 names the two functions this entry changes.
+
+**The overshoot that would have looked like a fix.** Every character outside the BMP is spelled
+in UTF-16 as a surrogate pair, so a check reading "contains a surrogate code unit" rejects the
+whole of plane 1 upward. Falsified rather than assumed: weakening the predicate that way turns
+the RFC author's own `rfc8785/input-weird.json` red — its "Smiley" member name is U+1F602 —
+along with three published `ordering/`/`unicode/` vectors and the property suite's P5. The
+corpus catches this one, which is worth recording precisely because so little else in this
+family was caught by anything.
+
+### The predicate that named a mechanism
+
+`CanonicalizeWithNfc` already refused the tree, so the accept/reject question was only half
+open. It refused it as `curia/canon/normalization-failed`, with a platform-specific ICU message
+("String contains invalid Unicode code points") as its detail — the layer that noticed, not the
+condition, and R6.40 spent an entry establishing that the difference matters. Both parse paths
+and `curia-testis` already answer `curia/admit/unpaired-surrogate` for the identical input. The
+fix moves the slug; that is a change to a public failure surface, and the event store's refusal
+predicate moves with it (R11.24 has both adapters admit under this function).
+
+Two more instances of the same mechanism-shaped predicate were measured in `curia-testis` while
+confirming the two implementations agree. Both **predate this work and are recorded, not
+fixed**, since the divergence lives on the Rust side:
+
+- `canonicalize_with_nfc` takes bytes and parses them, and `NfcError::Parse(_)` maps every
+  parse predicate onto one `curia/canon/parse-error`. Under `op=canonicalize_nfc` the two
+  implementations therefore diverge on six conditions — unpaired surrogate, raw NUL, invalid
+  UTF-8, raw control character, non-finite number, and truncated input — while agreeing on all
+  six under `op=canonicalize`. The seventh, a raw duplicate member name, agrees: `NfcError`'s
+  own `DuplicateRawKey` variant reuses ADMIT's slug, with the reasoning written at the site.
+  One enum, both answers.
+- On the ADMIT-free parse path, a raw NUL byte is reported as
+  `curia/admit/raw-control-character` rather than `curia/admit/nul-byte`. R6.40 states the
+  carve-out without qualifying which layer applies it; ADMIT itself gets it right in both
+  implementations, which is why `admit-reject/raw-nul-byte` passes and the corpus never saw it.
+
+Neither is a divergence a published vector can catch today, for the reason this family keeps
+producing: a vector pins one entry point's answer, and the wrapping happens at another.
+
+### What sufficed and what did not
+
+**R6.38 needed nothing added.** Its second paragraph already obliges both pure canonicalization
+functions to reject an unpaired surrogate independently of ADMIT, in those words. The defect was
+an implementation that did not honour a requirement, not a requirement that failed to say so,
+and this entry mints no duplicate obligation for it.
+
+What was genuinely unstated is the *predicate*. R6.42 requires a rejection to name the condition
+rather than the layer, but says it of duplicate member names; R6.40 pins a slug vocabulary that
+does not include this condition; `admit-reject/unpaired-surrogate` pins the slug for the `admit`
+profile alone. Three implementations' worth of evidence says the principle does not survive
+being stated per-condition — it was stated for duplicates and then not applied to surrogates in
+C#, nor to six conditions in Rust's NFC path, nor to NUL on its parse path. R6.43 states it once,
+generally.
+
+**R6.43** A rejection reported from any parsing or canonicalizing entry point SHALL name the
+condition detected, never the layer or mechanism that detected it, for every condition either
+document names — generalizing what R6.42 states for duplicate member names, for the reason R6.40
+gives. An implementation SHALL NOT report a mechanism-shaped predicate (`curia/canon/parse-error`,
+`curia/canon/normalization-failed`, or any successor) where a condition name exists; such a
+predicate changes value when the mechanism behind it is replaced, which is precisely what a
+stable predicate must not do. In particular: an unpaired UTF-16 surrogate SHALL be reported as
+`curia/admit/unpaired-surrogate` from every entry point that detects it, including the
+tree-taking pure canonicalizers R6.38 obliges to reject it and the NFC profile whose
+normalization step would otherwise be the thing that noticed; and R6.40's NUL carve-out
+(`curia/admit/nul-byte`, never `curia/admit/raw-control-character`) applies on ADMIT-free parse
+paths exactly as it does at ADMIT. Published vectors pin an entry point, not a function, so
+conformance to this requirement SHALL be pinned by in-implementation tests at each entry point
+the corpus cannot reach (R14.7).
+
+### An aside that is not an aside
+
+The first version of this entry's tests was wrong in a way worth recording, because it is this
+family's own failure mode arriving in the test harness. **An unpaired surrogate cannot be
+carried in an xUnit `[InlineData]` argument**: theory arguments are serialized, and the round
+trip replaces every unpaired surrogate with U+FFFD. The tests therefore received a *well-formed*
+string, failed against the unfixed code for a reason that had nothing to do with the defect, and
+would have gone on failing after the fix landed — and two distinct lone surrogates rendered
+identically in the test display name, so xUnit silently collapsed the high and low cases into
+one. Both are the shape E10, E11, E12 and this entry keep finding: the absence of a probe is
+indistinguishable from a passing one, and here the harness that was supposed to be the probe was
+substituting the very character the defect substitutes. The tests now build their input from an
+ASCII sketch and assert the string is ill-formed — using a UTF-8 round trip as the oracle, which
+is the defect itself used as a measuring instrument — before asserting anything about how it is
+rejected.
+
+## E14 — The harness compared less than it claimed, and R14.7's own subject one layer up
+
+**Location:** R14.6 (C8); R14.7 (E10); R6.43 (E13); `tools/differential-oracle/compare.mjs`.
+**Class:** defect in the instrument, and the normative gap that allowed it — found after
+R14.7 was written, by looking for the two divergences E13 recorded as unfixed.
+
+E13 recorded two Rust-side predicate divergences and noted, correctly, that "neither is a
+divergence a published vector can catch today." It did not ask the obvious next question: the
+differential harness had been running against both of them at full scale for weeks. Why had it
+not caught them either?
+
+Because it was not comparing predicates. `classifyCanonicalizeNfc` compared `csharp.ok !==
+rust.ok` and nothing else; `classifyCanonicalize` treated "all three failed" as agreement by the
+same omission. **When both implementations rejected the same input under different predicates,
+the harness reported agreement.** Only `classifyAdmit` compared slugs.
+
+That is faithful implementation of a rule that was written wrong. The comparison rules the
+harness was built to said `admit` must agree "on accept-versus-reject **and on which slug**", and
+said only that the two canonicalize paths must "agree byte-for-byte" — a statement about
+successful output that says nothing whatever about failures. The implementer read it exactly as
+written. The defect is in the sentence, and it was one sentence away from being right in the very
+same paragraph.
+
+The consequence is measured, not argued. At the established scale — `--seed 20260812 --count
+7500`, 22,515 compared lines — the harness printed **0 divergence classes**. Fixing only the
+comparison rules, changing no implementation, the same corpus and the same seed printed **7
+classes over 3,594 records**:
+
+| op | Condition | C# | Rust | Records |
+|---|---|---|---|---|
+| `canonicalize_nfc` | generic syntax failure | `curia/admit/malformed-json` | `curia/canon/parse-error` | 1,082 |
+| `canonicalize_nfc` | invalid UTF-8 | `curia/admit/invalid-utf8` | `curia/canon/parse-error` | 667 |
+| `canonicalize_nfc` | unpaired surrogate | `curia/admit/unpaired-surrogate` | `curia/canon/parse-error` | 667 |
+| `canonicalize_nfc` | raw NUL | `curia/admit/nul-byte` | `curia/canon/parse-error` | 583 |
+| `canonicalize_nfc` | non-finite number | `curia/admit/non-finite-number` | `curia/canon/parse-error` | 12 |
+| `canonicalize` | raw NUL outside a string | `curia/admit/nul-byte` | `curia/admit/malformed-json` | 346 |
+| `canonicalize` | raw NUL inside a string | `curia/admit/nul-byte` | `curia/admit/raw-control-character` | 237 |
+
+Both of E13's recorded divergences are in that table, and the harness had been standing on top of
+them, printing zero, since before either was written down. The NUL carve-out turns out to have
+been broken in *two* places on the parse path, not the one E13 names: inside a string it reported
+`raw-control-character`, and outside one — where JSON grammar sees only an unexpected character —
+`malformed-json`. Rust's parser had no NUL check of its own at all; `admit`'s own scan, run before
+parsing, was the only thing that had ever answered `curia/admit/nul-byte`, which is exactly the
+reading R6.42 already calls a mistake about function versus call path.
+
+**This is R14.7's own subject, one layer up, and that is the entry's point.** R14.7 names a
+divergence class the harness protocol cannot *express*, and observes that it presents not as
+silence but as agreement. Here the protocol expressed it perfectly: the right bytes went to both
+endpoints, both endpoints answered, both answers were correct renderings of what each
+implementation believes, and the *comparison* discarded the half of each answer where the
+disagreement lived. Unreachable entry point and unexamined field produce the identical symptom —
+a confident zero — and the second is the worse of the two, because R14.7 at least obliges someone
+to write the first one down. Nothing obliged anyone to state what a comparison compares.
+
+The residual worth naming: R6.43 makes the predicate normative for an *implementation*, and every
+implementation had a test suite that checked its own slugs. Neither fact could produce this
+finding, because the whole question is whether two implementations chose the *same* word, and a
+suite that pins one side's vocabulary against itself passes just as green when the other side
+disagrees. That is the differential method's entire reason for existing, applied to a field the
+differential method was not looking at.
+
+**R14.8** R14.6's differential harness SHALL compare every component of an answer that either
+document makes normative, on every operation the protocol carries — for a rejection, that is the
+predicate as well as the fact of rejection (R6.43), and the comparison SHALL be stated per
+operation rather than inherited from whichever operation happened to be specified most carefully.
+Where an endpoint's vocabulary is not comparable with the implementations under test — an oracle
+reporting its own slugs — the harness SHALL say so at the site of the rule rather than silently
+omitting the field. A comparison rule that examines less than the answer contains does not
+report less; it reports agreement, which is the strongest evidence the method produces and, so
+sourced, worthless.
+
+**Fixed on the Rust side by R6.43, which needed nothing added.** `NfcError::Parse(_)` now
+delegates to `ParseError::predicate()` — the function that already existed, already mapped each
+condition to the right slug, and already carried the reasoning in its doc comment, having been
+written for this exact hazard after an earlier round of the same harness found the duplicate-key
+instance of it. One enum arm was not calling it. `json::parse` gains a raw-NUL scan ahead of UTF-8
+validation, mirroring the order `admit` documents and `JsonReader.ParseCore` applies on the C#
+side. Both are pinned by in-implementation tests at both canonicalizing entry points, as R6.43's
+closing sentence requires, since no published vector reaches either. After both fixes the same
+seed and count returns to 0 classes over 22,515 lines, and a full sweep of all 44 corpus vector
+inputs under all three ops — 132 records — shows no C#/Rust disagreement of any kind.
 
 ---
 
@@ -1635,6 +1987,10 @@ decision worth revisiting before R9's dumps exist, not after.
 | R14.6 | Differential canonicalization fuzzing across the dual implementations | C8 |
 | R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
 | R11.21 | A port's in-memory adapter accepts exactly what its production adapter accepts; the fake is never the more permissive | E11 |
+| R11.22 | A port's in-memory adapter returns what its production adapter returns; where they cannot agree the port states the normalization; the fake is never the more faithful | E12 |
+| R11.23 | Event payloads read back in RFC 8785 member order at every depth, from every surface; array order and scalars unchanged | E12 |
+| R11.24 | Event store admits only payloads with a Cūria-profile canonical form, while storing the pure rendering | E12 |
+| R11.25 | Argument-decidable append failures reported in preference to store-state ones; precedence stated by the port, pinned by the contract suite | E12 |
 | R4.29 | Table 6 defines an `expired` row: entered from `pending` on enrollment-code expiry, terminal, no authentication or posting | E8 |
 | R6.8 (rev.) | `Canonicalize` — pure RFC 8785, no normalization, reproduces the RFC's own vectors | D1 |
 | R6.9 (rev.) | `CanonicalizeWithNfc` — NFC every key and value recursively **first**, then canonicalize | D1 |
@@ -1652,7 +2008,9 @@ decision worth revisiting before R9's dumps exist, not after.
 | R6.41 | A parse path free of ADMIT policy caps, distinct from ADMIT; canonicalization uses it | E4 |
 | R6.11 (add. 2) | A vector's bytes SHALL be fed unmodified to the function/phase its `meta.json` names | E6 |
 | R6.42 | Duplicate member names rejected at every parsing or canonicalizing entry point, tree-taking ones included; linear per object | E10 |
+| R6.43 | Rejections name the condition, never the mechanism; `unpaired-surrogate` and the NUL carve-out pinned at every entry point | E13 |
 | R14.7 | Harness enumerates entry points its protocol cannot reach; those are covered in-implementation and the gap is recorded | E10 |
+| R14.8 | Harness compares every normative component of an answer, the rejection predicate included, stated per operation | E14 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected
 citations SP 800-207 §5.7, RFC 7797, RFC 8707; cross-reference repairs; §10

@@ -104,13 +104,81 @@ fn unpaired_surrogate_high_followed_by_non_surrogate() {
 #[test]
 fn raw_control_in_string_non_nul() {
     // A raw (unescaped) control byte other than NUL — 0x01 — inside a
-    // string literal. Distinct from `admit`'s NUL-specific scan: `parse`
-    // itself (RFC 8259 §7) rejects *any* unescaped byte below U+0020.
+    // string literal. Distinct from the NUL-specific scan below: `parse`
+    // (RFC 8259 §7) rejects *any* unescaped byte below U+0020, but R6.40
+    // reserves this slug for the thirty-one values that are not NUL.
     let input: &[u8] = b"\"\x01\"";
     match parse(input) {
         Err(ParseError::RawControlInString { pos: 1 }) => {}
         other => panic!("want RawControlInString{{pos: 1}}, got {other:?}"),
     }
+    assert_eq!(
+        parse(input).unwrap_err().predicate(),
+        "curia/admit/raw-control-character"
+    );
+}
+
+// ---------------------------------------------------------------------
+// R6.40's NUL carve-out on the ADMIT-free parse path (errata E13's second
+// recorded divergence, E14's measurement of it).
+//
+// R6.40 gives NUL its own, more specific slug and scopes
+// `raw-control-character` to `0x01`–`0x1F`; R6.43 says the carve-out holds
+// "on ADMIT-free parse paths exactly as it does at ADMIT". `admit` scans for
+// NUL before parsing, which is why `conformance/admit-reject/raw-nul-byte`
+// passed while `parse` itself answered `raw-control-character` (NUL inside a
+// string) or `malformed-json` (NUL anywhere else). A published vector pins an
+// entry point, so only a test at this entry point can pin this.
+// ---------------------------------------------------------------------
+
+#[test]
+fn raw_nul_inside_a_string_is_nul_byte_not_raw_control_character() {
+    let input: &[u8] = b"\"\x00\"";
+    match parse(input) {
+        Err(ParseError::RawNulByte { pos: 1 }) => {}
+        other => panic!("want RawNulByte{{pos: 1}}, got {other:?}"),
+    }
+    assert_eq!(
+        parse(input).unwrap_err().predicate(),
+        "curia/admit/nul-byte",
+        "NUL keeps its own slug at every entry point (R6.40 carve-out, R6.43)"
+    );
+}
+
+#[test]
+fn raw_nul_outside_a_string_is_also_nul_byte() {
+    // Outside a string literal, JSON grammar would reject NUL only as a
+    // generic unexpected character. R6.15's class is "embedded NUL bytes"
+    // anywhere in the wire stream, and the raw-byte scan runs before the
+    // grammar ever sees it — the same reading `admit` has always applied.
+    for input in [
+        b"\x00".as_slice(),
+        b"[1,\x002]".as_slice(),
+        b"{}\x00".as_slice(),
+    ] {
+        match parse(input) {
+            Err(ParseError::RawNulByte { .. }) => {}
+            other => panic!("want RawNulByte for {input:?}, got {other:?}"),
+        }
+        assert_eq!(
+            parse(input).unwrap_err().predicate(),
+            "curia/admit/nul-byte"
+        );
+    }
+}
+
+#[test]
+fn raw_nul_is_reported_ahead_of_invalid_utf8() {
+    // A stream that is both invalid UTF-8 and carries a NUL. The scan is
+    // deliberately ahead of UTF-8 validation, so that the more specific
+    // condition wins — matching the order `admit` documents and the order
+    // `Curia.Canon`'s `JsonReader.ParseCore` applies on the C# side, where
+    // the NUL scan likewise precedes `Utf8.IsValid`.
+    let input: &[u8] = b"\"\x80\x00\"";
+    assert_eq!(
+        parse(input).unwrap_err().predicate(),
+        "curia/admit/nul-byte"
+    );
 }
 
 #[test]

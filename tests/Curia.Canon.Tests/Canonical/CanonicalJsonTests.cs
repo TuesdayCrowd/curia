@@ -435,6 +435,250 @@ public sealed class CanonicalJsonTests
         Assert.True(result.IsOk);
     }
 
+    // -- curia/admit/unpaired-surrogate from both canonicalizers (R6.38 ¶2, errata E13) --
+
+    /// <summary>A high surrogate. Unpaired unless a low surrogate immediately follows it.</summary>
+    private const char LoneHigh = '\uD800';
+
+    /// <summary>A low surrogate. Unpaired unless a high surrogate immediately precedes it.</summary>
+    private const char LoneLow = '\uDC00';
+
+    /// <summary>
+    /// U+1F602 FACE WITH TEARS OF JOY, as the well-formed pair D83D DE02. The control the
+    /// whole fix turns on: a check that rejected any surrogate code unit rather than an
+    /// unpaired one would reject every astral character, and this is the exact character
+    /// the RFC author's own <c>rfc8785/input-weird.json</c> uses as an object member name.
+    /// </summary>
+    private const string ValidPair = "😂";
+
+    /// <summary>
+    /// Builds an ill-formed UTF-16 string from an ASCII sketch: <c>H</c> = lone high surrogate
+    /// (U+D800), <c>L</c> = lone low surrogate (U+DC00), <c>P</c> = the well-formed pair
+    /// <see cref="ValidPair"/>, any other character = itself.
+    ///
+    /// The indirection is load-bearing, not decoration. <b>An unpaired surrogate cannot be
+    /// carried in an <c>[InlineData]</c> argument</b>: xUnit serializes theory arguments, and the
+    /// round trip replaces every unpaired surrogate with U+FFFD -- so the first version of these
+    /// tests received a *well-formed* string, failed for a reason that had nothing to do with the
+    /// defect, and would have gone on failing after the fix landed. The same round trip also
+    /// renders two distinct lone surrogates identically, which silently collapsed the high and
+    /// low cases into one test. Both are the shape this whole errata family keeps finding: the
+    /// absence of a probe is indistinguishable from a passing one. The sketch is pure ASCII, so
+    /// it survives serialization intact and names each case readably in the run output;
+    /// <see cref="AssertIsIllFormed"/> then proves the string the test actually holds is the one
+    /// it meant to hold.
+    /// </summary>
+    private static string Sketch(string? sketch)
+    {
+        ArgumentNullException.ThrowIfNull(sketch);
+        var sb = new StringBuilder(sketch.Length);
+        foreach (var c in sketch)
+        {
+            switch (c)
+            {
+                case 'H': sb.Append(LoneHigh); break;
+                case 'L': sb.Append(LoneLow); break;
+                case 'P': sb.Append(ValidPair); break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Proves the test input really is ill-formed UTF-16 before asserting anything about how it
+    /// is rejected, so a test can never quietly pass (or fail) against a well-formed string the
+    /// harness substituted. The check is the defect itself, used as an oracle: a well-formed
+    /// string survives a UTF-8 round trip unchanged, and an ill-formed one comes back with
+    /// U+FFFD substituted -- which is precisely the silent substitution R6.38 forbids
+    /// <see cref="CanonicalJson.Canonicalize"/> from performing.
+    /// </summary>
+    private static void AssertIsIllFormed(string s) =>
+        Assert.NotEqual(s, Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(s)), StringComparer.Ordinal);
+
+    /// <summary>
+    /// R6.38's second paragraph, the half errata E12 recorded as found and not fixed:
+    /// <c>Canonicalize</c> SHALL reject an unpaired UTF-16 surrogate "independently of ADMIT
+    /// and regardless of whether ADMIT already ran," for the same reason it rejects a raw
+    /// duplicate member name -- RFC 8785 defines no canonical output for it.
+    ///
+    /// The failure mode being closed is silent substitution, not a crash: a lone surrogate
+    /// survived <see cref="CanonicalJson"/>'s writer untouched and became U+FFFD at the
+    /// <c>Encoding.UTF8.GetBytes</c> step, so the function returned <c>Ok</c> with canonical
+    /// bytes carrying a *different character* than the tree it was handed. The tree is built
+    /// directly rather than parsed, which is the only way to reach this at all: both
+    /// <see cref="JsonReader"/> paths already reject an unpaired surrogate escape with this
+    /// same slug, which is exactly why the differential harness could never see the
+    /// divergence -- it feeds bytes, and the byte path was never wrong.
+    /// </summary>
+    /// <remarks>See <see cref="Sketch"/>: the cases are given as ASCII sketches because the strings themselves cannot survive being theory arguments.</remarks>
+    [Theory]
+    [InlineData("H")]    // lone high surrogate
+    [InlineData("L")]    // lone low surrogate
+    [InlineData("xH")]   // high surrogate at the end of a longer string
+    [InlineData("Hx")]   // high surrogate followed by a non-surrogate
+    [InlineData("HH")]   // high surrogate followed by another high one
+    [InlineData("LP")]   // low surrogate immediately before a well-formed pair
+    [InlineData("PH")]   // well-formed pair immediately before a lone high one
+    public void CanonicalizeRejectsAnUnpairedSurrogateInAStringValue(string sketch)
+    {
+        var ill = Sketch(sketch);
+        AssertIsIllFormed(ill);
+
+        var result = CanonicalJson.Canonicalize(new JsonValue.Object([new("a", new JsonValue.String(ill))]));
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/unpaired-surrogate", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// Member names are strings too. A check that walked only string *values* would pass every
+    /// case above and still emit a canonical document whose member name is not the name it was
+    /// handed -- and the member name is what RFC 8785 §3.2.3 sorts on, so a substituted U+FFFD
+    /// there changes where the member sorts as well as what it says.
+    /// </summary>
+    [Theory]
+    [InlineData("H")]    // lone high surrogate
+    [InlineData("L")]    // lone low surrogate
+    [InlineData("kL")]   // low surrogate at the end of a longer name
+    public void CanonicalizeRejectsAnUnpairedSurrogateInAMemberName(string sketch)
+    {
+        var ill = Sketch(sketch);
+        AssertIsIllFormed(ill);
+
+        var result = CanonicalJson.Canonicalize(new JsonValue.Object([new(ill, new JsonValue.Number(1))]));
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/unpaired-surrogate", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// "At any depth" is not decoration, for the same reason it was not for duplicate members:
+    /// a check on the root object's own strings would pass both tests above and still emit
+    /// substituted bytes here. Nested through an array as well as an object, since the writer
+    /// recurses through both.
+    /// </summary>
+    [Fact]
+    public void CanonicalizeRejectsAnUnpairedSurrogateNestedInsideTheDocument()
+    {
+        var ill = Sketch("H");
+        AssertIsIllFormed(ill);
+        var value = new JsonValue.Object(
+        [
+            new("outer", new JsonValue.Array(
+            [
+                new JsonValue.Object([new("inner", new JsonValue.String(ill))]),
+            ])),
+        ]);
+
+        var result = CanonicalJson.Canonicalize(value);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/unpaired-surrogate", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// The control that proves the fix did not overshoot. A well-formed surrogate pair is how
+    /// every character outside the BMP is spelled in UTF-16, so a lazier check rejecting any
+    /// surrogate code unit would reject every astral character -- emoji, historic scripts, the
+    /// whole of plane 1 upward -- and would break <c>rfc8785/input-weird.json</c>, whose
+    /// "Smiley" member name is this exact pair. Asserted on the bytes as well as the decoded
+    /// string, because the defect being fixed was a silent U+FFFD substitution at the encode
+    /// step: a string comparison alone would catch it, but the byte assertion names what
+    /// "correctly" means here without a round trip in between.
+    /// </summary>
+    [Fact]
+    public void CanonicalizeAcceptsAValidSurrogatePairInBothMemberNameAndValue()
+    {
+        // The mirror of AssertIsIllFormed: a well-formed pair round-trips through UTF-8 unchanged.
+        Assert.Equal(ValidPair, Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(ValidPair)), StringComparer.Ordinal);
+
+        var value = new JsonValue.Object(
+        [
+            new(ValidPair, new JsonValue.String("a" + ValidPair + "b")),
+        ]);
+
+        var bytes = CanonicalJson.Canonicalize(value)
+            .Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        Assert.Equal($$"""{"{{ValidPair}}":"a{{ValidPair}}b"}""", Encoding.UTF8.GetString(bytes));
+        Assert.Equal(
+            Encoding.UTF8.GetBytes($$"""{"{{ValidPair}}":"a{{ValidPair}}b"}"""),
+            bytes);
+        Assert.DoesNotContain("�", Encoding.UTF8.GetString(bytes), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <see cref="CanonicalJson.CanonicalizeWithNfc"/> already refused this tree before the fix,
+    /// but named the wrong thing: <c>string.Normalize(NormalizationForm.FormC)</c> throws
+    /// <see cref="ArgumentException"/> on ill-formed UTF-16, so <c>NormalizeRun</c>'s catch
+    /// reported <c>curia/canon/normalization-failed</c> -- the layer that noticed, not the
+    /// condition -- with a platform-specific ICU message as its detail. R6.40 pins that
+    /// distinction ("a condition name, not a generic outcome word") and R6.42 restates it as an
+    /// obligation ("SHALL name the condition rather than the layer that noticed it"); both
+    /// <see cref="JsonReader"/> and <c>curia-testis</c> already answer
+    /// <c>curia/admit/unpaired-surrogate</c> for the identical input. The check now sits ahead
+    /// of normalization on this path too, so both profiles agree with both parse paths and with
+    /// the Rust verifier.
+    ///
+    /// This is a deliberate slug move, not a cleanup: it is a public failure surface, and the
+    /// event store admits payloads under this function (R11.24), so its refusal predicate for an
+    /// unpaired surrogate moves with it.
+    /// </summary>
+    [Theory]
+    [InlineData("H")]    // lone high surrogate
+    [InlineData("L")]    // lone low surrogate
+    [InlineData("PL")]   // well-formed pair immediately before a lone low one
+    public void CanonicalizeWithNfcRejectsAnUnpairedSurrogateNamingTheConditionNotTheLayer(string sketch)
+    {
+        var ill = Sketch(sketch);
+        AssertIsIllFormed(ill);
+
+        var inValue = CanonicalJson.CanonicalizeWithNfc(
+            new JsonValue.Object([new("a", new JsonValue.String(ill))]));
+        var inMemberName = CanonicalJson.CanonicalizeWithNfc(
+            new JsonValue.Object([new(ill, new JsonValue.Number(1))]));
+
+        Assert.Equal("curia/admit/unpaired-surrogate", inValue.Match(_ => "ok", e => e.Type));
+        Assert.Equal("curia/admit/unpaired-surrogate", inMemberName.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>The NFC profile's own overshoot control: a well-formed pair still normalizes and canonicalizes.</summary>
+    [Fact]
+    public void CanonicalizeWithNfcAcceptsAValidSurrogatePair()
+    {
+        var value = new JsonValue.Object([new(ValidPair, new JsonValue.String(ValidPair))]);
+
+        var canonical = CanonicalJson.CanonicalizeWithNfc(value)
+            .Match(b => Encoding.UTF8.GetString(b.Span), e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        Assert.Equal($$"""{"{{ValidPair}}":"{{ValidPair}}"}""", canonical);
+    }
+
+    /// <summary>
+    /// Precedence, stated because it exists rather than because a document requires it: within
+    /// one object both canonicalizers settle the duplicate member name first -- the pure writer
+    /// because <c>OrderMembers</c> runs before a byte of the object is emitted, the NFC profile
+    /// because <c>NormalizeObject</c>'s raw-duplicate pass runs before any member name is
+    /// normalized. So the two profiles agree with each other here, which is the property worth
+    /// having; no requirement pins an order between these two conditions, and across nesting
+    /// levels the answer is positional in both.
+    /// </summary>
+    [Fact]
+    public void ADuplicateMemberNameIsReportedAheadOfAnUnpairedSurrogateInTheSameObject()
+    {
+        var ill = Sketch("H");
+        AssertIsIllFormed(ill);
+        var value = new JsonValue.Object(
+        [
+            new("dup", new JsonValue.String(ill)),
+            new("dup", new JsonValue.String("SECOND")),
+        ]);
+
+        Assert.Equal("curia/admit/duplicate-key", CanonicalJson.Canonicalize(value).Match(_ => "ok", e => e.Type));
+        Assert.Equal("curia/admit/duplicate-key", CanonicalJson.CanonicalizeWithNfc(value).Match(_ => "ok", e => e.Type));
+    }
+
     // -- curia/canon/duplicate-normalized-key (P22 non-repudiation defect) --------------
 
     /// <summary>
@@ -556,4 +800,100 @@ public sealed class CanonicalJsonTests
     [Fact]
     public void AcceptsKeysDifferingOnlyByCase() =>
         Assert.Equal("""{"Cafe":1,"cafe":2}""", CanonicalizeWithNfc("""{"Cafe":1,"cafe":2}"""));
+
+    /// <summary>
+    /// <see cref="CanonicalJson.InCanonicalMemberOrder"/> puts every object's members in
+    /// RFC 8785 §3.2.3 order at every depth, leaves array order alone (R6.8), and touches no
+    /// scalar. The order is written out literally rather than obtained from the canonicalizer,
+    /// so this pins which order that is rather than agreeing with the writer by construction.
+    /// </summary>
+    [Fact]
+    public void InCanonicalMemberOrderSortsEveryObjectAndLeavesArraysAlone()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("z", new JsonValue.Number(1)),
+            new("longer_key_b", new JsonValue.Number(2)),
+            new("arr", new JsonValue.Array(
+            [
+                new JsonValue.Object([new("q", new JsonValue.Bool(true)), new("b", JsonValue.Null.Instance)]),
+                new JsonValue.String("first"),
+                new JsonValue.String("second"),
+            ])),
+            new("a", new JsonValue.Number(3)),
+        ]);
+
+        var ordered = Assert.IsType<JsonValue.Object>(
+            CanonicalJson.InCanonicalMemberOrder(value).Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type)));
+
+        Assert.Equal(RootOrder, MemberKeys(ordered));
+
+        var array = Assert.IsType<JsonValue.Array>(ordered.Members.Single(m => m.Key == "arr").Value);
+        Assert.Equal(NestedOrder, MemberKeys(Assert.IsType<JsonValue.Object>(array.Items[0])));
+        Assert.Equal("first", Assert.IsType<JsonValue.String>(array.Items[1]).Value);
+        Assert.Equal("second", Assert.IsType<JsonValue.String>(array.Items[2]).Value);
+    }
+
+    private static IReadOnlyList<string> MemberKeys(JsonValue.Object o) => [.. o.Members.Select(m => m.Key)];
+
+    private static readonly string[] RootOrder = ["a", "arr", "longer_key_b", "z"];
+    private static readonly string[] NestedOrder = ["b", "q"];
+
+    /// <summary>
+    /// The reordering and the writer share <c>OrderMembers</c>, so they cannot disagree about
+    /// what §3.2.3 order is. Stated as a property rather than assumed: canonicalizing the
+    /// reordered tree must give the identical bytes canonicalizing the original does, which is
+    /// what "the tree is now in the order the writer would emit" means operationally.
+    /// </summary>
+    [Fact]
+    public void InCanonicalMemberOrderAgreesWithTheWriterItSharesTheOrderingWith()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("zeta", new JsonValue.Number(-17.5)),
+            new("Alpha", new JsonValue.Array([new JsonValue.String("café"), new JsonValue.Bool(false)])),
+            new("nested", new JsonValue.Object([new("y", new JsonValue.Number(0)), new("x", JsonValue.Null.Instance)])),
+        ]);
+
+        var ordered = CanonicalJson.InCanonicalMemberOrder(value)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        Assert.Equal(
+            CanonicalJson.Canonicalize(value).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)),
+            CanonicalJson.Canonicalize(ordered).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)));
+
+        // Idempotent: reordering an already-ordered tree is a no-op, which is what lets the
+        // event store apply it on every read without the payload drifting.
+        var twice = CanonicalJson.InCanonicalMemberOrder(ordered)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+        Assert.Equal(
+            CanonicalJson.Canonicalize(ordered).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)),
+            CanonicalJson.Canonicalize(twice).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)));
+    }
+
+    /// <summary>
+    /// It fails for the one reason the writer fails for, with the identical slug: §3.2.3 gives
+    /// no order for two equal names, so there is no ordered tree to return. Nested, because the
+    /// rule is a property of every object in the tree.
+    /// </summary>
+    [Fact]
+    public void InCanonicalMemberOrderRejectsADuplicateMemberNameAtAnyDepth()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("outer", new JsonValue.Array(
+            [
+                new JsonValue.Object(
+                [
+                    new("dup", new JsonValue.String("FIRST")),
+                    new("dup", new JsonValue.String("SECOND")),
+                ]),
+            ])),
+        ]);
+
+        var result = CanonicalJson.InCanonicalMemberOrder(value);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/duplicate-key", result.Match(_ => "ok", e => e.Type));
+    }
 }

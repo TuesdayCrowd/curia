@@ -373,3 +373,115 @@ fn raw_duplicate_always_wins_with_an_unrelated_key_between_them() {
         format!(r#"{{"{CAFE_PRECOMPOSED}":1,"{CAFE_DECOMPOSED}":2,"unrelated":5,"a":3,"a":4}}"#);
     assert_raw_duplicate_wins(&input);
 }
+
+// ---------------------------------------------------------------------
+// R6.43 — the predicate names the condition, not the entry point that
+// noticed it (errata E13's first recorded Rust divergence; measured by the
+// differential harness once E14's comparison-rule gap was closed).
+//
+// `canonicalize` and `canonicalize_with_nfc` share one parser, so for any
+// input the parser rejects they must report one slug. They did not:
+// `NfcError::Parse(_)` collapsed every parse condition onto a single
+// `curia/canon/parse-error`, a predicate naming the mechanism. The pair
+// below is the whole property — same bytes, two entry points, one answer —
+// and it is checked here rather than in the corpus because a published
+// vector pins an entry point (R14.7).
+// ---------------------------------------------------------------------
+
+#[track_caller]
+fn assert_both_canonicalizers_report(input: &[u8], expected: &str) {
+    let pure = curia_testis::canonicalize(input)
+        .err()
+        .unwrap_or_else(|| panic!("canonicalize accepted input it must reject: {input:?}"));
+    let nfc = curia_testis::canonicalize_with_nfc(input)
+        .err()
+        .unwrap_or_else(|| {
+            panic!("canonicalize_with_nfc accepted input it must reject: {input:?}")
+        });
+    assert_eq!(
+        pure.predicate(),
+        expected,
+        "canonicalize named the wrong condition for {input:?}"
+    );
+    assert_eq!(
+        nfc.predicate(),
+        expected,
+        "canonicalize_with_nfc named the wrong condition for {input:?} \
+         (this is the arm that used to answer curia/canon/parse-error)"
+    );
+}
+
+#[test]
+fn unpaired_surrogate_names_the_condition_at_both_entry_points() {
+    assert_both_canonicalizers_report(br#""\uD800""#, "curia/admit/unpaired-surrogate");
+}
+
+#[test]
+fn raw_nul_names_the_condition_at_both_entry_points() {
+    assert_both_canonicalizers_report(b"\"\x00\"", "curia/admit/nul-byte");
+    assert_both_canonicalizers_report(b"\x00", "curia/admit/nul-byte");
+}
+
+#[test]
+fn invalid_utf8_names_the_condition_at_both_entry_points() {
+    assert_both_canonicalizers_report(b"\x80", "curia/admit/invalid-utf8");
+}
+
+#[test]
+fn raw_control_character_names_the_condition_at_both_entry_points() {
+    assert_both_canonicalizers_report(b"\"\x01\"", "curia/admit/raw-control-character");
+}
+
+#[test]
+fn non_finite_number_names_the_condition_at_both_entry_points() {
+    assert_both_canonicalizers_report(b"9e702", "curia/admit/non-finite-number");
+}
+
+#[test]
+fn truncated_input_names_the_condition_at_both_entry_points() {
+    assert_both_canonicalizers_report(b"\"", "curia/admit/malformed-json");
+}
+
+#[test]
+fn excessive_nesting_names_the_condition_at_both_entry_points() {
+    // The parser's own stack-safety guard, not ADMIT's depth-32 rule — but
+    // it still has a condition name, and both entry points must use it.
+    let input = "[".repeat(600);
+    assert_both_canonicalizers_report(input.as_bytes(), "curia/admit/depth-exceeded");
+}
+
+#[test]
+fn raw_duplicate_member_names_the_condition_at_both_entry_points() {
+    // The one condition that already agreed before this fix, because
+    // `NfcError`'s own `DuplicateRawKey` variant reuses ADMIT's slug. Pinned
+    // alongside the rest so the property is stated once for all of them.
+    assert_both_canonicalizers_report(br#"{"a":1,"a":2}"#, "curia/admit/duplicate-key");
+}
+
+#[test]
+fn no_entry_point_reports_a_mechanism_shaped_predicate() {
+    // R6.43 names `curia/canon/parse-error` and
+    // `curia/canon/normalization-failed` as the shapes forbidden outright.
+    // A slug enumeration would rot; asserting the negative over every
+    // condition above does not.
+    for input in [
+        br#""\uD800""#.as_slice(),
+        b"\"\x00\"".as_slice(),
+        b"\x80".as_slice(),
+        b"\"\x01\"".as_slice(),
+        b"9e702".as_slice(),
+        b"\"".as_slice(),
+        br#"{"a":1,"a":2}"#.as_slice(),
+    ] {
+        let slug = curia_testis::canonicalize_with_nfc(input)
+            .err()
+            .unwrap_or_else(|| panic!("expected a rejection for {input:?}"))
+            .predicate()
+            .to_owned();
+        assert!(
+            !slug.contains("parse-error") && !slug.contains("normalization-failed"),
+            "canonicalize_with_nfc reported the mechanism, not the condition, \
+             for {input:?}: {slug}"
+        );
+    }
+}

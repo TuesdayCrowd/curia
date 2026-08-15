@@ -90,11 +90,26 @@ pub enum Value {
 }
 
 /// A JSON syntax error. `parse` never panics; every rejection — malformed
-/// syntax, invalid UTF-8, an unpaired surrogate escape, a raw control byte
-/// inside a string, a number that overflows to a non-finite `f64`, or
-/// input nested deeper than the stack-safety guard allows — surfaces here.
+/// syntax, invalid UTF-8, a raw NUL byte, an unpaired surrogate escape, a
+/// raw control byte inside a string, a number that overflows to a non-finite
+/// `f64`, or input nested deeper than the stack-safety guard allows —
+/// surfaces here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
+    /// A raw NUL (`0x00`) byte appeared anywhere in the input — inside a
+    /// string literal, or outside one where JSON grammar would have called
+    /// it merely an unexpected character.
+    ///
+    /// Errata R6.40 carves NUL out of the C0 control class by name and
+    /// R6.43 says the carve-out holds "on ADMIT-free parse paths exactly as
+    /// it does at ADMIT", so this is a variant of [`parse`]'s own, not a
+    /// rule [`admit`] applies on top. Before it existed, a NUL inside a
+    /// string surfaced as [`ParseError::RawControlInString`] (the slug R6.40
+    /// reserves for the *other* thirty-one C0 values) and a NUL outside one
+    /// as [`ParseError::UnexpectedChar`] — two conditions the differential
+    /// harness measured, once its comparison rules were fixed to look at
+    /// rejection predicates at all (errata E14).
+    RawNulByte { pos: usize },
     /// The input ended while a value, string, or literal was still open.
     UnexpectedEof { pos: usize },
     /// A byte (well, character — see `pos`, a `char`-boundary byte offset)
@@ -110,9 +125,13 @@ pub enum ParseError {
     /// surrogate, a low surrogate with no preceding high surrogate, or a
     /// high surrogate followed by a non-surrogate `\uXXXX`.
     UnpairedSurrogate { pos: usize },
-    /// A raw byte below `U+0020` appeared inside a string literal,
+    /// A raw byte in `0x01`–`0x1F` appeared inside a string literal,
     /// unescaped. RFC 8259 §7 requires such characters to be escaped; a
     /// literal one is a syntax error, not (at this layer) an ADMIT rule.
+    ///
+    /// NUL is *not* one of these: [`parse`] scans for it before doing
+    /// anything else, so this variant can never be a NUL in disguise — see
+    /// [`ParseError::RawNulByte`] and R6.40's carve-out.
     RawControlInString { pos: usize },
     /// A number token did not match RFC 8259 §6's grammar.
     InvalidNumber { pos: usize },
@@ -156,6 +175,11 @@ impl ParseError {
     /// both agreed to reject.
     pub fn predicate(&self) -> &'static str {
         match self {
+            // R6.40's carve-out, restated by R6.43 without qualifying which
+            // layer applies it: NUL is a C0 control byte, but it keeps its
+            // own, more specific slug, and `raw-control-character` covers
+            // only the other thirty-one values.
+            ParseError::RawNulByte { .. } => "curia/admit/nul-byte",
             ParseError::InvalidUtf8 => "curia/admit/invalid-utf8",
             ParseError::UnpairedSurrogate { .. } => "curia/admit/unpaired-surrogate",
             ParseError::NonFiniteNumber { .. } => "curia/admit/non-finite-number",
@@ -174,6 +198,9 @@ impl ParseError {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ParseError::RawNulByte { pos } => {
+                write!(f, "raw NUL (0x00) byte at input offset {pos}")
+            }
             ParseError::UnexpectedEof { pos } => {
                 write!(f, "unexpected end of input at byte {pos}")
             }
@@ -234,7 +261,19 @@ const MAX_PARSE_DEPTH: usize = 512;
 
 /// Parses exactly one JSON value from `input`, per RFC 8259, with no
 /// repair of malformed input — every rejection is a typed [`ParseError`].
+///
+/// The raw-byte scan for NUL runs first, ahead of UTF-8 validation, for the
+/// two reasons [`admit`] states for its own identical scan and one more:
+/// R6.15's "embedded NUL bytes" class covers *any* NUL anywhere in the wire
+/// stream, including outside a string where JSON grammar would only call it
+/// an unexpected character; doing it first means
+/// [`ParseError::RawControlInString`] can never be a NUL in disguise; and
+/// R6.43 requires the carve-out to hold on this ADMIT-free path exactly as
+/// it does at ADMIT, which is precisely where it did not before.
 pub fn parse(input: &[u8]) -> Result<Value, ParseError> {
+    if let Some(pos) = input.iter().position(|&b| b == 0x00) {
+        return Err(ParseError::RawNulByte { pos });
+    }
     let text = std::str::from_utf8(input).map_err(|_| ParseError::InvalidUtf8)?;
     let mut parser = Parser {
         input: text,
@@ -631,7 +670,12 @@ impl std::error::Error for AdmitError {}
 ///    unexpected character, not by name. Doing this first also means every
 ///    NUL byte is accounted for before [`parse`] runs, so a later
 ///    [`ParseError::RawControlInString`] (see [`map_parse_error`]) can
-///    never be a NUL in disguise.
+///    never be a NUL in disguise. [`parse`] now performs the identical scan
+///    for itself, reporting [`ParseError::RawNulByte`] with this same slug
+///    and message, because R6.43 requires the carve-out on the ADMIT-free
+///    path too; this step is kept where the ADMIT phase's own documented
+///    order of checks puts it, and the two cannot drift, because both
+///    answers come from the same slug and the same wording.
 /// 3. **[`parse`]** — RFC 8259 syntax, UTF-8 validity, unpaired-surrogate
 ///    and non-finite-number rejection, all inherited unchanged from Task
 ///    2's parser. A [`ParseError`] here is remapped onto the matching

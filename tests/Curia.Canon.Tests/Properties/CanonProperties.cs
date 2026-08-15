@@ -19,9 +19,12 @@ namespace Curia.Canon.Tests.Properties;
 /// are documented here rather than silently dropped:
 ///
 ///  - Unpaired surrogates. <see cref="JsonReader.Parse"/> rejects them at ADMIT
-///    (curia/admit/unpaired-surrogate), so a string containing one is not a document the
-///    system ever accepts -- generating it would be testing a case ADMIT already screens
-///    out, not weakening the property to dodge a real failure. <see cref="HasUnpairedSurrogate"/>
+///    (curia/admit/unpaired-surrogate), and since errata E13 so do
+///    <see cref="CanonicalJson.Canonicalize"/> and <see cref="CanonicalJson.CanonicalizeWithNfc"/>
+///    themselves, with the same slug -- so a string containing one is not a document any of
+///    these functions returns bytes for, and generating it would be testing a rejection the
+///    example-based suite pins directly (CanonicalJsonTests's unpaired-surrogate section), not
+///    weakening the property to dodge a real failure. <see cref="HasUnpairedSurrogate"/>
 ///    filters every string generator below, including P5's, whose own string generator
 ///    does not round-trip through JsonReader.Parse but would otherwise let .Normalize()
 ///    and the reader disagree on ill-formed UTF-16 for reasons that have nothing to do
@@ -71,25 +74,13 @@ public sealed class CanonProperties
     /// <summary>
     /// True when <paramref name="s"/> contains a UTF-16 code unit that is not part of a
     /// well-formed surrogate pair. See the type-level remarks for why every generator
-    /// below excludes these.
+    /// below excludes these. Delegates to <see cref="CanonicalJson.HasUnpairedSurrogate"/>
+    /// (internal; this assembly has InternalsVisibleTo) rather than keeping the second copy it
+    /// used to carry, for the same reason <see cref="HasNoncharacter"/> reuses
+    /// <see cref="JsonReader.IsNoncharacter"/>: the generator's notion of "ill-formed" and the
+    /// canonicalizer's cannot be allowed to drift, and errata E13 gave the canonicalizer one.
     /// </summary>
-    private static bool HasUnpairedSurrogate(string s)
-    {
-        for (var i = 0; i < s.Length; i++)
-        {
-            if (char.IsHighSurrogate(s[i]))
-            {
-                if (i + 1 == s.Length || !char.IsLowSurrogate(s[i + 1]))
-                    return true;
-                i++; // skip the low surrogate: it is legitimately paired
-            }
-            else if (char.IsLowSurrogate(s[i]))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+    private static bool HasUnpairedSurrogate(string s) => CanonicalJson.HasUnpairedSurrogate(s);
 
     /// <summary>
     /// True when <paramref name="s"/> contains a Unicode noncharacter (Unicode 16.0 §23.7).

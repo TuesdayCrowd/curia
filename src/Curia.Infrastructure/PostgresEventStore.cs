@@ -301,10 +301,32 @@ public sealed class PostgresEventStore : IEventStore
     }
 
     /// <summary>
-    /// Payload -&gt; JSON text for the jsonb parameter. Plain <see cref="CanonicalJson.Canonicalize"/>
-    /// (RFC 8785, no NFC), not <see cref="CanonicalJson.CanonicalizeWithNfc"/> -- storage is not
-    /// signing or verification, and R6.9's NFC mandate governs content that will be signed or
-    /// verified.
+    /// Payload -&gt; JSON text for the jsonb parameter, in two steps that answer two different
+    /// questions -- <i>may this be stored at all</i>, and <i>what text goes in the column</i>.
+    ///
+    /// <b>Admission</b> is decided by <see cref="CanonicalJson.CanonicalizeWithNfc"/>, the
+    /// Cūria profile, with its bytes discarded (R11.24, errata E12). <b>Storage</b> is rendered
+    /// by the pure <see cref="CanonicalJson.Canonicalize"/> (RFC 8785, no NFC) -- storage is
+    /// not signing or verification, R6.9's NFC mandate governs content that will be signed or
+    /// verified, and NFC-normalizing a payload on its way into the system of record would be a
+    /// mutation sec. 6.4 forbids outright.
+    ///
+    /// That "storage is not signing" defence, which this method used to give for using the
+    /// pure profile throughout, is sound for what gets *written* and does not carry over to
+    /// what gets *admitted*. Admission only ever refuses, and refusing mutates nothing, so the
+    /// no-mutation invariant has nothing to say about admitting less. What does have something
+    /// to say is R11.9: this table is the system of record. A payload whose member names
+    /// collide only after NFC -- precomposed <c>café</c> against <c>cafe</c> + U+0301 -- has a
+    /// pure canonical form, so the old check passed it, and <c>jsonb</c> compares keys bytewise
+    /// so it retains both members (measured against this fixture's PostgreSQL 18.4:
+    /// <c>'{"café":1,"café":2}'::jsonb</c> keeps both). Round-tripping is lossless
+    /// and nothing is lost today. But <see cref="CanonicalJson.CanonicalizeWithNfc"/> fails on
+    /// that same tree with <c>curia/canon/duplicate-normalized-key</c>, so the moment event
+    /// payloads are digested into a Merkle leaf or an <i>Acta</i> entry -- sec. 9's dump
+    /// manifests -- the table would already hold rows that cannot be canonicalized for the
+    /// purpose, and the defect would surface at signing time rather than at write time. The
+    /// tightening is narrow by construction: a payload full of NFD text still passes; only a
+    /// collision is refused.
     ///
     /// The failure this propagates is real, not ceremonial, and this call site is why errata
     /// E10 exists. <see cref="CanonicalJson.Canonicalize"/> rejects an object carrying two
@@ -319,9 +341,19 @@ public sealed class PostgresEventStore : IEventStore
     /// outcome compatible with an append-only system of record: there is no repair the
     /// no-mutation invariant (R6.12-R6.17) would permit, and storing a collapsed payload is
     /// data loss in the one table that is supposed to be the system of record.
+    ///
+    /// Two walks of the tree, then, not one, and deliberately so: the admission verdict and the
+    /// stored rendering come from two different functions because they answer two different
+    /// questions, and collapsing them into one call would mean either storing NFC-normalized
+    /// text (a mutation) or admitting what cannot be signed (the hazard above). A raw duplicate
+    /// still reports <c>curia/admit/duplicate-key</c> and not the normalized slug, because
+    /// <see cref="CanonicalJson.CanonicalizeWithNfc"/> preserves errata E1's precedence between
+    /// the two predicates -- this method does not re-derive it.
     /// </summary>
     private static Result<string> SerializePayload(JsonValue payload) =>
-        CanonicalJson.Canonicalize(payload).Map(bytes => Encoding.UTF8.GetString(bytes.Span));
+        CanonicalJson.CanonicalizeWithNfc(payload)
+            .Bind(_ => CanonicalJson.Canonicalize(payload))
+            .Map(bytes => Encoding.UTF8.GetString(bytes.Span));
 
     /// <summary>
     /// Reconstructs an <see cref="AppendedEvent"/> from one row shaped like
@@ -330,7 +362,11 @@ public sealed class PostgresEventStore : IEventStore
     /// adapter after the same typed constructors already validated it (CS-10: "exceptions are
     /// reserved for bugs and infrastructure faults"), so a failure here means the row did not
     /// come from this adapter's own INSERT path, which is exactly the "bug or infrastructure
-    /// fault" tier.
+    /// fault" tier. That holds for the payload's reordering step too: the one condition
+    /// <see cref="CanonicalJson.InCanonicalMemberOrder"/> fails on is an object with duplicate
+    /// member names, which <c>jsonb</c> cannot produce (its input conversion resolves
+    /// duplicates last-wins, so the value in the column never has any) and which
+    /// <see cref="SerializePayload"/> refuses before the INSERT in any case.
     /// </summary>
     private static AppendedEvent MapRow(NpgsqlDataReader reader)
     {
@@ -348,8 +384,19 @@ public sealed class PostgresEventStore : IEventStore
                 v => (ActorId?)v,
                 e => throw new InvalidOperationException($"Corrupt events.actor_id: {e.Title}"));
 
+        // Two steps, and the second one is the port promise R11.23 states, not a tidy-up.
+        // jsonb is a parsed binary form, not the text this adapter handed it: it re-sorts every
+        // object's keys by its own rule -- key length first, then bytewise -- so the RFC 8785
+        // order SerializePayload wrote is emphatically not the order that comes back
+        // ({"z":1,"longer_key_b":2,"a":3} appended reads as {"a": 3, "z": 1, "longer_key_b": 2},
+        // measured against PostgreSQL 18.4). The ordering is lost inside the database, so it
+        // has to be re-established here, on the way out. Restoring it is deterministic and
+        // costs nothing in fidelity: member order is not information in JSON, so this changes
+        // no fact, and the alternative -- letting the payload out in jsonb's order -- left the
+        // in-memory adapter the more faithful of the two, which is the E11 shape (R11.22).
         var payloadText = reader.GetString(5);
         var payload = JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(payloadText))
+            .Bind(CanonicalJson.InCanonicalMemberOrder)
             .Match(v => v, e => throw new InvalidOperationException($"Corrupt events.payload (not valid JSON): {e.Title}"));
 
         var serverTimestamp = ServerTimestamp.At(reader.GetFieldValue<DateTimeOffset>(6));
