@@ -167,8 +167,36 @@ function parseJsonText(text) {
           i++;
           const hex = text.slice(i, i + 4);
           if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail('invalid \\u escape');
-          out += String.fromCharCode(parseInt(hex, 16));
+          const code = parseInt(hex, 16);
           i += 4;
+          if (code >= 0xd800 && code <= 0xdbff) {
+            // High surrogate. RFC 8259 §7 requires it be immediately followed
+            // by a \u escape naming a low surrogate (0xDC00-0xDFFF); anything
+            // else names no Unicode scalar value and has no canonical form
+            // (RFC 8785 has nothing to say about ill-formed input). Do not
+            // append it to `out` unpaired — a JS string can hold a lone
+            // surrogate (JS strings are UTF-16 code units, not scalar
+            // values), and Buffer.from(str,'utf8') would later re-encode it
+            // by silently substituting U+FFFD instead of failing. Reject here
+            // instead, at the one place the ill-formed input actually enters.
+            let low = null;
+            if (text[i] === '\\' && text[i + 1] === 'u') {
+              const hex2 = text.slice(i + 2, i + 6);
+              if (/^[0-9a-fA-F]{4}$/.test(hex2)) {
+                const code2 = parseInt(hex2, 16);
+                if (code2 >= 0xdc00 && code2 <= 0xdfff) low = code2;
+              }
+            }
+            if (low === null) fail('unpaired UTF-16 high surrogate in \\u escape (not followed by a low-surrogate \\u escape)');
+            out += String.fromCharCode(code) + String.fromCharCode(low);
+            i += 6;
+          } else if (code >= 0xdc00 && code <= 0xdfff) {
+            // Low surrogate with no preceding high surrogate to pair with —
+            // same defect, same reason to reject.
+            fail('unpaired UTF-16 low surrogate in \\u escape (no preceding high surrogate)');
+          } else {
+            out += String.fromCharCode(code);
+          }
         } else {
           fail(`invalid escape '\\${e}'`);
         }
@@ -278,6 +306,15 @@ function canonicalize(node) {
 }
 
 function canonicalizeBytes(node) {
+  // Buffer.from(str, 'utf8') silently substitutes U+FFFD for any lone
+  // surrogate in `str` rather than failing — the exact defect this file
+  // otherwise takes pains to avoid (see decodeUtf8Strict above). That is safe
+  // here only because parseStringLiteral's \u-escape handling refuses to
+  // construct a JS string containing an unpaired surrogate in the first
+  // place, so `canonicalize(node)` never hands this call one. If another
+  // string ever enters a Node tree by some path other than parseStringLiteral
+  // (e.g. a future construction helper), it must be held to that same
+  // guarantee before reaching here.
   return Buffer.from(canonicalize(node), 'utf8');
 }
 

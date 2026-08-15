@@ -1,0 +1,5 @@
+{
+  "profile": "admit",
+  "requirement": "R6.40",
+  "note": "a raw 0x01 byte, unescaped, inside a string literal; distinct from raw-nul-byte's 0x00, which keeps its own more specific curia/admit/nul-byte slug even though both are C0 control bytes"
+}
