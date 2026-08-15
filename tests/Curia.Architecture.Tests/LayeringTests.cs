@@ -35,6 +35,7 @@ public sealed class LayeringTests
     private static Assembly Sodium => typeof(Curia.Canon.Sodium.Ed25519Adapter).Assembly;
     private static Assembly Domain => typeof(Curia.Domain.DomainEvent).Assembly;
     private static Assembly Application => typeof(Curia.Application.Ports.IEventStore).Assembly;
+    private static Assembly AuthN => typeof(Curia.AuthN.AccessTokenClaims).Assembly;
 
     /// <summary>
     /// Every production assembly currently in play, paired with the name NetArchTest/
@@ -49,6 +50,7 @@ public sealed class LayeringTests
         ("Curia.Domain.Primitives", typeof(Curia.Domain.Primitives.Result<>).Assembly),
         ("Curia.Domain", Domain),
         ("Curia.Application", Application),
+        ("Curia.AuthN", AuthN),
     ];
 
     /// <summary>
@@ -261,5 +263,48 @@ public sealed class LayeringTests
         return dir is null
             ? throw new InvalidOperationException("Could not find repo root (a 'src' directory) above " + AppContext.BaseDirectory)
             : Path.Combine(dir.FullName, "src", projectName, projectName + ".csproj");
+    }
+    /// <summary>
+    /// CS-7: <c>Curia.AuthN</c> SHALL NOT depend on <c>Curia.Domain</c>.
+    /// </summary>
+    /// <remarks>
+    /// This layering is not incidental — it is what forced <c>ServerTimestamp</c> down into
+    /// <c>Curia.Domain.Primitives</c> during T1.2, because that is the only project both
+    /// <c>Curia.AuthN</c> and <c>Curia.Domain</c> can see, and CS-5 forbids solving it by
+    /// sharing internals ("sharing internals is how hexagonal seams rot").
+    ///
+    /// It was previously enforced only by the absence of a &lt;ProjectReference&gt; — real,
+    /// but a different mechanism than an architecture test, and one that fails silently the
+    /// moment someone adds the reference to make a compile error go away. A verification pass
+    /// flagged the gap; this closes it.
+    /// </remarks>
+    [Fact]
+    public void CS7_AuthNDoesNotDependOnDomain()
+    {
+        // Two checks, because either alone is too weak.
+        //
+        // The compiled AssemblyRef table only lists an assembly whose types are actually
+        // *used*, so an unused <ProjectReference> to Curia.Domain would not appear here at
+        // all — a falsification attempt during review confirmed exactly that, and the
+        // reference-only version of this test passed while the forbidden reference sat in
+        // the csproj. Reading the project file catches the declaration; reflecting over the
+        // assembly catches the usage. A breach needs both to be absent to go unnoticed, and
+        // it cannot be.
+        var csprojPath = FindProjectFile("Curia.AuthN");
+        var declared = XDocument.Load(csprojPath)
+            .Descendants("ProjectReference")
+            .Select(e => (e.Attribute("Include")?.Value ?? string.Empty).Replace('\\', '/'))
+            .ToArray();
+        Assert.NotEmpty(declared); // guards against a csproj with no references at all
+        Assert.DoesNotContain(declared, r => r.EndsWith("/Curia.Domain.csproj", StringComparison.Ordinal));
+
+        var refs = AuthN.GetReferencedAssemblies().Select(a => a.Name ?? "(unnamed)").ToArray();
+        Assert.NotEmpty(refs); // guards against silently scanning an assembly with no references
+        Assert.DoesNotContain("Curia.Domain", refs);
+
+        // Curia.Domain.Primitives is the shared floor and is expressly allowed — asserting it
+        // is present keeps this test from passing for the wrong reason if AuthN's references
+        // were ever gutted entirely.
+        Assert.Contains("Curia.Domain.Primitives", refs);
     }
 }

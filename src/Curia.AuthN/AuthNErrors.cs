@@ -28,6 +28,21 @@ public static class AuthNErrors
     public static Error KidNotFound(string kid) => new(
         "curia/authn/kid-not-found", "kid not found in the configured JWKS", kid);
 
+    /// <summary>
+    /// Errata A12/R6.31, at the port boundary: the <c>kid</c> exists in the agent's key history
+    /// but was not valid at <paramref name="at"/> -- the governing <c>server_ts</c>, never
+    /// submission time and never the envelope's own <c>created_at</c>. Distinct from
+    /// <see cref="KidNotFound"/> so a caller (or a test) can tell "this kid was never registered"
+    /// apart from "this kid was registered, but not at this instant" -- the same split
+    /// <c>Curia.Domain.Keys.KeyErrors</c> makes between <c>KeyNotFound</c> and
+    /// <c>KeyNotValidAt</c> for <c>AgentKeySet.ValidateAt</c>, mirrored here because
+    /// <c>Curia.AuthN</c> cannot reference that type directly (CS-5).
+    /// </summary>
+    public static Error KeyNotValidAtServerTimestamp(string kid, ServerTimestamp at) => new(
+        "curia/authn/key-not-valid-at-server-ts",
+        "The resolved key was not valid for this agent at server_ts (R6.31); validity is never evaluated at created_at or submission time",
+        $"kid={kid} server_ts={at}");
+
     public static Error SignatureInvalid() => new(
         "curia/authn/signature-invalid", "Signature does not verify");
 

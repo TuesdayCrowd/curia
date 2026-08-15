@@ -51,7 +51,7 @@ public sealed class DomainEventTests
             Require(EventId.Create("evt-1")), Require(EventType.Create("test.event")), null, new JsonValue.Object([]));
         var seq = Require(EventSequence.From(7));
         var aggregateId = Require(AggregateId.Create("agg-1"));
-        var serverTimestamp = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var serverTimestamp = ServerTimestamp.At(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
 
         var appended = new AppendedEvent(seq, aggregateId, serverTimestamp, domainEvent);
 

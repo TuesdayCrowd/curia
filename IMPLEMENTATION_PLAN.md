@@ -1,151 +1,189 @@
-# Increment 3 — the append-only event store
+# Remediation plan — closing out Phase 1
 
-Phase 1 is not finished. The roadmap (§15, closing) is explicit about what "completely"
-means: *"signed envelopes, canonicalization, the event store, enrollment, bound tokens —
-and verify it with a second, independent verifier before adding anything else."*
+Everything currently builds and passes: **411 C# tests, 0 warnings**; the Rust verifier green
+with the corpus at 48/48. Nothing here is a firefight. These are the known-open items,
+ordered by *risk* rather than by how easy they are.
 
-Done: signed envelopes, canonicalization, and the independent verifier (`curia-testis`,
-48/48 vectors, authorship confirmed offline). Remaining: **the event store**, enrollment,
-bound tokens. The event store comes first because the other two write to it.
-
-## What makes this increment hard
-
-Not the SQL. The event table is the system of record, and three of the project's
-load-bearing invariants are about *how it may be written*:
-
-- **Append-only is enforced by the grant, not by intent** (R11.6). `REVOKE UPDATE, DELETE`
-  on the app role. Code that intends to be append-only and a role that cannot update are
-  different guarantees, and only one survives a mistake.
-- **Every read model is rebuildable by replay, exercised in CI** (R11.9). Not asserted —
-  run. A projection that cannot be rebuilt is a projection that has become a second system
-  of record.
-- **The write surface is one adapter** (`CS-15`). `Persist` is the only thing that can
-  append; the phase-typed ingest chain makes an unverified write fail to compile.
-
-## Stage 1 — Domain and Application, no database
-
-**Goal**: the event model and its ports, with an in-memory adapter, so the whole thing is
-testable with no I/O.
-**Success**: `Curia.Domain` references nothing outside the BCL and `Curia.Canon`
-(R11.1/R11.2); time enters only through a `Clock` port (R11.3, `CS-9`); every port has an
-in-memory adapter (R11.4). `Result<T>` for domain fallibility, not exceptions (`CS-10`).
-**Tests**: append-then-read round trip; monotonic `seq`; optimistic concurrency on
-`aggregate_id`; the in-memory adapter passes the same suite the Postgres one will.
-**Status**: **Complete** (commit `vrw`)
-
-## Stage 2 — Infrastructure: Npgsql, and the grant that does the enforcing
-
-**Goal**: the real event store against Postgres, plus `db/` migrations carrying Appendix
-D's `events` DDL and its `REVOKE UPDATE, DELETE ON events FROM app_role`.
-**Success**: the same port suite from Stage 1 passes against a real database via
-Testcontainers; a test connecting *as `app_role`* proves `UPDATE` and `DELETE` are refused
-by the server, not by the code.
-**Tests**: Testcontainers `pgvector/pgvector`; append batching returns `seq`; the
-grant-refusal test is the one that matters.
-**Status**: Not Started
-
-## Stage 3 — Replay rebuild, exercised
-
-**Goal**: one projection, and a rebuild-from-zero that reproduces it byte-for-byte.
-**Success**: R11.9 satisfied by a test that drops the projection, replays the event table,
-and compares — in CI, every run.
-**Tests**: rebuild equivalence over a generated event history; replay is deterministic
-across two runs.
-**Status**: Not Started
-
-## Stage 4 — Architecture tests
-
-**Goal**: make the dependency direction a failing build rather than a convention.
-**Success**: `NetArchTest` rules for `CS-6`/`CS-7` (Domain → Canon only; Infrastructure →
-Application, never the reverse) and `CS-15` (only `Persist`'s adapter reaches the event
-store's write surface). Nothing outside Infrastructure references `Npgsql`.
-**Tests**: extend `Curia.Architecture.Tests`.
-**Status**: **Complete** — 6 rules to 12; every rule falsified and reverted to prove it can fail
-
-## Environment constraint — Stages 2 and 3 cannot be verified here
-
-**Docker is unavailable in this environment**, so Testcontainers cannot start a Postgres
-instance. Stage 2's grant-refusal test and Stage 3's replay-rebuild drill are precisely the
-tests that must run against a *real* server — a mocked Postgres would assert that our mock
-refuses `UPDATE`, which is worth nothing.
-
-So Stages 1 and 4 are built and verified here; Stages 2 and 3 are written to run in CI and
-are marked unverified until they do. Shipping them as "done" on the strength of code that
-compiles would misrepresent exactly the guarantee R11.6 and R11.9 exist to provide.
+Three of them are live correctness seams, two are blocked on the environment, and the
+largest is documentation debt that blocks nothing but grows quietly.
 
 ---
 
-# Increment 4 — enrollment and bound tokens
+## Tier 1 — correctness seams, unblocked, do first
 
-Phase 1's remaining two pieces. Both are substantial *domain* logic and need no database,
-so they are fully verifiable in this environment while the event store's Stages 2–3 wait
-for Docker. They persist through the in-memory adapter Stage 1 built for exactly this.
+### T1.1 — `IJwsKeyResolver` carries no `server_ts` *(the most serious open item)*
 
-## Stage A — the credential lifecycle
+**The problem.** Both validators call `ResolveAsync(kid, ct)` in Phase 1, *before* the clock
+is read in Phase 3. The client-assertion path is exactly where a future adapter must consult
+`AgentKeySet.ValidateAt(kid, ServerTimestamp)` — the A12/R6.31 check — but the port carries
+no timestamp. That adapter would read its own clock, reintroducing **at the port boundary**
+the precise ambiguity `ServerTimestamp` was built to eliminate at the type level.
 
-**Goal**: Table 6 as a transition table (`CS-12`), with every transition an append-only
-event carrying actor, reason and timestamp (whitepaper R4.21 — *not* the errata's
-renumbered R4.28).
-**Success**: the table *is* Table 6, reviewable cell by cell; an illegal transition is a
-`Result` failure; current state is a projection, never a stored field.
-**Watch for**: errata **D9.5** — Table 6's `active` row omits `quarantined` as an exit
-though `quarantined`'s own row implies it. Decide and record, do not silently pick.
-**Status**: **Complete** — 90 tests. Also found a gap the errata did not record: Table 6 names
-`expired` as an exit target and defines no row for it. Now errata **E8 / R4.29**.
+Nothing is broken today because nothing wires the two together. It breaks the first time
+someone does, and it will look correct while doing so.
 
-## Stage B — the agent key store
+**Two candidate shapes, and this is a real decision:**
 
-**Goal**: keys as R4.15 requires (`EdDSA` / `ES256` only), in the JWK shapes **R4.28**
-specifies (RFC 8037 `OKP` for Ed25519; RFC 7518 `EC` for P-256), with at least two
-simultaneously valid keys (R4.17) so rotation is not an outage.
-**Success**: **key validity is evaluated at `server_ts`** — errata **A12**/R6.31, not at
-submission time and not at `created_at`. This is the single easiest thing to get subtly
-wrong here.
-**Watch for**: errata **A16**/R4.16 rev. — the Registrar's key store is authoritative and
-the Forum serves JWKS. **No runtime fetch of agent-hosted JWKS**, ever; it is an SSRF and
-availability surface. A port that could fetch is already the bug.
-**Status**: **Complete** — 42 tests. `ServerTimestamp` is a distinct type with no implicit
-conversion, so `created_at` cannot be passed where `server_ts` is required. No fetch-shaped
-surface exists anywhere in the key path.
+1. *Thread the instant through the port* — `ResolveAsync(kid, ServerTimestamp, ct)`. The
+   resolver returns only keys valid at that instant. Simple; makes the wrong call
+   unwriteable. Costs: every resolver implementation must care about validity, including
+   ones for which it is meaningless (the issuer's own JWKS has no per-key validity window).
+2. *Separate resolution from validity* — the resolver returns key material; a distinct step
+   checks `ValidateAt`. Keeps the port honest about what it does. Costs: the check becomes
+   omissible, which is what A12 is about.
 
-## Stage C — token and DPoP validation
+**Recommendation: (1), narrowed** — thread the instant, but only on the *agent-key* resolver,
+leaving the issuer-JWKS resolver alone. They are different ports pretending to be one, and
+the fact that only one of them has a validity notion is the evidence.
 
-**Goal**: §5.5's algorithm, in its stated order, because several classic vulnerabilities
-are ordering bugs.
-**Success**: `alg` pinned *before* any signature work (R5.9 — never read `alg` to choose
-the routine); `kid` resolved only within the configured issuer JWKS (R5.10 — never fetch a
-key named inside the token); a `jti` replay cache with atomic compare-and-set (R5.14,
-R5.17); skew ≤ 30s (R5.16).
-**Watch for**: errata **A17** — §5.5's published algorithm **omits two checks that must
-exist**: the DPoP proof's `typ: "dpop+jwt"`, and `nbf`. An implementation that follows the
-printed algorithm exactly is wrong.
-**Status**: **Complete** — 64 tests. Both A17 checks present and positioned; verified by
-mutation — moving either check makes its test fail, returning the *other* check's error.
+**Success**: a test where a key valid at signing and invalid at `server_ts` is rejected
+*through the validator*, not merely through `AgentKeySet` directly.
+**Status**: **Complete** — port split as recommended. Verified by mutation: feeding the
+validator a fixed wrong instant makes exactly one test fail, so the test proves the *path*,
+not just the store.
 
-## Carried from Increment 4 — two design decisions, deliberately not made unilaterally
+### T1.2 — two incompatible `ServerTimestamp` concepts
 
-**Two incompatible `ServerTimestamp` concepts now coexist in `Curia.Domain`.**
-`AppendedEvent.ServerTimestamp` (Increment 3) is a plain `DateTimeOffset` — the store-assigned
-`server_ts` of Appendix D's column. `Curia.Domain.ServerTimestamp` (Stage B) is a distinct
-wrapper type built so a bare `DateTimeOffset` can never masquerade as the instant governing
-key validity. Same namespace, near-identical name, no conversion between them. Nothing wires
-them together today, which is why it is a seam rather than a bug — but the first integration
-will hit it, and retyping `AppendedEvent.ServerTimestamp` ripples into Increment 3's tests.
+**The problem.** `AppendedEvent.ServerTimestamp` (Increment 3) is a plain `DateTimeOffset`;
+`Curia.Domain.ServerTimestamp` (Increment 4) is a wrapper type. Same namespace, near-identical
+name, no conversion. A reader cannot tell which one a given `server_ts` is.
 
-**`IJwsKeyResolver` has no channel for `server_ts`, and this is the more serious one.**
-Both validators call `ResolveAsync(kid, ct)` in Phase 1, *before* the clock is read in
-Phase 3. The client-assertion path is exactly where a future adapter must consult Stage B's
-`AgentKeySet.ValidateAt(kid, ServerTimestamp)` — the A12/R6.31 check — but the port carries no
-timestamp, so that adapter would read its own clock and reintroduce at the port boundary the
-precise ambiguity `ServerTimestamp` was built to remove at the type level. Fixing it changes a
-public port signature both validators depend on. Options: pass the instant through the port,
-or make key-validity a distinct step after resolution rather than inside it.
+**Recommendation**: one type, the wrapper, used by both. `AppendedEvent.ServerTimestamp`
+becomes `ServerTimestamp`. This ripples into Increment 3's Application-layer tests — that
+ripple is the cost of having introduced the second concept, and it is smaller now than later.
 
-## Carried from Increment 2, not blocking
+**Success**: exactly one type in the solution answers "the Forum's authoritative instant";
+architecture test pins that no plain `DateTimeOffset` names itself `server_ts`.
+**Status**: **Complete** — `ServerTimestamp` moved to `Curia.Domain.Primitives`, the only
+project both `Curia.Domain` and `Curia.AuthN` can see. Ripple followed through with no
+compatibility overload left behind. Rule falsified in two assemblies and two member kinds.
 
-- Two differential divergence classes remain: `raw-control-character` vs `malformed-json`
-  (unspecified vocabulary — needs a one-slug R6.40 extension) and an unpaired-surrogate
-  class that is **our own node oracle's bug**, not either implementation's.
-- Errata **A14**: votes must be signed envelopes and Appendix D's `votes` table does not
-  support it. Out of scope here — votes are Phase 3 — but the `events` schema should not
-  foreclose it.
+### T1.3 — resolve the `Ulid` contradiction *(blocks T3)*
+
+**The problem.** `curia-csharp-scoping.md` §9's package table lists `Ulid | Domain | R8.3`,
+planning a third-party package as a `Curia.Domain` dependency, while **R11.1** says Domain
+depends on nothing outside the BCL. Two authoritative documents disagree, and the
+architecture tests currently enforce R11.1 — so the scoping document's plan would fail the
+build.
+
+Increment 3 sidestepped it by leaving IDs as validated opaque strings. Real ID generation
+cannot.
+
+**Options**: implement ULID inside `Curia.Domain.Primitives` (BCL-only, ~100 lines, and ULID
+is a simple spec); or amend R11.1 to admit a narrow allow-list; or move ID generation to
+Application.
+**Recommendation**: implement it in `Domain.Primitives`. R11.1 is load-bearing and worth more
+than the dependency saves.
+**Status**: **Complete** — BCL-only ULID in `Curia.Domain.Primitives`, verified against the
+specification independently (max value decodes to exactly 2^128−1; Crockford alphabet checked
+algorithmically). Not yet wired into `Curia.Domain`'s identifiers — that is Tier 3's step.
+**Supersedes** `curia-csharp-scoping.md` §9's `Ulid | Domain | R8.3` package row, which should
+be corrected.
+
+---
+
+## Carried from Tier 1
+
+- **ULID randomness-exhaustion is untested.** The path is real, working code — a verifier
+  forced the private counters by reflection and confirmed it fails cleanly rather than
+  wrapping — but no shipped test exercises it, because doing so naturally requires 2^80 calls.
+  Worth a reflection-based or seam-based test.
+- **Monotonicity is same-millisecond only.** A backward clock jump between calls produces
+  ULIDs that sort out of order; independently confirmed real. Correctly scoped and disclosed,
+  not a hidden defect, but it should be stated wherever ULID ordering is relied upon.
+
+## Tier 2 — close the differential harness, unblocked, small
+
+Definition of Done item 5 is *"the harness runs clean, or every divergence is a committed
+vector."* Two classes remain and neither is an implementation disagreement.
+
+### T2.1 — fix our own node oracle's unpaired-surrogate bug
+
+667 occurrences, and **not** a divergence between implementations: C# and Rust agree
+(reject); the oracle wrongly accepts, because its `\u` decoder builds an unpaired-surrogate
+JS string that `Buffer.from` silently mangles to U+FFFD. Ours to fix, in `oracle.mjs`.
+**Success**: the class disappears; the oracle still reproduces all six vendored RFC 8785
+vectors byte-exactly.
+**Status**: Not Started
+
+### T2.2 — pin `raw-control-character`
+
+C# reports `curia/admit/malformed-json` for a raw C0 control byte where Rust has a dedicated
+slug. R6.40 names three slugs and not this one, so the vocabulary is genuinely unspecified.
+By R6.40's own condition-naming principle, Rust's is right.
+**Work**: extend R6.40 by one slug; align C#; add the pinning vector R6.40 requires.
+**Success**: harness at **0 classes**; DoD item 5 met rather than nearly met.
+**Status**: Not Started
+
+---
+
+## Tier 3 — finish the event store *(blocked on Docker)*
+
+Carried from Increment 3 unchanged. **Docker is unavailable in this environment**, and these
+two are precisely the tests that must hit a real server:
+
+- **Stage 2 (R11.6)** — append-only is enforced *by the grant*. The test connects **as
+  `app_role`** and proves the *server* refuses `UPDATE`/`DELETE`. Against a mock it asserts
+  that our mock refuses, which is worth nothing.
+- **Stage 3 (R11.9)** — replay-rebuild *exercised*, not assumed. A rebuild that only runs
+  against an in-memory fake proves the fake is self-consistent.
+
+**Unblock path**: enable Docker locally, or run these in CI and treat CI as the verifier.
+Until then they stay Not Started rather than being written blind and marked done.
+**Depends on**: T1.3 (real ID generation).
+**Status**: Blocked
+
+---
+
+## Tier 4 — specification debt, unblocked, large
+
+### T4.1 — merge the errata into the white paper as v1.1
+
+**40 proposed requirements across 33 entries (A1–E8) live only in the errata.** The errata is
+authoritative wherever it touches v1.0, so every reader must currently hold both documents in
+their head and diff them mentally. That is exactly the condition that produced the R4.21
+collision — and the collision was found by accident, not by a process.
+
+CLAUDE.md already states the shape: *"incorporating the errata into v1.1 is a merge rather
+than a renumber"*, with the sole deliberate exception being A8's §10 renumbering.
+
+**This is the highest-leverage item in the plan even though it blocks nothing**, because
+every future increment pays a tax for it and the tax is paid in silent misreadings.
+
+**Success**: v1.1 carries every requirement; the errata becomes a changelog rather than a
+parallel authority; the consolidated index is checked against the merged text mechanically,
+not by eye. Add a check that no requirement number is defined twice — the R4.21 collision
+would have been caught in seconds by a script.
+**Status**: Not Started
+
+### T4.2 — resolve two recorded contradictions
+
+- **Appendix D vs R11.3**: the `events` DDL uses `server_ts TIMESTAMPTZ DEFAULT now()`
+  (Postgres-side) while R11.3/`CS-9` push time through a Clock port. Increment 3 stamps it
+  explicitly and recommends Stage 2 do the same; the DDL should say so rather than leaving
+  the default as an invitation.
+- **Depth cap vs the submission wrapper**: ADMIT's depth cap is defined over "the document",
+  but the wire submission wraps the envelope one level deep, so a maximal-depth envelope is
+  rejected for being wrapped. `admit-reject/` pins ADMIT against bare documents and contains
+  no oracle. Academic for Table 9 envelopes, which are shallow — but unstated.
+
+**Status**: Not Started
+
+### T4.3 — apply E8/R4.29 to Table 6
+
+The `expired` state is proposed in the errata and still absent from Table 6. Folds into T4.1.
+**Status**: Not Started
+
+---
+
+## Order, and why
+
+1. **T1.1, T1.2** — live seams in merged code; both get more expensive with every caller.
+2. **T2.1, T2.2** — cheap, and they close a Definition of Done item outright.
+3. **T1.3** — small, and it unblocks Tier 3.
+4. **T4.1** — large, unblocks nothing, and is the one most likely to cause the next defect.
+5. **T3** — the moment Docker exists.
+
+T4.1 sits fourth despite being highest-leverage because it is the only item here that is
+purely additive: nothing regresses while it waits. Everything above it either degrades or
+blocks something.

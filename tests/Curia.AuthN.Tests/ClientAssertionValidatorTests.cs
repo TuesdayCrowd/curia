@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.AuthN.Tests.InMemory;
 using Curia.AuthN.Tests.Support;
+using Curia.Domain.Primitives;
 using Xunit;
 
 namespace Curia.AuthN.Tests;
@@ -66,6 +68,35 @@ public sealed class ClientAssertionValidatorTests
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/authn/kid-not-found", error!.Type);
         Assert.Equal("no-such-kid", error.Detail);
+    }
+
+    [Fact]
+    public async Task R631_KeyValidAtSigningTimeButNotAtServerTsIsRejectedThroughTheValidator()
+    {
+        // Errata A12/R6.31: key validity is evaluated at server_ts, never at the instant the
+        // assertion was signed. The resolver here is scoped so the agent's key is valid at Iat
+        // (the moment the assertion was, in fact, signed) but has already closed by the time the
+        // validator actually asks "is this key valid" -- context.Clock.GetUtcNow(), read after
+        // signing. A validator that (incorrectly) resolved using the assertion's own iat, or any
+        // other pre-advance instant, in place of context.Clock would find the key still open and
+        // accept; asserting the exact server_ts named in the rejection proves it used the clock,
+        // not a stand-in for "when this was signed."
+        var scenario = new ClientAssertionScenario();
+        var validFrom = ServerTimestamp.At(scenario.Iat - TimeSpan.FromSeconds(10));
+        var validUntil = ServerTimestamp.At(scenario.Iat + TimeSpan.FromSeconds(5));
+        var resolver = new InMemoryAgentKeyResolver(scenario.AgentKey.Kid, scenario.AgentKey.PublicKey, validFrom, validUntil);
+        var context = scenario.Context with { AgentKeyResolver = resolver };
+
+        var assertion = scenario.SignValid(); // iat falls inside [validFrom, validUntil): valid at signing time.
+
+        scenario.Clock.Advance(TimeSpan.FromSeconds(30)); // server_ts is now well past validUntil.
+        var expectedServerTs = ServerTimestamp.At(scenario.Clock.GetUtcNow());
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/key-not-valid-at-server-ts", error!.Type);
+        Assert.Equal($"kid={scenario.AgentKey.Kid} server_ts={expectedServerTs}", error.Detail);
     }
 
     [Fact]

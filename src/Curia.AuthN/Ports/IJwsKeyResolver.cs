@@ -11,11 +11,14 @@ namespace Curia.AuthN.Ports;
 /// (agent-hosted JWKS URLs fetched at runtime), a port shaped this way cannot regress into that
 /// SSRF/availability surface no matter what a future adapter does with it.
 ///
-/// One resolver instance is scoped to one party's key material -- the issuer's own signing keys
-/// when validating access tokens at a resource server (<see cref="AccessTokenValidator"/>), or an
-/// agent's registered keys when validating that agent's client assertion at the token endpoint
-/// (<see cref="ClientAssertionValidator"/>). Which JWKS is "configured" is therefore a property of
-/// which resolver instance the caller wires up, not something this interface encodes.
+/// Scoped to the issuer's own signing keys, used when validating access tokens at a resource
+/// server (<see cref="AccessTokenValidator"/>). The issuer's JWKS has no per-key validity window
+/// -- a resolved key is simply the issuer's current signing key -- which is precisely why this
+/// port carries no instant. That is also why it is <em>not</em> the port
+/// <see cref="ClientAssertionValidator"/> uses to resolve an asserting agent's own registered
+/// keys: those keys are exactly about overlapping validity windows (R4.17) evaluated at
+/// <c>server_ts</c> (errata A12/R6.31), a question this shape cannot express and should not be
+/// asked to. See <see cref="IAgentKeyResolver"/> for that half.
 /// </summary>
 public interface IJwsKeyResolver
 {

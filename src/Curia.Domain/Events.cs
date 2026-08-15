@@ -1,4 +1,5 @@
 using Curia.Canon.Json;
+using Curia.Domain.Primitives;
 
 namespace Curia.Domain;
 
@@ -22,8 +23,13 @@ public sealed record DomainEvent(EventId Id, EventType Type, ActorId? Actor, Jso
 
 /// <summary>
 /// A <see cref="DomainEvent"/> the store has actually persisted: it carries the
-/// <see cref="EventSequence"/> and <see cref="DateTimeOffset"/> Appendix D's <c>seq</c> and
+/// <see cref="EventSequence"/> and <see cref="ServerTimestamp"/> Appendix D's <c>seq</c> and
 /// <c>server_ts</c> columns record, and the <see cref="AggregateId"/> stream it landed in.
+///
+/// <see cref="ServerTimestamp"/> here is the wrapper type of that name, not a bare
+/// <see cref="DateTimeOffset"/> -- this is the one place Appendix D's <c>server_ts</c> column
+/// enters the domain, and it must not be constructible from, or confused with, a
+/// <see cref="DateTimeOffset"/> read out of an envelope's <c>created_at</c>.
 ///
 /// The constructor is <see langword="internal"/>, not merely undocumented-but-public: only code
 /// in an assembly this project's <c>Curia.Domain.csproj</c> explicitly grants
@@ -40,10 +46,10 @@ public sealed record AppendedEvent
 {
     public EventSequence Seq { get; }
     public AggregateId AggregateId { get; }
-    public DateTimeOffset ServerTimestamp { get; }
+    public ServerTimestamp ServerTimestamp { get; }
     public DomainEvent Event { get; }
 
-    internal AppendedEvent(EventSequence seq, AggregateId aggregateId, DateTimeOffset serverTimestamp, DomainEvent @event)
+    internal AppendedEvent(EventSequence seq, AggregateId aggregateId, ServerTimestamp serverTimestamp, DomainEvent @event)
     {
         Seq = seq;
         AggregateId = aggregateId;

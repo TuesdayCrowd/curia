@@ -51,7 +51,7 @@ internal sealed class InMemoryEventStore : IEventStore
 
             // R11.3/CS-9: one clock read for the whole batch, mirroring the single transaction
             // timestamp a batched Postgres INSERT would see for every row it writes.
-            var serverTimestamp = _clock.GetUtcNow();
+            var serverTimestamp = ServerTimestamp.At(_clock.GetUtcNow());
 
             var appended = new List<AppendedEvent>(events.Count);
             foreach (var domainEvent in events)

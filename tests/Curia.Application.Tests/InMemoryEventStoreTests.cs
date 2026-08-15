@@ -2,6 +2,7 @@ using Curia.Application.Ports;
 using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
 using Curia.Domain;
+using Curia.Domain.Primitives;
 using Xunit;
 
 namespace Curia.Application.Tests;
@@ -42,7 +43,7 @@ public sealed class InMemoryEventStoreTests : EventStorePortContractTests
 
         var firstBatch = (await store.AppendAsync(aggregateId, AggregateVersion.New, [NewEvent("first")], ct))
             .Match(v => v, e => throw new InvalidOperationException(e.Type));
-        Assert.Equal(clock.GetUtcNow(), firstBatch[0].ServerTimestamp);
+        Assert.Equal(ServerTimestamp.At(clock.GetUtcNow()), firstBatch[0].ServerTimestamp);
 
         clock.Set(new DateTimeOffset(2026, 6, 15, 12, 30, 0, TimeSpan.Zero));
         var secondVersion = AggregateVersion.From(firstBatch.Count).Match(v => v, e => throw new InvalidOperationException(e.Type));
@@ -52,8 +53,8 @@ public sealed class InMemoryEventStoreTests : EventStorePortContractTests
         // Advancing the clock moved the new event's timestamp and left the old one alone --
         // the only way that can happen is if AppendAsync reads GetUtcNow() at append time and
         // never caches or otherwise derives it from anything but the injected TimeProvider.
-        Assert.Equal(new DateTimeOffset(2026, 6, 15, 12, 30, 0, TimeSpan.Zero), secondBatch[0].ServerTimestamp);
-        Assert.Equal(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), firstBatch[0].ServerTimestamp);
+        Assert.Equal(ServerTimestamp.At(new DateTimeOffset(2026, 6, 15, 12, 30, 0, TimeSpan.Zero)), secondBatch[0].ServerTimestamp);
+        Assert.Equal(ServerTimestamp.At(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)), firstBatch[0].ServerTimestamp);
     }
 
     /// <summary>All events in one Append call share a single clock read (mirroring a batched

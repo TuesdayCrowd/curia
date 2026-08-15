@@ -12,6 +12,16 @@ namespace Curia.AuthN;
 /// parsing or algorithm-pinning is fixed in both, which is the entire point of R5.13 rather than
 /// an accident of shared file layout.
 ///
+/// One deliberate divergence from that shared shape: resolving the agent's key here is not just
+/// "look up this kid" the way <see cref="AccessTokenValidator"/>'s issuer-JWKS resolve is --
+/// errata A12/R6.31 requires that an agent key's validity be evaluated at <c>server_ts</c>, so
+/// <see cref="Ports.IAgentKeyResolver.ResolveAsync"/> takes that instant as a parameter, not an
+/// afterthought. That is why the clock is read here, ahead of resolution -- earlier than
+/// <see cref="AccessTokenValidator"/> reads it for its own (timestamp-independent) resolve --
+/// rather than later alongside the other claim-freshness checks. It does not change R5.9's
+/// ordering: the algorithm is still pinned, and <c>typ</c> still checked, before either the clock
+/// is read or any signature work happens.
+///
 /// Deliberately excludes Phase 4 (DPoP proof of possession) and Phases 5-6: a client assertion
 /// authenticates the token *request*, not a resource-server call, so it carries no DPoP proof
 /// and there is no live agent/owner state or PDP decision at the token endpoint's assertion-
@@ -43,10 +53,19 @@ public static class ClientAssertionValidator
         if (header.Typ != "JWT")
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.TypMismatch("JWT", header.Typ));
 
+        // R6.31/A12: an agent key's validity is evaluated at server_ts, never at submission time
+        // and never at the assertion's own iat -- so the governing instant has to exist before
+        // resolution can even be attempted. Reading it here, immediately after the alg/typ pins
+        // and before resolving anything, is what makes IAgentKeyResolver's signature satisfiable:
+        // there is no later point in this method where "resolve, then separately check validity"
+        // could be reintroduced, because resolution itself already requires the instant.
+        var serverTimestamp = ServerTimestamp.At(context.Clock.GetUtcNow());
+        var now = serverTimestamp.Value;
+
         // R5.10's principle applied here: AgentKeyResolver is already scoped by the caller to one
         // agent's Forum-served keys (see ClientAssertionValidationContext's remarks); this call
-        // only ever passes the kid string, never a URL.
-        var keyResult = await context.AgentKeyResolver.ResolveAsync(header.Kid, cancellationToken).ConfigureAwait(false);
+        // only ever passes the kid string and server_ts, never a URL.
+        var keyResult = await context.AgentKeyResolver.ResolveAsync(header.Kid, serverTimestamp, cancellationToken).ConfigureAwait(false);
         if (!keyResult.TryGetValue(out var key, out var keyError))
             return Result<ClientAssertionClaims>.Fail(keyError!);
 
@@ -71,8 +90,9 @@ public static class ClientAssertionValidator
         if (claims.Aud != context.TokenEndpoint)
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.AudienceMismatch());
 
-        var now = context.Clock.GetUtcNow();
-
+        // now/serverTimestamp were already read above, ahead of key resolution -- reused here
+        // rather than re-read, so every check in this method judges the request against the
+        // exact same instant.
         if (now >= claims.Exp)
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.Expired());
 
