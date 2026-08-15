@@ -15,5 +15,6 @@
     <ProjectReference Include="../../src/Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
     <ProjectReference Include="../../src/Curia.Domain/Curia.Domain.csproj" />
     <ProjectReference Include="../../src/Curia.Application/Curia.Application.csproj" />
+    <ProjectReference Include="../../src/Curia.AuthN/Curia.AuthN.csproj" />
   </ItemGroup>
 </Project>

@@ -8,6 +8,13 @@
           "Curia.Domain.Primitives": "[1.0.0, )"
         }
       },
+      "curia.domain": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Canon": "[1.0.0, )",
+          "Curia.Domain.Primitives": "[1.0.0, )"
+        }
+      },
       "curia.domain.primitives": {
         "type": "Project"
       }

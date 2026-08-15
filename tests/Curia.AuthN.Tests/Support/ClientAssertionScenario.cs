@@ -28,7 +28,7 @@ internal sealed class ClientAssertionScenario
         Context = new ClientAssertionValidationContext(
             TokenEndpoint: TokenEndpoint,
             ExpectedSubject: AgentId,
-            AgentKeyResolver: new InMemoryJwsKeyResolver(AgentKey.Kid, AgentKey.PublicKey),
+            AgentKeyResolver: new InMemoryAgentKeyResolver(AgentKey.Kid, AgentKey.PublicKey),
             ReplayCache: ReplayCache,
             VerifiersByAlg: TestKeys.Verifiers(),
             Clock: Clock);

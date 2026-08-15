@@ -1,3 +1,5 @@
+using Curia.Domain.Primitives;
+
 namespace Curia.Domain;
 
 /// <summary>

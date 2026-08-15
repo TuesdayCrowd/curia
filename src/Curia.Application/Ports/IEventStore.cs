@@ -47,7 +47,7 @@ public interface IEventStore : IEventReader
     /// Appends one or more events to a single aggregate's stream. Every event in the batch is
     /// assigned a store-wide, strictly increasing <see cref="EventSequence"/> (Appendix D's
     /// <c>seq</c> is one <c>IDENTITY</c> column shared by every aggregate, not one counter per
-    /// stream) and a single <see cref="DateTimeOffset"/> read once from the store's clock port
+    /// stream) and a single <see cref="ServerTimestamp"/> read once from the store's clock port
     /// for the whole call -- mirroring how a batched Postgres insert inside one transaction would
     /// see one <c>now()</c> for every row.
     ///

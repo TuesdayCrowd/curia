@@ -24,8 +24,10 @@ public sealed record AccessTokenValidationContext(
 /// The corresponding trust material for <see cref="ClientAssertionValidator"/>, kept as a
 /// distinct type rather than reusing <see cref="AccessTokenValidationContext"/>: the key
 /// resolver here is scoped to one asserting agent's own registered keys, not a single
-/// issuer-wide namespace -- see <see cref="Ports.IJwsKeyResolver"/>'s remarks -- and there is no
-/// resource-server audience, DPoP context, or DPoP nonce store at this artifact type at all.
+/// issuer-wide namespace, and -- unlike <see cref="Ports.IJwsKeyResolver"/> -- must be asked "as
+/// of when" (errata A12/R6.31), so it is a different port, <see cref="Ports.IAgentKeyResolver"/>;
+/// see that interface's remarks. There is also no resource-server audience, DPoP context, or
+/// DPoP nonce store at this artifact type at all.
 ///
 /// <see cref="AgentKeyResolver"/> is scoped by the <em>caller</em>, before
 /// <see cref="ClientAssertionValidator.ValidateAsync"/> ever runs: the caller reads the
@@ -40,7 +42,7 @@ public sealed record AccessTokenValidationContext(
 public sealed record ClientAssertionValidationContext(
     string TokenEndpoint,
     string ExpectedSubject,
-    IJwsKeyResolver AgentKeyResolver,
+    IAgentKeyResolver AgentKeyResolver,
     IReplayCache ReplayCache,
     IReadOnlyDictionary<string, IContentVerifier> VerifiersByAlg,
     TimeProvider Clock);

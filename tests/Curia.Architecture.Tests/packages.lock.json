@@ -188,6 +188,14 @@
           "Curia.Domain": "[1.0.0, )"
         }
       },
+      "curia.authn": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Canon": "[1.0.0, )",
+          "Curia.Domain": "[1.0.0, )",
+          "Curia.Domain.Primitives": "[1.0.0, )"
+        }
+      },
       "curia.canon": {
         "type": "Project",
         "dependencies": {

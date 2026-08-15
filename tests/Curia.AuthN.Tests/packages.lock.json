@@ -187,6 +187,7 @@
         "type": "Project",
         "dependencies": {
           "Curia.Canon": "[1.0.0, )",
+          "Curia.Domain": "[1.0.0, )",
           "Curia.Domain.Primitives": "[1.0.0, )"
         }
       },
@@ -201,6 +202,13 @@
         "dependencies": {
           "Curia.Canon": "[1.0.0, )",
           "NSec.Cryptography": "[26.4.0, )"
+        }
+      },
+      "curia.domain": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Canon": "[1.0.0, )",
+          "Curia.Domain.Primitives": "[1.0.0, )"
         }
       },
       "curia.domain.primitives": {
