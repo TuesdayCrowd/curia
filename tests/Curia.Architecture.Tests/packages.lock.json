@@ -182,6 +182,12 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
+      "curia.application": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Domain": "[1.0.0, )"
+        }
+      },
       "curia.canon": {
         "type": "Project",
         "dependencies": {
@@ -193,6 +199,13 @@
         "dependencies": {
           "Curia.Canon": "[1.0.0, )",
           "NSec.Cryptography": "[26.4.0, )"
+        }
+      },
+      "curia.domain": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Canon": "[1.0.0, )",
+          "Curia.Domain.Primitives": "[1.0.0, )"
         }
       },
       "curia.domain.primitives": {

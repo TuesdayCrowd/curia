@@ -13,5 +13,7 @@
     <ProjectReference Include="../../src/Curia.Canon/Curia.Canon.csproj" />
     <ProjectReference Include="../../src/Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
     <ProjectReference Include="../../src/Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
+    <ProjectReference Include="../../src/Curia.Domain/Curia.Domain.csproj" />
+    <ProjectReference Include="../../src/Curia.Application/Curia.Application.csproj" />
   </ItemGroup>
 </Project>

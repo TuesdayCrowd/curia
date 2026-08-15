@@ -31,7 +31,7 @@ testable with no I/O.
 in-memory adapter (R11.4). `Result<T>` for domain fallibility, not exceptions (`CS-10`).
 **Tests**: append-then-read round trip; monotonic `seq`; optimistic concurrency on
 `aggregate_id`; the in-memory adapter passes the same suite the Postgres one will.
-**Status**: Not Started
+**Status**: **Complete** (commit `vrw`)
 
 ## Stage 2 — Infrastructure: Npgsql, and the grant that does the enforcing
 
@@ -60,7 +60,7 @@ across two runs.
 Application, never the reverse) and `CS-15` (only `Persist`'s adapter reaches the event
 store's write surface). Nothing outside Infrastructure references `Npgsql`.
 **Tests**: extend `Curia.Architecture.Tests`.
-**Status**: Not Started
+**Status**: **Complete** — 6 rules to 12; every rule falsified and reverted to prove it can fail
 
 ## Environment constraint — Stages 2 and 3 cannot be verified here
 

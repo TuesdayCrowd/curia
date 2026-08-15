@@ -11,12 +11,17 @@ namespace Curia.Architecture.Tests;
 /// the pure domain core and references no package, not even its own crypto adapter's
 /// dependency. CS-7: the adapter (Curia.Canon.Sodium) may depend on Canon, but Canon may
 /// never depend back on the adapter -- the dependency direction points one way, inward.
+/// The same CS-7 dependency direction extends to Curia.Domain (BCL + Canon +
+/// Domain.Primitives only) and Curia.Application (Domain + Canon + Domain.Primitives,
+/// never Infrastructure or a host project) as those projects have landed.
 ///
-/// Increment 1 has no Application or Infrastructure project, so CS-7's full dependency
-/// matrix (domain not depending on infrastructure, application not depending on adapters
-/// directly, etc.) cannot be asserted yet -- there is nothing on disk to assert it against.
-/// This suite asserts what exists today: Canon depends on nothing but the BCL and its own
-/// sibling Curia.Domain.Primitives, and Canon does not depend on its own adapter.
+/// Increment 3/Stage 4 still has no Curia.Infrastructure or host project (Api, Issuer,
+/// Gateway, Mcp), so the rules guarding against Curia.Application depending on them, and
+/// against anything outside Infrastructure linking Npgsql/NSec/OpenIddict/ONNX, cannot be
+/// tripped by anything that exists on disk today. They are written anyway (see each
+/// test's remarks for why that is not vacuous) so the day Curia.Infrastructure's project
+/// file is added, a stray `&lt;ProjectReference&gt;` or `&lt;PackageReference&gt;` fails
+/// the build immediately rather than waiting for someone to notice in review.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -28,6 +33,23 @@ public sealed class LayeringTests
 {
     private static Assembly Canon => typeof(Curia.Canon.Canonical.CanonicalJson).Assembly;
     private static Assembly Sodium => typeof(Curia.Canon.Sodium.Ed25519Adapter).Assembly;
+    private static Assembly Domain => typeof(Curia.Domain.DomainEvent).Assembly;
+    private static Assembly Application => typeof(Curia.Application.Ports.IEventStore).Assembly;
+
+    /// <summary>
+    /// Every production assembly currently in play, paired with the name NetArchTest/
+    /// reflection reports for it. Used by the cross-cutting native/host-package pin below
+    /// so that adding a sixth hexagon project only means adding one line here rather than
+    /// a new test.
+    /// </summary>
+    private static (string Name, Assembly Assembly)[] HexagonAssemblies =>
+    [
+        ("Curia.Canon", Canon),
+        ("Curia.Canon.Sodium", Sodium),
+        ("Curia.Domain.Primitives", typeof(Curia.Domain.Primitives.Result<>).Assembly),
+        ("Curia.Domain", Domain),
+        ("Curia.Application", Application),
+    ];
 
     /// <summary>
     /// CS-6: "Curia.Canon SHALL reference no package." Reads Curia.Canon.csproj's own
@@ -86,6 +108,142 @@ public sealed class LayeringTests
         Assert.True(result.IsSuccessful,
             "Canon must not depend on its adapter (CS-7). Offenders: " +
             string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    /// <summary>
+    /// CS-7 / R11.1-R11.2: "Curia.Domain SHALL depend on nothing outside the BCL" plus its
+    /// two explicitly sanctioned siblings, Curia.Canon (the canonicalization/JSON types
+    /// DomainEvent's payload is built from) and Curia.Domain.Primitives (Result, the
+    /// strongly typed ID base machinery). An allow-list (OnlyHaveDependenciesOn) rather
+    /// than a deny-list on today's known offenders (Npgsql, etc. -- see below) is the
+    /// right shape for this specific rule, because the thing CS-7 forbids here is
+    /// unbounded ("anything beyond the BCL, Canon, and Domain.Primitives -- in particular
+    /// any third-party package"): a deny-list can only ever name packages someone already
+    /// thought of, so it would silently miss the next one; an allow-list fails on anything
+    /// not already vetted, including a package nobody has heard of yet.
+    ///
+    /// Not vacuous: <c>Types.InAssembly(Domain)</c> selects Curia.Domain's real, non-empty
+    /// type set (DomainEvent, AppendedEvent, EventId, EventSequence, ...) -- asserted
+    /// below via <see cref="Types.GetTypes"/> -- and the allow-list was
+    /// calibrated against Curia.Domain.dll's actual TypeReference table (Curia.Canon.Json,
+    /// Curia.Domain.Primitives, and the System.* namespaces the compiler itself emits for
+    /// records/nullable annotations), not guessed.
+    /// </summary>
+    [Fact]
+    public void CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives()
+    {
+        var scanned = Types.InAssembly(Domain).GetTypes();
+        Assert.NotEmpty(scanned); // guards against the predicate silently matching nothing
+
+        var result = Types.InAssembly(Domain)
+            .Should().OnlyHaveDependenciesOn(
+                "System",
+                "Curia.Domain",
+                "Curia.Canon",
+                "Curia.Domain.Primitives")
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Curia.Domain must depend on nothing beyond the BCL, Curia.Canon, and " +
+            "Curia.Domain.Primitives (CS-7, R11.1-R11.2). Offenders: " +
+            string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    /// <summary>
+    /// CS-7: "Application → Domain + Canon, never Infrastructure." Curia.Application is
+    /// allowed to see Curia.Canon.Json (DomainEvent's payload type flows through the port
+    /// signatures) alongside Curia.Domain and Curia.Domain.Primitives, but nothing that
+    /// would name a future Curia.Infrastructure or host project (Api, Issuer, Gateway,
+    /// Mcp).
+    ///
+    /// Not vacuous in the "predicate matched zero types" sense the brief warns about:
+    /// <c>Types.InAssembly(Application)</c> selects Curia.Application's real, non-empty
+    /// type set (IEventReader, IEventStore) -- asserted below. It IS vacuous in a
+    /// different, unavoidable sense: none of Curia.Infrastructure/Api/Issuer/Gateway/Mcp
+    /// exist yet, so there is nothing on disk this rule could currently find a dependency
+    /// on, and no code change today can make it fail. That is the exact case the brief
+    /// says is still worth writing -- the day a Curia.Infrastructure project file appears
+    /// and Curia.Application.csproj gains a ProjectReference to it, this test starts
+    /// failing without anyone having to remember to add it then.
+    /// </summary>
+    [Fact]
+    public void CS7_ApplicationDoesNotDependOnInfrastructureOrHostProjects()
+    {
+        var scanned = Types.InAssembly(Application).GetTypes();
+        Assert.NotEmpty(scanned); // guards against the predicate silently matching nothing
+
+        var result = Types.InAssembly(Application)
+            .Should().OnlyHaveDependenciesOn(
+                "System",
+                "Curia.Domain",
+                "Curia.Canon",
+                "Curia.Domain.Primitives",
+                "Curia.Application")
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            "Curia.Application must depend on nothing beyond Domain, Canon, " +
+            "Domain.Primitives, and the BCL -- in particular never Infrastructure or a " +
+            "host project (CS-7). Offenders: " + string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    /// <summary>
+    /// CS-6 / CS-7: "Nothing outside Infrastructure references Npgsql, NSec, OpenIddict,
+    /// or ONNX types. Curia.Canon.Sodium is the only assembly permitted to link native
+    /// crypto." Reflects over every currently-built hexagon assembly's AssemblyRef table
+    /// (the same technique CS6_OnlySodiumReferencesNativeCrypto already uses for Canon
+    /// specifically) rather than NetArchTest, and widens the check to all five: the two
+    /// existing NetArchTest-based tests above are typed against namespaces used in IL, and
+    /// while that generalizes cleanly to "Domain must not reference Curia.Infrastructure's
+    /// namespace," it does not generalize as cleanly to "must not reference a *package*"
+    /// -- GetReferencedAssemblies is the direct, unambiguous way to ask "does this
+    /// assembly's manifest name a dependency on assembly X," independent of whatever
+    /// namespace that package happens to use.
+    ///
+    /// Prefix-matches OpenIddict and the ONNX runtime package family (both ship as several
+    /// assemblies -- OpenIddict.Abstractions, OpenIddict.Server, Microsoft.ML.OnnxRuntime,
+    /// Microsoft.ML.OnnxRuntime.Managed, ...) and exact-matches Npgsql and NSec.Cryptography
+    /// (single assemblies today), mirroring CS6_OnlySodiumReferencesNativeCrypto's own
+    /// exact-match for NSec.
+    ///
+    /// Not vacuous for the NSec/Sodium half: Curia.Canon.Sodium really does reference
+    /// NSec.Cryptography today, and the other four assemblies really do not -- a live,
+    /// two-sided check. Vacuous by necessity for Npgsql/OpenIddict/ONNX (no project in the
+    /// solution references any of them yet, so this half of the check cannot currently
+    /// fail) for the same reason CS7_ApplicationDoesNotDependOnInfrastructureOrHostProjects
+    /// is: there is nothing to violate it with until Curia.Infrastructure exists. The scan
+    /// itself is proven non-trivial regardless, via the per-assembly
+    /// Assert.NotEmpty(refs) below -- each of the five really does have a non-empty
+    /// AssemblyRef table (e.g. Curia.Application really does reference Curia.Domain), so
+    /// this is not a scan that would stay green even if it were silently scanning nothing.
+    /// </summary>
+    [Fact]
+    public void CS6_CS7_OnlySodiumLinksNativeCryptoAndNothingOutsideInfrastructureLinksHostPackages()
+    {
+        var offenders = new List<string>();
+
+        foreach (var (name, assembly) in HexagonAssemblies)
+        {
+            var refs = assembly.GetReferencedAssemblies().Select(a => a.Name ?? "(unnamed)").ToArray();
+            Assert.NotEmpty(refs); // guards against silently scanning an assembly with no references at all
+
+            var isSodium = name == "Curia.Canon.Sodium";
+
+            if (refs.Any(r => r.Equals("NSec.Cryptography", StringComparison.Ordinal)) && !isSodium)
+                offenders.Add($"{name} references NSec.Cryptography (CS-6: only Curia.Canon.Sodium may)");
+
+            if (refs.Any(r => r.Equals("Npgsql", StringComparison.Ordinal)))
+                offenders.Add($"{name} references Npgsql (CS-7: Infrastructure-only)");
+
+            if (refs.Any(r => r.StartsWith("OpenIddict", StringComparison.Ordinal)))
+                offenders.Add($"{name} references OpenIddict (CS-7: Infrastructure-only)");
+
+            if (refs.Any(r => r.StartsWith("Microsoft.ML.OnnxRuntime", StringComparison.Ordinal)))
+                offenders.Add($"{name} references the ONNX runtime (CS-7: Infrastructure-only)");
+        }
+
+        Assert.True(offenders.Count == 0,
+            "Native crypto / host-package linkage escaped its intended assembly: " + string.Join("; ", offenders));
     }
 
     /// <summary>
