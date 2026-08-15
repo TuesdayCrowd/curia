@@ -416,7 +416,7 @@ fn corpus_size_matches_charter() {
             + c.numbers.len()
             + c.admit_reject.len()
             + c.envelope.len(),
-        43,
+        44,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
          + admit-reject + envelope)"
     );

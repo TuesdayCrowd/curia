@@ -152,6 +152,11 @@ public sealed class ParseUnrestrictedTests
             JsonReader.ParseUnrestricted([.. "{\"a\":\""u8, (byte)0, .. "\"}"u8]).Match(_ => "ok", e => e.Type));
 
     [Fact]
+    public void RejectsARawControlCharacterInAString() =>
+        Assert.Equal("curia/admit/raw-control-character",
+            JsonReader.ParseUnrestricted([.. "{\"a\":\""u8, (byte)0x01, .. "\"}"u8]).Match(_ => "ok", e => e.Type));
+
+    [Fact]
     public void RejectsAnUnpairedSurrogate() =>
         Assert.Equal("curia/admit/unpaired-surrogate", Unrestricted("""{"a":"\uD800"}""").Match(_ => "ok", e => e.Type));
 
@@ -179,7 +184,7 @@ public sealed class ParseUnrestrictedTests
     public void RejectsEveryAdmitWellDefinednessVectorWithTheDeclaredSlug(string name, byte[] input, string slug)
     {
         _ = name;
-        // The five admit-reject/ vectors that are well-definedness rules, not R6.39 policy
+        // The six admit-reject/ vectors that are well-definedness rules, not R6.39 policy
         // caps or the noncharacter exemption, fed unwrapped: ParseUnrestricted must
         // reject them exactly as Parse does. over-nested is deliberately excluded -- that
         // vector pins a policy cap (R6.39's depth cap), which ParseUnrestricted must accept
@@ -192,7 +197,8 @@ public sealed class ParseUnrestrictedTests
     {
         string[] wellDefinedness =
         [
-            "duplicate-keys", "invalid-utf8", "non-finite-number", "raw-nul-byte", "unpaired-surrogate",
+            "duplicate-keys", "invalid-utf8", "non-finite-number", "raw-control-character",
+            "raw-nul-byte", "unpaired-surrogate",
         ];
         var data = new TheoryData<string, byte[], string>();
         foreach (var v in VectorLoader.Load("admit-reject").Where(v => wellDefinedness.Contains(v.Name)))

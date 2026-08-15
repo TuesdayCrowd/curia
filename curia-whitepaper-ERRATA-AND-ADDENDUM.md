@@ -1301,9 +1301,18 @@ against.
 exactly as given: `curia/admit/malformed-json` for a document that fails RFC
 8259 syntax with no other ADMIT rule implicated; `curia/admit/members-exceeded`
 for R6.39's member-count cap; `curia/admit/size-exceeded` for R6.39's
-submission-size cap. (These follow the naming pattern already established by
-`curia/admit/depth-exceeded` and `curia/admit/duplicate-key` — a condition name,
-not a generic outcome word — for the same reason those were chosen.) Published
+submission-size cap; `curia/admit/raw-control-character` for an unescaped C0
+control byte (`0x01`–`0x1F`) appearing raw inside a string, RFC 8259 §7's escape
+requirement notwithstanding. (These follow the naming pattern already
+established by `curia/admit/depth-exceeded` and `curia/admit/duplicate-key` — a
+condition name, not a generic outcome word — for the same reason those were
+chosen; `raw-control-character` names the same kind of specific,
+separately-diagnosable condition D7 already carved out for NUL, rather than
+falling into the `malformed-json` bucket the way a document with no other
+identifiable defect does.) NUL (`0x00`) is itself a C0 control byte, so the two
+classes overlap: a raw NUL byte SHALL continue to be reported as
+`curia/admit/nul-byte` (D7), never as `curia/admit/raw-control-character`, which
+SHALL be used only for the other thirty-one C0 values, `0x01`–`0x1F`. Published
 vectors SHALL pin every slug this document names; a rejection condition without
 a pinning vector SHALL be treated as unspecified vocabulary until one exists,
 per this entry's own evidence.
@@ -1425,7 +1434,7 @@ an identity than a credential that was live and then ended.
 | R6.38 | Pure canonicalization functions skip ADMIT's policy caps but independently reject raw duplicates and unpaired surrogates | E2 |
 | R6.39 | ADMIT's four size-shaped caps pinned: depth 32, 1,024 members, 1 MiB submission, 256 KiB string | E3 |
 | R6.33 (rev. 2) | R6.33's numeric bound applies ADMIT-generically, not only to envelope-schema fields | E4 |
-| R6.40 | Slug vocabulary pinned: `malformed-json`, `members-exceeded`, `size-exceeded` | E5 |
+| R6.40 | Slug vocabulary pinned: `malformed-json`, `members-exceeded`, `size-exceeded`, `raw-control-character` | E5 |
 | R6.11 (add. 2) | A vector's bytes SHALL be fed unmodified to the function/phase its `meta.json` names | E6 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected

@@ -114,6 +114,9 @@ public static class JsonReader
         if (Utf8.IsValid(utf8) is false)
             return Result<JsonValue>.Fail(CanonErrors.InvalidUtf8());
 
+        if (ContainsRawControlCharacterInString(utf8))
+            return Result<JsonValue>.Fail(CanonErrors.RawControlCharacter());
+
         var options = new JsonReaderOptions
         {
             CommentHandling = JsonCommentHandling.Disallow,
@@ -155,6 +158,70 @@ public static class JsonReader
             // surfaces (see that method's remarks).
             return Result<JsonValue>.Fail(CanonErrors.Malformed(ex.Message));
         }
+    }
+
+    /// <summary>
+    /// True when <paramref name="utf8"/> contains an unescaped C0 control byte (0x01-0x1F)
+    /// inside a JSON string literal. RFC 8259 SS7 forbids this outright, so a document
+    /// carrying one is not valid JSON at all -- the same well-definedness tier as the NUL and
+    /// UTF-8 checks immediately above in <see cref="ParseCore"/>, and enforced unconditionally
+    /// under both <see cref="Parse"/> and <see cref="ParseUnrestricted"/> for the same reason
+    /// those two are: RFC 8785 has no canonical output to define for a document this malformed
+    /// (see <see cref="ParseUnrestricted"/>'s own remarks). 0x00 can never reach this check --
+    /// the unconditional NUL scan above already returned for it -- so this method only ever
+    /// needs to look for 0x01-0x1F.
+    ///
+    /// Deliberately a byte-level pre-scan rather than reacting to Utf8JsonReader's own
+    /// exception: the reader throws the identical JsonReaderException shape (and message
+    /// prefix) for this as for several unrelated syntax errors, so recovering the specific
+    /// condition from the caught exception would mean sniffing its message text -- exactly
+    /// what <see cref="ParseCore"/>'s MaxDepth comment above explains this codebase avoids.
+    ///
+    /// A minimal string-boundary walk, not a full lexer: toggles "inside a string" on an
+    /// unescaped double quote and skips one byte after a backslash, so an escaped character --
+    /// including the 'u' of a `\uXXXX` escape -- is never mistaken for a raw one. This is why a
+    /// raw tab, LF, or CR used as ordinary JSON whitespace *between* tokens (as in
+    /// conformance/envelope/*/submission.json, which conformance/README.md documents as
+    /// pretty-printed on purpose) is never flagged: those bytes sit outside any string, where
+    /// RFC 8259 permits them. Safe against UTF-8 multi-byte sequences because '"' (0x22) and
+    /// '\' (0x5C) are ASCII values that UTF-8's self-synchronizing encoding guarantees never
+    /// appear as a continuation or lead byte of a multi-byte sequence -- and this is only
+    /// reached after <c>Utf8.IsValid</c> has already confirmed <paramref name="utf8"/> is
+    /// well-formed UTF-8, above. Deliberately tolerant of malformed escapes and unterminated
+    /// strings: this scan only needs to find one clear positive; every other defect in the
+    /// document is caught by ADMIT's other checks or by Utf8JsonReader itself, unconditionally
+    /// on both paths.
+    /// </summary>
+    private static bool ContainsRawControlCharacterInString(ReadOnlySpan<byte> utf8)
+    {
+        var inString = false;
+        for (var i = 0; i < utf8.Length; i++)
+        {
+            var b = utf8[i];
+            if (!inString)
+            {
+                if (b == (byte)'"')
+                    inString = true;
+                continue;
+            }
+
+            if (b == (byte)'\\')
+            {
+                i++; // Skip the escaped byte (or the 'u' of a \uXXXX escape) unexamined.
+                continue;
+            }
+
+            if (b == (byte)'"')
+            {
+                inString = false;
+                continue;
+            }
+
+            if (b < 0x20)
+                return true;
+        }
+
+        return false;
     }
 
     private static Result<JsonValue> ReadValue(ref Utf8JsonReader reader, Policy policy, int depth)

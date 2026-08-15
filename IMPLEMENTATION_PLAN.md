@@ -95,7 +95,7 @@ be corrected.
 ## Tier 2 — close the differential harness, unblocked, small
 
 Definition of Done item 5 is *"the harness runs clean, or every divergence is a committed
-vector."* Two classes remain and neither is an implementation disagreement.
+vector."* **Met: 0 divergence classes across 22,515 compared lines.**
 
 ### T2.1 — fix our own node oracle's unpaired-surrogate bug
 
@@ -104,7 +104,12 @@ vector."* Two classes remain and neither is an implementation disagreement.
 JS string that `Buffer.from` silently mangles to U+FFFD. Ours to fix, in `oracle.mjs`.
 **Success**: the class disappears; the oracle still reproduces all six vendored RFC 8785
 vectors byte-exactly.
-**Status**: Not Started
+**Status**: **Complete** — root cause was `String.fromCharCode` per-escape with no
+surrogate pairing, producing a lone surrogate in a JS string ("WTF-16") that
+`Buffer.from(s,'utf8')` then silently replaced with U+FFFD. The oracle's *input* path was
+strict (`TextDecoder` with `fatal:true`) and its *output* path was not; only that asymmetry
+made the bug reachable. Six vendored vectors still byte-exact, and a valid astral pair
+(U+1D11E) still canonicalizes — the control that proves the fix did not overshoot.
 
 ### T2.2 — pin `raw-control-character`
 
@@ -113,7 +118,10 @@ slug. R6.40 names three slugs and not this one, so the vocabulary is genuinely u
 By R6.40's own condition-naming principle, Rust's is right.
 **Work**: extend R6.40 by one slug; align C#; add the pinning vector R6.40 requires.
 **Success**: harness at **0 classes**; DoD item 5 met rather than nearly met.
-**Status**: Not Started
+**Status**: **Complete** — R6.40 extended with an explicit precedence clause, since NUL is
+itself a C0 control byte and the classes overlap: `curia/admit/nul-byte` wins for `0x00`,
+`raw-control-character` covers the other 31. Verified on both endpoints at `0x00`, `0x01`
+and `0x1f`.
 
 ---
 
