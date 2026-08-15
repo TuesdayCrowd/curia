@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Curia.AuthN</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!--
+      CS-5: InternalsVisibleTo only to the matching test assembly. The phase methods behind
+      ValidateRequestAsync/ValidateAsync are internal so ordering tests can pin one check's
+      position without driving the whole algorithm end to end; the two public entry points are
+      the only members a real host (Gateway/Api/Issuer) needs.
+    -->
+    <InternalsVisibleTo Include="Curia.AuthN.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Canon only, for IContentVerifier/PublicKeyMaterial (R11.2's port); never Curia.Canon.Sodium,
+      so no concrete crypto library reaches this assembly (CS-6/CS-7). Domain.Primitives for
+      Result of T and Error (CS-10). Deliberately NOT Curia.Domain: Stage C validates bearer
+      material (tokens, DPoP proofs), vocabulary of its own that needs no DomainEvent, AggregateId
+      or EventSequence, and staying off Curia.Domain avoids a merge seam with the concurrent
+      Stage A (credential lifecycle) and Stage B (agent key store) work landing there at once.
+    -->
+    <ProjectReference Include="../Curia.Canon/Curia.Canon.csproj" />
+    <ProjectReference Include="../Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="CsCheck" />
+    <!--
+      NSec only to sign realistic Ed25519/ES256 fixtures for these tests (mirrors
+      Curia.Canon.Tests' own use of NSec for the same purpose). Curia.AuthN itself never
+      references Sodium or NSec; production code only ever sees IContentVerifier.
+    -->
+    <PackageReference Include="NSec.Cryptography" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Curia.AuthN/Curia.AuthN.csproj" />
+    <ProjectReference Include="../../src/Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
+  </ItemGroup>
+</Project>
