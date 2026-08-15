@@ -101,9 +101,14 @@ public interface IEventStore : IEventReader
     /// fact the system of record can faithfully hold, whichever adapter is underneath. Refusal
     /// is the only outcome the no-mutation invariant (R6.12-R6.17) permits: there is no repair
     /// primitive, and silently storing a collapsed payload is data loss in the one table replay
-    /// treats as ground truth. The refusal names the condition rather than the layer that
-    /// noticed it (R6.42, R6.40): <c>curia/admit/duplicate-key</c>, the same slug ADMIT reports
-    /// for the same defect.</para>
+    /// treats as ground truth. A string carrying an unpaired UTF-16 surrogate is refused for the
+    /// same reason and by the same check: it is not a Unicode scalar value, so it has no UTF-8
+    /// encoding, and an encoder handed one substitutes U+FFFD rather than objecting -- which
+    /// would make the stored document differ from the appended one with nothing failing
+    /// (errata E12, closed by E13). The refusal names the condition rather than the layer that
+    /// noticed it (R6.43, R6.42, R6.40): <c>curia/admit/duplicate-key</c> and
+    /// <c>curia/admit/unpaired-surrogate</c>, the same slugs ADMIT reports for the same
+    /// defects.</para>
     ///
     /// <para><b>Why the profile is the signing one, when the storage rendering is not.</b> An
     /// adapter renders what it stores with the pure <c>Canonicalize</c>, because R6.9's NFC

@@ -324,9 +324,77 @@ public abstract class EventStorePortContractTests
     }
 
     /// <summary>
-    /// The other side of the case above, and the reason it is a narrow tightening rather than
-    /// the store adopting the signing profile as its storage format: decomposed text is not the
-    /// defect, a *collision* is. This payload is entirely NFD -- key and value -- and must be
+    /// R11.24 again, for the condition errata E12 measured and E13 fixed: a payload carrying an
+    /// unpaired UTF-16 surrogate is refused, as <c>curia/admit/unpaired-surrogate</c>.
+    ///
+    /// This is a port promise with two things to pin, not one. That it is <i>refused</i> was
+    /// already true before E13 -- admitting under <c>CanonicalizeWithNfc</c> closed the second
+    /// E12-shaped return divergence by construction (Postgres would have substituted U+FFFD,
+    /// the in-memory adapter would have kept the surrogate), which is why the case belongs in
+    /// the shared suite rather than one adapter's. <i>Which slug</i> it is refused with changed:
+    /// the refusal used to come from <c>string.Normalize</c> throwing, and read
+    /// <c>curia/canon/normalization-failed</c> -- the layer that noticed, carrying a
+    /// platform-specific ICU message -- where R6.43 now requires the condition both parse paths
+    /// and <c>curia-testis</c> already name. A slug is a public failure surface; a caller
+    /// branching on it is entitled to have it pinned rather than inferred from whichever
+    /// mechanism happens to detect the condition this release.
+    ///
+    /// The tree is built directly, which is the only way to reach this: both
+    /// <c>JsonReader</c> paths reject the same input while parsing, and a domain event's payload
+    /// is exactly such a caller-built tree -- E10's lesson, arriving for a second condition.
+    /// </summary>
+    [Fact]
+    public async Task AppendRefusesAPayloadCarryingAnUnpairedSurrogate()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var aggregateId = Agg("agg-unpaired-surrogate");
+
+        // A lone high surrogate, in a string value; "\uD800" has no low surrogate after it and
+        // is therefore not a Unicode scalar value, so it has no UTF-8 encoding at all.
+        var payload = new JsonValue.Object([new("a", new JsonValue.String("\uD800"))]);
+
+        var result = await store.AppendAsync(
+            aggregateId, AggregateVersion.New, [NewEvent("unpaired-surrogate", payload: payload)], ct);
+
+        Assert.False(result.IsOk);
+        Assert.Equal(
+            "curia/admit/unpaired-surrogate",
+            result.Match(_ => "<the append succeeded>", e => e.Type));
+        await AssertNothingWasWrittenAsync(store, aggregateId, ct);
+    }
+
+    /// <summary>
+    /// The overshoot control, at the port. A well-formed surrogate pair is how every character
+    /// outside the BMP is spelled in UTF-16, so an admissibility check reading "contains a
+    /// surrogate code unit" would refuse every astral character -- and this payload, which must
+    /// round-trip unchanged through whichever adapter is underneath.
+    /// </summary>
+    [Fact]
+    public async Task APayloadCarryingAWellFormedSurrogatePairIsStoredUnchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var aggregateId = Agg("agg-surrogate-pair");
+
+        var payload = new JsonValue.Object([new("\U0001F602", new JsonValue.String("a\U0001F602b"))]);
+
+        var appended = Require(await store.AppendAsync(
+            aggregateId, AggregateVersion.New, [NewEvent("surrogate-pair", payload: payload)], ct));
+        var read = Require(await store.ReadByAggregateAsync(aggregateId, ct));
+
+        foreach (var payloadReadBack in new[] { Assert.Single(appended).Event.Payload, Assert.Single(read).Event.Payload })
+        {
+            var root = Assert.IsType<JsonValue.Object>(payloadReadBack);
+            Assert.Equal("\U0001F602", root.Members[0].Key, StringComparer.Ordinal);
+            Assert.Equal("a\U0001F602b", Assert.IsType<JsonValue.String>(root.Members[0].Value).Value, StringComparer.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// The other side of the NFC-collision case above, and the reason it is a narrow tightening
+    /// rather than the store adopting the signing profile as its storage format: decomposed text
+    /// is not the defect, a *collision* is. This payload is entirely NFD -- key and value -- and must be
     /// stored, unnormalized, exactly as it was appended. An adapter that satisfied R11.24 by
     /// NFC-normalizing payloads instead of refusing collisions would pass the case above and
     /// fail this one, which is the mutation §6.4 forbids outright.

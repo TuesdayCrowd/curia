@@ -1704,8 +1704,10 @@ of exactly the E12 shape — Postgres substituting U+FFFD, the fake preserving t
 and admitting under the Cūria profile closes it by construction, before either adapter's
 storage layer is involved. That `Canonicalize` accepts it at all is a defect against R6.38,
 which requires the pure canonicalization functions to reject an unpaired surrogate
-independently of ADMIT; it is recorded here as found and **not** fixed. It is the fifth
-instance of E10's pattern, and the fifth in the same shape: a check the byte parse path
+independently of ADMIT; it is recorded here as found and **not** fixed at the time of writing —
+**E13 closes it**, and also moves the slug `CanonicalizeWithNfc` reports for the same input from
+`curia/canon/normalization-failed` to the condition both parse paths already name. It is the
+fifth instance of E10's pattern, and the fifth in the same shape: a check the byte parse path
 performs, absent from the entry point whose input is a tree.
 
 **R11.24** The event store SHALL admit only a payload that has a Cūria-profile canonical form,
@@ -1738,6 +1740,138 @@ store SHALL report the conditions decidable from the arguments alone — an empt
 payload admissibility — in preference to `curia/domain/concurrency-conflict`, which is a claim
 about the store's state. The precedence SHALL be stated by the port and pinned by the shared
 contract suite; two adapters that happen to agree about it are not a contract.
+
+## E13 — The fifth instance, closed; and the predicate that named a mechanism
+
+**Location:** R6.38 (E2, second paragraph); R6.40 (E5); R6.42 (E10); E12's closing paragraph
+on `Canonicalize`; `CanonicalJson`. **Class:** implementation defect against a stated
+requirement, plus the normative gap in slug vocabulary the fix exposed.
+
+E12 recorded, as found and not fixed, that `CanonicalJson.Canonicalize` accepted a string
+carrying an unpaired UTF-16 surrogate and rendered it as U+FFFD. This entry closes it. Measured
+against this repository before the fix, with a tree built directly rather than parsed:
+
+```
+Canonicalize({"a": "\uD800"})        ->  Ok, 7B 22 61 22 3A 22 EF BF BD 22 7D    ({"a":"<U+FFFD>"})
+CanonicalizeWithNfc(same tree)       ->  curia/canon/normalization-failed
+curia-testis, op=canonicalize, {"a":"\uD800"}  ->  curia/admit/unpaired-surrogate
+```
+
+The first line is the defect R6.38's second paragraph already forbids in as many words. It is
+worth being precise about *which* failure it is: the function did not crash, and it did not
+reject. It returned `Ok`, and the bytes it returned carry a different character than the tree it
+was handed — so a digest taken over them is a digest of a document nobody wrote, and a signature
+over that digest attests to it. `Encoding.UTF8.GetBytes` substitutes U+FFFD for ill-formed
+UTF-16 by documented design; it was doing its job, and it is not the defect, exactly as
+PostgreSQL's last-wins `jsonb` was not the defect in E10.
+
+**This is the fifth instance of E10's pattern and the third language it has been found in.**
+E10's table names four seams for duplicate member names; E12 named this as the fifth in the same
+*shape* — a check the byte parse path performs, absent from the entry point whose input is a
+tree — for a different condition. The project's own node oracle had the identical bug earlier
+(fixed as T2.1): a lone surrogate surviving in an in-memory string until `Buffer.from` silently
+substituted U+FFFD. JavaScript's encoder, .NET's encoder, one shape. The invariant none of the
+three stated: **a string held in a host language's own string type is not thereby a sequence of
+Unicode scalar values, and the encoder that discovers otherwise substitutes rather than
+refuses.** Rust is the exception, and instructively so — its `String` is UTF-8 by construction,
+so `json::Value::String` cannot hold an unpaired surrogate at all and its pure canonicalizer
+needs no check. That is not the Rust implementation being more careful; it is the condition
+being unrepresentable, which is why the same author writing both got one right and one wrong.
+
+**Where the check sits.** `WriteString` is the single place a string becomes canonical output —
+reached for object member names and string values alike — so putting the rejection there covers
+both positions by construction rather than by two call sites each remembering. It runs before a
+character of the string is emitted, mirroring E10's placement reasoning for the duplicate check.
+The NFC profile needed a second guard, in `NormalizeString`, ahead of normalization: not to
+change the accept/reject answer (it already refused) but to change the predicate — see below.
+`InCanonicalMemberOrder`, the third public entry point, deliberately does **not** gain the
+check: it rejects duplicate names because §3.2.3's sort is the step that has nothing to do, so
+it genuinely cannot answer, whereas reordering members around an ill-formed string is well
+defined and lossless — no string is encoded, so nothing can be substituted. R6.42 covers what it
+must do; R6.38 names the two functions this entry changes.
+
+**The overshoot that would have looked like a fix.** Every character outside the BMP is spelled
+in UTF-16 as a surrogate pair, so a check reading "contains a surrogate code unit" rejects the
+whole of plane 1 upward. Falsified rather than assumed: weakening the predicate that way turns
+the RFC author's own `rfc8785/input-weird.json` red — its "Smiley" member name is U+1F602 —
+along with three published `ordering/`/`unicode/` vectors and the property suite's P5. The
+corpus catches this one, which is worth recording precisely because so little else in this
+family was caught by anything.
+
+### The predicate that named a mechanism
+
+`CanonicalizeWithNfc` already refused the tree, so the accept/reject question was only half
+open. It refused it as `curia/canon/normalization-failed`, with a platform-specific ICU message
+("String contains invalid Unicode code points") as its detail — the layer that noticed, not the
+condition, and R6.40 spent an entry establishing that the difference matters. Both parse paths
+and `curia-testis` already answer `curia/admit/unpaired-surrogate` for the identical input. The
+fix moves the slug; that is a change to a public failure surface, and the event store's refusal
+predicate moves with it (R11.24 has both adapters admit under this function).
+
+Two more instances of the same mechanism-shaped predicate were measured in `curia-testis` while
+confirming the two implementations agree. Both **predate this work and are recorded, not
+fixed**, since the divergence lives on the Rust side:
+
+- `canonicalize_with_nfc` takes bytes and parses them, and `NfcError::Parse(_)` maps every
+  parse predicate onto one `curia/canon/parse-error`. Under `op=canonicalize_nfc` the two
+  implementations therefore diverge on six conditions — unpaired surrogate, raw NUL, invalid
+  UTF-8, raw control character, non-finite number, and truncated input — while agreeing on all
+  six under `op=canonicalize`. The seventh, a raw duplicate member name, agrees: `NfcError`'s
+  own `DuplicateRawKey` variant reuses ADMIT's slug, with the reasoning written at the site.
+  One enum, both answers.
+- On the ADMIT-free parse path, a raw NUL byte is reported as
+  `curia/admit/raw-control-character` rather than `curia/admit/nul-byte`. R6.40 states the
+  carve-out without qualifying which layer applies it; ADMIT itself gets it right in both
+  implementations, which is why `admit-reject/raw-nul-byte` passes and the corpus never saw it.
+
+Neither is a divergence a published vector can catch today, for the reason this family keeps
+producing: a vector pins one entry point's answer, and the wrapping happens at another.
+
+### What sufficed and what did not
+
+**R6.38 needed nothing added.** Its second paragraph already obliges both pure canonicalization
+functions to reject an unpaired surrogate independently of ADMIT, in those words. The defect was
+an implementation that did not honour a requirement, not a requirement that failed to say so,
+and this entry mints no duplicate obligation for it.
+
+What was genuinely unstated is the *predicate*. R6.42 requires a rejection to name the condition
+rather than the layer, but says it of duplicate member names; R6.40 pins a slug vocabulary that
+does not include this condition; `admit-reject/unpaired-surrogate` pins the slug for the `admit`
+profile alone. Three implementations' worth of evidence says the principle does not survive
+being stated per-condition — it was stated for duplicates and then not applied to surrogates in
+C#, nor to six conditions in Rust's NFC path, nor to NUL on its parse path. R6.43 states it once,
+generally.
+
+**R6.43** A rejection reported from any parsing or canonicalizing entry point SHALL name the
+condition detected, never the layer or mechanism that detected it, for every condition either
+document names — generalizing what R6.42 states for duplicate member names, for the reason R6.40
+gives. An implementation SHALL NOT report a mechanism-shaped predicate (`curia/canon/parse-error`,
+`curia/canon/normalization-failed`, or any successor) where a condition name exists; such a
+predicate changes value when the mechanism behind it is replaced, which is precisely what a
+stable predicate must not do. In particular: an unpaired UTF-16 surrogate SHALL be reported as
+`curia/admit/unpaired-surrogate` from every entry point that detects it, including the
+tree-taking pure canonicalizers R6.38 obliges to reject it and the NFC profile whose
+normalization step would otherwise be the thing that noticed; and R6.40's NUL carve-out
+(`curia/admit/nul-byte`, never `curia/admit/raw-control-character`) applies on ADMIT-free parse
+paths exactly as it does at ADMIT. Published vectors pin an entry point, not a function, so
+conformance to this requirement SHALL be pinned by in-implementation tests at each entry point
+the corpus cannot reach (R14.7).
+
+### An aside that is not an aside
+
+The first version of this entry's tests was wrong in a way worth recording, because it is this
+family's own failure mode arriving in the test harness. **An unpaired surrogate cannot be
+carried in an xUnit `[InlineData]` argument**: theory arguments are serialized, and the round
+trip replaces every unpaired surrogate with U+FFFD. The tests therefore received a *well-formed*
+string, failed against the unfixed code for a reason that had nothing to do with the defect, and
+would have gone on failing after the fix landed — and two distinct lone surrogates rendered
+identically in the test display name, so xUnit silently collapsed the high and low cases into
+one. Both are the shape E10, E11, E12 and this entry keep finding: the absence of a probe is
+indistinguishable from a passing one, and here the harness that was supposed to be the probe was
+substituting the very character the defect substitutes. The tests now build their input from an
+ASCII sketch and assert the string is ill-formed — using a UTF-8 round trip as the oracle, which
+is the defect itself used as a measuring instrument — before asserting anything about how it is
+rejected.
 
 ---
 
@@ -1791,6 +1925,7 @@ contract suite; two adapters that happen to agree about it are not a contract.
 | R6.41 | A parse path free of ADMIT policy caps, distinct from ADMIT; canonicalization uses it | E4 |
 | R6.11 (add. 2) | A vector's bytes SHALL be fed unmodified to the function/phase its `meta.json` names | E6 |
 | R6.42 | Duplicate member names rejected at every parsing or canonicalizing entry point, tree-taking ones included; linear per object | E10 |
+| R6.43 | Rejections name the condition, never the mechanism; `unpaired-surrogate` and the NUL carve-out pinned at every entry point | E13 |
 | R14.7 | Harness enumerates entry points its protocol cannot reach; those are covered in-implementation and the gap is recorded | E10 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected

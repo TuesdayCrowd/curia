@@ -44,34 +44,38 @@ public static class CanonicalJson
     /// verification depend on. <see cref="CanonicalizeEnvelope"/> is the entry point for
     /// anything that will be signed or verified.
     ///
-    /// Fallible for exactly one reason (R6.38, errata E2/E10): an object carrying two
-    /// members with the same name. RFC 8785 defines no canonical output for that document
-    /// -- §3.2.3 orders members by name and two equal names have no defined order, and JCS
-    /// states duplicate-freedom as a precondition rather than a case its algorithm handles
-    /// -- so emitting bytes for such a tree emits something the specification this function
-    /// claims to implement does not define, and something that does not re-parse to one
-    /// unambiguous document. This is a well-definedness violation, not one of ADMIT's
-    /// policy caps, which R6.38's first paragraph forbids this function from re-enforcing.
-    /// See <see cref="Write"/> for where the check sits and why.
+    /// Fallible for exactly two reasons, both of them well-definedness violations rather than
+    /// any of ADMIT's policy caps, which R6.38's first paragraph forbids this function from
+    /// re-enforcing (R6.38 ¶2, errata E2/E10/E13):
+    ///
+    /// <list type="bullet">
+    /// <item><b>An object carrying two members with the same name</b>
+    /// (<c>curia/admit/duplicate-key</c>). RFC 8785 defines no canonical output for that
+    /// document -- §3.2.3 orders members by name and two equal names have no defined order, and
+    /// JCS states duplicate-freedom as a precondition rather than a case its algorithm handles.
+    /// See <see cref="OrderMembers"/> for where the check sits and why.</item>
+    /// <item><b>A string carrying an unpaired UTF-16 surrogate</b>
+    /// (<c>curia/admit/unpaired-surrogate</c>), in a member name or a value, at any depth. There
+    /// is no canonical output for it either: an unpaired surrogate is not a Unicode scalar value
+    /// and so has no UTF-8 encoding at all. See <see cref="WriteString"/>.</item>
+    /// </list>
+    ///
+    /// In both cases emitting bytes for such a tree emits something the specification this
+    /// function claims to implement does not define.
     ///
     /// This function is reachable with a tree no parse path ever inspected -- any caller
     /// holding a <see cref="JsonValue"/> it built itself, of which
     /// <c>Curia.Infrastructure.PostgresEventStore</c>'s payload serialization is the live
-    /// example -- so it cannot assume <see cref="Json.JsonReader"/>'s own duplicate-key
-    /// rejection has run. That assumption is precisely what errata E10 records as having
+    /// example -- so it cannot assume <see cref="Json.JsonReader"/>'s own rejection of either
+    /// condition has run. That assumption is precisely what errata E10 records as having
     /// silently held until a duplicate-membered event payload reached Postgres, whose
-    /// <c>jsonb</c> resolves duplicates last-wins on the way in.
-    ///
-    /// <b>Known gap, recorded rather than fixed (errata E12).</b> "Exactly one reason" above is
-    /// a statement of current behaviour, not of R6.38, which requires this function to reject an
-    /// unpaired UTF-16 surrogate independently of ADMIT as well. It does not: a string carrying
-    /// a lone surrogate is written out literally and becomes U+FFFD at the
-    /// <c>Encoding.UTF8.GetBytes</c> step, silently. It is the same shape E10 found -- a check
-    /// the byte parse path performs (<see cref="Json.JsonReader.ParseUnrestricted"/> rejects it
-    /// with <c>curia/admit/unpaired-surrogate</c>) and the tree-taking entry point does not --
-    /// reached, once again, by a caller holding a tree it built. The event store is not exposed
-    /// to it: R11.24 has both adapters admit under <see cref="CanonicalizeWithNfc"/>, which
-    /// refuses such a tree. Any other caller of this function is.
+    /// <c>jsonb</c> resolves duplicates last-wins on the way in, and what errata E12 then found
+    /// again for the surrogate half: a lone surrogate was written out literally here and became
+    /// U+FFFD at the <c>Encoding.UTF8.GetBytes</c> step below, so this function returned
+    /// <c>Ok</c> with bytes carrying a different character than the tree it was handed. Two
+    /// conditions, one shape -- a check the byte parse path performs and the tree-taking entry
+    /// point did not -- and one the differential harness cannot see, because it feeds bytes and
+    /// the byte path was never wrong (R14.7).
     /// </summary>
     public static Result<CanonicalBytes> Canonicalize(JsonValue value)
     {
@@ -116,7 +120,14 @@ public static class CanonicalJson
     /// It does not, on its own, decide that a tree *has* a canonical form: a number this
     /// function happily reorders around may still be one <see cref="Canonicalize"/> refuses.
     /// A caller wanting that verdict asks for it by canonicalizing; this function answers a
-    /// narrower question and says so rather than implying the broader one.
+    /// narrower question and says so rather than implying the broader one. That is also why the
+    /// unpaired-surrogate rejection R6.38 requires of the two canonicalizers (errata E13) is
+    /// deliberately *not* mirrored here: the duplicate-name check is present because §3.2.3's
+    /// sort is the step with nothing to do, so this function genuinely cannot answer, whereas
+    /// reordering members around a string with an ill-formed surrogate is well defined and
+    /// lossless -- no string is encoded, so nothing can be substituted. The event store, this
+    /// function's live caller, is not exposed either way: R11.24 has both adapters admit under
+    /// <see cref="CanonicalizeWithNfc"/>, which refuses such a payload before it is stored.
     ///
     /// Its live caller is the event store, whose port promises that a payload read back is in
     /// this order whichever adapter is underneath (R11.23): PostgreSQL's <c>jsonb</c> is a
@@ -192,8 +203,8 @@ public static class CanonicalJson
     /// tree rather than a mutation, because <see cref="JsonValue"/> is immutable and this
     /// runs on every canonicalize call rather than touching stored content (§6.4).
     ///
-    /// Fallible for two reasons, both caught here because this is where the normalized
-    /// tree is built -- the only place either condition first exists to detect:
+    /// Fallible for three reasons, all caught here because this is where the normalized
+    /// tree is built -- the only place any of the three first exists to detect:
     ///
     /// <list type="bullet">
     /// <item>Normalizing an object's member names can make two distinct raw wire keys
@@ -202,6 +213,12 @@ public static class CanonicalJson
     /// a canonical object with two members sharing one key, which would not be valid
     /// I-JSON and would let two distinct wire documents share one canonical digest and
     /// signature (a non-repudiation defect).</item>
+    /// <item>A string carrying an unpaired UTF-16 surrogate, which R6.38 requires both
+    /// canonicalizers to reject independently of ADMIT. <see cref="NormalizeString"/> checks it
+    /// before normalizing, so this profile reports the same <c>curia/admit/unpaired-surrogate</c>
+    /// condition the pure writer and both parse paths do, instead of the
+    /// <c>curia/canon/normalization-failed</c> the platform's own throw used to produce here
+    /// (errata E12's finding, closed by E13).</item>
     /// <item><c>string.Normalize(NormalizationForm.FormC)</c> throws
     /// <see cref="ArgumentException"/> on some inputs .NET's ICU-backed implementation
     /// treats as invalid code points (observed for U+FFFE, a Unicode noncharacter read
@@ -305,7 +322,11 @@ public static class CanonicalJson
     }
 
     /// <summary>
-    /// NFC-normalizes one string. R6.38 (errata E2) requires this to succeed on a Unicode
+    /// NFC-normalizes one string, after rejecting an unpaired UTF-16 surrogate (R6.38 ¶2,
+    /// errata E13) -- see the guard's own comment for why that check precedes everything else
+    /// here rather than being left to the writer this profile eventually delegates to.
+    ///
+    /// R6.38 (errata E2) requires this to succeed on a Unicode
     /// noncharacter, not merely fail instead of crashing: "R6.38 requires a noncharacter to
     /// reach CanonicalizeWithNfc directly and be canonicalized, not rejected... a distinct
     /// defect from the accept/reject question R6.38 settles." <c>string.Normalize(NormalizationForm.FormC)</c>
@@ -331,6 +352,18 @@ public static class CanonicalJson
     /// </summary>
     private static Result<string> NormalizeString(string s)
     {
+        // Ahead of everything else on this path, including the noncharacter scan below, because
+        // this is the condition and the alternatives are symptoms of it. string.Normalize(FormC)
+        // throws ArgumentException ("String contains invalid Unicode code points") on ill-formed
+        // UTF-16, so without this the NFC profile reported curia/canon/normalization-failed --
+        // the layer that noticed rather than the condition, carrying a platform-specific ICU
+        // message as its detail, which R6.43 now rules out generally and which neither
+        // JsonReader nor curia-testis says for the identical input. EnumerateRunes, which the
+        // noncharacter scan uses, would also have to substitute U+FFFD for each ill-formed
+        // subsequence before it could report anything at all.
+        if (HasUnpairedSurrogate(s))
+            return Result<string>.Fail(CanonErrors.UnpairedSurrogate());
+
         if (!ContainsNoncharacter(s))
             return NormalizeRun(s);
 
@@ -468,7 +501,8 @@ public static class CanonicalJson
                 for (var i = 0; i < ordered.Length; i++)
                 {
                     if (i > 0) sb.Append(',');
-                    WriteString(ordered[i].Key, sb);
+                    if (WriteString(ordered[i].Key, sb) is { } keyError)
+                        return keyError;
                     sb.Append(':');
                     if (Write(ordered[i].Value, sb) is { } memberError)
                         return memberError;
@@ -487,7 +521,7 @@ public static class CanonicalJson
                 sb.Append(']');
                 return null;
 
-            case JsonValue.String s: WriteString(s.Value, sb); return null;
+            case JsonValue.String s: return WriteString(s.Value, sb);
             case JsonValue.Number n: sb.Append(JsonNumber.Serialize(n.Value)); return null;
             case JsonValue.Bool b:   sb.Append(b.Value ? "true" : "false"); return null;
             case JsonValue.Null:     sb.Append("null"); return null;
@@ -499,9 +533,71 @@ public static class CanonicalJson
         }
     }
 
-    /// <summary>RFC 8785 §3.2.2.2 string escaping: minimal, with control characters escaped.</summary>
-    private static void WriteString(string s, StringBuilder sb)
+    /// <summary>
+    /// True when <paramref name="s"/> carries a UTF-16 code unit that is not part of a
+    /// well-formed surrogate pair: a high surrogate not immediately followed by a low one, or a
+    /// low surrogate with no high one immediately before it. The one place this project's
+    /// production code answers that question, for the reason errata E10 gives about one rule
+    /// with two implementations -- <see cref="WriteString"/> and <see cref="NormalizeString"/>
+    /// both need it, and <c>Curia.Canon.Tests</c>'s property generators reuse it (via
+    /// <c>InternalsVisibleTo</c>) rather than keeping the private copy they used to carry, the
+    /// same discipline that already applies to <see cref="JsonReader.IsNoncharacter"/>.
+    ///
+    /// Linear in the string's length and allocation-free. Deliberately *not* expressed as
+    /// "contains any surrogate": every character outside the BMP is spelled in UTF-16 as a
+    /// surrogate pair, so a check at that granularity would reject the whole of plane 1 upward,
+    /// including the U+1F602 the RFC author's own <c>rfc8785/input-weird.json</c> uses as a
+    /// member name.
+    /// </summary>
+    internal static bool HasUnpairedSurrogate(string s)
     {
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (char.IsHighSurrogate(s[i]))
+            {
+                if (i + 1 == s.Length || !char.IsLowSurrogate(s[i + 1]))
+                    return true;
+                i++;   // the low half is legitimately paired; do not re-examine it on its own
+            }
+            else if (char.IsLowSurrogate(s[i]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// RFC 8785 §3.2.2.2 string escaping: minimal, with control characters escaped. The single
+    /// place a string becomes canonical output, reached for object member names
+    /// (<see cref="Write"/>'s object arm) and string values alike -- which is what makes the
+    /// unpaired-surrogate rejection below cover both positions by construction rather than by
+    /// two call sites each remembering to check.
+    ///
+    /// R6.38's second paragraph (errata E2, closed for this condition by E13) requires
+    /// <see cref="Canonicalize"/> to reject an unpaired UTF-16 surrogate "independently of ADMIT
+    /// and regardless of whether ADMIT already ran," for the same reason it rejects a raw
+    /// duplicate member name: RFC 8785 defines no canonical output for it. The failure being
+    /// prevented is silent substitution rather than a crash — a lone surrogate passed through
+    /// this writer untouched and became U+FFFD at <see cref="Canonicalize"/>'s
+    /// <c>Encoding.UTF8.GetBytes</c> step, so the function returned <c>Ok</c> with canonical
+    /// bytes carrying a different character than the tree it was handed, and a digest over a
+    /// document nobody wrote.
+    ///
+    /// Checked before a single character of the string is emitted, mirroring
+    /// <see cref="OrderMembers"/>'s reasoning: on the failing path nothing has been written that
+    /// a reader of the buffer could mistake for output. The slug is
+    /// <c>curia/admit/unpaired-surrogate</c> — the condition, not the layer that noticed it
+    /// (R6.43, generalizing R6.42 for the reason R6.40 gives) — which is what
+    /// <see cref="Json.JsonReader"/>'s byte path and <c>curia-testis</c>'s <c>json::parse</c>
+    /// already answer for the identical input.
+    /// </summary>
+    private static Error? WriteString(string s, StringBuilder sb)
+    {
+        if (HasUnpairedSurrogate(s))
+            return CanonErrors.UnpairedSurrogate();
+
         sb.Append('"');
         foreach (var c in s)
         {
@@ -521,5 +617,6 @@ public static class CanonicalJson
             }
         }
         sb.Append('"');
+        return null;
     }
 }
