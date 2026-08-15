@@ -7,13 +7,9 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="NetArchTest.Rules" />
+    <PackageReference Include="CsCheck" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Curia.Canon/Curia.Canon.csproj" />
-    <ProjectReference Include="../../src/Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
-    <ProjectReference Include="../../src/Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
     <ProjectReference Include="../../src/Curia.Domain/Curia.Domain.csproj" />
-    <ProjectReference Include="../../src/Curia.Application/Curia.Application.csproj" />
   </ItemGroup>
 </Project>

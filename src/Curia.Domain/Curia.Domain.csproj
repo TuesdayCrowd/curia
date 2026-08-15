@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Curia.Domain</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!--
+      CS-15 (partial, type-level): AppendedEvent's constructor is internal, so only code in an
+      assembly explicitly trusted here can mint a value that claims "the store really persisted
+      this." Curia.Domain.Tests exercises the type directly; Curia.Application.Tests is where the
+      R11.4 in-memory IEventStore adapter lives (scoping doc sec. 5.2's placement for port fakes).
+      Stage 2 must add Curia.Infrastructure here once the Postgres adapter exists, or its
+      IEventStore implementation will not compile.
+    -->
+    <InternalsVisibleTo Include="Curia.Domain.Tests" />
+    <InternalsVisibleTo Include="Curia.Application.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Curia.Canon/Curia.Canon.csproj" />
+    <ProjectReference Include="../Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
+  </ItemGroup>
+</Project>
