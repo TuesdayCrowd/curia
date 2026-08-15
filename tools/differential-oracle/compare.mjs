@@ -12,14 +12,52 @@
 // Comparison rules (see the task brief this driver implements):
 //   canonicalize      — all three byte-identical, or all three fail. Node is
 //                        authoritative over the two implementations where they
-//                        disagree with it.
-//   canonicalize_nfc  — C# and Rust must be byte-identical (or both fail). Node is
-//                        advisory only (its Unicode version may differ).
+//                        disagree with it. Where C# and Rust *both* fail, they
+//                        must also fail with the same slug (see "Rejecting for
+//                        different reasons" below).
+//   canonicalize_nfc  — C# and Rust must be byte-identical (or both fail, with the
+//                        same slug — again see below). Node is advisory only (its
+//                        Unicode version may differ).
 //   admit             — C# and Rust must agree on accept/reject AND on which slug.
 //                        Node is not consulted (op:"admit" always returns
 //                        oracle/unsupported from the node endpoint).
 //   CRASH             — a CRASH slug from *any* endpoint is its own divergence
 //                        class, regardless of what the other endpoints did.
+//
+// Rejecting for different reasons is a divergence, on every op.
+// ---------------------------------------------------------------------------
+// The first version of these rules said `admit` must agree "on accept-versus-
+// reject and on which slug", and said only that the two canonicalize paths must
+// "agree byte-for-byte" — a statement about successful output that says nothing
+// about failures. Implemented exactly as written, both canonicalize classifiers
+// treated "both rejected" as agreement without ever looking at *why*, and the
+// harness reported 0 divergence classes across 22,515 lines while C# and Rust
+// were naming four conditions differently under op=canonicalize_nfc (unpaired
+// surrogate, raw NUL, invalid UTF-8, non-finite number — C# the condition, Rust
+// a single mechanism-shaped `curia/canon/parse-error`).
+//
+// R6.43 (errata E13) makes the predicate normative: a rejection names the
+// condition detected, never the layer that detected it. A predicate is therefore
+// part of the answer, not commentary on it, and two implementations that reject
+// one input under two names have diverged in exactly the way this harness exists
+// to find. R14.8 (errata E14) now states the harness's side of that: compare
+// every component of an answer either document makes normative, on every op, and
+// state the rule per op rather than inheriting it from whichever op happened to
+// be specified most carefully. E14 is an instance of R14.7's own subject one
+// layer up — there the protocol cannot reach an entry point, here the comparison
+// did reach it and discarded half the answer; both present as agreement.
+//
+// The node oracle is deliberately *not* part of the slug comparison on any op:
+// it reports `oracle/...` slugs from its own vocabulary, which is not comparable
+// with the `curia/...` slugs R6.40 and R6.43 pin. It stays what it always was —
+// the byte oracle for successful canonicalization.
+//
+// Precedence, where more than one condition applies to one record: the C#-vs-Rust
+// predicate comparison is evaluated *before* the three-way accept/reject question
+// on `canonicalize`, because once both implementations under test have rejected,
+// the predicate is the only C#-vs-Rust question left, and node cannot answer it.
+// A record so classified still carries every endpoint's full response in its
+// `detail` block, so nothing about node's disagreement is lost from the report.
 //
 // Usage:
 //   node tools/differential-oracle/compare.mjs [--seed N] [--count N]
@@ -317,6 +355,18 @@ function classifyCanonicalize(csharp, rust, node) {
   if (isCrash(node)) crashed.push(['node', node.slug]);
   if (crashed.length) return { key: `crash::canonicalize::${crashed.map(c => c[0]).sort().join('+')}`, detail: { crashed } };
 
+  // Both implementations under test rejected: the accept-versus-reject question
+  // is settled between them and the predicate is what is left. Checked ahead of
+  // the three-way mixed-result branch below for the reason given in the
+  // comparison-rules header — node's `oracle/...` vocabulary cannot arbitrate a
+  // `curia/...` slug, so deferring to it here would drop the comparison entirely.
+  if (!csharp.ok && !rust.ok && csharp.slug !== rust.slug) {
+    return {
+      key: `canonicalize/slug-mismatch::${csharp.slug}::${rust.slug}`,
+      detail: { csharpSlug: csharp.slug, rustSlug: rust.slug, csharp, rust, node },
+    };
+  }
+
   const allOk = csharp.ok && rust.ok && node.ok;
   const allFail = !csharp.ok && !rust.ok && !node.ok;
   if (allFail) return null;
@@ -350,6 +400,15 @@ function classifyCanonicalizeNfc(csharp, rust, node) {
     return {
       key: `canonicalize_nfc/accept-reject-mismatch::accepted-by-${acceptedBy}::rejected-by-${rejectedBy}::${rejectSlug}`,
       detail: { acceptedBy, rejectedBy, rejectSlug, node },
+    };
+  }
+  // Both rejected — same rule as `canonicalize` above and as `admit` has always
+  // applied: agreeing to reject is only half the answer, and R6.43 makes the
+  // other half normative.
+  if (!csharp.ok && !rust.ok && csharp.slug !== rust.slug) {
+    return {
+      key: `canonicalize_nfc/slug-mismatch::${csharp.slug}::${rust.slug}`,
+      detail: { csharpSlug: csharp.slug, rustSlug: rust.slug, csharp, rust, node },
     };
   }
   if (csharp.ok && rust.ok && csharp.out_b64 !== rust.out_b64) {
@@ -660,8 +719,10 @@ function classifyGroup(key) {
   if (key.startsWith('crash::')) return 'CRASH';
   if (key.startsWith('admit/slug-mismatch::')) return 'ADMIT slug-naming mismatch (both reject, different slug)';
   if (key.startsWith('admit/accept-reject-mismatch::')) return 'ADMIT accept/reject mismatch';
+  if (key.startsWith('canonicalize/slug-mismatch::')) return 'canonicalize slug-naming mismatch (both reject, different slug)';
   if (key.startsWith('canonicalize/mixed-result::')) return 'canonicalize: mixed accept/reject (not all three agree)';
   if (key.startsWith('canonicalize/byte-mismatch::')) return 'canonicalize: byte mismatch on shared acceptance';
+  if (key.startsWith('canonicalize_nfc/slug-mismatch::')) return 'canonicalize_nfc slug-naming mismatch (both reject, different slug)';
   if (key.startsWith('canonicalize_nfc/accept-reject-mismatch::')) return 'canonicalize_nfc: accept/reject mismatch (C# vs Rust)';
   if (key === 'canonicalize_nfc/byte-mismatch') return 'canonicalize_nfc: byte mismatch (C# vs Rust)';
   return 'other';
@@ -706,82 +767,44 @@ function writeReport(reportPath, meta, compareResult, minimized) {
   }
   lines.push('');
 
-  lines.push('## Root causes — three stories behind fifteen classes');
-  lines.push('');
-  lines.push('Most of the classes below are not independent bugs; they are one of three');
-  lines.push('systemic, architectural differences between the two harnesses, each surfacing');
-  lines.push('once per ADMIT rule it touches. Read this section before the class list.');
-  lines.push('');
-  lines.push('**1. The C# harness gates `canonicalize`/`canonicalize_nfc` through the full ADMIT');
-  lines.push('parser; the Rust harness does not.** `tools/Curia.Differential/Program.cs`\'s');
-  lines.push('`Canonicalize()` always calls `JsonReader.Parse` — the *same* function `admit`');
-  lines.push('uses, enforcing every ADMIT business rule (size, depth, member count, string');
-  lines.push('length, duplicate keys, non-finite numbers, noncharacters) — before ever calling');
-  lines.push('`CanonicalJson.Canonicalize`/`CanonicalizeWithNfc`. `rust/curia-testis/src/bin/');
-  lines.push('curia-differential.rs`\'s dispatch calls `curia_testis::canonicalize`/');
-  lines.push('`canonicalize_with_nfc` directly — both use the bare RFC 8259 `json::parse`,');
-  lines.push('never `json::admit`. The result: for *any* document that is syntactically valid');
-  lines.push('JSON but violates an ADMIT-only rule, C# rejects (propagating the ADMIT slug)');
-  lines.push('while Rust accepts and canonicalizes it. This alone accounts for the');
-  lines.push('depth-exceeded, members-exceeded, string-too-long, noncharacter, and');
-  lines.push('raw-duplicate-key classes below, on both `canonicalize` and `canonicalize_nfc`.');
-  lines.push('');
-  lines.push('**2. `admit`\'s own number-safety rule (R6.33/errata D5, integer-only,');
-  lines.push('±(2^53-1)) is applied universally by Rust\'s `admit()` but not applied at all by');
-  lines.push('the generic `JsonReader` this harness\'s C# `admit`/`canonicalize`/');
-  lines.push('`canonicalize_nfc` ops share.** `JsonReader.ReadNumber` (`src/Curia.Canon/Json/');
-  lines.push('JsonReader.cs`) checks only `double.IsFinite`; `check_number`');
-  lines.push('(`rust/curia-testis/src/json.rs`) checks integer-ness and the safe range on');
-  lines.push('*every* number in the tree, not a rule scoped to one envelope field. Whether');
-  lines.push('this Rust-side check is meant to be that general, or scoped to a specific field');
-  lines.push('(e.g. an envelope\'s `meta_prediction`) the way `R6.33`\'s example implies, is a');
-  lines.push('spec question this report does not adjudicate — only the code-level divergence');
-  lines.push('is reported here. Because number values are untouched by NFC normalization, this');
-  lines.push('one shows up only on `admit`, never on `canonicalize`/`canonicalize_nfc`.');
-  lines.push('');
-  lines.push('**3. `CanonicalizeWithNfc` (C#) has no defense against an NFC-manufactured');
-  lines.push('duplicate key; `canonicalize_with_nfc` (Rust) does.** Two wire-distinct member');
-  lines.push('names that collide only after NFC normalization (e.g. precomposed vs. combining-');
-  lines.push('sequence "café") are silently rendered as two members sharing one key by');
-  lines.push('`CanonicalJson.cs`\'s `NormalizeToNfc`+`Write` (not valid I-JSON — a re-parse');
-  lines.push('could pick either member, so two verifiers checking the same signature over the');
-  lines.push('same canonical bytes could disagree about what was actually said). Rust\'s');
-  lines.push('`nfc.rs` has a dedicated two-pass check for exactly this ("Fix rounds 1-3" in its');
-  lines.push('own doc comments) and rejects with `curia/canon/duplicate-normalized-key`. Of');
-  lines.push('every finding in this report, this is the one with the most direct bearing on');
-  lines.push('P22 (envelope inseparability) and signature non-repudiation: it means the C#');
-  lines.push('`CanonicalizeWithNfc` path can be made to emit invalid, ambiguous canonical');
-  lines.push('bytes from validly-ADMITted input, silently.');
-  lines.push('');
-  lines.push('**Not part of either pattern**, and each its own independent, narrower finding:');
-  lines.push('the three ADMIT slug-*naming* mismatches (`size-exceeded`/`too-large`,');
-  lines.push('`members-exceeded`/`too-many-members`, `malformed`/`malformed-json` — the');
-  lines.push('already-known divergence this task specifically expected); the raw-control-');
-  lines.push('character slug C# has no dedicated name for; the unpaired-surrogate class where');
-  lines.push('C#/Rust both reject but the node oracle silently accepts (substituting U+FFFD —');
-  lines.push('see "Node oracle quirk" below); and the `duplicate-key`-vs-`malformed-json` class,');
-  lines.push('which is a check-*order* divergence, not a check-*presence* one: C#\'s single-pass');
-  lines.push('`Utf8JsonReader` notices a raw duplicate key the moment it reads the second');
-  lines.push('occurrence\'s property name, mid-parse; Rust checks duplicates only in `admit()`\'s');
-  lines.push('tree walk, which runs strictly *after* a complete, successful `json::parse` — so');
-  lines.push('on a document that is both duplicate-keyed *and* truncated before that duplicate');
-  lines.push('key\'s value, C# reports the duplicate (found first) and Rust reports the');
-  lines.push('truncation (parse never completes, so the duplicate check never runs).');
-  lines.push('');
-  lines.push('**Node oracle quirk (informational, not a divergence under the stated rules):**');
-  lines.push('the generator\'s own report flagged this and this run confirms it — `oracle.mjs`\'s');
-  lines.push('hand-rolled `\\u` decoding builds a JS string containing an unpaired surrogate');
-  lines.push('rather than rejecting it, which `Buffer.from(str,\'utf8\')` then silently converts');
-  lines.push('to U+FFFD. That is why the `canonicalize/mixed-result::csharp-fail::rust-fail::');
-  lines.push('node-ok` class exists (667 occurrences, the single largest class by volume) —');
-  lines.push('C# and Rust correctly agree in rejecting every one of these, and node is the');
-  lines.push('odd one out. Per the task\'s comparison rule, "all three fail or all three');
-  lines.push('succeed" for `canonicalize`, and node is authoritative on RFC 8785 disagreements');
-  lines.push('— but an unpaired surrogate is not a pure-RFC-8785 question at all (RFC 8785');
-  lines.push('has nothing to say about invalid input), so this is reported as its own class');
-  lines.push('rather than silently deferred to node.');
-  lines.push('');
-
+  // Deliberately not a hardcoded narrative. This section used to carry a fixed
+  // prose account titled "three stories behind fifteen classes", describing one
+  // historical run — and it printed unconditionally, so a clean report asserted
+  // fifteen live classes that the run had not found. That is the same defect this
+  // harness exists to catch, committed by the harness's own report: an artifact
+  // claiming more than its measurement supports. See errata E14.
+  //
+  // What replaces it is derived from this run and nothing else.
+  if (divergences.size === 0) {
+    lines.push('## Root causes');
+    lines.push('');
+    lines.push('No divergence classes were found in this run, so there is nothing to');
+    lines.push('attribute. This section is generated from the run, not carried between runs.');
+    lines.push('');
+    lines.push('A zero here means the implementations agreed on every comparison this');
+    lines.push('harness performs — which is narrower than "the implementations agree".');
+    lines.push('See the "Comparison rules" block above for what is compared per op, and');
+    lines.push('errata R14.7 for entry points this protocol cannot reach at all.');
+    lines.push('');
+  } else {
+    lines.push('## Root causes');
+    lines.push('');
+    lines.push(`${divergences.size} class(es) found. Grouped by op and kind:`);
+    lines.push('');
+    const byGroup = new Map();
+    for (const d of divergences.values()) {
+      const g = d.group || '(ungrouped)';
+      byGroup.set(g, (byGroup.get(g) || 0) + 1);
+    }
+    for (const [g, n] of [...byGroup].sort((a, b) => b[1] - a[1])) {
+      lines.push(`- **${g}** — ${n} class(es)`);
+    }
+    lines.push('');
+    lines.push('Attribution to a shared root cause is a judgment about the implementations,');
+    lines.push('not a measurement, so it is not asserted here. The minimized reproducer for');
+    lines.push('each class is below.');
+    lines.push('');
+  }
   lines.push('## Divergence classes, grouped');
   lines.push('');
   const groups = new Map();

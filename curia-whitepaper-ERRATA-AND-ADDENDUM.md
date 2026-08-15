@@ -1873,6 +1873,89 @@ ASCII sketch and assert the string is ill-formed — using a UTF-8 round trip as
 is the defect itself used as a measuring instrument — before asserting anything about how it is
 rejected.
 
+## E14 — The harness compared less than it claimed, and R14.7's own subject one layer up
+
+**Location:** R14.6 (C8); R14.7 (E10); R6.43 (E13); `tools/differential-oracle/compare.mjs`.
+**Class:** defect in the instrument, and the normative gap that allowed it — found after
+R14.7 was written, by looking for the two divergences E13 recorded as unfixed.
+
+E13 recorded two Rust-side predicate divergences and noted, correctly, that "neither is a
+divergence a published vector can catch today." It did not ask the obvious next question: the
+differential harness had been running against both of them at full scale for weeks. Why had it
+not caught them either?
+
+Because it was not comparing predicates. `classifyCanonicalizeNfc` compared `csharp.ok !==
+rust.ok` and nothing else; `classifyCanonicalize` treated "all three failed" as agreement by the
+same omission. **When both implementations rejected the same input under different predicates,
+the harness reported agreement.** Only `classifyAdmit` compared slugs.
+
+That is faithful implementation of a rule that was written wrong. The comparison rules the
+harness was built to said `admit` must agree "on accept-versus-reject **and on which slug**", and
+said only that the two canonicalize paths must "agree byte-for-byte" — a statement about
+successful output that says nothing whatever about failures. The implementer read it exactly as
+written. The defect is in the sentence, and it was one sentence away from being right in the very
+same paragraph.
+
+The consequence is measured, not argued. At the established scale — `--seed 20260812 --count
+7500`, 22,515 compared lines — the harness printed **0 divergence classes**. Fixing only the
+comparison rules, changing no implementation, the same corpus and the same seed printed **7
+classes over 3,594 records**:
+
+| op | Condition | C# | Rust | Records |
+|---|---|---|---|---|
+| `canonicalize_nfc` | generic syntax failure | `curia/admit/malformed-json` | `curia/canon/parse-error` | 1,082 |
+| `canonicalize_nfc` | invalid UTF-8 | `curia/admit/invalid-utf8` | `curia/canon/parse-error` | 667 |
+| `canonicalize_nfc` | unpaired surrogate | `curia/admit/unpaired-surrogate` | `curia/canon/parse-error` | 667 |
+| `canonicalize_nfc` | raw NUL | `curia/admit/nul-byte` | `curia/canon/parse-error` | 583 |
+| `canonicalize_nfc` | non-finite number | `curia/admit/non-finite-number` | `curia/canon/parse-error` | 12 |
+| `canonicalize` | raw NUL outside a string | `curia/admit/nul-byte` | `curia/admit/malformed-json` | 346 |
+| `canonicalize` | raw NUL inside a string | `curia/admit/nul-byte` | `curia/admit/raw-control-character` | 237 |
+
+Both of E13's recorded divergences are in that table, and the harness had been standing on top of
+them, printing zero, since before either was written down. The NUL carve-out turns out to have
+been broken in *two* places on the parse path, not the one E13 names: inside a string it reported
+`raw-control-character`, and outside one — where JSON grammar sees only an unexpected character —
+`malformed-json`. Rust's parser had no NUL check of its own at all; `admit`'s own scan, run before
+parsing, was the only thing that had ever answered `curia/admit/nul-byte`, which is exactly the
+reading R6.42 already calls a mistake about function versus call path.
+
+**This is R14.7's own subject, one layer up, and that is the entry's point.** R14.7 names a
+divergence class the harness protocol cannot *express*, and observes that it presents not as
+silence but as agreement. Here the protocol expressed it perfectly: the right bytes went to both
+endpoints, both endpoints answered, both answers were correct renderings of what each
+implementation believes, and the *comparison* discarded the half of each answer where the
+disagreement lived. Unreachable entry point and unexamined field produce the identical symptom —
+a confident zero — and the second is the worse of the two, because R14.7 at least obliges someone
+to write the first one down. Nothing obliged anyone to state what a comparison compares.
+
+The residual worth naming: R6.43 makes the predicate normative for an *implementation*, and every
+implementation had a test suite that checked its own slugs. Neither fact could produce this
+finding, because the whole question is whether two implementations chose the *same* word, and a
+suite that pins one side's vocabulary against itself passes just as green when the other side
+disagrees. That is the differential method's entire reason for existing, applied to a field the
+differential method was not looking at.
+
+**R14.8** R14.6's differential harness SHALL compare every component of an answer that either
+document makes normative, on every operation the protocol carries — for a rejection, that is the
+predicate as well as the fact of rejection (R6.43), and the comparison SHALL be stated per
+operation rather than inherited from whichever operation happened to be specified most carefully.
+Where an endpoint's vocabulary is not comparable with the implementations under test — an oracle
+reporting its own slugs — the harness SHALL say so at the site of the rule rather than silently
+omitting the field. A comparison rule that examines less than the answer contains does not
+report less; it reports agreement, which is the strongest evidence the method produces and, so
+sourced, worthless.
+
+**Fixed on the Rust side by R6.43, which needed nothing added.** `NfcError::Parse(_)` now
+delegates to `ParseError::predicate()` — the function that already existed, already mapped each
+condition to the right slug, and already carried the reasoning in its doc comment, having been
+written for this exact hazard after an earlier round of the same harness found the duplicate-key
+instance of it. One enum arm was not calling it. `json::parse` gains a raw-NUL scan ahead of UTF-8
+validation, mirroring the order `admit` documents and `JsonReader.ParseCore` applies on the C#
+side. Both are pinned by in-implementation tests at both canonicalizing entry points, as R6.43's
+closing sentence requires, since no published vector reaches either. After both fixes the same
+seed and count returns to 0 classes over 22,515 lines, and a full sweep of all 44 corpus vector
+inputs under all three ops — 132 records — shows no C#/Rust disagreement of any kind.
+
 ---
 
 # Consolidated proposed-requirements index
@@ -1927,6 +2010,7 @@ rejected.
 | R6.42 | Duplicate member names rejected at every parsing or canonicalizing entry point, tree-taking ones included; linear per object | E10 |
 | R6.43 | Rejections name the condition, never the mechanism; `unpaired-surrogate` and the NUL carve-out pinned at every entry point | E13 |
 | R14.7 | Harness enumerates entry points its protocol cannot reach; those are covered in-implementation and the gap is recorded | E10 |
+| R14.8 | Harness compares every normative component of an answer, the rejection predicate included, stated per operation | E14 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected
 citations SP 800-207 §5.7, RFC 7797, RFC 8707; cross-reference repairs; §10

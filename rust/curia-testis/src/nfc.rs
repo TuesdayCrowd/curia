@@ -227,6 +227,13 @@ impl NfcError {
     /// `curia/<layer>/<condition>` slug in this crate and the corpus's
     /// `expect-reject`/`expect-verify-failure` slugs.
     ///
+    /// Errata R6.43 makes the shape of these slugs normative: a rejection
+    /// names the condition detected, never the layer or mechanism that
+    /// detected it. Every arm below therefore either delegates to
+    /// [`crate::json::ParseError::predicate`], which owns the slug for every
+    /// parse condition, or names a condition this module is the only place to
+    /// detect.
+    ///
     /// [`NfcError::DuplicateRawKey`] deliberately returns ADMIT's own
     /// `curia/admit/duplicate-key` slug, not a slug of this module's
     /// invention: the raw-identical-keys condition is exactly what
@@ -248,13 +255,25 @@ impl NfcError {
     /// needs to be able to tell apart from a raw duplicate.
     pub fn predicate(&self) -> &str {
         match self {
-            // Task 6 cleanup: this used to be `curia-testis/nfc/parse-error`
-            // — wrong root (every other real predicate in this crate is
-            // `curia/<layer>/<condition>`, never `curia-testis/...`) and it
-            // invented an `nfc` layer where `canon` already exists (see
-            // `DuplicateNormalizedKey`'s `curia/canon/duplicate-normalized-key`,
-            // right below, in the very same enum). Renamed to match.
-            NfcError::Parse(_) => "curia/canon/parse-error",
+            // Task 6 cleanup renamed this from `curia-testis/nfc/parse-error`
+            // to `curia/canon/parse-error` — right root, still the wrong kind
+            // of name. `curia/canon/parse-error` names the *mechanism* that
+            // noticed (a parse, in the canon layer) rather than the condition,
+            // which is what R6.43 forbids and what `ParseError::predicate`
+            // was written to prevent: one enum, one slug per condition, no
+            // matter which of the three callers surfaced it. Delegating here
+            // is the whole fix. It is not a new obligation — `DuplicateRawKey`
+            // below has reused ADMIT's condition slug all along, and the
+            // reasoning written at that variant is the same reasoning, applied
+            // to the one variant that was not doing it.
+            //
+            // Measured before the delegation, under `op=canonicalize_nfc`:
+            // C# named the condition for an unpaired surrogate, a raw NUL,
+            // invalid UTF-8 and a non-finite number; this arm answered
+            // `curia/canon/parse-error` to all four. `op=canonicalize` — the
+            // same parser, one caller over — already answered correctly, which
+            // is exactly the "predicate depends on which layer noticed" shape.
+            NfcError::Parse(e) => e.predicate(),
             NfcError::DuplicateRawKey { .. } => "curia/admit/duplicate-key",
             NfcError::DuplicateNormalizedKey { .. } => "curia/canon/duplicate-normalized-key",
         }

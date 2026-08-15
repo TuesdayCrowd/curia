@@ -95,7 +95,8 @@ be corrected.
 ## Tier 2 — close the differential harness, unblocked, small
 
 Definition of Done item 5 is *"the harness runs clean, or every divergence is a committed
-vector."* **Met: 0 divergence classes across 22,515 compared lines.**
+vector."* **Met: 0 divergence classes across 22,515 compared lines** — re-measured under
+T2.3's corrected comparison rules, not the weaker ones the first zero was obtained with.
 
 ### T2.1 — fix our own node oracle's unpaired-surrogate bug
 
@@ -122,6 +123,24 @@ By R6.40's own condition-naming principle, Rust's is right.
 itself a C0 control byte and the classes overlap: `curia/admit/nul-byte` wins for `0x00`,
 `raw-control-character` covers the other 31. Verified on both endpoints at `0x00`, `0x01`
 and `0x1f`.
+
+### T2.3 — the zero above was measuring a narrower question than it looked like
+
+`compare.mjs`'s two canonicalize classifiers compared accept-versus-reject and never the
+rejection predicate, so **both implementations rejecting one input under different slugs was
+reported as agreement.** Only `admit` compared slugs. Fixing the rules alone, changing no
+implementation, turned the same seed and count from 0 classes into **7 classes over 3,594
+records** — including both divergences errata E13 had already recorded as found-and-unfixed
+while the harness stood on top of them printing zero.
+**Work**: compare the predicate on `canonicalize` and `canonicalize_nfc` too (R14.8, errata
+E14); fix the Rust side R6.43 already governs — `NfcError::Parse(_)` delegates to
+`ParseError::predicate()` instead of collapsing every condition onto
+`curia/canon/parse-error`, and `json::parse` scans for raw NUL ahead of UTF-8 validation so
+R6.40's carve-out holds on the ADMIT-free path as it does at ADMIT.
+**Status**: **Complete** — back to **0 classes across 22,515 lines** under the stricter
+rules, and all 44 corpus vector inputs under all 3 ops (132 records) agree on every field.
+Pinned by in-implementation tests at both canonicalizing entry points, since no published
+vector reaches either (R6.43's closing sentence, R14.7).
 
 ---
 
