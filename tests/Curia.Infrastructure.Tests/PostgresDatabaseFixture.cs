@@ -116,6 +116,76 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Provisions a brand-new Postgres schema containing its own <c>events</c> table and its
+    /// own grant of INSERT/SELECT (and REVOKE of UPDATE/DELETE) to the fixture's throwaway
+    /// application role, then returns the schema's name for <see cref="PostgresEventStore"/>'s
+    /// <c>schema</c> constructor parameter.
+    ///
+    /// This exists because <c>EventStorePortContractTests</c>' <c>CreateStore</c> contract --
+    /// "a fresh, empty store... once per generated case" -- turned out to need genuine
+    /// per-call isolation, not merely sequential reset: CsCheck's property test runs its 200
+    /// generated cases with real internal concurrency, so two cases' <c>CreateStore()</c>
+    /// calls can be in flight at once. <see cref="ResetEventsTableAsync"/> (TRUNCATE on one
+    /// shared table) is correct for sequential callers -- every xUnit [Fact] in this project's
+    /// single collection, including every OTHER test class here -- but was falsified for
+    /// CsCheck's concurrent ones: a minimal single-append case failed with a spurious
+    /// curia/domain/concurrency-conflict because a concurrently running case's rows were
+    /// visible on the shared table in between. A fresh schema per call is the fix: cheap
+    /// (unlike a fresh throwaway database per call) and genuinely isolated (unlike a shared
+    /// table), so <see cref="PostgresEventStoreContractTests.CreateStore"/> uses this instead
+    /// of <see cref="ResetEventsTableAsync"/>.
+    ///
+    /// Schemas accumulate in the throwaway database for the run's duration rather than being
+    /// dropped individually -- the whole database is dropped in <see cref="DisposeAsync"/>
+    /// regardless, so an unused schema here is run-duration clutter inside a database that is
+    /// about to disappear, not a leak.
+    ///
+    /// Known duplication, not an oversight: the <c>events</c> table columns below are a second
+    /// copy of db/0001_create_events.sql's DDL rather than a re-render of that same template.
+    /// The template also issues <c>CREATE ROLE</c>, which must run exactly once per role, not
+    /// once per schema -- reusing it here would mean either re-templating it to skip the role
+    /// statement (a second templating dimension for a test-only concern) or running a
+    /// role-already-exists error path on every call. Re-typing seven column definitions was
+    /// judged the smaller, more legible cost; <see cref="InitializeAsync"/> is what actually
+    /// exercises the checked-in migration file byte-for-byte, which is what matters for
+    /// verifying the real migration.
+    /// </summary>
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "Every interpolated identifier is QuoteIdentifier applied to schemaName " +
+            "(generated on the line above from a literal prefix plus a GUID's hex digits) or " +
+            "_roleName (generated once in InitializeAsync the same way) -- never external input.")]
+    public async Task<string> CreateIsolatedSchemaAsync(CancellationToken cancellationToken = default)
+    {
+        var schemaName = $"t{Guid.NewGuid():N}";
+        var quotedSchema = QuoteIdentifier(schemaName);
+        var quotedRole = QuoteIdentifier(_roleName);
+
+        var sql = $"""
+            CREATE SCHEMA {quotedSchema};
+            CREATE TABLE {quotedSchema}.events (
+              seq             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+              event_id        TEXT UNIQUE NOT NULL,
+              event_type      TEXT NOT NULL,
+              aggregate_id    TEXT NOT NULL,
+              actor_id        TEXT,
+              payload         JSONB NOT NULL,
+              server_ts       TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            GRANT USAGE ON SCHEMA {quotedSchema} TO {quotedRole};
+            GRANT INSERT, SELECT ON {quotedSchema}.events TO {quotedRole};
+            REVOKE UPDATE, DELETE ON {quotedSchema}.events FROM {quotedRole};
+            """;
+
+        await using var connection = await AdminDataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        return schemaName;
+    }
+
     [SuppressMessage(
         "Reliability",
         "CA1031:Do not catch general exception types",

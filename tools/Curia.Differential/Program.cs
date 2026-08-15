@@ -23,6 +23,18 @@ using Curia.Domain.Primitives;
 // 1,068 compared lines E2 attributes to this root cause came from exactly this endpoint. Both
 // ops now parse via ParseUnrestricted, matching curia-testis's own architecture.
 //
+// Known blind spot, recorded here because R14.7 (errata E10) requires it to be stated rather
+// than rediscovered: every op below takes bytes and parses them before canonicalizing, so this
+// protocol can only compare entry points whose input is bytes. CanonicalJson.Canonicalize's
+// JsonValue overload -- a tree a caller built rather than parsed -- has no counterpart op and
+// cannot be given one, because the inputs that distinguish it are not expressible in the
+// alphabet the protocol carries. That is not a hole to plug with a new op; it is a limit on
+// what this harness can measure, and the entry point is covered by in-implementation tests
+// instead (CanonicalJsonTests.CanonicalizeRejectsARawDuplicateMemberName and its neighbours).
+// E10's defect lived there for exactly this reason, and presented as agreement: fed
+// {"a":1,"a":2}, both implementations answered curia/admit/duplicate-key, truthfully and
+// irrelevantly, because both were answering about their parse paths.
+//
 // Wire protocol: one JSON object per line in, one JSON object per line out, same order.
 // Input:  {"id":"...","op":"admit"|"canonicalize"|"canonicalize_nfc","input_b64":"..."}
 // Output: {"id":"...","ok":true,"out_b64":"..."} or {"id":"...","ok":false,"slug":"..."}

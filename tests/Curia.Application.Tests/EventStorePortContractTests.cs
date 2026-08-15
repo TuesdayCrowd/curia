@@ -22,11 +22,11 @@ public abstract class EventStorePortContractTests
     /// once per generated case), so tests never see state another test left behind.</summary>
     protected abstract IEventStore CreateStore();
 
-    private static DomainEvent NewEvent(string id, string type = "test.event") => new(
+    private static DomainEvent NewEvent(string id, string type = "test.event", JsonValue? payload = null) => new(
         Require(EventId.Create(id)),
         Require(EventType.Create(type)),
         Actor: null,
-        Payload: new JsonValue.Object([]));
+        Payload: payload ?? new JsonValue.Object([]));
 
     private static AggregateId Agg(string value) => Require(AggregateId.Create(value));
 
@@ -85,6 +85,139 @@ public abstract class EventStorePortContractTests
 
         var stream = Require(await store.ReadByAggregateAsync(aggregateId, ct));
         Assert.Single(stream); // the conflicting append wrote nothing -- no silent overwrite
+    }
+
+    /// <summary>
+    /// The payload-admissibility promise <see cref="IEventStore.AppendAsync"/> states (R6.42,
+    /// errata E10), asserted here rather than in either adapter's own suite because it is a
+    /// promise of the port: a payload with no RFC 8785 canonical form cannot be digested, cannot
+    /// be signed, and does not re-parse to one unambiguous document, so it is not a fact a
+    /// system of record can faithfully hold whichever adapter is underneath.
+    ///
+    /// This case exists because the adapters had drifted in exactly the direction a shared
+    /// contract suite is meant to make impossible. <c>PostgresEventStore</c> refused a
+    /// duplicate-membered payload -- <c>jsonb</c>'s input conversion resolves duplicate keys
+    /// last-wins, so accepting one silently stored a different document than the caller
+    /// appended -- while <c>InMemoryEventStore</c> accepted it and handed it back losslessly,
+    /// because an in-process object graph physically can. Nothing failed, because this suite had
+    /// no case for it. A fake more permissive than the real store is the worst shape the drift
+    /// can take: code passes against the fake and loses data in production, which is what
+    /// R11.4's in-memory adapter exists to prevent rather than create.
+    ///
+    /// The payload is built as a <see cref="JsonValue"/> tree rather than parsed from text, and
+    /// that is the point, not a shortcut: every parse path already rejects duplicate member
+    /// names, so a duplicate can only reach a store from a caller holding a tree nothing
+    /// inspected -- and a <see cref="DomainEvent"/>'s payload is exactly such a tree.
+    /// </summary>
+    [Fact]
+    public async Task AppendRefusesAPayloadWhoseRootObjectCarriesDuplicateMemberNames()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var aggregateId = Agg("agg-duplicate-root");
+
+        var payload = new JsonValue.Object(
+        [
+            new("dup", new JsonValue.String("FIRST")),
+            new("dup", new JsonValue.String("SECOND")),
+        ]);
+
+        var result = await store.AppendAsync(
+            aggregateId, AggregateVersion.New, [NewEvent("dup-root", payload: payload)], ct);
+
+        AssertRefusedAsDuplicateKey(result);
+        await AssertNothingWasWrittenAsync(store, aggregateId, ct);
+    }
+
+    /// <summary>
+    /// Nested inside an array inside the payload, because an adapter that inspected only the
+    /// payload's root object would pass the test above and still accept -- and, through
+    /// <c>jsonb</c>, silently collapse -- this one. The rule is a property of every object in
+    /// the tree, at any depth.
+    /// </summary>
+    [Fact]
+    public async Task AppendRefusesADuplicateMemberNestedAnywhereInThePayload()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var aggregateId = Agg("agg-duplicate-nested");
+
+        var payload = new JsonValue.Object(
+        [
+            new("outer", new JsonValue.Array(
+            [
+                new JsonValue.Object(
+                [
+                    new("dup", new JsonValue.String("FIRST")),
+                    new("dup", new JsonValue.String("SECOND")),
+                ]),
+            ])),
+        ]);
+
+        var result = await store.AppendAsync(
+            aggregateId, AggregateVersion.New, [NewEvent("dup-nested", payload: payload)], ct);
+
+        AssertRefusedAsDuplicateKey(result);
+        await AssertNothingWasWrittenAsync(store, aggregateId, ct);
+    }
+
+    /// <summary>
+    /// One inadmissible payload refuses the whole batch, including the events ahead of it that
+    /// were fine on their own. This is the case that catches an adapter checking payloads inside
+    /// its append loop instead of before it: such an adapter passes both tests above (their
+    /// batches are one event long) and leaves a partially written batch behind here -- in an
+    /// append-only log, where there is nothing to roll it back with.
+    /// </summary>
+    [Fact]
+    public async Task ADuplicateLaterInABatchRefusesTheEventsAheadOfItToo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var aggregateId = Agg("agg-duplicate-batch");
+
+        var payload = new JsonValue.Object(
+        [
+            new("dup", new JsonValue.String("FIRST")),
+            new("dup", new JsonValue.String("SECOND")),
+        ]);
+
+        var result = await store.AppendAsync(
+            aggregateId,
+            AggregateVersion.New,
+            [NewEvent("batch-admissible"), NewEvent("batch-inadmissible", payload: payload)],
+            ct);
+
+        AssertRefusedAsDuplicateKey(result);
+        await AssertNothingWasWrittenAsync(store, aggregateId, ct);
+    }
+
+    private static void AssertRefusedAsDuplicateKey(Result<IReadOnlyList<AppendedEvent>> result)
+    {
+        Assert.False(result.IsOk);
+
+        // The slug names the condition, not the layer that noticed it (R6.42, R6.40): the same
+        // curia/admit/duplicate-key ADMIT reports, because it is the same defect reached by a
+        // caller ADMIT never ran for.
+        Assert.Equal(
+            "curia/admit/duplicate-key",
+            result.Match(_ => "<the append succeeded>", e => e.Type));
+    }
+
+    /// <summary>
+    /// Both read paths, because "this aggregate is empty" and "the log is empty" are different
+    /// claims and an append-only store has to satisfy the second one too: an adapter could
+    /// refuse to attach the events to the target aggregate's stream and still have appended
+    /// them to the log every replay reads (R11.9), which is the copy that matters.
+    /// </summary>
+    private static async Task AssertNothingWasWrittenAsync(
+        IEventStore store, AggregateId aggregateId, CancellationToken ct)
+    {
+        // ConfigureAwait(false) only because this helper is not itself a [Fact] and so is not
+        // exempt from CA2007 the way every test method above is; xUnit v3's TestContext flows
+        // through AsyncLocal, not a SynchronizationContext, so nothing here depends on resuming
+        // on the captured context.
+        Assert.Empty(Require(await store.ReadByAggregateAsync(aggregateId, ct).ConfigureAwait(false)));
+        Assert.Empty(Require(await store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct).ConfigureAwait(false)));
     }
 
     [Fact]

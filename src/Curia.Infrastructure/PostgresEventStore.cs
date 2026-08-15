@@ -33,13 +33,34 @@ public sealed class PostgresEventStore : IEventStore
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _clock;
+    private readonly string _schema;
+    private readonly string _qualifiedTable;
 
-    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock)
+    /// <summary>
+    /// <paramref name="schema"/> defaults to Postgres's own default, "public" -- where
+    /// db/0001_create_events.sql creates <c>events</c> in every real deployment. The
+    /// parameter exists for Curia.Infrastructure.Tests: <c>EventStorePortContractTests</c>'
+    /// contract requires <c>CreateStore()</c> to return "a fresh, empty store" on every call,
+    /// including "once per generated case" of its CsCheck property test -- and that property
+    /// test runs its generated cases with real, CsCheck-internal concurrency (confirmed by
+    /// falsification: a single-append minimal case failed with a spurious
+    /// curia/domain/concurrency-conflict against a shared, TRUNCATE-between-calls table,
+    /// because a concurrently running case's rows were visible in between). A schema is an
+    /// inexpensive, genuinely isolated Postgres relation namespace -- unlike a fresh database
+    /// per call (correct but far more expensive) or a shared table (cheap but, as measured,
+    /// not actually isolated under concurrent callers) -- so the test fixture provisions one
+    /// schema per <c>CreateStore()</c> call and this parameter is how it is threaded through
+    /// without changing anything about the production, single-schema shape.
+    /// </summary>
+    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, string schema = "public")
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentException.ThrowIfNullOrWhiteSpace(schema);
         _dataSource = dataSource;
         _clock = clock;
+        _schema = schema;
+        _qualifiedTable = QuoteIdentifier(schema) + ".events";
     }
 
     /// <summary>
@@ -63,6 +84,13 @@ public sealed class PostgresEventStore : IEventStore
             "call site to attach to; this project has no SynchronizationContext to avoid resuming on " +
             "(a server-side data adapter, not UI or a library shared with one), so there is nothing for " +
             "ConfigureAwait to protect here even if it were expressible.")]
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "The only interpolated text is _qualifiedTable, computed once in the " +
+            "constructor from QuoteIdentifier(schema) -- never caller-supplied per call -- and every " +
+            "per-call value (aggregateId, the lock key) is bound through a parameterized " +
+            "NpgsqlParameter, never concatenated into CommandText.")]
     public async Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
@@ -74,19 +102,36 @@ public sealed class PostgresEventStore : IEventStore
         if (events.Count == 0)
             return Result<IReadOnlyList<AppendedEvent>>.Fail(DomainErrors.EmptyAppendBatch());
 
+        // Serialized before the connection is opened, not inside BuildInsertCommand, because
+        // this step can now refuse the batch (see SerializePayload): a refusal has to happen
+        // before any transaction exists, so a batch this store will not accept costs no
+        // round trip and leaves no rolled-back work behind.
+        var payloads = new string[events.Count];
+        for (var i = 0; i < events.Count; i++)
+        {
+            if (!SerializePayload(events[i].Payload).TryGetValue(out var payloadText, out var payloadError))
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(payloadError!);
+            payloads[i] = payloadText;
+        }
+
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         await using (var lockCommand = new NpgsqlCommand(
-            "SELECT pg_advisory_xact_lock(hashtextextended(@agg, 0));", connection, transaction))
+            "SELECT pg_advisory_xact_lock(hashtextextended(@lockkey, 0));", connection, transaction))
         {
-            lockCommand.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
+            // Keyed on schema+aggregate, not aggregate alone: two isolated per-test schemas
+            // (see the schema parameter's remarks) that happen to reuse the same aggregate id
+            // text -- exactly what the contract suite's own fixture-generated ids do -- must
+            // not serialize against each other's advisory lock, since they are not actually
+            // contending for the same rows.
+            lockCommand.Parameters.Add(new NpgsqlParameter("lockkey", NpgsqlDbType.Text) { Value = _schema + ":" + aggregateId.Value });
             await lockCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         long actualVersionValue;
         await using (var countCommand = new NpgsqlCommand(
-            "SELECT count(*) FROM events WHERE aggregate_id = @agg;", connection, transaction))
+            $"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg;", connection, transaction))
         {
             countCommand.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
             actualVersionValue = (long)(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
@@ -104,7 +149,7 @@ public sealed class PostgresEventStore : IEventStore
         var serverTimestamp = ServerTimestamp.At(_clock.GetUtcNow());
 
         var appended = new List<AppendedEvent>(events.Count);
-        await using (var insertCommand = BuildInsertCommand(connection, transaction, aggregateId, serverTimestamp, events))
+        await using (var insertCommand = BuildInsertCommand(_qualifiedTable, connection, transaction, aggregateId, serverTimestamp, events, payloads))
         await using (var reader = await insertCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -127,13 +172,18 @@ public sealed class PostgresEventStore : IEventStore
         Justification = "See AppendAsync's identical suppression: the flags left after every " +
             "explicit await already has ConfigureAwait(false) are `await using`'s compiler-generated " +
             "DisposeAsync() awaits, which have no call site to attach one to.")]
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "See AppendAsync's identical suppression: the only interpolated text is " +
+            "_qualifiedTable, computed once in the constructor, never caller-supplied per call.")]
     public async Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
         AggregateId aggregateId,
         CancellationToken cancellationToken = default)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(
-            $"SELECT {SelectColumns} FROM events WHERE aggregate_id = @agg ORDER BY seq;", connection);
+            $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE aggregate_id = @agg ORDER BY seq;", connection);
         command.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = aggregateId.Value });
 
         return Result<IReadOnlyList<AppendedEvent>>.Ok(await ReadRowsAsync(command, cancellationToken).ConfigureAwait(false));
@@ -145,6 +195,11 @@ public sealed class PostgresEventStore : IEventStore
         Justification = "See AppendAsync's identical suppression: the flags left after every " +
             "explicit await already has ConfigureAwait(false) are `await using`'s compiler-generated " +
             "DisposeAsync() awaits, which have no call site to attach one to.")]
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "See AppendAsync's identical suppression: the only interpolated text is " +
+            "_qualifiedTable, computed once in the constructor, never caller-supplied per call.")]
     public async Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(
         EventSequence afterSeq,
         int? maxCount = null,
@@ -154,7 +209,7 @@ public sealed class PostgresEventStore : IEventStore
         await using var command = new NpgsqlCommand(
             // "LIMIT @limit" with a NULL @limit is "LIMIT ALL" per Postgres semantics -- no
             // limit -- so maxCount: null needs no separate SQL text/branch.
-            $"SELECT {SelectColumns} FROM events WHERE seq > @after ORDER BY seq LIMIT @limit;", connection);
+            $"SELECT {SelectColumns} FROM {_qualifiedTable} WHERE seq > @after ORDER BY seq LIMIT @limit;", connection);
         command.Parameters.Add(new NpgsqlParameter("after", NpgsqlDbType.Bigint) { Value = afterSeq.Value });
 
         var limitParameter = new NpgsqlParameter("limit", NpgsqlDbType.Bigint);
@@ -200,18 +255,22 @@ public sealed class PostgresEventStore : IEventStore
         Justification = "Every event-carried value (event_id, event_type, actor_id, payload) is bound " +
             "through a parameterized NpgsqlParameter below, never concatenated into CommandText. The " +
             "only text this method appends to the SQL string is the loop index i (an int this method " +
-            "computes itself, not caller-supplied text) and the SelectColumns constant -- there is no " +
-            "path from a DomainEvent's field values to the command text CA2100 is warning about.")]
+            "computes itself, not caller-supplied text), the SelectColumns constant, and " +
+            "qualifiedTable -- computed once in the constructor from QuoteIdentifier(schema), never " +
+            "caller-supplied text either -- so there is no path from a DomainEvent's field values, or " +
+            "from unescaped user input of any kind, to the command text CA2100 is warning about.")]
     private static NpgsqlCommand BuildInsertCommand(
+        string qualifiedTable,
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         AggregateId aggregateId,
         ServerTimestamp serverTimestamp,
-        IReadOnlyList<DomainEvent> events)
+        IReadOnlyList<DomainEvent> events,
+        string[] payloads)
     {
         var command = new NpgsqlCommand { Connection = connection, Transaction = transaction };
         var sql = new StringBuilder(
-            "WITH ins AS (INSERT INTO events (event_id, event_type, aggregate_id, actor_id, payload, server_ts) VALUES ");
+            $"WITH ins AS (INSERT INTO {qualifiedTable} (event_id, event_type, aggregate_id, actor_id, payload, server_ts) VALUES ");
 
         for (var i = 0; i < events.Count; i++)
         {
@@ -229,7 +288,7 @@ public sealed class PostgresEventStore : IEventStore
             });
             command.Parameters.Add(new NpgsqlParameter($"payload{i}", NpgsqlDbType.Jsonb)
             {
-                Value = SerializePayload(domainEvent.Payload),
+                Value = payloads[i],
             });
         }
 
@@ -244,16 +303,25 @@ public sealed class PostgresEventStore : IEventStore
     /// <summary>
     /// Payload -&gt; JSON text for the jsonb parameter. Plain <see cref="CanonicalJson.Canonicalize"/>
     /// (RFC 8785, no NFC), not <see cref="CanonicalJson.CanonicalizeWithNfc"/> -- storage is not
-    /// signing or verification (R6.9's NFC mandate governs content that will be signed or
-    /// verified), and <see cref="CanonicalJson.Canonicalize"/> never fails for any
-    /// <see cref="JsonValue"/> tree (it has no normalization step to fail), so the Match below
-    /// exists only to keep faith with CS-10 -- its failure branch is unreachable, not silently
-    /// assumed away.
+    /// signing or verification, and R6.9's NFC mandate governs content that will be signed or
+    /// verified.
+    ///
+    /// The failure this propagates is real, not ceremonial, and this call site is why errata
+    /// E10 exists. <see cref="CanonicalJson.Canonicalize"/> rejects an object carrying two
+    /// members with the same name (R6.38), and a <see cref="DomainEvent"/>'s payload is a
+    /// <see cref="JsonValue"/> tree a caller may have built in memory rather than parsed, so
+    /// no earlier layer has necessarily inspected it. Before that rejection existed this
+    /// method's own doc comment asserted "Canonicalize never fails" and threw on the branch
+    /// that could not happen -- and a duplicate-membered payload was written to Postgres,
+    /// whose <c>jsonb</c> input conversion resolves duplicate keys last-wins
+    /// (<c>'{"a":1,"a":2}'::jsonb</c> is <c>{"a": 2}</c>), so the event table silently kept a
+    /// document that was not the one the caller appended. Refusing the append is the only
+    /// outcome compatible with an append-only system of record: there is no repair the
+    /// no-mutation invariant (R6.12-R6.17) would permit, and storing a collapsed payload is
+    /// data loss in the one table that is supposed to be the system of record.
     /// </summary>
-    private static string SerializePayload(JsonValue payload) =>
-        CanonicalJson.Canonicalize(payload).Match(
-            bytes => Encoding.UTF8.GetString(bytes.ToArray()),
-            error => throw new InvalidOperationException($"Unreachable: Canonicalize(JsonValue) failed: {error.Title}"));
+    private static Result<string> SerializePayload(JsonValue payload) =>
+        CanonicalJson.Canonicalize(payload).Map(bytes => Encoding.UTF8.GetString(bytes.Span));
 
     /// <summary>
     /// Reconstructs an <see cref="AppendedEvent"/> from one row shaped like
@@ -288,4 +356,8 @@ public sealed class PostgresEventStore : IEventStore
 
         return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload));
     }
+
+    /// <summary>Standard SQL identifier quoting (double quotes, embedded quotes doubled).</summary>
+    private static string QuoteIdentifier(string identifier) =>
+        "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 }

@@ -43,11 +43,30 @@ public static class CanonicalJson
     /// <see cref="CanonicalizeEnvelope"/>, silently skipping the NFC step signing and
     /// verification depend on. <see cref="CanonicalizeEnvelope"/> is the entry point for
     /// anything that will be signed or verified.
+    ///
+    /// Fallible for exactly one reason (R6.38, errata E2/E10): an object carrying two
+    /// members with the same name. RFC 8785 defines no canonical output for that document
+    /// -- §3.2.3 orders members by name and two equal names have no defined order, and JCS
+    /// states duplicate-freedom as a precondition rather than a case its algorithm handles
+    /// -- so emitting bytes for such a tree emits something the specification this function
+    /// claims to implement does not define, and something that does not re-parse to one
+    /// unambiguous document. This is a well-definedness violation, not one of ADMIT's
+    /// policy caps, which R6.38's first paragraph forbids this function from re-enforcing.
+    /// See <see cref="Write"/> for where the check sits and why.
+    ///
+    /// This function is reachable with a tree no parse path ever inspected -- any caller
+    /// holding a <see cref="JsonValue"/> it built itself, of which
+    /// <c>Curia.Infrastructure.PostgresEventStore</c>'s payload serialization is the live
+    /// example -- so it cannot assume <see cref="Json.JsonReader"/>'s own duplicate-key
+    /// rejection has run. That assumption is precisely what errata E10 records as having
+    /// silently held until a duplicate-membered event payload reached Postgres, whose
+    /// <c>jsonb</c> resolves duplicates last-wins on the way in.
     /// </summary>
     public static Result<CanonicalBytes> Canonicalize(JsonValue value)
     {
         var sb = new StringBuilder();
-        Write(value, sb);
+        if (Write(value, sb) is { } error)
+            return Result<CanonicalBytes>.Fail(error);
         return Result<CanonicalBytes>.Ok(new CanonicalBytes(Encoding.UTF8.GetBytes(sb.ToString())));
     }
 
@@ -284,39 +303,84 @@ public static class CanonicalJson
         }
     }
 
-    private static void Write(JsonValue value, StringBuilder sb)
+    /// <summary>
+    /// The single RFC 8785 writer. Returns the first well-definedness failure it meets, or
+    /// <c>null</c> on success -- an <see cref="Error"/> rather than a <c>Result&lt;T&gt;</c>
+    /// only because this writer's success value is the <see cref="StringBuilder"/> it was
+    /// handed; <see cref="Canonicalize"/> is where CS-10's <c>Result</c> is presented.
+    ///
+    /// The duplicate-member-name check (R6.38) sits in the object arm, immediately after the
+    /// §3.2.3 sort and before a single byte of that object is emitted, for three reasons:
+    ///
+    /// <list type="bullet">
+    /// <item>It is exactly where the condition becomes undefined. §3.2.3 says to order
+    /// members by name; two equal names are the one input for which that instruction picks
+    /// no order, so the sort is the step with nothing to do rather than a step with a
+    /// choice to make.</item>
+    /// <item>It is linear in the member count and allocates nothing: sorting has already
+    /// brought equal names adjacent (<see cref="Utf16Ordinal"/> compares ordinally, so
+    /// names comparing equal are string-equal), making one pass over neighbours sufficient.
+    /// Neither a per-object hash set nor -- far worse on the unbounded member lists
+    /// <c>Curia.Domain</c>'s events carry, which have no member-count cap of their own -- a
+    /// nested pairwise scan is needed.</item>
+    /// <item>Checking the sorted list rather than the source list makes the reported key
+    /// independent of wire member order, matching the order-independence errata E1 made
+    /// normative for <see cref="NormalizeObject"/>'s own two duplicate predicates.</item>
+    /// </list>
+    ///
+    /// <see cref="CanonicalizeWithNfc"/> can never reach this check: it normalizes the whole
+    /// tree first, and <see cref="NormalizeObject"/> rejects both a raw duplicate
+    /// (<c>curia/admit/duplicate-key</c>) and an NFC-created collision
+    /// (<c>curia/canon/duplicate-normalized-key</c>) before delegating here, so every object
+    /// this writer sees on that path already has pairwise-distinct names. The check is
+    /// therefore additive for the NFC profile -- it cannot displace E1's slug precedence --
+    /// and load-bearing only for callers of the bare <see cref="Canonicalize"/>.
+    /// </summary>
+    private static Error? Write(JsonValue value, StringBuilder sb)
     {
         switch (value)
         {
             case JsonValue.Object o:
-                sb.Append('{');
                 var ordered = o.Members
                     .OrderBy(m => m.Key, Utf16Ordinal.Comparer)
                     .ToArray();
+                for (var i = 1; i < ordered.Length; i++)
+                {
+                    if (string.Equals(ordered[i - 1].Key, ordered[i].Key, StringComparison.Ordinal))
+                        return CanonErrors.DuplicateKey(ordered[i].Key);
+                }
+                sb.Append('{');
                 for (var i = 0; i < ordered.Length; i++)
                 {
                     if (i > 0) sb.Append(',');
                     WriteString(ordered[i].Key, sb);
                     sb.Append(':');
-                    Write(ordered[i].Value, sb);
+                    if (Write(ordered[i].Value, sb) is { } memberError)
+                        return memberError;
                 }
                 sb.Append('}');
-                break;
+                return null;
 
             case JsonValue.Array a:
                 sb.Append('[');
                 for (var i = 0; i < a.Items.Length; i++)
                 {
                     if (i > 0) sb.Append(',');
-                    Write(a.Items[i], sb);        // array order is preserved (R6.8)
+                    if (Write(a.Items[i], sb) is { } itemError)   // array order is preserved (R6.8)
+                        return itemError;
                 }
                 sb.Append(']');
-                break;
+                return null;
 
-            case JsonValue.String s: WriteString(s.Value, sb); break;
-            case JsonValue.Number n: sb.Append(JsonNumber.Serialize(n.Value)); break;
-            case JsonValue.Bool b:   sb.Append(b.Value ? "true" : "false"); break;
-            case JsonValue.Null:     sb.Append("null"); break;
+            case JsonValue.String s: WriteString(s.Value, sb); return null;
+            case JsonValue.Number n: sb.Append(JsonNumber.Serialize(n.Value)); return null;
+            case JsonValue.Bool b:   sb.Append(b.Value ? "true" : "false"); return null;
+            case JsonValue.Null:     sb.Append("null"); return null;
+            default:
+                // Unreachable for the same reason NormalizeToNfc's default arm is: JsonValue
+                // is closed to this assembly (CS-11). Failing loudly here beats emitting a
+                // document with a new case's content silently missing from it.
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Unhandled JsonValue case");
         }
     }
 

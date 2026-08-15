@@ -1439,6 +1439,171 @@ been found in this project before it existed, every one by a human happening to
 notice; that is not a process, and it had already failed twice inside a plan whose
 subject was these very documents.
 
+## E10 — The fourth duplicate-member seam: an entry point the harness cannot reach
+
+**Location:** R6.38 (E2, second paragraph); R6.9 (addendum, E1); R6.15 (revised
+enumeration, D7); R14.6 (C8). **Class:** implementation defect against a stated
+requirement, and the general rule none of the four discoveries states.
+
+`CanonicalJson.Canonicalize(JsonValue)` — the pure RFC 8785 entry point whose
+input is an already-parsed tree rather than bytes — sorted each object's member
+names and had no failure path at all. Its `Result<CanonicalBytes>` return type
+advertised a fallibility it never exercised. `Curia.Infrastructure.PostgresEventStore`
+calls it to render a `DomainEvent`'s payload for the `jsonb` column, and had
+written the assumption down: "Canonicalize never fails for any JsonValue tree
+(it has no normalization step to fail)", with a throw on the branch it declared
+unreachable.
+
+Measured end to end against this repository's PostgreSQL 18.4: a payload of
+`{"dup":"FIRST","dup":"SECOND"}` canonicalized to
+`{"dup":"FIRST","dup":"SECOND"}` — accepted — the append succeeded, and both the
+event the append itself handed back and the event read afterwards carried
+`{"dup":"SECOND"}`. Postgres's `jsonb` input conversion resolves duplicate keys
+last-wins as documented behavior (`'{"a":1,"a":2,"a":3}'::jsonb` is `{"a": 3}`);
+it was doing its job, and it is not the defect. The defect is that the system of
+record accepted a document, reported success, and stored a different one, with no
+exception, no rejection, and no log line anywhere on the path — in the one table
+R11.9's rebuild-by-replay treats as ground truth.
+
+R6.38 already forbids this in as many words: `Canonicalize` and
+`CanonicalizeWithNfc` "SHALL, independently of ADMIT and regardless of whether
+ADMIT already ran, reject a raw duplicate object member name." The requirement
+was read as already satisfied, because the byte path into canonicalization
+(`JsonReader.ParseUnrestricted`, R6.41) does reject duplicates, and every
+*published vector* enters through it. That reading mistakes a property of the
+paths that happen to reach a function today for a property of the function.
+R6.38 names the function. Any caller holding a tree it built rather than parsed
+reaches it directly, and a domain event's payload is exactly such a tree.
+
+**The differential harness is blind to this by construction, not by oversight.**
+R14.6's harness speaks one wire protocol: `{"op":"admit"|"canonicalize"|
+"canonicalize_nfc","input_b64":"…"}`. Every op takes bytes, and every op parses
+them before canonicalizing anything. The C# implementation has an entry point
+whose input is a value tree, and the protocol has no way to name it — not because
+nobody thought to add an op, but because the divergent input is not expressible
+in the alphabet the protocol carries. Feed `{"a":1,"a":2}` to both
+implementations and both answer `curia/admit/duplicate-key`: true, reproducible,
+and irrelevant to the entry point that was wrong. This is the shape worth
+naming. A silent gap in a differential harness does not present as silence; it
+presents as *agreement*, which reads as the strongest evidence the method
+produces.
+
+The sibling implementation makes the same point from the other side. `curia-testis`
+rejects the duplicate in `json::parse`, with the reason stated exactly right at
+the point of the fix — "a canonicalizer must not be handed such a tree" — while
+its pure `render_object` still sorts equal names and renders them adjacent, as
+C#'s writer did. Rust is safe there not because its canonicalizer checks but
+because nothing in a verifier ever produces a `Value` except the parser; a
+verifier reads documents, an application also builds them. The same sentence was
+missing from both implementations, and only one of them had a caller that could
+reach it. The harness's agreement was never a measurement of the invariant.
+
+This is the **fourth** independent discovery of one rule in this project:
+
+| # | The seam | Noticed by | Predicate |
+|---|---|---|---|
+| 1 | Byte-identical member names on the wire | ADMIT (D7; R6.15 rev.), pinned by `admit-reject/duplicate-keys` | `curia/admit/duplicate-key` |
+| 2 | Names distinct on the wire, equal after R6.9's NFC step | `CanonicalizeWithNfc` (E1; R6.9 add.) | `curia/canon/duplicate-normalized-key` |
+| 3 | JWS protected-header members; JWK/JWKS members | both implementations' signature layers, independently — a duplicated `alg` must not be resolvable by position to either reading | layer-named (`curia/jws/…`) |
+| 4 | An object in a tree handed straight to `Canonicalize` | this entry, via a silently collapsed event payload | `curia/admit/duplicate-key` |
+
+Each was found by building, each was fixed where it was found, and each fix's
+reasoning was written down at the site of the fix — which is why the fourth was
+still available to find. Every one of the four is an instance of the same
+sentence, and no document states it: **duplicate member names are rejected
+wherever JSON is parsed or canonicalized, at every layer and every entry point.**
+The recurring error is not carelessness about duplicates; it is each layer
+assuming a layer upstream had already looked. Three of the four times that
+assumption was load-bearing and false.
+
+One implementation note travels with the rule, because getting the shape of the
+check wrong has already cost a fix round. `curia-testis`'s JWK module first wrote
+this as a nested pairwise scan and had to rewrite it — measured at seconds for a
+single object with tens of thousands of members — because nothing upstream of a
+JWKS read bounds an object's width, and R6.39's 1,024-member cap governs ADMIT
+alone, not JWKS parsing, not header parsing, and not a domain event's payload.
+The C# fix folds its check into the RFC 8785 §3.2.3 sort that was already
+happening: equal names are adjacent once sorted, so one pass over neighbours
+suffices, allocating nothing and — because it inspects the sorted list rather
+than the source list — reporting the same name whatever order the members
+arrived in, which is E1's own order-independence discipline applied one layer
+down.
+
+**R6.42** An object carrying two members with the same name SHALL be rejected at
+every entry point that parses or canonicalizes JSON — including an entry point
+whose input is an already-parsed value tree rather than bytes, and including one
+documented as pure RFC 8785. An implementation SHALL NOT satisfy this obligation
+by an upstream layer's rejection: it is a property of each entry point, not of
+the call paths that happen to reach it today. The rejection SHALL name the
+condition rather than the layer that noticed it — `curia/admit/duplicate-key` for
+byte-identical member names, `curia/canon/duplicate-normalized-key` for names
+that become equal only under R6.9's normalization step (E1's precedence between
+the two is unchanged) — for the reason R6.40 gives. The check SHALL be at worst
+linear in an object's member count: R6.39's member cap governs ADMIT alone, so
+nothing bounds the width of an object reaching a canonicalizer, a JWKS reader, or
+a protected-header parser. R6.42 generalizes what R6.15 (rev.), R6.9 (addendum)
+and R6.38 each state for one layer; it replaces none of them.
+
+**R14.7** R14.6's differential harness SHALL enumerate the public entry points of
+each implementation under comparison and record, for each, whether the harness
+protocol can reach it. An entry point the protocol cannot express — because its
+input is a host-language value rather than the bytes the protocol carries — SHALL
+be covered by conformance tests inside each implementation, and the gap SHALL be
+stated in the harness's own documentation rather than left to be rediscovered. A
+divergence class the protocol cannot represent presents as agreement between the
+implementations, so an unrecorded gap of this kind is more misleading than an
+entry point everyone knows is untested.
+
+## E11 — A port promise stated in only one adapter is not a promise
+
+**Location:** R11.4; `IEventStore` and its two adapters. **Class:** normative gap, found while
+fixing E10 rather than by any check.
+
+Closing E10 made the production event-store adapter refuse a payload with duplicate member
+names. The in-memory adapter — R11.4's fake, which exists so the domain is testable with no
+I/O — went on accepting it. Two adapters of one port, the same input, different verdicts, and
+**the shared contract suite reported agreement**, because it had no case for the condition.
+
+The direction is what makes it serious. The fake was the **more permissive** of the two, and it
+was the only place a developer could ever have observed the accept: the production adapter's
+storage layer collapses duplicates silently by documented design, so it could never have been
+the thing that objected. Code written and tested against the fake would have passed and then
+failed in production — precisely the outcome R11.4's "every port SHALL have an in-memory
+adapter" exists to prevent, inverted into its cause.
+
+This is the same shape R14.7 names one layer down. There, a divergence class the harness
+protocol cannot represent presents not as silence but as agreement. Here, **a contract suite
+missing a case does not present as a missing case; it presents as two adapters agreeing.** In
+both, the absence of a probe is indistinguishable from a passing probe, and the reassurance is
+strongest exactly where the coverage is absent.
+
+**R11.21** Every port's in-memory adapter SHALL accept exactly what its production adapter
+accepts. Where they differ, the shared contract suite SHALL gain the case, and the in-memory
+adapter SHALL never be the more permissive of the two. A promise stated in one adapter, or in
+one adapter's tests, is not a property of the port.
+
+### A payload can be stored today that has no Cūria-profile canonical form
+
+Recorded here because it is the same class and was measured while closing this entry, but it
+is **not** fixed and should not be read as fixed.
+
+The event store canonicalizes payloads with the pure `Canonicalize`, not
+`CanonicalizeWithNfc` — correct today on the store's own reasoning that storage is not signing.
+The consequence is that `{"café":1,"cafe` + `U+0301` + `":2}` — precomposed against a combining
+sequence — is accepted by both adapters, and PostgreSQL's `jsonb` retains **both** members,
+since it compares keys bytewise. Verified against PostgreSQL 18.4:
+
+```
+'{"café":1,"café":2}'::jsonb  ->  {"café": 1, "café": 2}   (both retained)
+CanonicalizeWithNfc(same tree) ->  curia/canon/duplicate-normalized-key
+```
+
+Round-tripping is lossless, so nothing is lost today. But if event payloads are ever digested
+into a Merkle leaf or an *Acta* entry — §9's dump manifests are the obvious candidate — the
+store will already hold rows that **cannot be canonicalized for that purpose**, and the
+discovery will come at the point of signing rather than at the point of writing. That is a
+decision worth revisiting before R9's dumps exist, not after.
+
 ---
 
 # Consolidated proposed-requirements index
@@ -1469,6 +1634,7 @@ subject was these very documents.
 | R12.17 | Log-key compromise runbook anchored to witnessed heads | B3 |
 | R14.6 | Differential canonicalization fuzzing across the dual implementations | C8 |
 | R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
+| R11.21 | A port's in-memory adapter accepts exactly what its production adapter accepts; the fake is never the more permissive | E11 |
 | R4.29 | Table 6 defines an `expired` row: entered from `pending` on enrollment-code expiry, terminal, no authentication or posting | E8 |
 | R6.8 (rev.) | `Canonicalize` — pure RFC 8785, no normalization, reproduces the RFC's own vectors | D1 |
 | R6.9 (rev.) | `CanonicalizeWithNfc` — NFC every key and value recursively **first**, then canonicalize | D1 |
@@ -1485,6 +1651,8 @@ subject was these very documents.
 | R6.40 | Slug vocabulary pinned: `malformed-json`, `members-exceeded`, `size-exceeded`, `raw-control-character` | E5 |
 | R6.41 | A parse path free of ADMIT policy caps, distinct from ADMIT; canonicalization uses it | E4 |
 | R6.11 (add. 2) | A vector's bytes SHALL be fed unmodified to the function/phase its `meta.json` names | E6 |
+| R6.42 | Duplicate member names rejected at every parsing or canonicalizing entry point, tree-taking ones included; linear per object | E10 |
+| R14.7 | Harness enumerates entry points its protocol cannot reach; those are covered in-implementation and the gap is recorded | E10 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected
 citations SP 800-207 §5.7, RFC 7797, RFC 8707; cross-reference repairs; §10
