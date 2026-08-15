@@ -61,6 +61,17 @@ public static class CanonicalJson
     /// rejection has run. That assumption is precisely what errata E10 records as having
     /// silently held until a duplicate-membered event payload reached Postgres, whose
     /// <c>jsonb</c> resolves duplicates last-wins on the way in.
+    ///
+    /// <b>Known gap, recorded rather than fixed (errata E12).</b> "Exactly one reason" above is
+    /// a statement of current behaviour, not of R6.38, which requires this function to reject an
+    /// unpaired UTF-16 surrogate independently of ADMIT as well. It does not: a string carrying
+    /// a lone surrogate is written out literally and becomes U+FFFD at the
+    /// <c>Encoding.UTF8.GetBytes</c> step, silently. It is the same shape E10 found -- a check
+    /// the byte parse path performs (<see cref="Json.JsonReader.ParseUnrestricted"/> rejects it
+    /// with <c>curia/admit/unpaired-surrogate</c>) and the tree-taking entry point does not --
+    /// reached, once again, by a caller holding a tree it built. The event store is not exposed
+    /// to it: R11.24 has both adapters admit under <see cref="CanonicalizeWithNfc"/>, which
+    /// refuses such a tree. Any other caller of this function is.
     /// </summary>
     public static Result<CanonicalBytes> Canonicalize(JsonValue value)
     {
@@ -77,6 +88,86 @@ public static class CanonicalJson
         return normalized.TryGetValue(out var tree, out var error)
             ? Canonicalize(tree)
             : Result<CanonicalBytes>.Fail(error!);
+    }
+
+    /// <summary>
+    /// The same tree with every object's members in RFC 8785 §3.2.3 order, at every depth.
+    /// Deliberately *not* named "Canonicalize...": this is one step of canonicalization, not
+    /// the whole of either profile, and the type-level remarks' insistence that a caller must
+    /// not be able to pick the wrong semantics by typing a familiar prefix applies here too.
+    ///
+    /// What it does and does not touch is the whole of its contract. It reorders object
+    /// members and nothing else: array order is preserved (R6.8), every scalar is the identical
+    /// value it was, no string is normalized (that is <see cref="CanonicalizeWithNfc"/>'s job
+    /// and §6.4 forbids performing it on stored content), and no number is re-laid-out (that
+    /// happens in <see cref="JsonNumber.Serialize"/>, which only the writer reaches). It is
+    /// therefore incapable of altering the document it is handed -- member order is not
+    /// information in JSON (RFC 8259 §4: an object is an unordered collection) -- which is
+    /// exactly why it can be applied to a payload already accepted into an append-only store
+    /// without violating the no-mutation invariant.
+    ///
+    /// It shares <see cref="OrderMembers"/> with <see cref="Write"/>, so the order it produces
+    /// and the order the writer emits cannot drift: errata E10's standing lesson is that one
+    /// rule with two implementations is how the rule drifts, and §3.2.3's ordering is a rule
+    /// that now has two consumers. It fails for the one reason the writer fails for -- an
+    /// object carrying two members with the same name, which §3.2.3 gives no order for -- and
+    /// reports the identical <c>curia/admit/duplicate-key</c> slug.
+    ///
+    /// It does not, on its own, decide that a tree *has* a canonical form: a number this
+    /// function happily reorders around may still be one <see cref="Canonicalize"/> refuses.
+    /// A caller wanting that verdict asks for it by canonicalizing; this function answers a
+    /// narrower question and says so rather than implying the broader one.
+    ///
+    /// Its live caller is the event store, whose port promises that a payload read back is in
+    /// this order whichever adapter is underneath (R11.23): PostgreSQL's <c>jsonb</c> is a
+    /// parsed binary form that re-sorts object keys by its own rule (key length, then
+    /// bytewise), so the RFC 8785 order the adapter wrote is not the order it reads, and the
+    /// in-memory adapter -- which physically *can* hand back the caller's exact tree -- would
+    /// otherwise be the more faithful of the two, which misleads exactly as being the more
+    /// permissive did (E11, R11.22).
+    /// </summary>
+    public static Result<JsonValue> InCanonicalMemberOrder(JsonValue value)
+    {
+        switch (value)
+        {
+            case JsonValue.Object o:
+            {
+                if (!OrderMembers(o).TryGetValue(out var ordered, out var orderError))
+                    return Result<JsonValue>.Fail(orderError!);
+
+                var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>(ordered.Length);
+                foreach (var member in ordered)
+                {
+                    if (!InCanonicalMemberOrder(member.Value).TryGetValue(out var orderedValue, out var valueError))
+                        return Result<JsonValue>.Fail(valueError!);
+                    members.Add(new KeyValuePair<string, JsonValue>(member.Key, orderedValue));
+                }
+
+                return Result<JsonValue>.Ok(new JsonValue.Object(members.MoveToImmutable()));
+            }
+
+            case JsonValue.Array a:
+            {
+                var items = ImmutableArray.CreateBuilder<JsonValue>(a.Items.Length);
+                foreach (var item in a.Items)
+                {
+                    if (!InCanonicalMemberOrder(item).TryGetValue(out var orderedItem, out var itemError))
+                        return Result<JsonValue>.Fail(itemError!);
+                    items.Add(orderedItem);
+                }
+
+                return Result<JsonValue>.Ok(new JsonValue.Array(items.MoveToImmutable()));
+            }
+
+            case JsonValue.String s: return Result<JsonValue>.Ok(s);
+            case JsonValue.Number n: return Result<JsonValue>.Ok(n);
+            case JsonValue.Bool b:   return Result<JsonValue>.Ok(b);
+            case JsonValue.Null n:   return Result<JsonValue>.Ok(n);
+            default:
+                // Unreachable for the same reason NormalizeToNfc's and Write's default arms
+                // are: JsonValue is closed to this assembly (CS-11).
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Unhandled JsonValue case");
+        }
     }
 
     /// <summary>
@@ -304,25 +395,30 @@ public static class CanonicalJson
     }
 
     /// <summary>
-    /// The single RFC 8785 writer. Returns the first well-definedness failure it meets, or
-    /// <c>null</c> on success -- an <see cref="Error"/> rather than a <c>Result&lt;T&gt;</c>
-    /// only because this writer's success value is the <see cref="StringBuilder"/> it was
-    /// handed; <see cref="Canonicalize"/> is where CS-10's <c>Result</c> is presented.
+    /// RFC 8785 §3.2.3's member ordering, and the one place it is expressed. Returns this
+    /// object's members sorted by name, or the duplicate-member-name failure the sort exposes.
     ///
-    /// The duplicate-member-name check (R6.38) sits in the object arm, immediately after the
-    /// §3.2.3 sort and before a single byte of that object is emitted, for three reasons:
+    /// Factored out of <see cref="Write"/> when <see cref="InCanonicalMemberOrder"/> became a
+    /// second consumer of the same rule, rather than sorted a second time there: errata E10's
+    /// standing lesson is that one rule with two implementations is how the rule drifts, and a
+    /// canonical order the writer emits but a reordering function disagrees with would be that
+    /// drift in its most invisible form -- the bytes and the tree would each be
+    /// self-consistent and would not describe the same document.
+    ///
+    /// The duplicate-member-name check (R6.38) sits here, immediately after the sort and
+    /// before a single byte of the object is emitted, for three reasons:
     ///
     /// <list type="bullet">
     /// <item>It is exactly where the condition becomes undefined. §3.2.3 says to order
     /// members by name; two equal names are the one input for which that instruction picks
     /// no order, so the sort is the step with nothing to do rather than a step with a
     /// choice to make.</item>
-    /// <item>It is linear in the member count and allocates nothing: sorting has already
-    /// brought equal names adjacent (<see cref="Utf16Ordinal"/> compares ordinally, so
-    /// names comparing equal are string-equal), making one pass over neighbours sufficient.
-    /// Neither a per-object hash set nor -- far worse on the unbounded member lists
-    /// <c>Curia.Domain</c>'s events carry, which have no member-count cap of their own -- a
-    /// nested pairwise scan is needed.</item>
+    /// <item>It is linear in the member count and allocates nothing beyond the sorted list
+    /// the caller needs anyway: sorting has already brought equal names adjacent
+    /// (<see cref="Utf16Ordinal"/> compares ordinally, so names comparing equal are
+    /// string-equal), making one pass over neighbours sufficient. Neither a per-object hash
+    /// set nor -- far worse on the unbounded member lists <c>Curia.Domain</c>'s events carry,
+    /// which have no member-count cap of their own -- a nested pairwise scan is needed.</item>
     /// <item>Checking the sorted list rather than the source list makes the reported key
     /// independent of wire member order, matching the order-independence errata E1 made
     /// normative for <see cref="NormalizeObject"/>'s own two duplicate predicates.</item>
@@ -334,21 +430,40 @@ public static class CanonicalJson
     /// (<c>curia/canon/duplicate-normalized-key</c>) before delegating here, so every object
     /// this writer sees on that path already has pairwise-distinct names. The check is
     /// therefore additive for the NFC profile -- it cannot displace E1's slug precedence --
-    /// and load-bearing only for callers of the bare <see cref="Canonicalize"/>.
+    /// and load-bearing only for callers of the bare <see cref="Canonicalize"/> and
+    /// <see cref="InCanonicalMemberOrder"/>.
+    /// </summary>
+    private static Result<KeyValuePair<string, JsonValue>[]> OrderMembers(JsonValue.Object o)
+    {
+        var ordered = o.Members
+            .OrderBy(m => m.Key, Utf16Ordinal.Comparer)
+            .ToArray();
+
+        for (var i = 1; i < ordered.Length; i++)
+        {
+            if (string.Equals(ordered[i - 1].Key, ordered[i].Key, StringComparison.Ordinal))
+                return Result<KeyValuePair<string, JsonValue>[]>.Fail(CanonErrors.DuplicateKey(ordered[i].Key));
+        }
+
+        return Result<KeyValuePair<string, JsonValue>[]>.Ok(ordered);
+    }
+
+    /// <summary>
+    /// The single RFC 8785 writer. Returns the first well-definedness failure it meets, or
+    /// <c>null</c> on success -- an <see cref="Error"/> rather than a <c>Result&lt;T&gt;</c>
+    /// only because this writer's success value is the <see cref="StringBuilder"/> it was
+    /// handed; <see cref="Canonicalize"/> is where CS-10's <c>Result</c> is presented.
+    /// Member ordering and the duplicate-member-name rejection that comes with it live in
+    /// <see cref="OrderMembers"/>, which this writer shares with
+    /// <see cref="InCanonicalMemberOrder"/>.
     /// </summary>
     private static Error? Write(JsonValue value, StringBuilder sb)
     {
         switch (value)
         {
             case JsonValue.Object o:
-                var ordered = o.Members
-                    .OrderBy(m => m.Key, Utf16Ordinal.Comparer)
-                    .ToArray();
-                for (var i = 1; i < ordered.Length; i++)
-                {
-                    if (string.Equals(ordered[i - 1].Key, ordered[i].Key, StringComparison.Ordinal))
-                        return CanonErrors.DuplicateKey(ordered[i].Key);
-                }
+                if (!OrderMembers(o).TryGetValue(out var ordered, out var orderError))
+                    return orderError;
                 sb.Append('{');
                 for (var i = 0; i < ordered.Length; i++)
                 {

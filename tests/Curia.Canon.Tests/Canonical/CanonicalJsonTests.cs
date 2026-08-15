@@ -556,4 +556,100 @@ public sealed class CanonicalJsonTests
     [Fact]
     public void AcceptsKeysDifferingOnlyByCase() =>
         Assert.Equal("""{"Cafe":1,"cafe":2}""", CanonicalizeWithNfc("""{"Cafe":1,"cafe":2}"""));
+
+    /// <summary>
+    /// <see cref="CanonicalJson.InCanonicalMemberOrder"/> puts every object's members in
+    /// RFC 8785 §3.2.3 order at every depth, leaves array order alone (R6.8), and touches no
+    /// scalar. The order is written out literally rather than obtained from the canonicalizer,
+    /// so this pins which order that is rather than agreeing with the writer by construction.
+    /// </summary>
+    [Fact]
+    public void InCanonicalMemberOrderSortsEveryObjectAndLeavesArraysAlone()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("z", new JsonValue.Number(1)),
+            new("longer_key_b", new JsonValue.Number(2)),
+            new("arr", new JsonValue.Array(
+            [
+                new JsonValue.Object([new("q", new JsonValue.Bool(true)), new("b", JsonValue.Null.Instance)]),
+                new JsonValue.String("first"),
+                new JsonValue.String("second"),
+            ])),
+            new("a", new JsonValue.Number(3)),
+        ]);
+
+        var ordered = Assert.IsType<JsonValue.Object>(
+            CanonicalJson.InCanonicalMemberOrder(value).Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type)));
+
+        Assert.Equal(RootOrder, MemberKeys(ordered));
+
+        var array = Assert.IsType<JsonValue.Array>(ordered.Members.Single(m => m.Key == "arr").Value);
+        Assert.Equal(NestedOrder, MemberKeys(Assert.IsType<JsonValue.Object>(array.Items[0])));
+        Assert.Equal("first", Assert.IsType<JsonValue.String>(array.Items[1]).Value);
+        Assert.Equal("second", Assert.IsType<JsonValue.String>(array.Items[2]).Value);
+    }
+
+    private static IReadOnlyList<string> MemberKeys(JsonValue.Object o) => [.. o.Members.Select(m => m.Key)];
+
+    private static readonly string[] RootOrder = ["a", "arr", "longer_key_b", "z"];
+    private static readonly string[] NestedOrder = ["b", "q"];
+
+    /// <summary>
+    /// The reordering and the writer share <c>OrderMembers</c>, so they cannot disagree about
+    /// what §3.2.3 order is. Stated as a property rather than assumed: canonicalizing the
+    /// reordered tree must give the identical bytes canonicalizing the original does, which is
+    /// what "the tree is now in the order the writer would emit" means operationally.
+    /// </summary>
+    [Fact]
+    public void InCanonicalMemberOrderAgreesWithTheWriterItSharesTheOrderingWith()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("zeta", new JsonValue.Number(-17.5)),
+            new("Alpha", new JsonValue.Array([new JsonValue.String("café"), new JsonValue.Bool(false)])),
+            new("nested", new JsonValue.Object([new("y", new JsonValue.Number(0)), new("x", JsonValue.Null.Instance)])),
+        ]);
+
+        var ordered = CanonicalJson.InCanonicalMemberOrder(value)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+
+        Assert.Equal(
+            CanonicalJson.Canonicalize(value).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)),
+            CanonicalJson.Canonicalize(ordered).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)));
+
+        // Idempotent: reordering an already-ordered tree is a no-op, which is what lets the
+        // event store apply it on every read without the payload drifting.
+        var twice = CanonicalJson.InCanonicalMemberOrder(ordered)
+            .Match(v => v, e => throw new Xunit.Sdk.XunitException(e.Type));
+        Assert.Equal(
+            CanonicalJson.Canonicalize(ordered).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)),
+            CanonicalJson.Canonicalize(twice).Match(b => b.ToArray(), e => throw new Xunit.Sdk.XunitException(e.Type)));
+    }
+
+    /// <summary>
+    /// It fails for the one reason the writer fails for, with the identical slug: §3.2.3 gives
+    /// no order for two equal names, so there is no ordered tree to return. Nested, because the
+    /// rule is a property of every object in the tree.
+    /// </summary>
+    [Fact]
+    public void InCanonicalMemberOrderRejectsADuplicateMemberNameAtAnyDepth()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("outer", new JsonValue.Array(
+            [
+                new JsonValue.Object(
+                [
+                    new("dup", new JsonValue.String("FIRST")),
+                    new("dup", new JsonValue.String("SECOND")),
+                ]),
+            ])),
+        ]);
+
+        var result = CanonicalJson.InCanonicalMemberOrder(value);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/duplicate-key", result.Match(_ => "ok", e => e.Type));
+    }
 }

@@ -1584,8 +1584,9 @@ one adapter's tests, is not a property of the port.
 
 ### A payload can be stored today that has no Cūria-profile canonical form
 
-Recorded here because it is the same class and was measured while closing this entry, but it
-is **not** fixed and should not be read as fixed.
+Recorded here because it is the same class and was measured while closing this entry. It was
+**not** fixed at the time of writing; **E12 closes it** via R11.24, and the paragraphs below
+stand as the record of what the hazard was and how long it stood.
 
 The event store canonicalizes payloads with the pure `Canonicalize`, not
 `CanonicalizeWithNfc` — correct today on the store's own reasoning that storage is not signing.
@@ -1603,6 +1604,140 @@ into a Merkle leaf or an *Acta* entry — §9's dump manifests are the obvious c
 store will already hold rows that **cannot be canonicalized for that purpose**, and the
 discovery will come at the point of signing rather than at the point of writing. That is a
 decision worth revisiting before R9's dumps exist, not after.
+
+## E12 — What a port *returns* is part of its contract, and the faithful fake is as misleading as the permissive one
+
+**Location:** R11.4; R11.21 (E11); `IEventStore` and its two adapters; `CanonicalJson`.
+**Class:** implementation divergence against a promise no document made, plus the normative
+gap that allowed it, plus the closure of E11's own open note.
+
+R11.21 settled what the two adapters **accept**. It did not settle what they **return**, and
+they differed there too. Measured against this repository's PostgreSQL 18.4:
+
+```
+appended   {"z":1,"longer_key_b":2,"a":3}
+Postgres   {"a": 3, "z": 1, "longer_key_b": 2}     jsonb re-sorts: key length, then bytewise
+fake       {"z":1,"longer_key_b":2,"a":3}          the caller's exact tree, unchanged
+```
+
+The Postgres adapter is not being careless. It canonicalizes each payload with
+`Canonicalize` before storing, so the text handed to the `jsonb` parameter is already in
+RFC 8785 §3.2.3 order. `jsonb` is a parsed binary form rather than the text it was given, and
+it applies its own key order on the way in. **The ordering is lost inside the database**,
+downstream of everything the adapter controls, and no amount of care upstream recovers it.
+
+The direction is again what makes this worth an entry. Here the fake was the **more faithful**
+of the two — it holds an object graph, so it can hand back exactly what it was handed — and
+that is as misleading as being the more permissive was in E11, for the same reason stated the
+other way round: *the fake supports a property production does not have.* Code written and
+tested against it may depend on payload member order, pass, and break against Postgres. Once
+more the shared contract suite reported agreement, because it had no case; once more the
+absence of a probe was indistinguishable from a passing one.
+
+**Byte-for-byte tree fidelity was considered and rejected as the promise.** `jsonb` cannot
+honour it at all, so adopting it would mean either changing the column type or declaring the
+in-memory adapter authoritative over the real one — and the property buys nothing: every
+digest in this system is taken over canonical bytes, and canonicalization sorts. What both
+adapters *can* honour, deterministically, is the canonical order itself: Postgres by
+re-establishing it on read, the fake by storing it.
+
+**The promise is member order, not "the canonical form", and the distinction is load-bearing.**
+"Canonical form" in this project is a *byte* concept with two profiles, and the Cūria profile
+NFC-normalizes. A store that returned "the canonical form of what was appended" in that sense
+would be normalizing stored content on the way out — §6.4's no-mutation invariant forbids
+exactly that, and R6.9 confines NFC to a step inside canonicalization, never a pass over
+stored content. Member order is the one aspect of a JSON document that carries no information
+(RFC 8259 §4: an object is an unordered collection), so reordering is the only normalization
+available here that changes no fact. The promise says precisely that and no more: array order
+and every scalar are the ones appended.
+
+The implementation note that travels with this is E10's, applied again. RFC 8785 §3.2.3's
+ordering now has two consumers — the canonical writer and the reordering the port needs — and
+one rule with two implementations is how a rule drifts. It is therefore expressed once
+(`CanonicalJson`'s member-ordering step, which also carries the duplicate-name rejection the
+sort exposes) and shared, rather than re-sorted in a second function that would agree today.
+
+**R11.22** Every port's in-memory adapter SHALL return what its production adapter returns.
+Where the two cannot agree — because the production adapter's storage layer transforms what
+it holds, and the transformation is not something the adapter can prevent — the port SHALL
+state the resulting normalization as its own promise and both adapters SHALL honour it, rather
+than the port promising a fidelity only the fake can deliver. The shared contract suite SHALL
+gain the case. An in-memory adapter that is the more *faithful* of the two misleads exactly as
+one that is the more permissive does; R11.21 and this requirement are the same rule applied to
+the two halves of a port's contract.
+
+**R11.23** The event store SHALL return every payload with each object's members in RFC 8785
+§3.2.3 order, at every depth, from every surface that hands an event back — both read paths
+and the append's own return value — whichever adapter is underneath. Array order and every
+scalar value SHALL be those that were appended: member order is the only aspect of the
+document the store is permitted to normalize, because it is the only one that carries no
+information. An implementation SHALL obtain the order from the same expression of §3.2.3 its
+canonicalizer uses, never from a second sort.
+
+### The admissibility half: E11's open note, closed
+
+E11's closing note recorded a payload that could be stored despite having no Cūria-profile
+canonical form — `{"café":1,"cafe` + `U+0301` + `":2}`, precomposed against a combining
+sequence — because the store's admissibility check used the pure `Canonicalize`. The store's
+own reasoning for the pure profile was that *storage is not signing*.
+
+That reasoning is sound, and it settles the wrong question. It governs what is **written**:
+rendering stored text through the NFC profile would normalize the caller's content on its way
+into the system of record, which is the mutation §6.4 forbids outright. It says nothing about
+what is **admitted**. Admission's only outcome is refusal, and refusal mutates nothing — so
+the no-mutation invariant supplies no argument for admitting more. What supplies an argument
+for admitting less is R11.9: this table is the system of record, replay's sole ground truth,
+and it now holds a row that provably cannot be canonicalized for signing. Nothing is lost
+today; the cost is deferred, and it is paid at signing time by whoever builds §9's dump
+manifests, rather than at write time by whoever wrote the row.
+
+So the two questions get two answers: **admit** under `CanonicalizeWithNfc`, discarding its
+output; **store** the pure-canonical rendering. The tightening is as narrow as it can be — a
+payload carrying any amount of NFD text still passes, because decomposition is not the defect
+and a *collision* is — and it costs one extra walk of the tree, which is the price of the
+store declining to accept a fact it can already prove it will not be able to sign.
+
+One thing fell out of this that was not being looked for. `Canonicalize` accepts a string
+carrying an unpaired UTF-16 surrogate and renders it as U+FFFD through UTF-8 encoding, silently;
+`CanonicalizeWithNfc` refuses the same tree. So the adapters had a *second* return divergence
+of exactly the E12 shape — Postgres substituting U+FFFD, the fake preserving the surrogate —
+and admitting under the Cūria profile closes it by construction, before either adapter's
+storage layer is involved. That `Canonicalize` accepts it at all is a defect against R6.38,
+which requires the pure canonicalization functions to reject an unpaired surrogate
+independently of ADMIT; it is recorded here as found and **not** fixed. It is the fifth
+instance of E10's pattern, and the fifth in the same shape: a check the byte parse path
+performs, absent from the entry point whose input is a tree.
+
+**R11.24** The event store SHALL admit only a payload that has a Cūria-profile canonical form,
+evaluated with `CanonicalizeWithNfc` and its output discarded, while continuing to store the
+pure RFC 8785 rendering. "Storage is not signing" governs what an adapter writes, not what it
+admits: admission's only outcome is refusal, so nothing about the no-mutation invariant argues
+for admitting a document the system of record can already prove it will be unable to sign. The
+refusal names the condition and preserves E1's precedence between the two duplicate predicates
+— `curia/admit/duplicate-key` for a raw duplicate, `curia/canon/duplicate-normalized-key` for
+names equal only after normalization — because it is obtained from the canonicalizer rather
+than re-derived.
+
+### Error precedence, unpinned
+
+Both adapters reported `curia/admit/duplicate-key` in preference to
+`curia/domain/concurrency-conflict` when both applied. Nothing pinned it and the port did not
+promise it, so it was two implementations agreeing — the state E11 exists to name as
+insufficient.
+
+The principled basis for the order they had chosen: payload admissibility is a property of the
+arguments alone, decidable without reading anything, so it can be settled before anything is
+read. It is also the more useful answer. A concurrency conflict invites a re-read and a retry,
+which is right for a stale version and permanently wrong for a payload that will be refused
+identically on every attempt. The same argument-versus-store-state line already puts the
+empty-batch refusal first, and it is what makes an all-or-nothing batch refusal possible at
+all in an append-only log.
+
+**R11.25** Where more than one of an append's failure conditions applies to the same call, a
+store SHALL report the conditions decidable from the arguments alone — an empty batch, and
+payload admissibility — in preference to `curia/domain/concurrency-conflict`, which is a claim
+about the store's state. The precedence SHALL be stated by the port and pinned by the shared
+contract suite; two adapters that happen to agree about it are not a contract.
 
 ---
 
@@ -1635,6 +1770,10 @@ decision worth revisiting before R9's dumps exist, not after.
 | R14.6 | Differential canonicalization fuzzing across the dual implementations | C8 |
 | R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
 | R11.21 | A port's in-memory adapter accepts exactly what its production adapter accepts; the fake is never the more permissive | E11 |
+| R11.22 | A port's in-memory adapter returns what its production adapter returns; where they cannot agree the port states the normalization; the fake is never the more faithful | E12 |
+| R11.23 | Event payloads read back in RFC 8785 member order at every depth, from every surface; array order and scalars unchanged | E12 |
+| R11.24 | Event store admits only payloads with a Cūria-profile canonical form, while storing the pure rendering | E12 |
+| R11.25 | Argument-decidable append failures reported in preference to store-state ones; precedence stated by the port, pinned by the contract suite | E12 |
 | R4.29 | Table 6 defines an `expired` row: entered from `pending` on enrollment-code expiry, terminal, no authentication or posting | E8 |
 | R6.8 (rev.) | `Canonicalize` — pure RFC 8785, no normalization, reproduces the RFC's own vectors | D1 |
 | R6.9 (rev.) | `CanonicalizeWithNfc` — NFC every key and value recursively **first**, then canonicalize | D1 |

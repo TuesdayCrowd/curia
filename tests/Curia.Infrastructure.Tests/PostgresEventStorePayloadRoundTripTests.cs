@@ -9,21 +9,31 @@ namespace Curia.Infrastructure.Tests;
 
 /// <summary>
 /// The JSONB round trip the Stage 2 brief calls out explicitly: "a payload that changes shape
-/// through the database would silently corrupt replay." Not part of the shared
-/// <see cref="Curia.Application.Tests.EventStorePortContractTests"/> suite -- every contract
-/// test uses an empty-object payload, which can't distinguish a lossless round trip from a
-/// broken one, and JSONB storage fidelity is specific to this adapter, not something every
-/// <c>IEventStore</c> need promise.
+/// through the database would silently corrupt replay." This is the JSONB-specific half --
+/// that every <see cref="JsonValue"/> case survives Postgres's parsed binary storage with its
+/// value intact -- and it stays here rather than moving into the shared
+/// <see cref="Curia.Application.Tests.EventStorePortContractTests"/> suite because it is about
+/// what this adapter's column type does, not about what every <c>IEventStore</c> promises.
+///
+/// Member *order* is no longer in that category. It was, when this test was written -- the
+/// comment here used to say JSONB storage fidelity was "specific to this adapter, not
+/// something every IEventStore need promise", and that reading is what let the two adapters
+/// return different payloads for the same input with nothing failing. R11.23 (errata E12) now
+/// makes canonical member order a promise of the port, pinned in the contract suite by
+/// <c>PayloadMembersReadBackInCanonicalOrderAtEveryDepth</c>, which runs against both adapters.
 ///
 /// "Lossless" here means structural/semantic equality, not byte-for-byte wire identity:
 /// Postgres's <c>jsonb</c> type is documented to reorder object members and collapse
 /// whitespace on the way in (it stores a parsed binary form, not the original text), so two
 /// JSON documents that are the same value can legitimately come back with their members in a
-/// different order. <see cref="CanonicalJson.Canonicalize"/> already defines exactly that
-/// equivalence -- it sorts every object's members by key (RFC 8785) -- so re-canonicalizing
-/// both the original tree and the tree read back after the round trip and comparing the
-/// resulting bytes is an order-independent structural equality check built from code this
-/// solution already trusts, rather than a new one written by hand for this test alone.
+/// different order -- which is exactly why the adapter re-establishes canonical order on read
+/// and why this test cannot be the thing that checks it. <see cref="CanonicalJson.Canonicalize"/>
+/// already defines that equivalence -- it sorts every object's members by key (RFC 8785) -- so
+/// re-canonicalizing both the original tree and the tree read back after the round trip and
+/// comparing the resulting bytes is an order-independent structural equality check built from
+/// code this solution already trusts, rather than a new one written by hand for this test
+/// alone. Being order-independent, it passed before R11.23 and passes after: it constrains the
+/// values, and the contract suite constrains the order.
 /// </summary>
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class PostgresEventStorePayloadRoundTripTests
