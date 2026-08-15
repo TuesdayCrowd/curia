@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <!--
+      CA2007 (ConfigureAwait): this project is ADO.NET-heavy test/fixture code with no
+      SynchronizationContext to protect against resuming on (xUnit's own test runner, not
+      UI or a shared library). Every explicit await this project writes already carries
+      ConfigureAwait(false) to match Curia.AuthN's and Curia.Infrastructure's convention;
+      what CA2007 additionally flags, dozens of times, is `await using`'s compiler-generated
+      DisposeAsync() await, which offers no call site to attach ConfigureAwait to at all;
+      see PostgresEventStore's per-method [SuppressMessage] for the identical reasoning,
+      applied here at the project level because this test project's fixture/test-method
+      count makes repeating that attribute on every method pure noise rather than signal.
+    -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Curia.Infrastructure/Curia.Infrastructure.csproj" />
+    <!--
+      Deliberate exception to "don't reference one test project from another" (see
+      EventStoreWriteSurfaceTests' remarks on why Curia.Architecture.Tests avoids exactly
+      this): EventStorePortContractTests.cs was built for this precise reuse: "Stage 2's
+      Postgres-backed adapter is meant to get its own Curia.Infrastructure.Tests project
+      that references this project and subclasses this exact class rather than writing a
+      parallel suite." A shared abstract contract suite is the whole point; duplicating it
+      here would be the mistake this reference avoids.
+    -->
+    <ProjectReference Include="../Curia.Application.Tests/Curia.Application.Tests.csproj" />
+  </ItemGroup>
+</Project>

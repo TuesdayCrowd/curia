@@ -1393,6 +1393,52 @@ restarted by issuing a new code, not by reviving the old credential. It joins `r
 the projection: `expired` means enrollment never completed, which is a different fact about
 an identity than a credential that was live and then ended.
 
+## E9 — §5.5 cites three requirements that are never defined
+
+**Location:** §5.5's validation algorithm; §17's requirements index; Table 22's
+threat-model row. **Class:** normative gap.
+
+§5 defines R5.1–R5.8 and R5.12–R5.18. **R5.9, R5.10 and R5.11 are defined nowhere.**
+They appear only as comments inside §5.5's pseudocode, and as a summary row in the
+requirements index that describes them as though they were stated:
+
+> | R5.9–R5.13 | Algorithm pinned before verification; `kid` resolved only in issuer
+> JWKS; unbound tokens refused on writes; opaque failures + specific internal logs;
+> single shared validator | 5.5 |
+
+This is the same defect A8 records for §10, in a different section, and nobody noticed
+it there. It is worse here than a numbering gap, because the three obligations are
+real, load-bearing, and *were implemented* — the Increment 4 token layer pins the
+algorithm before signature work, resolves `kid` only within the configured issuer
+JWKS, and refuses unbound tokens on write paths, citing requirement numbers that do
+not exist. An implementer who went looking for R5.9 to check the exact obligation
+would have found nothing.
+
+The remedy is not to renumber. Unlike §10, nothing else claims 9, 10 or 11 — the
+numbers are simply vacant, and the document already attributes specific obligations
+to them in two places. Define them with the text the document implies:
+
+**R5.9** The verification algorithm SHALL be pinned before any signature work. An
+implementation SHALL NOT read the token's `alg` header to select a verification
+routine; the acceptable algorithms are configured, and a token naming anything else
+SHALL be rejected before any cryptographic operation runs. Reading `alg` to dispatch
+is algorithm confusion.
+
+**R5.10** `kid` SHALL be resolved only within the configured issuer JWKS. An
+implementation SHALL NOT fetch a key from any URL found inside a token, header or
+proof.
+
+**R5.11** An unbound token SHALL NOT be accepted on a write path under any
+circumstances, including one whose signature verifies perfectly. Proof of possession
+is a precondition of writing, not a preference.
+
+**How it was found.** By a mechanical check, not by reading — `tools/spec-checks/`
+extracts every `R<n>.<m>` cited anywhere and asserts each resolves to a definition.
+It found this on its first run, along with D6 below. Four cross-reference defects had
+been found in this project before it existed, every one by a human happening to
+notice; that is not a process, and it had already failed twice inside a plan whose
+subject was these very documents.
+
 ---
 
 # Consolidated proposed-requirements index
@@ -1400,6 +1446,7 @@ an identity than a credential that was live and then ended.
 | ID | Requirement (abbreviated) | Source |
 |---|---|---|
 | R4.16 (rev.) | Registrar key store authoritative; Forum-served JWKS; no runtime key fetch | A16 |
+| R5.9–R5.11 | Algorithm pinned before signature work; `kid` resolved only in the issuer JWKS; unbound tokens refused on write paths — cited by §5.5 but never defined | E9 |
 | R5.19 | DPoP server nonces on write paths; challenge flow in reference client | B4 |
 | R6.31 | Key validity evaluated at `server_ts` | A12 |
 | R6.32 | Reject only future-dated `created_at`; composed/received pair displayed | A13 / D6 closed |
@@ -1422,6 +1469,7 @@ an identity than a credential that was live and then ended.
 | R12.17 | Log-key compromise runbook anchored to witnessed heads | B3 |
 | R14.6 | Differential canonicalization fuzzing across the dual implementations | C8 |
 | R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
+| R4.29 | Table 6 defines an `expired` row: entered from `pending` on enrollment-code expiry, terminal, no authentication or posting | E8 |
 | R6.8 (rev.) | `Canonicalize` — pure RFC 8785, no normalization, reproduces the RFC's own vectors | D1 |
 | R6.9 (rev.) | `CanonicalizeWithNfc` — NFC every key and value recursively **first**, then canonicalize | D1 |
 | R6.11 (add.) | Vectors published as files; bytes stated in hex where not visually distinguishable | D8 |
@@ -1435,6 +1483,7 @@ an identity than a credential that was live and then ended.
 | R6.39 | ADMIT's four size-shaped caps pinned: depth 32, 1,024 members, 1 MiB submission, 256 KiB string | E3 |
 | R6.33 (rev. 2) | R6.33's numeric bound applies ADMIT-generically, not only to envelope-schema fields | E4 |
 | R6.40 | Slug vocabulary pinned: `malformed-json`, `members-exceeded`, `size-exceeded`, `raw-control-character` | E5 |
+| R6.41 | A parse path free of ADMIT policy caps, distinct from ADMIT; canonicalization uses it | E4 |
 | R6.11 (add. 2) | A vector's bytes SHALL be fed unmodified to the function/phase its `meta.json` names | E6 |
 
 Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected

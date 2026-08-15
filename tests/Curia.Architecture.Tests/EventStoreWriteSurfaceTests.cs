@@ -68,17 +68,20 @@ public sealed class EventStoreWriteSurfaceTests
     /// <summary>
     /// The only types this suite currently intends to be able to construct a "real"
     /// AppendedEvent: Curia.Domain.Tests exercises the type's shape directly (there is no
-    /// production code inside Curia.Domain itself that constructs one -- the store's own
-    /// future adapter does not exist yet), and Curia.Application.Tests' in-memory
-    /// IEventStore adapter is where Stage 1 placed the R11.4 fake that plays the role
-    /// Curia.Infrastructure's Postgres adapter will play once Stage 2 lands. Changing this
-    /// set is a deliberate CS-15 decision, not an incidental side effect of adding a call
-    /// site -- that is the entire point of pinning it here.
+    /// production code inside Curia.Domain itself that constructs one), Curia.Application.Tests'
+    /// in-memory IEventStore adapter is where Stage 1 placed the R11.4 fake, and
+    /// Curia.Infrastructure.PostgresEventStore is Stage 2's real adapter -- the one the R11.4
+    /// fake was always standing in for. Changing this set is a deliberate CS-15 decision, not
+    /// an incidental side effect of adding a call site -- that is the entire point of pinning
+    /// it here. See the Stage 2 report for why adding PostgresEventStore is the correct move
+    /// here rather than a quiet widening of the rule: it is the intended production write
+    /// surface CS-15 exists to bound, not an exception to it.
     /// </summary>
     private static readonly string[] IntendedWriteSurface =
     [
         "Curia.Domain.Tests.DomainEventTests",
         "Curia.Application.Tests.InMemory.InMemoryEventStore",
+        "Curia.Infrastructure.PostgresEventStore",
     ];
 
     /// <summary>
@@ -99,7 +102,7 @@ public sealed class EventStoreWriteSurfaceTests
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToArray();
 
-        var expected = new[] { "Curia.Application.Tests", "Curia.Domain.Tests" };
+        var expected = new[] { "Curia.Application.Tests", "Curia.Domain.Tests", "Curia.Infrastructure" };
 
         Assert.Equal(expected, actual);
     }
@@ -161,6 +164,7 @@ public sealed class EventStoreWriteSurfaceTests
             domainAssemblyPath,
             FindSiblingBuiltAssembly(repoRoot, domainAssemblyPath, "tests", "Curia.Domain.Tests"),
             FindSiblingBuiltAssembly(repoRoot, domainAssemblyPath, "tests", "Curia.Application.Tests"),
+            FindSiblingBuiltAssembly(repoRoot, domainAssemblyPath, "src", "Curia.Infrastructure"),
         };
 
         var foundCallers = new SortedSet<string>(StringComparer.Ordinal);
