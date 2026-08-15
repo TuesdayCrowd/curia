@@ -125,73 +125,132 @@ and `0x1f`.
 
 ---
 
-## Tier 3 — finish the event store *(blocked on Docker)*
+## Tier 3 — finish the event store *(unblocked — in progress)*
 
-Carried from Increment 3 unchanged. **Docker is unavailable in this environment**, and these
-two are precisely the tests that must hit a real server:
+**The blocker was stated in terms of a tool, not a requirement.** "Needs Docker" was shorthand
+for "needs Testcontainers", which was shorthand for **"needs a real PostgreSQL server"** — and
+only the last is true. PostgreSQL 18.4 is installed via Homebrew and already running locally.
+Docker is not used and is not needed.
 
-- **Stage 2 (R11.6)** — append-only is enforced *by the grant*. The test connects **as
-  `app_role`** and proves the *server* refuses `UPDATE`/`DELETE`. Against a mock it asserts
-  that our mock refuses, which is worth nothing.
-- **Stage 3 (R11.9)** — replay-rebuild *exercised*, not assumed. A rebuild that only runs
-  against an in-memory fake proves the fake is self-consistent.
+The R11.6 mechanism was proved by hand before any code was written:
 
-**Unblock path**: enable Docker locally, or run these in CI and treat CI as the verifier.
-Until then they stay Not Started rather than being written blind and marked done.
-**Depends on**: T1.3 (real ID generation).
-**Status**: Blocked
+```
+as the restricted role:
+  SELECT count(*) FROM events;       -> 1 row
+  UPDATE events SET event_type='x';  -> ERROR: permission denied for table events
+  DELETE FROM events;                -> ERROR: permission denied for table events
+```
 
----
+Integration tests take the connection from an environment variable and create a throwaway
+database per run, so nothing depends on this machine and CI can point the same variable
+anywhere. If no server is reachable the tests **fail loudly naming the variable** — they never
+silently skip, because a green suite that quietly ran nothing is the exact failure mode R11.9
+exists to prevent.
 
-## Tier 4 — specification debt, unblocked, large
+- **Stage 2 (R11.6)** — `Curia.Infrastructure`, `db/` migrations, grant-refusal test.
+- **Stage 3 (R11.9)** — a projection and its rebuild-from-zero, plus determinism.
 
-### T4.1 — merge the errata into the white paper as v1.1
+**Status**: In progress.
 
-**40 proposed requirements across 33 entries (A1–E8) live only in the errata.** The errata is
-authoritative wherever it touches v1.0, so every reader must currently hold both documents in
-their head and diff them mentally. That is exactly the condition that produced the R4.21
-collision — and the collision was found by accident, not by a process.
+## Tier 4 — specification debt *(design revised — the original plan was wrong)*
 
-CLAUDE.md already states the shape: *"incorporating the errata into v1.1 is a merge rather
-than a renumber"*, with the sole deliberate exception being A8's §10 renumbering.
+I reviewed this tier's own design and found four errors in it. They are worth stating, because
+three of them would have caused damage rather than merely wasted effort.
 
-**This is the highest-leverage item in the plan even though it blocks nothing**, because
-every future increment pays a tax for it and the tax is paid in silent misreadings.
+**Error 1 — the entry count was wrong.** The plan said "33 entries". The grep behind that
+number matched `^## [A-E]<n>`, and **Part A uses `###`**, so every Part A entry was silently
+excluded. The real inventory is ~40 entries: A(6 headings, one covering A12/A13), B(7), C(9),
+D(9), E(8).
 
-**Success**: v1.1 carries every requirement; the errata becomes a changelog rather than a
-parallel authority; the consolidated index is checked against the merged text mechanically,
-not by eye. Add a check that no requirement number is defined twice — the R4.21 collision
-would have been caught in seconds by a script.
+**Error 2, and the serious one — "merge the errata into the white paper" is not a documentation
+task, it is a governance decision, and the plan conflated them.** The errata's own preamble
+distinguishes its parts by *certainty*, and they are not equivalent:
+
+| part | what it is | mergeable? |
+|---|---|---|
+| **A** | errata — statements in v1.0 that are wrong | yes, they fix defects |
+| **D** | findings from building Increment 1 | yes, evidence-backed |
+| **E** | findings from building twice and comparing | yes, evidence-backed |
+| **B** | normative gaps, with proposed text | each needs an accept decision |
+| **C** | **enhancements — "design ideas that go beyond repair"** | **no, not without acceptance** |
+
+Part C is nine substantial architectural proposals — signed vote envelopes with epoch sealing,
+the curation lane, witness cosigning, Sybil bounding, Reader-Contract attestation,
+content-addressed dumps, event-driven staleness, differential fuzzing, nomenclature. The errata
+says they are *"argued, not asserted, and each states its cost."* Merging them wholesale would
+promote nine unaccepted designs into the normative specification by side effect.
+
+**Error 3 — merging Part C would close open decisions silently.** CLAUDE.md is explicit:
+*"D1–D10 are open decisions and should stay open unless deliberately closed and recorded."*
+Part C entries state their entanglement outright — C1 *"partially informs D5"*, C3 is *"the
+same governance shape as D9's seed set"*, C8 *"turns D1's third option into a permanent
+asset."* A merge that swept them in would resolve D1, D5 and D9 without anyone deciding to.
+
+**Error 4 — found while checking the above.** Errata A13 says it *"resolves both, and closes
+D6"*, but **§16 still lists D6 as open.** The document that closes a decision and the document
+that lists it disagree. This is the same cross-reference rot that produced the R4.21 collision,
+and it was again found by accident rather than by a check.
+
+### T4.0 — the mechanical checks, first *(new, and it should have been first all along)*
+
+Before merging anything, write the checks that would have caught what has so far been caught by
+luck. Every defect below was found by a human noticing, which does not scale and did not
+reliably work:
+
+- **No requirement number defined twice.** Would have caught R4.21 in seconds.
+- **Every requirement cited anywhere exists**, in one of the two documents.
+- **The consolidated index matches the entry bodies** — same IDs, same count, no orphans.
+- **No requirement defined in both documents with differing text.**
+- **Every §16 decision listed open is not claimed closed elsewhere.** Would have caught D6.
+
+These run in CI over the Markdown. They are cheap, and they convert a class of defect from
+"discovered eventually, by chance" into "cannot be committed".
+**Status**: **Complete** — `tools/spec-checks/check-spec.py`. Found 4 genuine defects on its
+first clean run, one of them new and serious (R5.9–R5.11 cited but never defined). Also found
+three false-positive modes **in itself**, each of which would have prompted a spurious edit to
+a specification: reading whole index rows instead of the ID cell, not expanding range rows,
+and not recognising a decision marked CLOSED in place. Falsified against the historical R4.21
+collision.
+
+### T4.1 — triage, then merge only what is settled
+
+Classify all ~40 entries into **corrections** (A, D, E — merge), **gaps** (B — accept
+individually, then merge), and **enhancements** (C — do not merge; record each as a proposal
+with its cost and its decision status). Produce v1.1 carrying corrections and accepted gaps
+only, with the errata retained as the changelog and the rationale record.
+
+**Success**: v1.1 is normative and self-contained for everything settled; no Part C proposal
+appears in it without an explicit recorded acceptance; the T4.0 checks pass over the result.
 **Status**: Not Started
 
-### T4.2 — resolve two recorded contradictions
+### T4.2 — close what is already decided but still recorded as open
 
-- **Appendix D vs R11.3**: the `events` DDL uses `server_ts TIMESTAMPTZ DEFAULT now()`
-  (Postgres-side) while R11.3/`CS-9` push time through a Clock port. Increment 3 stamps it
-  explicitly and recommends Stage 2 do the same; the DDL should say so rather than leaving
-  the default as an invitation.
-- **Depth cap vs the submission wrapper**: ADMIT's depth cap is defined over "the document",
-  but the wire submission wraps the envelope one level deep, so a maximal-depth envelope is
-  rejected for being wrapped. `admit-reject/` pins ADMIT against bare documents and contains
-  no oracle. Academic for Table 9 envelopes, which are shallow — but unstated.
-
+- ~~**D6** — closed by A13, still listed open in §16.~~ **Done** — §16 now records the closure
+  and retains the original fork, since §16 asks that decisions be "closed deliberately and
+  recorded" and deleting the entry would destroy the record of what the fork was.
+- **Appendix D vs R11.3** — the `events` DDL's `server_ts TIMESTAMPTZ DEFAULT now()` versus
+  time entering through the Clock port. Nothing relies on the default now; the DDL should say
+  so rather than leave it as an invitation.
+- **Depth cap vs the submission wrapper** — the cap is defined over "the document" while the
+  wire submission wraps the envelope one level deep. `admit-reject/` pins ADMIT against bare
+  documents and contains no oracle for it.
 **Status**: Not Started
 
 ### T4.3 — apply E8/R4.29 to Table 6
 
-The `expired` state is proposed in the errata and still absent from Table 6. Folds into T4.1.
+The `expired` state is proposed and still absent from Table 6. Folds into T4.1's corrections
+merge (E is a corrections part).
 **Status**: Not Started
-
----
 
 ## Order, and why
 
-1. **T1.1, T1.2** — live seams in merged code; both get more expensive with every caller.
-2. **T2.1, T2.2** — cheap, and they close a Definition of Done item outright.
-3. **T1.3** — small, and it unblocks Tier 3.
-4. **T4.1** — large, unblocks nothing, and is the one most likely to cause the next defect.
-5. **T3** — the moment Docker exists.
+1. **Tier 3** — in progress; the last Phase 1 pieces, and no longer blocked.
+2. **T4.0** — the mechanical checks. Cheap, and they stop the bleeding: four defects so far
+   have been found by someone happening to notice, including two in this plan's own design.
+3. **T4.2** — small, and D6 is a live inconsistency between the two authoritative documents.
+4. **T4.1** — the merge, once the checks exist to verify it and the triage has separated
+   settled corrections from unaccepted proposals.
 
-T4.1 sits fourth despite being highest-leverage because it is the only item here that is
-purely additive: nothing regresses while it waits. Everything above it either degrades or
-blocks something.
+The original plan put the merge first and treated it as mechanical. It is not: roughly a
+quarter of the errata is proposals that a merge would silently adopt, and three open decisions
+would have been resolved as a side effect of a documentation task.

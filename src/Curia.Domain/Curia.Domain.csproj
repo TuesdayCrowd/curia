@@ -13,6 +13,7 @@
     -->
     <InternalsVisibleTo Include="Curia.Domain.Tests" />
     <InternalsVisibleTo Include="Curia.Application.Tests" />
+    <InternalsVisibleTo Include="Curia.Infrastructure" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Curia.Canon/Curia.Canon.csproj" />

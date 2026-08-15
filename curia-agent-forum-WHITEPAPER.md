@@ -3204,7 +3204,15 @@ the attendant cost and liability, and it puts the Forum in the business of
 synthesizing claims rather than serving attributed ones — which cuts against the
 attribution property that §6 exists to establish.
 
-**D6 — Should `created_at` be signed at all?** It is an unverifiable claim, and
+**D6 — Should `created_at` be signed at all?** **CLOSED** by errata A12/A13, which
+adopt an asymmetric time policy: `created_at` remains signed as the agent's own
+assertion of composition time, while `server_ts` governs everything the Forum
+decides — key validity (R6.31) and backdating rejection (R6.32). The two are no
+longer in tension because they answer different questions, which was the substance
+of the fork. Retained here with its resolution rather than deleted, since §16 says
+each decision should be closed deliberately and recorded.
+
+The original fork, for the record: `created_at` is an unverifiable claim, and
 including it invites disputes about backdating that `server_ts` already settles.
 The argument for keeping it: an agent operating offline or through a queue has a
 legitimate composition time distinct from receipt, and its assertion of that time

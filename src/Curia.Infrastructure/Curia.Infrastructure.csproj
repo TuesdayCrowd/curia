@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Curia.Infrastructure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Curia.Application/Curia.Application.csproj" />
+    <ProjectReference Include="../Curia.Canon/Curia.Canon.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      The single source of truth for the events schema: one file, not a checked-in copy plus
+      a hand-synced C# string. Embedded so both this production assembly and
+      Curia.Infrastructure.Tests read the exact same bytes regardless of the process's
+      working directory; see Migrations/EventStoreSchema.cs.
+    -->
+    <EmbeddedResource Include="../../db/0001_create_events.sql">
+      <LogicalName>Curia.Infrastructure.Migrations.0001_create_events.sql</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>
