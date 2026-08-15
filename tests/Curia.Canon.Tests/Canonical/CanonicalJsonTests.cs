@@ -323,6 +323,118 @@ public sealed class CanonicalJsonTests
         Assert.Equal(overCap, canonical); // already minimal JSON: one member per level, no whitespace
     }
 
+    // -- curia/admit/duplicate-key from the bare Canonicalize (R6.38 ¶2, errata E10) ----
+
+    /// <summary>
+    /// R6.38's second paragraph: <c>Canonicalize</c> SHALL reject a raw duplicate object
+    /// member name "independently of ADMIT and regardless of whether ADMIT already ran."
+    /// RFC 8785 §3.2.3 orders members by name and says nothing about two names that are
+    /// equal, so the bytes this function used to emit for such a tree
+    /// (<c>{"dup":"FIRST","dup":"SECOND"}</c>, verbatim) were outside what the specification
+    /// it implements defines, and do not re-parse to one unambiguous document.
+    ///
+    /// The tree is built directly rather than parsed, which is the only way to reach this at
+    /// all -- both <see cref="JsonReader"/> paths already reject duplicates -- and is also
+    /// exactly how the defect reached production: <c>Curia.Infrastructure.PostgresEventStore</c>
+    /// canonicalized a caller-built <see cref="JsonValue"/> payload straight to jsonb, which
+    /// resolves duplicates last-wins, so "FIRST" was silently dropped by the system of record.
+    /// See PostgresEventStoreDuplicateMemberRefusalTests for that end of it.
+    /// </summary>
+    [Fact]
+    public void CanonicalizeRejectsARawDuplicateMemberName()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("dup", new JsonValue.String("FIRST")),
+            new("dup", new JsonValue.String("SECOND")),
+        ]);
+
+        var result = CanonicalJson.Canonicalize(value);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/duplicate-key", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// "At any nesting depth" is not decoration: a check on the root object alone would pass
+    /// the test above while still emitting undefined bytes here. Nested through an array as
+    /// well as an object, since the writer recurses through both.
+    /// </summary>
+    [Fact]
+    public void CanonicalizeRejectsARawDuplicateMemberNameNestedInsideTheDocument()
+    {
+        var value = new JsonValue.Object(
+        [
+            new("outer", new JsonValue.Array(
+            [
+                new JsonValue.Object(
+                [
+                    new("dup", new JsonValue.String("FIRST")),
+                    new("dup", new JsonValue.String("SECOND")),
+                ]),
+            ])),
+        ]);
+
+        var result = CanonicalJson.Canonicalize(value);
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/duplicate-key", result.Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// The reported key does not depend on wire member order. Both objects below carry two
+    /// separate duplicate pairs ("a" and "b"); whichever pair a member-order scan would meet
+    /// first, the check runs on the RFC 8785 §3.2.3-sorted member list, so "a" is reported
+    /// either way. Same order-independence property errata E1 made normative for
+    /// <see cref="CanonicalJson.CanonicalizeWithNfc"/>'s two duplicate predicates, and for
+    /// the same reason: a slug (or its detail) that depends on member order is a divergence
+    /// waiting to happen between two implementations that are each individually correct.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TwoDuplicatePairsInBothOrders))]
+    public void CanonicalizeReportsTheSortFirstDuplicateRegardlessOfMemberOrder(
+        ImmutableArray<KeyValuePair<string, JsonValue>> members)
+    {
+        var result = CanonicalJson.Canonicalize(new JsonValue.Object(members));
+
+        Assert.False(result.IsOk);
+        Assert.Equal("curia/admit/duplicate-key", result.Match(_ => "ok", e => e.Type));
+        Assert.Equal("a", result.Match(_ => "ok", e => e.Detail));
+    }
+
+    public static TheoryData<ImmutableArray<KeyValuePair<string, JsonValue>>> TwoDuplicatePairsInBothOrders()
+    {
+        KeyValuePair<string, JsonValue> A1 = new("a", new JsonValue.Number(1));
+        KeyValuePair<string, JsonValue> A2 = new("a", new JsonValue.Number(2));
+        KeyValuePair<string, JsonValue> B1 = new("b", new JsonValue.Number(3));
+        KeyValuePair<string, JsonValue> B2 = new("b", new JsonValue.Number(4));
+
+        return new TheoryData<ImmutableArray<KeyValuePair<string, JsonValue>>>
+        {
+            ImmutableArray.Create(A1, A2, B1, B2),
+            ImmutableArray.Create(B1, B2, A1, A2),
+        };
+    }
+
+    /// <summary>
+    /// The exemption stays exempt. R6.38's first paragraph forbids these functions from
+    /// re-enforcing ADMIT's policy caps, and adding a well-definedness check must not smuggle
+    /// one in: an object with 1,025 members -- one past R6.39's cap, which
+    /// <see cref="JsonReader.Parse"/> refuses -- still canonicalizes here, with pairwise
+    /// distinct names and no duplicate to find.
+    /// </summary>
+    [Fact]
+    public void CanonicalizeStillAcceptsAnObjectExceedingTheAdmitMemberCap()
+    {
+        var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
+        for (var i = 0; i <= AdmitLimits.Default.MaxMembersPerObject; i++)
+            members.Add(new KeyValuePair<string, JsonValue>($"k{i:D5}", new JsonValue.Number(i)));
+
+        var result = CanonicalJson.Canonicalize(new JsonValue.Object(members.ToImmutable()));
+
+        Assert.True(result.IsOk);
+    }
+
     // -- curia/canon/duplicate-normalized-key (P22 non-repudiation defect) --------------
 
     /// <summary>

@@ -1,4 +1,5 @@
 using Curia.Application.Ports;
+using Curia.Canon.Canonical;
 using Curia.Domain;
 using Curia.Domain.Primitives;
 
@@ -37,6 +38,29 @@ internal sealed class InMemoryEventStore : IEventStore
 
         if (events.Count == 0)
             return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(DomainErrors.EmptyAppendBatch()));
+
+        // The port's payload-admissibility promise (see IEventStore.AppendAsync's remarks),
+        // honoured by calling the very canonicalizer the Postgres adapter renders its jsonb
+        // text with -- not by a duplicate scan written a second time here. That this adapter
+        // holds an in-process object graph and *could* retain a duplicate-membered tree
+        // losslessly is not a licence to accept one: a fake more permissive than the real store
+        // is exactly the drift errata E10 found, and it fails in the direction that hurts, with
+        // code passing against the fake and losing data against Postgres.
+        //
+        // The canonical bytes are discarded on purpose: this store keeps the tree itself, so it
+        // is the verdict it needs, not the rendering. Canonicalize's check is linear in each
+        // object's member count (RFC 8785 sec. 3.2.3's sort leaves equal names adjacent), so
+        // that verdict costs one walk of the payload.
+        //
+        // The whole batch is checked before a single event is appended, and before the lock is
+        // even taken -- mirroring the Postgres adapter refusing before it opens a connection.
+        // A per-event check inside the append loop below would leave a half-written batch in an
+        // append-only log with nothing to roll it back.
+        foreach (var domainEvent in events)
+        {
+            if (!CanonicalJson.Canonicalize(domainEvent.Payload).TryGetValue(out _, out var payloadError))
+                return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(payloadError!));
+        }
 
         lock (_gate)
         {

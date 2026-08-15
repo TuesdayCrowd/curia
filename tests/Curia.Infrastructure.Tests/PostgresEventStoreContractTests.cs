@@ -34,10 +34,14 @@ public sealed class PostgresEventStoreContractTests : EventStorePortContractTest
 
     protected override IEventStore CreateStore()
     {
-        // CreateStore() is synchronous (the abstract suite's contract), so the async reset
-        // is blocked on here -- the same accepted pattern EventStorePortContractTests' own
-        // property test already uses for AppendAsync via GetAwaiter().GetResult().
-        _fixture.ResetEventsTableAsync().GetAwaiter().GetResult();
-        return new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System);
+        // CreateStore() is synchronous (the abstract suite's contract), so the async schema
+        // provisioning is blocked on here -- the same accepted pattern
+        // EventStorePortContractTests' own property test already uses for AppendAsync via
+        // GetAwaiter().GetResult(). A fresh schema per call, not a shared-table TRUNCATE: see
+        // PostgresDatabaseFixture.CreateIsolatedSchemaAsync's remarks for why this suite
+        // specifically needs true per-call isolation, including under CsCheck's own
+        // concurrent case execution.
+        var schema = _fixture.CreateIsolatedSchemaAsync().GetAwaiter().GetResult();
+        return new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, schema);
     }
 }
