@@ -8,7 +8,7 @@
 //! RFC 8037, cited nowhere in the original corpus. An implementer who
 //! reuses the `EC` shape (`x`/`y`) for an Ed25519 key produces JSON that
 //! parses and then verifies nothing — D4's own words. This module encodes
-//! the corrected mapping (proposed R4.21):
+//! the corrected mapping (proposed R4.28):
 //!
 //! - **Ed25519** (`alg: "EdDSA"`): RFC 8037 §2 octet key pair —
 //!   `kty: "OKP"`, `crv: "Ed25519"`, `x` = base64url(32-byte public key, no
