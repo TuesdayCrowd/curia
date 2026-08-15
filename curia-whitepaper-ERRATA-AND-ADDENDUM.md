@@ -830,10 +830,32 @@ A verifier's entire external interface is the key set. An implementer must eithe
 independently discover RFC 8037 or guess — and a plausible guess, reusing the `EC`
 shape with `x`/`y`, is well-formed JSON that parses and then fails to verify anything.
 
-**R4.21** Ed25519 public keys SHALL be represented as JWK octet key pairs per
+**R4.28** Ed25519 public keys SHALL be represented as JWK octet key pairs per
 RFC 8037: `kty: "OKP"`, `crv: "Ed25519"`, and `x` holding the base64url-encoded
 32-byte public key with no padding. ECDSA P-256 keys SHALL use the RFC 7518 `EC`
 form with `crv: "P-256"`. RFC 8037 SHALL be added to the References.
+
+**Numbering correction (this entry was published as R4.21 and is now R4.28).**
+`R4.21` was already taken. §4.5 assigns it to *"State transitions SHALL be
+append-only events carrying actor, reason, and timestamp; the current state is a
+projection"*, and §4 runs continuously from R4.1 to R4.27, so the next free
+number was always R4.28. Because this document is authoritative over v1.0
+wherever it touches it, the collision did not merely duplicate an identifier — a
+reader resolving `R4.21` got the JWK shape and silently lost the append-only
+lifecycle requirement, which is a Phase 1 obligation.
+
+Renumbering the *draft* entry rather than the published requirement is the only
+direction that preserves the stable-identifier rule this document sets for
+itself: v1.0's R4.21 keeps its number and every existing citation of it stays
+correct. This is the same class of exception as A8, where renumbering §10 *was*
+the fix. The one downstream citation, in `rust/curia-testis/src/jwk.rs`, has been
+swept.
+
+The collision is also evidence for the failure mode this project names as its
+own: *"Cross-reference rot is this project's observed failure mode."* It was
+introduced by an erratum that corrected a genuine gap (Ed25519 has no JWK form
+under RFC 7517/7518 at all) while assigning its requirement number without
+checking the section's high-water mark.
 
 ## D5 — "Safe range" is an undefined term, and its bounds are untested
 
@@ -1363,7 +1385,7 @@ hits it next.
 | R12.16 | Log-key history discipline (R4.19 applied to the log) | B3 |
 | R12.17 | Log-key compromise runbook anchored to witnessed heads | B3 |
 | R14.6 | Differential canonicalization fuzzing across the dual implementations | C8 |
-| R4.21 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
+| R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
 | R6.8 (rev.) | `Canonicalize` — pure RFC 8785, no normalization, reproduces the RFC's own vectors | D1 |
 | R6.9 (rev.) | `CanonicalizeWithNfc` — NFC every key and value recursively **first**, then canonicalize | D1 |
 | R6.11 (add.) | Vectors published as files; bytes stated in hex where not visually distinguishable | D8 |
