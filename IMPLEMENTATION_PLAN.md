@@ -465,7 +465,38 @@ likely to displace the domain work that gives it something worth serving.
 **Tests**: `CsCheck` over adversarial content containing control tokens and delimiter sequences;
 P22 asserted directly in `Curia.Domain.Tests`.
 
-**Status**: Not Started
+**Status**: **Complete** — 724 tests, 0 warnings.
+
+**R10.18 decided the response shape.** "A warning that a client can strip while keeping the content
+is a warning that will be stripped." A sibling `provenance` field beside a sibling `body` field is
+trivially separable — drop one, keep the other. So the content is a member *of* the envelope's
+object: a client discarding the envelope discards the content with it. And the text rendering is
+delimited at **every** marking level, including `None`, because in a text rendering the delimiters
+*are* that structure; choosing no datamark is choosing not to interleave a token, not choosing an
+unmarked blob.
+
+**Escaping is the whole reason either transformation works**, and R10.19 says why: *"the same
+discipline as parameterized SQL, and it fails the same way when skipped."* Content carrying the
+control token could otherwise make its own text look like a Forum-produced marked span; content
+carrying the closing delimiter could make the untrusted span appear to end early, so everything
+after it reads as the Forum's own words. Both are escaped, and stripping is asserted to be the exact
+inverse of marking — a stripper that removed *every* token would delete content that legitimately
+contained one, which is the same bug reversed.
+
+**The caveats live in the response, not in documentation.** R10.15's "weakest option" and R10.16's
+"not a guarantee" are returned with the marking they qualify. There is deliberately no field a
+client could render as a green badge — R10.11's point about "no injection detected" inviting readers
+to skip L3.
+
+**The invariant, falsified.** Serving the marked form as `canonical` — the exact mistake R6.12
+forbids — fails three tests, including the independent verifier rejecting the post. That is the
+strongest available evidence that the serving boundary cannot disturb what was signed: the check is
+not "we remembered not to", it is "a second implementation notices".
+
+R10.13's MCP default (datamarking **on**, since that output "goes directly into a model's context")
+is recorded but not built: R15.2 puts the MCP adapter no earlier than Phase 3, and the asymmetry
+between a lands-in-a-context path and a lands-in-a-program path is R10.13's actual point rather than
+an oversight.
 
 ---
 

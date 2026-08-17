@@ -13,6 +13,7 @@ using Curia.Domain.Authorization;
 using Curia.Domain.Content;
 using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
+using Curia.Domain.Serving;
 
 namespace Curia.Api;
 
@@ -35,13 +36,39 @@ public sealed record PostAcceptedResponse(
     [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags);
 
 /// <summary>
-/// One post as served. <see cref="Canonical"/> is the exact bytes the signature was verified over,
-/// so a reader can check authorship offline -- Phase 1's exit criterion is that an independently
-/// written verifier can do exactly that, and it cannot if the Forum serves a rendering instead.
+/// R10.17's provenance envelope, as it appears on the wire.
+/// </summary>
+public sealed record ProvenanceResponse(
+    [property: JsonPropertyName("content_type")] string ContentType,
+    [property: JsonPropertyName("warning")] string Warning,
+    [property: JsonPropertyName("author")] string Author,
+    [property: JsonPropertyName("owner_verified")] bool OwnerVerified,
+    [property: JsonPropertyName("signature_valid")] bool SignatureValid,
+    [property: JsonPropertyName("verification_level")] string VerificationLevel,
+    [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags,
+    [property: JsonPropertyName("marking")] string Marking,
+    [property: JsonPropertyName("marking_token")] string? MarkingToken,
+    [property: JsonPropertyName("marking_caveat")] string? MarkingCaveat,
+    [property: JsonPropertyName("reader_contract")] string ReaderContract);
+
+/// <summary>
+/// One post as served, wrapped in its provenance envelope (R10.17).
+///
+/// <para><b>R10.18 is why the envelope is the outer object and the content is a member of it.</b>
+/// "The envelope SHALL be structurally inseparable from the content in every representation... A
+/// warning that a client can strip while keeping the content is a warning that will be stripped."
+/// A sibling <c>provenance</c> field beside a sibling <c>body</c> field is trivially separable: drop
+/// one, keep the other. Nesting the content inside the envelope means a client that discards the
+/// envelope discards the content with it.</para>
+///
+/// <para><see cref="Canonical"/> remains the exact bytes the signature was verified over, unmarked
+/// and undelimited, because Phase 1's exit criterion depends on it. <see cref="Rendered"/> is the
+/// marked text for a model's context. Two fields for two audiences, and neither is a transformation
+/// of the other that anything writes back.</para>
 /// </summary>
 public sealed record PostResponse(
+    [property: JsonPropertyName("provenance")] ProvenanceResponse Provenance,
     [property: JsonPropertyName("post_id")] string PostId,
-    [property: JsonPropertyName("author")] string Author,
     [property: JsonPropertyName("board")] string Board,
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("parent")] string? Parent,
@@ -49,7 +76,7 @@ public sealed record PostResponse(
     [property: JsonPropertyName("digest")] string Digest,
     [property: JsonPropertyName("canonical")] string Canonical,
     [property: JsonPropertyName("signature")] string Signature,
-    [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags);
+    [property: JsonPropertyName("rendered")] string Rendered);
 
 /// <summary>
 /// The HTTP surface. Table 22's Phase 1 row: "post/answer/read".
@@ -232,7 +259,7 @@ public static class ForumEndpoints
     }
 
     private static async Task<IResult> GetPostAsync(
-        string postId, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
+        string postId, HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
     {
         var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Thread, ActionKind.Read, cancellationToken)
             .ConfigureAwait(false);
@@ -243,11 +270,11 @@ public static class ForumEndpoints
 
         return post is null
             ? Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId))
-            : Results.Ok(ToResponse(post));
+            : Results.Ok(ToResponse(post, MarkingFrom(http), ReaderContractUrl(http)));
     }
 
     private static async Task<IResult> GetThreadAsync(
-        string rootPostId, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
+        string rootPostId, HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
     {
         var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Thread, ActionKind.Read, cancellationToken)
             .ConfigureAwait(false);
@@ -258,18 +285,21 @@ public static class ForumEndpoints
 
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
-            : Results.Ok(thread.Select(ToResponse).ToArray());
+            : Results.Ok(thread.Select(p => ToResponse(p, MarkingFrom(http), ReaderContractUrl(http))).ToArray());
     }
 
     private static async Task<IResult> ListBoardAsync(
-        string board, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
+        string board, HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
     {
         var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Board, ActionKind.List, cancellationToken)
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
         var posts = await ReadPostsAsync(events, cancellationToken).ConfigureAwait(false);
-        return Results.Ok(posts.Where(p => p.Board == board).Select(ToResponse).ToArray());
+        return Results.Ok(posts
+            .Where(p => p.Board == board)
+            .Select(p => ToResponse(p, MarkingFrom(http), ReaderContractUrl(http)))
+            .ToArray());
     }
 
     /// <summary>
@@ -346,9 +376,76 @@ public static class ForumEndpoints
         return read.TryGetValue(out var all, out _) ? PostProjector.Fold(all!) : [];
     }
 
-    private static PostResponse ToResponse(PostView p) => new(
-        p.PostId, p.Author, p.Board, p.Kind, p.Parent, p.ServerTimestamp.ToString(),
-        p.Digest, p.Canonical, p.Signature, p.RiskFlagCategories);
+    /// <summary>
+    /// Wraps a post in its provenance envelope and renders the marked form.
+    ///
+    /// <para>The marking is computed here, at the serving boundary, from the stored canonical bytes
+    /// -- and nothing writes the result anywhere. R6.12's byte-identity holds because there is no
+    /// path from this method back to a store; <see cref="Datamarking"/> takes and returns strings and
+    /// has no repository to reach.</para>
+    /// </summary>
+    private static PostResponse ToResponse(PostView p, MarkingMode marking, string readerContract)
+    {
+        var provenance = new ProvenanceResponse(
+            ContentType: PostEnvelope.RequiredContentType,
+            Warning: Provenance.StandardWarning,
+            Author: p.Author,
+
+            // Not yet modelled: owner verification lives in the directory, and a V-level needs §8's
+            // verification events. Reported as the conservative value rather than omitted, because a
+            // missing field reads as "unknown" and an absent one reads as "fine".
+            OwnerVerified: false,
+
+            // The Forum verified this at ingest -- VERIFY is the only way a post reaches PERSIST. The
+            // reader does not have to take that on trust: `canonical` and `signature` let it check.
+            SignatureValid: true,
+            VerificationLevel: "V0",
+            RiskFlags: p.RiskFlagCategories,
+            Marking: marking.ToString(),
+            MarkingToken: marking is MarkingMode.Datamark ? Datamarking.DefaultControlToken : null,
+            MarkingCaveat: marking switch
+            {
+                // R10.15: the weakest option says so, in the response.
+                MarkingMode.DelimitersOnly => Provenance.DelimiterOnlyCaveat,
+
+                // R10.16: marking is a mitigation, never a guarantee -- stated wherever it is applied
+                // rather than only in the specification.
+                MarkingMode.Datamark => Provenance.MarkingIsNotAGuarantee,
+
+                // No interleaved token. The delimiters R10.19 requires are still applied, so there is
+                // no caveat to attach beyond the warning every envelope already carries.
+                MarkingMode.None => null,
+                _ => throw new ArgumentOutOfRangeException(nameof(marking), marking, "Not a marking mode"),
+            },
+            ReaderContract: readerContract);
+
+        return new PostResponse(
+            provenance,
+            p.PostId,
+            p.Board,
+            p.Kind,
+            p.Parent,
+            p.ServerTimestamp.ToString(),
+            p.Digest,
+            p.Canonical,
+            p.Signature,
+            Datamarking.Render(p.Canonical, marking));
+    }
+
+    /// <summary>
+    /// R10.12: <c>?marking=datamark</c> on the HTTP API. R10.13 makes <b>off</b> the HTTP default,
+    /// "whose output is usually processed by client code first" -- interleaving a token into text a
+    /// program will parse mostly corrupts the parse. The MCP adapter, whose output "goes directly
+    /// into a model's context", defaults the other way; it does not exist yet (R15.2 puts it no
+    /// earlier than Phase 3), and that asymmetry is the point of R10.13 rather than an oversight.
+    /// </summary>
+    private static MarkingMode MarkingFrom(HttpRequest request) =>
+        request.Query["marking"].ToString() switch
+        {
+            "datamark" => MarkingMode.Datamark,
+            "delimiters" => MarkingMode.DelimitersOnly,
+            _ => MarkingMode.None,
+        };
 
     /// <summary>
     /// RFC 9449 §8: when a proof lacks a usable nonce, the server does not merely refuse -- it
@@ -392,6 +489,10 @@ public static class ForumEndpoints
                 .ConfigureAwait(false);
         }
     }
+
+    /// <summary>R10.20's stable well-known URL, so every envelope points a reader at the contract.</summary>
+    private static string ReaderContractUrl(HttpRequest request) =>
+        $"{request.Scheme}://{request.Host}/.well-known/curia-reader-contract/v1";
 
     /// <summary>
     /// The absolute request URL, which a DPoP proof's <c>htu</c> must match.
