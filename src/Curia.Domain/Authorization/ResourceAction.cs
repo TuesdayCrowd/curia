@@ -125,6 +125,28 @@ public readonly record struct ResourceActionRow(
 }
 
 /// <summary>
+/// Which Table 10 actions are reads.
+///
+/// <para>Two separate requirements need this same set and would otherwise each carry their own
+/// copy: Table 11's "Read only" capability for a quarantined credential
+/// (see <see cref="AccessPolicy"/>, which records why Table 11 governs over Appendix F.1's
+/// narrower literal reading), and R7.4's rule that only read actions may be served from a cached
+/// decision. Two copies of a security-relevant set is one copy too many -- they would drift, and
+/// the drift would be a cache serving something that is not a read.</para>
+/// </summary>
+public static class ActionKinds
+{
+    /// <summary>
+    /// <see cref="ActionKind.List"/>, <see cref="ActionKind.Read"/> and
+    /// <see cref="ActionKind.Search"/>. Everything else -- including
+    /// <see cref="ActionKind.Enroll"/>, which is decided by owner authentication rather than by
+    /// tier -- is treated as not a read, which is the conservative direction for both callers.
+    /// </summary>
+    public static bool IsRead(ActionKind action) =>
+        action is ActionKind.List or ActionKind.Read or ActionKind.Search;
+}
+
+/// <summary>
 /// The backticked spellings Table 10 uses, which are also the AuthZEN <c>resource.type</c> and
 /// <c>action.name</c> values (R7.2). Kept as an explicit mapping rather than lowercasing the enum
 /// name, so the wire vocabulary is a reviewable list and not a side effect of C# naming.

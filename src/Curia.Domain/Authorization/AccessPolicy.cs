@@ -35,9 +35,11 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
 /// The request a PDP answers: §7's inputs reduced to what a decision needs at this layer.
 /// </summary>
 /// <param name="Tier">
-/// R7.7: computed from live state at decision time, never read solely from a token claim. This
-/// type cannot enforce that -- it receives whatever it is handed -- so Stage 2's posture
-/// projection is what makes the requirement true; here it is only stated.
+/// R7.7: "computed from live state at decision time, never read solely from a token claim."
+/// Typed as <see cref="EvaluatedTier"/> rather than <see cref="PrincipalTier"/> so the requirement
+/// is a construction rule instead of a convention -- an <see cref="EvaluatedTier"/> comes only out
+/// of <see cref="TierPolicy.Evaluate"/> or <see cref="EvaluatedTier.Anonymous"/>, so a request
+/// built from a JWT claim does not compile.
 /// </param>
 /// <param name="CredentialState">
 /// Table 6's state. Present because Appendix F.1's quarantine rule keys on it and it overrides
@@ -49,7 +51,7 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
 /// Irrelevant to every other cell.
 /// </param>
 public sealed record AuthorizationRequest(
-    PrincipalTier Tier,
+    EvaluatedTier Tier,
     CredentialState CredentialState,
     ResourceKind Resource,
     ActionKind Action,
@@ -85,8 +87,7 @@ public static class AccessPolicy
     /// <see cref="CredentialLifecycle"/>'s D9.5 note -- the literal reading is rejected above, not
     /// merely unconsidered.</para>
     /// </summary>
-    private static bool IsRead(ActionKind action) =>
-        action is ActionKind.List or ActionKind.Read or ActionKind.Search;
+    internal static bool IsRead(ActionKind action) => ActionKinds.IsRead(action);
 
     /// <summary>
     /// R7.6: anonymous read is an explicit <c>allow</c> decided by this function, never the absence
@@ -104,7 +105,7 @@ public static class AccessPolicy
 
     private static Result<AuthorizationDecision> Evaluate(AuthorizationRequest request, ResourceActionRow row)
     {
-        var cell = row[request.Tier];
+        var cell = row[request.Tier.Tier];
 
         // The `agent`/`enroll` row. Answered before anything else because it is not a
         // tier-indexed question at all, so neither the quarantine rule nor the Table 10 cell
