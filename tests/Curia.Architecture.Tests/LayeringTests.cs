@@ -134,10 +134,24 @@ public sealed class LayeringTests
     [Fact]
     public void CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives()
     {
-        var scanned = Types.InAssembly(Domain).GetTypes();
+        // Compiler-emitted types are excluded, and the exclusion is precise rather than convenient.
+        // Roslyn emits `<>z__ReadOnlyArray<T>` for collection expressions and
+        // `<PrivateImplementationDetails>` for data blobs; both sit in the global namespace, so an
+        // allow-list keyed on namespace prefixes reports them the moment any Curia.Domain file uses
+        // `[...]` syntax. They are artifacts of how the compiler lowered code that was already
+        // written, not dependencies anyone took -- no package reference can arrive this way.
+        //
+        // Filtered by the leading `<`, which is not a legal character in a C# identifier: a type
+        // named this way is necessarily compiler-emitted, so this cannot accidentally excuse
+        // anything a person wrote. The rule keeps its teeth -- a hand-written type in the global
+        // namespace is still an offender, and so is any type reaching a namespace outside the list.
+        var scanned = Types.InAssembly(Domain)
+            .That().DoNotHaveNameStartingWith("<")
+            .GetTypes();
         Assert.NotEmpty(scanned); // guards against the predicate silently matching nothing
 
         var result = Types.InAssembly(Domain)
+            .That().DoNotHaveNameStartingWith("<")
             .Should().OnlyHaveDependenciesOn(
                 "System",
                 "Curia.Domain",

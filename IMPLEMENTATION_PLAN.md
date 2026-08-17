@@ -260,7 +260,58 @@ The two detector families pull in opposite directions and that is deliberate:
 red-team corpus wired in from `conformance/`; a mutation that makes a detector mutate its input
 and confirms the byte-identity property fails.
 
-**Status**: Not Started
+**Status**: **Complete for SCREEN; the surrounding pipeline is named as not built** — PR #25.
+679 tests (+60), 0 warnings.
+
+**One type shape satisfies three requirements.** R6.13 (analysis on a derived copy that is
+discarded), R10.27 (a rejection must not echo the detected value) and R10.28 ("a scanner that logs
+what it finds is a credential aggregator") all hold structurally if the screener's *output cannot
+carry content*. A `RiskFlag` records category, offset, length and detector version — never the
+matched text. So the derived copy has nowhere to escape to, the rejection has nothing to echo, and
+a logger that serializes the whole annotation set still logs no secret.
+
+Guarded two ways and **falsified**: a reflection walk over everything reachable from
+`ScreeningResult` fails on any member typed to hold content, and a behavioural test serializes the
+result by `ToString` and by JSON and looks for the secret. Adding a "just for debugging"
+`MatchedText` field fails both — the walk names the member, the serialization finds the credential.
+
+**`Screen` takes a `ReadOnlySpan<byte>`**, which cannot be stored in a field, so the phase
+structurally cannot retain what it screened. R6.12's byte-identity is asserted at the phase
+boundary (the caller's buffer is unchanged after screening, over content chosen to fire every
+detector).
+
+**The two regimes are a table, not scattered conditionals.** `RiskCategories` maps every category
+to `Reject` (R10.26's credential material — there is no redaction primitive, so this is a gate)
+or `Annotate` (R10.8's injection patterns, and R10.29's PII). R10.9's own example is a test:
+*a legitimate write-up about prompt injection* is annotated and still persistable.
+
+**False-positive discipline is tested as hard as detection.** R10.26 makes every credential hit a
+hard rejection, so a false positive costs an author their submission — the patterns are
+credential-specific, and R10.25's one entropy rule is scoped to assignment position exactly as
+written. Digests, RFC 8785 vectors, and `secret = "changeme"` are all tested as *not* secrets.
+
+§14.2's bullet — *"Content containing a synthetic credential → hard-rejected, value not logged"* —
+has its own test naming it verbatim, with a negative control, since a screener that rejected
+everything would satisfy the bullet while measuring nothing.
+
+**Recorded gaps, not approximated.** R10.8 names *homoglyph substitution*; it is **not
+implemented** (it needs a UTS #39 confusables table and a notion of what the text is confused
+with, and a rule flagging Cyrillic in mixed-script text would fire on most multilingual content).
+A test asserts the current honest behaviour so the gap fails loudly if anyone assumes it closed —
+which is R10.11's point about badges that imply more than "our current detectors did not fire".
+
+**What is not built.** The phase-typed pipeline of scoping §5.1 — `AdmittedSubmission` →
+`VerifiedSubmission` → `ScreenedSubmission` → `Persist` — **does not exist**. `EnvelopeParser`
+(ADMIT) and `DetachedJws` (VERIFY's primitive) do, and SCREEN now does, but there is no `Persist`
+and therefore no end-to-end "persisted bytes equal verified bytes" property yet. That property is
+the pipeline's, not the screener's, and claiming it here would be claiming a gate that is not
+installed. It lands when PERSIST does.
+
+Also fixed: `CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives` reported
+`<>z__ReadOnlyArray` and `<PrivateImplementationDetails>` as offenders — Roslyn artifacts of
+collection-expression syntax, in the global namespace. Filtered by the leading `<`, which is not a
+legal C# identifier character, so nothing hand-written can be excused. Falsified by narrowing the
+allow-list, which still fails.
 
 ---
 
