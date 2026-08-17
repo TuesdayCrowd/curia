@@ -79,7 +79,10 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
             Database = _databaseName,
         };
 
-        var rendered = EventStoreSchema.Render(EventStoreSchema.LoadTemplate(), _roleName, rolePassword);
+        // Every migration in db/, in order, not just the first. A fixture that applied one file
+        // by name would go on passing while a later migration was missing from the database it
+        // provisions -- which is a green suite against a schema no deployment has.
+        var rendered = SchemaMigrations.RenderAll(_roleName, rolePassword);
         await using (var connection = new NpgsqlConnection(ephemeralBuilder.ConnectionString))
         {
             await connection.OpenAsync().ConfigureAwait(false);
@@ -177,6 +180,54 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
             GRANT USAGE ON SCHEMA {quotedSchema} TO {quotedRole};
             GRANT INSERT, SELECT ON {quotedSchema}.events TO {quotedRole};
             REVOKE UPDATE, DELETE ON {quotedSchema}.events FROM {quotedRole};
+            """;
+
+        await using var connection = await AdminDataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        return schemaName;
+    }
+
+    /// <summary>
+    /// Provisions a brand-new Postgres schema holding db/0002's operational tables -- the replay
+    /// cache, the DPoP nonces, and the Registrar's key store -- with their own grants to the
+    /// fixture's throwaway application role, and returns the schema name for the adapters'
+    /// <c>schema</c> constructor parameter.
+    ///
+    /// <para>Per-test isolation matters more here than it does for <c>events</c>. A <c>jti</c>, a
+    /// <c>kid</c> and above all a nonce epoch are global keys: two tests using the same rotation
+    /// epoch would collide on a shared table by construction, however carefully each generated its
+    /// own identifiers.</para>
+    ///
+    /// <para><b>Executed by re-rendering the checked-in migration under a <c>search_path</c></b>,
+    /// not by re-typing its DDL the way <see cref="CreateIsolatedSchemaAsync"/> re-types the
+    /// events table. That duplication was accepted there because 0001 also issues CREATE ROLE,
+    /// which must run once per role and not once per schema; 0002 issues no CREATE ROLE at all --
+    /// it only creates tables and grants, all of them unqualified -- so pointing
+    /// <c>search_path</c> at a fresh schema puts the real migration's real objects there. The
+    /// tables under test are therefore the ones a deployment gets, byte for byte, rather than a
+    /// transcription of them. <c>RESET search_path</c> at the end, because the connection returns
+    /// to Npgsql's pool and a leaked session setting would silently redirect the next borrower.</para>
+    /// </summary>
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "The interpolated text is QuoteIdentifier(schemaName) -- generated on the " +
+            "line above from a literal prefix plus a GUID's hex digits -- and the rendered migration " +
+            "template, which is a checked-in file whose only substituted values are _roleName and a " +
+            "generated password. Neither is external input.")]
+    public async Task<string> CreateIsolatedOperationalSchemaAsync(CancellationToken cancellationToken = default)
+    {
+        var schemaName = $"ops{Guid.NewGuid():N}";
+        var quotedSchema = QuoteIdentifier(schemaName);
+
+        var sql = $"""
+            CREATE SCHEMA {quotedSchema};
+            GRANT USAGE ON SCHEMA {quotedSchema} TO {QuoteIdentifier(_roleName)};
+            SET search_path TO {quotedSchema};
+            {SchemaMigrations.Render(SchemaMigrations.OperationalStateFile, _roleName)}
+            RESET search_path;
             """;
 
         await using var connection = await AdminDataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);

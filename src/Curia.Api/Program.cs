@@ -65,8 +65,6 @@ public sealed class Program
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.Services.AddSingleton(TimeProvider.System);
-        builder.Services.AddSingleton<InMemoryAuthorKeyResolver>();
-        builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<InMemoryAuthorKeyResolver>());
         builder.Services.AddSingleton<AgentDirectory>();
         builder.Services.AddSingleton<IAuthorizationAlertSink, LoggingAlertSink>();
 
@@ -86,6 +84,13 @@ public sealed class Program
         // carry that guarantee. A Forum running without it would look identical and be a
         // different system. The connection string is required; startup fails loudly without one
         // rather than quietly starting something that cannot keep its own promises.
+        //
+        // The same data source also serves db/0002's operational tables -- the replay cache, the
+        // DPoP nonces, and the Registrar's key store. Same database, different grants and a
+        // different migration, because those tables are not the system of record and legitimately
+        // need UPDATE and DELETE; 0002's header states the distinction at length so that a reader
+        // who knows R11.6 finds the answer where the grants are rather than having to reason it
+        // out from the code.
         builder.Services.AddSingleton(sp =>
         {
             var connectionString = builder.Configuration.GetConnectionString("Events")
@@ -97,6 +102,16 @@ public sealed class Program
 
             return NpgsqlDataSource.Create(connectionString);
         });
+
+        // The Registrar's key store, satisfying three ports from one table (see
+        // PostgresAgentKeyStore's remarks: Curia.Application and Curia.AuthN cannot see each
+        // other, so each declares the capability it needs and the composition root -- here --
+        // satisfies all of them). No TimeProvider: R6.31 evaluates key validity at the caller's
+        // server_ts, so this adapter has no business knowing what time it is.
+        builder.Services.AddSingleton(sp => new PostgresAgentKeyStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
+        builder.Services.AddSingleton<IAuthorKeyRegistry>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
+        builder.Services.AddSingleton<IAgentKeyResolver>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
 
         builder.Services.AddSingleton<IEventStore>(sp => new PostgresEventStore(
             sp.GetRequiredService<NpgsqlDataSource>(),
@@ -124,19 +139,40 @@ public sealed class Program
         // §5's transport. The issuer is co-hosted for the prototype (see TokenIssuer's remarks);
         // the resource server verifies what it minted through IssuerKeyResolver, which resolves
         // exactly one kid and refuses every other.
+        //
+        // The signing key is configured, not generated, and startup fails without one for the
+        // same reason it fails without a connection string: a Forum that mints tokens it will
+        // stop being able to verify is not a working prototype with a caveat, it is an
+        // intermittent outage waiting for its first restart. See IssuerSigningKey for the whole
+        // argument, including why this is configuration rather than a fifth database table.
+        builder.Services.AddSingleton(_ => IssuerSigningKey.FromPem(
+            builder.Configuration["Curia:IssuerSigningKeyPem"]
+            ?? Environment.GetEnvironmentVariable("CURIA_ISSUER_SIGNING_KEY_PEM")
+            ?? throw new InvalidOperationException(
+                "No issuer signing key configured. Set Curia:IssuerSigningKeyPem or " +
+                "CURIA_ISSUER_SIGNING_KEY_PEM to a PEM-encoded ECDSA P-256 private key. " +
+                "Generate one with `openssl ecparam -genkey -name prime256v1 -noout | " +
+                "openssl pkcs8 -topk8 -nocrypt`, and hold it the way R4.20 requires -- " +
+                "hardware-backed or an OS secret store, never committed anywhere. The Forum " +
+                "does not generate one for you: a per-process key makes every token minted " +
+                "before a restart unverifiable after one.")));
+
         builder.Services.AddSingleton(sp => new TokenIssuer(
             issuer: builder.Configuration["Curia:Issuer"] ?? "https://forum.local",
             audience: builder.Configuration["Curia:Audience"] ?? "https://forum.local",
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IssuerSigningKey>()));
+
+        // R5.15's "shared across all instances of a resource server", and its restart-shaped
+        // twin. Both of these were in-process dictionaries; both were therefore security controls
+        // that protected one pod. See PostgresReplayCache and PostgresDpopNonceStore.
+        builder.Services.AddSingleton<IReplayCache>(sp => new PostgresReplayCache(
+            sp.GetRequiredService<NpgsqlDataSource>(),
             sp.GetRequiredService<TimeProvider>()));
 
-        builder.Services.AddSingleton<IReplayCache>(sp =>
-            new InMemoryReplayCache(sp.GetRequiredService<TimeProvider>()));
-
-        builder.Services.AddSingleton<IDpopNonceStore>(sp =>
-            new InMemoryDpopNonceStore(sp.GetRequiredService<TimeProvider>()));
-
-        builder.Services.AddSingleton<IAgentKeyResolver>(sp =>
-            new AgentKeyResolverAdapter(sp.GetRequiredService<InMemoryAuthorKeyResolver>()));
+        builder.Services.AddSingleton<IDpopNonceStore>(sp => new PostgresDpopNonceStore(
+            sp.GetRequiredService<NpgsqlDataSource>(),
+            sp.GetRequiredService<TimeProvider>()));
 
         builder.Services.AddSingleton(sp =>
         {

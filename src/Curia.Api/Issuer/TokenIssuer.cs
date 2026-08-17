@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -28,63 +27,45 @@ public sealed record IssuedToken(string AccessToken, string TokenType, int Expir
 /// </summary>
 public sealed class TokenIssuer
 {
-    private readonly ECDsa _signingKey;
+    private readonly IssuerSigningKey _signingKey;
     private readonly TimeProvider _clock;
 
-    public TokenIssuer(string issuer, string audience, TimeProvider clock)
+    /// <param name="signingKey">
+    /// The operator-supplied key, injected rather than generated here. This constructor used to
+    /// call <c>ECDsa.Create</c> itself, which made every token minted before a restart
+    /// unverifiable after one -- see <see cref="IssuerSigningKey"/> for the full account of that
+    /// defect, and for why the durable answer is configuration rather than a database table.
+    /// </param>
+    public TokenIssuer(string issuer, string audience, TimeProvider clock, IssuerSigningKey signingKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(issuer);
         ArgumentException.ThrowIfNullOrWhiteSpace(audience);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(signingKey);
 
         Issuer = issuer;
         Audience = audience;
         _clock = clock;
-
-        // A fresh key per process. Correct for a prototype and wrong for a deployment: R5.x wants
-        // the issuer's signing key in custody that survives a restart, and every token minted
-        // before a restart becomes unverifiable after one. Recorded here rather than left for
-        // someone to discover when their tokens stop working.
-        _signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        _signingKey = signingKey;
     }
 
     public string Issuer { get; }
 
     public string Audience { get; }
 
-    /// <summary>The <c>kid</c> of the issuer's signing key, as it appears in minted tokens and in the JWKS.</summary>
-    public string SigningKeyId { get; } = "issuer-" + Guid.NewGuid().ToString("N")[..8];
-
     /// <summary>
-    /// The issuer's own JWKS, so a resource server can verify what it minted.
-    ///
-    /// <para>Separate from the agent JWKS on purpose: these are two different trust statements.
-    /// The agent keys answer "did this agent write this post"; this key answers "did this issuer
-    /// mint this token". Serving them from one document would invite a verifier to accept an agent
-    /// key for a token or the reverse.</para>
+    /// The <c>kid</c> of the issuer's signing key, as it appears in minted tokens and in the JWKS.
+    /// The RFC 7638 thumbprint of the key itself, so it is the same value on every instance and
+    /// after every restart without anything having to be kept in sync.
     /// </summary>
-    public JsonObject Jwks()
-    {
-        var parameters = _signingKey.ExportParameters(includePrivateParameters: false);
+    public string SigningKeyId => _signingKey.Kid;
 
-        return new JsonObject
-        {
-            ["keys"] = new JsonArray(new JsonObject
-            {
-                ["kty"] = "EC",
-                ["crv"] = "P-256",
-                ["alg"] = "ES256",
-                ["use"] = "sig",
-                ["kid"] = SigningKeyId,
-                ["x"] = Base64UrlEncode(parameters.Q.X!),
-                ["y"] = Base64UrlEncode(parameters.Q.Y!),
-            }),
-        };
-    }
+    /// <summary>The issuer's own JWKS, so a resource server can verify what it minted. See
+    /// <see cref="IssuerSigningKey.Jwks"/> for why it is separate from the agent JWKS.</summary>
+    public JsonObject Jwks() => _signingKey.Jwks();
 
     /// <summary>The public key material a resource server verifies minted tokens against.</summary>
-    public PublicKeyMaterial VerificationKey =>
-        new("ES256", SigningKeyId, _signingKey.ExportSubjectPublicKeyInfo());
+    public PublicKeyMaterial VerificationKey => _signingKey.VerificationKey;
 
     /// <summary>
     /// Mints an access token bound to a DPoP key.
@@ -138,10 +119,7 @@ public sealed class TokenIssuer
             Base64UrlEncode(Encoding.UTF8.GetBytes(header.ToJsonString())) + "." +
             Base64UrlEncode(Encoding.UTF8.GetBytes(payload.ToJsonString()));
 
-        var signature = _signingKey.SignData(
-            Encoding.ASCII.GetBytes(signingInput),
-            HashAlgorithmName.SHA256,
-            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        var signature = _signingKey.Sign(Encoding.ASCII.GetBytes(signingInput));
 
         return new IssuedToken(
             $"{signingInput}.{Base64UrlEncode(signature)}",

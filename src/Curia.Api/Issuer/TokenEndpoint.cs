@@ -44,7 +44,6 @@ public static class TokenEndpoint
     private static async Task<IResult> IssueAsync(
         HttpRequest http,
         TokenIssuer issuer,
-        InMemoryAuthorKeyResolver keys,
         IAgentKeyResolver agentKeys,
         IReplayCache replayCache,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,

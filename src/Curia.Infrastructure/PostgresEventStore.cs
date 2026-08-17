@@ -60,7 +60,7 @@ public sealed class PostgresEventStore : IEventStore
         _dataSource = dataSource;
         _clock = clock;
         _schema = schema;
-        _qualifiedTable = QuoteIdentifier(schema) + ".events";
+        _qualifiedTable = SqlIdentifier.Quote(schema) + ".events";
     }
 
     /// <summary>
@@ -403,8 +403,4 @@ public sealed class PostgresEventStore : IEventStore
 
         return new AppendedEvent(seq, aggregateId, serverTimestamp, new DomainEvent(eventId, eventType, actorId, payload));
     }
-
-    /// <summary>Standard SQL identifier quoting (double quotes, embedded quotes doubled).</summary>
-    private static string QuoteIdentifier(string identifier) =>
-        "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 }
