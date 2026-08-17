@@ -525,8 +525,8 @@ exit criterion demands.
 **Tests**: red-team corpus scoring harness with results committed as a regression fixture, so a
 detector change that lowers the rate is visible as a diff.
 
-**Status**: **Reader Contract and measurement complete** — 729 tests. Flags, moderation and V0–V2
-verification remain.
+**Status**: **Reader Contract, measurement, flags and moderation complete** — 740 tests. V0–V2
+verification remains (it needs §8's verification events).
 
 **The Reader Contract is data, not prose.** R10.21 wants it machine readable and versioned; R10.22
 wants a client library to implement its mechanical parts by default, arguing that *"a contract that
@@ -562,6 +562,29 @@ the rate.
 The false-positive ceiling is **zero**, not "low", because R10.26 makes a credential hit a hard
 rejection — a single benign case firing costs an author their submission, which is a design bug
 rather than a tuning problem.
+
+**Moderation, and the absence that is the design.** `ModerationEffect` has `Quarantine`, `Withhold`,
+`Restore` and `Dismiss` — and no `Delete`, no `Redact`, no `Remove`. R10.26's reasoning applies here
+as much as at ingest: editing content would invalidate the author's signature, so there is no
+redaction primitive and cannot be one. The remedy is withholding plus a moderation event; the post
+stays in the log exactly as signed and stops being served.
+
+An enum with a `Delete` member would be a standing invitation to add the code behind it, so a test
+scans the enum *by name* for deletion-shaped members. Adding one fails four tests — which is the
+only moment at which the omission could stop being deliberate. Checked by name over the whole enum
+rather than by listing the four that exist, because a test enumerating the permitted members would
+pass unchanged when a fifth arrived.
+
+R10.36's load-bearing cell is the one that is **absent** from the authority table: automated
+moderation may quarantine (reversible, pending review) and may not withhold permanently. R10.9 says
+injection detectors have meaningful false-positive rates, so a detector able to permanently silence
+an author without review would make every false positive irreversible. It may not restore either — an
+automated system reversing its own quarantine would be reviewing itself.
+
+Servability is a fold over history rather than a stored flag, so a restore takes effect on the next
+read with nothing to invalidate — the same argument `CredentialLifecycle.Project` makes about current
+state. And a moderation action carries no content: a log that quoted what it withheld would
+republish it, which for a credential leak is precisely the harm the withholding was for.
 
 ---
 
