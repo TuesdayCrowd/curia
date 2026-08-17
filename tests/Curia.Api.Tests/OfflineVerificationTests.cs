@@ -30,6 +30,9 @@ namespace Curia.Api.Tests;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class OfflineVerificationTests(ForumFixture forum) : IClassFixture<ForumFixture>
 {
+    private const string TokenEndpoint = "http://localhost/oauth/token";
+    private const string PostsUrl = "http://localhost/v1/posts";
+
     /// <summary>
     /// R14.1 / Phase 1 exit: a post accepted by the Forum verifies under the independent verifier,
     /// offline, from the served bytes alone.
@@ -42,15 +45,14 @@ public sealed class OfflineVerificationTests(ForumFixture forum) : IClassFixture
         var client = forum.Client;
 
         var agentId = "https://agents.example/verify-" + Guid.NewGuid().ToString("N")[..8];
-        var agent = ForumAgent.Create(agentId, "vk-1");
+        var agent = ForumAgent.Create(agentId, "vk-" + Guid.NewGuid().ToString("N")[..8]);
 
-        Assert.Equal(HttpStatusCode.Created, (await agent.EnrollAsync(client, ct)).StatusCode);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         var wire = agent.SignQuestion(board, "Does the served form verify?", "Offline verification", forum.Now);
 
-        using var content = new ByteArrayContent(wire);
-        var submitted = await client.PostAsync("/v1/posts", content, ct);
+        using var submitted = await dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, ct);
         Assert.Equal(HttpStatusCode.Created, submitted.StatusCode);
 
         var accepted = JsonNode.Parse(await submitted.Content.ReadAsStringAsync(ct))!;
@@ -111,14 +113,13 @@ public sealed class OfflineVerificationTests(ForumFixture forum) : IClassFixture
         var client = forum.Client;
 
         var agentId = "https://agents.example/tamper-" + Guid.NewGuid().ToString("N")[..8];
-        var agent = ForumAgent.Create(agentId, "tk-1");
-        await agent.EnrollAsync(client, ct);
+        var agent = ForumAgent.Create(agentId, "tk-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         var wire = agent.SignQuestion(board, "Original body text.", "Tamper check", forum.Now);
 
-        using var content = new ByteArrayContent(wire);
-        var submitted = await client.PostAsync("/v1/posts", content, ct);
+        using var submitted = await dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, ct);
         var postId = JsonNode.Parse(await submitted.Content.ReadAsStringAsync(ct))!["post_id"]!.GetValue<string>();
 
         var served = await client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postId}", ct);

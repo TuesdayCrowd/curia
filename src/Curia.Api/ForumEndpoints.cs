@@ -5,6 +5,8 @@ using Curia.Api.Adapters;
 using Curia.Application.Ingest;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
+using Curia.AuthN;
+using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Authorization;
@@ -107,7 +109,13 @@ public static class ForumEndpoints
         }
 
         var now = clock.GetUtcNow();
-        keys.Register(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), now);
+
+        if (!keys.TryRegister(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), now))
+            return Results.Conflict(new Problem(
+                "curia/enroll/kid-already-registered",
+                "That key identifier is already registered to a different agent",
+                request.Kid));
+
         directory.Enroll(request.AgentId, now, request.OwnerVerified);
 
         await Task.CompletedTask.ConfigureAwait(false);
@@ -120,7 +128,7 @@ public static class ForumEndpoints
     }
 
     /// <summary>
-    /// The submission path: ADMIT → VERIFY → authorize → SCREEN → PERSIST.
+    /// The submission path: authenticate → ADMIT → VERIFY → authorize → SCREEN → PERSIST.
     ///
     /// <para><b>Authorization sits between VERIFY and SCREEN</b>, and the order is deliberate.
     /// Before VERIFY there is no authenticated principal to authorize -- the author is only a
@@ -134,9 +142,34 @@ public static class ForumEndpoints
         IPolicyDecisionPoint pdp,
         IEventReader events,
         AgentDirectory directory,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
+        // PEP: R7.13 evaluates authorization per request, and there is nothing to authorize until
+        // the caller is authenticated. The token is DPoP-bound (RFC 9449), so this checks both the
+        // token and proof of possession of the key it was bound to -- a captured token alone gets
+        // no further than this line.
+        //
+        // R5.19 / errata A17: a nonce is required on write paths, so the proof cannot be minted in
+        // advance of the server choosing when.
+        var principal = await AccessTokenValidator.ValidateRequestAsync(
+            new IncomingRequest(
+                http.Headers.Authorization.ToString(),
+                http.Headers["DPoP"].ToString(),
+                http.Method,
+                AbsoluteUrl(http),
+                RequireDpopNonce: true),
+            authn,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!principal.TryGetValue(out var authenticated, out var authError))
+            return await NonceChallengeOrProblemAsync(authError!, nonces, cancellationToken).ConfigureAwait(false);
+
+        // The principal is now the token's subject, not anything the envelope claims.
+        var subject = authenticated!.Claims.Sub;
+
         using var buffer = new MemoryStream();
         await http.Body.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
         var wire = buffer.ToArray();
@@ -146,14 +179,10 @@ public static class ForumEndpoints
         if (!admitted.TryGetValue(out var a, out var admitError))
             return Problem(StatusCodes.Status400BadRequest, admitError!);
 
-        // The author is a claim at this point. Read it only to know whose key to ask for.
-        var claimedAuthor = ReadAuthorClaim(a!);
-        if (claimedAuthor is null)
-            return Problem(StatusCodes.Status400BadRequest, ContentErrors.MissingOrInvalid("author"));
-
-        // VERIFY. This is where the claim becomes a fact: the signature must verify against the
-        // key registered to that agent, valid at server_ts (R6.31).
-        var verified = await pipeline.VerifyAsync(a!, claimedAuthor, cancellationToken).ConfigureAwait(false);
+        // VERIFY against the authenticated subject. Table 9's "author must equal the authenticated
+        // principal" is now a comparison against a token the client proved possession of, rather
+        // than against the envelope's own claim about itself -- which is the difference PEP-1 makes.
+        var verified = await pipeline.VerifyAsync(a!, subject, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
             return Problem(StatusCodes.Status401Unauthorized, verifyError!);
 
@@ -322,16 +351,58 @@ public static class ForumEndpoints
         p.Digest, p.Canonical, p.Signature, p.RiskFlagCategories);
 
     /// <summary>
-    /// Reads the <c>author</c> claim from an admitted envelope, without trusting it. It is used
-    /// only to decide whose key to ask for; the signature is what turns it into a fact.
+    /// RFC 9449 §8: when a proof lacks a usable nonce, the server does not merely refuse -- it
+    /// supplies the nonce to use, in the <c>DPoP-Nonce</c> header, with
+    /// <c>WWW-Authenticate: DPoP error="use_dpop_nonce"</c>.
+    ///
+    /// <para><b>Without this the nonce requirement is unsatisfiable</b>, not merely strict: a client
+    /// cannot guess a server-chosen value, so requiring one while never issuing one refuses every
+    /// write forever. The challenge is what makes R5.19 a protocol step rather than a wall.</para>
+    ///
+    /// <para>Only nonce failures get the challenge. A bad signature or an expired token gets a plain
+    /// refusal, because handing out a fresh nonce there would invite a client to retry a request
+    /// that will fail identically -- and would leak that its *other* credentials were the problem.</para>
     /// </summary>
-    private static string? ReadAuthorClaim(AdmittedSubmission admitted) =>
-        admitted.Document.Root.Members
-            .Where(m => m.Key == "author")
-            .Select(m => m.Value)
-            .OfType<Curia.Canon.Json.JsonValue.String>()
-            .Select(s => s.Value)
-            .FirstOrDefault();
+    private static async Task<IResult> NonceChallengeOrProblemAsync(
+        Error error, IDpopNonceStore nonces, CancellationToken cancellationToken)
+    {
+        if (error.Type is not ("curia/authn/nonce-missing" or "curia/authn/nonce-stale"))
+            return Problem(StatusCodes.Status401Unauthorized, error);
+
+        var issued = await nonces.IssueAsync(cancellationToken).ConfigureAwait(false);
+        if (!issued.TryGetValue(out var nonce, out var nonceError))
+            return Problem(StatusCodes.Status500InternalServerError, nonceError!);
+
+        return new NonceChallenge(error, nonce!.Value);
+    }
+
+    /// <summary>The 401 that carries a usable nonce back to the client.</summary>
+    private sealed class NonceChallenge(Error error, string nonce) : IResult
+    {
+        public async Task ExecuteAsync(HttpContext httpContext)
+        {
+            ArgumentNullException.ThrowIfNull(httpContext);
+
+            httpContext.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            httpContext.Response.Headers["DPoP-Nonce"] = nonce;
+            httpContext.Response.Headers.WWWAuthenticate = "DPoP error=\"use_dpop_nonce\"";
+
+            await httpContext.Response
+                .WriteAsJsonAsync(new Problem(error.Type, error.Title, error.Detail))
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The absolute request URL, which a DPoP proof's <c>htu</c> must match.
+    ///
+    /// <para>Built from the request rather than configuration for the same reason the token
+    /// endpoint's audience is: <c>htu</c> binding exists to stop a proof made for one URL being
+    /// replayed at another, and checking it against a configured value would defeat that whenever
+    /// the Forum is reached through an unexpected host.</para>
+    /// </summary>
+    private static string AbsoluteUrl(HttpRequest request) =>
+        $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
 
     private static IResult Problem(int status, Error error) =>
         Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);

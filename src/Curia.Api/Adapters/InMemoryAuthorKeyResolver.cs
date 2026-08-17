@@ -37,13 +37,37 @@ public sealed class InMemoryAuthorKeyResolver : IAuthorKeyResolver
 {
     private readonly ConcurrentDictionary<(string Agent, string Kid), RegisteredKey> _keys = new();
 
-    /// <summary>Registers a key to an agent, valid from <paramref name="notBefore"/>.</summary>
-    public void Register(string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, DateTimeOffset? notAfter = null)
+    /// <summary>
+    /// Registers a key to an agent, valid from <paramref name="notBefore"/>. Returns false when the
+    /// <c>kid</c> is already registered to a <i>different</i> agent.
+    ///
+    /// <para><b>Why a <c>kid</c> must be globally unique here.</b> This store is keyed by (agent,
+    /// kid) and the ingest path resolves with both. But <c>Curia.AuthN</c>'s
+    /// <c>IAgentKeyResolver</c> asks by <c>kid</c> alone -- correctly, because a client assertion
+    /// names its key and the subject is established by <i>which key verified</i>, not by a claim.
+    /// That only works if a <c>kid</c> identifies one key. Two agents sharing one makes assertion
+    /// resolution ambiguous, and an ambiguity resolved by iteration order is the kind of bug that
+    /// authenticates the wrong agent intermittently.</para>
+    ///
+    /// <para>So the collision is refused at enrollment, where it is a clear error, rather than left
+    /// to surface later as an authentication that succeeded for the wrong subject. Re-registering
+    /// the same (agent, kid) is permitted -- that is a key rotation or a repeat enrollment, not a
+    /// collision.</para>
+    /// </summary>
+    public bool TryRegister(string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, DateTimeOffset? notAfter = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(key);
 
+        foreach (var (agent, kid) in _keys.Keys)
+        {
+            if (string.Equals(kid, key.Kid, StringComparison.Ordinal)
+                && !string.Equals(agent, agentId, StringComparison.Ordinal))
+                return false;
+        }
+
         _keys[(agentId, key.Kid)] = new RegisteredKey(key, notBefore, notAfter);
+        return true;
     }
 
     /// <summary>Every registered (agent, kid), for the JWKS the Forum serves rather than fetches.</summary>
