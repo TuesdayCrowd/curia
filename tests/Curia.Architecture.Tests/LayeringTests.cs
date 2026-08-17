@@ -54,6 +54,75 @@ public sealed class LayeringTests
     ];
 
     /// <summary>
+    /// CS-7: "Nothing outside Infrastructure references Npgsql, NSec, OpenIddict, or ONNX types."
+    ///
+    /// <para><b>This rule was stated, violated, and green.</b> The cross-cutting native-package check
+    /// iterates <see cref="HexagonAssemblies"/>, which excludes host projects on the reasonable
+    /// ground that a composition root may reference Infrastructure — but "may reference
+    /// Infrastructure" is not "may reference Npgsql", and <c>Curia.Api</c> was constructing an
+    /// <c>NpgsqlDataSource</c> directly. Found during review of the durability work, not by a
+    /// test, which is the argument for this one existing.</para>
+    ///
+    /// <para>The fix was <c>PostgresAdapters</c>: a host hands over a connection string and receives
+    /// ports. A composition root has to wire adapters; it does not have to know what they are made
+    /// of.</para>
+    /// </summary>
+    [Fact]
+    public void CS7_HostProjectsDoNotNameDatabaseOrCryptoTypes()
+    {
+        // Checked over source rather than IL, deliberately. A host project acquires Npgsql
+        // *transitively* through Curia.Infrastructure, which is legitimate and unavoidable, so an
+        // assembly-reference check would either fire on every host forever or have to allow the
+        // package and thereby allow the misuse. What CS-7 forbids is the host *naming* the type.
+        //
+        // The scoping document says of its own R6.12 CI rule that a grep-gate is "crude, and honest
+        // about being crude, which beats a sophisticated check nobody wrote". Same reasoning here,
+        // and the same honesty: this catches a `using`, not a fully-qualified reference buried
+        // mid-expression. It would have caught the violation that prompted it.
+        string[] forbidden = ["Npgsql", "NSec", "OpenIddict", "Microsoft.ML.OnnxRuntime"];
+        string[] hostProjects = ["Curia.Api", "Curia.Issuer", "Curia.Gateway", "Curia.Mcp"];
+
+        var repoRoot = FindSourceRoot();
+        var offenders = new List<string>();
+        var scanned = 0;
+
+        foreach (var host in hostProjects)
+        {
+            var directory = Path.Combine(repoRoot, host);
+            if (!Directory.Exists(directory)) continue;
+
+            foreach (var file in Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                    || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+                    continue;
+
+                scanned++;
+
+                foreach (var line in File.ReadLines(file))
+                {
+                    var trimmed = line.TrimStart();
+                    if (!trimmed.StartsWith("using ", StringComparison.Ordinal)) continue;
+
+                    foreach (var package in forbidden)
+                        if (trimmed.StartsWith($"using {package}", StringComparison.Ordinal))
+                            offenders.Add($"{Path.GetFileName(file)}: {trimmed.TrimEnd()}");
+                }
+            }
+        }
+
+        // Not vacuous: a scan that found no files would pass while checking nothing, which is the
+        // failure mode this whole suite exists to make impossible.
+        Assert.True(scanned > 0, "No host-project source was scanned; the rule checked nothing.");
+
+        Assert.True(
+            offenders.Count == 0,
+            "A host project names a type CS-7 confines to Curia.Infrastructure. A composition root "
+            + "wires adapters; it does not name what they are made of -- see PostgresAdapters. "
+            + "Offenders: " + string.Join("; ", offenders));
+    }
+
+    /// <summary>
     /// CS-6: "Curia.Canon SHALL reference no package." Reads Curia.Canon.csproj's own
     /// declared &lt;PackageReference&gt; items directly, rather than reflecting over the
     /// built assembly's AssemblyRef table the way CS6_OnlySodiumReferencesNativeCrypto and
@@ -285,6 +354,18 @@ public sealed class LayeringTests
         (result.FailingTypeNames ?? [])
             .Where(name => !name.Contains('<', StringComparison.Ordinal))
             .ToArray();
+
+    /// <summary>The repository's <c>src</c> directory, found by walking up from the test binary.</summary>
+    private static string FindSourceRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src")))
+            dir = dir.Parent;
+
+        return dir is null
+            ? throw new InvalidOperationException("Could not find a 'src' directory above " + AppContext.BaseDirectory)
+            : Path.Combine(dir.FullName, "src");
+    }
 
     private static string FindProjectFile(string projectName)
     {
