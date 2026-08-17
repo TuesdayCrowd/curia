@@ -116,8 +116,13 @@ public static partial class InjectionDetector
     [GeneratedRegex(@"\b[A-Za-z0-9+/]{120,}={0,2}\b", RegexOptions.CultureInvariant)]
     private static partial Regex EncodedBlock();
 
+    // The fragment is included alongside the query. A fragment is not sent to the server, which is
+    // exactly why it is a favoured place to park a token -- it leaks to whatever client-side code
+    // reads location.hash, and it never appears in a server log where anyone would notice. Treating
+    // `?token=` as credential-shaped while ignoring `#token=` would catch the careless case and miss
+    // the deliberate one. Found by adding evasions to the red-team corpus and watching this rule miss.
     [GeneratedRegex(
-        @"https?://[^\s""'<>]*[?&](?:access_token|api[_-]?key|token|secret|password|pwd|auth)=[^\s""'<>&]+",
+        @"https?://[^\s""'<>]*[?&#](?:access_token|api[_-]?key|token|secret|password|pwd|auth)=[^\s""'<>&]+",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex CredentialShapedUrl();
 
