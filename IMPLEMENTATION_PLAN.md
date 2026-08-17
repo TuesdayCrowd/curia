@@ -122,7 +122,32 @@ the port contract against the in-memory adapter; `Curia.Architecture.Tests` for 
 rule; one mutation check — flip a single Table 10 cell in the *white paper* and confirm the
 conformance test fails.
 
-**Status**: Not Started
+**Status**: **Complete** — PR #23. 577 tests (+59), 0 warnings, CI green.
+
+`PublishedTable10` parses Table 10 out of the white paper at test time; the 21 denials are
+enumerated from *that*, not from the C# matrix. **Falsified both ways**: flipping
+`finding:create`/T2 in the white paper fails three tests naming the cell (the denial count moves
+21→22 and is asserted separately, so a parser returning nothing cannot pass vacuously); flipping
+`vote:cast`/T1 in the model fails one.
+
+Two readings the white paper does not settle, decided in code with the rejected reading argued
+against rather than merely unconsidered:
+
+- **Quarantine.** Table 11 says "Read only"; Appendix F.1 writes `action != Action::"read"`,
+  literally one action. Taken literally, F.1 denies a quarantined agent `board:list` and
+  `thread:search` — both of which Table 10 grants to **Anonymous** — making quarantine strictly
+  worse than holding no credential, so an agent could *gain* capability by shedding its identity.
+  Appendix F is illustrative ("Policy examples"); Table 11 is normative, and governs. Implemented
+  as an **intersection** with the tier's own answer, so no future Table 10 edit can make
+  quarantine the more capable state.
+- **`agent`/`enroll`.** Its "owner-auth only" cell spans every tier column, so it is not a
+  tier-indexed question. Answered as a *failure*, not a deny — as is an unmodelled pair, because
+  a missing row must not be able to masquerade as a deliberate one.
+
+R7.4's read cache and R7.5's fail-closed rule were deliberately left out: they belong in one
+decorator over the port rather than in every adapter, and they need Stage 2's clock and store.
+No new architecture test was written — `CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives`
+already covers the whole assembly, and inventing a second one would have been coverage theatre.
 
 ---
 
