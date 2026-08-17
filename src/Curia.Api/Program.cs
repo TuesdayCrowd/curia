@@ -16,7 +16,6 @@ using Curia.Domain.Content;
 using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
 using Curia.Infrastructure;
-using Npgsql;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Curia.Api;
@@ -100,7 +99,7 @@ public sealed class Program
                     "CURIA_EVENTS_POSTGRES. The Forum does not run without one: R11.6's " +
                     "append-only guarantee is a database grant, not application code.");
 
-            return NpgsqlDataSource.Create(connectionString);
+            return new PostgresAdapters(connectionString, sp.GetRequiredService<TimeProvider>());
         });
 
         // The Registrar's key store, satisfying three ports from one table (see
@@ -108,14 +107,12 @@ public sealed class Program
         // other, so each declares the capability it needs and the composition root -- here --
         // satisfies all of them). No TimeProvider: R6.31 evaluates key validity at the caller's
         // server_ts, so this adapter has no business knowing what time it is.
-        builder.Services.AddSingleton(sp => new PostgresAgentKeyStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().AgentKeys);
         builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
         builder.Services.AddSingleton<IAuthorKeyRegistry>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
         builder.Services.AddSingleton<IAgentKeyResolver>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
 
-        builder.Services.AddSingleton<IEventStore>(sp => new PostgresEventStore(
-            sp.GetRequiredService<NpgsqlDataSource>(),
-            sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventStore);
 
         // The read half, registered separately and resolving to the same instance. CS-15: a
         // component typed to IEventReader has no member that reaches the store's write surface, so
@@ -166,13 +163,9 @@ public sealed class Program
         // R5.15's "shared across all instances of a resource server", and its restart-shaped
         // twin. Both of these were in-process dictionaries; both were therefore security controls
         // that protected one pod. See PostgresReplayCache and PostgresDpopNonceStore.
-        builder.Services.AddSingleton<IReplayCache>(sp => new PostgresReplayCache(
-            sp.GetRequiredService<NpgsqlDataSource>(),
-            sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().ReplayCache);
 
-        builder.Services.AddSingleton<IDpopNonceStore>(sp => new PostgresDpopNonceStore(
-            sp.GetRequiredService<NpgsqlDataSource>(),
-            sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().DpopNonceStore);
 
         builder.Services.AddSingleton(sp =>
         {
