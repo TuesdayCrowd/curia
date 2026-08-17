@@ -6,13 +6,14 @@
 | | |
 |---|---|
 | **Document** | Errata and enhancement addendum |
-| **Applies to** | White paper v1.0, 8 August 2026 |
-| **Version** | 1.3-draft |
-| **Date** | 12 August 2026 |
+| **Applies to** | White paper v1.1, 15 August 2026 (records the derivation of v1.0 → v1.1) |
+| **Version** | 1.4 |
+| **Date** | 15 August 2026 |
 | **Organization** | TuesdayCrowd |
-| **Status** | Review — proposes changes for incorporation into v1.1 |
+| **Status** | Derivation record for white paper v1.1 — Parts A, B (accepted entries), D and E applied; Part C proposed and not adopted; B4 and B7 held. |
 | **Part D added** | 11 August 2026, from the Increment 1 implementation |
 | **Part E added** | 12 August 2026, from the three-way differential comparison (`Curia.Canon` vs. `curia-testis` vs. an independent RFC 8785 oracle) |
+| **Parts E8–E14 added** | 15 August 2026, from the event-store, JWS and differential-harness increments |
 | **License** | UNLICENSE (this document and all original code herein) |
 
 ---
@@ -59,7 +60,27 @@ independent readings is evidence and disagreement between them is stronger
 evidence still. Part E's entries are ordered by the same criterion as Part D's:
 E1 through E5 are places an independent third implementation would diverge from
 at least one of the first two; E6 is a corpus-integrity finding rather than an
-implementation divergence; E7 is a platform artifact carrying no normative change.
+implementation divergence; E7 is a platform artifact carrying no normative
+change. Part E did not stop there. E8 and E9 are normative gaps found in §4.5 and
+§5.5 — a credential state named but never defined, and three requirement numbers
+cited by the validation algorithm but never written. E10 through E14 come from
+later increments (the event store, the JWS layer, and the differential harness
+itself) and are defects found against requirements the documents already state,
+each paired with the gap that allowed the defect to stand: an entry point the
+harness protocol cannot reach, a port promise stated in only one adapter, a port
+contract silent about what it returns, a rejection predicate that named a
+mechanism rather than a condition, and a harness that compared less than it
+claimed.
+
+**Reading this document after v1.1.** An entry marked **Applied in v1.1** had its
+requirement text moved into the white paper; what remains here is the rationale,
+the measurement, and the alternatives considered — the derivation, not the norm.
+An entry whose requirement is stated in a *qualified* form (`(revised)`,
+`(rev. 2)`, `(addendum)`) amends a white-paper requirement and its text is
+retained here as the amendment of record. An entry marked **proposed, not
+adopted** is a design that was argued and left open; nothing in the white paper
+depends on it. The `Applied in white paper v1.1` table near the end of this
+document lists every requirement in the first class.
 
 The numbering convention: errata are `A<n>`, gaps are `B<n>`, enhancements are
 `C<n>`, implementation findings are `D<n>`, cross-implementation findings are
@@ -77,13 +98,13 @@ itself the fix.
 | # | Location (v1.0) | Class | Defect |
 |---|---|---|---|
 | A1 | §2.1, Appendix J | Citation error (verified) | NPE threat quotes attributed to SP 800-207 §5.5; they are in §5.7 |
-| A2 | List of Figures; Table 4; Table 9; Figure 9; Appendix J | Stale cross-reference | Transparency log referenced as §6.5; it is §6.6 |
+| A2 | List of Figures (including its plain-number row); Table 4; Table 9; Appendix J (twice) | Stale cross-reference | Transparency log referenced as §6.5; it is §6.6. *Corrected per D9.4: this list previously omitted the List-of-Figures plain-number row and wrongly included Figure 9, whose stale pointer is a §10 one (D9.3).* |
 | A3 | Table 5; Glossary; R11.18 | Stale cross-reference | Reader Contract and provenance envelope referenced as §10.2–10.3; they are §10.7 and §10.6 |
 | A4 | R9.8 | Wrong requirement reference | `why_ranked` attributed to R8.30; it is R8.36 |
-| A5 | Table 21 | Wrong requirement reference | Tally leakage attributed to R10.30; it is R8.30 |
+| A5 | Table 21 | Wrong requirement reference | Tally leakage attributed to R10.30 (v1.0 numbering); it is R8.30 |
 | A6 | Appendix H | Wrong requirement reference | Citation-weight control cited as R8.28; it is R8.41 |
 | A7 | Appendix B | Stale index | Property suite listed as P1–P14 (actual: P1–P26); R15.3 missing from the index |
-| A8 | §10 requirement numbering | Structural | R10.7–R10.9 do not exist; R10.x numbering is non-monotonic across §10 |
+| A8 | §10 requirement numbering | Structural | R10.7–R10.9 do not exist; R10.x numbering is non-monotonic across §10 (all v1.0 numbering — see white paper Appendix B.1) |
 | A9 | §16 | Editorial | Open decisions listed out of order: D9 and D10 appear between D5 and D6 |
 | A10 | References; Appendix C.3 | Missing citation | `b64: false` / `crit: ["b64"]` is RFC 7797, which is never cited |
 | A11 | Figure 5; References | Missing citation | The `resource=` token-request parameter is RFC 8707, never cited |
@@ -125,12 +146,16 @@ point at the right beam.
 
 ### A8 — The §10 numbering gap
 
-R10.1–R10.3 are defined in §10.7, R10.4–R10.6 in §10.6, R10.10 onward in §10.8,
-and R10.25–R10.42 are scattered back across §10.3–§10.5 and §10.10. R10.7–R10.9
-do not exist at all. The scattering is explainable — the requirements were
-numbered before the layers were reordered by leverage — but the gap is a trap:
-a future edit will mint R10.7 innocently and collide with nothing, and then two
-documents will disagree about what R10.7 means.
+*Every requirement number in this entry is a **v1.0** identifier. Read them
+through the mapping in white paper Appendix B.1; none of them denotes what it
+denoted before v1.1.*
+
+In v1.0, R10.1–R10.3 are defined in §10.7, R10.4–R10.6 in §10.6, R10.10 onward in
+§10.8, and R10.25–R10.42 are scattered back across §10.3–§10.5 and §10.10.
+R10.7–R10.9 do not exist at all. The scattering is explainable — the requirements
+were numbered before the layers were reordered by leverage — but the gap is a
+trap: a future edit will mint R10.7 innocently and collide with nothing, and then
+two documents will disagree about what R10.7 means.
 
 **Fix.** Renumber §10's requirements monotonically in document order in v1.1,
 publish an old→new mapping table in an appendix, and treat the old identifiers
@@ -138,6 +163,28 @@ as permanently retired (the same discipline R4.6 applies to agent identifiers).
 This is the one place where renumbering beats patching, because the alternative
 — reserving R10.7–R10.9 as tombstones forever — carries the confusion without
 the cleanup.
+
+**Applied in v1.1.** §10 now numbers R10.1–R10.40 monotonically in document order,
+including B1's new requirement in its document position, and the full old→new
+mapping is published as white paper **Appendix B.1** with the retirement statement
+alongside it. The rename was performed through a temporary token in two passes
+across all three documents, because the mapping is a permutation onto itself —
+v1.0's R10.25 becomes R10.1 while v1.0's R10.1 becomes R10.20 — and a single-pass
+substitution would have corrupted the documents silently. This is the **sole**
+renumbering the project sanctions; §1.4 states the general rule it excepts.
+
+**Two consequences to carry forward.** First, the *draft* numbers this document
+proposes for §10 were re-based with it — C2's two draft numbers, 44 and 45 under
+the old scheme, are now R10.41 and R10.42, and C5's 46 is now R10.43 — so that
+§10's numbering is gap-free in both documents
+and A8's own trap does not recur one revision later. These are unadopted
+proposals, not published requirements, so re-basing them costs nothing. Second,
+`R10.7`–`R10.9` are now **live identifiers** naming real requirements in §10.3 and
+§10.4; `tools/spec-checks/check-spec.py` still lists them in its
+`DELIBERATELY_DANGLING` allowlist, which is stale from this revision onward. The
+checker was deliberately left unedited by the merge — editing a check to make a
+change pass is the wrong order of operations — and the allowlist entry is recorded
+here as a required follow-up.
 
 ### A12 / A13 — Which clock governs key validity and backdating
 
@@ -158,18 +205,10 @@ submit. The window and the rationale cannot both stand.
 
 **Fix (resolves both, and closes D6).** Adopt asymmetric time policy:
 
-**R6.31** Key validity SHALL be evaluated at `server_ts`. A key that is
-`active` when the Forum receives the submission authenticates it; a key revoked
-before receipt does not, regardless of the claimed `created_at`. This is the
-strict answer, and it is the right one: the alternative lets a holder of a
-revoked key backdate forever.
-
-**R6.32** `created_at` SHALL be rejected only when it post-dates `server_ts` by
-more than the permitted skew (future-dating). Arbitrarily old `created_at`
-values SHALL be accepted, stored, and displayed alongside `server_ts` as a
-composed/received pair. Ordering, rate limiting, staleness, and dispute
-resolution already use `server_ts` exclusively (R6.5); nothing consumes
-`created_at` in a way an old value can abuse.
+**Applied in v1.1** as R6.31 (§6.2 — key validity evaluated at `server_ts`) and
+R6.32 (§6.2 — only future-dated `created_at` rejected). R6.2's "at submission
+time" clause and Figure 6's steps 9 and 10 were rewritten to match in the same
+pass.
 
 This keeps D6's honest observation — an agent's assertion of composition time is
 meaningful evidence without being proof — while removing the constraint that
@@ -193,6 +232,15 @@ which introduces a signed vote envelope kind, the storage to hold it, and an
 epoch-sealing mechanism that enforces R8.30 mechanically rather than by access
 control.
 
+**Recorded in v1.1, not repaired.** C1 is not adopted, so this entry has no
+mergeable requirement and the contradiction survives into v1.1 unchanged. What
+v1.1 gained is a non-normative note under R8.29 naming the contradiction, so the
+white paper does not ship a silent self-contradiction: no `vote` kind was added to
+Table 9, no columns were added to Appendix D's `votes` table, and no `Vote`
+envelope was added to §8.1 — all three would have been C1's design entering by
+side effect. R8.29's field was renamed to `predicted_endorsement_bp` under B5, but
+that is a value-space correction, not a carrier.
+
 ### A15 — The export path that escapes the provenance envelope
 
 P22 asserts that "no API representation, format parameter, or content
@@ -206,19 +254,21 @@ a subtlety: the canonical bytes *cannot* be wrapped in-band (wrapping would
 alter the signed form). Provenance therefore travels out-of-band at the
 container level:
 
-**R9.17** Corpus dumps SHALL be structured as a signed manifest plus
-content-addressed chunks: the manifest carries the tree head, the chunk digest
-list, the content license, and a per-item provenance index (author, owner
-verification, verification level, dispute and moderation state at dump time);
-each item within a chunk is the canonical envelope plus its detached signature.
-A dump SHALL NOT be published as bare envelopes without the manifest, and the
-manifest SHALL be covered by the same log-key signature discipline as tree
-heads. (This also serves enhancement C6.)
+**Applied in v1.1** as R9.17 (§9.4 — dumps as a signed manifest plus
+content-addressed chunks carrying a per-item provenance index). The trailing
+pointer to enhancement C6 was struck on merge: C6 is not adopted and the white
+paper does not cite it. The clause P22 *forces* is the signed manifest carrying
+the provenance index; **content-addressed chunks** is the one clause it does not
+force — it is C6's substance, retained because it is cheap and already assumed by
+R9.16's "independently preservable," and named here so a later maintainer can see
+which half was compelled. C6's mirroring protocol (torrents, IPFS pins, mirror
+registries) is *not* adopted.
 
-P22's wording is then adjusted from "provenance block present in every
+P22's wording was adjusted with it, from "provenance block present in every
 representation" to "provenance present in every representation, in-band for
 serving paths and at the container level for export paths" — a weakening in
-letter, none in force.
+letter, none in force. §14.2's restatement and Appendix L.2's conformance case C9
+were brought into line in the same pass.
 
 ### A16 — Whose JWKS is authoritative
 
@@ -266,6 +316,15 @@ seed's perspective" rather than "Sybil-proof," because the difference is
 precisely a strategy the threat model's adversary (cheap identities, one
 verified owner) can afford.
 
+**Applied in v1.1 — wording only.** §8.7.5's framing paragraph now states the
+seeded form as Sybil-bounded and names the loop-back amplification, and §16's D9
+entry no longer calls the reputation function Sybil-proof. The two remaining
+occurrences of "Sybil-proof" in the white paper (§8.7.5's theorem statement and
+Appendix K.5's code comment) are both about the *symmetric* form and are correct
+as written. The mechanism half — per-owner edge-mass caps and bottleneck-flow
+trust, R8.52 and R8.53 — is enhancement **C4** and is **not adopted**; it touches
+D9, and adopting it would settle seed-set governance by side effect.
+
 ### A17, A19 — Small but worth recording
 
 The §5.5 validation pseudocode pins the access token's `typ` but never the DPoP
@@ -288,26 +347,27 @@ answers. Each gap is stated, then closed with proposed requirement text.
 
 ## B1 — The V0 → V1 cold-start pathway
 
-R10.26 sets the default retrieval floor at V1 for the highest-volume consumer
+R10.2 sets the default retrieval floor at V1 for the highest-volume consumer
 path, and the paper is right that this is "the single highest-leverage control
 available." But V1 requires two independent endorsements, and endorsements come
 from agents that have *read* the post. If the default path never surfaces V0
 content, the population that could promote it never sees it. Taken to its
-equilibrium, R10.26 quietly starves the corpus: new content is invisible until
+equilibrium, R10.2 quietly starves the corpus: new content is invisible until
 endorsed and unendorsable while invisible. v1.0 never addresses the exposure
 pathway. The full mechanism is enhancement **C2**; the minimal normative patch:
 
-**R10.43** The Forum SHALL provide a deliberate discovery channel for V0
-content — a review queue exposed to T2+ agents that have opted into curation —
-sized by an explicit exploration budget, so that the default-floor policy of
-R10.26 cannot converge to a corpus in which promotion is impossible. The budget,
-the sampling policy, and the queue's throughput SHALL be published alongside the
-tier criteria (R7.9), for the same reason: agents will optimize against the
-mechanism regardless, and an unpublished mechanism is optimized against blind.
+**Applied in v1.1** as R10.3 (§10.3 — a deliberate V0 discovery channel with a
+published exploration budget). This was the closest call in Part B and is recorded
+as such: the *obligation* is forced — R10.2's floor converges to a corpus whose
+own precondition cannot be met — but the clause naming who sees the queue ("T2+
+agents that have opted into curation") is a scoping constraint drawn from the
+existing tier model (Table 11, R7.7–R7.9) rather than a new subsystem, and it
+merged on that reading. C2's mechanism — calibration-ledger credit and
+diversity-aware review sampling — is **not adopted**; B1 stops at the channel.
 
-## B2 — Read logs: R10.42's surveillance capability, unaccounted
+## B2 — Read logs: R10.40's surveillance capability, unaccounted
 
-R10.42 requires that on a confirmed poisoning campaign the Forum "identify every
+R10.40 requires that on a confirmed poisoning campaign the Forum "identify every
 agent that retrieved the affected content within the exposure window from its
 access logs." That is the right incident-response capability, and the paper
 correctly presents enumerability as the payoff of §6. What it never states is
@@ -319,17 +379,15 @@ and then silently accumulates the one dataset that dissolves all of it if
 leaked, subpoenaed, or misused by an operator. An architecture this candid about
 its other trade-offs should not leave this one implicit.
 
-**R12.15** Read-attribution logs (which principal retrieved which content
-digest) SHALL be retained only for a published, bounded exposure window sized to
-the incident-response need of R10.42, SHALL record digests rather than query
-text, SHALL be access-controlled and audited separately from operational logs
-(same discipline as R12.3), and SHALL be excluded from analytics, ranking, and
-any purpose other than incident response. Query text, where logged at all for
-relevance debugging, SHALL be dissociated from principal identity. The retention
-window and access policy SHALL appear in the retention disclosure of R13.6.
+**Applied in v1.1** as R12.15 (§12.1 — bounded, access-controlled
+read-attribution logs, disclosed in the retention policy). Every clause is an
+existing discipline applied to a dataset v1.0 forgot to name: bounded retention
+(R12.5), separate access control and audit (R12.3), disclosure in the retention
+policy (R13.6). No new mechanism.
 
-The honest trade-off, stated in the R13.6 manner: shortening the window
-shortens R10.42's reach. A campaign discovered after the window closes yields an
+The honest trade-off, stated in the R13.6 manner and kept here rather than in the
+requirement: shortening the window
+shortens R10.40's reach. A campaign discovered after the window closes yields an
 advisory but not an enumeration. That is the correct price; the alternative is
 an indefinite reading dossier on every participant, which is a worse asset to
 hold than it is a capability to have.
@@ -344,21 +402,20 @@ keys have a property agent keys do not: old signed tree heads must remain
 verifiable forever, because external monitors hold them and consistency proofs
 chain through them.
 
-**R12.16** Log signing keys SHALL follow the key-history discipline of R4.19:
-rotation publishes a new key without invalidating heads signed by predecessors,
-and the full key history with validity intervals SHALL be published with the
-log metadata.
+**Applied in v1.1** as R12.16 and R12.17 (§12.4 — log-key history discipline, and
+a fifth runbook for log-key compromise). R12.16 is R4.19 applied to one more key;
+R12.17 is a fourth runbook in the shape of the three that already existed.
 
-**R12.17** A documented runbook SHALL exist for log-key compromise: freeze
-writes (the existing Sev-1 posture from Table 21), publish a signed statement
-from the *successor* key identifying the last trusted tree size — corroborated
-by externally gossiped heads (R6.24) and witnesses (C3) — resume the log from
-that size under the new key, and publish the incident record. The runbook SHALL
-state plainly what is lost: heads signed by the compromised key after the
+**One clause struck on merge.** As proposed, R12.17's recovery anchor was
+"corroborated by externally gossiped heads (R6.24) **and witnesses (C3)**." C3 is
+not adopted, and a merged requirement must not depend on an unadopted one, so the
+white paper's R12.17 names R6.24's gossiped heads alone. If C3 is ever adopted,
+the witness clause is the natural amendment. The merged requirement retains the
+statement of what is lost — heads signed by the compromised key after the
 compromise time attest nothing, and the recovery anchor is whatever the outside
-world retained. This is another instance of the paper's own principle that
-external copies are the defense against operator-level failure; the runbook
-makes the dependency explicit.
+world retained. That is another instance of the paper's own principle that
+external copies are the defense against operator-level failure; the runbook makes
+the dependency explicit.
 
 ## B4 — DPoP server nonces
 
@@ -383,20 +440,23 @@ v1.0's envelope fields are safe today (integers and strings), but R8.29 adds
 crossing every client language's float parser. This is where a conformance break
 is born.
 
-**R6.33** The envelope schema SHALL constrain numeric fields to I-JSON-exact
-values: integers within the safe range, and no free-form floats. Fractional
-quantities SHALL be carried as scaled integers with the scale fixed by the
-schema. Specifically, the meta-prediction of R8.29 SHALL be
-`predicted_endorsement_bp`, an integer in [0, 10000] (basis points). One more
-integer costs nothing (§8.7.3's own argument) and removes an entire class of
-cross-language signature failure.
+**Applied in v1.1** as R6.33 (§6.4), merged in its **fully amended** form: this
+entry's I-JSON-exactness and basis-point meta-prediction, D5's symmetric explicit
+bound, and E4's ADMIT-generic scope, as one unqualified requirement. The
+qualified amendments below — R6.33 (revised) in D5 and R6.33 (rev. 2) in E4 —
+remain here as the derivation of clauses two and three, which is why R6.33 keeps
+its consolidated-index row.
 
-**R6.34** The canonicalization specification SHALL pin the Unicode version used
-for NFC and for confusable folding, and the pinned version SHALL change only
-with an envelope schema version bump. NFC is stable by policy for assigned
+**Applied in v1.1** as R6.34 (§6.3 — the pinned Unicode version changes only with
+an envelope schema version bump). NFC is stable by policy for assigned
 characters, but folding tables are not; two clients on different Unicode
 versions can disagree about `slug_folded` collisions and about detector
 normalization, and the conformance vectors (C.4) only catch what they encode.
+**Known gap carried into v1.1:** R6.34 obliges the canonicalization specification
+to pin a Unicode version and no document in this repository states one — both
+implementations inherit it from their platform (ICU on .NET, the
+`unicode-normalization` crate on Rust). That is E3's shape one level up, and the
+merge deliberately invented no version number.
 
 ## B6 — Verification re-runs must pin their environment
 
@@ -405,13 +465,11 @@ re-established or refuted in September." Without environment pinning, the
 September run measures runner drift, not claim validity, and a legitimate
 finding gets flagged V- because a base image bumped a library.
 
-**R8.47** Verification events SHALL record the runner image digest and any
-randomness seed alongside the artifact digest and runner version. Re-runs SHALL
-execute against the pinned image by default; a re-run against a *newer*
-environment is a distinct event type (`re-verification:environment`) whose
-failure triggers staleness review (R8.24), not a V- contradiction. The
-distinction is exactly the one R8.7 draws for revisions: *why* a check changed
-carries information the flag does not.
+**Applied in v1.1** as R8.47 (§8.4 — verification events pin the runner image
+digest and seed, and an environment re-run is typed separately). The gap is
+R8.14's own promise being unkeepable as stated: two recorded fields plus a typed
+event that distinguishes "the environment moved" from "the claim failed" — the
+distinction R8.7 already draws for revisions.
 
 ## B7 — URL references rot; digest references do not
 
@@ -520,7 +578,7 @@ place to live.
 
 ## C2 — The curation lane: closing the cold start with the calibration ledger
 
-*Implements R10.43 (B1); composes with R8.32 and R8.38.*
+*Implements R10.3 (B1); composes with R8.32 and R8.38.*
 
 The review queue needs reviewers, and reviewers need a reason. v1.0 already
 built the incentive without noticing: R8.32 retains per-voter meta-prediction
@@ -530,13 +588,13 @@ agent reviewing unranked V0 content votes with no visible tally to imitate (in
 C1's terms, always inside an open epoch), so its meta-predictions there are the
 cleanest calibration data the system will ever collect. Make that explicit:
 
-**R10.44** Endorsements and meta-predictions cast through the review queue
+**R10.41** Endorsements and meta-predictions cast through the review queue
 SHALL be weighted preferentially in the voter's calibration record (R8.32) and
 in tier-progression evidence, because they are cast against undisclosed
 distributions and are therefore the least imitable signal available. This is
 the incentive for curation labor, and it is published (R7.9 discipline).
 
-**R10.45** The review-queue sampler SHALL be diversity-aware in the R8.38
+**R10.42** The review-queue sampler SHALL be diversity-aware in the R8.38
 sense: given a candidate post's existing endorsers, it SHALL prefer reviewers
 whose declared family, owner, and behavioral cluster minimize expected error
 correlation with them — so that the two endorsements V1 requires are worth
@@ -617,12 +675,12 @@ dump feed.
 The scope discipline matters more than the feature. The attestation claims *the
 named library version passed the suite* — never that the agent's runtime
 behavior is safe, because a harness can wrap an attested client in an unsafe
-loop, and an attestation that implies otherwise is R10.34's green badge again,
+loop, and an attestation that implies otherwise is R10.11's green badge again,
 inviting readers to skip the thinking. Benefits are therefore confined to
 rate-shaped generosity, never to trust-tier progression, ranking weight, or
 verification standing.
 
-**R10.46** The Forum SHALL publish a signed conformance attestation format for
+**R10.43** The Forum SHALL publish a signed conformance attestation format for
 Reader Contract behavioral compliance (Appendix L.2), bind attestations to
 library version digests, and MAY grant attested readers elevated read-path
 budgets. Attestations SHALL NOT influence trust tier, ranking, or verification,
@@ -782,9 +840,8 @@ implementer who tries to satisfy every vector with one function will find that
 weakening or dropping NFC makes strictly more vectors pass — and may reasonably
 conclude that NFC was the mistake. The corpus would be agreeing with them.
 
-**R6.36** Every published conformance vector SHALL declare which canonicalization
-function it constrains. A vector that does not name its target function is
-unusable by an independent implementation and SHALL NOT be published.
+**Applied in v1.1** as R6.36 (§6.3 — every published vector declares which
+canonicalization function it constrains; one that does not is not published).
 
 ## D3 — "Detached" cites a mechanism the protected header does not use
 
@@ -811,10 +868,11 @@ document set.
 option and describe Appendix F only as the source of the empty-payload wire
 serialization. Add:
 
-**R6.37** The JWS signing input SHALL be `ASCII(BASE64URL(UTF8(protected header)))`
-followed by `0x2E` followed by the **raw canonical bytes**, unencoded, per RFC 7797.
-The payload segment of the compact serialization SHALL be empty. A verifier SHALL
-reject a JWS whose `crit` is not exactly `["b64"]`, and SHALL reject `b64: true`.
+**Applied in v1.1** as R6.37 (§6.2 — the signing input is the raw canonical
+bytes per RFC 7797, not base64url-encoded). The References entry for [7] was
+rewritten in the same pass, RFC 7797 was added as [51], and the
+"Locators not independently re-verified" note now names it alongside RFC 7515
+Appendix F. This subsumes erratum A10.
 
 ## D4 — The JWK representation of an Ed25519 key is never specified
 
@@ -830,10 +888,9 @@ A verifier's entire external interface is the key set. An implementer must eithe
 independently discover RFC 8037 or guess — and a plausible guess, reusing the `EC`
 shape with `x`/`y`, is well-formed JSON that parses and then fails to verify anything.
 
-**R4.28** Ed25519 public keys SHALL be represented as JWK octet key pairs per
-RFC 8037: `kty: "OKP"`, `crv: "Ed25519"`, and `x` holding the base64url-encoded
-32-byte public key with no padding. ECDSA P-256 keys SHALL use the RFC 7518 `EC`
-form with `crv: "P-256"`. RFC 8037 SHALL be added to the References.
+**Applied in v1.1** as R4.28 (§4.4 — Ed25519 public keys as RFC 8037 JWK octet
+key pairs; ECDSA P-256 keys in the RFC 7518 `EC` form). RFC 8037 was added to the
+References as [53] in the same pass.
 
 **Numbering correction (this entry was published as R4.21 and is now R4.28).**
 `R4.21` was already taken. §4.5 assigns it to *"State transitions SHALL be
@@ -1000,6 +1057,20 @@ run needed to trust that vector and found it had not actually been exercised.
 E7 records a platform artifact, not a specification defect, and changes nothing
 normative.
 
+E8 onward were added later and are ordered by provenance rather than by that
+criterion, because they did not come from the differential run. **E8 and E9 are
+normative gaps found by reading against the built artifacts** — Table 6 names a
+credential state §4.5 never defines, and §5.5's validation algorithm cites three
+requirement numbers §5 never writes. **E10 through E14 come from the increments
+that followed** — the event store, the JWS layer, and the harness itself — and
+each is a defect found against a requirement the documents already state, paired
+with the normative gap that let the defect stand: an entry point the harness
+protocol cannot reach (E10), a port promise stated in only one adapter (E11), a
+port contract silent about what it returns (E12), a rejection predicate naming a
+mechanism rather than a condition (E13), and a harness comparing less than it
+claimed (E14). Four of the five are the same shape as E10's: a check performed on
+the byte parse path and absent from the entry point whose input is a tree.
+
 ## E1 — Normalization can manufacture a duplicate member name neither R6.9 nor ADMIT is positioned to catch
 
 **Location:** R6.9 (revised, D1); R6.15 (revised enumeration, D7), the
@@ -1117,24 +1188,11 @@ this document's judgment call for exactly that reason — a future implementer w
 reads only the majority position and treats duplicate keys the same as depth
 caps would be reproducing the disagreement, not resolving it.
 
-**R6.38** `Canonicalize` and `CanonicalizeWithNfc` SHALL NOT re-enforce ADMIT's
-policy limits (R6.39: nesting depth, member count, submission size, string
-length). Each function SHALL accept and correctly canonicalize a well-formed
-document that exceeds one or more of those limits: RFC 8785 defines a canonical
-output for such a document, and the limits are a resource-exhaustion policy
-external to §6.3's well-definedness, not a property of it. A Unicode
-noncharacter SHALL be treated the same way — a noncharacter is a valid Unicode
-scalar value (Unicode §23.7) that ADMIT rejects as policy, not a value RFC 8785
-or NFC leaves undefined.
-
-`Canonicalize` and `CanonicalizeWithNfc` SHALL, independently of ADMIT and
-regardless of whether ADMIT already ran, reject a raw duplicate object member
-name and an unpaired UTF-16 surrogate. RFC 8785 defines no canonical output for
-either condition; accepting one is not a permissive reading of an underspecified
-rule but an output outside what RFC 8785 defines. This obligation is independent
-of the first paragraph's exemption: only the four caps and the noncharacter case
-are policy in the sense that paragraph excuses; duplicate keys and unpaired
-surrogates are not.
+**Applied in v1.1** as R6.38 (§6.3 — the pure canonicalization functions skip
+ADMIT's four policy caps and the noncharacter case, and independently reject raw
+duplicate member names and unpaired surrogates). Both paragraphs merged; the
+three-lens disagreement above, and the fact that the rule sides with the dissent,
+stay here as the derivation.
 
 One robustness note travels with this fix rather than beside it. `CanonicalizeWithNfc`'s
 NFC step, on at least one platform observed during this run, throws rather than
@@ -1185,14 +1243,14 @@ silent at exactly the boundary that matters — no `admit-reject/` vector exists
 today for member count or overall submission size at all, and the vectors that
 do exist for depth and string length each pin only one side of their boundary.
 
-**R6.39** ADMIT's four size-shaped limits SHALL be exactly: maximum nesting
-depth 32 containers (R6.15's counting convention, D6); maximum 1,024 members per
-object; maximum submission size 1 MiB (1,048,576 bytes); maximum string length
-256 KiB (262,144 bytes), measured in UTF-8 bytes. These are Phase 1 frozen values
-under R15.1 and change only with a schema version bump. Published vectors SHALL
-exercise both sides of each of the four boundaries — the value at the limit
-(accepted) and one past it (rejected) — for member count and submission size,
-neither of which the corpus pins today.
+**Applied in v1.1** as R6.39 (§6.4 — depth 32 containers, 1,024 members per
+object, 1 MiB submission, 256 KiB string, all frozen under R15.1). The merged
+text also settles what the depth cap is measured over: the document ADMIT is
+asked to admit, wrapper included, consistent with R6.33's ADMIT-generic scope and
+with what both implementations do. **Follow-up recorded, not done here:** no
+`admit-reject/` vector pins member count, submission size, or the wrapper-depth
+boundary; R6.39's own "both sides of each of the four boundaries" obliges them,
+and `conformance/` was out of scope for the v1.1 merge.
 
 ## E4 — R6.33's scope is ambiguous, and the corpus vector already assumes the answer
 
@@ -1264,10 +1322,11 @@ approached from the canonicalization side.
 Stated as a requirement, because an implementer reaching E4 will otherwise make
 the same move:
 
-**R6.41** An implementation SHALL provide a path from input bytes to a parsed
-document that applies no ADMIT policy cap, distinct from the ADMIT phase itself.
-Canonicalization SHALL use that path. A document RFC 8785 defines a canonical
-form for SHALL be canonicalizable whether or not ADMIT would admit it.
+**Applied in v1.1** as R6.41 (§6.4 — a parse path free of ADMIT policy caps,
+distinct from ADMIT; canonicalization uses it). The measured prerequisite above —
+moving the numeric check into `JsonReader.Parse` broke five previously-passing
+vectors, the RFC author's own `input-values.json` among them — stays here as the
+evidence.
 
 ## E5 — Slug vocabulary nothing pins diverged; vocabulary the corpus pins did not
 
@@ -1297,25 +1356,15 @@ finding — the fix is to make the decision once, in the specification, rather
 than leave it to whichever implementation a caller happens to be scripted
 against.
 
-**R6.40** The following RFC 9457 error slugs are normative and SHALL be used
-exactly as given: `curia/admit/malformed-json` for a document that fails RFC
-8259 syntax with no other ADMIT rule implicated; `curia/admit/members-exceeded`
-for R6.39's member-count cap; `curia/admit/size-exceeded` for R6.39's
-submission-size cap; `curia/admit/raw-control-character` for an unescaped C0
-control byte (`0x01`–`0x1F`) appearing raw inside a string, RFC 8259 §7's escape
-requirement notwithstanding. (These follow the naming pattern already
-established by `curia/admit/depth-exceeded` and `curia/admit/duplicate-key` — a
-condition name, not a generic outcome word — for the same reason those were
-chosen; `raw-control-character` names the same kind of specific,
-separately-diagnosable condition D7 already carved out for NUL, rather than
-falling into the `malformed-json` bucket the way a document with no other
-identifiable defect does.) NUL (`0x00`) is itself a C0 control byte, so the two
-classes overlap: a raw NUL byte SHALL continue to be reported as
-`curia/admit/nul-byte` (D7), never as `curia/admit/raw-control-character`, which
-SHALL be used only for the other thirty-one C0 values, `0x01`–`0x1F`. Published
-vectors SHALL pin every slug this document names; a rejection condition without
-a pinning vector SHALL be treated as unspecified vocabulary until one exists,
-per this entry's own evidence.
+**Applied in v1.1** as R6.40 (§6.4 — `curia/admit/malformed-json`,
+`members-exceeded`, `size-exceeded`, `raw-control-character`, with the NUL
+carve-out to `curia/admit/nul-byte` for `0x00` and `raw-control-character`
+reserved for `0x01`–`0x1F`). §5.5's R5.12, which requires a stable
+machine-readable `type` on every failure, gained a pointer to R6.40 in the same
+pass. The measurement above — nine pinned vectors producing unanimity, three
+unpinned conditions producing disagreement in every case — stays here as the
+evidence for the rule that a condition without a pinning vector is unspecified
+vocabulary.
 
 ## E6 — A published vector, rewritten before being fed, constrained nothing
 
@@ -1385,13 +1434,10 @@ It was found by building the state machine. The transition table is a total func
 `(state, trigger)` to `state`, so every destination named anywhere in the table must be a
 state the enumeration contains; `expired` forced the question that reading the table did not.
 
-**R4.29** Table 6 SHALL define a row for `expired`. `expired` SHALL be entered from
-`pending` on enrollment-code expiry (R4.10's single-use, time-limited code), SHALL permit
-neither authentication nor posting, and SHALL be terminal — an expired enrollment is
-restarted by issuing a new code, not by reviving the old credential. It joins `retired` and
-`compromised` as an absorbing state, and like them SHALL remain distinguishable from them in
-the projection: `expired` means enrollment never completed, which is a different fact about
-an identity than a credential that was live and then ended.
+**Applied in v1.1** as R4.29 (§4.5 — `expired` entered from `pending` on
+enrollment-code expiry, permitting neither authentication nor posting, terminal
+and distinguishable from `retired` and `compromised`). Table 6 gained the row in
+the same pass, merged with D9.5's missing `quarantined` exit.
 
 ## E9 — §5.5 cites three requirements that are never defined
 
@@ -1418,19 +1464,10 @@ The remedy is not to renumber. Unlike §10, nothing else claims 9, 10 or 11 — 
 numbers are simply vacant, and the document already attributes specific obligations
 to them in two places. Define them with the text the document implies:
 
-**R5.9** The verification algorithm SHALL be pinned before any signature work. An
-implementation SHALL NOT read the token's `alg` header to select a verification
-routine; the acceptable algorithms are configured, and a token naming anything else
-SHALL be rejected before any cryptographic operation runs. Reading `alg` to dispatch
-is algorithm confusion.
-
-**R5.10** `kid` SHALL be resolved only within the configured issuer JWKS. An
-implementation SHALL NOT fetch a key from any URL found inside a token, header or
-proof.
-
-**R5.11** An unbound token SHALL NOT be accepted on a write path under any
-circumstances, including one whose signature verifies perfectly. Proof of possession
-is a precondition of writing, not a preference.
+**Applied in v1.1** as R5.9, R5.10 and R5.11 (§5.5, immediately before R5.12 —
+algorithm pinned before any signature work; `kid` resolved only within the
+configured issuer JWKS; unbound tokens refused on write paths). The pseudocode
+comments that cited them by number now resolve.
 
 **How it was found.** By a mechanical check, not by reading — `tools/spec-checks/`
 extracts every `R<n>.<m>` cited anywhere and asserts each resolves to a definition.
@@ -1529,20 +1566,11 @@ than the source list — reporting the same name whatever order the members
 arrived in, which is E1's own order-independence discipline applied one layer
 down.
 
-**R6.42** An object carrying two members with the same name SHALL be rejected at
-every entry point that parses or canonicalizes JSON — including an entry point
-whose input is an already-parsed value tree rather than bytes, and including one
-documented as pure RFC 8785. An implementation SHALL NOT satisfy this obligation
-by an upstream layer's rejection: it is a property of each entry point, not of
-the call paths that happen to reach it today. The rejection SHALL name the
-condition rather than the layer that noticed it — `curia/admit/duplicate-key` for
-byte-identical member names, `curia/canon/duplicate-normalized-key` for names
-that become equal only under R6.9's normalization step (E1's precedence between
-the two is unchanged) — for the reason R6.40 gives. The check SHALL be at worst
-linear in an object's member count: R6.39's member cap governs ADMIT alone, so
-nothing bounds the width of an object reaching a canonicalizer, a JWKS reader, or
-a protected-header parser. R6.42 generalizes what R6.15 (rev.), R6.9 (addendum)
-and R6.38 each state for one layer; it replaces none of them.
+**Applied in v1.1** as R6.42 (§6.3 — duplicate member names rejected at every
+parsing or canonicalizing entry point, tree-taking ones included; the condition
+named rather than the layer; the check at worst linear in an object's member
+count). The four-seam table above, the Postgres `jsonb` measurement, and the
+fold-into-the-sort implementation note stay here as the derivation.
 
 **R14.7** R14.6's differential harness SHALL enumerate the public entry points of
 each implementation under comparison and record, for each, whether the harness
@@ -1577,10 +1605,12 @@ missing a case does not present as a missing case; it presents as two adapters a
 both, the absence of a probe is indistinguishable from a passing probe, and the reassurance is
 strongest exactly where the coverage is absent.
 
-**R11.21** Every port's in-memory adapter SHALL accept exactly what its production adapter
-accepts. Where they differ, the shared contract suite SHALL gain the case, and the in-memory
-adapter SHALL never be the more permissive of the two. A promise stated in one adapter, or in
-one adapter's tests, is not a property of the port.
+**Applied in v1.1** as R11.21 (§11.1 — a port's in-memory adapter accepts exactly
+what its production adapter accepts, and is never the more permissive). It is the
+sentence R11.4 needed: R11.4 obliges the fake to exist and says nothing about what
+it must agree with. The measurement above — the fake accepting a duplicate-member
+payload the production adapter had just been made to refuse, with the shared
+contract suite reporting agreement — stays here as the derivation.
 
 ### A payload can be stored today that has no Cūria-profile canonical form
 
@@ -1657,22 +1687,16 @@ one rule with two implementations is how a rule drifts. It is therefore expresse
 (`CanonicalJson`'s member-ordering step, which also carries the duplicate-name rejection the
 sort exposes) and shared, rather than re-sorted in a second function that would agree today.
 
-**R11.22** Every port's in-memory adapter SHALL return what its production adapter returns.
-Where the two cannot agree — because the production adapter's storage layer transforms what
-it holds, and the transformation is not something the adapter can prevent — the port SHALL
-state the resulting normalization as its own promise and both adapters SHALL honour it, rather
-than the port promising a fidelity only the fake can deliver. The shared contract suite SHALL
-gain the case. An in-memory adapter that is the more *faithful* of the two misleads exactly as
-one that is the more permissive does; R11.21 and this requirement are the same rule applied to
-the two halves of a port's contract.
-
-**R11.23** The event store SHALL return every payload with each object's members in RFC 8785
-§3.2.3 order, at every depth, from every surface that hands an event back — both read paths
-and the append's own return value — whichever adapter is underneath. Array order and every
-scalar value SHALL be those that were appended: member order is the only aspect of the
-document the store is permitted to normalize, because it is the only one that carries no
-information. An implementation SHALL obtain the order from the same expression of §3.2.3 its
-canonicalizer uses, never from a second sort.
+**Applied in v1.1** as R11.22 (§11.1, with R11.21) and R11.23 (§11.3, qualifying
+R11.9). The two paragraphs above — why byte-for-byte tree fidelity was rejected as
+the promise, and why "the canonical form" would have been worse still — are the
+reason R11.23 is not arbitrary, and they stay here. **R11.23 is the one Part E
+requirement that makes a positive design choice**: that the port's promise is
+*member order*, not tree fidelity and not the canonical form. It merged because
+the choice is forced by a measured divergence between two adapters of one port and
+because both alternatives were falsified above — `jsonb` cannot honour fidelity,
+and "canonical form" would mean NFC-normalizing stored content, which §6.4
+forbids.
 
 ### The admissibility half: E11's open note, closed
 
@@ -1710,15 +1734,10 @@ independently of ADMIT; it is recorded here as found and **not** fixed at the ti
 fifth instance of E10's pattern, and the fifth in the same shape: a check the byte parse path
 performs, absent from the entry point whose input is a tree.
 
-**R11.24** The event store SHALL admit only a payload that has a Cūria-profile canonical form,
-evaluated with `CanonicalizeWithNfc` and its output discarded, while continuing to store the
-pure RFC 8785 rendering. "Storage is not signing" governs what an adapter writes, not what it
-admits: admission's only outcome is refusal, so nothing about the no-mutation invariant argues
-for admitting a document the system of record can already prove it will be unable to sign. The
-refusal names the condition and preserves E1's precedence between the two duplicate predicates
-— `curia/admit/duplicate-key` for a raw duplicate, `curia/canon/duplicate-normalized-key` for
-names equal only after normalization — because it is obtained from the canonicalizer rather
-than re-derived.
+**Applied in v1.1** as R11.24 (§11.3 — the store admits under the Cūria profile
+and stores the pure rendering). It closes E11's open note; the merged text
+preserves E1's precedence between the two duplicate predicates by citing R6.9,
+which is where that precedence now lives in the white paper.
 
 ### Error precedence, unpinned
 
@@ -1735,11 +1754,10 @@ identically on every attempt. The same argument-versus-store-state line already 
 empty-batch refusal first, and it is what makes an all-or-nothing batch refusal possible at
 all in an append-only log.
 
-**R11.25** Where more than one of an append's failure conditions applies to the same call, a
-store SHALL report the conditions decidable from the arguments alone — an empty batch, and
-payload admissibility — in preference to `curia/domain/concurrency-conflict`, which is a claim
-about the store's state. The precedence SHALL be stated by the port and pinned by the shared
-contract suite; two adapters that happen to agree about it are not a contract.
+**Applied in v1.1** as R11.25 (§11.3 — argument-decidable append failures reported
+in preference to store-state ones, with the precedence stated by the port). The
+principled basis above — an argument-decidable refusal is identical on every
+attempt, a concurrency conflict invites a retry — is the derivation and stays.
 
 ## E13 — The fifth instance, closed; and the predicate that named a mechanism
 
@@ -1829,7 +1847,7 @@ producing: a vector pins one entry point's answer, and the wrapping happens at a
 
 ### What sufficed and what did not
 
-**R6.38 needed nothing added.** Its second paragraph already obliges both pure canonicalization
+R6.38 **needed nothing added.** Its second paragraph already obliges both pure canonicalization
 functions to reject an unpaired surrogate independently of ADMIT, in those words. The defect was
 an implementation that did not honour a requirement, not a requirement that failed to say so,
 and this entry mints no duplicate obligation for it.
@@ -1842,20 +1860,14 @@ being stated per-condition — it was stated for duplicates and then not applied
 C#, nor to six conditions in Rust's NFC path, nor to NUL on its parse path. R6.43 states it once,
 generally.
 
-**R6.43** A rejection reported from any parsing or canonicalizing entry point SHALL name the
-condition detected, never the layer or mechanism that detected it, for every condition either
-document names — generalizing what R6.42 states for duplicate member names, for the reason R6.40
-gives. An implementation SHALL NOT report a mechanism-shaped predicate (`curia/canon/parse-error`,
-`curia/canon/normalization-failed`, or any successor) where a condition name exists; such a
-predicate changes value when the mechanism behind it is replaced, which is precisely what a
-stable predicate must not do. In particular: an unpaired UTF-16 surrogate SHALL be reported as
-`curia/admit/unpaired-surrogate` from every entry point that detects it, including the
-tree-taking pure canonicalizers R6.38 obliges to reject it and the NFC profile whose
-normalization step would otherwise be the thing that noticed; and R6.40's NUL carve-out
-(`curia/admit/nul-byte`, never `curia/admit/raw-control-character`) applies on ADMIT-free parse
-paths exactly as it does at ADMIT. Published vectors pin an entry point, not a function, so
-conformance to this requirement SHALL be pinned by in-implementation tests at each entry point
-the corpus cannot reach (R14.7).
+**Applied in v1.1** as R6.43 (§6.4 — a rejection names the condition, never the
+mechanism; `curia/admit/unpaired-surrogate` from every entry point that detects
+it; R6.40's NUL carve-out applies on ADMIT-free parse paths exactly as at ADMIT).
+Merged **verbatim, including its `(R14.7)` citation**: R14.7 amends R14.6, which
+is enhancement C8 and is not adopted, so R14.7 stays proposed here and R6.43's
+pointer resolves to this document. Rewriting normative text to tidy that
+cross-reference would have been a silent decision about C8 and D1, and was not
+taken.
 
 ### An aside that is not an aside
 
@@ -1958,65 +1970,124 @@ inputs under all three ops — 132 records — shows no C#/Rust disagreement of 
 
 ---
 
+# Applied in white paper v1.1
+
+The rows below name requirement text that **now lives in the white paper**. What
+remains in this document under those entries is the derivation — the rationale,
+the measurement, and the alternatives considered — not the norm. A row marked
+*replaced in place* amended a requirement v1.0 already had; a row with no such
+mark added a number v1.0 left free.
+
+*This table is complete: the §1–§7 pass and the §8-onward pass have both landed.*
+
+| ID | What it says | Entry | White paper |
+|---|---|---|---|
+| R4.16 | Registrar key store authoritative; Forum-served JWKS; no runtime key fetch — *replaced in place* | A16 | §4.4 |
+| R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs | D4 | §4.4 |
+| R4.29 | `expired` defined as a terminal credential state; Table 6 gains the row | E8 (with D9.5) | §4.5 |
+| R5.9 | The verification algorithm is pinned before any signature work | E9 | §5.5 |
+| R5.10 | `kid` resolved only within the configured issuer JWKS | E9 | §5.5 |
+| R5.11 | An unbound token is never accepted on a write path | E9 | §5.5 |
+| R6.2 | Key-validity clause rewritten from "submission time" to `server_ts` — *replaced in place* | A12 | §6.1 |
+| R6.8 | `Canonicalize` — pure RFC 8785, no Unicode normalization — *replaced in place* | D1 | §6.3 |
+| R6.9 | `CanonicalizeWithNfc` — NFC every member name and value first, then canonicalize; duplicate rejection evaluated post-normalization — *replaced in place*, E1's addendum folded in | D1, E1 | §6.3 |
+| R6.11 | Vectors published as files whose bytes are the specification, hex where not visually distinguishable, fed unmodified — *addenda folded in* | D8, E6, D9.6 | §6.3 |
+| R6.15 | Rejection enumeration extended by four classes; depth counts container openings — *addenda folded in* | D7, D6 | §6.4 |
+| R6.31 | Key validity evaluated at `server_ts` | A12 | §6.2 |
+| R6.32 | Only future-dated `created_at` is rejected | A13 | §6.2 |
+| R6.33 | I-JSON-exact numerics, ADMIT-generic, meta-prediction in basis points — B5, D5 and E4 merged as one requirement | B5, D5, E4 | §6.4 |
+| R6.34 | The pinned Unicode version changes only with an envelope schema version bump | B5 | §6.3 |
+| R6.36 | Every published vector declares which canonicalization function it constrains | D2 | §6.3 |
+| R6.37 | The JWS signing input is the raw canonical bytes, per RFC 7797 | D3 | §6.2 |
+| R6.38 | Pure canonicalization functions skip ADMIT's caps but reject raw duplicates and unpaired surrogates | E2 | §6.3 |
+| R6.39 | ADMIT's four caps pinned at 32 containers / 1,024 members / 1 MiB / 256 KiB, measured over the document ADMIT is asked to admit | E3 (with T4.2b) | §6.4 |
+| R6.40 | The error-slug vocabulary, including the NUL carve-out | E5 | §6.4 |
+| R6.41 | A parse path free of ADMIT policy caps, which canonicalization uses | E4 | §6.4 |
+| R6.42 | Duplicate member names rejected at every parsing or canonicalizing entry point | E10 | §6.3 |
+| R6.43 | A rejection names the condition detected, never the mechanism that detected it — merged verbatim, its `(R14.7)` citation retained and resolving to this document | E13 | §6.4 |
+| R8.29 | Meta-prediction field renamed `predicted_endorsement_bp`, an integer in basis points; a note records that no `vote` envelope kind carries it yet — *replaced in place* | B5, A14 | §8.7.3 |
+| R8.31 | SP formula converts basis points to a rate (`/ 10000`) — *replaced in place* | B5 | §8.7.3 |
+| R8.47 | Verification events pin the runner image digest and seed; environment re-runs typed separately | B6 | §8.4 |
+| R9.17 | Dumps as a signed manifest plus content-addressed chunks carrying a per-item provenance index | A15 | §9.4 |
+| R10.3 | A deliberate V0 discovery channel with a published exploration budget — proposed here as R10.43, renumbered by A8 | B1 | §10.3 |
+| R11.18 | Provenance-envelope cross-reference corrected to §10.6 — *replaced in place* | A3 | §11.5 |
+| R11.21 | A port's in-memory adapter accepts exactly what its production adapter accepts | E11 | §11.1 |
+| R11.22 | A port's in-memory adapter returns what its production adapter returns; where they cannot agree the port states the normalization | E12 | §11.1 |
+| R11.23 | Event payloads read back in RFC 8785 member order at every depth, from every surface; array order and scalars unchanged | E12 | §11.3 |
+| R11.24 | Event store admits only payloads with a Cūria-profile canonical form, while storing the pure rendering | E12 | §11.3 |
+| R11.25 | Argument-decidable append failures reported in preference to store-state ones | E12 | §11.3 |
+| R12.15 | Bounded, access-controlled read-attribution logs, disclosed in the retention policy | B2 | §12.1 |
+| R12.16 | Log-key history discipline (R4.19 applied to the log) | B3 | §12.4 |
+| R12.17 | Log-key compromise runbook anchored to gossiped heads — C3's witness clause struck | B3 | §12.4 |
+| R13.6 | Retention disclosure now names read-attribution logs — *replaced in place* | B2 | §13 |
+| P22 | Provenance in every representation: in-band on serving paths, at the container level on export paths — *replaced in place*, with §14.2 and Appendix L.2 swept | A15 | §14.1 |
+
+**Two structural changes carry no requirement number.** Appendix D's `events`
+table lost its `server_ts DEFAULT now()` — time enters the system of record
+through the `Clock` port (R11.3), and a database default is a second, un-ported
+clock sitting in the one table replay depends on. The seven projection tables keep
+their defaults, and a sentence beneath the DDL now says the asymmetry is
+deliberate. And §10 was renumbered (A8), with the mapping published as white paper
+Appendix B.1.
+
+**Neither R14.7 nor R14.8 is applied.** Both amend R14.6, which is enhancement C8
+and is not adopted; adopting them would import C8 by implication and, with it, an
+answer to D1. R6.43's citation of R14.7 is retained as published and resolves to
+this document. v1.1 therefore contains no requirement that a differential
+comparison examine the rejection predicate, or that the harness enumerate the
+entry points its protocol cannot reach — a real gap, recorded here rather than
+closed by a merge that was not asked to decide C8.
+
+---
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
 |---|---|---|
 | R4.16 (rev.) | Registrar key store authoritative; Forum-served JWKS; no runtime key fetch | A16 |
-| R5.9–R5.11 | Algorithm pinned before signature work; `kid` resolved only in the issuer JWKS; unbound tokens refused on write paths — cited by §5.5 but never defined | E9 |
 | R5.19 | DPoP server nonces on write paths; challenge flow in reference client | B4 |
-| R6.31 | Key validity evaluated at `server_ts` | A12 |
-| R6.32 | Reject only future-dated `created_at`; composed/received pair displayed | A13 / D6 closed |
-| R6.33 | I-JSON-exact numerics; meta-prediction as basis points | B5 |
-| R6.34 | Unicode version pinned to envelope schema version | B5 |
+| R6.33 | I-JSON-exact numerics; meta-prediction as basis points — *applied in v1.1; row retained because D5 and E4 still amend it* | B5 |
 | R6.35 | Witness cosigning of tree heads; witnessed/unwitnessed distinguished | C3 |
-| R8.47 | Verification events pin runner image digest and seed; environment re-runs typed separately | B6 |
 | R8.48 | Digest-anchored URL references at V2+ | B7 |
 | R8.49–R8.51 | Signed vote envelopes; epoch sealing; epoch-root log leaves with two-stage proofs | C1 / A14 |
 | R8.52 | Per-owner edge-mass caps in the endorsement graph | C4 |
 | R8.53 | Parallel bottleneck-flow trust; "Sybil-bounded" language; R8.43 evaluation | C4 / A18 |
 | R8.54 | CVE/release feeds as automatic staleness triggers | C7 |
-| R9.17 | Dumps as signed manifest + content-addressed chunks with provenance index | A15 / C6 |
-| R10.43 | V0 review queue with published exploration budget | B1 |
-| R10.44 | Calibration-ledger credit for review-lane votes | C2 |
-| R10.45 | Diversity-aware review sampling (R8.38 applied to the lane) | C2 |
-| R10.46 | Reader Contract conformance attestation; read-budget benefits only | C5 |
-| R12.15 | Bounded, access-controlled read-attribution logs; disclosed in retention policy | B2 |
-| R12.16 | Log-key history discipline (R4.19 applied to the log) | B3 |
-| R12.17 | Log-key compromise runbook anchored to witnessed heads | B3 |
+| R10.41 | Calibration-ledger credit for review-lane votes | C2 |
+| R10.42 | Diversity-aware review sampling (R8.38 applied to the lane) | C2 |
+| R10.43 | Reader Contract conformance attestation; read-budget benefits only | C5 |
 | R14.6 | Differential canonicalization fuzzing across the dual implementations | C8 |
-| R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs (`kty: "OKP"`); RFC 8037 added to References | D4 |
-| R11.21 | A port's in-memory adapter accepts exactly what its production adapter accepts; the fake is never the more permissive | E11 |
-| R11.22 | A port's in-memory adapter returns what its production adapter returns; where they cannot agree the port states the normalization; the fake is never the more faithful | E12 |
-| R11.23 | Event payloads read back in RFC 8785 member order at every depth, from every surface; array order and scalars unchanged | E12 |
-| R11.24 | Event store admits only payloads with a Cūria-profile canonical form, while storing the pure rendering | E12 |
-| R11.25 | Argument-decidable append failures reported in preference to store-state ones; precedence stated by the port, pinned by the contract suite | E12 |
-| R4.29 | Table 6 defines an `expired` row: entered from `pending` on enrollment-code expiry, terminal, no authentication or posting | E8 |
 | R6.8 (rev.) | `Canonicalize` — pure RFC 8785, no normalization, reproduces the RFC's own vectors | D1 |
 | R6.9 (rev.) | `CanonicalizeWithNfc` — NFC every key and value recursively **first**, then canonicalize | D1 |
 | R6.11 (add.) | Vectors published as files; bytes stated in hex where not visually distinguishable | D8 |
 | R6.15 (rev.) | Enumeration adds duplicate keys, Unicode noncharacters, non-finite numbers, out-of-range integers | D7 |
 | R6.15 (add.) | Depth counts container openings, not the innermost scalar; both sides of the boundary pinned | D6 |
 | R6.33 (rev.) | Explicit symmetric bound `−(2^53 − 1) ≤ n ≤ 2^53 − 1`; `2^53` rejected | D5 |
-| R6.36 | Every published vector declares which canonicalization function it constrains | D2 |
-| R6.37 | Signing input is the raw canonical bytes per RFC 7797, not base64url-encoded | D3 |
 | R6.9 (add.) | Duplicate-member rejection evaluated post-normalization; raw duplicate wins, order-independently | E1 |
-| R6.38 | Pure canonicalization functions skip ADMIT's policy caps but independently reject raw duplicates and unpaired surrogates | E2 |
-| R6.39 | ADMIT's four size-shaped caps pinned: depth 32, 1,024 members, 1 MiB submission, 256 KiB string | E3 |
 | R6.33 (rev. 2) | R6.33's numeric bound applies ADMIT-generically, not only to envelope-schema fields | E4 |
-| R6.40 | Slug vocabulary pinned: `malformed-json`, `members-exceeded`, `size-exceeded`, `raw-control-character` | E5 |
-| R6.41 | A parse path free of ADMIT policy caps, distinct from ADMIT; canonicalization uses it | E4 |
 | R6.11 (add. 2) | A vector's bytes SHALL be fed unmodified to the function/phase its `meta.json` names | E6 |
-| R6.42 | Duplicate member names rejected at every parsing or canonicalizing entry point, tree-taking ones included; linear per object | E10 |
-| R6.43 | Rejections name the condition, never the mechanism; `unpaired-surrogate` and the NUL carve-out pinned at every entry point | E13 |
 | R14.7 | Harness enumerates entry points its protocol cannot reach; those are covered in-implementation and the gap is recorded | E10 |
 | R14.8 | Harness compares every normative component of an answer, the rejection predicate included, stated per operation | E14 |
 
-Editorial fixes carrying no new requirement: A1–A11, A17, A19, A20 (corrected
-citations SP 800-207 §5.7, RFC 7797, RFC 8707; cross-reference repairs; §10
-renumbering with a published mapping; §16 reordering; DPoP `typ` and `nbf`
-checks added to the §5.5 pseudocode; F.1 marked as pseudocode or re-typed;
-appendix requirements indexed).
+**Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
+A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
+RFC 8707, RFC 8037; the §6.5→§6.6 and §10.2–10.5→§10.6–10.9 cross-reference
+repairs; §10 renumbering with the mapping published as Appendix B.1; §16 reordered
+to D1–D10; the DPoP `typ` and `nbf` checks added to the §5.5 pseudocode; F.1
+re-typed to Cedar's `Long` comparison; Appendix B extended with the property range,
+R15.3, and the appendix requirements R I.1 and R L.1–R L.4). A14's contradiction
+and A18's mechanism half are the two Part A entries that carried no mergeable
+requirement text; both are recorded under their own entries above.
+
+**Held out of v1.1, deliberately:** all of Part C (nine entries, eleven
+requirement numbers — merging any would settle D1, D5, D9 or D10 by side effect);
+**B4/R5.19**, reclassified as an enhancement because §5.6's replay defense is
+complete on its own terms and the residual it closes is host compromise, which
+§3.6 classes as unmitigated; **B7/R8.48**, a mixed entry whose Forum-side
+snapshot-and-digest half would give the Forum an outbound fetcher for
+author-supplied URLs, colliding with A16 in this same document; and the deferred
+pair **R14.7** / **R14.8**, which amend C8's R14.6. Each is a known, recorded gap
+rather than a silent decision.
 
 ---
 
