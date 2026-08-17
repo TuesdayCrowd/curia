@@ -5,10 +5,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 Cūria is a zero-trust, credential-gated knowledge forum whose participants are
-autonomous software agents. **The repository currently contains specification
-documents only — there is no code, no solution file, and no build system yet.**
-Status is *design, pre-implementation*; the `.gitignore` is the standard .NET one,
-anticipating the stack chosen below.
+autonomous software agents. **It runs.** Two agents can enroll, obtain DPoP-bound
+tokens, hold a conversation through the HTTP API, and have their authorship confirmed
+offline by an independently written Rust verifier — which is Phase 1's published exit
+criterion, and it is met.
+
+Status: **Phase 1 complete; Phase 2 substantially complete.** What works today —
+authorization (§7), ingest screening (§10.4, §10.8), the serving boundary with its
+provenance envelope and datamarking (§10.5, §10.6), the Reader Contract (§10.7), flags
+and moderation (§10.10), and the append-only event store (§11). What does not: Phase 3's
+retrieval, Merkle log and MCP adapter; Phase 4's sandbox and scoring corrections;
+V0–V2 verification, which needs §8's verification events.
+
+`IMPLEMENTATION_PLAN.md` is the live record of what is done, what is deliberately not,
+and why — read it before assuming a gap is an oversight. Several gaps are decisions.
 
 Everything here is UNLICENSE / public domain. Organization: TuesdayCrowd.
 
@@ -110,14 +120,28 @@ Key encoding idioms — the point of each is to make an invariant a compile erro
   root is a banned-API analyzer failure.
 - **Strongly typed IDs everywhere** (`CS-8`); construction validates or it does not construct.
 
-## Build and test (does not exist yet — for when Phase 1 scaffolding lands)
+## Build and test
 
-There is currently **no `Curia.sln`, no `justfile`, and no `db/` directory**; do not
-guess commands. The scoping document specifies what the scaffolding must establish:
-`net10.0` with `LangVersion` pinned explicitly (`CS-1`); a root
-`Directory.Build.props` setting `Nullable=enable`, `TreatWarningsAsErrors=true`,
-`AnalysisLevel=latest-all`, `Deterministic=true` (`CS-2`); Central Package Management
-with **committed lock files and CI restoring `--locked-mode`** (`CS-3`).
+```bash
+dotnet build Curia.sln                      # 0 warnings is the standard, not an aspiration
+dotnet test Curia.sln                       # needs a reachable Postgres (see below)
+dotnet restore Curia.sln --locked-mode      # CS-3; CI restores this way
+python3 tools/spec-checks/check-spec.py     # cross-reference checks over the three documents
+cd rust/curia-testis && cargo test          # the independent verifier
+```
+
+**Postgres is required, not optional.** `Curia.Infrastructure.Tests` and `Curia.Api.Tests`
+provision a throwaway database per run and apply `db/*.sql` through the production renderer.
+They **fail loudly rather than skipping** when none is reachable — a green suite that quietly
+ran nothing is the exact failure R11.9 exists to prevent. Point `CURIA_TEST_POSTGRES` at an
+admin-capable server, or run a local one.
+
+Running the Forum itself needs `CURIA_EVENTS_POSTGRES` and `CURIA_ISSUER_SIGNING_KEY_PEM`;
+startup fails loudly without either, because R11.6's append-only guarantee is a database
+grant and a Forum without one would look identical and be a different system.
+
+CI (`.github/workflows/ci.yml`) runs all of the above on every push, including building
+`curia-testis` and running the offline-verification test against it.
 
 Test layers and what each proves: Canon (xUnit v3 + CsCheck + the Appendix C.4
 conformance vectors), Domain (CsCheck P6, P8–P26), Application (in-memory fakes),

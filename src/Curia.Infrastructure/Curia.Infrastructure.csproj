@@ -5,19 +5,34 @@
   <ItemGroup>
     <ProjectReference Include="../Curia.Application/Curia.Application.csproj" />
     <ProjectReference Include="../Curia.Canon/Curia.Canon.csproj" />
+    <!--
+      CS-7 puts ports in the module that needs them and adapters in Infrastructure; AuthN is a
+      module with ports (IReplayCache, IDpopNonceStore) and no adapters of its own, because the
+      only durable implementation of either reaches a database and Npgsql is Infrastructure-only.
+      So Infrastructure depends on AuthN for the same reason it depends on Application: to
+      implement an interface declared there. The forbidden direction is the reverse one, and
+      Curia.Architecture.Tests' CS7_AuthNDoesNotDependOnDomain guards the adjacent seam.
+    -->
+    <ProjectReference Include="../Curia.AuthN/Curia.AuthN.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql" />
   </ItemGroup>
   <ItemGroup>
     <!--
-      The single source of truth for the events schema: one file, not a checked-in copy plus
-      a hand-synced C# string. Embedded so both this production assembly and
-      Curia.Infrastructure.Tests read the exact same bytes regardless of the process's
-      working directory; see Migrations/EventStoreSchema.cs.
+      The single source of truth for the database schema: the checked-in forward-only migrations
+      themselves, not a hand-synced C# string beside them. Embedded so both this production
+      assembly and every test fixture read the exact same bytes regardless of the process's
+      working directory; see Migrations/EventStoreSchema.cs and Migrations/SchemaMigrations.cs.
+
+      Globbed rather than listed one <EmbeddedResource> at a time so a new db/*.sql file cannot
+      be added and then fail to load as a resource. Which files exist is this glob's business;
+      what ORDER they apply in is SchemaMigrations.FileNames', and
+      SchemaMigrationsTests.FileNamesCoversEveryCheckedInMigration is what stops the two from
+      drifting apart.
     -->
-    <EmbeddedResource Include="../../db/0001_create_events.sql">
-      <LogicalName>Curia.Infrastructure.Migrations.0001_create_events.sql</LogicalName>
+    <EmbeddedResource Include="../../db/*.sql">
+      <LogicalName>Curia.Infrastructure.Migrations.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 </Project>

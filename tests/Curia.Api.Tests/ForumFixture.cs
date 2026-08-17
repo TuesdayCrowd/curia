@@ -1,3 +1,4 @@
+using Curia.Api.Issuer;
 using Curia.Infrastructure.Migrations;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -24,8 +25,9 @@ internal sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
 
 /// <summary>
 /// The real Forum, hosted in process: the same <see cref="Program.Build"/> the deployed host runs,
-/// with two things replaced -- the clock (so tier promotion is testable) and the connection string
-/// (so each run gets its own database).
+/// with three things supplied -- the clock (so tier promotion is testable), the connection string
+/// (so each run gets its own database), and the issuer's signing key (which the host requires and
+/// deliberately does not generate for itself; see <see cref="IssuerSigningKey"/>).
 ///
 /// <para><b>Nothing else is substituted.</b> The pipeline, the PDP, the screener and the Postgres
 /// event store are the production ones. A fixture that swapped the store for an in-memory fake
@@ -46,6 +48,13 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
 
     private string _connectionString = string.Empty;
 
+    /// <summary>
+    /// The issuer's signing key for this fixture's whole life, as a PEM. Public so a test that
+    /// restarts the host can stand the second one up on the same key and check that what the
+    /// first minted still verifies.
+    /// </summary>
+    internal string IssuerSigningKeyPem { get; } = IssuerSigningKey.GeneratePem();
+
     internal ManualTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 8, 16, 12, 0, 0, TimeSpan.Zero));
 
     internal DateTimeOffset Now => Clock.GetUtcNow();
@@ -64,10 +73,12 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
         }.ConnectionString;
 
     /// <summary>
-    /// Provisions a throwaway database and applies <c>db/0001_create_events.sql</c> through the
+    /// Provisions a throwaway database and applies <b>every</b> migration in <c>db/</c> through the
     /// production renderer -- so the schema under test is the one a deployment gets, including
-    /// R11.6's <c>REVOKE UPDATE, DELETE</c>. A fixture that hand-wrote equivalent DDL would be
-    /// testing its own transcription.
+    /// R11.6's <c>REVOKE UPDATE, DELETE</c> on <c>events</c> and 0002's deliberately different
+    /// grants on the operational tables. A fixture that hand-wrote equivalent DDL would be testing
+    /// its own transcription; one that named a single migration file would go on passing while a
+    /// later migration was missing from the database it provisions.
     /// </summary>
     public async ValueTask InitializeAsync()
     {
@@ -94,8 +105,7 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
         var builder = new NpgsqlConnectionStringBuilder(AdminConnectionString) { Database = _database };
         _connectionString = builder.ConnectionString;
 
-        var template = await File.ReadAllTextAsync(FindRepoFile("db/0001_create_events.sql"));
-        var sql = EventStoreSchema.Render(template, _role, _password);
+        var sql = SchemaMigrations.RenderAll(_role, _password);
 
         await using var target = new NpgsqlDataSourceBuilder(_connectionString).Build();
         await using var apply = target.CreateCommand(sql);
@@ -121,21 +131,18 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
 
         builder.UseSetting("ConnectionStrings:Events", _connectionString);
 
+        // The issuer signing key is configuration, not something the host generates (see
+        // Curia.Api.Issuer.IssuerSigningKey). One PEM per fixture, held for the fixture's whole
+        // life, is what lets a test restart the host and find the tokens the previous one minted
+        // still verifying -- the property a per-process key could not have. Generated rather than
+        // checked in, because a signing key committed to a repository is the thing R4.20 names
+        // first among the places a key must never be.
+        builder.UseSetting("Curia:IssuerSigningKeyPem", IssuerSigningKeyPem);
+
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Clock);
         });
-    }
-
-    private static string FindRepoFile(string relative)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, relative)))
-            dir = dir.Parent;
-
-        return dir is null
-            ? throw new InvalidOperationException($"{relative} not found above {AppContext.BaseDirectory}")
-            : Path.Combine(dir.FullName, relative);
     }
 }

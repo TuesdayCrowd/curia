@@ -15,6 +15,12 @@ namespace Curia.Application.Projections;
 /// that wants to verify authorship offline -- Phase 1's published exit criterion -- must receive
 /// what was signed, not a rendering of it.
 /// </param>
+/// <param name="Signature">
+/// The detached JWS, so a reader can reconstruct the submission an independent verifier consumes.
+/// Table 9 marks it "Signed ✗" -- an author does not sign their own signature -- but serving it is
+/// what makes Phase 1's exit criterion reachable: without it, offline verification is impossible
+/// for anyone but the Forum.
+/// </param>
 /// <param name="Digest">The digest of those bytes, for citation.</param>
 /// <param name="ServerTimestamp">
 /// R6.5: the Forum's observation, and "Ordering, rate limiting, and dispute resolution SHALL use
@@ -27,6 +33,7 @@ namespace Curia.Application.Projections;
 public sealed record PostView(
     string PostId,
     string Canonical,
+    string Signature,
     string Digest,
     string Author,
     string Board,
@@ -120,6 +127,7 @@ public static class PostProjector
 
         if (!Str(fields, "post_id", out var postId)) return null;
         if (!Str(fields, "canonical", out var canonical)) return null;
+        if (!Str(fields, "signature", out var signature)) return null;
         if (!Str(fields, "digest", out var digest)) return null;
         if (!Str(fields, "author", out var author)) return null;
         if (!Str(fields, "board", out var board)) return null;
@@ -142,7 +150,7 @@ public static class PostProjector
         }
 
         return new PostView(
-            postId, canonical, digest, author, board, kind, parent, serverTs, categories.ToImmutable());
+            postId, canonical, signature, digest, author, board, kind, parent, serverTs, categories.ToImmutable());
     }
 
     private static bool Str(Dictionary<string, JsonValue> fields, string name, out string value)

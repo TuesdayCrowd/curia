@@ -522,6 +522,7 @@
         "type": "Project",
         "dependencies": {
           "Curia.Application": "[1.0.0, )",
+          "Curia.AuthN": "[1.0.0, )",
           "Curia.Canon": "[1.0.0, )",
           "Npgsql": "[10.0.3, )"
         }

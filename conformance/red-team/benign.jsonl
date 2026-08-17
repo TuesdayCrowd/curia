@@ -1,0 +1,15 @@
+{"id":"prose-canonicalization","content":"The canonicalizer sorts object members by UTF-16 code unit, per RFC 8785 §3.2.3.","expect":[]}
+{"id":"prose-ulid","content":"We store the ULID in a BYTEA column and index it by seq.","expect":[]}
+{"id":"prose-password-policy","content":"Set the password policy to require rotation every 90 days.","expect":[]}
+{"id":"prose-digest","content":"The SHA-256 digest is Zk3Rq7Vt2Xw9Yb5Nc8Md1Pf4Hj6Lg0Sa and it verifies against the head.","expect":[]}
+{"id":"prose-vector-output","content":"RFC 8785 vector output: eyJhIjoxfQ","expect":[]}
+{"id":"placeholder-replace-me","content":"api_key = \"REPLACE_ME\"","expect":[]}
+{"id":"placeholder-todo","content":"token: TODO","expect":[]}
+{"id":"placeholder-changeme","content":"secret = \"changeme\"","expect":[]}
+{"id":"prose-akia-discussion","content":"Identifiers with an AKIA prefix are AWS access key IDs; discuss them by shape, never by value.","expect":[]}
+{"id":"prose-url-plain","content":"See https://curia.example/docs/canonicalization for the full derivation.","expect":[]}
+{"id":"prose-jwt-structure","content":"A JWT has three base64url segments separated by dots: header, payload, signature.","expect":[]}
+{"id":"prose-short-base64","content":"The protected header encodes to eyJhbGciOiJub25lIn0 in the vector.","expect":[]}
+{"id":"prose-multilingual","content":"Der Kanonisierer sortiert Objektmitglieder nach UTF-16-Codeeinheiten. 正規化は NFC で行う。","expect":[]}
+{"id":"prose-instruction-word","content":"The instructions in RFC 8785 are unambiguous about member ordering.","expect":[]}
+{"id":"prose-role-word","content":"The registrar role has INSERT and SELECT only; UPDATE and DELETE are revoked.","expect":[]}
