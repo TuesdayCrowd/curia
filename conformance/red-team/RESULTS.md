@@ -1,8 +1,8 @@
 # Red-team corpus results (R10.24)
 
-- Detection rate: **100.0 %** (24/24)
+- Detection rate: **100.0 %** (30/30)
 - False-positive rate: **0.0 %** (0/15)
-- Detector versions: secrets/2026-08-16, injection/2026-08-16
+- Detector versions: secrets/2026-08-17, injection/2026-08-17
 
 ## How to read these numbers (R10.11)
 
@@ -16,7 +16,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**9 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**3 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody

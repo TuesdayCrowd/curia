@@ -92,8 +92,38 @@ public static class ContentScreener
                 ex);
         }
 
-        var flags = SecretScanner.Scan(derived)
-            .Concat(InjectionDetector.Scan(derived))
+        // R6.13's derived copy, now read several ways. The detectors were trivially evadable
+        // against the literal text alone -- character spacing, Markdown emphasis, homoglyphs and
+        // base64 wrapping all defeat a pattern that matches words, and none of them takes any
+        // sophistication. Each view maps its offsets back to the original so a rejection still
+        // reports a location the author can act on (R10.27).
+        var views = DerivedViews.Of(derived);
+
+        var found = new List<RiskFlag>();
+
+        foreach (var view in views)
+        {
+            // The unseparated view strips punctuation and whitespace entirely, which recovers a
+            // credential split across words. It is deliberately *not* fed to the injection detector:
+            // running prose with every space removed is one long token, and phrase patterns over it
+            // would match across sentence boundaries that were never adjacent.
+            var scoped = view.Name is "unseparated"
+                ? SecretScanner.Scan(view.Text, relaxWordBoundaries: true)
+                : SecretScanner.Scan(view.Text).Concat(InjectionDetector.Scan(view.Text));
+
+            foreach (var flag in scoped)
+            {
+                var (offset, length) = view.ToOriginal(flag.Offset, flag.Length);
+                found.Add(flag with { Offset = offset, Length = length });
+            }
+        }
+
+        // One finding per (category, position). The same attack surfaces in several views by design
+        // -- a homoglyph override also appears in the unconfused view and possibly the despaced one --
+        // and reporting it three times would inflate every count R10.24 publishes.
+        var flags = found
+            .GroupBy(f => (f.Category, f.Offset))
+            .Select(g => g.First())
             .OrderBy(f => f.Offset)
             .ThenBy(f => f.Category)
             .ToArray();
