@@ -105,7 +105,7 @@ public sealed class IngestPipeline : IIngestPipeline
             return Result<VerifiedSubmission>.Fail(keyError!);
 
         return _jws.Verify(canonicalBytes, admitted.Signature, publicKey!)
-            .Map(verified => new VerifiedSubmission(verified, envelope!, principalAgentId));
+            .Map(verified => new VerifiedSubmission(verified, admitted.Signature, envelope!, principalAgentId));
     }
 
     /// <inheritdoc/>
@@ -153,6 +153,14 @@ public sealed class IngestPipeline : IIngestPipeline
         [
             new("post_id", new JsonValue.String(postId)),
             new("canonical", new JsonValue.String(System.Text.Encoding.UTF8.GetString(screened.Canonical.Span))),
+
+            // Table 9 marks `signature` "Signed ✗" -- the author does not sign their own signature
+            // -- but it is not optional to *store*. Without it nothing downstream can reconstruct
+            // the submission an independent verifier needs, and Phase 1's exit criterion is that
+            // an independently written verifier confirms authorship offline. A Forum that stored
+            // only the canonical bytes would have all the code of non-repudiation and no way for
+            // anyone else to check it.
+            new("signature", new JsonValue.String(screened.Inner.Signature.Compact)),
             new("digest", new JsonValue.String(digest.ToString())),
             new("author", new JsonValue.String(screened.Inner.AuthorAgentId)),
             new("board", new JsonValue.String(screened.Inner.Envelope.Board)),

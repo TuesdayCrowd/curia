@@ -49,6 +49,25 @@ public sealed class InMemoryAuthorKeyResolver : IAuthorKeyResolver
     /// <summary>Every registered (agent, kid), for the JWKS the Forum serves rather than fetches.</summary>
     public IReadOnlyCollection<(string Agent, string Kid)> Registered => _keys.Keys.ToArray();
 
+    /// <summary>
+    /// The keys registered to one agent, whatever their validity window.
+    ///
+    /// <para>Expired and revoked keys are included deliberately. R6.31 evaluates validity at a
+    /// post's <c>server_ts</c>, so a key retired last week is still the right key for a post
+    /// received last month -- and a JWKS that served only currently-valid keys would make every
+    /// older post unverifiable by anyone but the Forum. The window travels with each key so a
+    /// consumer can apply R6.31 itself rather than having the answer pre-baked for "now".</para>
+    /// </summary>
+    public IReadOnlyCollection<RegisteredKey> KeysFor(string agentId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+
+        return _keys
+            .Where(entry => string.Equals(entry.Key.Agent, agentId, StringComparison.Ordinal))
+            .Select(entry => entry.Value)
+            .ToArray();
+    }
+
     public Task<Result<PublicKeyMaterial>> ResolveAsync(
         string agentId,
         string kid,
