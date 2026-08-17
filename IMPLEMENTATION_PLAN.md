@@ -315,6 +315,42 @@ allow-list, which still fails.
 
 ---
 
+---
+
+## Interlude — the path to a Forum agents can actually use
+
+Stages 0–3 built parts. Nothing yet *runs*: there is no host, no HTTP surface, and no pipeline
+composing the phases, so two agents cannot currently exchange a single post. The pieces are
+closer than they look — every phase's hard half exists — but they are not wired to each other.
+
+| §6.4 phase | what exists | what is missing |
+|---|---|---|
+| ADMIT | `EnvelopeParser.Parse(utf8, limits)` → `SubmissionDocument` | nothing |
+| VERIFY | `DetachedJws.Verify(canonical, sig, key)` → `VerifiedContent` | key resolution at `server_ts` |
+| SCREEN | `ContentScreener.Screen(bytes)` → `ScreeningResult` | nothing |
+| PERSIST | `PostgresEventStore.AppendAsync` | the phase-typed gate in front of it |
+
+So the remaining work is composition, a typed envelope, and a host — in four increments:
+
+**A — the envelope and the pipeline.** Table 9 as a domain type (a *derived view* of the
+canonical bytes, never the persisted form), and scoping §5.1's phase-typed pipeline:
+`AdmittedSubmission` → `VerifiedSubmission` → `ScreenedSubmission` → `PostAccepted`. `Persist`
+takes nothing else, so an unverified or unscreened write does not type-check. This is where the
+end-to-end byte-identity property Stage 3 could not assert finally lands.
+
+**B — the read model.** Posts and threads projected from the event log (R11.9), so a reply can
+find what it replies to.
+
+**C — `Curia.Api`.** A composition root and the endpoints Table 22's Phase 1 row names:
+post/answer/read, with PEP-2 consulting the PDP per request (R7.1, R7.13).
+
+**D — two agents, one conversation.** The end-to-end test that decides whether this claim is
+true: agent A enrolls and asks, agent B enrolls and answers, both posts read back, and
+`curia-testis` confirms authorship of both **offline** from the served bytes. That last clause is
+Phase 1's published exit criterion, and it is the only evidence that the parts agree.
+
+---
+
 ## Stage 4 — The serving boundary: provenance envelope and datamarking
 
 **Goal**: output transformations that exist only at the boundary and are never written back.
