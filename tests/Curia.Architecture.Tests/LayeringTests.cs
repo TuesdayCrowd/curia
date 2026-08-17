@@ -145,13 +145,10 @@ public sealed class LayeringTests
         // named this way is necessarily compiler-emitted, so this cannot accidentally excuse
         // anything a person wrote. The rule keeps its teeth -- a hand-written type in the global
         // namespace is still an offender, and so is any type reaching a namespace outside the list.
-        var scanned = Types.InAssembly(Domain)
-            .That().DoNotHaveNameStartingWith("<")
-            .GetTypes();
+        var scanned = Types.InAssembly(Domain).GetTypes();
         Assert.NotEmpty(scanned); // guards against the predicate silently matching nothing
 
         var result = Types.InAssembly(Domain)
-            .That().DoNotHaveNameStartingWith("<")
             .Should().OnlyHaveDependenciesOn(
                 "System",
                 "Curia.Domain",
@@ -159,10 +156,10 @@ public sealed class LayeringTests
                 "Curia.Domain.Primitives")
             .GetResult();
 
-        Assert.True(result.IsSuccessful,
+        var offenders = HandWrittenOffenders(result);
+        Assert.True(offenders.Length == 0,
             "Curia.Domain must depend on nothing beyond the BCL, Curia.Canon, and " +
-            "Curia.Domain.Primitives (CS-7, R11.1-R11.2). Offenders: " +
-            string.Join(", ", result.FailingTypeNames ?? []));
+            "Curia.Domain.Primitives (CS-7, R11.1-R11.2). Offenders: " + string.Join(", ", offenders));
     }
 
     /// <summary>
@@ -197,10 +194,11 @@ public sealed class LayeringTests
                 "Curia.Application")
             .GetResult();
 
-        Assert.True(result.IsSuccessful,
+        var offenders = HandWrittenOffenders(result);
+        Assert.True(offenders.Length == 0,
             "Curia.Application must depend on nothing beyond Domain, Canon, " +
             "Domain.Primitives, and the BCL -- in particular never Infrastructure or a " +
-            "host project (CS-7). Offenders: " + string.Join(", ", result.FailingTypeNames ?? []));
+            "host project (CS-7). Offenders: " + string.Join(", ", offenders));
     }
 
     /// <summary>
@@ -268,6 +266,26 @@ public sealed class LayeringTests
     /// Curia.Canon.Tests.Vectors.VectorLoader.FindRoot already uses in this solution to
     /// locate `conformance/` without a hardcoded absolute or excessively relative path.
     /// </summary>
+    /// <summary>
+    /// The offenders a dependency rule reported, minus the ones the compiler emitted.
+    ///
+    /// <para>Roslyn lowers collection-expression syntax (<c>[...]</c>) into types such as
+    /// <c>&lt;&gt;z__ReadOnlyArray`1</c> and <c>&lt;PrivateImplementationDetails&gt;</c>, which
+    /// live in the global namespace and so fail any namespace-prefix allow-list the moment a file
+    /// uses that syntax. They are artifacts of how already-written code was lowered, not
+    /// dependencies anyone took -- no package reference can arrive this way.</para>
+    ///
+    /// <para>Filtered on <c>&lt;</c> appearing anywhere in the reported name rather than only at
+    /// the start, because a compiler-emitted type's nested members report as
+    /// <c>&lt;&gt;z__ReadOnlySingleElementList`1/Enumerator</c> -- whose own name is perfectly
+    /// legal. <c>&lt;</c> is not a valid C# identifier character anywhere, so nothing hand-written
+    /// can be excused by this, and a real offender still fails.</para>
+    /// </summary>
+    private static string[] HandWrittenOffenders(NetArchTest.Rules.TestResult result) =>
+        (result.FailingTypeNames ?? [])
+            .Where(name => !name.Contains('<', StringComparison.Ordinal))
+            .ToArray();
+
     private static string FindProjectFile(string projectName)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
