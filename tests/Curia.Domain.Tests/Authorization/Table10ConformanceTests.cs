@@ -69,7 +69,7 @@ public sealed class Table10ConformanceTests
     public void R7_12_EveryPublishedDenialIsDenied(ResourceKind resource, ActionKind action, PrincipalTier tier)
     {
         var decision = AccessPolicy.Decide(new AuthorizationRequest(
-            tier, Curia.Domain.Credentials.CredentialState.Active, resource, action));
+            TierFixture.As(tier), Curia.Domain.Credentials.CredentialState.Active, resource, action));
 
         Assert.True(decision.TryGetValue(out var value, out _));
         Assert.Equal(DecisionEffect.Deny, value!.Effect);

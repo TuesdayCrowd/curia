@@ -24,7 +24,7 @@ public sealed class InMemoryPolicyDecisionPointTests
         ResourceKind resource,
         ActionKind action,
         CredentialState state = CredentialState.Active) =>
-        new(tier, state, resource, action);
+        new(TierFixture.As(tier), state, resource, action);
 
     /// <summary>
     /// The adapter really is an adapter for the port. Asserted directly because every other test
@@ -147,7 +147,7 @@ public sealed class InMemoryPolicyDecisionPointTests
         foreach (var tier in Enum.GetValues<PrincipalTier>())
         foreach (var state in new[] { CredentialState.Active, CredentialState.Quarantined })
         {
-            var request = new AuthorizationRequest(tier, state, pair.Resource, pair.Action);
+            var request = new AuthorizationRequest(TierFixture.As(tier), state, pair.Resource, pair.Action);
 
             var viaPort = await pdp.EvaluateAsync(request, ct);
             var viaDomain = AccessPolicy.Decide(request);

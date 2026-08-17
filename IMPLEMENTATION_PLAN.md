@@ -178,7 +178,53 @@ This stage is where the event store stops being write-only in practice: posture 
 **Tests**: `CsCheck` properties over posture transitions; replay-rebuild determinism in
 `Curia.Infrastructure.Tests`; a fake clock proving the 60-second bound rather than trusting it.
 
-**Status**: Not Started
+**Status**: **Complete for everything the event model can currently feed** — PR #24. 619 tests
+(+42), 0 warnings.
+
+**R7.7 became a compile-time property.** `AuthorizationRequest` now takes an `EvaluatedTier`
+rather than a `PrincipalTier`, and an `EvaluatedTier` can only come out of `TierPolicy.Evaluate`
+or `EvaluatedTier.Anonymous` — its constructor is internal to `Curia.Domain`, and production
+`Curia.Application` is deliberately absent from that assembly's `InternalsVisibleTo` list. A
+composition root that parsed a tier from a JWT claim would hold a `PrincipalTier` and have no way
+to turn it into the thing the PDP accepts. Two existing guards hold it up and both are checked:
+the constructor's accessibility (falsified — making it public fails two tests) and
+`CS15_InternalsVisibleToGrantIsExactlyIntended`, which fails if anyone adds `Curia.Application`
+to the grant list to get around it.
+
+**The clock tension resolved the way R6.31 already does it.** Table 11's criteria are elapsed-time
+conditions, but `AggregateSummaryProjector` forbids a projection reading "now" — a rebuild that
+did would make R11.9's drill tautological. So `PostureProjector` folds events into **clock-free
+facts** and `TierPolicy.Evaluate(facts, instant)` takes the instant as an argument. Determinism is
+asserted directly, which is the property a single stray `DateTimeOffset.UtcNow` would break and
+nothing else would notice.
+
+**Demotion needs no mechanism.** Nothing caches a tier, so R7.8's "demotion SHOULD be immediate"
+holds because there is nothing that could go stale — the same argument `CredentialLifecycle.Project`
+makes about current state. A manual T3 grant is not exempt: a grant that outranked posture would
+be a hole in exactly the mechanism R7.8 describes.
+
+**R7.4/R7.5 live in one decorator**, `CachingPolicyDecisionPoint`, not in every adapter — they are
+properties of how the Forum consults a PDP, not of any engine, and per-adapter they would be
+re-decided on every swap. Its TTL is validated against R7.4's 10-second ceiling at construction,
+so a misconfigured deployment fails at startup rather than quietly serving stale decisions.
+
+**R7.14 follows from that ceiling rather than from an invalidation protocol.** This cache is the
+only cached authorization state in the system — tier and credential state are recomputed every
+time — so a 10-second ceiling inside a 60-second bound *is* the proof. Asserted, including
+`MaximumTtl < 60s` as an explicit claim rather than an arithmetic fact left for the reader.
+
+Table 11's numbers are conformance-checked against the white paper (`PublishedTable11`), falsified
+by editing the published `≥ 7 days` to `≥ 14`. Its *criteria structure* — which clauses are ANDed,
+which ORed — is asserted by hand with the published sentence quoted beside it, because parsing
+prose into a predicate would mean writing a second implementation of the rule in the test, and
+agreement between two readings of a sentence is not a check.
+
+**What this stage does not do, and why.** Table 11 also counts questions, accepted answers,
+verified findings and upheld flags. Those are §8 content events that **do not exist yet**, so
+`PostureFacts` names them as explicit fields a caller must supply rather than omitting them —
+omitting them would make `TierPolicy` look like a complete rendering of Table 11 when it is not.
+A projector that cannot populate them leaves them at zero, which denies promotion: the safe
+direction. Wiring them is Stage 5's, once flags and verification exist.
 
 ---
 

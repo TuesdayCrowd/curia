@@ -18,4 +18,12 @@ internal sealed class ManualTimeProvider : TimeProvider
     public override DateTimeOffset GetUtcNow() => _now;
 
     public void Set(DateTimeOffset instant) => _now = instant;
+
+    /// <summary>
+    /// Added for <see cref="Curia.Application.Authorization.CachingPolicyDecisionPoint"/>'s tests,
+    /// which are about elapsed time against a TTL rather than about an absolute instant. Expressing
+    /// "nine seconds later" as an addition keeps those tests readable next to R7.4's ten-second
+    /// ceiling, instead of restating a wall-clock time the reader has to subtract.
+    /// </summary>
+    public void Advance(TimeSpan by) => _now += by;
 }

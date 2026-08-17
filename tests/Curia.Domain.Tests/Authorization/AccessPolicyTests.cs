@@ -18,7 +18,7 @@ public sealed class AccessPolicyTests
         ActionKind action,
         CredentialState state = CredentialState.Active,
         bool rateBudgetAvailable = true) =>
-        new(tier, state, resource, action, rateBudgetAvailable);
+        new(TierFixture.As(tier), state, resource, action, rateBudgetAvailable);
 
     private static AuthorizationDecision Decide(AuthorizationRequest request)
     {
