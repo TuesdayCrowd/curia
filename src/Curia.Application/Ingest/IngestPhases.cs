@@ -44,6 +44,7 @@ public sealed record AdmittedSubmission(EnvelopeDocument Document, JwsSignature 
 /// </summary>
 public sealed record VerifiedSubmission(
     VerifiedContent Content,
+    JwsSignature Signature,
     PostEnvelope Envelope,
     string AuthorAgentId)
 {
