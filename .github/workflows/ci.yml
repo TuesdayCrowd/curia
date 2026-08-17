@@ -1,0 +1,112 @@
+name: CI
+
+# Phase 1 shipped with every gate passing and none of them running anywhere but a
+# developer's machine. The documents describe several of these as continuously enforced --
+# CS-3's committed lock files restored with --locked-mode, R11.9's replay-rebuild drill,
+# R14.6's "divergences are release blockers" -- which until now meant "enforced when someone
+# remembers". This workflow is what makes those statements true.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same PR makes the first run's answer irrelevant, not merely late.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Cheapest gate, no toolchain: the cross-reference checks that found four real defects on
+  # their first run. Kept a separate job so a specification-only PR gets its answer in
+  # seconds rather than behind a Postgres container.
+  spec:
+    name: Specification checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: check-spec
+        run: python3 tools/spec-checks/check-spec.py
+
+  dotnet:
+    name: .NET — build and test
+    runs-on: ubuntu-latest
+
+    # Curia.Infrastructure.Tests provisions a throwaway database and a restricted role per
+    # run, so it needs an admin-capable server rather than a pre-made database. It fails
+    # loudly when none is reachable instead of skipping -- a green suite that quietly ran
+    # nothing is the exact failure R11.9 exists to prevent -- so this service is load-bearing,
+    # not a convenience.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # CS-3: lock files are committed, and CI restores against them. Without --locked-mode a
+      # drifted lock file restores anyway and the commitment is decorative.
+      - name: Restore (locked)
+        run: dotnet restore Curia.sln --locked-mode
+
+      # Directory.Build.props sets TreatWarningsAsErrors (CS-2); --no-restore keeps the locked
+      # restore above the only one that runs.
+      - name: Build
+        run: dotnet build Curia.sln --no-restore --configuration Release
+
+      - name: Test
+        env:
+          CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
+        run: dotnet test Curia.sln --no-build --configuration Release
+
+  rust:
+    name: Rust — curia-testis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust/curia-testis
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/curia-testis
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 168
+      # tests across 12 binaries are not a secondary suite.
+      - name: Test
+        run: cargo test --locked

@@ -98,16 +98,19 @@ def check_no_duplicate_definitions(docs: dict[str, str], f: Findings) -> None:
 
 
 # Citations that are deliberately dangling, with the entry that makes them so.
-# A8 exists precisely to record that §10's numbering is non-monotonic and that
-# R10.7–R10.9 were never defined; it has to name them to say so. Everything else
-# that fails to resolve is a real defect, and this list stays short on purpose —
-# each entry is a claim that a dangling citation is intentional, which is exactly
-# the kind of claim that rots.
-DELIBERATELY_DANGLING = {
-    "R10.7": "errata A8 — records that §10's R10.7–R10.9 do not exist",
-    "R10.8": "errata A8 — records that §10's R10.7–R10.9 do not exist",
-    "R10.9": "errata A8 — records that §10's R10.7–R10.9 do not exist",
-}
+#
+# This list stays short on purpose: each entry is a claim that a dangling citation
+# is intentional, which is exactly the kind of claim that rots. It did. Until v1.1
+# this held R10.7–R10.9, because A8 recorded that §10's numbering was non-monotonic
+# and those three numbers were never defined. A8's remedy *was* the renumbering, and
+# applying it in v1.1 made all three name real requirements in §10.3 and §10.4 —
+# turning three live exemptions into three standing permissions to dangle.
+#
+# The allowlist was deliberately not edited during the merge that invalidated it:
+# editing the verifier to satisfy the thing it verifies is this project's recurring
+# failure in another costume. It is emptied here instead, as its own step, with the
+# checker re-run to confirm all three citations resolve on their own.
+DELIBERATELY_DANGLING: dict[str, str] = {}
 
 
 def check_citations_resolve(docs: dict[str, str], f: Findings) -> None:

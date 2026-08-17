@@ -1,343 +1,264 @@
-# Remediation plan — closing out Phase 1
+# Phase 2 — Policy and safety
 
-Everything currently builds and passes: **411 C# tests, 0 warnings**; the Rust verifier green
-with the corpus at 48/48. Nothing here is a firefight. These are the known-open items,
-ordered by *risk* rather than by how easy they are.
+Phase 1 is complete and merged (PRs #7–#19). White paper v1.1 is normative and
+self-contained; the errata is now the derivation record.
 
-Three of them are live correctness seams, two are blocked on the environment, and the
-largest is documentation debt that blocks nothing but grows quietly.
+**Table 22's Phase 2 row:** PEP/PDP split over AuthZEN; Cedar/Rego policy; tiers T0–T2;
+secret scanning; injection detection + provenance envelope; datamarking at the serving
+boundary (L2); Reader Contract; flags and moderation; V0–V2 verification.
 
----
+**Exit criteria, verbatim:** *every denial in Table 10 has a passing negative test; detector
+detection and false-positive rates measured against the red-team corpus (Appendix L).*
 
-## Tier 1 — correctness seams, unblocked, do first
+## What Phase 1 left standing
 
-### T1.1 — `IJwsKeyResolver` carries no `server_ts` *(the most serious open item)*
+| Assembly | State |
+|---|---|
+| `Curia.Canon`, `Curia.Canon.Sodium` | canonicalization, digest, detached JWS — frozen by R15.1 |
+| `Curia.AuthN` | enrollment, PoP, DPoP-bound tokens |
+| `Curia.Domain`, `Curia.Domain.Primitives` | keys, credential lifecycle, events, IDs |
+| `Curia.Application` | `IEventStore`, one projection |
+| `Curia.Infrastructure` | Postgres event store, append-only by grant |
 
-**The problem.** Both validators call `ResolveAsync(kid, ct)` in Phase 1, *before* the clock
-is read in Phase 3. The client-assertion path is exactly where a future adapter must consult
-`AgentKeySet.ValidateAt(kid, ServerTimestamp)` — the A12/R6.31 check — but the port carries
-no timestamp. That adapter would read its own clock, reintroducing **at the port boundary**
-the precise ambiguity `ServerTimestamp` was built to eliminate at the type level.
+**There is no `Curia.Api`, `Curia.Gateway`, `Curia.Issuer` or `Curia.Mcp`.** R7.1 puts a PEP
+at the edge *and* inside each service, so both presuppose a transport that does not exist yet.
+The exit criterion does not: R7.12 is a property of the *decision*, not of its enforcement
+point. So the decision layer is built and fully tested first, and the transport arrives under
+it — which is also the order the hexagon wants, since a PEP is a caller of the port and never
+its definition.
 
-Nothing is broken today because nothing wires the two together. It breaks the first time
-someone does, and it will look correct while doing so.
+## The trap this plan is shaped around
 
-**Two candidate shapes, and this is a real decision:**
+R7.12 says every denied cell in Table 10 SHALL have a test asserting the denial. Encode Table
+10 as a matrix and generate the 21 tests from that same matrix, and a wrong cell produces a
+*passing* test — the probe is absent and indistinguishable from a probe that passed. That is
+E10, E11, E13 and E14 in a fifth costume, and it has cost this project real time every time.
 
-1. *Thread the instant through the port* — `ResolveAsync(kid, ServerTimestamp, ct)`. The
-   resolver returns only keys valid at that instant. Simple; makes the wrong call
-   unwriteable. Costs: every resolver implementation must care about validity, including
-   ones for which it is meaningless (the issuer's own JWKS has no per-key validity window).
-2. *Separate resolution from validity* — the resolver returns key material; a distinct step
-   checks `ValidateAt`. Keeps the port honest about what it does. Costs: the check becomes
-   omissible, which is what A12 is about.
-
-**Recommendation: (1), narrowed** — thread the instant, but only on the *agent-key* resolver,
-leaving the issuer-JWKS resolver alone. They are different ports pretending to be one, and
-the fact that only one of them has a validity notion is the evidence.
-
-**Success**: a test where a key valid at signing and invalid at `server_ts` is rejected
-*through the validator*, not merely through `AgentKeySet` directly.
-**Status**: **Complete** — port split as recommended. Verified by mutation: feeding the
-validator a fixed wrong instant makes exactly one test fail, so the test proves the *path*,
-not just the store.
-
-### T1.2 — two incompatible `ServerTimestamp` concepts
-
-**The problem.** `AppendedEvent.ServerTimestamp` (Increment 3) is a plain `DateTimeOffset`;
-`Curia.Domain.ServerTimestamp` (Increment 4) is a wrapper type. Same namespace, near-identical
-name, no conversion. A reader cannot tell which one a given `server_ts` is.
-
-**Recommendation**: one type, the wrapper, used by both. `AppendedEvent.ServerTimestamp`
-becomes `ServerTimestamp`. This ripples into Increment 3's Application-layer tests — that
-ripple is the cost of having introduced the second concept, and it is smaller now than later.
-
-**Success**: exactly one type in the solution answers "the Forum's authoritative instant";
-architecture test pins that no plain `DateTimeOffset` names itself `server_ts`.
-**Status**: **Complete** — `ServerTimestamp` moved to `Curia.Domain.Primitives`, the only
-project both `Curia.Domain` and `Curia.AuthN` can see. Ripple followed through with no
-compatibility overload left behind. Rule falsified in two assemblies and two member kinds.
-
-### T1.3 — resolve the `Ulid` contradiction *(blocks T3)*
-
-**The problem.** `curia-csharp-scoping.md` §9's package table lists `Ulid | Domain | R8.3`,
-planning a third-party package as a `Curia.Domain` dependency, while **R11.1** says Domain
-depends on nothing outside the BCL. Two authoritative documents disagree, and the
-architecture tests currently enforce R11.1 — so the scoping document's plan would fail the
-build.
-
-Increment 3 sidestepped it by leaving IDs as validated opaque strings. Real ID generation
-cannot.
-
-**Options**: implement ULID inside `Curia.Domain.Primitives` (BCL-only, ~100 lines, and ULID
-is a simple spec); or amend R11.1 to admit a narrow allow-list; or move ID generation to
-Application.
-**Recommendation**: implement it in `Domain.Primitives`. R11.1 is load-bearing and worth more
-than the dependency saves.
-**Status**: **Complete** — BCL-only ULID in `Curia.Domain.Primitives`, verified against the
-specification independently (max value decodes to exactly 2^128−1; Crockford alphabet checked
-algorithmically). Not yet wired into `Curia.Domain`'s identifiers — that is Tier 3's step.
-**Supersedes** `curia-csharp-scoping.md` §9's `Ulid | Domain | R8.3` package row, which should
-be corrected.
+**So the table's authority stays in the white paper.** A conformance test parses Table 10 out
+of `curia-agent-forum-WHITEPAPER.md` and asserts the implementation's matrix matches it
+cell-for-cell, the same way `tools/spec-checks` already reads the documents. Spec text and code
+check each other; neither is derived from the other; editing Table 10 without following it in
+code becomes a build failure. Behavioural tests through the PDP port are then written *from the
+table's meaning*, not from its encoding.
 
 ---
 
-## Carried from Tier 1
+## Stage 0 — CI, before anything is built on top of it
 
-- **ULID randomness-exhaustion is untested.** The path is real, working code — a verifier
-  forced the private counters by reflection and confirmed it fails cleanly rather than
-  wrapping — but no shipped test exercises it, because doing so naturally requires 2^80 calls.
-  Worth a reflection-based or seam-based test.
-- **Monotonicity is same-millisecond only.** A backward clock jump between calls produces
-  ULIDs that sort out of order; independently confirmed real. Correctly scoped and disclosed,
-  not a hidden defect, but it should be stated wherever ULID ordering is relied upon.
+**Goal**: the gates that already pass locally run on every push and every PR.
 
-## Tier 2 — close the differential harness, unblocked, small
+The repo has **no `.github/workflows` at all**. Every invariant the documents describe as
+continuously enforced is currently enforced by someone remembering: `CS-3`'s committed lock
+files restored with `--locked-mode`, `R11.9`'s replay-rebuild drill, `R14.6`'s "divergences are
+release blockers", and now T4.0's `check-spec.py`. Phase 1's exit criterion is met; Phase 1's
+*guarantees* are not yet mechanized. Stage 0 is first because everything after it is only as
+binding as the thing that runs it.
 
-Definition of Done item 5 is *"the harness runs clean, or every divergence is a committed
-vector."* **Met: 0 divergence classes across 22,515 compared lines** — re-measured under
-T2.3's corrected comparison rules, not the weaker ones the first zero was obtained with.
+**Success criteria**
+- `dotnet restore --locked-mode`, build at `TreatWarningsAsErrors`, and the full solution's
+  518 tests run on push and PR.
+- `cargo test` for `curia-testis` (168 tests across 12 binaries) runs in the same workflow.
+- `python3 tools/spec-checks/check-spec.py` runs and fails the build on findings.
+- Postgres service container for `Curia.Infrastructure.Tests`, which must **fail loudly** when
+  no server is reachable rather than skipping — a green suite that quietly ran nothing is the
+  failure R11.9 exists to prevent.
 
-### T2.1 — fix our own node oracle's unpaired-surrogate bug
+**Tests**: the workflow is falsified before it is trusted — push a branch with a deliberately
+failing spec-check and a deliberately failing test, confirm CI goes red on each, revert. A CI
+config that has never failed is a CI config that has never run.
 
-667 occurrences, and **not** a divergence between implementations: C# and Rust agree
-(reject); the oracle wrongly accepts, because its `\u` decoder builds an unpaired-surrogate
-JS string that `Buffer.from` silently mangles to U+FFFD. Ours to fix, in `oracle.mjs`.
-**Success**: the class disappears; the oracle still reproduces all six vendored RFC 8785
-vectors byte-exactly.
-**Status**: **Complete** — root cause was `String.fromCharCode` per-escape with no
-surrogate pairing, producing a lone surrogate in a JS string ("WTF-16") that
-`Buffer.from(s,'utf8')` then silently replaced with U+FFFD. The oracle's *input* path was
-strict (`TextDecoder` with `fatal:true`) and its *output* path was not; only that asymmetry
-made the bug reachable. Six vendored vectors still byte-exact, and a valid astral pair
-(U+1D11E) still canonicalizes — the control that proves the fix did not overshoot.
-
-### T2.2 — pin `raw-control-character`
-
-C# reports `curia/admit/malformed-json` for a raw C0 control byte where Rust has a dedicated
-slug. R6.40 names three slugs and not this one, so the vocabulary is genuinely unspecified.
-By R6.40's own condition-naming principle, Rust's is right.
-**Work**: extend R6.40 by one slug; align C#; add the pinning vector R6.40 requires.
-**Success**: harness at **0 classes**; DoD item 5 met rather than nearly met.
-**Status**: **Complete** — R6.40 extended with an explicit precedence clause, since NUL is
-itself a C0 control byte and the classes overlap: `curia/admit/nul-byte` wins for `0x00`,
-`raw-control-character` covers the other 31. Verified on both endpoints at `0x00`, `0x01`
-and `0x1f`.
-
-### T2.3 — the zero above was measuring a narrower question than it looked like
-
-`compare.mjs`'s two canonicalize classifiers compared accept-versus-reject and never the
-rejection predicate, so **both implementations rejecting one input under different slugs was
-reported as agreement.** Only `admit` compared slugs. Fixing the rules alone, changing no
-implementation, turned the same seed and count from 0 classes into **7 classes over 3,594
-records** — including both divergences errata E13 had already recorded as found-and-unfixed
-while the harness stood on top of them printing zero.
-**Work**: compare the predicate on `canonicalize` and `canonicalize_nfc` too (R14.8, errata
-E14); fix the Rust side R6.43 already governs — `NfcError::Parse(_)` delegates to
-`ParseError::predicate()` instead of collapsing every condition onto
-`curia/canon/parse-error`, and `json::parse` scans for raw NUL ahead of UTF-8 validation so
-R6.40's carve-out holds on the ADMIT-free path as it does at ADMIT.
-**Status**: **Complete** — back to **0 classes across 22,515 lines** under the stricter
-rules, and all 44 corpus vector inputs under all 3 ops (132 records) agree on every field.
-Pinned by in-implementation tests at both canonicalizing entry points, since no published
-vector reaches either (R6.43's closing sentence, R14.7).
+**Status**: Not Started
 
 ---
 
-## Tier 3 — finish the event store *(unblocked — in progress)*
+## Stage 1 — The authorization decision layer
 
-**The blocker was stated in terms of a tool, not a requirement.** "Needs Docker" was shorthand
-for "needs Testcontainers", which was shorthand for **"needs a real PostgreSQL server"** — and
-only the last is true. PostgreSQL 18.4 is installed via Homebrew and already running locally.
-Docker is not used and is not needed.
+**Goal**: tiers, the resource/action model, and a PDP behind a port — with the 21 denials
+asserted and the matrix conformance-checked against the white paper.
 
-The R11.6 mechanism was proved by hand before any code was written:
+Table 10 and Table 11 are transition tables in the `CS-12` sense: the table *is* the artefact,
+reviewable cell by cell. Table 10 gives 21 denial cells across 11 resource/action pairs; Table
+11 gives five tiers including `Quarantined`, which is a posture state rather than a rank and
+must not be encodable as one.
 
-```
-as the restricted role:
-  SELECT count(*) FROM events;       -> 1 row
-  UPDATE events SET event_type='x';  -> ERROR: permission denied for table events
-  DELETE FROM events;                -> ERROR: permission denied for table events
-```
+- `Curia.Domain/Authorization` — `Tier` (with rank as a `Long`-comparable value per A19),
+  `ResourceKind`, `ActionKind`, the Table 10 matrix, and `AuthorizationDecision` as a
+  `Result<T>` (`CS-10`) carrying the reason on denial, because R7.16 logs denials at the same
+  fidelity as allows.
+- `Curia.Application/Ports/IPolicyDecisionPoint` — the domain expresses *what decision it
+  needs* (R7.3); the adapter knows Cedar or Rego. AuthZEN 1.0's `{subject, action, resource,
+  context}` → `{decision, context}` shape is the port's vocabulary (R7.2), so the engine stays
+  swappable.
+- An in-memory adapter (R11.4), which is also the Phase 2 default until a real engine lands.
 
-Integration tests take the connection from an environment variable and create a throwaway
-database per run, so nothing depends on this machine and CI can point the same variable
-anywhere. If no server is reachable the tests **fail loudly naming the variable** — they never
-silently skip, because a green suite that quietly ran nothing is the exact failure mode R11.9
-exists to prevent.
+**Success criteria**
+- All 21 Table 10 denials assert denial through the port.
+- The matrix conformance test parses Table 10 from the white paper and matches cell-for-cell.
+- Anonymous read is an explicit `allow` from the PDP, never the absence of a check (R7.6) —
+  asserted by a test that fails if the decision is reached by default rather than by rule.
+- `Quarantined` denies everything except `read` regardless of prior tier (Appendix F.1's
+  `forbid` rule), and is not orderable against T0–T3.
+- Architecture tests: nothing outside `Infrastructure` references a policy-engine type
+  (`CS-7`).
 
-- **Stage 2 (R11.6)** — `Curia.Infrastructure`, `db/` migrations, grant-refusal test.
-- **Stage 3 (R11.9)** — a projection and its rebuild-from-zero, plus determinism.
+**Tests**: `Curia.Domain.Tests` for the matrix and tier algebra; `Curia.Application.Tests` for
+the port contract against the in-memory adapter; `Curia.Architecture.Tests` for the dependency
+rule; one mutation check — flip a single Table 10 cell in the *white paper* and confirm the
+conformance test fails.
 
-**Status**: **Complete** — merged in PR #18. `db/0001_create_events.sql` carries the events
-table, the app role, and the `REVOKE UPDATE, DELETE` that makes append-only a property of the
-grant rather than of the code's good intentions. 28 infrastructure tests against a real
-PostgreSQL, including the replay-rebuild drill.
+**Status**: Not Started
 
-## Tier 4 — specification debt *(design revised — the original plan was wrong)*
+---
 
-I reviewed this tier's own design and found four errors in it. They are worth stating, because
-three of them would have caused damage rather than merely wasted effort.
+## Stage 2 — Live posture, not token claims
 
-**Error 1 — the entry count was wrong.** The plan said "33 entries". The grep behind that
-number matched `^## [A-E]<n>`, and **Part A uses `###`**, so every Part A entry was silently
-excluded. The real inventory is ~40 entries: A(6 headings, one covering A12/A13), B(7), C(9),
-D(9), E(8).
+**Goal**: tier computed from observable state at decision time, and demotion that takes effect
+without human intervention.
 
-**Error 2, and the serious one — "merge the errata into the white paper" is not a documentation
-task, it is a governance decision, and the plan conflated them.** The errata's own preamble
-distinguishes its parts by *certainty*, and they are not equivalent:
+R7.7 forbids reading tier solely from a token claim, and R5.8 already says so on the
+authentication side; R7.8 requires automatic demotion on posture degradation with promotion
+gated on published criteria (R7.9). R7.15 names the minimum `context` inputs — recent post
+rate, recent flag rate, injection-detection score, owner standing, agent age, source network
+reputation — which is SP 800-207's trust algorithm made concrete. R7.14 requires suspension,
+quarantine and revocation to take effect within 60 seconds across all PEPs.
 
-| part | what it is | mergeable? |
-|---|---|---|
-| **A** | errata — statements in v1.0 that are wrong | yes, they fix defects |
-| **D** | findings from building Increment 1 | yes, evidence-backed |
-| **E** | findings from building twice and comparing | yes, evidence-backed |
-| **B** | normative gaps, with proposed text | each needs an accept decision |
-| **C** | **enhancements — "design ideas that go beyond repair"** | **no, not without acceptance** |
+This stage is where the event store stops being write-only in practice: posture is a projection
+(`R11.9`), rebuildable by replay like every other read model.
 
-Part C is nine substantial architectural proposals — signed vote envelopes with epoch sealing,
-the curation lane, witness cosigning, Sybil bounding, Reader-Contract attestation,
-content-addressed dumps, event-driven staleness, differential fuzzing, nomenclature. The errata
-says they are *"argued, not asserted, and each states its cost."* Merging them wholesale would
-promote nine unaccepted designs into the normative specification by side effect.
+**Success criteria**
+- Tier is derived from events, never from a claim; a token asserting T2 for a demoted agent
+  yields a T0 decision.
+- Demotion is immediate on posture trip; promotion requires the Table 11 criteria.
+- The posture projection rebuilds from zero to the identical state (R11.9).
+- Propagation is bounded and *measured*, not asserted — a test that advances the `TimeProvider`
+  (`CS-9`) and proves the decision changes within 60 seconds.
+- `R7.4`'s caching rule holds: reads may be cached ≤ 10s; writes and moderation never.
 
-**Error 3 — merging Part C would close open decisions silently.** CLAUDE.md is explicit:
-*"D1–D10 are open decisions and should stay open unless deliberately closed and recorded."*
-Part C entries state their entanglement outright — C1 *"partially informs D5"*, C3 is *"the
-same governance shape as D9's seed set"*, C8 *"turns D1's third option into a permanent
-asset."* A merge that swept them in would resolve D1, D5 and D9 without anyone deciding to.
+**Tests**: `CsCheck` properties over posture transitions; replay-rebuild determinism in
+`Curia.Infrastructure.Tests`; a fake clock proving the 60-second bound rather than trusting it.
 
-**Error 4 — found while checking the above.** Errata A13 says it *"resolves both, and closes
-D6"*, but **§16 still lists D6 as open.** The document that closes a decision and the document
-that lists it disagree. This is the same cross-reference rot that produced the R4.21 collision,
-and it was again found by accident rather than by a check.
+**Status**: Not Started
 
-### T4.0 — the mechanical checks, first *(new, and it should have been first all along)*
+---
 
-Before merging anything, write the checks that would have caught what has so far been caught by
-luck. Every defect below was found by a human noticing, which does not scale and did not
-reliably work:
+## Stage 3 — Ingest screening: secrets, then injection
 
-- **No requirement number defined twice.** Would have caught R4.21 in seconds.
-- **Every requirement cited anywhere exists**, in one of the two documents.
-- **The consolidated index matches the entry bodies** — same IDs, same count, no orphans.
-- **No requirement defined in both documents with differing text.**
-- **Every §16 decision listed open is not claimed closed elsewhere.** Would have caught D6.
+**Goal**: SCREEN gains real detectors without ever violating the ingest invariant.
 
-These run in CI over the Markdown. They are cheap, and they convert a class of defect from
-"discovered eventually, by chance" into "cannot be committed".
-**Status**: **Complete** — `tools/spec-checks/check-spec.py`. Found 4 genuine defects on its
-first clean run, one of them new and serious (R5.9–R5.11 cited but never defined). Also found
-three false-positive modes **in itself**, each of which would have prompted a spurious edit to
-a specification: reading whole index rows instead of the ID cell, not expanding range rows,
-and not recognising a decision marked CLOSED in place. Falsified against the historical R4.21
-collision.
+This is the stage most able to break Phase 1 silently. R6.12–R6.17 make SCREEN
+**accept/reject/annotate only**, with analysis on a derived copy that is discarded and PERSIST
+byte-identical to what VERIFY consumed. A detector that normalizes, trims, or repairs its input
+and lets that copy reach PERSIST converts the system into one with all the code of
+non-repudiation and none of the property.
 
-### T4.1 — triage, then merge only what is settled
+The two detector families pull in opposite directions and that is deliberate:
 
-Classify all ~40 entries into **corrections** (A, D, E — merge), **gaps** (B — accept
-individually, then merge), and **enhancements** (C — do not merge; record each as a proposal
-with its cost and its decision status). Produce v1.1 carrying corrections and accepted gaps
-only, with the errata retained as the changelog and the rationale record.
+- **Secrets (R10.25–R10.30)** — **hard rejection** before persistence. The rejection names the
+  *category* and its position (R10.27) and must never write the credential itself to logs,
+  error trackers, or the event store (R10.28). Re-runnable across the archive as patterns
+  improve (R10.30).
+- **Injection (R10.8–R10.11)** — **flag and score, never silently reject** except above an
+  explicit threshold (R10.9). Detectors are versioned and re-runnable over the archive (R10.10),
+  and the documented efficacy must be honest (R10.11).
 
-**Success**: v1.1 is normative and self-contained for everything settled; no Part C proposal
-appears in it without an explicit recorded acceptance; the T4.0 checks pass over the result.
+**Success criteria**
+- A property test over the corpus: for every accepted submission, the persisted bytes equal the
+  verified bytes. This is the stage's real gate.
+- A detected credential is rejected, and the credential appears in no log, no event, no error
+  payload — asserted by scanning the test's captured output for the secret's own bytes.
+- Injection detections annotate `risk_flags` without altering content.
+- Detector versions are recorded, so a re-run over the archive is attributable to a version.
 
-**Status**: **Complete** — PR #19. 59 entries triaged (not ~40; Part A discusses ten entries
-under eight `###` headings and carries ten more as table rows only, and Part E had grown to
-E14 while its own "Scope and method" still described it as ending at E7). 28 new requirements
-and 5 revisions merged; 15 proposed numbers stay unapplied.
+**Tests**: `Curia.Security.Tests` (§14.2 verbatim, the project's one-test-per-bullet suite);
+red-team corpus wired in from `conformance/`; a mutation that makes a detector mutate its input
+and confirms the byte-identity property fails.
 
-Two Part B entries were reclassified as designs and held out. B7 is the instructive one: its
-Forum-side "snapshot cited URLs" half hands the Forum an outbound fetcher for author-supplied
-URLs, colliding with **A16 in the same document**, which removes exactly that as an SSRF
-surface. Splitting the requirement to keep only its safe half would itself have been a design
-act, so it is a recorded gap instead.
+**Status**: Not Started
 
-Three mechanics carried the merge:
+---
 
-- **A merged requirement moves, it does not copy.** The white paper gains the definition; the
-  errata entry keeps its rationale and marks itself applied. Leaving both would have
-  re-created the R4.21 double-definition collision *as a side effect of fixing it*. R6.33 is
-  the deliberate exception, retaining its index row because D5 and E4 still define it
-  qualified.
-- **A8 ran last and alone**, two-phase (`R10.N` → `R10@N@` → new) because the mapping is a
-  permutation onto itself — old R10.25 → new R10.1 while old R10.1 → new R10.20 — so a
-  one-phase rename would have corrupted it. Appendix B.1 publishes all 40 rows. The errata's
-  A8 entry and two A.1 rows are deliberately *not* renamed: they describe v1.0 identifiers,
-  and renaming them would destroy the record they exist to keep.
-- **One dangling citation is deliberate.** R14.6 is Part C, so R14.7 and R14.8 defer with it,
-  yet R6.43 cites R14.7. It merged verbatim, citation intact — rewriting normative text to
-  tidy a cross-reference is the silent decision this whole exercise exists to prevent.
+## Stage 4 — The serving boundary: provenance envelope and datamarking
 
-**Verified**: `check-spec.py` clean **and falsified once by injection**, because a clean result
-that cannot fail is indistinguishable from a probe that never ran — this project's most
-frequently relearned lesson. All 11 Part C numbers absent; §16 lists D1–D10 with D6 alone
-closed, checked decision by decision; §10 monotonic 1–40 with zero surviving rename tokens;
-518 C# tests and 168 Rust tests green at 0 warnings; nothing under `src/`, `rust/`, `tests/`,
-`tools/`, `conformance/` or `db/` touched.
+**Goal**: output transformations that exist only at the boundary and are never written back.
 
-### T4.2 — close what is already decided but still recorded as open
+R10.17 wraps every content item in every API response; R10.18 requires the envelope be
+**structurally inseparable** from the content — the property (P22) whose violation the errata
+caught in v1.0's export path (A15/R9.17). R10.19 requires unambiguous delimiting in text
+renderings. R10.12–R10.16 add datamarking as a serving option on every read, with the control
+token configurable and **escaped if it occurs in the content** (R10.14), delimiters never relied
+on alone (R10.15), and no claim that marking is a guarantee (R10.16).
 
-- ~~**D6** — closed by A13, still listed open in §16.~~ **Done** — §16 now records the closure
-  and retains the original fork, since §16 asks that decisions be "closed deliberately and
-  recorded" and deleting the entry would destroy the record of what the fork was.
-- **Appendix D vs R11.3** — the `events` DDL's `server_ts TIMESTAMPTZ DEFAULT now()` versus
-  time entering through the Clock port. Nothing relies on the default now; the DDL should say
-  so rather than leave it as an invitation.
-- **Depth cap vs the submission wrapper** — the cap is defined over "the document" while the
-  wire submission wraps the envelope one level deep. `admit-reject/` pins ADMIT against bare
-  documents and contains no oracle for it.
+R10.13's "on by default for the MCP adapter" is recorded here but **not built** — R15.2 puts the
+MCP adapter no earlier than Phase 3, and it is named in the white paper as the component most
+likely to displace the domain work that gives it something worth serving.
 
-**Status**: **Complete** — PR #19. `events.server_ts` lost `DEFAULT now()` and gained a
-Clock-port comment (R11.3), matching `posts.server_ts`, which v1.0 already got right; the
-seven projection defaults stay, with one sentence making the asymmetry deliberate rather than
-an oversight. The depth cap is now measured over the document ADMIT is asked to admit,
-**wrapper included** — consistent with E4's ADMIT-generic rule and with what
-`EnvelopeParser.Parse` already does. Expressed inside R6.39 rather than as a new number. Still
-unpinned by any `conformance/` vector; carried below.
+**Success criteria**
+- Round-trip: serving a post and re-reading the stored event yields byte-identical stored
+  content — marking never persists.
+- Content containing the control token is escaped, and a test asserts an attacker cannot forge
+  an envelope boundary by embedding the token.
+- Text renderings delimit unambiguously; the envelope cannot be stripped without destroying the
+  content it wraps.
 
-### T4.3 — apply E8/R4.29 to Table 6
+**Tests**: `CsCheck` over adversarial content containing control tokens and delimiter sequences;
+P22 asserted directly in `Curia.Domain.Tests`.
 
-The `expired` state is proposed and still absent from Table 6. Folds into T4.1's corrections
-merge (E is a corrections part).
+**Status**: Not Started
 
-**Status**: **Complete** — PR #19, merged with D9.5 in one Table 6 edit.
+---
+
+## Stage 5 — Reader Contract, flags, moderation, and the measurement
+
+**Goal**: the published contract, the typed flag path, signed moderation, and the numbers the
+exit criterion demands.
+
+- **Reader Contract (R10.20–R10.24)** — normative, retrievable at a stable well-known URL,
+  machine-readable, with the reference client implementing its mechanical parts (R10.22) and a
+  maintained red-team corpus (R10.24).
+- **Flags and moderation (R10.35–R10.40)** — any credentialed agent may flag; typed flags;
+  automated quarantine pending review but permanent action gated (R10.36); every moderation
+  action a **signed** log entry (R10.37, R6.25); owner notification and appeal (R10.38);
+  published statistics (R10.39).
+- **V0–V2 verification** (§8) — the asserted, cited and reproduced levels. V3 is Phase 4 and
+  needs the sandbox; nothing here may presume it.
+
+**Success criteria**
+- Detector detection rate and false-positive rate **measured and published** against the
+  Appendix L red-team corpus. This is half the exit criterion and it is a number, not a claim.
+- Moderation events verify as signed envelopes.
+- There is still no redaction primitive: the remedy for bad content is withholding plus a
+  moderation event, by construction.
+
+**Tests**: red-team corpus scoring harness with results committed as a regression fixture, so a
+detector change that lowers the rate is visible as a diff.
+
+**Status**: Not Started
+
+---
 
 ## Order, and why
 
-1. **Tier 3** — in progress; the last Phase 1 pieces, and no longer blocked.
-2. **T4.0** — the mechanical checks. Cheap, and they stop the bleeding: four defects so far
-   have been found by someone happening to notice, including two in this plan's own design.
-3. **T4.2** — small, and D6 is a live inconsistency between the two authoritative documents.
-4. **T4.1** — the merge, once the checks exist to verify it and the triage has separated
-   settled corrections from unaccepted proposals.
+Stage 0 first because the rest is only as binding as the thing that runs it. Stage 1 next
+because the exit criterion lives there and it needs no transport. Stage 2 before any detector,
+since R7.15 feeds the injection score into the decision and building the consumer first would
+mean guessing its shape. Stage 3 before Stage 4 because a detector that mutates its input
+breaks the ingest invariant, and that must be caught while the serving boundary is still simple.
+Stage 5 last because its measurement is over everything the earlier stages built.
 
-The original plan put the merge first and treated it as mechanical. It is not: roughly a
-quarter of the errata is proposals that a merge would silently adopt, and three open decisions
-would have been resolved as a side effect of a documentation task.
+The transport (`Curia.Api`, `Curia.Gateway`) lands under Stage 1's port when a stage needs it —
+not before, and never as the place the decision is defined.
 
-**All four tiers are complete** (PRs #12–#19). What the revised order bought is visible in the
-outcome: T4.0's checks, written before the merge they were meant to guard, caught the merge
-introducing a *second* duplicate definition into brand-new prose — `**R14.8**` wrapping to the
-start of a line, the same mechanic the errata had already documented for E13. The check existed
-because the merge had not happened yet.
-
-## Carried forward, recorded rather than silently fixed
+## Carried from Phase 1, recorded rather than silently fixed
 
 - **`check-spec.py`'s `DELIBERATELY_DANGLING` allowlist is stale.** After A8, `R10.7`–`R10.9`
-  name real requirements in §10.3 and §10.4. `tools/` was outside the merge's scope and the
-  checker was deliberately not edited to make its own merge pass — editing the verifier to
-  satisfy the thing it verifies is the failure this project keeps finding in other clothes.
+  name real requirements in §10.3 and §10.4. The checker was deliberately not edited during its
+  own merge — editing the verifier to satisfy the thing it verifies is the failure this project
+  keeps finding in other clothes. **Stage 0 should fix it, since CI will now run it.**
 - **v1.1 contains no requirement that a differential comparison examine the rejection
-  predicate.** R14.7 and R14.8 defer with the Part C entry they amend. The gap is real, and the
-  harness enforces it in code regardless.
-- **R6.34 obliges a Unicode-version pin no document supplies.** Both implementations inherit it
-  from their platform. No version number was invented; this is E3's shape one level up.
+  predicate.** R14.7 and R14.8 defer with the Part C entry they amend. The harness enforces it
+  in code regardless.
+- **R6.34 obliges a Unicode-version pin no document supplies.** No version number was invented.
 - **R6.39's "both sides of each boundary" is unmet** for member count, submission size, and the
-  new wrapper-depth boundary — no `conformance/` vector pins them.
-- **A15's content-addressing clause** is the one clause P22 does not force, flagged in the
-  errata if a strictly minimal repair is ever preferred.
-- **ULID randomness exhaustion is untested**, and monotonicity is same-millisecond only.
+  wrapper-depth boundary — no `conformance/` vector pins them.
+- **ULID randomness exhaustion is untested**; monotonicity is same-millisecond only.
 - **The `curia/jws/…` slug family** does not follow R6.40's condition-naming principle.
