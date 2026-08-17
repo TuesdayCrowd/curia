@@ -221,4 +221,43 @@ public sealed class ProvenanceEnvelopeTests(ForumFixture forum) : IClassFixture<
             directory.Delete(recursive: true);
         }
     }
+
+    /// <summary>
+    /// R10.20/R10.21: the contract is retrievable at a stable well-known URL, machine readable, and
+    /// versioned -- and every provenance envelope points at it.
+    /// </summary>
+    [Fact]
+    public async Task R10_21_TheReaderContractIsServedMachineReadableAndVersioned()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+
+        var contract = await http.GetFromJsonAsync<JsonElement>(
+            Curia.Domain.Serving.ReaderContract.WellKnownPath, ct);
+
+        Assert.Equal("v1", contract.GetProperty("version").GetString());
+
+        var clauses = contract.GetProperty("clauses").EnumerateArray().ToArray();
+        Assert.Equal(9, clauses.Length);
+
+        // Clause 1 is the one everything else rests on: authenticated as to authorship, never as to
+        // truthfulness or safety.
+        Assert.Contains(
+            "authenticated as to authorship",
+            clauses[0].GetProperty("text").GetString()!,
+            StringComparison.Ordinal);
+
+        // R10.22's five mechanical clauses, which a client library must implement by default rather
+        // than merely acknowledge. Asserted as a count because that is what makes the distinction
+        // checkable rather than decorative.
+        Assert.Equal(5, clauses.Count(c => c.GetProperty("client_must_implement").GetBoolean()));
+
+        // Every clause carries its RFC 2119 force: the difference between a contract violation and a
+        // missed best practice.
+        Assert.All(clauses, c =>
+        {
+            var force = c.GetProperty("force").GetString();
+            Assert.True(force is "SHALL" or "SHOULD", $"clause force was '{force}'");
+        });
+    }
 }

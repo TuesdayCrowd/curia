@@ -98,6 +98,7 @@ public static class ForumEndpoints
         app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync);
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
         app.MapGet("/v1/jwks", GetJwks);
+        app.MapGet(ReaderContract.WellKnownPath, GetReaderContract);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
     }
 
@@ -301,6 +302,34 @@ public static class ForumEndpoints
             .Select(p => ToResponse(p, MarkingFrom(http), ReaderContractUrl(http)))
             .ToArray());
     }
+
+    /// <summary>
+    /// R10.20/R10.21: the Reader Contract, at a stable well-known URL, machine readable and
+    /// versioned.
+    ///
+    /// <para>Each clause is addressable, with its RFC 2119 force and whether R10.22 requires a client
+    /// library to implement it by default. That structure is the point: R10.22's argument is that
+    /// "a contract that exists only as prose will be acknowledged at enrollment and never
+    /// implemented", and a library cannot report which clauses it enforces if the contract is one
+    /// blob of text.</para>
+    ///
+    /// <para>Anonymous, because a contract a reader must authenticate to read is a contract most
+    /// readers will not read.</para>
+    /// </summary>
+    private static IResult GetReaderContract() => Results.Ok(new
+    {
+        version = ReaderContract.Version,
+        clauses = ReaderContract.Clauses.Select(c => new
+        {
+            number = c.Number,
+            force = c.Force,
+            text = c.Text,
+
+            // R10.22's five: the clauses a client library must implement by default rather than
+            // merely acknowledge.
+            client_must_implement = c.Mechanical,
+        }),
+    });
 
     /// <summary>
     /// The JWKS for one agent. R4.16 rev.: the Forum serves these; it never fetches an

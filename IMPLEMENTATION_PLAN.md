@@ -525,7 +525,43 @@ exit criterion demands.
 **Tests**: red-team corpus scoring harness with results committed as a regression fixture, so a
 detector change that lowers the rate is visible as a diff.
 
-**Status**: Not Started
+**Status**: **Reader Contract and measurement complete** — 729 tests. Flags, moderation and V0–V2
+verification remain.
+
+**The Reader Contract is data, not prose.** R10.21 wants it machine readable and versioned; R10.22
+wants a client library to implement its mechanical parts by default, arguing that *"a contract that
+exists only as prose will be acknowledged at enrollment and never implemented"*. So each of §10.7's
+nine clauses is addressable, carrying its RFC 2119 force and whether R10.22 requires a client to
+implement it — five of the nine. A library cannot report which clauses it enforces if the contract
+is one blob of text.
+
+**The measurement, and the moment it stopped being flattering.** The first corpus run scored **100%
+detection, 0% false positives** — which was a warning sign, not a result. I had written both the
+detectors and the payloads, so it measured mostly that I tested what I built. Adding ten realistic
+evasions, **all ten evaded.**
+
+What happened next is the substance:
+
+- **One was cleanly fixable and got fixed.** A credential in a URL *fragment* is the same leak as one
+  in the query — and the more deliberate one, since a fragment is never sent to the server and so
+  never appears in a log where anyone would notice. The rule caught `?token=` and missed `#token=`.
+- **Nine are recorded in `known-evasions.jsonl`, each with its reason**, in three groups: lexical
+  evasion (character spacing, Markdown splitting, split and base64-wrapped credentials) which is
+  fixable work not yet done; homoglyph substitution, which is R10.8's named-but-unimplemented clause;
+  and semantic paraphrase, which no pattern catches and which R10.11 says a classifier would move
+  rather than close.
+- **A recorded evasion that starts being detected fails the build.** A stale known-evasions list is
+  exactly the kind of honest-looking document that quietly stops being honest — and the assertion
+  also stops the file being used to silence a failure.
+
+`RESULTS.md` publishes both rates with R10.11's caveat attached and the evasion count beside them.
+The evasions are deliberately *not* in the detection denominator: folded in, they would depress a
+number nobody would then investigate; listed separately, they are the first thing a reader sees after
+the rate.
+
+The false-positive ceiling is **zero**, not "low", because R10.26 makes a credential hit a hard
+rejection — a single benign case firing costs an author their submission, which is a design bug
+rather than a tuning problem.
 
 ---
 
