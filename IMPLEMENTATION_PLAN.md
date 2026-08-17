@@ -67,7 +67,23 @@ binding as the thing that runs it.
 failing spec-check and a deliberately failing test, confirm CI goes red on each, revert. A CI
 config that has never failed is a CI config that has never run.
 
-**Status**: Not Started
+**Status**: **Complete** — merged in PR #20. Three jobs: `spec` (no toolchain, answers a
+documents-only PR in 6s), `dotnet` (locked restore → Release build → 518 tests against a
+Postgres 18 service container), `rust` (`fmt`, `clippy -D warnings`, 168 tests). Both Rust lint
+gates were confirmed clean *before* being made gates; a gate that already fails only teaches
+people to ignore it.
+
+**Falsified in PR #21**, opened as a draft solely to break each job independently — a citation
+to `R10.99`, a formatting violation, and a test asserting `1 == 2`. All three jobs went red and
+were attributed separately; the branch was then discarded. A workflow that has only ever been
+green has not been shown to work, only to be quiet.
+
+Confirmed from the CI log rather than from the exit code: all 8 assemblies ran, and
+`Curia.Infrastructure.Tests` executed **28 tests in 5s against the live service** rather than
+skipping — which is the only thing that makes R11.9's drill mean anything in CI.
+
+Also emptied `check-spec.py`'s `DELIBERATELY_DANGLING` allowlist, whose three entries A8's own
+remedy had turned into real requirements.
 
 ---
 
@@ -250,10 +266,9 @@ not before, and never as the place the decision is defined.
 
 ## Carried from Phase 1, recorded rather than silently fixed
 
-- **`check-spec.py`'s `DELIBERATELY_DANGLING` allowlist is stale.** After A8, `R10.7`–`R10.9`
-  name real requirements in §10.3 and §10.4. The checker was deliberately not edited during its
-  own merge — editing the verifier to satisfy the thing it verifies is the failure this project
-  keeps finding in other clothes. **Stage 0 should fix it, since CI will now run it.**
+- ~~**`check-spec.py`'s `DELIBERATELY_DANGLING` allowlist is stale.**~~ **Done in Stage 0**
+  (PR #20). Emptied as its own step, with the checker re-run to confirm `R10.7`–`R10.9` resolve
+  on their own and re-falsified against an injected `R10.99`.
 - **v1.1 contains no requirement that a differential comparison examine the rejection
   predicate.** R14.7 and R14.8 defer with the Part C entry they amend. The harness enforces it
   in code regardless.
