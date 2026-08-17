@@ -116,7 +116,7 @@ public static class ForumEndpoints
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
-        InMemoryAuthorKeyResolver keys,
+        IAuthorKeyRegistry keys,
         AgentDirectory directory,
         TimeProvider clock,
         CancellationToken cancellationToken)
@@ -138,15 +138,19 @@ public static class ForumEndpoints
 
         var now = clock.GetUtcNow();
 
-        if (!keys.TryRegister(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), now))
-            return Results.Conflict(new Problem(
-                "curia/enroll/kid-already-registered",
-                "That key identifier is already registered to a different agent",
-                request.Kid));
+        var registration = await keys
+            .RegisterAsync(
+                request.AgentId,
+                new PublicKeyMaterial(request.Alg, request.Kid, publicKey),
+                now,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!registration.TryGetValue(out _, out var registrationError))
+            return Results.Conflict(new Problem(registrationError!.Type, registrationError.Title, request.Kid));
 
         directory.Enroll(request.AgentId, now, request.OwnerVerified);
 
-        await Task.CompletedTask.ConfigureAwait(false);
         return Results.Created($"/v1/agents/{Uri.EscapeDataString(request.AgentId)}", new
         {
             agent_id = request.AgentId,
@@ -345,14 +349,15 @@ public static class ForumEndpoints
     /// exactly the kind of routing detail that works locally and 404s in production. A query
     /// parameter has no such ambiguity.</para>
     /// </summary>
-    private static IResult GetJwks(string agent, InMemoryAuthorKeyResolver keys)
+    private static async Task<IResult> GetJwks(
+        string agent, IAuthorKeyRegistry keys, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(agent))
             return Results.BadRequest(new Problem(
                 "curia/keys/agent-required", "The 'agent' query parameter is required", null));
 
         var agentId = agent;
-        var registered = keys.KeysFor(agentId);
+        var registered = await keys.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false);
 
         return registered.Count == 0
             ? Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId))

@@ -1,7 +1,7 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
-using Curia.Api.Adapters;
+using Curia.Application.Ports;
 
 namespace Curia.Api;
 
@@ -24,7 +24,7 @@ namespace Curia.Api;
 public static class Jwks
 {
     /// <summary>Renders one agent's registered keys as an RFC 7517 <c>{"keys": [...]}</c> document.</summary>
-    public static JsonObject ForAgent(IReadOnlyCollection<RegisteredKey> keys)
+    public static JsonObject ForAgent(IReadOnlyList<RegisteredKey> keys)
     {
         ArgumentNullException.ThrowIfNull(keys);
 

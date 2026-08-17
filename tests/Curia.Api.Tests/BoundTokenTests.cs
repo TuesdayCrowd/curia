@@ -32,7 +32,9 @@ public sealed class BoundTokenTests(ForumFixture forum) : IClassFixture<ForumFix
         HttpClient http, CancellationToken ct)
     {
         // A kid unique per agent, because the Forum now refuses a collision -- see
-        // InMemoryAuthorKeyResolver.TryRegister for why sharing one is an authentication hazard.
+        // Curia.Application.Ports.IAuthorKeyRegistry.RegisterAsync for why sharing one is an
+        // authentication hazard, and db/0002's PRIMARY KEY on agent_keys.kid for where it is
+        // enforced.
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create("https://agents.example/tok-" + suffix, "tk-" + suffix);
 

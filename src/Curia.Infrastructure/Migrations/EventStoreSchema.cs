@@ -1,5 +1,3 @@
-using System.Reflection;
-
 namespace Curia.Infrastructure.Migrations;
 
 /// <summary>
@@ -21,27 +19,26 @@ namespace Curia.Infrastructure.Migrations;
 /// </summary>
 public static class EventStoreSchema
 {
-    private const string LogicalResourceName = "Curia.Infrastructure.Migrations.0001_create_events.sql";
+    /// <summary>db/0001: the events table and the R11.6-constrained role. Also
+    /// <see cref="SchemaMigrations.FileNames"/>' first entry -- the ordering list is the authority
+    /// on what runs when; this constant is only how <i>this</i> type names the file it is about.</summary>
+    public const string FileName = "0001_create_events.sql";
+
     private const string RoleToken = "__CURIA_APP_ROLE__";
     private const string PasswordToken = "__CURIA_APP_ROLE_PASSWORD__";
 
     /// <summary>
-    /// Reads the migration's raw, unrendered template text from the embedded resource --
+    /// Reads this migration's raw, unrendered template text from the embedded resource --
     /// works regardless of the process's current directory, unlike reading the checked-in
     /// db/ file from disk by walking up from AppContext.BaseDirectory the way the test
     /// projects' conformance-vector loaders do (a technique that only makes sense for tests
     /// running inside this repository's checkout, not for this production assembly).
+    ///
+    /// Delegates to <see cref="SchemaMigrations.LoadTemplate"/> now that there is more than one
+    /// migration: two copies of "find the embedded resource, or explain which csproj item is
+    /// missing" is one copy too many, and the explanation is the part worth having in one place.
     /// </summary>
-    public static string LoadTemplate()
-    {
-        var assembly = typeof(EventStoreSchema).Assembly;
-        using var stream = assembly.GetManifestResourceStream(LogicalResourceName)
-            ?? throw new InvalidOperationException(
-                $"Embedded resource '{LogicalResourceName}' was not found in {assembly.FullName}. " +
-                "Check Curia.Infrastructure.csproj's EmbeddedResource/LogicalName for db/0001_create_events.sql.");
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
-    }
+    public static string LoadTemplate() => SchemaMigrations.LoadTemplate(FileName);
 
     /// <summary>
     /// Substitutes the role-name and password placeholder tokens in <paramref name="template"/>
