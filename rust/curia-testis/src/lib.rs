@@ -101,3 +101,6 @@ pub struct Provenance {
 /// and [`envelope::VerifyEnvelopeError`] for every way this can fail, named
 /// for the specific check that failed.
 pub use envelope::verify_envelope;
+
+#[allow(dead_code)]
+fn falsification_probe()->u8{   1   }

@@ -2119,3 +2119,5 @@ else in §6 already has: it does not depend on the operator behaving.
 *This document and all original code within it are released under the UNLICENSE
 and dedicated to the public domain. Referenced specifications, standards, and
 third-party software remain under their own licenses.*
+
+Falsification probe: a citation to R10.99, which no document defines.
