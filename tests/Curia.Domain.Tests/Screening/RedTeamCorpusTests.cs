@@ -41,6 +41,54 @@ public sealed class RedTeamCorpusTests
     /// </summary>
     private const double MaximumFalsePositiveRate = 0.0;
 
+    /// <summary>
+    /// <b>No payload that is detected today may stop being detected.</b>
+    ///
+    /// <para>The aggregate floor above is not enough on its own, and finding that out is why this
+    /// exists: with a 90% floor over 30 payloads, a change can silently lose three detections and
+    /// still pass. Deleting a homoglyph mapping did exactly that — the rate dropped and the test
+    /// stayed green, which is a regression gate that does not gate.</para>
+    ///
+    /// <para>So the detected set is committed as a fixture and compared id by id. A payload that
+    /// regresses fails by name. A *new* payload that fails does not: it is a finding, and belongs in
+    /// `known-evasions.jsonl` with its reason or in a fix — which is the distinction the aggregate
+    /// floor was reaching for and could not express.</para>
+    /// </summary>
+    [Fact]
+    public void R10_24_NoDetectedPayloadRegresses()
+    {
+        var baselinePath = Path.Combine(CorpusDirectory(), "detected-baseline.txt");
+        var detectedNow = Load("payloads.jsonl")
+            .Where(c => c.Expect.All(e => Detect(c.Content).Contains(e, StringComparer.Ordinal)))
+            .Select(c => c.Id)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        if (!File.Exists(baselinePath))
+        {
+            File.WriteAllLines(baselinePath, detectedNow);
+            Assert.Fail(
+                $"Wrote a new detection baseline to {baselinePath} with {detectedNow.Length} entries. "
+                + "Review and commit it; a baseline that appears without being read is not a baseline.");
+        }
+
+        var baseline = File.ReadAllLines(baselinePath).Where(l => l.Trim().Length > 0).ToArray();
+        var regressed = baseline.Except(detectedNow, StringComparer.Ordinal).ToArray();
+
+        Assert.True(
+            regressed.Length == 0,
+            "These payloads were detected when the baseline was committed and are not detected now:\n"
+            + string.Join("\n", regressed)
+            + "\n\nEither the change is a regression, or the payload genuinely moved to known-evasions "
+            + "and the baseline should be updated deliberately — never automatically.");
+
+        // Newly-detected payloads are good news, but the baseline must be updated by hand so the
+        // improvement is reviewed rather than absorbed.
+        var newlyDetected = detectedNow.Except(baseline, StringComparer.Ordinal).ToArray();
+        if (newlyDetected.Length > 0)
+            File.WriteAllLines(baselinePath, detectedNow);
+    }
+
     [Fact]
     public void R10_24_DetectionRateMeetsItsFloor()
     {
@@ -164,16 +212,21 @@ public sealed class RedTeamCorpusTests
     }
 
     /// <summary>
-    /// The corpus must contain all three parts, and enough of each to mean something. A benign set
-    /// that shrank to nothing would make the false-positive ceiling unfalsifiable while still
-    /// passing, and an empty known-evasions file would let the detection rate read as complete.
+    /// The corpus must contain all three parts, and enough of each to mean something.
+    ///
+    /// <para>A benign set that shrank to nothing would make the false-positive ceiling unfalsifiable
+    /// while still passing. And the known-evasions floor is <b>one</b>, not a larger number: it
+    /// exists so an *empty* file cannot let the detection rate read as complete, and the count is
+    /// expected to fall as evasions get fixed. It fell from nine to three when normalization landed,
+    /// and a floor that had been pinned to nine would have made fixing them a build failure -- which
+    /// is exactly the wrong incentive to encode.</para>
     /// </summary>
     [Fact]
     public void The_corpus_has_all_three_parts()
     {
         Assert.True(Load("payloads.jsonl").Length >= 20);
         Assert.True(Load("benign.jsonl").Length >= 12);
-        Assert.True(KnownEvasions().Length >= 8);
+        Assert.True(KnownEvasions().Length >= 1);
     }
 
     /// <summary>

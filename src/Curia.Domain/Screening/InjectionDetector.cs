@@ -25,7 +25,7 @@ namespace Curia.Domain.Screening;
 public static partial class InjectionDetector
 {
     /// <summary>R10.10: versioned, so a November rule set can be re-run over March's archive.</summary>
-    public const string Version = "injection/2026-08-16";
+    public const string Version = "injection/2026-08-17";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
