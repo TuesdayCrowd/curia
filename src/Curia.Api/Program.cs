@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Curia.Api.Adapters;
+using Curia.Api.Issuer;
+using Curia.AuthN;
+using Curia.AuthN.Ports;
 using Curia.Application.Authorization;
 using Curia.Application.Ingest;
 using Curia.Application.Ports;
@@ -118,7 +121,38 @@ public sealed class Program
             sp.GetRequiredService<TimeProvider>(),
             CachingPolicyDecisionPoint.MaximumTtl));
 
+        // §5's transport. The issuer is co-hosted for the prototype (see TokenIssuer's remarks);
+        // the resource server verifies what it minted through IssuerKeyResolver, which resolves
+        // exactly one kid and refuses every other.
+        builder.Services.AddSingleton(sp => new TokenIssuer(
+            issuer: builder.Configuration["Curia:Issuer"] ?? "https://forum.local",
+            audience: builder.Configuration["Curia:Audience"] ?? "https://forum.local",
+            sp.GetRequiredService<TimeProvider>()));
+
+        builder.Services.AddSingleton<IReplayCache>(sp =>
+            new InMemoryReplayCache(sp.GetRequiredService<TimeProvider>()));
+
+        builder.Services.AddSingleton<IDpopNonceStore>(sp =>
+            new InMemoryDpopNonceStore(sp.GetRequiredService<TimeProvider>()));
+
+        builder.Services.AddSingleton<IAgentKeyResolver>(sp =>
+            new AgentKeyResolverAdapter(sp.GetRequiredService<InMemoryAuthorKeyResolver>()));
+
+        builder.Services.AddSingleton(sp =>
+        {
+            var issuer = sp.GetRequiredService<TokenIssuer>();
+            return new AccessTokenValidationContext(
+                ConfiguredIssuer: issuer.Issuer,
+                ResourceServer: issuer.Audience,
+                IssuerKeyResolver: new IssuerKeyResolver(issuer.VerificationKey),
+                ReplayCache: sp.GetRequiredService<IReplayCache>(),
+                VerifiersByAlg: sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
+                Clock: sp.GetRequiredService<TimeProvider>(),
+                DpopNonceStore: sp.GetRequiredService<IDpopNonceStore>());
+        });
+
         var app = builder.Build();
+        TokenEndpoint.Map(app);
         ForumEndpoints.Map(app);
         return app;
     }
@@ -191,8 +225,24 @@ public sealed class AgentDirectory
 
     private readonly ConcurrentDictionary<string, Enrollment> _agents = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Records an enrollment. <b>A repeat enrollment does not restart the tenure clock.</b>
+    ///
+    /// <para>This was a real bug, and an instructive one: overwriting the instant meant an agent
+    /// re-enrolling -- which a client does whenever it needs a fresh key registration -- silently
+    /// lost every day of standing it had accumulated, and with it any tier above T0. Table 11 counts
+    /// "≥ 7 days" from enrollment, singular; the day an agent first became active is a fact about
+    /// its history, not a field the latest request gets to set.</para>
+    ///
+    /// <para>Owner verification <i>is</i> updated, because that genuinely can change -- an owner
+    /// completing verification later should count. So the rule is narrow: the instant is immutable,
+    /// the mutable facts are not.</para>
+    /// </summary>
     public void Enroll(string agentId, DateTimeOffset at, bool ownerVerified) =>
-        _agents[agentId] = new Enrollment(at, ownerVerified, null);
+        _agents.AddOrUpdate(
+            agentId,
+            _ => new Enrollment(at, ownerVerified, null),
+            (_, existing) => existing with { OwnerVerified = ownerVerified });
 
     public bool Knows(string agentId) => _agents.ContainsKey(agentId);
 

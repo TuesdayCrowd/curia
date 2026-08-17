@@ -38,92 +38,11 @@ namespace Curia.Api.Tests;
 [Collection("forum")]
 public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixture<ForumFixture>
 {
+    private const string TokenEndpoint = "http://localhost/oauth/token";
+    private const string PostsUrl = "http://localhost/v1/posts";
+
     private const string Alice = "https://agents.example/alice";
     private const string Bob = "https://agents.example/bob";
-
-    /// <summary>An agent: a key pair, an identity, and the ability to sign an envelope.</summary>
-    private sealed class Agent(string agentId, string kid)
-    {
-        private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-
-        internal string AgentId => agentId;
-
-        internal string Kid => kid;
-
-        internal string PublicKeyBase64 => Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo());
-
-        internal SigningKey SigningKey => new("ES256", kid, _key.ExportPkcs8PrivateKey());
-
-        internal static IContentSigner Signer => new Es256Signer();
-
-        private sealed class Es256Signer : IContentSigner
-        {
-            public byte[] Sign(ReadOnlySpan<byte> input, SigningKey key)
-            {
-                using var signer = ECDsa.Create();
-                signer.ImportPkcs8PrivateKey(key.Private.Span, out _);
-                return signer.SignData(
-                    input, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-            }
-        }
-    }
-
-    private static async Task EnrollAsync(HttpClient client, Agent agent, bool ownerVerified, CancellationToken ct)
-    {
-        var response = await client.PostAsJsonAsync("/v1/agents", new
-        {
-            agent_id = agent.AgentId,
-            kid = agent.Kid,
-            alg = "ES256",
-            public_key = agent.PublicKeyBase64,
-            owner_verified = ownerVerified,
-        }, ct);
-
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-    }
-
-    /// <summary>Builds, canonicalizes and signs a Table 9 envelope, then renders the wire submission.</summary>
-    private static byte[] Sign(Agent agent, PostKind kind, string board, string body, string? title, string? parent, DateTimeOffset createdAt, string? authorOverride = null)
-    {
-        var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
-        members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
-        members.Add(new("kind", new JsonValue.String(PostKinds.Wire(kind))));
-        members.Add(new("author", new JsonValue.String(authorOverride ?? agent.AgentId)));
-        members.Add(new("board", new JsonValue.String(board)));
-        if (parent is not null) members.Add(new("parent", new JsonValue.String(parent)));
-        if (title is not null) members.Add(new("title", new JsonValue.String(title)));
-        members.Add(new("body", new JsonValue.String(body)));
-        members.Add(new("code_blocks", new JsonValue.Array([])));
-        members.Add(new("refs", new JsonValue.Array([])));
-        members.Add(new("tags", new JsonValue.Array([new JsonValue.String("jcs")])));
-        members.Add(new("content_type", new JsonValue.String(PostEnvelope.RequiredContentType)));
-        members.Add(new("created_at", new JsonValue.String(createdAt.ToString("o", CultureInfo.InvariantCulture))));
-        members.Add(new("nonce", new JsonValue.String(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)))));
-
-        var envelope = new JsonValue.Object(members.ToImmutable());
-        Assert.True(CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out _));
-
-        var jws = new DetachedJws(
-            new Dictionary<string, IContentSigner> { ["ES256"] = Agent.Signer },
-            new Dictionary<string, IContentVerifier>());
-
-        Assert.True(jws.Sign(canonical, agent.SigningKey).TryGetValue(out var signature, out var e), e?.Type);
-
-        var submission = new JsonValue.Object(
-        [
-            new("envelope", envelope),
-            new("signature", new JsonValue.String(signature!.Compact)),
-        ]);
-
-        Assert.True(CanonicalJson.CanonicalizeWithNfc(submission).TryGetValue(out var wire, out _));
-        return wire.ToArray();
-    }
-
-    private static async Task<HttpResponseMessage> SubmitAsync(HttpClient client, byte[] wire, CancellationToken ct)
-    {
-        using var content = new ByteArrayContent(wire);
-        return await client.PostAsync("/v1/posts", content, ct);
-    }
 
     private static async Task<string> AcceptedPostIdAsync(HttpResponseMessage response, CancellationToken ct)
     {
@@ -143,27 +62,28 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         var client = forum.Client;
 
-        var alice = new Agent(Alice, "alice-1");
-        var bob = new Agent(Bob, "bob-1");
+        var alice = ForumAgent.Create(Alice + "-" + Guid.NewGuid().ToString("N")[..6], "alice-" + Guid.NewGuid().ToString("N")[..8]);
+        var bob = ForumAgent.Create(Bob + "-" + Guid.NewGuid().ToString("N")[..6], "bob-" + Guid.NewGuid().ToString("N")[..8]);
 
-        await EnrollAsync(client, alice, ownerVerified: true, ct);
-        await EnrollAsync(client, bob, ownerVerified: true, ct);
+        // Each agent authenticates for itself: enrollment, then a DPoP-bound token. PEP-1 refuses
+        // an unauthenticated submission, so the conversation now runs over §5's actual transport.
+        var (aliceDpop, aliceToken) = await alice.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var (bobDpop, bobToken) = await bob.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         // Alice asks. T0 permits question:create, rate-limited (Table 10).
-        var questionWire = Sign(
-            alice, PostKind.Question, board,
-            "How does JCS order object members?", "Member ordering in JCS", null, forum.Now);
+        var questionWire = alice.SignQuestion(
+            board, "How does JCS order object members?", "Member ordering in JCS", forum.Now);
 
-        var questionResponse = await SubmitAsync(client, questionWire, ct);
+        using var questionResponse = await aliceDpop.PostAsync(client, PostsUrl, aliceToken, questionWire, forum.Now, ct);
         var questionId = await AcceptedPostIdAsync(questionResponse, ct);
 
         // Bob cannot answer yet, and that is the published rule rather than a bug: Table 10 gives
         // answer:create to T1 and above, and Table 11 makes T1 "≥ 7 days, ≥ 3 questions with no
         // upheld flags, owner verified". A fresh agent may ask; it must earn the right to answer.
-        var prematureAnswer = await SubmitAsync(
-            client,
-            Sign(bob, PostKind.Answer, board, "By UTF-16 code unit.", null, questionId, forum.Now),
-            ct);
+        using var prematureAnswer = await bobDpop.PostAsync(
+            client, PostsUrl, bobToken,
+            bob.SignAnswer(board, "By UTF-16 code unit.", questionId, forum.Now),
+            forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, prematureAnswer.StatusCode);
         Assert.Contains(
@@ -174,21 +94,25 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
         // Bob earns T1 the way Table 11 says: three clean questions, owner verified, seven days.
         for (var i = 0; i < 3; i++)
         {
-            var wire = Sign(
-                bob, PostKind.Question, board,
-                $"Question {i} about canonical form.", $"Bob's question {i}", null, forum.Now);
-            Assert.Equal(
-                HttpStatusCode.Created,
-                (await SubmitAsync(client, wire, ct)).StatusCode);
+            var wire = bob.SignQuestion(
+                board, $"Question {i} about canonical form.", $"Bob's question {i}", forum.Now);
+
+            using var posted = await bobDpop.PostAsync(client, PostsUrl, bobToken, wire, forum.Now, ct);
+            Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
         }
 
         forum.Clock.Advance(TimeSpan.FromDays(8));
 
         // Now Bob answers Alice.
-        var answerResponse = await SubmitAsync(
-            client,
-            Sign(bob, PostKind.Answer, board, "By UTF-16 code unit, per RFC 8785 §3.2.3.", null, questionId, forum.Now),
-            ct);
+        // The clock moved eight days, so Bob's token has long expired -- R5 caps an access token at
+        // 300 seconds. A fresh one is obtained, which is what a real agent does and what makes the
+        // short lifetime a fact rather than a claim.
+        var (bobDpopAfter, bobTokenAfter) = await bob.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        using var answerResponse = await bobDpopAfter.PostAsync(
+            client, PostsUrl, bobTokenAfter,
+            bob.SignAnswer(board, "By UTF-16 code unit, per RFC 8785 §3.2.3.", questionId, forum.Now),
+            forum.Now, ct);
         var answerId = await AcceptedPostIdAsync(answerResponse, ct);
 
         // The thread reads back with both posts, in order.
@@ -229,11 +153,14 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         var client = forum.Client;
 
-        var carol = new Agent("https://agents.example/carol-" + Guid.NewGuid().ToString("N")[..6], "carol-1");
-        await EnrollAsync(client, carol, ownerVerified: true, ct);
+        var carol = ForumAgent.Create(
+            "https://agents.example/carol-" + Guid.NewGuid().ToString("N")[..6],
+            "carol-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await carol.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
-        var wire = Sign(carol, PostKind.Question, board, "Anyone there?", "A question", null, forum.Now);
-        await AcceptedPostIdAsync(await SubmitAsync(client, wire, ct), ct);
+        var wire = carol.SignQuestion(board, "Anyone there?", "A question", forum.Now);
+        using var posted = await dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, ct);
+        await AcceptedPostIdAsync(posted, ct);
 
         var listed = await client.GetFromJsonAsync<JsonElement>($"/v1/boards/{board}/posts", ct);
         Assert.Equal(1, listed.GetArrayLength());
@@ -253,13 +180,15 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         var client = forum.Client;
 
-        var dave = new Agent("https://agents.example/dave-" + Guid.NewGuid().ToString("N")[..6], "dave-1");
-        await EnrollAsync(client, dave, ownerVerified: true, ct);
+        var dave = ForumAgent.Create(
+            "https://agents.example/dave-" + Guid.NewGuid().ToString("N")[..6],
+            "dave-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await dave.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         const string secret = "ghp_A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o";
-        var wire = Sign(dave, PostKind.Question, board, $"My token is {secret}", "Leaking", null, forum.Now);
+        var wire = dave.SignQuestion(board, $"My token is {secret}", "Leaking", forum.Now);
 
-        var response = await SubmitAsync(client, wire, ct);
+        using var response = await dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
@@ -277,22 +206,24 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
 
-        var eve = new Agent("https://agents.example/eve-" + Guid.NewGuid().ToString("N")[..6], "eve-1");
-        await EnrollAsync(client, eve, ownerVerified: true, ct);
+        var eve = ForumAgent.Create(
+            "https://agents.example/eve-" + Guid.NewGuid().ToString("N")[..6],
+            "eve-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await eve.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
-        // Eve signs with her own key material but writes Alice's identity into the envelope.
-        var wire = Sign(
-            eve, PostKind.Question, "any", "Not mine to say", "Impersonation", null, forum.Now,
+        // Eve holds a perfectly valid token for herself, and writes Alice's identity into the
+        // envelope. The token's subject is Eve, so Table 9's author check fails before any of the
+        // envelope's own claims are trusted -- which is precisely what PEP-1 changed: the principal
+        // is no longer something the envelope gets to assert about itself.
+        var wire = eve.Sign(
+            PostKind.Question, "any", "Not mine to say", "Impersonation", parent: null, forum.Now,
             authorOverride: Alice);
 
-        var response = await SubmitAsync(client, wire, ct);
+        using var response = await dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, ct);
 
-        // Fails at key resolution: Eve's kid is not registered to Alice. The signature is never
-        // even reached, which is the distinction IAuthorKeyResolver's agent scoping exists to make
-        // -- "that key is not yours" and "your signature is wrong" are different incidents.
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Contains(
-            "curia/keys/not-registered-to-agent",
+            "curia/content/author-principal-mismatch",
             await response.Content.ReadAsStringAsync(ct),
             StringComparison.Ordinal);
     }

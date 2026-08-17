@@ -41,6 +41,13 @@ internal sealed class ForumAgent
 
     internal string PublicKeyBase64 => Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo());
 
+    /// <summary>
+    /// The agent's own signing key, for the client-assertion half of §5. Exposed to the test
+    /// project only -- the same key the Registrar registered, which is what makes the assertion
+    /// authenticate <i>this</i> agent rather than merely some holder of some key.
+    /// </summary>
+    internal ECDsa AssertionKey => _key;
+
     private SigningKey SigningKey => new("ES256", Kid, _key.ExportPkcs8PrivateKey());
 
     internal Task<HttpResponseMessage> EnrollAsync(HttpClient client, CancellationToken ct, bool ownerVerified = true) =>
@@ -104,6 +111,23 @@ internal sealed class ForumAgent
 
         Assert.True(CanonicalJson.CanonicalizeWithNfc(submission).TryGetValue(out var wire, out _));
         return wire.ToArray();
+    }
+
+    /// <summary>
+    /// Enrolls, obtains a DPoP-bound access token, and returns a client that can post with it.
+    ///
+    /// <para>Every write path goes through this now. PEP-1 refuses an unauthenticated submission
+    /// (that refusal has its own test), so a test that posted without a token would be asserting
+    /// against a 401 rather than against the behaviour it meant to check.</para>
+    /// </summary>
+    internal async Task<(DpopClient Client, string Token)> AuthenticateAsync(
+        HttpClient http, string tokenEndpoint, DateTimeOffset now, CancellationToken ct)
+    {
+        var response = await EnrollAsync(http, ct);
+        Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
+
+        var client = DpopClient.For(this, AssertionKey);
+        return (client, await client.GetTokenAsync(http, tokenEndpoint, now, ct));
     }
 
     /// <summary>ES256 over the BCL. JWS wants the fixed-width r||s form, not DER.</summary>
