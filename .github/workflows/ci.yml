@@ -67,6 +67,21 @@ jobs:
         with:
           global-json-file: global.json
 
+      # Phase 1's exit criterion is that an *independently written* verifier confirms authorship
+      # offline, and Curia.Api.Tests executes it by running curia-testis against a served post.
+      # That test fails rather than skips without the binary -- a skipped exit-criterion test
+      # reports the same green as a passing one -- so the Rust toolchain belongs in this job too.
+      - name: Set up Rust (for the independent verifier)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/curia-testis
+
+      - name: Build the independent verifier
+        run: cargo build --locked --bin curia-testis
+        working-directory: rust/curia-testis
+
       # CS-3: lock files are committed, and CI restores against them. Without --locked-mode a
       # drifted lock file restores anyway and the commitment is decorative.
       - name: Restore (locked)
@@ -80,6 +95,7 @@ jobs:
       - name: Test
         env:
           CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
+          CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
         run: dotnet test Curia.sln --no-build --configuration Release
 
   rust:

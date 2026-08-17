@@ -46,6 +46,7 @@ public sealed record PostResponse(
     [property: JsonPropertyName("server_ts")] string ServerTimestamp,
     [property: JsonPropertyName("digest")] string Digest,
     [property: JsonPropertyName("canonical")] string Canonical,
+    [property: JsonPropertyName("signature")] string Signature,
     [property: JsonPropertyName("risk_flags")] ImmutableArray<string> RiskFlags);
 
 /// <summary>
@@ -67,6 +68,7 @@ public static class ForumEndpoints
         app.MapGet("/v1/posts/{postId}", GetPostAsync);
         app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync);
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
+        app.MapGet("/v1/jwks", GetJwks);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
     }
 
@@ -242,6 +244,34 @@ public static class ForumEndpoints
     }
 
     /// <summary>
+    /// The JWKS for one agent. R4.16 rev.: the Forum serves these; it never fetches an
+    /// agent-hosted JWKS at verification time.
+    ///
+    /// <para>Anonymous, and deliberately so: a public key is public, and Phase 1's exit criterion
+    /// is that an <i>independent</i> verifier confirms authorship offline. A verifier that needed a
+    /// credential to obtain the key it verifies with would not be independent of the Forum.</para>
+    ///
+    /// <para><b>The agent is a query parameter, not a path segment.</b> Table 9 types
+    /// <c>author</c> as a URI, so every agent identifier contains slashes -- and a percent-encoded
+    /// slash in a path segment is rejected or silently decoded depending on the host, which is
+    /// exactly the kind of routing detail that works locally and 404s in production. A query
+    /// parameter has no such ambiguity.</para>
+    /// </summary>
+    private static IResult GetJwks(string agent, InMemoryAuthorKeyResolver keys)
+    {
+        if (string.IsNullOrWhiteSpace(agent))
+            return Results.BadRequest(new Problem(
+                "curia/keys/agent-required", "The 'agent' query parameter is required", null));
+
+        var agentId = agent;
+        var registered = keys.KeysFor(agentId);
+
+        return registered.Count == 0
+            ? Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId))
+            : Results.Ok(Jwks.ForAgent(registered));
+    }
+
+    /// <summary>
     /// R7.6: "Anonymous read access SHALL be an explicit <c>allow</c> decision from the PDP, not
     /// the absence of a check." Returns null when allowed, or the rejection to return otherwise --
     /// so a caller that forgets to check the result gets a compile-time nudge (an unused
@@ -289,7 +319,7 @@ public static class ForumEndpoints
 
     private static PostResponse ToResponse(PostView p) => new(
         p.PostId, p.Author, p.Board, p.Kind, p.Parent, p.ServerTimestamp.ToString(),
-        p.Digest, p.Canonical, p.RiskFlagCategories);
+        p.Digest, p.Canonical, p.Signature, p.RiskFlagCategories);
 
     /// <summary>
     /// Reads the <c>author</c> claim from an admitted envelope, without trusting it. It is used

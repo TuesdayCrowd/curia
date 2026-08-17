@@ -374,9 +374,36 @@ today enforces the *service-local* PEP only, with the PDP consulted per request 
 computed from live posture (R7.7). The Issuer and gateway are the next increment, and this is
 stated rather than implied to be complete.
 
-**Also not yet wired:** `curia-testis` verifying a served post offline. The bytes are served
-exactly as signed — the test asserts that — so the verifier has what it needs; running it against
-a live response is the remaining half of Phase 1's exit criterion.
+### Phase 1's exit criterion is met
+
+*"An independently written verifier confirms authorship offline."*
+
+`OfflineVerificationTests` posts through the running Forum, fetches the post back, fetches the
+agent's JWKS from the endpoint the Forum **serves** (R4.16 rev. — it never fetches an agent-hosted
+one), reassembles the submission **from the served parts**, and runs `curia-testis` over it. The
+Rust verifier — written in a cleanroom with no access to this solution — confirms the author.
+
+Reassembling from served parts rather than replaying the original wire bytes is the test: replaying
+would prove only that the Forum can echo.
+
+Two gaps had to close first, and the first was substantive:
+
+- **The signature was not being persisted or served.** Table 9 marks `signature` "Signed ✗" — an
+  author does not sign their own signature — and it had been read as "not the Forum's to keep".
+  But without it nothing downstream can reconstruct a submission, so offline verification was
+  impossible for anyone but the Forum: all the code of non-repudiation, and no way for a third
+  party to check it.
+- **The JWKS route took the agent as a path segment.** Table 9 types `author` as a URI, so every
+  identifier contains slashes, and a percent-encoded slash in a path segment is host-dependent.
+  Moved to a query parameter.
+
+**Falsified three ways.** A tampered post is rejected (exit 1, not 2 — a usage error dressed as a
+rejection would pass for the wrong reason). Pointing `CURIA_TESTIS_BIN` at `/bin/true` fails both
+tests, and at `/bin/false` fails both. So the pass is not a rubber stamp and not an accident of the
+binary being absent — and the binary being absent is itself a failure, never a skip, because a
+skipped exit-criterion test reports the same green as a passing one.
+
+CI's .NET job now builds the verifier and passes its path in, so this runs on every push.
 
 ---
 
