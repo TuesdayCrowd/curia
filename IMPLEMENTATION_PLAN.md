@@ -169,7 +169,10 @@ exists to prevent.
 - **Stage 2 (R11.6)** — `Curia.Infrastructure`, `db/` migrations, grant-refusal test.
 - **Stage 3 (R11.9)** — a projection and its rebuild-from-zero, plus determinism.
 
-**Status**: In progress.
+**Status**: **Complete** — merged in PR #18. `db/0001_create_events.sql` carries the events
+table, the app role, and the `REVOKE UPDATE, DELETE` that makes append-only a property of the
+grant rather than of the code's good intentions. 28 infrastructure tests against a real
+PostgreSQL, including the replay-rebuild drill.
 
 ## Tier 4 — specification debt *(design revised — the original plan was wrong)*
 
@@ -240,7 +243,40 @@ only, with the errata retained as the changelog and the rationale record.
 
 **Success**: v1.1 is normative and self-contained for everything settled; no Part C proposal
 appears in it without an explicit recorded acceptance; the T4.0 checks pass over the result.
-**Status**: Not Started
+
+**Status**: **Complete** — PR #19. 59 entries triaged (not ~40; Part A discusses ten entries
+under eight `###` headings and carries ten more as table rows only, and Part E had grown to
+E14 while its own "Scope and method" still described it as ending at E7). 28 new requirements
+and 5 revisions merged; 15 proposed numbers stay unapplied.
+
+Two Part B entries were reclassified as designs and held out. B7 is the instructive one: its
+Forum-side "snapshot cited URLs" half hands the Forum an outbound fetcher for author-supplied
+URLs, colliding with **A16 in the same document**, which removes exactly that as an SSRF
+surface. Splitting the requirement to keep only its safe half would itself have been a design
+act, so it is a recorded gap instead.
+
+Three mechanics carried the merge:
+
+- **A merged requirement moves, it does not copy.** The white paper gains the definition; the
+  errata entry keeps its rationale and marks itself applied. Leaving both would have
+  re-created the R4.21 double-definition collision *as a side effect of fixing it*. R6.33 is
+  the deliberate exception, retaining its index row because D5 and E4 still define it
+  qualified.
+- **A8 ran last and alone**, two-phase (`R10.N` → `R10@N@` → new) because the mapping is a
+  permutation onto itself — old R10.25 → new R10.1 while old R10.1 → new R10.20 — so a
+  one-phase rename would have corrupted it. Appendix B.1 publishes all 40 rows. The errata's
+  A8 entry and two A.1 rows are deliberately *not* renamed: they describe v1.0 identifiers,
+  and renaming them would destroy the record they exist to keep.
+- **One dangling citation is deliberate.** R14.6 is Part C, so R14.7 and R14.8 defer with it,
+  yet R6.43 cites R14.7. It merged verbatim, citation intact — rewriting normative text to
+  tidy a cross-reference is the silent decision this whole exercise exists to prevent.
+
+**Verified**: `check-spec.py` clean **and falsified once by injection**, because a clean result
+that cannot fail is indistinguishable from a probe that never ran — this project's most
+frequently relearned lesson. All 11 Part C numbers absent; §16 lists D1–D10 with D6 alone
+closed, checked decision by decision; §10 monotonic 1–40 with zero surviving rename tokens;
+518 C# tests and 168 Rust tests green at 0 warnings; nothing under `src/`, `rust/`, `tests/`,
+`tools/`, `conformance/` or `db/` touched.
 
 ### T4.2 — close what is already decided but still recorded as open
 
@@ -253,13 +289,21 @@ appears in it without an explicit recorded acceptance; the T4.0 checks pass over
 - **Depth cap vs the submission wrapper** — the cap is defined over "the document" while the
   wire submission wraps the envelope one level deep. `admit-reject/` pins ADMIT against bare
   documents and contains no oracle for it.
-**Status**: Not Started
+
+**Status**: **Complete** — PR #19. `events.server_ts` lost `DEFAULT now()` and gained a
+Clock-port comment (R11.3), matching `posts.server_ts`, which v1.0 already got right; the
+seven projection defaults stay, with one sentence making the asymmetry deliberate rather than
+an oversight. The depth cap is now measured over the document ADMIT is asked to admit,
+**wrapper included** — consistent with E4's ADMIT-generic rule and with what
+`EnvelopeParser.Parse` already does. Expressed inside R6.39 rather than as a new number. Still
+unpinned by any `conformance/` vector; carried below.
 
 ### T4.3 — apply E8/R4.29 to Table 6
 
 The `expired` state is proposed and still absent from Table 6. Folds into T4.1's corrections
 merge (E is a corrections part).
-**Status**: Not Started
+
+**Status**: **Complete** — PR #19, merged with D9.5 in one Table 6 edit.
 
 ## Order, and why
 
@@ -273,3 +317,27 @@ merge (E is a corrections part).
 The original plan put the merge first and treated it as mechanical. It is not: roughly a
 quarter of the errata is proposals that a merge would silently adopt, and three open decisions
 would have been resolved as a side effect of a documentation task.
+
+**All four tiers are complete** (PRs #12–#19). What the revised order bought is visible in the
+outcome: T4.0's checks, written before the merge they were meant to guard, caught the merge
+introducing a *second* duplicate definition into brand-new prose — `**R14.8**` wrapping to the
+start of a line, the same mechanic the errata had already documented for E13. The check existed
+because the merge had not happened yet.
+
+## Carried forward, recorded rather than silently fixed
+
+- **`check-spec.py`'s `DELIBERATELY_DANGLING` allowlist is stale.** After A8, `R10.7`–`R10.9`
+  name real requirements in §10.3 and §10.4. `tools/` was outside the merge's scope and the
+  checker was deliberately not edited to make its own merge pass — editing the verifier to
+  satisfy the thing it verifies is the failure this project keeps finding in other clothes.
+- **v1.1 contains no requirement that a differential comparison examine the rejection
+  predicate.** R14.7 and R14.8 defer with the Part C entry they amend. The gap is real, and the
+  harness enforces it in code regardless.
+- **R6.34 obliges a Unicode-version pin no document supplies.** Both implementations inherit it
+  from their platform. No version number was invented; this is E3's shape one level up.
+- **R6.39's "both sides of each boundary" is unmet** for member count, submission size, and the
+  new wrapper-depth boundary — no `conformance/` vector pins them.
+- **A15's content-addressing clause** is the one clause P22 does not force, flagged in the
+  errata if a strictly minimal repair is ever preferred.
+- **ULID randomness exhaustion is untested**, and monotonicity is same-millisecond only.
+- **The `curia/jws/…` slug family** does not follow R6.40's condition-naming principle.
