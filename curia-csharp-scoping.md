@@ -393,7 +393,7 @@ projections are rebuilt by replay in an integration test every CI run
 two instances cannot double-seal. The Merkle log implementation (`Acta`) is
 in-house per stack scoping §5.6 with the CNG/TPM signer behind
 `ILogHeadSigner`; gitleaks runs via `ProcessStartInfo` with stdout parsed to
-categories only (R10.13). ONNX embedding adapter selects CPU vs CUDA execution
+categories only (R10.28). ONNX embedding adapter selects CPU vs CUDA execution
 provider in the composition root by RID and configuration — the port never
 knows.
 
