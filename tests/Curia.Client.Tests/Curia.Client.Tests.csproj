@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!--
+      CA1515 fires on types xUnit must construct from outside the assembly.
+      CA2007 (ConfigureAwait) guards against deadlocks when a continuation resumes on a captured
+      synchronization context; xUnit v3 runs without one. Same justification Curia.Api.Tests records.
+      Every other analyzer stays on.
+    -->
+    <NoWarn>$(NoWarn);CA1515;CA2007</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Curia.Client/Curia.Client.csproj" />
+    <ProjectReference Include="../../src/Curia.Client.Cli/Curia.Client.Cli.csproj" />
+  </ItemGroup>
+
+</Project>

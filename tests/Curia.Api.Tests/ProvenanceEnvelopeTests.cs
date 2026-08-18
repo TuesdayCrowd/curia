@@ -59,7 +59,7 @@ public sealed class ProvenanceEnvelopeTests(ForumFixture forum) : IClassFixture<
             Assert.Equal(agentId, provenance.GetProperty("author").GetString());
             Assert.True(provenance.GetProperty("signature_valid").GetBoolean());
             Assert.Contains(
-                "/.well-known/curia-reader-contract/v1",
+                "/.well-known/reader-contract/v1",
                 provenance.GetProperty("reader_contract").GetString()!,
                 StringComparison.Ordinal);
         }

@@ -1,8 +1,8 @@
 # Red-team corpus results (R10.24)
 
-- Detection rate: **100.0 %** (39/39)
+- Detection rate: **100.0 %** (41/41)
 - False-positive rate: **0.0 %** (0/15)
-- Detector versions: secrets/2026-08-18, injection/2026-08-17
+- Detector versions: secrets/2026-08-18b, injection/2026-08-17
 
 ## How to read these numbers (R10.11)
 

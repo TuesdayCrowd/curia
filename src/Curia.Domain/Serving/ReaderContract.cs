@@ -40,8 +40,22 @@ public static class ReaderContract
     /// </summary>
     public const string Version = "v1";
 
-    /// <summary>R10.21's stable path. Stable is the operative word: a moved contract is an unread one.</summary>
-    public const string WellKnownPath = "/.well-known/curia-reader-contract/v1";
+    /// <summary>
+    /// R10.21's stable path, verbatim from the white paper -- §10.6's example and §12's endpoint
+    /// table both give <c>/.well-known/reader-contract/v1</c>.
+    ///
+    /// <para>This was implemented as <c>/.well-known/curia-reader-contract/v1</c> and did not match
+    /// either. The deviation had an argument behind it -- <c>.well-known</c> is an IANA registry and
+    /// an unregistered suffix arguably ought to be vendor-prefixed -- but it was never written down,
+    /// which makes it the cross-reference rot this project names as its own failure mode rather than
+    /// a decision. The specification is normative; the implementation follows it. If the
+    /// vendor-prefix argument is worth making it belongs in the errata as a proposed correction,
+    /// where someone can disagree with it.</para>
+    ///
+    /// <para>Stable is the operative word in R10.21: a moved contract is an unread one, so this
+    /// changes once, now, before anyone has bookmarked it.</para>
+    /// </summary>
+    public const string WellKnownPath = "/.well-known/reader-contract/v1";
 
     /// <summary>§10.7's nine clauses, verbatim.</summary>
     public static ImmutableArray<ContractClause> Clauses { get; } =

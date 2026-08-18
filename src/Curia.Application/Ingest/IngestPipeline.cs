@@ -161,7 +161,13 @@ public sealed class IngestPipeline : IIngestPipeline
             // only the canonical bytes would have all the code of non-repudiation and no way for
             // anyone else to check it.
             new("signature", new JsonValue.String(screened.Inner.Signature.Compact)),
-            new("digest", new JsonValue.String(digest.ToString())),
+            // ToPrefixed, never ToString. EnvelopeDigest is a record struct, so ToString gives
+            // "EnvelopeDigest { Sha256 = System.ReadOnlyMemory<Byte>[32] }" -- which compiles, is a
+            // string, and is useless. Every post accepted before this fix carries that text in the
+            // log permanently: R9.10's batch retrieval by digest, refs-by-digest citation, dedup and
+            // R9.11's ETag all key on this field. Found by a client that computed the digest itself
+            // and reported the disagreement, which is the argument for building one.
+            new("digest", new JsonValue.String(digest.ToPrefixed())),
             new("author", new JsonValue.String(screened.Inner.AuthorAgentId)),
             new("board", new JsonValue.String(screened.Inner.Envelope.Board)),
             new("kind", new JsonValue.String(PostKinds.Wire(screened.Inner.Envelope.Kind))),
@@ -193,7 +199,7 @@ public sealed class IngestPipeline : IIngestPipeline
             .AppendAsync(aggId, AggregateVersion.New, [domainEvent], cancellationToken)
             .ConfigureAwait(false);
 
-        return appended.Map(_ => new PostAccepted(postId, serverTs, digest.ToString()));
+        return appended.Map(_ => new PostAccepted(postId, serverTs, digest.ToPrefixed()));
     }
 
     /// <summary>

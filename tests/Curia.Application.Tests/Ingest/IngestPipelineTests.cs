@@ -185,6 +185,52 @@ public sealed class IngestPipelineTests
             payload.Members.Single(m => m.Key == "post_id").Value).Value);
     }
 
+    /// <summary>
+    /// The served digest must actually be the SHA-256 of the canonical bytes, in a form another
+    /// implementation can parse.
+    ///
+    /// <para><b>This test exists because it did not, and the gap shipped.</b> The digest was rendered
+    /// with <c>ToString()</c> on a record struct, which produced
+    /// <c>"EnvelopeDigest { Sha256 = System.ReadOnlyMemory&lt;Byte&gt;[32] }"</c> -- a string, so it
+    /// compiled; assigned to a field named <c>digest</c>, so it read correctly; and completely
+    /// useless. R9.10's batch retrieval by digest, <c>refs</c>-by-digest citation, dedup and R9.11's
+    /// ETag all key on it.</para>
+    ///
+    /// <para>Nothing caught it because every test asserted the digest was *present* and non-empty,
+    /// which it was. A reference client computing the digest independently is what found it -- the
+    /// same lesson as the offline verifier, one layer down: a value only this implementation
+    /// produces and only this implementation reads is a value nothing checks.</para>
+    /// </summary>
+    [Fact]
+    public async Task R9_10_TheServedDigestIsTheSha256OfTheCanonicalBytes()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+        var wire = Wire(harness);
+
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        Assert.True(verified.TryGetValue(out var v, out _));
+
+        var expected = "sha256:" + Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(v!.Canonical.Span));
+
+        var screened = await harness.Pipeline.ScreenAsync(v, ct).ConfigureAwait(true);
+        Assert.True(screened.TryGetValue(out var s, out _));
+        var accepted = await harness.Pipeline.PersistAsync(s!, ct).ConfigureAwait(true);
+        Assert.True(accepted.TryGetValue(out var post, out _));
+
+        Assert.Equal(expected, post!.Digest);
+
+        // And the same value reaches the log, since that is what a reader downstream gets.
+        var stored = await harness.Store.ReadForwardAsync(EventSequence.Zero, 100, ct).ConfigureAwait(true);
+        Assert.True(stored.TryGetValue(out var events, out _));
+        var payload = Assert.IsType<JsonValue.Object>(Assert.Single(events!).Event.Payload);
+        var served = Assert.IsType<JsonValue.String>(payload.Members.Single(m => m.Key == "digest").Value);
+
+        Assert.Equal(expected, served.Value);
+    }
+
     // ---- Phase behaviour ---------------------------------------------------------------------
 
     [Fact]

@@ -244,14 +244,16 @@ public static class ForumEndpoints
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
 
-        var tier = TierPolicy.Evaluate(facts!, clock.GetUtcNow());
+        var now = clock.GetUtcNow();
+        var tier = TierPolicy.Evaluate(facts!, now);
 
         var decision = await pdp.EvaluateAsync(
             new AuthorizationRequest(
                 tier,
                 facts!.CredentialState,
                 ResourceFor(v.Envelope.Kind),
-                ActionKind.Create),
+                ActionKind.Create,
+                PostsToday: PostsInBudgetWindow(log, v.AuthorAgentId, now)),
             cancellationToken).ConfigureAwait(false);
 
         if (!decision.TryGetValue(out var d, out var decisionError))
@@ -562,9 +564,33 @@ public static class ForumEndpoints
         }
     }
 
+    /// <summary>
+    /// R7.15's "recent post rate", counted from the log the request already read.
+    ///
+    /// <para><b>A trailing 24 hours, not a calendar day.</b> Table 11 says "3 posts/day" without
+    /// naming a boundary, and a calendar day needs a timezone nobody has specified -- which would
+    /// make an agent's budget depend on where the Forum is deployed. A rolling window also has no
+    /// midnight cliff, where an agent at its limit gains a full fresh budget in one second and every
+    /// rate-limited client on the Forum retries simultaneously.</para>
+    ///
+    /// <para>Counted from the event log rather than a counter, so it survives a restart and cannot
+    /// drift from what actually happened. That is a scan per write, which is the same order as
+    /// everything else on this path; a counter would be faster and would be the thing that goes
+    /// stale.</para>
+    /// </summary>
+    private static int PostsInBudgetWindow(
+        IReadOnlyList<AppendedEvent> log, string agentId, DateTimeOffset now)
+    {
+        var since = now - TimeSpan.FromDays(1);
+
+        return PostProjector.Fold(log).Count(p =>
+            string.Equals(p.Author, agentId, StringComparison.Ordinal)
+            && p.ServerTimestamp.Value > since);
+    }
+
     /// <summary>R10.20's stable well-known URL, so every envelope points a reader at the contract.</summary>
     private static string ReaderContractUrl(HttpRequest request) =>
-        $"{request.Scheme}://{request.Host}/.well-known/curia-reader-contract/v1";
+        $"{request.Scheme}://{request.Host}/.well-known/reader-contract/v1";
 
     /// <summary>
     /// The absolute request URL, which a DPoP proof's <c>htu</c> must match.

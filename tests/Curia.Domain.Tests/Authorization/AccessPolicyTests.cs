@@ -17,8 +17,8 @@ public sealed class AccessPolicyTests
         ResourceKind resource,
         ActionKind action,
         CredentialState state = CredentialState.Active,
-        bool rateBudgetAvailable = true) =>
-        new(TierFixture.As(tier), state, resource, action, rateBudgetAvailable);
+        int postsToday = 0) =>
+        new(TierFixture.As(tier), state, resource, action, postsToday);
 
     private static AuthorizationDecision Decide(AuthorizationRequest request)
     {
@@ -109,18 +109,76 @@ public sealed class AccessPolicyTests
         Assert.Equal("table-10/rate-limited", within.Reason);
 
         var exhausted = Decide(Request(
-            PrincipalTier.T0, ResourceKind.Question, ActionKind.Create, rateBudgetAvailable: false));
+            PrincipalTier.T0, ResourceKind.Question, ActionKind.Create,
+            postsToday: TierPolicy.PostsPerDay(PrincipalTier.T0)));
+
         Assert.Equal(DecisionEffect.Deny, exhausted.Effect);
         Assert.Equal("table-11/rate-budget-exhausted", exhausted.Reason);
 
-        // The budget bit is consulted only by that one cell: a tier whose cell is a plain ✓ is
-        // unaffected by it, and a tier whose cell is ✗ stays denied for the tier's reason.
-        Assert.Equal(
-            DecisionEffect.Allow,
-            Decide(Request(PrincipalTier.T1, ResourceKind.Question, ActionKind.Create, rateBudgetAvailable: false)).Effect);
+        // A tier whose cell is ✗ stays denied for the tier's reason, not the budget's -- the two
+        // denials mean different things and R7.16 wants them distinguishable.
         Assert.Equal(
             "table-10/denied",
             Decide(Request(PrincipalTier.Anonymous, ResourceKind.Question, ActionKind.Create)).Reason);
+    }
+
+    /// <summary>
+    /// <b>Table 11's budget binds every tier, not only Table 10's "rate-limited" cell.</b>
+    ///
+    /// <para>This test replaces one that asserted the opposite, and the correction matters. Table 10
+    /// marks T0's <c>question</c>/<c>create</c> cell "rate-limited" and gives T1 and above a plain
+    /// tick, which reads as though the budget were that cell's business alone. But Table 11 gives
+    /// every tier a posting budget -- 3/day at T0, 25 at T1, 100 at T2 -- and a budget nothing
+    /// consults is decoration. Under the earlier reading a T1 agent could post without limit
+    /// forever, which is one agent away from flooding the Forum.</para>
+    ///
+    /// <para>Both tables hold and say different things: Table 11 caps how much a tier may post;
+    /// Table 10's "rate-limited" cell marks the one place where the budget decides whether the
+    /// action is permitted at all rather than bounding how often.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(PrincipalTier.T1, ResourceKind.Answer)]
+    [InlineData(PrincipalTier.T2, ResourceKind.Finding)]
+    [InlineData(PrincipalTier.T3, ResourceKind.Comment)]
+    public void R7_15_TheTable11BudgetBindsEveryTier(PrincipalTier tier, ResourceKind resource)
+    {
+        var budget = TierPolicy.PostsPerDay(tier);
+
+        var underBudget = Decide(Request(tier, resource, ActionKind.Create, postsToday: budget - 1));
+        Assert.Equal(DecisionEffect.Allow, underBudget.Effect);
+
+        var atBudget = Decide(Request(tier, resource, ActionKind.Create, postsToday: budget));
+        Assert.Equal(DecisionEffect.Deny, atBudget.Effect);
+        Assert.Equal("table-11/rate-budget-exhausted", atBudget.Reason);
+    }
+
+    /// <summary>
+    /// T3's budget is "Negotiated" -- not a number -- so it is uncapped here rather than given an
+    /// invented figure. Asserted so that inventing one later is a deliberate act.
+    /// </summary>
+    [Fact]
+    public void T3s_negotiated_budget_does_not_exhaust()
+    {
+        var decision = Decide(Request(
+            PrincipalTier.T3, ResourceKind.Comment, ActionKind.Create, postsToday: 1_000_000));
+
+        Assert.Equal(DecisionEffect.Allow, decision.Effect);
+    }
+
+    /// <summary>
+    /// Reads do not spend the posting budget. Table 11 gives reads their own column, in a different
+    /// unit (per minute, not per day), so counting a read against the posting cap would enforce a
+    /// limit the table does not state.
+    /// </summary>
+    [Theory]
+    [InlineData(ResourceKind.Board, ActionKind.List)]
+    [InlineData(ResourceKind.Thread, ActionKind.Read)]
+    [InlineData(ResourceKind.Thread, ActionKind.Search)]
+    public void Reads_do_not_spend_the_posting_budget(ResourceKind resource, ActionKind action)
+    {
+        var decision = Decide(Request(PrincipalTier.T0, resource, action, postsToday: 1_000_000));
+
+        Assert.Equal(DecisionEffect.Allow, decision.Effect);
     }
 
     /// <summary>
