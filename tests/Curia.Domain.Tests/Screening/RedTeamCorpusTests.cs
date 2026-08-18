@@ -27,6 +27,16 @@ public sealed class RedTeamCorpusTests
     private sealed record Case(string Id, string Content, ImmutableArray<string> Expect);
 
     /// <summary>
+    /// A known evasion and the reason it is not caught, read from the corpus rather than restated.
+    ///
+    /// <para>The reason travels with the entry because <c>RESULTS.md</c> is generated from it.
+    /// A hand-written summary of which evasion classes survive is a second copy of the corpus,
+    /// and the two drifted apart the moment normalization closed six of the nine: the count
+    /// updated, the prose beside it kept describing groups that no longer had members.</para>
+    /// </summary>
+    private sealed record Evasion(string Id, string Content, ImmutableArray<string> WouldDetect, string Why);
+
+    /// <summary>
     /// The detection floor. Below this, the detectors are not doing the job R10.8 describes; at
     /// 100%, the corpus has stopped being adversarial. Raised deliberately when the corpus grows,
     /// never automatically to match the current score.
@@ -194,11 +204,11 @@ public sealed class RedTeamCorpusTests
             .AppendLine("rather than folded into the denominator, where they would depress a number nobody")
             .AppendLine("would then investigate.")
             .AppendLine()
-            .AppendLine("They fall into three groups: **lexical evasion** (character spacing, Markdown splitting,")
-            .AppendLine("split credentials, base64-wrapped credentials) which is fixable work not yet done;")
-            .AppendLine("**homoglyph substitution**, which is R10.8's named-but-unimplemented clause and needs a")
-            .AppendLine("UTS #39 confusables table; and **semantic paraphrase**, which no pattern catches and which")
-            .AppendLine("R10.11 says a classifier would only move rather than close.")
+            .AppendLine("Each one, with the reason recorded in the corpus:")
+            .AppendLine()
+            .Append(string.Concat(KnownEvasions().Select(e => string.Create(
+                CultureInfo.InvariantCulture,
+                $"- **`{e.Id}`** -- would be {string.Join(", ", e.WouldDetect)}. {e.Why}\n"))))
             .AppendLine()
             .AppendLine("A recorded evasion that starts being detected fails the build, so this list cannot")
             .AppendLine("silently go stale.")
@@ -249,7 +259,7 @@ public sealed class RedTeamCorpusTests
         foreach (var evasion in KnownEvasions())
         {
             var fired = Detect(evasion.Content);
-            var nowCaught = evasion.Expect.Where(e => fired.Contains(e, StringComparer.Ordinal)).ToArray();
+            var nowCaught = evasion.WouldDetect.Where(e => fired.Contains(e, StringComparer.Ordinal)).ToArray();
 
             if (nowCaught.Length > 0)
                 stale.Add($"{evasion.Id}: now detected as {string.Join(", ", nowCaught)} -- move it to payloads.jsonl");
@@ -262,7 +272,7 @@ public sealed class RedTeamCorpusTests
             + string.Join("\n", stale));
     }
 
-    private static Case[] KnownEvasions()
+    private static Evasion[] KnownEvasions()
     {
         var path = Path.Combine(CorpusDirectory(), "known-evasions.jsonl");
 
@@ -272,10 +282,11 @@ public sealed class RedTeamCorpusTests
             {
                 using var json = JsonDocument.Parse(line);
                 var root = json.RootElement;
-                return new Case(
+                return new Evasion(
                     root.GetProperty("id").GetString()!,
                     root.GetProperty("content").GetString()!,
-                    [.. root.GetProperty("would_detect").EnumerateArray().Select(e => e.GetString()!)]);
+                    [.. root.GetProperty("would_detect").EnumerateArray().Select(e => e.GetString()!)],
+                    root.GetProperty("why").GetString()!);
             })
             .ToArray();
     }
