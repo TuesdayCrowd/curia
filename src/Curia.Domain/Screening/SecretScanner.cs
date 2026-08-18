@@ -28,7 +28,7 @@ public static partial class SecretScanner
     /// R10.10/R10.30: bump this whenever a pattern changes, so a re-run over the archive is
     /// attributable to a rule set. The date is the rule set's, not the build's.
     /// </summary>
-    public const string Version = "secrets/2026-08-17";
+    public const string Version = "secrets/2026-08-18";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -51,6 +51,19 @@ public static partial class SecretScanner
 
         // "connection strings with embedded passwords".
         (ConnectionStringPassword(), RiskCategory.ConnectionStringPassword),
+
+        // Webhook URLs whose secret is the *path*, not a query parameter.
+        //
+        // Found by adding a Slack webhook to the red-team corpus and watching every rule miss it.
+        // The credential-shaped-URL rule looks at query and fragment parameters, which is where a
+        // token usually sits -- but a webhook URL *is* the credential: anyone holding it can post to
+        // that channel, with no other authentication. It belongs here rather than with the
+        // injection annotations, because R10.26's argument applies exactly: it cannot be redacted
+        // after signing, and the remedy is rotation.
+        //
+        // Scoped to vendor-specific path shapes rather than "a long opaque path segment", which
+        // would fire on ordinary URLs constantly.
+        (WebhookUrl(), RiskCategory.ApiKey),
 
     ];
 
@@ -147,6 +160,11 @@ public static partial class SecretScanner
         @"(?:[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@)|(?:\b(?:password|pwd)\s*=\s*[^\s;""']{4,})",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ConnectionStringPassword();
+
+    [GeneratedRegex(
+        @"https://(?:hooks\.slack\.com/services/[A-Za-z0-9_/-]{20,}|discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}|outlook\.office\.com/webhook/[A-Za-z0-9@/-]{20,})",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex WebhookUrl();
 
     // "high-entropy strings in assignment position": a secret-ish name, an assignment, a long run.
     [GeneratedRegex(

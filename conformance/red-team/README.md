@@ -24,6 +24,18 @@ triggers are demonstrated to survive perplexity examination and rephrasing, so a
 not evidence of safety — it is evidence that the listed shapes are caught. R10.11 forbids presenting
 it as more than that, and the scoring harness prints the caveat with the numbers for that reason.
 
+## Payloads must be shape-preserving non-credentials
+
+GitHub's push protection rejected this corpus the first time, because a payload used a
+realistic Slack webhook URL. That is the right behaviour and worth stating as a rule: **a
+corpus of convincing credentials is itself a secret-scanning problem**, and one that can
+never be committed.
+
+Every credential payload here therefore carries the *shape* a detector must recognise and a
+value no scanner will mistake for live material -- `EXAMPLE-NOT-A-REAL-SECRET` rather than
+something that looks minted. If a payload stops firing after being made obviously fake, the
+rule was matching entropy rather than structure, and that is a finding about the rule.
+
 ## Format
 
 One JSON object per line:
