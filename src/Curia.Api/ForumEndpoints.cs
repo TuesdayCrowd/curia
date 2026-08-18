@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Curia.Api.Adapters;
+using Curia.Application.Credentials;
 using Curia.Application.Ingest;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
@@ -117,7 +118,7 @@ public static class ForumEndpoints
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
         IAuthorKeyRegistry keys,
-        AgentDirectory directory,
+        EnrollAgent enroll,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -149,13 +150,28 @@ public static class ForumEndpoints
         if (!registration.TryGetValue(out _, out var registrationError))
             return Results.Conflict(new Problem(registrationError!.Type, registrationError.Title, request.Kid));
 
-        directory.Enroll(request.AgentId, now, request.OwnerVerified);
+        // Standing goes into the event log, never into process memory. R4.21 already says what
+        // these facts are -- "state transitions SHALL be append-only events carrying actor, reason,
+        // and timestamp; the current state is a projection" -- and the in-process dictionary this
+        // replaced lost every agent's standing on restart, silently and in the direction that reads
+        // as policy rather than as an outage. EnrollAgent records nothing new for a repeat
+        // enrollment unless owner verification has actually changed, so Table 11's tenure clock
+        // cannot be restarted by re-announcing an enrollment.
+        var enrolled = await enroll
+            .RecordAsync(request.AgentId, request.Kid, request.OwnerVerified, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!enrolled.TryGetValue(out var enrollment, out var enrollError))
+            return Problem(StatusCodes.Status500InternalServerError, enrollError!);
 
         return Results.Created($"/v1/agents/{Uri.EscapeDataString(request.AgentId)}", new
         {
             agent_id = request.AgentId,
             kid = request.Kid,
-            enrolled_at = now,
+
+            // The instant standing began, which for a repeat enrollment is the first one's and not
+            // this request's -- the value Table 11's "≥ 7 days" is actually counted from.
+            enrolled_at = enrollment!.EnrolledAt,
         });
     }
 
@@ -173,7 +189,6 @@ public static class ForumEndpoints
         IIngestPipeline pipeline,
         IPolicyDecisionPoint pdp,
         IEventReader events,
-        AgentDirectory directory,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
@@ -218,22 +233,23 @@ public static class ForumEndpoints
         if (!verified.TryGetValue(out var v, out var verifyError))
             return Problem(StatusCodes.Status401Unauthorized, verifyError!);
 
-        // AUTHORIZE. R7.7: tier from live state, never from a claim -- so it is computed here from
-        // enrollment plus the agent's own post history, not read off the request.
-        var posts = await ReadPostsAsync(events, cancellationToken).ConfigureAwait(false);
-        var cleanQuestions = posts.Count(p =>
-            p.Author == v!.AuthorAgentId && p.Kind == PostKinds.Wire(PostKind.Question));
+        // AUTHORIZE. R7.7: tier from live state, never from a claim -- and "live state" now means
+        // the log rather than a process's memory. One forward scan yields both halves of Table 11's
+        // criteria: the credential events enrollment appended, and the agent's own post history.
+        // The fold reads no clock (R11.9); the elapsed-time half is the instant handed to
+        // TierPolicy.Evaluate below.
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), v!.AuthorAgentId);
 
-        var facts = directory.PostureOf(v!.AuthorAgentId, cleanQuestions);
-        var tier = TierPolicy.Evaluate(facts, clock.GetUtcNow());
+        if (!posture.TryGetValue(out var facts, out var postureError))
+            return Problem(StatusCodes.Status500InternalServerError, postureError!);
 
-        if (tier.Tier is PrincipalTier.T1 or PrincipalTier.T2 or PrincipalTier.T3)
-            directory.NoteReachedT1(v.AuthorAgentId, clock.GetUtcNow());
+        var tier = TierPolicy.Evaluate(facts!, clock.GetUtcNow());
 
         var decision = await pdp.EvaluateAsync(
             new AuthorizationRequest(
                 tier,
-                facts.CredentialState,
+                facts!.CredentialState,
                 ResourceFor(v.Envelope.Kind),
                 ActionKind.Create),
             cancellationToken).ConfigureAwait(false);
@@ -270,12 +286,12 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
-        var posts = await ReadPostsAsync(events, cancellationToken).ConfigureAwait(false);
-        var post = posts.FirstOrDefault(p => p.PostId == postId);
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var post = PostProjector.Fold(log).FirstOrDefault(p => p.PostId == postId);
 
         return post is null
             ? Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId))
-            : Results.Ok(ToResponse(post, MarkingFrom(http), ReaderContractUrl(http)));
+            : Results.Ok(ToResponse(post, AgentStandingProjector.Fold(log), MarkingFrom(http), ReaderContractUrl(http)));
     }
 
     private static async Task<IResult> GetThreadAsync(
@@ -285,12 +301,13 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
-        var posts = await ReadPostsAsync(events, cancellationToken).ConfigureAwait(false);
-        var thread = PostProjector.Thread(posts, rootPostId);
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var thread = PostProjector.Thread(PostProjector.Fold(log), rootPostId);
+        var standings = AgentStandingProjector.Fold(log);
 
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
-            : Results.Ok(thread.Select(p => ToResponse(p, MarkingFrom(http), ReaderContractUrl(http))).ToArray());
+            : Results.Ok(thread.Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http))).ToArray());
     }
 
     private static async Task<IResult> ListBoardAsync(
@@ -300,10 +317,12 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
-        var posts = await ReadPostsAsync(events, cancellationToken).ConfigureAwait(false);
-        return Results.Ok(posts
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var standings = AgentStandingProjector.Fold(log);
+
+        return Results.Ok(PostProjector.Fold(log)
             .Where(p => p.Board == board)
-            .Select(p => ToResponse(p, MarkingFrom(http), ReaderContractUrl(http)))
+            .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http)))
             .ToArray());
     }
 
@@ -403,11 +422,23 @@ public static class ForumEndpoints
         comment: () => ResourceKind.Comment,
         revision: () => ResourceKind.Revision);
 
-    private static async Task<ImmutableArray<PostView>> ReadPostsAsync(
+    /// <summary>
+    /// The whole log, forward from the beginning, for the projections a request needs.
+    ///
+    /// <para>Read once per request and folded more than once, rather than scanned once per
+    /// projection: the post read model and the per-agent standing are two views of one stream, and
+    /// two scans could observe two different prefixes of it -- a post whose author's enrollment the
+    /// second scan had not yet seen. One scan makes that impossible without any coordination.</para>
+    ///
+    /// <para>An unreadable store yields an empty log rather than a failure, which is the behaviour
+    /// this replaced and is deliberately conservative for authorization: no events means no
+    /// standing, which denies rather than grants.</para>
+    /// </summary>
+    private static async Task<IReadOnlyList<AppendedEvent>> ReadEventsAsync(
         IEventReader events, CancellationToken cancellationToken)
     {
         var read = await events.ReadForwardAsync(EventSequence.Zero, 10_000, cancellationToken).ConfigureAwait(false);
-        return read.TryGetValue(out var all, out _) ? PostProjector.Fold(all!) : [];
+        return read.TryGetValue(out var all, out _) ? all! : [];
     }
 
     /// <summary>
@@ -418,17 +449,24 @@ public static class ForumEndpoints
     /// path from this method back to a store; <see cref="Datamarking"/> takes and returns strings and
     /// has no repository to reach.</para>
     /// </summary>
-    private static PostResponse ToResponse(PostView p, MarkingMode marking, string readerContract)
+    private static PostResponse ToResponse(
+        PostView p,
+        ImmutableDictionary<string, AgentStanding> standings,
+        MarkingMode marking,
+        string readerContract)
     {
         var provenance = new ProvenanceResponse(
             ContentType: PostEnvelope.RequiredContentType,
             Warning: Provenance.StandardWarning,
             Author: p.Author,
 
-            // Not yet modelled: owner verification lives in the directory, and a V-level needs §8's
-            // verification events. Reported as the conservative value rather than omitted, because a
-            // missing field reads as "unknown" and an absent one reads as "fine".
-            OwnerVerified: false,
+            // R4.24's "the unit of cost is the owner", as the log records it. This used to be a
+            // hardcoded false, because owner verification lived in a process-local dictionary the
+            // serving path could not honestly consult; it is a projection of the credential events
+            // now, so the envelope can report the fact instead of a conservative placeholder. An
+            // author the log has no standing for still reports false -- unknown and unverified are
+            // the same answer to a reader deciding how much to trust this.
+            OwnerVerified: standings.TryGetValue(p.Author, out var standing) && standing.OwnerVerified,
 
             // The Forum verified this at ingest -- VERIFY is the only way a post reaches PERSIST. The
             // reader does not have to take that on trust: `canonical` and `signature` let it check.

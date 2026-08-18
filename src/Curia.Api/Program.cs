@@ -1,10 +1,10 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using Curia.Api.Adapters;
 using Curia.Api.Issuer;
 using Curia.AuthN;
 using Curia.AuthN.Ports;
 using Curia.Application.Authorization;
+using Curia.Application.Credentials;
 using Curia.Application.Ingest;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
@@ -13,7 +13,6 @@ using Curia.Canon.Sodium;
 using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Content;
-using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
 using Curia.Infrastructure;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -64,7 +63,6 @@ public sealed class Program
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.Services.AddSingleton(TimeProvider.System);
-        builder.Services.AddSingleton<AgentDirectory>();
         builder.Services.AddSingleton<IAuthorizationAlertSink, LoggingAlertSink>();
 
         // The crypto adapters, alg-keyed. DetachedJws treats this dictionary as its allow-list, so
@@ -124,6 +122,16 @@ public sealed class Program
             sp.GetRequiredService<IAuthorKeyResolver>(),
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
+            sp.GetRequiredService<TimeProvider>()));
+
+        // The other writer of events, and the only one besides the pipeline: enrollment. R4.21
+        // makes credential state a projection of append-only lifecycle events, so an agent's
+        // standing -- when it enrolled, whether its owner is verified -- belongs in the same log as
+        // its posts rather than in process memory that a restart empties. See EnrollAgent for why
+        // this holds IEventStore rather than IEventReader, and why CS-15's phase typing has nothing
+        // to say about a write that carries no submitted content.
+        builder.Services.AddSingleton(sp => new EnrollAgent(
+            sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // R7.4/R7.5 live in the decorator, never in the adapter (see CachingPolicyDecisionPoint).
@@ -232,67 +240,4 @@ public sealed partial class LoggingAlertSink(ILogger<LoggingAlertSink> logger) :
         PolicyUnavailabilityOutcome outcome,
         ResourceKind resource,
         ActionKind action);
-}
-
-/// <summary>
-/// The enrollment facts the tier policy needs that the post log cannot supply: when an agent
-/// enrolled, whether its owner is verified, and when it first reached T1.
-///
-/// <para><b>Why an agent cannot answer the moment it enrolls, and why that is correct.</b> Table
-/// 10 gives T0 <c>question:create</c> (rate-limited) but not <c>answer:create</c>, which needs T1;
-/// Table 11 makes T1 "≥ 7 days, ≥ 3 questions with no upheld flags, owner verified". So a fresh
-/// agent can ask and must earn the right to answer. That is the published rule, and weakening it
-/// to make a demonstration easier would be changing the system to suit the demo.</para>
-///
-/// <para>The question count comes from the post log rather than from here -- it is derivable, so
-/// deriving it keeps one source of truth. Upheld flags, accepted answers and verified findings
-/// have no events yet and stay at their defaults, which denies promotion: the safe direction.</para>
-/// </summary>
-public sealed class AgentDirectory
-{
-    private sealed record Enrollment(DateTimeOffset At, bool OwnerVerified, DateTimeOffset? ReachedT1At);
-
-    private readonly ConcurrentDictionary<string, Enrollment> _agents = new(StringComparer.Ordinal);
-
-    /// <summary>
-    /// Records an enrollment. <b>A repeat enrollment does not restart the tenure clock.</b>
-    ///
-    /// <para>This was a real bug, and an instructive one: overwriting the instant meant an agent
-    /// re-enrolling -- which a client does whenever it needs a fresh key registration -- silently
-    /// lost every day of standing it had accumulated, and with it any tier above T0. Table 11 counts
-    /// "≥ 7 days" from enrollment, singular; the day an agent first became active is a fact about
-    /// its history, not a field the latest request gets to set.</para>
-    ///
-    /// <para>Owner verification <i>is</i> updated, because that genuinely can change -- an owner
-    /// completing verification later should count. So the rule is narrow: the instant is immutable,
-    /// the mutable facts are not.</para>
-    /// </summary>
-    public void Enroll(string agentId, DateTimeOffset at, bool ownerVerified) =>
-        _agents.AddOrUpdate(
-            agentId,
-            _ => new Enrollment(at, ownerVerified, null),
-            (_, existing) => existing with { OwnerVerified = ownerVerified });
-
-    public bool Knows(string agentId) => _agents.ContainsKey(agentId);
-
-    /// <summary>
-    /// Records that an agent has reached T1, so Table 11's "≥ 30 days <b>at T1</b>" has an instant
-    /// to count from. Idempotent: the first time is the one that counts, since re-stamping it on
-    /// every evaluation would reset the T2 clock forever.
-    /// </summary>
-    public void NoteReachedT1(string agentId, DateTimeOffset at) =>
-        _agents.AddOrUpdate(
-            agentId,
-            _ => new Enrollment(at, false, at),
-            (_, existing) => existing.ReachedT1At is null ? existing with { ReachedT1At = at } : existing);
-
-    public PostureFacts PostureOf(string agentId, int cleanQuestions) =>
-        _agents.TryGetValue(agentId, out var enrollment)
-            ? new PostureFacts(
-                CredentialState.Active,
-                EnrolledAt: enrollment.At,
-                ReachedT1At: enrollment.ReachedT1At,
-                OwnerVerified: enrollment.OwnerVerified,
-                QuestionsWithoutUpheldFlags: cleanQuestions)
-            : new PostureFacts(CredentialState.Pending);
 }

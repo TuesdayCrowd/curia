@@ -70,9 +70,10 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     /// already made: R6.31 evaluates validity at each post's <c>server_ts</c>, and a
     /// <c>valid_from</c> dragged forward to today is a declaration that last week's posts were
     /// signed by a key that did not yet exist. This is the same defect
-    /// <c>Curia.Api.AgentDirectory.Enroll</c> already fixed for the tenure clock, in the one place
-    /// where it destroys evidence rather than standing. The day a key first became valid is a
-    /// fact about the archive, not a field the latest request gets to set.</para>
+    /// <c>Curia.Application.Credentials.EnrollAgent</c> refuses for the tenure clock -- there by
+    /// declining to append a second enrollment event at all -- in the one place where it destroys
+    /// evidence rather than standing. The day a key first became valid is a fact about the
+    /// archive, not a field the latest request gets to set.</para>
     ///
     /// <para><b><c>valid_until</c> only ever moves earlier</b>, symmetrically, and for a sharper
     /// reason: a repeat enrollment must not be able to <i>un</i>-revoke a key. Postgres's

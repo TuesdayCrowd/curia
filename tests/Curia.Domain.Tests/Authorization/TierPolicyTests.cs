@@ -221,6 +221,52 @@ public sealed class TierPolicyTests
         Assert.NotEqual(first.Tier, TierPolicy.Evaluate(MeetingT1(), Enrolled).Tier);
     }
 
+    // ---- FirstSatisfiedT1At: the T2 clock, derived rather than stamped -----------------------
+
+    /// <summary>
+    /// The later of the two conditions wins, and the answer is a fact about the history rather
+    /// than about when it was asked for.
+    /// </summary>
+    [Fact]
+    public void FirstSatisfiedT1At_is_the_later_of_tenure_and_the_countable_criteria()
+    {
+        // Tenure binds: the questions and the verification were in on day one.
+        Assert.Equal(
+            Enrolled.AddDays(TierPolicy.T1MinimumDays),
+            TierPolicy.FirstSatisfiedT1At(Enrolled, Enrolled.AddDays(1)));
+
+        // The countable criteria bind: they were not all met until day twenty.
+        Assert.Equal(
+            Enrolled.AddDays(20),
+            TierPolicy.FirstSatisfiedT1At(Enrolled, Enrolled.AddDays(20)));
+    }
+
+    /// <summary>T1 that has never been reached has no instant, in either direction.</summary>
+    [Fact]
+    public void FirstSatisfiedT1At_is_null_until_every_criterion_has_held()
+    {
+        Assert.Null(TierPolicy.FirstSatisfiedT1At(enrolledAt: null, Enrolled));
+        Assert.Null(TierPolicy.FirstSatisfiedT1At(Enrolled, countableCriteriaMetAt: null));
+        Assert.Null(TierPolicy.FirstSatisfiedT1At(enrolledAt: null, countableCriteriaMetAt: null));
+    }
+
+    /// <summary>
+    /// The instant it returns is exactly the boundary <see cref="TierPolicy.Evaluate"/> promotes
+    /// at. The two are separate code paths over the same published row, so they are asserted to
+    /// agree rather than assumed to: a disagreement would present as an agent that is T1 for
+    /// authorization while its T2 clock says it is not, which is the sort of bug that surfaces
+    /// thirty days later.
+    /// </summary>
+    [Fact]
+    public void FirstSatisfiedT1At_agrees_with_Evaluate_about_the_boundary()
+    {
+        var facts = MeetingT1();
+        var reached = TierPolicy.FirstSatisfiedT1At(Enrolled, Enrolled)!.Value;
+
+        Assert.Equal(PrincipalTier.T1, Tier(facts, reached));
+        Assert.Equal(PrincipalTier.T0, Tier(facts, reached.AddTicks(-1)));
+    }
+
     [Fact]
     public void Anonymous_is_available_without_facts()
     {
