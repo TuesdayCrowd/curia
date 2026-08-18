@@ -8,7 +8,7 @@ namespace Curia.Domain.Authorization;
 /// carried in a token.
 ///
 /// <para><b>Why there is no "now" in this type.</b> Table 11's criteria are elapsed-time
-/// conditions ("≥ 7 days", "≥ 30 days at T1"), so the tier genuinely is a function of the current
+/// conditions ("≥ 48 hours", "≥ 30 days at T1"), so the tier genuinely is a function of the current
 /// instant. But the projection that produces these facts must not read a clock:
 /// <c>AggregateSummaryProjector</c> records why, and it is the same reason here -- a rebuild that
 /// consulted "now" would make R11.9's replay drill tautological, since two runs would differ only

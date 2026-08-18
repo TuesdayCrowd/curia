@@ -117,7 +117,7 @@ public sealed class AgentStandingProjectorTests
     }
 
     /// <summary>
-    /// <b>The invariant the whole move exists to preserve.</b> Table 11 counts "≥ 7 days" from
+    /// <b>The invariant the whole move exists to preserve.</b> Table 11 counts "≥ 48 hours" from
     /// enrollment, singular: a client that re-announces its enrollment -- which it legitimately
     /// does whenever it re-authenticates -- must not thereby restart its tenure clock. The guard
     /// is the store's own optimistic concurrency, so this also proves no second enrollment event
@@ -197,7 +197,7 @@ public sealed class AgentStandingProjectorTests
     }
 
     /// <summary>
-    /// Table 11's T1 row, end to end through the projection: seven days, three clean questions,
+    /// Table 11's T1 row, end to end through the projection: 48 hours, three clean questions,
     /// owner verified. The tier is evaluated at an instant supplied by the caller -- the projection
     /// itself never reads a clock.
     /// </summary>
@@ -254,7 +254,7 @@ public sealed class AgentStandingProjectorTests
 
     /// <summary>
     /// <see cref="TierPolicy.FirstSatisfiedT1At"/> through the fold: the T2 clock starts when T1
-    /// was actually first met, which is the later of "seven days after enrollment" and "the
+    /// was actually first met, which is the later of "48 hours after enrollment" and "the
     /// instant the log-derived criteria first held together" -- not whenever a request happened to
     /// notice the promotion.
     /// </summary>
@@ -276,7 +276,7 @@ public sealed class AgentStandingProjectorTests
         var early = Require(AgentStandingProjector.PostureOf(
             AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
 
-        Assert.Equal(Start.AddDays(TierPolicy.T1MinimumDays), early.ReachedT1At);
+        Assert.Equal(Start.AddHours(TierPolicy.T1MinimumHours), early.ReachedT1At);
 
         // A second agent, verified only on day twenty: there owner verification is binding, and no
         // amount of later reading moves the answer.

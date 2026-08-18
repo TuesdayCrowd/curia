@@ -61,7 +61,7 @@ public static class PostureProjector
 
     /// <summary>
     /// When the credential first became <see cref="CredentialState.Active"/>. First, not last: an
-    /// agent suspended and reinstated has not restarted its tenure, and Table 11's "≥ 7 days"
+    /// agent suspended and reinstated has not restarted its tenure, and Table 11's "≥ 48 hours"
     /// counts from enrollment. Taking the most recent activation instead would silently reset the
     /// clock on every reinstatement, which would turn a suspension into a demotion the published
     /// table never describes.

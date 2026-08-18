@@ -28,7 +28,7 @@ public sealed class RefusalClassificationTests
 
         Assert.False(result.TryGetValue(out _, out var refusal));
         Assert.Equal(RefusalKind.Authorization, refusal!.Kind);
-        Assert.Contains("T1 (answer, vote) needs 7 days", refusal.Summary, StringComparison.Ordinal);
+        Assert.Contains("T1 (answer, vote) needs 48 hours", refusal.Summary, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -169,7 +169,7 @@ public sealed class PostureProjectorTests
         var counted = Empty with { OwnerVerified = true, QuestionsWithoutUpheldFlags = 3 };
         var facts = Fold([Transition(CredentialTrigger.SuccessfulEnrollment, Enrolled)], counted);
 
-        var tier = TierPolicy.Evaluate(facts, Enrolled.AddDays(TierPolicy.T1MinimumDays));
+        var tier = TierPolicy.Evaluate(facts, Enrolled.AddHours(TierPolicy.T1MinimumHours));
 
         Assert.Equal(PrincipalTier.T1, tier.Tier);
     }

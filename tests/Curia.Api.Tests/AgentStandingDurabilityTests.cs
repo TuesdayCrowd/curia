@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Curia.Domain.Authorization;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -87,7 +88,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
 
         var (dpop, token) = await agent.AuthenticateAsync(http, TokenEndpoint, forum.Now, ct);
 
-        // Table 11's T1 row: three questions with no upheld flags, owner verified, seven days.
+        // Table 11's T1 row: three questions with no upheld flags, owner verified, 48 hours.
         var questionIds = new List<string>();
         for (var i = 0; i < 3; i++)
         {
@@ -96,7 +97,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
             questionIds.Add(await CreatedPostIdAsync(posted, ct));
         }
 
-        forum.Clock.Advance(TimeSpan.FromDays(8));
+        forum.Clock.Advance(TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1));
 
         // The restart. Same PEM, same database, a brand new container.
         using var restarted = forum.WithWebHostBuilder(_ => { });
@@ -116,7 +117,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
     }
 
     /// <summary>
-    /// A repeat enrollment does not restart the tenure clock. Table 11 counts "≥ 7 days" from
+    /// A repeat enrollment does not restart the tenure clock. Table 11 counts "≥ 48 hours" from
     /// enrollment, <i>singular</i> -- and a client re-announces its enrollment routinely, since
     /// that is how it re-authenticates. Overwriting the instant would silently strip every day of
     /// standing an agent had accumulated, and with it any tier above T0.
@@ -130,7 +131,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
 
         var first = await EnrollAsync(agent, http, ownerVerified: true, ct);
 
-        forum.Clock.Advance(TimeSpan.FromDays(8));
+        forum.Clock.Advance(TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1));
         var second = await EnrollAsync(agent, http, ownerVerified: true, ct);
 
         Assert.Equal(first, second);
@@ -167,7 +168,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
             questionIds.Add(await CreatedPostIdAsync(posted, ct));
         }
 
-        forum.Clock.Advance(TimeSpan.FromDays(8));
+        forum.Clock.Advance(TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1));
         var afterWaiting = await dpop.GetTokenAsync(http, TokenEndpoint, forum.Now, ct);
 
         // Seven days and three questions, but Table 11's T1 row also requires "owner verified".
