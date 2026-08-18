@@ -29,12 +29,20 @@ public static class DomainErrors
         "Append requires at least one event");
 
     /// <summary>
+    /// The problem type <see cref="ConcurrencyConflict"/> reports, named so a caller can recognize
+    /// the condition without reconstructing the whole <see cref="Error"/> -- its detail carries the
+    /// aggregate id and both versions, which a caller deciding "was this a version race?" does not
+    /// have and should not have to guess at.
+    /// </summary>
+    public const string ConcurrencyConflictType = "curia/domain/concurrency-conflict";
+
+    /// <summary>
     /// R11.6/CS-15's optimistic-concurrency failure: the caller's belief about how many events
     /// an aggregate already has does not match the store's. A <see cref="Result{T}"/> failure,
     /// never an exception and never a silent overwrite (per Stage 1's brief).
     /// </summary>
     public static Error ConcurrencyConflict(AggregateId aggregateId, AggregateVersion expected, AggregateVersion actual) => new(
-        "curia/domain/concurrency-conflict",
+        ConcurrencyConflictType,
         "Append targeted an aggregate at an unexpected version",
         $"aggregate={aggregateId.Value} expected={expected.Value.ToString(CultureInfo.InvariantCulture)} actual={actual.Value.ToString(CultureInfo.InvariantCulture)}");
 }

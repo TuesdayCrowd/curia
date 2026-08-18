@@ -168,6 +168,53 @@ public static class TierPolicy
         return new EvaluatedTier(PrincipalTier.T0, evaluatedAt);
     }
 
+    /// <summary>
+    /// The earliest instant at which Table 11's T1 criteria all held -- <see cref="PostureFacts.ReachedT1At"/>,
+    /// derived rather than stamped.
+    ///
+    /// <para><b>Why this exists.</b> Table 11's T2 row counts "≥ 30 days <b>at T1</b>", so something has
+    /// to know when T1 was first reached. The obvious implementation records the instant the first
+    /// request happened to observe the promotion, which answers a different question: it dates the
+    /// agent's next visit, not the moment its standing changed, and it makes the T2 clock depend on
+    /// traffic. Worse, an instant that only exists because a request ran cannot be rebuilt by replay
+    /// (R11.9) without either storing it or reading a clock, and a projection that reads a clock makes
+    /// the replay drill tautological (see <see cref="PostureFacts"/>' remarks).</para>
+    ///
+    /// <para>T1 is "≥ 7 days, ≥ 3 questions with no upheld flags, owner verified". Two of those three
+    /// are conditions on the log's own contents and become true at an instant the log already records;
+    /// the third is elapsed time since enrollment, which becomes true at
+    /// <paramref name="enrolledAt"/> + <see cref="T1MinimumDays"/> with no event to mark it. So the
+    /// first instant all three hold is the later of those two, which is what this computes -- purely,
+    /// from instants a projection already has, with no clock read anywhere.</para>
+    ///
+    /// <para>Kept here rather than in the projection so Table 11's numbers stay in the one type
+    /// <c>Table11ConformanceTests</c> checks against the published table. A projection that
+    /// re-derived "seven days" from its own constant could drift from
+    /// <see cref="Evaluate"/> silently, and the two disagreeing about T1 is precisely the bug that
+    /// would present as an agent oscillating between tiers.</para>
+    /// </summary>
+    /// <param name="enrolledAt">
+    /// When the credential became active, from the credential-lifecycle fold. <see langword="null"/>
+    /// before enrollment completes, in which case T1 has never held.
+    /// </param>
+    /// <param name="countableCriteriaMetAt">
+    /// The first instant at which the two log-derived criteria held <i>simultaneously</i> -- owner
+    /// verified, and at least <see cref="T1MinimumCleanQuestions"/> questions with no upheld flags.
+    /// Simultaneously, not "each at some point": owner verification can be withdrawn, and an agent
+    /// whose third question landed while unverified has not met the row. <see langword="null"/> when
+    /// they have never both held.
+    /// </param>
+    public static DateTimeOffset? FirstSatisfiedT1At(
+        DateTimeOffset? enrolledAt,
+        DateTimeOffset? countableCriteriaMetAt)
+    {
+        if (enrolledAt is not { } enrolled || countableCriteriaMetAt is not { } counted)
+            return null;
+
+        var tenureMetAt = enrolled + TimeSpan.FromDays(T1MinimumDays);
+        return counted > tenureMetAt ? counted : tenureMetAt;
+    }
+
     private static bool MeetsT1(PostureFacts facts, DateTimeOffset enrolledAt, DateTimeOffset evaluatedAt) =>
         evaluatedAt - enrolledAt >= TimeSpan.FromDays(T1MinimumDays)
         && facts.QuestionsWithoutUpheldFlags >= T1MinimumCleanQuestions

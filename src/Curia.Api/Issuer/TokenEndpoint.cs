@@ -1,9 +1,12 @@
 using System.Text.Json.Nodes;
 using Curia.Api.Adapters;
+using Curia.Application.Ports;
+using Curia.Application.Projections;
 using Curia.AuthN;
 using Curia.AuthN.Dpop;
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
+using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Primitives;
 
@@ -47,7 +50,7 @@ public static class TokenEndpoint
         IAgentKeyResolver agentKeys,
         IReplayCache replayCache,
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
-        AgentDirectory directory,
+        IEventReader events,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -90,13 +93,32 @@ public static class TokenEndpoint
         if (!validated.TryGetValue(out var claims, out var error))
             return OAuthError("invalid_client", error!.Title, error.Type);
 
-        if (!directory.Knows(claims!.Sub))
+        // Who is enrolled is a projection of the event log (R4.21), not something this process
+        // remembers -- so a host that has just come up knows exactly as much as one that has been
+        // running for a week. It used to know nothing: the in-memory directory this replaced
+        // reported every agent unenrolled after a restart, and refused every token request until
+        // each agent re-announced itself.
+        var read = await events.ReadForwardAsync(EventSequence.Zero, 10_000, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var log, out var readError))
+            return OAuthError("server_error", "The credential log could not be read", readError!.Type);
+
+        var standings = AgentStandingProjector.Fold(log!);
+        if (!standings.ContainsKey(claims!.Sub))
             return OAuthError("invalid_client", "That agent is not enrolled");
 
         // The tier is stamped for observability only; R7.7 forbids relying on a token claim, and
         // the resource server recomputes from live posture on every request. Recomputing it here
         // too would suggest the token's copy mattered.
-        var tier = TierPolicy.Evaluate(directory.PostureOf(claims.Sub, cleanQuestions: 0), clock.GetUtcNow());
+        //
+        // It is computed from the same fold rather than from a stub posture, which is a change from
+        // the directory this replaced: that one passed cleanQuestions: 0 because it had no view of
+        // the post log, so the stamped tier was wrong for every agent above T0. An observability
+        // field that is reliably wrong is worse than one that is absent.
+        var posture = AgentStandingProjector.PostureOf(standings, claims.Sub);
+        if (!posture.TryGetValue(out var facts, out var postureError))
+            return OAuthError("server_error", postureError!.Title, postureError.Type);
+
+        var tier = TierPolicy.Evaluate(facts!, clock.GetUtcNow());
 
         var token = issuer.Mint(
             claims.Sub,
@@ -156,8 +178,21 @@ public static class TokenEndpoint
     private static string TokenEndpointUrl(HttpRequest request) =>
         $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
 
+    /// <summary>
+    /// RFC 6749 §5.2's error response. <c>invalid_client</c> is the one code §5.2 pairs with a 401;
+    /// everything it defines for this endpoint is a 400. <c>server_error</c> is §4.1.2.1's code
+    /// rather than §5.2's -- the token endpoint has no code of its own for "the Forum could not
+    /// read its own log" -- and it is mapped to a 500 because that is what it is: a client that
+    /// retries an identical request may well succeed, which is exactly the distinction a 4xx would
+    /// erase.
+    /// </summary>
     private static IResult OAuthError(string code, string description, string? detail = null) =>
         Results.Json(
             new { error = code, error_description = description, detail },
-            statusCode: code == "invalid_client" ? StatusCodes.Status401Unauthorized : StatusCodes.Status400BadRequest);
+            statusCode: code switch
+            {
+                "invalid_client" => StatusCodes.Status401Unauthorized,
+                "server_error" => StatusCodes.Status500InternalServerError,
+                _ => StatusCodes.Status400BadRequest,
+            });
 }

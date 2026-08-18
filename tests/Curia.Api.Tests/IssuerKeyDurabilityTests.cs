@@ -27,17 +27,15 @@ namespace Curia.Api.Tests;
 /// comparison would still pass if the composition root had quietly stopped reading the configured
 /// key.</para>
 ///
-/// <para><b>What still does not survive, stated rather than worked around.</b>
-/// <c>Curia.Api.AgentDirectory</c> -- the enrollment instant, owner-verification flag and
-/// first-reached-T1 instant that Table 11's tier criteria are computed from -- is still an
-/// in-process <c>ConcurrentDictionary</c>. So a restarted host holds the agent's <i>keys</i> but
-/// not its <i>standing</i>, and the token endpoint's "that agent is not enrolled" check and the
-/// PDP's tier evaluation both fail against a host that has just come up. Where a test below needs
-/// that fact present it re-announces the enrollment against the restarted host and says so at the
-/// call site; none of them pretend the directory is durable. Moving it is its own increment, and
-/// it needs the events table rather than a fifth operational one, because enrollment and tier
-/// transitions are exactly the append-only credential-lifecycle events R4.21 already
-/// specifies.</para>
+/// <para><b>Standing survives too, now.</b> It did not when this file was written:
+/// <c>Curia.Api.AgentDirectory</c> held the enrollment instant, the owner-verification flag and
+/// the first-reached-T1 instant in an in-process <c>ConcurrentDictionary</c>, so a restarted host
+/// had the agent's <i>keys</i> and none of its <i>standing</i> -- and every test below that needed
+/// standing had to re-announce the enrollment against the restarted host to work around it. Those
+/// re-announcements are gone: the facts are append-only credential-lifecycle events (R4.21) folded
+/// by <c>Curia.Application.Projections.AgentStandingProjector</c>, and
+/// <see cref="AgentStandingDurabilityTests"/> asserts that half directly. What is left here is the
+/// issuer key and the Registrar's key store, which is what this file was always about.</para>
 /// </summary>
 public sealed class IssuerKeyDurabilityTests(ForumFixture forum) : IClassFixture<ForumFixture>
 {
@@ -67,13 +65,9 @@ public sealed class IssuerKeyDurabilityTests(ForumFixture forum) : IClassFixture
         using var restarted = forum.WithWebHostBuilder(_ => { });
         using var afterRestart = restarted.CreateClient();
 
-        // Re-announces the enrollment so the restarted host's in-process AgentDirectory has the
-        // standing facts Table 11's tier evaluation needs (see the class remarks: the directory is
-        // the one part of enrollment that is still per-process). The key registration underneath
-        // is idempotent and does not move the key's valid_from, so this restores the missing fact
-        // without disturbing the one under test.
-        Assert.Equal(HttpStatusCode.Created, (await agent.EnrollAsync(afterRestart, ct)).StatusCode);
-
+        // Nothing is re-announced. The restarted host reads the agent's standing out of the log
+        // (see the class remarks), so the only thing left that could refuse this request is the
+        // issuer key -- which is what the test is for.
         var wire = agent.SignQuestion(board, "Minted before, spent after.", "Durable issuer key", forum.Now);
         using var response = await client.PostAsync(afterRestart, PostsUrl, token, wire, forum.Now, ct);
 
@@ -84,7 +78,7 @@ public sealed class IssuerKeyDurabilityTests(ForumFixture forum) : IClassFixture
     /// The falsification, without which the test above would pass for a Forum that had stopped
     /// checking the token's signature at all: a host holding a <i>different</i> issuer key refuses
     /// the same token. Everything else about the two hosts is identical -- same database, same
-    /// re-announced enrollment -- so the key is the only variable. This is also, precisely, what
+    /// standing read out of the same log -- so the key is the only variable. This is also, precisely, what
     /// the old per-process key did on every restart.
     /// </summary>
     [Fact]
@@ -100,8 +94,6 @@ public sealed class IssuerKeyDurabilityTests(ForumFixture forum) : IClassFixture
         using var impostor = forum.WithWebHostBuilder(
             b => b.UseSetting("Curia:IssuerSigningKeyPem", otherPem));
         using var wrongKeyHost = impostor.CreateClient();
-
-        Assert.Equal(HttpStatusCode.Created, (await agent.EnrollAsync(wrongKeyHost, ct)).StatusCode);
 
         var wire = agent.SignQuestion(board, "Wrong key.", "Rotated out", forum.Now);
         using var response = await client.PostAsync(wrongKeyHost, PostsUrl, token, wire, forum.Now, ct);
