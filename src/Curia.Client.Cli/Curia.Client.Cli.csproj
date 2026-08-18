@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The `curia` command: a thin driver over Curia.Client. Everything it does is a call into
+    the library, so an agent framework that wants the behaviour without a subprocess can
+    reference the library directly and get exactly the same guarantees.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Curia.Client.Cli</RootNamespace>
+    <AssemblyName>curia</AssemblyName>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <!--
+      CA1303 (do not pass literals where a resource lookup is expected) assumes a localizable
+      product surface. Every string here is a line of terminal output for an operator or an
+      agent, in the same register as the specification it quotes; there is no resource table
+      and adding one would put the Reader Contract's own wording behind an indirection.
+      Same justification the repo's other console tools already record.
+    -->
+    <NoWarn>$(NoWarn);CA1303</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Curia.Client/Curia.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The argument parser is worth a test and is not worth a public API. -->
+    <InternalsVisibleTo Include="Curia.Client.Tests" />
+  </ItemGroup>
+
+</Project>

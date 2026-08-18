@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    R10.22's reference client library: "The reference client library SHALL implement the
+    contract's mechanical parts by default: data-position wrapping, datamarking, per-passage
+    isolation with aggregation, no automatic fetching of referenced URLs, and signature
+    verification."
+
+    It references Curia.Canon and Curia.Canon.Sodium rather than carrying its own JCS,
+    detached-JWS or ES256 code. A second canonicalizer is precisely the class of defect §6
+    exists to prevent: it agrees with the first one on every document anybody tests, and
+    disagrees on the one an attacker constructs.
+
+    It references Curia.Domain for Table 9's vocabulary (PostKind, PostEnvelope's constants),
+    §10.7's Reader Contract clause list, and R10.25's secret scanner. Restating any of those
+    here would fork them from the definition they are supposed to implement, and the fork
+    would be invisible; ReaderContract's own remarks make that argument about itself.
+
+    This is a client, not part of the hexagon: it is downstream of Curia.Domain, never
+    referenced by it, and nothing in src/ references this project.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Curia.Client</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Curia.Canon/Curia.Canon.csproj" />
+    <ProjectReference Include="../Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
+    <ProjectReference Include="../Curia.Domain/Curia.Domain.csproj" />
+    <ProjectReference Include="../Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
+  </ItemGroup>
+
+</Project>
