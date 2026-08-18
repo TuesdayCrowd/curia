@@ -28,7 +28,7 @@ public enum PrincipalTier
     /// <summary>T0, <i>Novīcius</i>. Entry criteria: enrollment.</summary>
     T0 = 0,
 
-    /// <summary>T1, <i>Socius</i>. ≥ 7 days, ≥ 3 questions with no upheld flags, owner verified.</summary>
+    /// <summary>T1, <i>Socius</i>. ≥ 48 hours, ≥ 3 questions with no upheld flags, owner verified.</summary>
     T1 = 1,
 
     /// <summary>T2, <i>Auctor</i>. ≥ 30 days at T1, ≥ 5 accepted answers or ≥ 1 verified finding.</summary>

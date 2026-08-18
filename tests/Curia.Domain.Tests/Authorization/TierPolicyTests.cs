@@ -14,7 +14,7 @@ public sealed class TierPolicyTests
 {
     private static readonly DateTimeOffset Enrolled = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-    /// <summary>Facts that satisfy T1 exactly: 7 days, 3 clean questions, owner verified.</summary>
+    /// <summary>Facts that satisfy T1 exactly: 48 hours, 3 clean questions, owner verified.</summary>
     private static PostureFacts MeetingT1() => new(
         CredentialState.Active,
         EnrolledAt: Enrolled,
@@ -35,14 +35,14 @@ public sealed class TierPolicyTests
 
     /// <summary>
     /// The thresholds are transcribed from Table 11's criteria column, so they are compared with
-    /// it. T1's row publishes "≥ 7 days, ≥ 3 questions..."; T2's publishes "≥ 30 days at T1, ≥ 5
+    /// it. T1's row publishes "≥ 48 hours, ≥ 3 questions..."; T2's publishes "≥ 30 days at T1, ≥ 5
     /// accepted answers or ≥ 1 verified finding".
     /// </summary>
     [Fact]
     public void Published_thresholds_match_the_constants()
     {
         Assert.Equal(
-            new[] { TierPolicy.T1MinimumDays, TierPolicy.T1MinimumCleanQuestions },
+            new[] { TierPolicy.T1MinimumHours, TierPolicy.T1MinimumCleanQuestions },
             PublishedTable11.Rows["T1"].Thresholds);
 
         Assert.Equal(
@@ -58,6 +58,23 @@ public sealed class TierPolicyTests
         // that a future edit adding one is a failure here rather than a criterion nothing reads.
         Assert.Empty(PublishedTable11.Rows["T0"].Thresholds);
         Assert.Empty(PublishedTable11.Rows["T3"].Thresholds);
+
+        // The units, separately, because the constants carry their dimension in their names and the
+        // numbers above do not carry one at all. Erratum F1 changed T1's tenure from days to hours;
+        // had this assertion not existed, republishing "≥ 48 days" would have passed every check
+        // here while granting T1 twenty-four times later than the table claims.
+        Assert.Equal(
+            new[] { (TierPolicy.T1MinimumHours, "hours"), (TierPolicy.T1MinimumCleanQuestions, "questions") },
+            PublishedTable11.Rows["T1"].ThresholdsWithUnits);
+
+        Assert.Equal(
+            new[]
+            {
+                (TierPolicy.T2MinimumDaysAtT1, "days"),
+                (TierPolicy.T2MinimumAcceptedAnswers, "accepted"),
+                (TierPolicy.T2MinimumVerifiedFindings, "verified"),
+            },
+            PublishedTable11.Rows["T2"].ThresholdsWithUnits);
     }
 
     [Theory]
@@ -116,13 +133,13 @@ public sealed class TierPolicyTests
     }
 
     /// <summary>
-    /// "≥ 7 days, ≥ 3 questions with no upheld flags, owner verified" -- a conjunction, so each
+    /// "≥ 48 hours, ≥ 3 questions with no upheld flags, owner verified" -- a conjunction, so each
     /// clause alone must be enough to withhold the promotion.
     /// </summary>
     [Fact]
     public void T1_requires_every_clause_of_its_criterion()
     {
-        var at = Enrolled.AddDays(TierPolicy.T1MinimumDays);
+        var at = Enrolled.AddHours(TierPolicy.T1MinimumHours);
 
         Assert.Equal(PrincipalTier.T1, Tier(MeetingT1(), at));
 
@@ -232,7 +249,7 @@ public sealed class TierPolicyTests
     {
         // Tenure binds: the questions and the verification were in on day one.
         Assert.Equal(
-            Enrolled.AddDays(TierPolicy.T1MinimumDays),
+            Enrolled.AddHours(TierPolicy.T1MinimumHours),
             TierPolicy.FirstSatisfiedT1At(Enrolled, Enrolled.AddDays(1)));
 
         // The countable criteria bind: they were not all met until day twenty.

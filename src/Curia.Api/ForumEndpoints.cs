@@ -170,7 +170,7 @@ public static class ForumEndpoints
             kid = request.Kid,
 
             // The instant standing began, which for a repeat enrollment is the first one's and not
-            // this request's -- the value Table 11's "≥ 7 days" is actually counted from.
+            // this request's -- the value Table 11's "≥ 48 hours" is actually counted from.
             enrolled_at = enrollment!.EnrolledAt,
         });
     }

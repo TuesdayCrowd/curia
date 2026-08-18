@@ -16,7 +16,7 @@ namespace Curia.Client;
 /// </param>
 /// <param name="EnrolledAt">
 /// The <c>enrolled_at</c> the Forum returned, when this profile has enrolled. Recorded because it
-/// is the one Table 11 input a client can observe for itself -- T1 needs seven days since
+/// is the one Table 11 input a client can observe for itself -- T1 needs 48 hours since
 /// enrollment -- and because no endpoint reports an agent's tier, so the alternative to storing it
 /// is a client that cannot say anything at all about why it was refused.
 /// </param>

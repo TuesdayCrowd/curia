@@ -12,7 +12,7 @@ namespace Curia.Application.Credentials;
 /// </summary>
 /// <param name="EnrolledAt">
 /// The instant the credential became active -- the <i>first</i> enrollment's <c>server_ts</c>, not
-/// this request's. Table 11 counts "≥ 7 days" from enrollment, singular.
+/// this request's. Table 11 counts "≥ 48 hours" from enrollment, singular.
 /// </param>
 /// <param name="OwnerVerified">Owner verification as it stands after this request.</param>
 /// <param name="WasAlreadyEnrolled">
@@ -30,7 +30,7 @@ public sealed record AgentEnrollment(
 /// owner-verification flag, as append-only events (R4.21).
 ///
 /// <para><b>The tenure clock is protected by the store, not by a check.</b> A repeat enrollment
-/// must not restart Table 11's "≥ 7 days" -- the day an agent first became active is a fact about
+/// must not restart Table 11's "≥ 48 hours" -- the day an agent first became active is a fact about
 /// its history, not a field the latest request sets. The guard is
 /// <see cref="AggregateVersion.New"/> on the first append: an aggregate that already holds events
 /// refuses it as an optimistic-concurrency conflict, so "enroll once" is enforced by the same

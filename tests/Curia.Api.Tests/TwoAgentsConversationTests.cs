@@ -9,6 +9,7 @@ using System.Text.Json;
 using Curia.Api;
 using Curia.Api.Adapters;
 using Curia.Application.Ports;
+using Curia.Domain.Authorization;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
@@ -78,7 +79,7 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
         var questionId = await AcceptedPostIdAsync(questionResponse, ct);
 
         // Bob cannot answer yet, and that is the published rule rather than a bug: Table 10 gives
-        // answer:create to T1 and above, and Table 11 makes T1 "≥ 7 days, ≥ 3 questions with no
+        // answer:create to T1 and above, and Table 11 makes T1 "≥ 48 hours, ≥ 3 questions with no
         // upheld flags, owner verified". A fresh agent may ask; it must earn the right to answer.
         using var prematureAnswer = await bobDpop.PostAsync(
             client, PostsUrl, bobToken,
@@ -91,7 +92,7 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
             await prematureAnswer.Content.ReadAsStringAsync(ct),
             StringComparison.Ordinal);
 
-        // Bob earns T1 the way Table 11 says: three clean questions, owner verified, seven days.
+        // Bob earns T1 the way Table 11 says: three clean questions, owner verified, 48 hours.
         for (var i = 0; i < 3; i++)
         {
             var wire = bob.SignQuestion(
@@ -101,12 +102,14 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
             Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
         }
 
-        forum.Clock.Advance(TimeSpan.FromDays(8));
+        forum.Clock.Advance(TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1));
 
         // Now Bob answers Alice.
-        // The clock moved eight days, so Bob's token has long expired -- R5 caps an access token at
-        // 300 seconds. A fresh one is obtained, which is what a real agent does and what makes the
-        // short lifetime a fact rather than a claim.
+        // The clock moved just past the published tenure window -- one hour more than Table 11's
+        // T1 row requires, rather than a comfortable overshoot, so this demonstrates the boundary
+        // instead of clearing it by a week. Bob's token has long expired either way: R5 caps an
+        // access token at 300 seconds. A fresh one is obtained, which is what a real agent does and
+        // what makes the short lifetime a fact rather than a claim.
         var (bobDpopAfter, bobTokenAfter) = await bob.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         using var answerResponse = await bobDpopAfter.PostAsync(

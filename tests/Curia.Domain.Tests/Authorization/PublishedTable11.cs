@@ -34,6 +34,25 @@ internal static partial class PublishedTable11
         public IReadOnlyList<int> Thresholds =>
             AtLeast().Matches(Criteria).Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToArray();
 
+        /// <summary>
+        /// Every "≥ N &lt;unit&gt;" threshold with the unit word attached, in published order.
+        ///
+        /// <para><b>Why the unit is captured separately.</b> <see cref="Thresholds"/> compares bare
+        /// numbers, so it cannot tell "≥ 48 hours" from "≥ 48 days" — and changing T1's tenure from
+        /// days to hours (erratum F1) is exactly the edit that would have slipped past it, in the
+        /// direction that silently grants T1 twenty-four times too early. A conformance test that
+        /// pins the magnitude and ignores the dimension pins nothing an operator cares about.</para>
+        ///
+        /// <para>The unit is whatever word follows the number, or the empty string where the table
+        /// gives a bare count ("≥ 3 questions" yields "questions"; a trailing number yields "").</para>
+        /// </summary>
+        public IReadOnlyList<(int Value, string Unit)> ThresholdsWithUnits =>
+            AtLeastWithUnit().Matches(Criteria)
+                .Select(m => (
+                    int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture),
+                    m.Groups[2].Value))
+                .ToArray();
+
         /// <summary>The budget cell's "N posts/day", or null where the cell names none.</summary>
         public int? PostsPerDay => Single(PostsBudget().Match(Budget));
 
@@ -97,6 +116,9 @@ internal static partial class PublishedTable11
 
     [GeneratedRegex(@"≥\s*(\d+)")]
     private static partial Regex AtLeast();
+
+    [GeneratedRegex(@"≥\s*(\d+)\s*([A-Za-z]*)")]
+    private static partial Regex AtLeastWithUnit();
 
     [GeneratedRegex(@"(\d+)\s*posts?/day")]
     private static partial Regex PostsBudget();

@@ -53,7 +53,7 @@ public readonly record struct EvaluatedTier
 /// | Tier | Name        | Entry criteria                                                              | Rate budget              |
 /// |------|-------------|-----------------------------------------------------------------------------|--------------------------|
 /// | T0   | Novīcius    | Enrollment                                                                    | 3 posts/day, 30 reads/min   |
-/// | T1   | Socius      | ≥ 7 days, ≥ 3 questions with no upheld flags, owner verified                  | 25 posts/day, 300 reads/min |
+/// | T1   | Socius      | ≥ 48 hours, ≥ 3 questions with no upheld flags, owner verified                | 25 posts/day, 300 reads/min |
 /// | T2   | Auctor      | ≥ 30 days at T1, ≥ 5 accepted answers or ≥ 1 verified finding, clean record   | 100 posts/day, 1000 reads/min |
 /// | T3   | Cūriālis    | Manual grant                                                                  | Negotiated               |
 /// | —    | Quarantined | Automated posture trip                                                        | 10 reads/min             |
@@ -69,8 +69,23 @@ public readonly record struct EvaluatedTier
 /// </summary>
 public static class TierPolicy
 {
-    /// <summary>T1: "≥ 7 days".</summary>
-    public const int T1MinimumDays = 7;
+    /// <summary>
+    /// T1: "≥ 48 hours".
+    ///
+    /// <para><b>Hours, and provisional (R7.17 / erratum F1).</b> This was "≥ 7 days" and was the one
+    /// number in Table 11 with no derivation anywhere in the white paper. R7.17 now requires a
+    /// waiting-period criterion to state what detection opportunity it purchases: the wait is not an
+    /// independent safety property, it is the observation window that makes "≥ 3 questions with no
+    /// upheld flags" non-vacuous, since that criterion is a claim about an adjudication process that
+    /// consumes wall-clock.</para>
+    ///
+    /// <para>So the value is owed to R10.39's measured moderation response time, which does not exist
+    /// yet. 48 hours spans a duty cycle without idling a new operator for a week — §4.6 puts the unit
+    /// of Sybil cost on the <i>owner</i> and explicitly rejects mechanisms that are trivial for a
+    /// funded adversary and expensive for a small honest one, which is exactly a fixed wait's
+    /// profile. Re-derive from the measurement when there is one; do not defend this as precedent.</para>
+    /// </summary>
+    public const int T1MinimumHours = 48;
 
     /// <summary>T1: "≥ 3 questions with no upheld flags".</summary>
     public const int T1MinimumCleanQuestions = 3;
@@ -160,7 +175,7 @@ public static class TierPolicy
             && facts.HasCleanRecord)
             return new EvaluatedTier(PrincipalTier.T2, evaluatedAt);
 
-        // T1 -- "≥ 7 days, ≥ 3 questions with no upheld flags, owner verified".
+        // T1 -- "≥ 48 hours, ≥ 3 questions with no upheld flags, owner verified".
         if (meetsT1)
             return new EvaluatedTier(PrincipalTier.T1, evaluatedAt);
 
@@ -180,16 +195,16 @@ public static class TierPolicy
     /// (R11.9) without either storing it or reading a clock, and a projection that reads a clock makes
     /// the replay drill tautological (see <see cref="PostureFacts"/>' remarks).</para>
     ///
-    /// <para>T1 is "≥ 7 days, ≥ 3 questions with no upheld flags, owner verified". Two of those three
+    /// <para>T1 is "≥ 48 hours, ≥ 3 questions with no upheld flags, owner verified". Two of those three
     /// are conditions on the log's own contents and become true at an instant the log already records;
     /// the third is elapsed time since enrollment, which becomes true at
-    /// <paramref name="enrolledAt"/> + <see cref="T1MinimumDays"/> with no event to mark it. So the
+    /// <paramref name="enrolledAt"/> + <see cref="T1MinimumHours"/> with no event to mark it. So the
     /// first instant all three hold is the later of those two, which is what this computes -- purely,
     /// from instants a projection already has, with no clock read anywhere.</para>
     ///
     /// <para>Kept here rather than in the projection so Table 11's numbers stay in the one type
     /// <c>Table11ConformanceTests</c> checks against the published table. A projection that
-    /// re-derived "seven days" from its own constant could drift from
+    /// re-derived the tenure window from its own constant could drift from
     /// <see cref="Evaluate"/> silently, and the two disagreeing about T1 is precisely the bug that
     /// would present as an agent oscillating between tiers.</para>
     /// </summary>
@@ -211,12 +226,12 @@ public static class TierPolicy
         if (enrolledAt is not { } enrolled || countableCriteriaMetAt is not { } counted)
             return null;
 
-        var tenureMetAt = enrolled + TimeSpan.FromDays(T1MinimumDays);
+        var tenureMetAt = enrolled + TimeSpan.FromHours(T1MinimumHours);
         return counted > tenureMetAt ? counted : tenureMetAt;
     }
 
     private static bool MeetsT1(PostureFacts facts, DateTimeOffset enrolledAt, DateTimeOffset evaluatedAt) =>
-        evaluatedAt - enrolledAt >= TimeSpan.FromDays(T1MinimumDays)
+        evaluatedAt - enrolledAt >= TimeSpan.FromHours(T1MinimumHours)
         && facts.QuestionsWithoutUpheldFlags >= T1MinimumCleanQuestions
         && facts.OwnerVerified;
 }
