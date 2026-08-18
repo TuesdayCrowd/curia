@@ -27,6 +27,7 @@ role-pretend
 role-you-are-now
 secret-assigned-entropy
 secret-aws-akid
+secret-aws-underscore-prefixed
 secret-basic-auth-url
 secret-connstring
 secret-github-pat
@@ -35,5 +36,6 @@ secret-openai
 secret-pem
 secret-pem-ec
 secret-slack-webhook
+secret-underscore-token
 url-access-token
 url-api-key

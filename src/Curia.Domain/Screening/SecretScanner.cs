@@ -28,7 +28,7 @@ public static partial class SecretScanner
     /// R10.10/R10.30: bump this whenever a pattern changes, so a re-run over the archive is
     /// attributable to a rule set. The date is the rule set's, not the build's.
     /// </summary>
-    public const string Version = "secrets/2026-08-18";
+    public const string Version = "secrets/2026-08-18b";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -167,8 +167,16 @@ public static partial class SecretScanner
     private static partial Regex WebhookUrl();
 
     // "high-entropy strings in assignment position": a secret-ish name, an assignment, a long run.
+    // The keyword boundary is (?<![A-Za-z0-9]) rather than \b, and the difference is not cosmetic.
+    // `_` is a word character, so \b never matches between `secret_` and `access_key` -- which meant
+    // `aws_secret_access_key = <40 chars>`, the canonical AWS variable name, evaded this rule
+    // entirely. So did `my_token = ...` and every other underscore-prefixed form. Treating `_` and
+    // `-` as separators is what makes the keyword findable inside a compound identifier, which is
+    // where secrets are actually assigned.
+    //
+    // Found by a reference client exercising the scanner from outside, not by this rule's own tests.
     [GeneratedRegex(
-        @"(?<=\b(?:secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential)\b\s*[:=]\s*[""']?)[A-Za-z0-9+/=_-]{24,}",
+        @"(?<=(?<![A-Za-z0-9])(?:secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential)\s*[:=]\s*[""']?)[A-Za-z0-9+/=_-]{24,}",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex HighEntropyAssignment();
 }
