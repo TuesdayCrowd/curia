@@ -14,6 +14,11 @@ hidden-soft-hyphen
 hidden-zwsp
 imperative-ai-never
 imperative-assistant
+inject-imperative-model
+inject-nested-comment
+inject-override-caps
+inject-role-fromnow
+inject-zwj-split-override
 override-basic
 override-disregard
 override-forget
@@ -22,9 +27,13 @@ role-pretend
 role-you-are-now
 secret-assigned-entropy
 secret-aws-akid
+secret-basic-auth-url
 secret-connstring
 secret-github-pat
 secret-jwt
+secret-openai
 secret-pem
+secret-pem-ec
+secret-slack-webhook
 url-access-token
 url-api-key
