@@ -34,6 +34,12 @@ namespace Curia.Application.Projections;
 /// should count, and one whose verification lapses should stop counting.
 /// </param>
 /// <param name="QuestionsWithoutUpheldFlags">Table 11's "≥ 3 questions with no upheld flags".</param>
+/// <param name="AcceptedAnswers">
+/// Table 11's "≥ 5 accepted answers" (T2, the first half of a disjunction) — the number of threads
+/// whose currently-accepted answer this agent wrote. Counted over the <i>current</i> acceptance
+/// rather than over acceptance events, so an asker changing their mind moves the credit instead of
+/// minting a second one.
+/// </param>
 /// <param name="UpheldFlags">
 /// How many of this agent's posts carry an upheld flag — Table 11's "clean record" for T2 and T3,
 /// and the condition R7.8 demotes on. Counted over every post kind, not only questions: an upheld
@@ -51,6 +57,7 @@ public sealed record AgentStanding(
     DateTimeOffset? EnrolledAt,
     bool OwnerVerified,
     int QuestionsWithoutUpheldFlags,
+    int AcceptedAnswers,
     int UpheldFlags,
     DateTimeOffset? ReachedT1At)
 {
@@ -69,6 +76,7 @@ public sealed record AgentStanding(
         && EnrolledAt == other.EnrolledAt
         && OwnerVerified == other.OwnerVerified
         && QuestionsWithoutUpheldFlags == other.QuestionsWithoutUpheldFlags
+        && AcceptedAnswers == other.AcceptedAnswers
         && UpheldFlags == other.UpheldFlags
         && ReachedT1At == other.ReachedT1At
         && CredentialHistory.SequenceEqual(other.CredentialHistory);
@@ -79,7 +87,7 @@ public sealed record AgentStanding(
         EnrolledAt,
         OwnerVerified,
         QuestionsWithoutUpheldFlags,
-        UpheldFlags,
+        HashCode.Combine(AcceptedAnswers, UpheldFlags),
         ReachedT1At,
 
         // Length rather than the elements: a hash has only to agree with Equals on the values that
@@ -186,6 +194,14 @@ public static class AgentStandingProjector
             .Select(m => m.PostId)
             .ToHashSet(StringComparer.Ordinal);
 
+        // Table 11's accepted-answer count, resolved up front for the same reason the upheld set is:
+        // a forward pass cannot know, when an answer is accepted, whether a later acceptance on the
+        // same thread will replace it. AcceptanceProjector settles that; this pass only has to ask
+        // whose answer each surviving acceptance names.
+        var acceptedAnswerIds = AcceptanceProjector.Fold(eventsInSeqOrder)
+            .Values
+            .ToHashSet(StringComparer.Ordinal);
+
         var builders = new Dictionary<string, Builder>(StringComparer.Ordinal);
         var lastSeq = EventSequence.Zero;
 
@@ -215,7 +231,7 @@ public static class AgentStandingProjector
                     break;
 
                 case PostProjector.PostAcceptedType:
-                    ApplyPost(builders, Members(payload), appended, upheld);
+                    ApplyPost(builders, Members(payload), appended, upheld, acceptedAnswerIds);
                     break;
 
                 default:
@@ -261,6 +277,7 @@ public static class AgentStandingProjector
                 ReachedT1At: standing.ReachedT1At,
                 OwnerVerified: standing.OwnerVerified,
                 QuestionsWithoutUpheldFlags: standing.QuestionsWithoutUpheldFlags,
+                AcceptedAnswers: standing.AcceptedAnswers,
                 UpheldFlags: standing.UpheldFlags));
     }
 
@@ -307,13 +324,20 @@ public static class AgentStandingProjector
         Dictionary<string, Builder> builders,
         Dictionary<string, JsonValue> fields,
         AppendedEvent appended,
-        HashSet<string> upheld)
+        HashSet<string> upheld,
+        HashSet<string> acceptedAnswerIds)
     {
         if (!Str(fields, "author", out var author)) return;
         if (!Str(fields, "kind", out var kind)) return;
         if (!Str(fields, "post_id", out var postId)) return;
 
         var builder = For(builders, author);
+
+        // Table 11's "≥ 5 accepted answers", credited to the answer's author rather than to the
+        // asker who accepted it: the criterion is evidence that an agent's answers were useful, and
+        // crediting the acceptor would make it evidence that an agent asks and resolves its own
+        // questions.
+        if (acceptedAnswerIds.Contains(postId)) builder.AcceptedAnswers++;
 
         // Table 11's "clean record", over every post kind. An upheld flag on an answer ends it
         // without touching any question count.
@@ -401,6 +425,8 @@ public static class AgentStandingProjector
 
         public int CleanQuestions { get; set; }
 
+        public int AcceptedAnswers { get; set; }
+
         public int UpheldFlags { get; set; }
 
         private DateTimeOffset? _countableCriteriaMetAt;
@@ -425,6 +451,7 @@ public static class AgentStandingProjector
             EnrolledAt,
             OwnerVerified,
             CleanQuestions,
+            AcceptedAnswers,
             UpheldFlags,
             TierPolicy.FirstSatisfiedT1At(EnrolledAt, _countableCriteriaMetAt));
     }
