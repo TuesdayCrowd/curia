@@ -17,6 +17,9 @@ public sealed record EnrollmentReceipt(string AgentId, string Kid, string Enroll
 public sealed record PostReceipt(
     string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags);
 
+/// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
+public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt);
+
 /// <summary>R9.8/R8.36's breakdown: why this result ranked where it did.</summary>
 public sealed record WhyRanked(int TitleMatches, int BodyMatches, int TagMatches, int Score);
 
@@ -56,7 +59,15 @@ public sealed record ProvenancePost(
     string Digest,
     string Canonical,
     string Signature,
-    string Rendered)
+    string Rendered,
+
+    /// <summary>
+    /// Table 10's <c>answer</c>/<c>accept</c>: whether this is the currently accepted answer of its
+    /// thread. Defaults to false for a Forum that does not serve the field, which is the safe
+    /// reading — "not known to be accepted" and "known not to be" are the same answer to a reader,
+    /// and defaulting the other way would let an older Forum's silence look like a resolution.
+    /// </summary>
+    bool Accepted = false)
 {
     /// <summary>
     /// The Forum's own claim about the signature, kept nominally distinct from
@@ -100,6 +111,13 @@ internal static class ForumDocuments
         && ClientJson.String(o, "server_ts") is { } ts
             ? Result<PostReceipt>.Ok(new PostReceipt(id, digest, ts, Strings(o, "risk_flags")))
             : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("post receipt"));
+
+    internal static Result<AcceptanceReceipt> ReadAcceptance(JsonValue.Object o) =>
+        ClientJson.String(o, "thread_root") is { } root
+        && ClientJson.String(o, "post_id") is { } id
+        && ClientJson.String(o, "accepted_at") is { } at
+            ? Result<AcceptanceReceipt>.Ok(new AcceptanceReceipt(root, id, at))
+            : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
 
     internal static Result<SearchPage> ReadSearchPage(JsonValue value)
     {
@@ -192,7 +210,8 @@ internal static class ForumDocuments
             ClientJson.String(o, "digest") ?? string.Empty,
             canonical,
             signature,
-            ClientJson.String(o, "rendered") ?? string.Empty));
+            ClientJson.String(o, "rendered") ?? string.Empty,
+            Bool(o, "accepted")));
     }
 
     internal static Result<ImmutableArray<ProvenancePost>> ReadPosts(JsonValue value)

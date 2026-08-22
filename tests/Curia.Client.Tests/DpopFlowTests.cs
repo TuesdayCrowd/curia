@@ -240,6 +240,10 @@ public sealed class DpopFlowTests : IDisposable
                     "next_cursor":"Nzox"}
                     """.ReplaceLineEndings(string.Empty));
 
+            if (path.EndsWith("/accept", StringComparison.Ordinal))
+                return Json(HttpStatusCode.Created,
+                    """{"thread_root":"01TESTROOT000000000000001","post_id":"01TESTPOSTID0000000000000A","accepted_at":"2026-08-16T12:00:00.0000000+00:00"}""");
+
             if (path.EndsWith("/flags", StringComparison.Ordinal))
                 return Json(HttpStatusCode.Created,
                     """{"post_id":"01TESTPOSTID0000000000000A","kind":"incorrect","raised_at":"2026-08-16T12:00:00.0000000+00:00"}""");
@@ -410,5 +414,40 @@ public sealed class DpopFlowTests : IDisposable
         await client.SearchAsync(
             new SearchRequest("jcs") { WhyRanked = true }, MarkingMode.None, CancellationToken.None);
         Assert.Contains("why=true", handler.Requests.Last().Path, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Table 10's <c>answer</c>/<c>accept</c> over the wire: a DPoP-bound POST to the answer's
+    /// <c>/accept</c> sub-resource, with the receipt naming the thread it resolved.
+    /// </summary>
+    [Fact]
+    public async Task Table10_AcceptingAnAnswerPostsToTheAnswersAcceptRoute()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var accepted = await session.AcceptAsync("01TESTPOSTID0000000000000A", CancellationToken.None);
+
+        Assert.True(accepted.TryGetValue(out var receipt, out var refusal), refusal?.Error.Type);
+        Assert.Equal("01TESTROOT000000000000001", receipt!.ThreadRoot);
+
+        var request = handler.Requests.Last();
+        Assert.Equal("/v1/posts/01TESTPOSTID0000000000000A/accept", request.Path);
+        Assert.Equal("DPoP", request.AuthorizationScheme);
+        Assert.NotNull(request.Dpop);
+    }
+
+    /// <summary>The answer id is percent-encoded, for the reason the flag path records.</summary>
+    [Fact]
+    public async Task AnAcceptedAnswerIdIsPercentEncodedIntoThePath()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        await session.AcceptAsync("a/b", CancellationToken.None);
+
+        Assert.Equal("/v1/posts/a%2Fb/accept", handler.Requests.Last().Path);
     }
 }

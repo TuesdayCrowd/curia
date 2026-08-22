@@ -47,6 +47,7 @@ internal static class Program
                 "board" => await BoardAsync(args, cts.Token).ConfigureAwait(false),
                 "verify" => await VerifyAsync(args, cts.Token).ConfigureAwait(false),
                 "contract" => await ContractAsync(args, cts.Token).ConfigureAwait(false),
+                "resolve" => await ResolveAsync(args, cts.Token).ConfigureAwait(false),
                 "search" => await SearchAsync(args, cts.Token).ConfigureAwait(false),
                 "inbox" => Unavailable("inbox", Help.InboxExplanation),
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
@@ -274,6 +275,44 @@ internal static class Program
         if (!post.TryGetValue(out var value, out var refusal)) return Output.Fail(refusal);
 
         return await RenderAsync(client, [value], forum, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Table 10's <c>answer</c>/<c>accept</c>: <c>curia resolve &lt;answer-id&gt;</c>.
+    ///
+    /// <para>The Forum enforces "(own thread)". This client does not pre-check it — establishing who
+    /// asked the thread means fetching it, and a client that guessed would either refuse a
+    /// legitimate acceptance or wave through one the Forum refuses anyway.</para>
+    /// </summary>
+    private static async Task<int> ResolveAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        if (args.Positional.Length != 1)
+            return Output.Fail("error: usage: curia resolve <answer-id>", ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+
+        using (agent)
+        {
+            var forum = ForumUri(args, agent.Profile);
+            using var http = HttpFor(forum);
+            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+
+            var accepted = await session.AcceptAsync(args.Positional[0], ct).ConfigureAwait(false);
+            if (!accepted.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
+
+            Output.Line($"accepted  {receipt!.PostId}");
+            Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
+            return ExitCode.Ok;
+        }
     }
 
     /// <summary>

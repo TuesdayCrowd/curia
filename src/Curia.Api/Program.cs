@@ -142,6 +142,11 @@ public sealed class Program
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
+        // Table 10's answer/accept. Holds IEventStore for the reason EnrollAgent and RaiseFlag do.
+        builder.Services.AddSingleton(sp => new AcceptAnswer(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<TimeProvider>()));
+
         // R7.4/R7.5 live in the decorator, never in the adapter (see CachingPolicyDecisionPoint).
         builder.Services.AddSingleton<IPolicyDecisionPoint>(sp => new CachingPolicyDecisionPoint(
             new DomainPolicyDecisionPoint(),

@@ -28,7 +28,63 @@ public enum DecisionEffect
 /// </param>
 public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason, GrantQualifier Qualifier)
 {
-    public bool IsAllowed => Effect is DecisionEffect.Allow;
+    /// <summary>
+    /// Whether the policy permitted this action for this principal — the Table 10 cell's answer,
+    /// before any parenthetical is considered.
+    ///
+    /// <para>Distinct from <see cref="IsAllowed"/>, and the distinction is load-bearing rather than
+    /// pedantic: §7's own rules have to ask this question. The posting budget applies to a permitted
+    /// write whether or not the caller has yet established that the resource is its own, and
+    /// Appendix F.1's quarantine intersection restricts what the table granted. Both are reasoning
+    /// about the grant; neither is about to act on it.</para>
+    /// </summary>
+    public bool IsPermitted => Effect is DecisionEffect.Allow;
+
+    /// <summary>
+    /// Whether this decision is a permission to act, right now, with nothing further to establish.
+    ///
+    /// <para><b>False while a qualifier is outstanding</b>, which is the whole point. Table 10
+    /// writes <c>revision</c>/<c>create</c> as "(own)" and <c>answer</c>/<c>accept</c> as
+    /// "(own thread)"; this type has always carried that parenthetical and always documented that
+    /// such a decision is not yet a permission to act. Every caller in the solution nonetheless read
+    /// this property and proceeded — <c>SubmitAsync</c> among them, which is how a revision of
+    /// another agent's post was authorized. Nothing stopped them, so the property now does: the only
+    /// way past a qualified grant is <see cref="Discharge"/>, which requires answering the question
+    /// the table asked.</para>
+    /// </summary>
+    public bool IsAllowed => IsPermitted && Qualifier is GrantQualifier.None;
+
+    /// <summary>
+    /// Answers the parenthetical, yielding a decision that is actionable or a denial that names what
+    /// went unsatisfied.
+    ///
+    /// <para><b>A qualifier restricts a permission and can never confer one.</b> Discharging a
+    /// denial leaves it denied, however true the caller's claim of ownership: establishing that a
+    /// resource is yours is not a route to an action the table never granted your tier.</para>
+    /// </summary>
+    /// <param name="satisfied">Whether the caller established what the parenthetical requires.</param>
+    public AuthorizationDecision Discharge(bool satisfied)
+    {
+        if (!IsPermitted) return this;
+
+        return satisfied
+            ? this with { Qualifier = GrantQualifier.None }
+            : new AuthorizationDecision(DecisionEffect.Deny, ReasonFor(Qualifier), GrantQualifier.None);
+    }
+
+    /// <summary>
+    /// R7.16 logs denials at the fidelity of allows, so a refused qualifier names which one. "Denied"
+    /// alone cannot tell an operator that the caller was the wrong <i>agent</i> rather than the wrong
+    /// tier, and those want very different operational responses.
+    /// </summary>
+    private static string ReasonFor(GrantQualifier qualifier) => qualifier switch
+    {
+        GrantQualifier.OwnResourceOnly => "table-10/own-resource-only",
+        GrantQualifier.OwnThreadOnly => "table-10/own-thread-only",
+        GrantQualifier.Delegated => "table-10/delegated-grant-required",
+        GrantQualifier.None => "table-10/permitted",
+        _ => throw new ArgumentOutOfRangeException(nameof(qualifier), qualifier, "Not a Table 10 parenthetical"),
+    };
 }
 
 /// <summary>
@@ -155,7 +211,7 @@ public static class AccessPolicy
         //
         // Caught by a test asserting the anonymous denial's reason, which is the only reason this
         // is right rather than plausible.
-        if (tierDecision.IsAllowed
+        if (tierDecision.IsPermitted
             && IsWrite(request.Action)
             && request.PostsToday >= TierPolicy.PostsPerDay(request.Tier.Tier))
             return Result<AuthorizationDecision>.Ok(new AuthorizationDecision(
@@ -168,7 +224,7 @@ public static class AccessPolicy
         // state -- the property is structural here, not something a test has to keep watching.
         if (request.CredentialState is CredentialState.Quarantined)
             return Result<AuthorizationDecision>.Ok(
-                tierDecision.IsAllowed && IsRead(request.Action)
+                tierDecision.IsPermitted && IsRead(request.Action)
                     ? tierDecision with { Reason = "table-11/quarantined-read-only" }
                     : new AuthorizationDecision(
                         DecisionEffect.Deny, "table-11/quarantined-read-only", GrantQualifier.None));

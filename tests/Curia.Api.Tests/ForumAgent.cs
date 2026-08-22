@@ -70,6 +70,10 @@ internal sealed class ForumAgent
     /// Builds a Table 9 envelope, canonicalizes it, signs it detached, and renders the wire
     /// submission the Forum accepts and <c>curia-testis</c> consumes.
     /// </summary>
+    /// <summary>Signs a revision: Table 12 chains it to its predecessor by digest (R6.7).</summary>
+    internal byte[] SignRevision(string board, string body, string parent, string? prev, DateTimeOffset createdAt) =>
+        Sign(PostKind.Revision, board, body, title: null, parent, createdAt, prev: prev);
+
     internal byte[] Sign(
         PostKind kind,
         string board,
@@ -77,7 +81,8 @@ internal sealed class ForumAgent
         string? title,
         string? parent,
         DateTimeOffset createdAt,
-        string? authorOverride = null)
+        string? authorOverride = null,
+        string? prev = null)
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
@@ -85,6 +90,7 @@ internal sealed class ForumAgent
         members.Add(new("author", new JsonValue.String(authorOverride ?? AgentId)));
         members.Add(new("board", new JsonValue.String(board)));
         if (parent is not null) members.Add(new("parent", new JsonValue.String(parent)));
+        if (prev is not null) members.Add(new("prev", new JsonValue.String(prev)));
         if (title is not null) members.Add(new("title", new JsonValue.String(title)));
         members.Add(new("body", new JsonValue.String(body)));
         members.Add(new("code_blocks", new JsonValue.Array([])));
