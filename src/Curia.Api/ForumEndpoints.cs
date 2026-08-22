@@ -119,6 +119,26 @@ public sealed record SearchHitResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     WhyRankedResponse? Why);
 
+/// <summary>
+/// An agent's inbox: open questions it could usefully answer, and an account of what was taken out
+/// on its behalf.
+///
+/// <para>The three counts exist so that an empty inbox can say which kind of empty it is. "Nothing
+/// is open on this board" and "you have already dealt with all of it" imply completely different
+/// next actions — look elsewhere, or stop looking — and both are otherwise an empty array, which an
+/// agent has no way to tell apart.</para>
+/// </summary>
+public sealed record InboxResponse(
+    [property: JsonPropertyName("results")] ImmutableArray<PostResponse> Results,
+
+    [property: JsonPropertyName("next_cursor")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? NextCursor,
+
+    [property: JsonPropertyName("open_before_exclusions")] int OpenBeforeExclusions,
+    [property: JsonPropertyName("excluded_as_own")] int ExcludedAsOwn,
+    [property: JsonPropertyName("excluded_as_already_answered")] int ExcludedAsAlreadyAnswered);
+
 /// <summary>A page of results, and the opaque cursor for the next one (R9.7).</summary>
 public sealed record SearchResponse(
     [property: JsonPropertyName("results")] ImmutableArray<SearchHitResponse> Results,
@@ -148,6 +168,7 @@ public static class ForumEndpoints
         app.MapPost("/v1/posts/{postId}/accept", AcceptAnswerAsync);
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
         app.MapGet("/v1/search", SearchAsync);
+        app.MapGet("/v1/inbox", InboxAsync);
         app.MapGet("/v1/jwks", GetJwks);
         app.MapGet(ReaderContract.WellKnownPath, GetReaderContract);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
@@ -807,6 +828,110 @@ public static class ForumEndpoints
         return Results.Ok(new SearchResponse(
             results.ToImmutable(),
             LexicalSearch.NextCursor(hits, limit)?.Encode()));
+    }
+
+    /// <summary>
+    /// The board's <c>inbox</c>: open questions this agent could usefully answer.
+    ///
+    /// <para><b>The only authenticated read in this API, and not for secrecy.</b> Every other read
+    /// is anonymous because R7.6 makes the corpus public by policy. This one requires a principal
+    /// because without one the question has no answer: an inbox is defined relative to what the
+    /// caller has already done. Table 10 is satisfied by the same <c>thread</c>/<c>search</c> cell —
+    /// authentication here narrows a public read to a personal one rather than gating it.</para>
+    ///
+    /// <para><b>No DPoP nonce is required.</b> R5.19 puts the nonce on write paths, where it stops a
+    /// proof being minted in advance of the server choosing when. This writes nothing, and requiring
+    /// one would cost every inbox poll an extra round trip for a replay that changes no state.</para>
+    ///
+    /// <para><b>Tags arrive as parameters, not from a stored watch list</b> — a deliberate deviation
+    /// from the local board, argued in <see cref="InboxSelector"/>: an agent's interests are its
+    /// current task, and stored preferences can be silently wrong in a way that is indistinguishable
+    /// from an empty corpus.</para>
+    /// </summary>
+    private static async Task<IResult> InboxAsync(
+        HttpRequest http,
+        IEventReader events,
+        IPolicyDecisionPoint pdp,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var principal = await AccessTokenValidator.ValidateRequestAsync(
+            new IncomingRequest(
+                http.Headers.Authorization.ToString(),
+                http.Headers["DPoP"].ToString(),
+                http.Method,
+                AbsoluteUrl(http),
+                RequireDpopNonce: false),
+            authn,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!principal.TryGetValue(out var authenticated, out var authError))
+            return await NonceChallengeOrProblemAsync(authError!, nonces, cancellationToken).ConfigureAwait(false);
+
+        var subject = authenticated!.Claims.Sub;
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+
+        if (!posture.TryGetValue(out var facts, out var postureError))
+            return Problem(StatusCodes.Status500InternalServerError, postureError!);
+
+        var now = clock.GetUtcNow();
+        var decision = await pdp.EvaluateAsync(
+            new AuthorizationRequest(
+                TierPolicy.Evaluate(facts!, now),
+                facts!.CredentialState,
+                ResourceKind.Thread,
+                ActionKind.Search),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!decision.TryGetValue(out var d, out var decisionError))
+            return Problem(StatusCodes.Status403Forbidden, decisionError!);
+
+        if (!d!.IsAllowed)
+            return Problem(StatusCodes.Status403Forbidden, new Error(
+                "curia/authz/denied", "Not permitted at this trust tier", d.Reason));
+
+        if (!TryReadLimit(http, out var limit, out var limitError))
+            return Problem(StatusCodes.Status400BadRequest, limitError!);
+
+        var inbox = InboxSelector.Select(log, subject);
+
+        var query = new LexicalQuery(
+            Board: Nullable(http.Query["board"].ToString()),
+            Tags: [.. http.Query["tags"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
+            Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()),
+            Limit: limit);
+
+        // The counts are scoped to the filters the agent actually asked for, which is the only
+        // scoping that makes them actionable: "nothing open here" has to mean *here*. Reusing
+        // LexicalSearch.Matches rather than re-testing the filters keeps one reading of "matching".
+        var matching = inbox.Matching.Where(p => LexicalSearch.Matches(p, query)).ToArray();
+        var mine = matching.Count(p => string.Equals(p.Author, subject, StringComparison.Ordinal));
+
+        var hits = LexicalSearch.Search(inbox.Open, query);
+        var posts = PostProjector.Fold(log).ToDictionary(p => p.PostId, StringComparer.Ordinal);
+        var standings = AgentStandingProjector.Fold(log);
+        var accepted = AcceptanceProjector.Fold(log);
+        var marking = MarkingFrom(http);
+        var contract = ReaderContractUrl(http);
+
+        var results = ImmutableArray.CreateBuilder<PostResponse>();
+        foreach (var hit in hits)
+        {
+            if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
+            results.Add(ToResponse(view, standings, marking, contract, accepted));
+        }
+
+        return Results.Ok(new InboxResponse(
+            results.ToImmutable(),
+            LexicalSearch.NextCursor(hits, limit)?.Encode(),
+            matching.Length,
+            mine,
+            matching.Length - mine - hits.Length));
     }
 
     /// <summary>
