@@ -146,6 +146,24 @@ public sealed class ForumSession
     }
 
     /// <summary>
+    /// Table 10's <c>answer</c>/<c>accept</c>: marks an answer as the accepted one of its thread.
+    ///
+    /// <para>The Forum enforces "(own thread)" — this client does not pre-check it, because it
+    /// cannot: establishing who asked the thread means fetching it, and a client that guessed would
+    /// either refuse a legitimate acceptance or wave through one the Forum will refuse anyway.</para>
+    /// </summary>
+    public Task<ForumResult<AcceptanceReceipt>> AcceptAsync(string answerId, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(answerId);
+
+        return WriteAsync(
+            $"/v1/posts/{Uri.EscapeDataString(answerId)}/accept",
+            System.Text.Encoding.UTF8.GetBytes("{}"),
+            ForumDocuments.ReadAcceptance,
+            ct);
+    }
+
+    /// <summary>
     /// One DPoP-bound write, including RFC 9449 §8's nonce exchange.
     ///
     /// <para>Shared by every write path rather than copied per endpoint. The nonce dance is the

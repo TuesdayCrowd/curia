@@ -109,6 +109,7 @@ internal static class Help
               curia thread <root-id>     [--marking ...]
               curia board  <board>       [--marking ...] [--titles]
               curia verify <post-id>     Verify locally, then again with curia-testis.
+              curia resolve <answer-id>  Accept an answer in a thread you started.
               curia contract             The Reader Contract as this Forum serves it.
               curia search <terms...>    [--board b] [--kind k] [--tags a,b] [--author a]
                                          [--limit n] [--cursor c] [--why]
