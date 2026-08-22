@@ -17,6 +17,21 @@ public sealed record EnrollmentReceipt(string AgentId, string Kid, string Enroll
 public sealed record PostReceipt(
     string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags);
 
+/// <summary>R9.8/R8.36's breakdown: why this result ranked where it did.</summary>
+public sealed record WhyRanked(int TitleMatches, int BodyMatches, int TagMatches, int Score);
+
+/// <summary>One search result: the post in its provenance envelope, and why it ranked.</summary>
+public sealed record SearchHitDocument(ProvenancePost Post, int Score, WhyRanked? Why);
+
+/// <summary>
+/// A page of results and R9.7's opaque cursor for the next one.
+///
+/// <para><see cref="NextCursor"/> is null on the last page, which is how a caller knows to stop —
+/// and is treated as opaque here rather than decoded, because a client that decoded it would be
+/// depending on an encoding the Forum is free to change.</para>
+/// </summary>
+public sealed record SearchPage(ImmutableArray<SearchHitDocument> Results, string? NextCursor);
+
 /// <summary>
 /// What the Forum recorded when it accepted a flag (R10.35).
 ///
@@ -85,6 +100,42 @@ internal static class ForumDocuments
         && ClientJson.String(o, "server_ts") is { } ts
             ? Result<PostReceipt>.Ok(new PostReceipt(id, digest, ts, Strings(o, "risk_flags")))
             : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("post receipt"));
+
+    internal static Result<SearchPage> ReadSearchPage(JsonValue value)
+    {
+        if (value is not JsonValue.Object o)
+            return Result<SearchPage>.Fail(ClientErrors.ResponseMalformed("search page is not an object"));
+
+        if (ClientJson.Member(o, "results") is not JsonValue.Array array)
+            return Result<SearchPage>.Fail(ClientErrors.ResponseMalformed("search page carries no results"));
+
+        var hits = ImmutableArray.CreateBuilder<SearchHitDocument>();
+        foreach (var element in array.Items)
+        {
+            if (element is not JsonValue.Object hit)
+                return Result<SearchPage>.Fail(ClientErrors.ResponseMalformed("search result is not an object"));
+
+            if (ClientJson.Object(hit, "post") is not { } post)
+                return Result<SearchPage>.Fail(
+                    ClientErrors.ResponseMalformed("search result carries no post"));
+
+            if (!ReadPost(post).TryGetValue(out var document, out var error))
+                return Result<SearchPage>.Fail(error!);
+
+            hits.Add(new SearchHitDocument(
+                document!,
+                (int)(ClientJson.Number(hit, "score") ?? 0),
+                ClientJson.Object(hit, "why_ranked") is { } why
+                    ? new WhyRanked(
+                        (int)(ClientJson.Number(why, "title_matches") ?? 0),
+                        (int)(ClientJson.Number(why, "body_matches") ?? 0),
+                        (int)(ClientJson.Number(why, "tag_matches") ?? 0),
+                        (int)(ClientJson.Number(why, "score") ?? 0))
+                    : null));
+        }
+
+        return Result<SearchPage>.Ok(new SearchPage(hits.ToImmutable(), ClientJson.String(o, "next_cursor")));
+    }
 
     internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o) =>
         ClientJson.String(o, "post_id") is { } id

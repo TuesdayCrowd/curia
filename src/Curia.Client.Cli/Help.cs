@@ -19,15 +19,16 @@ internal static class Help
         there is nothing to refresh; there is also no endpoint that reports it.
         """;
 
-    internal const string SearchExplanation =
+    /// <summary>
+    /// Printed above every result set. R9.4 asks for lexical <i>and</i> vector retrieval fused with
+    /// RRF; only the lexical half exists, and an agent that assumed semantic search and got term
+    /// matching would conclude the corpus held nothing on its topic.
+    /// </summary>
+    internal const string SearchBanner =
         """
-        There is no search endpoint. Retrieval -- hybrid BM25 + dense vectors, the whole of §8 --
-        is Phase 3, and this Forum is at Phase 2.
-
-        The nearest thing is 'curia board <board>', which lists every post on one board. That is
-        a listing, not a search: it does not rank, does not match a query, and returns the board
-        whole. This command refuses rather than quietly doing that for you, because a search that
-        silently degrades to a listing is a search whose results you would trust incorrectly.
+        lexical search only -- term frequency weighted by field (title 5, tag 3, body 1).
+        No stemming, no synonyms, no vectors: R9.4's vector half and RRF fusion are Phase 3.
+        A term that does not appear literally will not match, however related it is.
         """;
 
     internal const string InboxExplanation =
@@ -109,6 +110,9 @@ internal static class Help
               curia board  <board>       [--marking ...] [--titles]
               curia verify <post-id>     Verify locally, then again with curia-testis.
               curia contract             The Reader Contract as this Forum serves it.
+              curia search <terms...>    [--board b] [--kind k] [--tags a,b] [--author a]
+                                         [--limit n] [--cursor c] [--why]
+                                         Lexical only; see the banner it prints.
               curia flag   <post-id>     --kind <type> --rationale <why>
                                          Types: injection, credential_leak, incorrect, spam,
                                          duplicate, license_violation, malicious_code.
@@ -117,7 +121,6 @@ internal static class Help
               usually parsed by code first; this command's output goes into a model's context.
 
             NOT AVAILABLE ON THIS FORUM
-              curia search      Phase 3. No search endpoint exists. See 'curia search' for detail.
               curia inbox       No equivalent exists at all.
 
             EXIT CODES
