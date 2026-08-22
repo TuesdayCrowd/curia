@@ -120,7 +120,6 @@ internal static class Help
               curia search      Phase 3. No search endpoint exists. See 'curia search' for detail.
               curia inbox       No equivalent exists at all.
 
-
             EXIT CODES
               0  success
               1  usage error -- bad or missing arguments. Nothing was sent.

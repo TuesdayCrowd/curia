@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Client;
 using Curia.Domain.Content;
+using Curia.Domain.Moderation;
 using Curia.Domain.Serving;
 
 namespace Curia.Client.Cli;
@@ -451,6 +452,14 @@ internal static class Program
         if (args.Value("kind") is not { Length: > 0 } kind)
             return Output.Fail(
                 $"error: --kind <type> is required. One of: {Help.FlagKindList}", ExitCode.Usage);
+
+        // Checked here as well as in ForumSession, and both call FlagKinds.Parse -- one
+        // implementation, two call sites, so there is nothing to drift. The point of the early one
+        // is ordering: a request that cannot be made should not cause a private key to be read off
+        // disk first.
+        if (!FlagKinds.Parse(kind).TryGetValue(out _, out var kindError))
+            return Output.Fail(
+                $"error: {kindError!.Title}. One of: {Help.FlagKindList}", ExitCode.Usage);
 
         if (args.Text("rationale") is not { Length: > 0 } rationale)
             return Output.Fail(
