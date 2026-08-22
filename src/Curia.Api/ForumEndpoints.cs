@@ -89,7 +89,14 @@ public sealed record PostResponse(
     [property: JsonPropertyName("digest")] string Digest,
     [property: JsonPropertyName("canonical")] string Canonical,
     [property: JsonPropertyName("signature")] string Signature,
-    [property: JsonPropertyName("rendered")] string Rendered);
+    [property: JsonPropertyName("rendered")] string Rendered,
+
+    /// <summary>
+    /// Table 10's <c>answer</c>/<c>accept</c>, as the thread's asker left it. False for everything
+    /// that is not the currently accepted answer of its thread — including a post that was accepted
+    /// and then superseded, because the acceptance that stands is the latest one.
+    /// </summary>
+    [property: JsonPropertyName("accepted")] bool Accepted);
 
 /// <summary>R9.8/R8.36's <c>why_ranked</c> breakdown, per result, when requested.</summary>
 public sealed record WhyRankedResponse(
@@ -138,6 +145,7 @@ public static class ForumEndpoints
         app.MapGet("/v1/posts/{postId}", GetPostAsync);
         app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync);
         app.MapPost("/v1/posts/{postId}/flags", RaiseFlagAsync);
+        app.MapPost("/v1/posts/{postId}/accept", AcceptAnswerAsync);
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
         app.MapGet("/v1/search", SearchAsync);
         app.MapGet("/v1/jwks", GetJwks);
@@ -301,7 +309,15 @@ public static class ForumEndpoints
         if (!decision.TryGetValue(out var d, out var decisionError))
             return Problem(StatusCodes.Status403Forbidden, decisionError!);
 
-        if (!d!.IsAllowed)
+        // Table 10's parenthetical, discharged. `revision`/`create` is "(own)", and an allow
+        // carrying that qualifier is not a permission to act -- it is a permission conditional on a
+        // fact about the resource that the PDP cannot know, because the PDP is not handed the
+        // resource. Until this existed, the qualifier was returned and read past: any T0 agent could
+        // submit a revision naming another agent's post.
+        if (d!.Qualifier is GrantQualifier.OwnResourceOnly)
+            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId));
+
+        if (!d.IsAllowed)
             return Problem(
                 StatusCodes.Status403Forbidden,
                 new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
@@ -451,7 +467,9 @@ public static class ForumEndpoints
         // moderation acted on -- a map of the corpus's most interesting content, for free.
         return post is null
             ? Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId))
-            : Results.Ok(ToResponse(post, AgentStandingProjector.Fold(log), MarkingFrom(http), ReaderContractUrl(http)));
+            : Results.Ok(ToResponse(
+                post, AgentStandingProjector.Fold(log), MarkingFrom(http), ReaderContractUrl(http),
+                AcceptanceProjector.Fold(log)));
     }
 
     private static async Task<IResult> GetThreadAsync(
@@ -473,7 +491,10 @@ public static class ForumEndpoints
 
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
-            : Results.Ok(thread.Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http))).ToArray());
+            : Results.Ok(thread
+                .Select(p => ToResponse(
+                    p, standings, MarkingFrom(http), ReaderContractUrl(http), AcceptanceProjector.Fold(log)))
+                .ToArray());
     }
 
     private static async Task<IResult> ListBoardAsync(
@@ -487,10 +508,12 @@ public static class ForumEndpoints
         var standings = AgentStandingProjector.Fold(log);
 
         var servable = Servable(log);
+        var accepted = AcceptanceProjector.Fold(log);
 
         return Results.Ok(PostProjector.Fold(log)
             .Where(p => p.Board == board && servable(p.PostId))
-            .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http)))
+            .Select(p => ToResponse(
+                p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted))
             .ToArray());
     }
 
@@ -558,6 +581,141 @@ public static class ForumEndpoints
     /// <see cref="IResult"/>) rather than silently serving.
     /// </summary>
     /// <summary>
+    /// Table 10's <c>answer</c>/<c>accept</c> — the board's <c>resolve</c>.
+    ///
+    /// <para><b>The first route that discharges a parenthetical deliberately.</b> The row is
+    /// <c>✗ | ✓ | ✓ | ✓ | ✓</c> with "(own thread)", so the tier question and the ownership question
+    /// are separate and both must be answered. The PDP answers the first; it cannot answer the
+    /// second, because it is never handed the resource — which is exactly why
+    /// <see cref="AuthorizationDecision.Discharge"/> exists rather than the caller reading past the
+    /// qualifier.</para>
+    ///
+    /// <para>There is no un-accept. An asker who changes their mind accepts a different answer, and
+    /// the latest acceptance stands — the history is the state, as it is for servability and for
+    /// credential lifecycle.</para>
+    /// </summary>
+    private static async Task<IResult> AcceptAnswerAsync(
+        string postId,
+        HttpRequest http,
+        AcceptAnswer accept,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var principal = await AccessTokenValidator.ValidateRequestAsync(
+            new IncomingRequest(
+                http.Headers.Authorization.ToString(),
+                http.Headers["DPoP"].ToString(),
+                http.Method,
+                AbsoluteUrl(http),
+                RequireDpopNonce: true),
+            authn,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!principal.TryGetValue(out var authenticated, out var authError))
+            return await NonceChallengeOrProblemAsync(authError!, nonces, cancellationToken).ConfigureAwait(false);
+
+        var subject = authenticated!.Claims.Sub;
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+
+        if (!posture.TryGetValue(out var facts, out var postureError))
+            return Problem(StatusCodes.Status500InternalServerError, postureError!);
+
+        var now = clock.GetUtcNow();
+        var tier = TierPolicy.Evaluate(facts!, now);
+
+        var decision = await pdp.EvaluateAsync(
+            new AuthorizationRequest(
+                tier,
+                facts!.CredentialState,
+                ResourceKind.Answer,
+                ActionKind.Accept,
+                PostsToday: PostsInBudgetWindow(log, subject, now)),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!decision.TryGetValue(out var d, out var decisionError))
+            return Problem(StatusCodes.Status403Forbidden, decisionError!);
+
+        // The resource has to be resolved before the qualifier can be discharged, and the answer
+        // has to exist before "whose thread is it" is even a question -- so the shape of the target
+        // is settled first, and reported with its own slugs rather than as a bare authorization
+        // refusal. A caller that mistyped an id should not be told it lacks permission.
+        var posts = PostProjector.Fold(log);
+        var answer = posts.FirstOrDefault(p => string.Equals(p.PostId, postId, StringComparison.Ordinal));
+
+        if (answer is null)
+            return Problem(StatusCodes.Status404NotFound, new Error(
+                "curia/accept/no-such-post", "No such post", $"post={postId}"));
+
+        if (!string.Equals(answer.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal))
+            return Problem(StatusCodes.Status400BadRequest, new Error(
+                "curia/accept/not-an-answer",
+                "Only an answer may be accepted",
+                $"post={postId} kind={answer.Kind}"));
+
+        // Table 10's "(own thread)": the thread this answer replies to must be one the caller
+        // started. An answer's parent is its thread root, which is what makes this resolvable
+        // without walking a chain.
+        var root = answer.Parent is { } parent
+            ? posts.FirstOrDefault(p => string.Equals(p.PostId, parent, StringComparison.Ordinal))
+            : null;
+
+        d = d!.Discharge(root is not null && string.Equals(root.Author, subject, StringComparison.Ordinal));
+
+        if (!d.IsAllowed)
+            return Problem(
+                StatusCodes.Status403Forbidden,
+                new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
+
+        var recorded = await accept
+            .RecordAsync(root!.PostId, postId, subject, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!recorded.TryGetValue(out var acceptance, out var recordError))
+            return Problem(StatusCodes.Status500InternalServerError, recordError!);
+
+        return Results.Created($"/v1/threads/{Uri.EscapeDataString(root.PostId)}", new
+        {
+            thread_root = acceptance!.ThreadRoot,
+            post_id = acceptance.AnswerId,
+            accepted_at = acceptance.AcceptedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+        });
+    }
+
+    /// <summary>
+    /// Table 10's "(own)" on <c>revision</c>/<c>create</c>: does this revision chain to a post the
+    /// submitter wrote?
+    ///
+    /// <para><b>Keyed on <c>prev</c>, and on the digest rather than the id</b>, because that is what
+    /// Table 9 and R6.7 say it is: <c>prev</c> is typed <c>digest?</c> and "each revision commits to
+    /// its predecessor's digest, so the sequence of revisions is itself tamper-evident without
+    /// trusting the Forum's ordering". <c>parent</c> attaches a revision to its thread, which is a
+    /// different question — a revision could be attached to a thread whose question someone else
+    /// asked and still be a legitimate revision of the submitter's own answer in it.</para>
+    ///
+    /// <para>A revision with no <c>prev</c>, or one naming a digest the log has never seen, owns
+    /// nothing and is refused. Fail-closed is the only safe direction here: the alternative is
+    /// permitting a write whose subject cannot be identified.</para>
+    ///
+    /// <para>This is <c>prev</c>'s first reader anywhere in the solution. Table 12 also requires a
+    /// <c>revision_reason</c> that <c>PostEnvelope</c> does not model; that gap is recorded in the
+    /// plan rather than closed here.</para>
+    /// </summary>
+    private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
+    {
+        if (string.IsNullOrWhiteSpace(prev)) return false;
+
+        return PostProjector.Fold(log).Any(p =>
+            string.Equals(p.Digest, prev, StringComparison.Ordinal)
+            && string.Equals(p.Author, author, StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// R9.4's lexical half: <c>GET /v1/search</c>, Table 22's Phase 1 "lexical search".
     ///
     /// <para>Anonymous, because Table 10's <c>thread</c>/<c>search</c> row is <c>✓</c> in every
@@ -624,6 +782,7 @@ public static class ForumEndpoints
         var standings = AgentStandingProjector.Fold(log);
         var marking = MarkingFrom(http);
         var contract = ReaderContractUrl(http);
+        var acceptedByThread = AcceptanceProjector.Fold(log);
 
         // R9.8: "when requested". Off by default because R8.36's purpose is auditing rather than
         // decoration, and a field on every response is one every client learns to ignore.
@@ -638,7 +797,7 @@ public static class ForumEndpoints
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
 
             results.Add(new SearchHitResponse(
-                ToResponse(view, standings, marking, contract),
+                ToResponse(view, standings, marking, contract, acceptedByThread),
                 hit.Score,
                 wantsWhy
                     ? new WhyRankedResponse(hit.Why.TitleMatches, hit.Why.BodyMatches, hit.Why.TagMatches, hit.Why.Score)
@@ -770,7 +929,8 @@ public static class ForumEndpoints
         PostView p,
         ImmutableDictionary<string, AgentStanding> standings,
         MarkingMode marking,
-        string readerContract)
+        string readerContract,
+        ImmutableDictionary<string, string>? acceptedByThread = null)
     {
         var provenance = new ProvenanceResponse(
             ContentType: PostEnvelope.RequiredContentType,
@@ -818,7 +978,16 @@ public static class ForumEndpoints
             p.Digest,
             p.Canonical,
             p.Signature,
-            Datamarking.Render(p.Canonical, marking));
+            Datamarking.Render(p.Canonical, marking),
+
+            // The acceptance is a fact about the thread, so the lookup is by root; a post is the
+            // accepted answer only of its own thread. Absent when the caller did not fold
+            // acceptances, which is honest: "not known to be accepted" and "known not to be" are the
+            // same answer to a reader, and inventing true is the only unsafe direction.
+            acceptedByThread is not null
+                && p.Parent is { } parent
+                && acceptedByThread.TryGetValue(parent, out var accepted)
+                && string.Equals(accepted, p.PostId, StringComparison.Ordinal));
     }
 
     /// <summary>

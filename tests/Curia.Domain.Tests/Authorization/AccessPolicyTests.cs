@@ -231,7 +231,14 @@ public sealed class AccessPolicyTests
         Assert.Equal(expected, decision.Qualifier);
     }
 
-    /// <summary>A denial never carries a qualifier: there is no obligation attached to "no".</summary>
+    /// <summary>
+    /// A denial never carries a qualifier: there is no obligation attached to "no".
+    ///
+    /// <para>Keyed on <see cref="DecisionEffect.Deny"/> rather than on <c>!IsAllowed</c>, which was
+    /// the same test until a qualified allow stopped being directly actionable. The claim here is
+    /// about the effect — a refusal attaches no obligation — and <c>!IsAllowed</c> now also matches
+    /// a permitted-but-qualified grant, which carries a qualifier precisely because it is one.</para>
+    /// </summary>
     [Fact]
     public void A_denial_carries_no_qualifier()
     {
@@ -242,9 +249,112 @@ public sealed class AccessPolicyTests
             foreach (var tier in Enum.GetValues<PrincipalTier>())
             {
                 var decision = Decide(Request(tier, pair.Resource, pair.Action));
-                if (!decision.IsAllowed)
+                if (decision.Effect is DecisionEffect.Deny)
                     Assert.Equal(GrantQualifier.None, decision.Qualifier);
             }
         }
+    }
+
+    // ---- Table 10's parentheticals ------------------------------------------------------
+
+    /// <summary>
+    /// An unqualified allow is actionable as it stands — the overwhelmingly common case, and the
+    /// behaviour every existing call site depends on.
+    /// </summary>
+    [Fact]
+    public void AnUnqualifiedAllowIsActionable()
+    {
+        var decision = Decide(Request(PrincipalTier.T1, ResourceKind.Question, ActionKind.Create));
+
+        Assert.Equal(GrantQualifier.None, decision.Qualifier);
+        Assert.True(decision.IsPermitted);
+        Assert.True(decision.IsAllowed);
+    }
+
+    /// <summary>
+    /// <b>A qualified allow is not a permission to act, and now cannot be mistaken for one.</b>
+    ///
+    /// <para>Table 10 writes <c>revision</c>/<c>create</c> as "(own)" and <c>answer</c>/<c>accept</c>
+    /// as "(own thread)". <see cref="AuthorizationDecision"/> has always carried that parenthetical
+    /// and always documented that such a decision "is not yet a permission to act" — and every
+    /// caller in the solution read <c>IsAllowed</c> and proceeded, because nothing stopped them.
+    /// <c>IsAllowed</c> is now false while a qualifier is outstanding, so the only way past it is
+    /// to answer the question the table asked.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(ResourceKind.Revision, ActionKind.Create, GrantQualifier.OwnResourceOnly)]
+    [InlineData(ResourceKind.Answer, ActionKind.Accept, GrantQualifier.OwnThreadOnly)]
+    public void AQualifiedAllowIsNotActionableUntilDischarged(
+        ResourceKind resource, ActionKind action, GrantQualifier expected)
+    {
+        var decision = Decide(Request(PrincipalTier.T1, resource, action));
+
+        Assert.Equal(expected, decision.Qualifier);
+        Assert.True(decision.IsPermitted);
+        Assert.False(decision.IsAllowed);
+    }
+
+    /// <summary>Discharging a satisfied qualifier yields an actionable decision.</summary>
+    [Fact]
+    public void DischargingASatisfiedQualifierYieldsAnActionableAllow()
+    {
+        var discharged = Decide(Request(PrincipalTier.T1, ResourceKind.Answer, ActionKind.Accept))
+            .Discharge(satisfied: true);
+
+        Assert.True(discharged.IsAllowed);
+        Assert.Equal(GrantQualifier.None, discharged.Qualifier);
+    }
+
+    /// <summary>
+    /// An unsatisfied qualifier denies, and the reason names the parenthetical rather than reporting
+    /// a bare refusal — R7.16 logs denials at the fidelity of allows, and "denied" alone cannot tell
+    /// an operator that the caller was the wrong agent rather than the wrong tier.
+    /// </summary>
+    [Fact]
+    public void AnUnsatisfiedQualifierDeniesAndSaysWhich()
+    {
+        var denied = Decide(Request(PrincipalTier.T1, ResourceKind.Answer, ActionKind.Accept))
+            .Discharge(satisfied: false);
+
+        Assert.False(denied.IsAllowed);
+        Assert.False(denied.IsPermitted);
+        Assert.Contains("own-thread", denied.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Discharging a denial cannot produce an allow. A qualifier is a further restriction on a
+    /// permission, never a way to acquire one — the caller establishing ownership of a resource it
+    /// was never permitted to touch must still be refused.
+    /// </summary>
+    [Fact]
+    public void DischargingADenialCannotManufactureAnAllow()
+    {
+        var denied = Decide(Request(PrincipalTier.Anonymous, ResourceKind.Answer, ActionKind.Accept));
+
+        Assert.False(denied.IsPermitted);
+        Assert.False(denied.Discharge(satisfied: true).IsAllowed);
+    }
+
+    /// <summary>
+    /// <b>A qualified write still spends the posting budget.</b>
+    ///
+    /// <para>The regression this guards is subtle and was live while the change was being made:
+    /// <see cref="AccessPolicy"/> tests the tier decision internally to decide whether a budget
+    /// applies, and if that internal test had been left reading <c>IsAllowed</c> — now false for a
+    /// qualified row — a revision would have become the one write with no rate limit. "The table
+    /// permitted this" and "the caller may act on this" are two questions, and this is the one place
+    /// that has to ask the first.</para>
+    /// </summary>
+    [Fact]
+    public void AQualifiedWriteStillSpendsTheRateBudget()
+    {
+        var overBudget = Decide(Request(
+            PrincipalTier.T1,
+            ResourceKind.Revision,
+            ActionKind.Create,
+            postsToday: TierPolicy.PostsPerDay(PrincipalTier.T1)));
+
+        Assert.False(overBudget.IsPermitted);
+        Assert.Equal("table-11/rate-budget-exhausted", overBudget.Reason);
     }
 }
