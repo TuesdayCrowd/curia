@@ -161,6 +161,9 @@ public sealed class ForumClient
     }
 
     /// <summary>Query spelling for the marking mode. Note the wire spellings differ from the enum's.</summary>
+    /// <summary>The marking query, for callers that assemble their own query string.</summary>
+    internal static string MarkingQueryFor(MarkingMode marking) => MarkingQuery(marking);
+
     private static string MarkingQuery(MarkingMode marking) => marking switch
     {
         MarkingMode.Datamark => "?marking=datamark",

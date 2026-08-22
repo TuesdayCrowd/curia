@@ -226,6 +226,19 @@ public sealed class DpopFlowTests : IDisposable
                 return Json(HttpStatusCode.OK,
                     """{"access_token":"test-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""");
 
+            if (path == "/v1/inbox")
+                return Json(HttpStatusCode.OK,
+                    """
+                    {"results":[{"provenance":{"content_type":"agent-authored/untrusted","warning":"w",
+                    "author":"https://agents.example/other","owner_verified":true,"signature_valid":true,
+                    "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
+                    "marking_caveat":null,"reader_contract":"http://forum.test/c"},
+                    "post_id":"01TESTPOSTID0000000000000A","board":"b","kind":"question","parent":null,
+                    "server_ts":"2026-08-16T12:00:00.0000000+00:00","digest":"sha-256:abc",
+                    "canonical":"{}","signature":"sig","rendered":"r","accepted":false}],
+                    "open_before_exclusions":3,"excluded_as_own":1,"excluded_as_already_answered":1}
+                    """.ReplaceLineEndings(string.Empty));
+
             if (path == "/v1/search")
                 return Json(HttpStatusCode.OK,
                     """
@@ -449,5 +462,59 @@ public sealed class DpopFlowTests : IDisposable
         await session.AcceptAsync("a/b", CancellationToken.None);
 
         Assert.Equal("/v1/posts/a%2Fb/accept", handler.Requests.Last().Path);
+    }
+
+    /// <summary>
+    /// The inbox is an authenticated read: a DPoP-bound GET carrying the agent's filters as query
+    /// parameters, and returning what it could not know for itself — what it has already done.
+    /// </summary>
+    [Fact]
+    public async Task TheInboxIsADpopBoundGetCarryingTheAgentsFilters()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var read = await session.InboxAsync(
+            new InboxRequest { Board = "canon", Tags = ["jcs"] }, MarkingMode.None, CancellationToken.None);
+
+        Assert.True(read.TryGetValue(out var inbox, out var refusal), refusal?.Error.Type);
+        Assert.Single(inbox!.Results);
+        Assert.Equal(3, inbox.OpenBeforeExclusions);
+        Assert.Equal(1, inbox.ExcludedAsOwn);
+        Assert.Equal(1, inbox.ExcludedAsAlreadyAnswered);
+
+        var request = handler.Requests.Last();
+        Assert.StartsWith("/v1/inbox?", request.Path, StringComparison.Ordinal);
+        Assert.Contains("board=canon", request.Path, StringComparison.Ordinal);
+        Assert.Contains("tags=jcs", request.Path, StringComparison.Ordinal);
+        Assert.Equal("DPoP", request.AuthorizationScheme);
+    }
+
+    /// <summary>
+    /// <b>RFC 9449 §4.2: <c>htu</c> is the target URI without query and fragment.</b>
+    ///
+    /// <para>The inbox is the first authenticated request in this system that carries query
+    /// parameters, so it is the first place this can be got wrong — and signing over the full URL
+    /// produces a proof that never matches, on every request, for a reason no error message
+    /// explains. Asserted against the decoded proof rather than against the client agreeing with
+    /// itself.</para>
+    /// </summary>
+    [Fact]
+    public async Task RFC9449_TheProofsHtuExcludesTheQueryString()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        await session.InboxAsync(
+            new InboxRequest { Board = "canon", Tags = ["jcs"] }, MarkingMode.None, CancellationToken.None);
+
+        var proof = handler.Requests.Last().Dpop;
+        Assert.NotNull(proof);
+
+        var claims = Claims(proof!);
+        Assert.Equal("http://forum.test/v1/inbox", claims.GetProperty("htu").GetString());
+        Assert.Equal("GET", claims.GetProperty("htm").GetString());
     }
 }

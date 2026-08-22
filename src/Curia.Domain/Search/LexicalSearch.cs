@@ -194,7 +194,6 @@ public static class LexicalSearch
         ArgumentNullException.ThrowIfNull(query);
 
         var terms = Tokenize(query.Text);
-        var tagFilter = query.Tags.IsDefault ? [] : query.Tags;
         var hits = ImmutableArray.CreateBuilder<SearchHit>();
 
         foreach (var post in corpus)
@@ -202,16 +201,7 @@ public static class LexicalSearch
             // No cursor test here. The cursor names a position in the *ranked* order, which is not
             // known until every candidate has been scored -- testing it against the corpus order was
             // the defect. It is applied below, after the sort.
-            if (query.Board is { } board && !string.Equals(post.Board, board, StringComparison.Ordinal)) continue;
-            if (query.Kind is { } kind && post.Kind != kind) continue;
-            if (query.Author is { } author && !string.Equals(post.Author, author, StringComparison.Ordinal)) continue;
-
-            // Tag filter is conjunctive: every named tag must be present. An agent narrowing by two
-            // tags means "both", and a disjunctive reading would widen the result set exactly when
-            // the agent was trying to shrink it.
-            if (!tagFilter.IsEmpty
-                && !tagFilter.All(t => post.Tags.Any(pt => string.Equals(pt, t, StringComparison.OrdinalIgnoreCase))))
-                continue;
+            if (!Matches(post, query)) continue;
 
             var why = Explain(post, terms);
 
@@ -253,6 +243,33 @@ public static class LexicalSearch
     public const int DefaultLimit = 25;
 
     private static int PageSize(int requested) => Math.Clamp(requested, 1, MaximumLimit);
+
+    /// <summary>
+    /// R9.6's structured filters alone: does this post survive board, kind, author and tags?
+    ///
+    /// <para>Public and separate from <see cref="Search"/> because a caller that needs the same
+    /// filters over a corpus it is <i>counting</i> rather than ranking has no other honest way to
+    /// get them. The inbox does exactly that — it reports how many open questions matched an agent's
+    /// filters before its personal exclusions, so an empty inbox can say which kind of empty it is.
+    /// A second copy of these predicates is how the two readings of "matching" come to disagree.</para>
+    /// </summary>
+    public static bool Matches(SearchablePost post, LexicalQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.Board is { } board && !string.Equals(post.Board, board, StringComparison.Ordinal)) return false;
+        if (query.Kind is { } kind && post.Kind != kind) return false;
+        if (query.Author is { } author && !string.Equals(post.Author, author, StringComparison.Ordinal)) return false;
+
+        // Tag filter is conjunctive: every named tag must be present. An agent narrowing by two
+        // tags means "both", and a disjunctive reading would widen the result set exactly when
+        // the agent was trying to shrink it.
+        var tagFilter = query.Tags.IsDefault ? [] : query.Tags;
+
+        return tagFilter.IsEmpty
+            || tagFilter.All(t => post.Tags.Any(pt => string.Equals(pt, t, StringComparison.OrdinalIgnoreCase)));
+    }
 
     /// <summary>The cursor to pass for the next page, or null when the page was the last one.</summary>
     public static SearchCursor? NextCursor(ImmutableArray<SearchHit> page, int limit) =>
