@@ -138,8 +138,22 @@ internal sealed class DpopClient
     /// against any server that required one. Handling it here is what makes the nonce requirement
     /// testable rather than merely configured.</para>
     /// </summary>
+    /// <summary>
+    /// Posts to <paramref name="absoluteUrl"/> with a DPoP-bound token, retrying once when the
+    /// Forum answers RFC 9449 §8's nonce challenge.
+    /// </summary>
+    /// <param name="contentType">
+    /// Set for endpoints that bind a JSON body. The submission path deliberately leaves it unset:
+    /// it reads the raw wire bytes, and a submission is canonical JSON that no binder may reshape.
+    /// </param>
     internal async Task<HttpResponseMessage> PostAsync(
-        HttpClient client, string absoluteUrl, string accessToken, byte[] wire, DateTimeOffset now, CancellationToken ct)
+        HttpClient client,
+        string absoluteUrl,
+        string accessToken,
+        byte[] wire,
+        DateTimeOffset now,
+        CancellationToken ct,
+        string? contentType = null)
     {
         var response = await Send(nonce: null);
 
@@ -155,7 +169,16 @@ internal sealed class DpopClient
         async Task<HttpResponseMessage> Send(string? nonce)
         {
             using var content = new ByteArrayContent(wire);
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/posts") { Content = content };
+            if (contentType is not null)
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+
+            // The path comes from the same URL the DPoP proof's `htu` is built over. Two independent
+            // spellings of one route is how a proof comes to be signed over a URL the request never
+            // went to -- which would fail as an authentication error and read as a Forum bug.
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(absoluteUrl).PathAndQuery)
+            {
+                Content = content,
+            };
             request.Headers.Authorization = new AuthenticationHeaderValue("DPoP", accessToken);
             request.Headers.Add("DPoP", Proof("POST", absoluteUrl, now, accessToken, nonce));
 

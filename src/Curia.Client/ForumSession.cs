@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.Net;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Curia.Canon.Json;
+using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 
 namespace Curia.Client;
@@ -102,23 +105,74 @@ public sealed class ForumSession
     /// bytes are what the signature covers, and a session that could rebuild them would be a
     /// session that could change them between signing and sending.
     /// </summary>
-    public async Task<ForumResult<PostReceipt>> SubmitAsync(ReadOnlyMemory<byte> wire, CancellationToken ct)
+    public Task<ForumResult<PostReceipt>> SubmitAsync(ReadOnlyMemory<byte> wire, CancellationToken ct) =>
+        WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct);
+
+    /// <summary>
+    /// R10.35: raises a typed flag against a post. Named <c>FlagAsync</c> rather than
+    /// <c>RaiseFlagAsync</c> because the analyzer reads a <c>Raise</c> prefix as an event invoker.
+    ///
+    /// <para><b>Both refusals a client can make itself are made here</b>, before a round trip. An
+    /// unknown kind and a missing rationale are things <c>FlagKinds.Parse</c> and R10.35 already
+    /// settle locally, and the Forum would refuse them identically -- so spending a request to be
+    /// told is a request wasted, and the local refusal names the same condition slug the Forum
+    /// would have.</para>
+    ///
+    /// <para>The flag is attributed by the DPoP-bound token, not signed: R10.37 requires a signed
+    /// entry for a <i>moderation action</i>, and R10.35 requires no such thing of a flag. So there
+    /// is no envelope here and nothing to canonicalize — which is also why this does not go through
+    /// <c>SubmissionBuilder</c>.</para>
+    /// </summary>
+    public Task<ForumResult<FlagReceipt>> FlagAsync(
+        string postId, string kind, string rationale, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+
+        if (!FlagKinds.Parse(kind).TryGetValue(out var parsed, out var kindError))
+            return Task.FromResult(ForumResult<FlagReceipt>.Refused(
+                new Refusal(RefusalKind.Local, 0, kindError!)));
+
+        if (string.IsNullOrWhiteSpace(rationale))
+            return Task.FromResult(ForumResult<FlagReceipt>.Refused(
+                new Refusal(RefusalKind.Local, 0, ModerationErrors.RationaleRequired())));
+
+        var body = JsonSerializer.SerializeToUtf8Bytes(new FlagBody(FlagKinds.Wire(parsed), rationale));
+
+        // Percent-encoded, for the reason the JWKS route had to move off a path segment: an
+        // identifier interpolated raw into a URL is one identifier-format change away from being a
+        // path traversal, and Table 9 already types one identifier in this system as a URI.
+        return WriteAsync(
+            $"/v1/posts/{Uri.EscapeDataString(postId)}/flags", body, ForumDocuments.ReadFlagReceipt, ct);
+    }
+
+    /// <summary>
+    /// One DPoP-bound write, including RFC 9449 §8's nonce exchange.
+    ///
+    /// <para>Shared by every write path rather than copied per endpoint. The nonce dance is the
+    /// part a client either gets right once or fails intermittently on forever, and two copies of
+    /// it is two chances to get it right — which is one more than this is worth.</para>
+    /// </summary>
+    private async Task<ForumResult<T>> WriteAsync<T>(
+        string path,
+        ReadOnlyMemory<byte> body,
+        Func<JsonValue.Object, Result<T>> read,
+        CancellationToken ct)
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
-            return ForumResult<PostReceipt>.Refused(tokenRefusal);
+            return ForumResult<T>.Refused(tokenRefusal);
 
-        var url = _client.UrlFor("/v1/posts");
+        var url = _client.UrlFor(path);
         var cached = _store.ReadToken(_agent.Profile.Slug);
 
-        var first = await PostOnceAsync(wire, token, url, cached?.Nonce, ct).ConfigureAwait(false);
+        var first = await PostOnceAsync(path, body, token, url, cached?.Nonce, read, ct).ConfigureAwait(false);
 
         if (first.Nonce is { } challenge)
         {
             // Cache before retrying: even if this retry fails for some other reason, the next
             // command should not have to spend a round-trip rediscovering the same nonce.
             RememberNonce(challenge);
-            var retry = await PostOnceAsync(wire, token, url, challenge, ct).ConfigureAwait(false);
+            var retry = await PostOnceAsync(path, body, token, url, challenge, read, ct).ConfigureAwait(false);
             return retry.Result;
         }
 
@@ -137,15 +191,21 @@ public sealed class ForumSession
     /// One attempt. Returns the outcome, plus the nonce the Forum challenged with when it did --
     /// the challenge is not a failure to report, it is an instruction to retry.
     /// </summary>
-    private async Task<(ForumResult<PostReceipt> Result, string? Nonce)> PostOnceAsync(
-        ReadOnlyMemory<byte> wire, string token, Uri url, string? nonce, CancellationToken ct)
+    private async Task<(ForumResult<T> Result, string? Nonce)> PostOnceAsync<T>(
+        string path,
+        ReadOnlyMemory<byte> wire,
+        string token,
+        Uri url,
+        string? nonce,
+        Func<JsonValue.Object, Result<T>> read,
+        CancellationToken ct)
     {
         var now = _clock.GetUtcNow();
 
         using var content = new ReadOnlyMemoryContent(wire);
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/posts") { Content = content };
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
         request.Headers.Authorization = ForumClient.DpopAuthorization(token);
         request.Headers.Add("DPoP", _signer.Proof("POST", url, now, token, nonce));
 
@@ -156,7 +216,7 @@ public sealed class ForumSession
         }
         catch (HttpRequestException ex)
         {
-            return (ForumResult<PostReceipt>.Refused(new Refusal(
+            return (ForumResult<T>.Refused(new Refusal(
                 RefusalKind.Transport, 0, ClientErrors.Transport($"{url}: {ex.Message}"))), null);
         }
 
@@ -173,8 +233,8 @@ public sealed class ForumSession
                 response.StatusCode,
                 bytes,
                 v => v is JsonValue.Object o
-                    ? ForumDocuments.ReadReceipt(o)
-                    : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("expected a JSON object")));
+                    ? read(o)
+                    : Result<T>.Fail(ClientErrors.ResponseMalformed("expected a JSON object")));
 
             return (result, challenge);
         }
@@ -194,3 +254,8 @@ public sealed class ForumSession
             : "expired";
     }
 }
+
+/// <summary>The flag request body, as R10.35's route takes it.</summary>
+internal sealed record FlagBody(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("rationale")] string Rationale);

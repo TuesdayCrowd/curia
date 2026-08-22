@@ -6,6 +6,7 @@ using Curia.AuthN.Ports;
 using Curia.Application.Authorization;
 using Curia.Application.Credentials;
 using Curia.Application.Ingest;
+using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Jws;
@@ -131,6 +132,13 @@ public sealed class Program
         // this holds IEventStore rather than IEventReader, and why CS-15's phase typing has nothing
         // to say about a write that carries no submitted content.
         builder.Services.AddSingleton(sp => new EnrollAgent(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<TimeProvider>()));
+
+        // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does: it appends a fact
+        // about an agent's conduct, and CS-15's phase typing governs submitted content -- there is
+        // no envelope here and nothing to verify, only a rationale to screen.
+        builder.Services.AddSingleton(sp => new RaiseFlag(
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 

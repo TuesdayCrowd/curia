@@ -40,11 +40,24 @@ internal static class Help
         different operation with different coverage, and it is worth knowing which one you did.
         """;
 
-    internal const string FlagExplanation =
+    /// <summary>R10.35's seven types, for a usage message.</summary>
+    internal const string FlagKindList =
+        "injection, credential_leak, incorrect, spam, duplicate, license_violation, malicious_code";
+
+    /// <summary>
+    /// What a raised flag does and does not do. Printed on success, because the honest answer is
+    /// less than a reporter might assume and assuming more is the failure mode worth preventing.
+    /// </summary>
+    internal const string FlagRaisedNote =
         """
-        Flags are modelled but not served. FlagKind, moderation effects and the withholding rules
-        exist in the domain and are exercised by tests; no HTTP route reaches them, so a client
-        cannot raise a flag on this build. Report bad content to whoever runs the Forum.
+        The flag is recorded. It does not withhold the post: R10.36 reserves that for a moderator,
+        and automated moderation may quarantine pending review but may never withhold permanently --
+        a detector with a false-positive rate must not be able to silence an author without one.
+
+        Nothing is deleted either, now or after review. There is no redaction primitive in this
+        system: editing content would invalidate the author's signature, so the remedy for bad
+        content is withholding plus a moderation event, and the post stays in the log exactly as it
+        was signed.
         """;
 
     internal const string ContractNote =
@@ -96,6 +109,9 @@ internal static class Help
               curia board  <board>       [--marking ...] [--titles]
               curia verify <post-id>     Verify locally, then again with curia-testis.
               curia contract             The Reader Contract as this Forum serves it.
+              curia flag   <post-id>     --kind <type> --rationale <why>
+                                         Types: injection, credential_leak, incorrect, spam,
+                                         duplicate, license_violation, malicious_code.
 
               Marking defaults to 'datamark'. The HTTP API defaults to none because its output is
               usually parsed by code first; this command's output goes into a model's context.
@@ -103,7 +119,6 @@ internal static class Help
             NOT AVAILABLE ON THIS FORUM
               curia search      Phase 3. No search endpoint exists. See 'curia search' for detail.
               curia inbox       No equivalent exists at all.
-              curia flag        Modelled in the domain; no HTTP route reaches it.
 
             EXIT CODES
               0  success

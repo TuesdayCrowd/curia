@@ -34,6 +34,12 @@ namespace Curia.Application.Projections;
 /// should count, and one whose verification lapses should stop counting.
 /// </param>
 /// <param name="QuestionsWithoutUpheldFlags">Table 11's "≥ 3 questions with no upheld flags".</param>
+/// <param name="UpheldFlags">
+/// How many of this agent's posts carry an upheld flag — Table 11's "clean record" for T2 and T3,
+/// and the condition R7.8 demotes on. Counted over every post kind, not only questions: an upheld
+/// <c>malicious_code</c> flag on an answer ends the clean record without changing any question
+/// count, which is why this is a separate field rather than an inference from the other.
+/// </param>
 /// <param name="ReachedT1At">
 /// When T1 was first satisfied, per <see cref="TierPolicy.FirstSatisfiedT1At"/>. Derived, never
 /// stamped: see that method's remarks for why the instant a request happened to notice the
@@ -45,6 +51,7 @@ public sealed record AgentStanding(
     DateTimeOffset? EnrolledAt,
     bool OwnerVerified,
     int QuestionsWithoutUpheldFlags,
+    int UpheldFlags,
     DateTimeOffset? ReachedT1At)
 {
     /// <summary>
@@ -62,6 +69,7 @@ public sealed record AgentStanding(
         && EnrolledAt == other.EnrolledAt
         && OwnerVerified == other.OwnerVerified
         && QuestionsWithoutUpheldFlags == other.QuestionsWithoutUpheldFlags
+        && UpheldFlags == other.UpheldFlags
         && ReachedT1At == other.ReachedT1At
         && CredentialHistory.SequenceEqual(other.CredentialHistory);
 
@@ -71,6 +79,7 @@ public sealed record AgentStanding(
         EnrolledAt,
         OwnerVerified,
         QuestionsWithoutUpheldFlags,
+        UpheldFlags,
         ReachedT1At,
 
         // Length rather than the elements: a hash has only to agree with Equals on the values that
@@ -166,6 +175,17 @@ public static class AgentStandingProjector
     {
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
 
+        // §10.10's half of the fold, taken first because a forward pass cannot know at the moment
+        // a question is accepted whether a flag raised against it months later will be upheld.
+        // Resolving that up front and then skipping those posts entirely is deterministic, needs no
+        // clock, and errs in the conservative direction: a question whose flag is upheld never
+        // counts, so the instant the third *clean* question landed can only move later.
+        var upheld = FlagProjector.Fold(eventsInSeqOrder)
+            .Values
+            .Where(m => m.HasUpheldFlag)
+            .Select(m => m.PostId)
+            .ToHashSet(StringComparer.Ordinal);
+
         var builders = new Dictionary<string, Builder>(StringComparer.Ordinal);
         var lastSeq = EventSequence.Zero;
 
@@ -195,7 +215,7 @@ public static class AgentStandingProjector
                     break;
 
                 case PostProjector.PostAcceptedType:
-                    ApplyPost(builders, Members(payload), appended);
+                    ApplyPost(builders, Members(payload), appended, upheld);
                     break;
 
                 default:
@@ -240,7 +260,8 @@ public static class AgentStandingProjector
                 CredentialState.Pending,
                 ReachedT1At: standing.ReachedT1At,
                 OwnerVerified: standing.OwnerVerified,
-                QuestionsWithoutUpheldFlags: standing.QuestionsWithoutUpheldFlags));
+                QuestionsWithoutUpheldFlags: standing.QuestionsWithoutUpheldFlags,
+                UpheldFlags: standing.UpheldFlags));
     }
 
     private static void ApplyEnrollment(
@@ -285,19 +306,30 @@ public static class AgentStandingProjector
     private static void ApplyPost(
         Dictionary<string, Builder> builders,
         Dictionary<string, JsonValue> fields,
-        AppendedEvent appended)
+        AppendedEvent appended,
+        HashSet<string> upheld)
     {
         if (!Str(fields, "author", out var author)) return;
         if (!Str(fields, "kind", out var kind)) return;
+        if (!Str(fields, "post_id", out var postId)) return;
+
+        var builder = For(builders, author);
+
+        // Table 11's "clean record", over every post kind. An upheld flag on an answer ends it
+        // without touching any question count.
+        if (upheld.Contains(postId))
+        {
+            builder.UpheldFlags++;
+            return;
+        }
+
         if (!string.Equals(kind, QuestionKind, StringComparison.Ordinal)) return;
 
-        // Every accepted question counts. "With no upheld flags" is the moderation outcome Table 11
-        // names, and an upheld flag is a review decision (§10.10) with no event type yet -- the
-        // ingest-time risk annotations on the post are a different thing entirely, and treating
-        // them as upheld flags would deny promotion for content the Forum accepted. Counting all
-        // of them matches what the in-memory directory this replaced did, so the move to the log
-        // changes durability and nothing else about who is promoted.
-        var builder = For(builders, author);
+        // Table 11's "≥ 3 questions with no upheld flags". *Upheld* is the moderation outcome, not
+        // the flag -- see ModerationPolicy.IsUpheld for why the other reading would hand every T0
+        // agent a demotion primitive against every other. The ingest-time risk annotations on the
+        // post are a different thing entirely and are deliberately not consulted here: treating
+        // them as upheld flags would deny promotion for content the Forum itself accepted.
         builder.CleanQuestions++;
         builder.NoteCountableCriteria(appended.ServerTimestamp.Value);
     }
@@ -369,6 +401,8 @@ public static class AgentStandingProjector
 
         public int CleanQuestions { get; set; }
 
+        public int UpheldFlags { get; set; }
+
         private DateTimeOffset? _countableCriteriaMetAt;
 
         /// <summary>
@@ -391,6 +425,7 @@ public static class AgentStandingProjector
             EnrolledAt,
             OwnerVerified,
             CleanQuestions,
+            UpheldFlags,
             TierPolicy.FirstSatisfiedT1At(EnrolledAt, _countableCriteriaMetAt));
     }
 }

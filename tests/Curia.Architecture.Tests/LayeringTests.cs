@@ -214,6 +214,16 @@ public sealed class LayeringTests
         // named this way is necessarily compiler-emitted, so this cannot accidentally excuse
         // anything a person wrote. The rule keeps its teeth -- a hand-written type in the global
         // namespace is still an offender, and so is any type reaching a namespace outside the list.
+        //
+        // Note for whoever trips this next: a `switch` over seven or more string cases is lowered by
+        // Roslyn to a hash probe rather than a comparison chain, which makes the switching type
+        // depend on `<PrivateImplementationDetails>::ComputeStringHash` -- a dependency in the
+        // global namespace that this rule then reports, on a type nobody wrote a dependency into.
+        // `Curia.Domain.Moderation`'s wire-spelling maps hit exactly that at seven flag kinds. The
+        // fix belongs in the code (a lookup table, which is what those maps are anyway) rather than
+        // in this allow-list: admitting a global-namespace name here would weaken the one rule that
+        // catches an unvetted package, and NetArchTest does not match such a name as a prefix in any
+        // case.
         var scanned = Types.InAssembly(Domain).GetTypes();
         Assert.NotEmpty(scanned); // guards against the predicate silently matching nothing
 
