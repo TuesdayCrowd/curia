@@ -21,7 +21,46 @@ public sealed record SearchablePost(
     string Body,
     ImmutableArray<string> Tags,
     string Author,
-    long Sequence);
+    long Sequence)
+{
+    /// <summary>
+    /// Structural equality, spelled out rather than left to the compiler because
+    /// <see cref="ImmutableArray{T}"/>'s own <c>Equals</c> compares the underlying array
+    /// <i>reference</i>. The generated record equality therefore reports two posts projected from
+    /// the very same event as different, purely because each fold allocated its own array.
+    ///
+    /// <para>That is not cosmetic here for the same reason it was not on <c>AgentStanding</c>, where
+    /// this exact defect shipped and was green: R11.9's rebuild-from-zero drill is asserted by
+    /// comparing a projection against its own rebuild, so a type whose <c>==</c> is false for
+    /// identical content makes the drill unassertable — a test that cannot fail, reporting the same
+    /// green as one that passes.</para>
+    /// </summary>
+    public bool Equals(SearchablePost? other) =>
+        other is not null
+        && string.Equals(PostId, other.PostId, StringComparison.Ordinal)
+        && string.Equals(Digest, other.Digest, StringComparison.Ordinal)
+        && string.Equals(Board, other.Board, StringComparison.Ordinal)
+        && Kind == other.Kind
+        && string.Equals(Title, other.Title, StringComparison.Ordinal)
+        && string.Equals(Body, other.Body, StringComparison.Ordinal)
+        && string.Equals(Author, other.Author, StringComparison.Ordinal)
+        && Sequence == other.Sequence
+        && Tags.SequenceEqual(other.Tags);
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(
+        PostId,
+        Digest,
+        Board,
+        Kind,
+        Title,
+        Body,
+        Author,
+
+        // Sequence and the tag count folded together: a hash has only to agree with Equals on the
+        // values that are equal, and Combine takes eight arguments.
+        HashCode.Combine(Sequence, Tags.Length));
+}
 
 /// <summary>
 /// A structured query. R9.6: "Search SHALL support structured filters."
@@ -43,24 +82,39 @@ public sealed record LexicalQuery(
     ImmutableArray<string> Tags = default,
     string? Author = null,
     SearchCursor? Cursor = null,
-    int Limit = 25);
+    int Limit = LexicalSearch.DefaultLimit);
 
 /// <summary>
-/// An opaque cursor: the sequence of the last result returned.
+/// An opaque cursor: the position of the last result returned, as the pair the results are actually
+/// ordered by.
 ///
-/// <para><b>Why <c>seq</c> and not an offset</b> is R9.7's whole point, and why <c>seq</c> rather
-/// than a score is the same argument one level down: a score changes when the corpus changes, so a
-/// score-keyed cursor drifts exactly as badly as an offset. <c>seq</c> is the one total order the
-/// event log actually offers, and it is immutable once assigned.</para>
+/// <para><b>The cursor has to carry the whole sort key, and originally carried only <c>seq</c>.</b>
+/// That is the defect this type was rewritten for. Results are ordered by score descending and seq
+/// ascending; a cursor keyed on <c>seq</c> alone told the next page to skip everything below the
+/// seq of the <i>lowest-scoring</i> row on the previous page, which is an arbitrary position in the
+/// ordering. Paging a static ten-post corpus three at a time returned
+/// <c>[post-10, post-9, post-8, post-10, post-9]</c> — two rows twice, seven rows never. Those are
+/// both of the failure modes R9.7 names, on a corpus that was not even changing.</para>
+///
+/// <para><b>Why a score-keyed cursor is safe here</b>, against the general argument that scores
+/// drift and make a cursor as bad as an offset. That argument is right about search engines in
+/// general and does not apply to this corpus: a lexical score is a pure function of a post's content
+/// and the query terms, post content is immutable (there is no redaction primitive, by
+/// construction — R10.26), and the log is append-only. So the score of an already-returned post for
+/// an already-issued query cannot change. A post appended later can land on a page not yet fetched;
+/// nothing already returned moves. That is exactly the stability R9.7 asks for, and it holds because
+/// of properties §6 already guarantees rather than because of anything this type does.</para>
 ///
 /// <para>Opaque to the caller by contract, not by encryption -- it is base64 rather than a bare
-/// number so that a client which starts arithmetic on it is doing something visibly unsupported
+/// pair so that a client which starts arithmetic on it is doing something visibly unsupported
 /// rather than something that quietly works until the encoding changes.</para>
 /// </summary>
-public sealed record SearchCursor(long AfterSequence)
+/// <param name="AfterScore">The score of the last result returned.</param>
+/// <param name="AfterSequence">The <c>seq</c> of the last result returned, which breaks score ties.</param>
+public sealed record SearchCursor(int AfterScore, long AfterSequence)
 {
-    public string Encode() => Convert.ToBase64String(
-        System.Text.Encoding.ASCII.GetBytes(AfterSequence.ToString(CultureInfo.InvariantCulture)));
+    public string Encode() => Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes(
+        string.Create(CultureInfo.InvariantCulture, $"{AfterScore}:{AfterSequence}")));
 
     public static SearchCursor? Decode(string? encoded)
     {
@@ -69,7 +123,13 @@ public sealed record SearchCursor(long AfterSequence)
         try
         {
             var text = System.Text.Encoding.ASCII.GetString(Convert.FromBase64String(encoded));
-            return long.TryParse(text, CultureInfo.InvariantCulture, out var seq) ? new SearchCursor(seq) : null;
+            var separator = text.IndexOf(':', StringComparison.Ordinal);
+            if (separator <= 0) return null;
+
+            return int.TryParse(text.AsSpan(..separator), CultureInfo.InvariantCulture, out var score)
+                && long.TryParse(text.AsSpan((separator + 1)..), CultureInfo.InvariantCulture, out var seq)
+                    ? new SearchCursor(score, seq)
+                    : null;
         }
         catch (FormatException)
         {
@@ -78,6 +138,18 @@ public sealed record SearchCursor(long AfterSequence)
             // read path is not, and R9.7's concern is silent skipping, which starting over avoids.
             return null;
         }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="hit"/> sorts strictly after this cursor, in the one ordering
+    /// <see cref="LexicalSearch.Search"/> produces: score descending, then seq ascending.
+    /// </summary>
+    internal bool Precedes(SearchHit hit)
+    {
+        ArgumentNullException.ThrowIfNull(hit);
+
+        return hit.Score < AfterScore
+            || (hit.Score == AfterScore && hit.Post.Sequence > AfterSequence);
     }
 }
 
@@ -127,7 +199,9 @@ public static class LexicalSearch
 
         foreach (var post in corpus)
         {
-            if (query.Cursor is { } cursor && post.Sequence <= cursor.AfterSequence) continue;
+            // No cursor test here. The cursor names a position in the *ranked* order, which is not
+            // known until every candidate has been scored -- testing it against the corpus order was
+            // the defect. It is applied below, after the sort.
             if (query.Board is { } board && !string.Equals(post.Board, board, StringComparison.Ordinal)) continue;
             if (query.Kind is { } kind && post.Kind != kind) continue;
             if (query.Author is { } author && !string.Equals(post.Author, author, StringComparison.Ordinal)) continue;
@@ -152,12 +226,37 @@ public static class LexicalSearch
         // Score first, then seq. The seq tiebreak is what makes ordering *stable* under R9.7: two
         // posts with equal score must not swap places between pages, and seq is immutable once the
         // store assigned it.
-        return [.. hits.OrderByDescending(h => h.Score).ThenBy(h => h.Post.Sequence).Take(query.Limit)];
+        var ranked = hits.OrderByDescending(h => h.Score).ThenBy(h => h.Post.Sequence);
+
+        // Keyset pagination on that same ordering. Skipping by predicate rather than by index is
+        // what makes this not an offset: a post appended since the cursor was issued shifts no
+        // already-returned row, because the comparison is against a position in the order rather
+        // than a count of rows before it.
+        var page = query.Cursor is { } cursor ? ranked.Where(cursor.Precedes) : ranked;
+
+        return [.. page.Take(PageSize(query.Limit))];
     }
+
+    /// <summary>
+    /// The largest page this will produce, whatever a caller asks for.
+    ///
+    /// <para>There was no cap: <c>Take(query.Limit)</c> served the caller's number, so one request
+    /// could ask the Forum to rank and materialise the whole corpus. Capped in the domain rather
+    /// than at the HTTP boundary because a domain function has to be total over its inputs and the
+    /// transport is not the only thing that will ever call this -- the route refuses an
+    /// out-of-range <c>limit</c> outright, so a client is told rather than quietly served fewer,
+    /// and this remains true for every other caller.</para>
+    /// </summary>
+    public const int MaximumLimit = 100;
+
+    /// <summary>The default page size when a caller expresses no preference.</summary>
+    public const int DefaultLimit = 25;
+
+    private static int PageSize(int requested) => Math.Clamp(requested, 1, MaximumLimit);
 
     /// <summary>The cursor to pass for the next page, or null when the page was the last one.</summary>
     public static SearchCursor? NextCursor(ImmutableArray<SearchHit> page, int limit) =>
-        page.Length < limit ? null : new SearchCursor(page[^1].Post.Sequence);
+        page.Length < PageSize(limit) ? null : new SearchCursor(page[^1].Score, page[^1].Post.Sequence);
 
     private static RankExplanation Explain(SearchablePost post, ImmutableArray<string> terms)
     {

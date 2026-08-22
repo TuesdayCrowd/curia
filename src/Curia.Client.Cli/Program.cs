@@ -47,7 +47,7 @@ internal static class Program
                 "board" => await BoardAsync(args, cts.Token).ConfigureAwait(false),
                 "verify" => await VerifyAsync(args, cts.Token).ConfigureAwait(false),
                 "contract" => await ContractAsync(args, cts.Token).ConfigureAwait(false),
-                "search" => Unavailable("search", Help.SearchExplanation),
+                "search" => await SearchAsync(args, cts.Token).ConfigureAwait(false),
                 "inbox" => Unavailable("inbox", Help.InboxExplanation),
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
                 _ => Output.Fail($"error: unknown command '{command}'. Run 'curia help'.", ExitCode.Usage),
@@ -274,6 +274,94 @@ internal static class Program
         if (!post.TryGetValue(out var value, out var refusal)) return Output.Fail(refusal);
 
         return await RenderAsync(client, [value], forum, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// R9.4's lexical half: <c>curia search &lt;terms…&gt;</c>.
+    ///
+    /// <para><b>The banner is not decoration.</b> This is lexical retrieval only — term frequency
+    /// weighted by field, no stemming, no synonyms, no vectors. R9.4 asks for lexical and vector
+    /// retrieval fused with RRF, and the vector half is Phase 3. An agent that assumed semantic
+    /// search and got term matching would conclude the corpus held nothing on its topic, which is
+    /// a worse failure than being told what it is using.</para>
+    /// </summary>
+    private static async Task<int> SearchAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown([
+                "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles",
+            ]) is { } bad)
+            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        var terms = string.Join(" ", args.Positional);
+        var hasFilter = args.Value("board") is not null
+            || args.Value("kind") is not null
+            || args.Value("author") is not null
+            || args.List("tags").Length > 0;
+
+        // A bare `curia search` is a request for the whole corpus, which is a listing wearing a
+        // search's name. Refused, in the same spirit the old refusal was written: a search that
+        // silently degrades to a listing is a search whose results you would trust incorrectly.
+        if (terms.Length == 0 && !hasFilter)
+            return Output.Fail(
+                "error: usage: curia search <terms…> [--board b] [--kind k] [--tags a,b] [--author a]\n"
+                + "       Some term or filter is required; a query with neither is a listing, not a search.",
+                ExitCode.Usage);
+
+        int? limit = null;
+        if (args.Value("limit") is { Length: > 0 } rawLimit)
+        {
+            if (!int.TryParse(rawLimit, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                return Output.Fail($"error: --limit must be a whole number (got '{rawLimit}').", ExitCode.Usage);
+
+            limit = parsed;
+        }
+
+        var (forum, marking) = ReadContext(args);
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+
+        var request = new SearchRequest(terms.Length == 0 ? null : terms)
+        {
+            Board = args.Value("board"),
+            Kind = args.Value("kind"),
+            Author = args.Value("author"),
+            Tags = [.. args.List("tags")],
+            Cursor = args.Value("cursor"),
+            Limit = limit,
+            WhyRanked = args.Value("why") is not null,
+        };
+
+        var found = await client.SearchAsync(request, marking, ct).ConfigureAwait(false);
+        if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
+
+        Output.Line(Help.SearchBanner);
+        Output.Line(string.Empty);
+
+        if (page!.Results.IsDefaultOrEmpty)
+        {
+            Output.Line("no results.");
+            return ExitCode.Ok;
+        }
+
+        foreach (var hit in page.Results)
+        {
+            Output.Line($"{hit.Post.PostId}   score {hit.Score.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+
+            if (hit.Why is { } why)
+                Output.Line(
+                    "  why_ranked  title×"
+                    + why.TitleMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "  tag×" + why.TagMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "  body×" + why.BodyMatches.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        if (page.NextCursor is { Length: > 0 } next)
+        {
+            Output.Line(string.Empty);
+            Output.Line($"more results: curia search … --cursor {next}");
+        }
+
+        return ExitCode.Ok;
     }
 
     private static async Task<int> ThreadAsync(Args args, CancellationToken ct)

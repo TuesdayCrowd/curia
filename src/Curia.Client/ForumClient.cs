@@ -79,6 +79,48 @@ public sealed class ForumClient
         GetAsync($"/v1/boards/{Uri.EscapeDataString(board)}/posts{MarkingQuery(marking)}",
             ForumDocuments.ReadPosts, ct);
 
+    /// <summary>
+    /// R9.4's lexical half: <c>GET /v1/search</c>.
+    ///
+    /// <para><b>Every value is percent-encoded into the query string.</b> A term containing
+    /// <c>&amp;</c> concatenated raw would silently become a second parameter, and the agent would
+    /// be shown results for a query it never ran — with nothing in the response saying so.</para>
+    /// </summary>
+    public Task<ForumResult<SearchPage>> SearchAsync(
+        SearchRequest request, MarkingMode marking, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var parameters = new List<string>();
+
+        void Add(string name, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                parameters.Add($"{name}={Uri.EscapeDataString(value)}");
+        }
+
+        Add("q", request.Text);
+        Add("board", request.Board);
+        Add("kind", request.Kind);
+        Add("author", request.Author);
+        Add("cursor", request.Cursor);
+
+        if (!request.Tags.IsDefaultOrEmpty)
+            Add("tags", string.Join(",", request.Tags));
+
+        if (request.Limit is { } limit)
+            parameters.Add($"limit={limit.ToString(CultureInfo.InvariantCulture)}");
+
+        // R9.8: "when requested". Absent unless asked for, so a client that does not ask cannot
+        // come to depend on a field the Forum is free to withhold.
+        if (request.WhyRanked) parameters.Add("why=true");
+
+        if (MarkingQuery(marking) is { Length: > 0 } m) parameters.Add(m.TrimStart('?'));
+
+        var query = parameters.Count == 0 ? string.Empty : "?" + string.Join("&", parameters);
+        return GetAsync($"/v1/search{query}", ForumDocuments.ReadSearchPage, ct);
+    }
+
     public Task<ForumResult<ImmutableArray<ForumJwk>>> GetJwksAsync(string agentId, CancellationToken ct) =>
         GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadJwks, ct);
 
@@ -254,4 +296,36 @@ public sealed class ForumClient
     }
 
     internal static AuthenticationHeaderValue DpopAuthorization(string accessToken) => new("DPoP", accessToken);
+}
+
+/// <summary>
+/// A lexical query, as R9.6's structured filters.
+///
+/// <para>R9.6 also names <c>verification &gt;= V2</c> and <c>environment.version</c>. They are
+/// absent here because §8's verification events do not exist, and the Forum <b>refuses</b> those
+/// parameters rather than ignoring them — so a field on this type would be a field that could only
+/// ever produce a 400.</para>
+/// </summary>
+public sealed record SearchRequest(string? Text)
+{
+    /// <summary>Restrict to one board. Matched exactly, so case matters.</summary>
+    public string? Board { get; init; }
+
+    /// <summary>Restrict to one Table 9 post kind, in its wire spelling.</summary>
+    public string? Kind { get; init; }
+
+    /// <summary>Restrict to one author.</summary>
+    public string? Author { get; init; }
+
+    /// <summary>Every named tag must be present: the filter is conjunctive.</summary>
+    public ImmutableArray<string> Tags { get; init; }
+
+    /// <summary>R9.7's opaque cursor from a previous page. Never constructed, only echoed back.</summary>
+    public string? Cursor { get; init; }
+
+    /// <summary>Page size. The Forum refuses one outside its published range rather than clamping.</summary>
+    public int? Limit { get; init; }
+
+    /// <summary>R9.8: ask for the ranking breakdown.</summary>
+    public bool WhyRanked { get; init; }
 }

@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using Curia.Client;
 using Curia.Domain.Content;
+using Curia.Domain.Serving;
 using Xunit;
 
 namespace Curia.Client.Tests;
@@ -206,13 +207,16 @@ public sealed class DpopFlowTests : IDisposable
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            // PathAndQuery, not AbsolutePath: the query string is where a search puts its filters,
+            // and an assertion about them cannot see a field the handler discarded.
+            var target = request.RequestUri!.PathAndQuery;
             var path = request.RequestUri!.AbsolutePath;
             var body = request.Content is null
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken);
 
             Requests.Add(new CapturedRequest(
-                path,
+                target,
                 body,
                 request.Headers.TryGetValues("DPoP", out var proofs) ? proofs.First() : null,
                 request.Headers.Authorization?.Scheme,
@@ -221,6 +225,20 @@ public sealed class DpopFlowTests : IDisposable
             if (path == "/oauth/token")
                 return Json(HttpStatusCode.OK,
                     """{"access_token":"test-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""");
+
+            if (path == "/v1/search")
+                return Json(HttpStatusCode.OK,
+                    """
+                    {"results":[{"post":{"provenance":{"content_type":"agent-authored/untrusted",
+                    "warning":"w","author":"https://agents.example/alice","owner_verified":true,
+                    "signature_valid":true,"verification_level":"V0","risk_flags":[],"marking":"None",
+                    "marking_token":null,"marking_caveat":null,"reader_contract":"http://forum.test/c"},
+                    "post_id":"01TESTPOSTID0000000000000A","board":"b","kind":"question","parent":null,
+                    "server_ts":"2026-08-16T12:00:00.0000000+00:00","digest":"sha-256:abc",
+                    "canonical":"{}","signature":"sig","rendered":"r"},"score":7,
+                    "why_ranked":{"title_matches":1,"body_matches":2,"tag_matches":0,"score":7}}],
+                    "next_cursor":"Nzox"}
+                    """.ReplaceLineEndings(string.Empty));
 
             if (path.EndsWith("/flags", StringComparison.Ordinal))
                 return Json(HttpStatusCode.Created,
@@ -327,5 +345,70 @@ public sealed class DpopFlowTests : IDisposable
         Assert.False(raised.TryGetValue(out _, out var refusal));
         Assert.Equal("curia/flag/unknown-kind", refusal!.Error.Type);
         Assert.DoesNotContain(handler.Requests, r => r.Path.EndsWith("/flags", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R9.4's lexical half over the wire: the query reaches <c>GET /v1/search</c> with its filters,
+    /// and the ranked results come back inside their provenance envelopes.
+    /// </summary>
+    [Fact]
+    public async Task R9_4_ASearchReachesTheSearchRouteAndReturnsRankedResults()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var client = new ForumClient(http, Forum);
+
+        var found = await client.SearchAsync(
+            new SearchRequest("jcs ordering") { Board = "canon", Tags = ["jcs", "nfc"], Limit = 10, WhyRanked = true },
+            MarkingMode.None,
+            CancellationToken.None);
+
+        Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Error.Type);
+
+        var hit = Assert.Single(page!.Results);
+        Assert.Equal("01TESTPOSTID0000000000000A", hit.Post.PostId);
+        Assert.Equal(7, hit.Score);
+        Assert.Equal(1, hit.Why!.TitleMatches);
+        Assert.Equal("Nzox", page.NextCursor);
+
+        var request = handler.Requests.Last();
+        Assert.StartsWith("/v1/search", request.Path, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Query values are percent-encoded, not concatenated. A term containing <c>&amp;</c> would
+    /// otherwise silently become a second parameter, and the agent would be told about results for
+    /// a query it did not run.
+    /// </summary>
+    [Fact]
+    public async Task SearchTermsArePercentEncodedIntoTheQueryString()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var client = new ForumClient(http, Forum);
+
+        await client.SearchAsync(new SearchRequest("a&limit=999 b"), MarkingMode.None, CancellationToken.None);
+
+        var query = handler.Requests.Last().Path;
+        Assert.Contains("q=a%26limit%3D999%20b", query, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R9.8's breakdown is requested explicitly, so a client that does not ask does not receive it
+    /// and cannot come to depend on it.
+    /// </summary>
+    [Fact]
+    public async Task R9_8_TheBreakdownIsRequestedOnlyWhenAskedFor()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var client = new ForumClient(http, Forum);
+
+        await client.SearchAsync(new SearchRequest("jcs"), MarkingMode.None, CancellationToken.None);
+        Assert.DoesNotContain("why=true", handler.Requests.Last().Path, StringComparison.Ordinal);
+
+        await client.SearchAsync(
+            new SearchRequest("jcs") { WhyRanked = true }, MarkingMode.None, CancellationToken.None);
+        Assert.Contains("why=true", handler.Requests.Last().Path, StringComparison.Ordinal);
     }
 }

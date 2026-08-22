@@ -85,6 +85,14 @@ internal static class ClientJson
     internal static string? String(JsonValue.Object parent, string name) =>
         Member(parent, name) is JsonValue.String s ? s.Value : null;
 
+    /// <summary>
+    /// A numeric member, or null when it is absent or not a number. Returned as
+    /// <see cref="double"/> because that is what I-JSON parses to; callers that want an integer
+    /// narrow it themselves, which is honest about the one lossy step rather than hiding it.
+    /// </summary>
+    internal static double? Number(JsonValue.Object parent, string name) =>
+        Member(parent, name) is JsonValue.Number n ? n.Value : null;
+
     internal static ImmutableArray<JsonValue> Array(JsonValue.Object parent, string name) =>
         Member(parent, name) is JsonValue.Array a ? a.Items : [];
 

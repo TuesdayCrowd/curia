@@ -16,6 +16,7 @@ using Curia.Domain.Content;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Search;
 using Curia.Domain.Serving;
 
 namespace Curia.Api;
@@ -90,6 +91,34 @@ public sealed record PostResponse(
     [property: JsonPropertyName("signature")] string Signature,
     [property: JsonPropertyName("rendered")] string Rendered);
 
+/// <summary>R9.8/R8.36's <c>why_ranked</c> breakdown, per result, when requested.</summary>
+public sealed record WhyRankedResponse(
+    [property: JsonPropertyName("title_matches")] int TitleMatches,
+    [property: JsonPropertyName("body_matches")] int BodyMatches,
+    [property: JsonPropertyName("tag_matches")] int TagMatches,
+    [property: JsonPropertyName("score")] int Score);
+
+/// <summary>
+/// One search result: the post in its provenance envelope, plus why it ranked here.
+///
+/// <para>The envelope is <b>nested</b> rather than flattened alongside <c>score</c>, so R10.18's
+/// inseparability survives the extra fields — a client that keeps <c>post</c> keeps the warning with
+/// it, and one that drops <c>post</c> has no content left to render.</para>
+/// </summary>
+public sealed record SearchHitResponse(
+    [property: JsonPropertyName("post")] PostResponse Post,
+    [property: JsonPropertyName("score")] int Score,
+    [property: JsonPropertyName("why_ranked")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    WhyRankedResponse? Why);
+
+/// <summary>A page of results, and the opaque cursor for the next one (R9.7).</summary>
+public sealed record SearchResponse(
+    [property: JsonPropertyName("results")] ImmutableArray<SearchHitResponse> Results,
+    [property: JsonPropertyName("next_cursor")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? NextCursor);
+
 /// <summary>
 /// The HTTP surface. Table 22's Phase 1 row: "post/answer/read".
 ///
@@ -110,6 +139,7 @@ public static class ForumEndpoints
         app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync);
         app.MapPost("/v1/posts/{postId}/flags", RaiseFlagAsync);
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
+        app.MapGet("/v1/search", SearchAsync);
         app.MapGet("/v1/jwks", GetJwks);
         app.MapGet(ReaderContract.WellKnownPath, GetReaderContract);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
@@ -527,6 +557,131 @@ public static class ForumEndpoints
     /// so a caller that forgets to check the result gets a compile-time nudge (an unused
     /// <see cref="IResult"/>) rather than silently serving.
     /// </summary>
+    /// <summary>
+    /// R9.4's lexical half: <c>GET /v1/search</c>, Table 22's Phase 1 "lexical search".
+    ///
+    /// <para>Anonymous, because Table 10's <c>thread</c>/<c>search</c> row is <c>✓</c> in every
+    /// column — decided by the PDP rather than assumed, per R7.6.</para>
+    ///
+    /// <para><b>What this is not.</b> R9.4 asks for lexical <i>and</i> vector retrieval fused with
+    /// Reciprocal Rank Fusion. The vector half needs pgvector and an embedding model, which Table 22
+    /// puts in Phase 3. This is the lexical half alone and says so; the RRF seam is a second ranked
+    /// list to fuse, not a rewrite.</para>
+    /// </summary>
+    private static async Task<IResult> SearchAsync(
+        HttpRequest http,
+        IEventReader events,
+        IPolicyDecisionPoint pdp,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Thread, ActionKind.Search, cancellationToken)
+            .ConfigureAwait(false);
+        if (allowed is not null) return allowed;
+
+        // R9.6 names `verification >= V2` and `environment.version` as filters, and §8's
+        // verification events do not exist -- so neither can be honoured. Refused rather than
+        // ignored: a filter accepted and silently dropped hands back the unfiltered corpus to an
+        // agent that believes it asked for verified answers only, and the agent cannot tell.
+        foreach (var unsupported in (string[])["min_verification", "verification", "environment_version"])
+        {
+            if (http.Query.ContainsKey(unsupported))
+                return Problem(StatusCodes.Status400BadRequest, new Error(
+                    "curia/search/unsupported-filter",
+                    "That filter cannot be honoured on this build and is refused rather than ignored",
+                    $"parameter={unsupported}; §8's verification events do not exist yet (Table 22 puts V0–V2 in Phase 2 and V3 in Phase 4)"));
+        }
+
+        if (!TryReadLimit(http, out var limit, out var limitError))
+            return Problem(StatusCodes.Status400BadRequest, limitError!);
+
+        PostKind? kind = null;
+        if (http.Query["kind"].ToString() is { Length: > 0 } kindWire)
+        {
+            if (!PostKinds.TryParse(kindWire, out var parsedKind))
+                return Problem(StatusCodes.Status400BadRequest, new Error(
+                    "curia/search/unknown-kind", "Not a Table 9 post kind", $"received={kindWire}"));
+
+            kind = parsedKind;
+        }
+
+        var query = new LexicalQuery(
+            Text: Nullable(http.Query["q"].ToString()),
+            Board: Nullable(http.Query["board"].ToString()),
+            Kind: kind,
+            Tags: [.. http.Query["tags"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
+            Author: Nullable(http.Query["author"].ToString()),
+            Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()),
+            Limit: limit);
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+
+        // Two projections over one read: the searchable corpus to rank, and the post read model to
+        // serve. SearchProjector already drops withheld posts, so nothing here has to remember to.
+        var hits = LexicalSearch.Search(SearchProjector.Fold(log), query);
+        var posts = PostProjector.Fold(log).ToDictionary(p => p.PostId, StringComparer.Ordinal);
+        var standings = AgentStandingProjector.Fold(log);
+        var marking = MarkingFrom(http);
+        var contract = ReaderContractUrl(http);
+
+        // R9.8: "when requested". Off by default because R8.36's purpose is auditing rather than
+        // decoration, and a field on every response is one every client learns to ignore.
+        var wantsWhy = http.Query["why"].ToString() is "true" or "1";
+
+        var results = ImmutableArray.CreateBuilder<SearchHitResponse>();
+        foreach (var hit in hits)
+        {
+            // A ranked post the serving projection does not have is dropped rather than served
+            // half-formed. The two projections read the same events, so this cannot happen today --
+            // and a result carrying no provenance envelope would violate R10.17 if it ever did.
+            if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
+
+            results.Add(new SearchHitResponse(
+                ToResponse(view, standings, marking, contract),
+                hit.Score,
+                wantsWhy
+                    ? new WhyRankedResponse(hit.Why.TitleMatches, hit.Why.BodyMatches, hit.Why.TagMatches, hit.Why.Score)
+                    : null));
+        }
+
+        return Results.Ok(new SearchResponse(
+            results.ToImmutable(),
+            LexicalSearch.NextCursor(hits, limit)?.Encode()));
+    }
+
+    /// <summary>
+    /// R9.7's page size, validated rather than clamped.
+    ///
+    /// <para><see cref="LexicalSearch"/> caps it too, because a domain function must be total over
+    /// its inputs. The difference matters at the boundary: a client that asked for 1000 and silently
+    /// received 100 would page through the corpus believing it had seen ten times what it had, so
+    /// the transport refuses instead of quietly serving fewer.</para>
+    /// </summary>
+    private static bool TryReadLimit(HttpRequest http, out int limit, out Error? error)
+    {
+        limit = LexicalSearch.DefaultLimit;
+        error = null;
+
+        if (http.Query["limit"].ToString() is not { Length: > 0 } raw) return true;
+
+        if (!int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out limit)
+            || limit < 1
+            || limit > LexicalSearch.MaximumLimit)
+        {
+            error = new Error(
+                "curia/search/invalid-limit",
+                "limit must be an integer between 1 and the published maximum",
+                $"received={raw} maximum={LexicalSearch.MaximumLimit.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string? Nullable(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
     /// <summary>
     /// R10.36's serving filter: whether a post may still be served, given §10.10's moderation
     /// history.
