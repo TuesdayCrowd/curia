@@ -18,6 +18,14 @@ public sealed record PostReceipt(
     string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags);
 
 /// <summary>
+/// What the Forum recorded when it accepted a flag (R10.35).
+///
+/// <para>No rationale comes back, and none is expected: the Forum's projection deliberately does
+/// not carry one, so that nothing which serves can echo attacker-supplied text.</para>
+/// </summary>
+public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt);
+
+/// <summary>
 /// §10.6's provenance envelope as it arrives: the envelope is the outer object and the content
 /// is a member of it. Kept in that shape here rather than flattened, because R10.18's whole point
 /// is that a warning a client can strip while keeping the content is a warning that will be
@@ -77,6 +85,13 @@ internal static class ForumDocuments
         && ClientJson.String(o, "server_ts") is { } ts
             ? Result<PostReceipt>.Ok(new PostReceipt(id, digest, ts, Strings(o, "risk_flags")))
             : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("post receipt"));
+
+    internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o) =>
+        ClientJson.String(o, "post_id") is { } id
+        && ClientJson.String(o, "kind") is { } kind
+        && ClientJson.String(o, "raised_at") is { } at
+            ? Result<FlagReceipt>.Ok(new FlagReceipt(id, kind, at))
+            : Result<FlagReceipt>.Fail(ClientErrors.ResponseMalformed("flag receipt"));
 
     internal static Result<ProvenancePost> ReadPost(JsonValue value)
     {

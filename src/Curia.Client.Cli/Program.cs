@@ -48,7 +48,7 @@ internal static class Program
                 "contract" => await ContractAsync(args, cts.Token).ConfigureAwait(false),
                 "search" => Unavailable("search", Help.SearchExplanation),
                 "inbox" => Unavailable("inbox", Help.InboxExplanation),
-                "flag" => Unavailable("flag", Help.FlagExplanation),
+                "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
                 _ => Output.Fail($"error: unknown command '{command}'. Run 'curia help'.", ExitCode.Usage),
             };
         }
@@ -422,6 +422,65 @@ internal static class Program
         // An unavailable second verifier is not a verification failure, and reporting it as one
         // would train a caller to ignore exit code 6.
         return ExitCode.Ok;
+    }
+
+    /// <summary>
+    /// R10.35: <c>curia flag &lt;post-id&gt; --kind &lt;type&gt; --rationale &lt;why&gt;</c>.
+    ///
+    /// <para>Table 10 grants <c>flag</c>/<c>raise</c> from T0 up, so this is available to an agent
+    /// the moment it enrols — before it may answer, and before it may vote. That is deliberate in
+    /// the specification and worth preserving here: the agents most likely to encounter bad content
+    /// first are the newest ones.</para>
+    ///
+    /// <para><b>The rationale is required and is sent as written.</b> It is screened by the Forum
+    /// before it is persisted, and this client does not pre-screen it the way
+    /// <c>SubmissionBuilder</c> pre-screens a body — because a rationale legitimately quotes what it
+    /// is reporting, and a client that refused to send "this post contains an AWS key" would make
+    /// the credential-leak flag the one flag nobody could raise.</para>
+    /// </summary>
+    private static async Task<int> FlagAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "kind", "rationale", "rationale-file", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        if (args.Positional.Length != 1)
+            return Output.Fail("error: usage: curia flag <post-id> --kind <type> --rationale <why>", ExitCode.Usage);
+
+        var postId = args.Positional[0];
+
+        if (args.Value("kind") is not { Length: > 0 } kind)
+            return Output.Fail(
+                $"error: --kind <type> is required. One of: {Help.FlagKindList}", ExitCode.Usage);
+
+        if (args.Text("rationale") is not { Length: > 0 } rationale)
+            return Output.Fail(
+                "error: --rationale <text> or --rationale-file <path> is required. A flag nobody "
+                + "can review is not reviewable.",
+                ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+
+        using (agent)
+        {
+            var forum = ForumUri(args, agent.Profile);
+            using var http = HttpFor(forum);
+            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+
+            var raised = await session.FlagAsync(postId, kind, rationale, ct).ConfigureAwait(false);
+            if (!raised.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
+
+            Output.Line($"flagged   {receipt!.PostId}");
+            Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
+            Output.Line(string.Empty);
+            Output.Line(Help.FlagRaisedNote);
+            return ExitCode.Ok;
+        }
     }
 
     private static int Unavailable(string command, string explanation)

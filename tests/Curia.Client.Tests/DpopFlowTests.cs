@@ -18,6 +18,10 @@ namespace Curia.Client.Tests;
 /// against, so it is checked against a handler that behaves the way RFC 9449 §8 says a server
 /// does: refuse the first write, name a nonce, accept the retry.</para>
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class DpopFlowTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("curia-dpop-tests-").FullName;
@@ -218,6 +222,10 @@ public sealed class DpopFlowTests : IDisposable
                 return Json(HttpStatusCode.OK,
                     """{"access_token":"test-access-token","token_type":"DPoP","expires_in":300,"scope":"question:create"}""");
 
+            if (path.EndsWith("/flags", StringComparison.Ordinal))
+                return Json(HttpStatusCode.Created,
+                    """{"post_id":"01TESTPOSTID0000000000000A","kind":"incorrect","raised_at":"2026-08-16T12:00:00.0000000+00:00"}""");
+
             if (path == "/v1/posts" && ChallengeFirstPost && _posts++ == 0)
             {
                 var challenge = Json(HttpStatusCode.Unauthorized,
@@ -233,5 +241,91 @@ public sealed class DpopFlowTests : IDisposable
 
         private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
             new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+    }
+
+    /// <summary>
+    /// R10.35 over the wire: the flag reaches <c>POST /v1/posts/{id}/flags</c> as a DPoP-bound
+    /// request carrying the typed kind and the rationale.
+    ///
+    /// <para>Asserted from the server's side, like every other test here: the client agreeing with
+    /// itself about what it meant to send is not evidence that a Forum would accept it.</para>
+    /// </summary>
+    [Fact]
+    public async Task R10_35_AFlagIsSentAsADpopBoundPostToThePostsFlagsRoute()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var raised = await session.FlagAsync(
+            "01TESTPOSTID0000000000000A", "incorrect", "the JCS claim is wrong", CancellationToken.None);
+
+        Assert.True(raised.TryGetValue(out var receipt, out var refusal), refusal?.Error.Type);
+        Assert.Equal("incorrect", receipt!.Kind);
+
+        var request = handler.Requests.Last();
+        Assert.Equal("/v1/posts/01TESTPOSTID0000000000000A/flags", request.Path);
+        Assert.Equal("DPoP", request.AuthorizationScheme);
+        Assert.NotNull(request.Dpop);
+
+        using var body = JsonDocument.Parse(request.Body);
+        Assert.Equal("incorrect", body.RootElement.GetProperty("kind").GetString());
+        Assert.Equal("the JCS claim is wrong", body.RootElement.GetProperty("rationale").GetString());
+    }
+
+    /// <summary>
+    /// The post id is percent-encoded into the path. Table 9 types <c>author</c> as a URI and post
+    /// ids are ULIDs today, but a client that interpolates an identifier into a URL without encoding
+    /// it is one identifier-format change away from a path-traversal bug — and the JWKS route
+    /// already had to be moved for the same reason.
+    /// </summary>
+    [Fact]
+    public async Task AFlaggedPostIdIsPercentEncodedIntoThePath()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        await session.FlagAsync("a/b", "spam", "nested", CancellationToken.None);
+
+        Assert.Equal("/v1/posts/a%2Fb/flags", handler.Requests.Last().Path);
+    }
+
+    /// <summary>
+    /// R10.35 requires a rationale, and the client refuses locally rather than spending a round trip
+    /// discovering that. The same argument the submission path makes about credential material: the
+    /// refusal a client can make itself is the one that costs nothing.
+    /// </summary>
+    [Fact]
+    public async Task R10_35_AFlagWithoutARationaleIsRefusedLocally()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var raised = await session.FlagAsync("01TESTPOSTID0000000000000A", "spam", "  ", CancellationToken.None);
+
+        Assert.False(raised.TryGetValue(out _, out var refusal));
+        Assert.Equal("curia/moderation/rationale-required", refusal!.Error.Type);
+        Assert.DoesNotContain(handler.Requests, r => r.Path.EndsWith("/flags", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R10.35's seven types, checked before the request goes out. An unknown spelling is a local
+    /// usage error: the Forum would refuse it too, and a round trip to be told what
+    /// <c>FlagKinds.Parse</c> already knows is a round trip wasted.
+    /// </summary>
+    [Fact]
+    public async Task R10_35_AnUnknownFlagKindIsRefusedLocally()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var raised = await session.FlagAsync("01TESTPOSTID0000000000000A", "vibes", "no", CancellationToken.None);
+
+        Assert.False(raised.TryGetValue(out _, out var refusal));
+        Assert.Equal("curia/flag/unknown-kind", refusal!.Error.Type);
+        Assert.DoesNotContain(handler.Requests, r => r.Path.EndsWith("/flags", StringComparison.Ordinal));
     }
 }
