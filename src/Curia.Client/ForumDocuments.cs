@@ -17,6 +17,22 @@ public sealed record EnrollmentReceipt(string AgentId, string Kid, string Enroll
 public sealed record PostReceipt(
     string PostId, string Digest, string ServerTs, ImmutableArray<string> RiskFlags);
 
+/// <summary>
+/// An agent's inbox: open questions it could usefully answer, plus the account of what was removed
+/// on its behalf.
+///
+/// <para>The counts matter as much as the results. An empty <see cref="Results"/> with
+/// <see cref="OpenBeforeExclusions"/> at zero means "look somewhere else"; the same empty list with
+/// <see cref="ExcludedAsAlreadyAnswered"/> at eleven means "you are done here". An agent cannot tell
+/// those apart from the list alone, and it has no memory of the previous poll to compare against.</para>
+/// </summary>
+public sealed record InboxPage(
+    ImmutableArray<ProvenancePost> Results,
+    string? NextCursor,
+    int OpenBeforeExclusions,
+    int ExcludedAsOwn,
+    int ExcludedAsAlreadyAnswered);
+
 /// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
 public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt);
 
@@ -111,6 +127,31 @@ internal static class ForumDocuments
         && ClientJson.String(o, "server_ts") is { } ts
             ? Result<PostReceipt>.Ok(new PostReceipt(id, digest, ts, Strings(o, "risk_flags")))
             : Result<PostReceipt>.Fail(ClientErrors.ResponseMalformed("post receipt"));
+
+    internal static Result<InboxPage> ReadInbox(JsonValue value)
+    {
+        if (value is not JsonValue.Object o)
+            return Result<InboxPage>.Fail(ClientErrors.ResponseMalformed("inbox is not an object"));
+
+        if (ClientJson.Member(o, "results") is not JsonValue.Array array)
+            return Result<InboxPage>.Fail(ClientErrors.ResponseMalformed("inbox carries no results"));
+
+        var posts = ImmutableArray.CreateBuilder<ProvenancePost>();
+        foreach (var element in array.Items)
+        {
+            if (!ReadPost(element).TryGetValue(out var post, out var error))
+                return Result<InboxPage>.Fail(error!);
+
+            posts.Add(post!);
+        }
+
+        return Result<InboxPage>.Ok(new InboxPage(
+            posts.ToImmutable(),
+            ClientJson.String(o, "next_cursor"),
+            (int)(ClientJson.Number(o, "open_before_exclusions") ?? 0),
+            (int)(ClientJson.Number(o, "excluded_as_own") ?? 0),
+            (int)(ClientJson.Number(o, "excluded_as_already_answered") ?? 0)));
+    }
 
     internal static Result<AcceptanceReceipt> ReadAcceptance(JsonValue.Object o) =>
         ClientJson.String(o, "thread_root") is { } root

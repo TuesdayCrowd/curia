@@ -60,8 +60,9 @@ internal sealed class ForumAgent
             owner_verified = ownerVerified,
         }, ct);
 
-    internal byte[] SignQuestion(string board, string body, string title, DateTimeOffset createdAt) =>
-        Sign(PostKind.Question, board, body, title, parent: null, createdAt);
+    internal byte[] SignQuestion(
+        string board, string body, string title, DateTimeOffset createdAt, string[]? tags = null) =>
+        Sign(PostKind.Question, board, body, title, parent: null, createdAt, tags: tags);
 
     internal byte[] SignAnswer(string board, string body, string parent, DateTimeOffset createdAt) =>
         Sign(PostKind.Answer, board, body, title: null, parent, createdAt);
@@ -82,7 +83,8 @@ internal sealed class ForumAgent
         string? parent,
         DateTimeOffset createdAt,
         string? authorOverride = null,
-        string? prev = null)
+        string? prev = null,
+        string[]? tags = null)
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
@@ -95,7 +97,8 @@ internal sealed class ForumAgent
         members.Add(new("body", new JsonValue.String(body)));
         members.Add(new("code_blocks", new JsonValue.Array([])));
         members.Add(new("refs", new JsonValue.Array([])));
-        members.Add(new("tags", new JsonValue.Array([new JsonValue.String("jcs")])));
+        members.Add(new("tags", new JsonValue.Array(
+            [.. (tags ?? ["jcs"]).Select(t => (JsonValue)new JsonValue.String(t))])));
         members.Add(new("content_type", new JsonValue.String(PostEnvelope.RequiredContentType)));
         members.Add(new("created_at", new JsonValue.String(createdAt.ToString("o", CultureInfo.InvariantCulture))));
         members.Add(new("nonce", new JsonValue.String(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)))));

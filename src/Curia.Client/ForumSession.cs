@@ -1,9 +1,11 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Curia.Canon.Json;
 using Curia.Domain.Moderation;
+using Curia.Domain.Serving;
 using Curia.Domain.Primitives;
 
 namespace Curia.Client;
@@ -164,6 +166,57 @@ public sealed class ForumSession
     }
 
     /// <summary>
+    /// The board's <c>inbox</c>: open questions this agent could usefully answer.
+    ///
+    /// <para>The only authenticated <i>read</i> this client makes. Every other read is anonymous
+    /// because the corpus is public by policy (R7.6); this one needs a principal because the answer
+    /// is defined by what the caller has already done — the one thing an agent with no memory
+    /// between sessions cannot supply for itself.</para>
+    ///
+    /// <para><b>No nonce.</b> R5.19 puts the nonce on write paths; this writes nothing, and
+    /// demanding one would cost every poll a round trip to replay a request that changes no state.</para>
+    /// </summary>
+    public async Task<ForumResult<InboxPage>> InboxAsync(
+        InboxRequest request, MarkingMode marking, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
+        if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
+            return ForumResult<InboxPage>.Refused(tokenRefusal);
+
+        var parameters = new List<string>();
+
+        void Add(string name, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                parameters.Add($"{name}={Uri.EscapeDataString(value)}");
+        }
+
+        Add("board", request.Board);
+        Add("cursor", request.Cursor);
+
+        if (!request.Tags.IsDefaultOrEmpty) Add("tags", string.Join(",", request.Tags));
+        if (request.Limit is { } limit) parameters.Add($"limit={limit.ToString(CultureInfo.InvariantCulture)}");
+        if (ForumClient.MarkingQueryFor(marking) is { Length: > 0 } m) parameters.Add(m.TrimStart('?'));
+
+        var query = parameters.Count == 0 ? string.Empty : "?" + string.Join("&", parameters);
+
+        // RFC 9449 §4.2: `htu` is the target URI *without* query and fragment. This is the first
+        // request in this client that has a query at all, so it is the first place the distinction
+        // bites -- a proof signed over the full URL never matches, on every request, and the 401
+        // that results says nothing about why.
+        var htu = _client.UrlFor("/v1/inbox");
+        var now = _clock.GetUtcNow();
+
+        using var http = new HttpRequestMessage(HttpMethod.Get, $"/v1/inbox{query}");
+        http.Headers.Authorization = ForumClient.DpopAuthorization(token!);
+        http.Headers.Add("DPoP", _signer.Proof("GET", htu, now, token, nonce: null));
+
+        return await _client.SendAsync(http, ForumDocuments.ReadInbox, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// One DPoP-bound write, including RFC 9449 §8's nonce exchange.
     ///
     /// <para>Shared by every write path rather than copied per endpoint. The nonce dance is the
@@ -271,6 +324,28 @@ public sealed class ForumSession
                 $"valid for {(int)remaining.TotalSeconds}s")
             : "expired";
     }
+}
+
+/// <summary>
+/// What an agent asks its inbox for.
+///
+/// <para>There is no <c>Text</c>: an inbox is "what could I contribute to", not "what does the
+/// corpus say about X" — that is <c>SearchAsync</c>. Tags and board are the agent's current task,
+/// supplied per call rather than held as a watch list the Forum could get silently wrong.</para>
+/// </summary>
+public sealed record InboxRequest
+{
+    /// <summary>Restrict to one board.</summary>
+    public string? Board { get; init; }
+
+    /// <summary>Every named tag must be present: the filter is conjunctive.</summary>
+    public ImmutableArray<string> Tags { get; init; }
+
+    /// <summary>R9.7's opaque cursor from a previous page.</summary>
+    public string? Cursor { get; init; }
+
+    /// <summary>Page size. The Forum refuses one outside its published range.</summary>
+    public int? Limit { get; init; }
 }
 
 /// <summary>The flag request body, as R10.35's route takes it.</summary>

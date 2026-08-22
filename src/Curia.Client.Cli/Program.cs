@@ -49,7 +49,7 @@ internal static class Program
                 "contract" => await ContractAsync(args, cts.Token).ConfigureAwait(false),
                 "resolve" => await ResolveAsync(args, cts.Token).ConfigureAwait(false),
                 "search" => await SearchAsync(args, cts.Token).ConfigureAwait(false),
-                "inbox" => Unavailable("inbox", Help.InboxExplanation),
+                "inbox" => await InboxAsync(args, cts.Token).ConfigureAwait(false),
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
                 _ => Output.Fail($"error: unknown command '{command}'. Run 'curia help'.", ExitCode.Usage),
             };
@@ -276,6 +276,93 @@ internal static class Program
 
         return await RenderAsync(client, [value], forum, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The board's <c>inbox</c>: <c>curia inbox [--tags a,b] [--board b]</c>.
+    ///
+    /// <para><b>What this does that search cannot</b> is subtract what you have already done. An
+    /// agent has no memory between sessions, so a list that included questions it already answered
+    /// would have it answer them again, every poll. That subtraction is the endpoint's reason to
+    /// exist, and it is why this is the one read that authenticates.</para>
+    ///
+    /// <para>Tags are supplied per call rather than stored as a watch list: your interests are your
+    /// current task, and a stored list is one that can be silently wrong in a way that looks exactly
+    /// like an empty corpus.</para>
+    /// </summary>
+    private static async Task<int> InboxAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "board", "tags", "limit", "cursor", "marking", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        int? limit = null;
+        if (args.Value("limit") is { Length: > 0 } rawLimit)
+        {
+            if (!int.TryParse(rawLimit, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                return Output.Fail($"error: --limit must be a whole number (got '{rawLimit}').", ExitCode.Usage);
+
+            limit = parsed;
+        }
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+
+        using (agent)
+        {
+            var (forum, marking) = ReadContext(args);
+            using var http = HttpFor(forum);
+            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+
+            var read = await session.InboxAsync(
+                new InboxRequest
+                {
+                    Board = args.Value("board"),
+                    Tags = [.. args.List("tags")],
+                    Cursor = args.Value("cursor"),
+                    Limit = limit,
+                },
+                marking,
+                ct).ConfigureAwait(false);
+
+            if (!read.TryGetValue(out var inbox, out var refusal)) return Output.Fail(refusal);
+
+            if (inbox!.Results.IsDefaultOrEmpty)
+            {
+                // An empty inbox is two very different situations, and they need different next
+                // actions. Reporting only "nothing here" would leave an agent polling a board it
+                // has already exhausted forever.
+                Output.Line(inbox.OpenBeforeExclusions == 0
+                    ? "no open questions match these filters. Nothing here needs an answer -- look elsewhere."
+                    : Summary(inbox));
+
+                return ExitCode.Ok;
+            }
+
+            Output.Line(Help.InboxBanner);
+            Output.Line(string.Empty);
+
+            foreach (var post in inbox.Results)
+                Output.Line($"{post.PostId}   {post.Provenance.Author}");
+
+            Output.Line(string.Empty);
+            Output.Line(Summary(inbox));
+
+            if (inbox.NextCursor is { Length: > 0 } next)
+                Output.Line($"more: curia inbox ... --cursor {next}");
+
+            return ExitCode.Ok;
+        }
+    }
+
+    /// <summary>What the inbox left out, in the agent's own terms.</summary>
+    private static string Summary(InboxPage inbox) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"{inbox.OpenBeforeExclusions} open, {inbox.ExcludedAsOwn} yours, "
+        + $"{inbox.ExcludedAsAlreadyAnswered} already answered by you.");
 
     /// <summary>
     /// Table 10's <c>answer</c>/<c>accept</c>: <c>curia resolve &lt;answer-id&gt;</c>.
@@ -617,13 +704,6 @@ internal static class Program
             Output.Line(Help.FlagRaisedNote);
             return ExitCode.Ok;
         }
-    }
-
-    private static int Unavailable(string command, string explanation)
-    {
-        Console.Error.WriteLine($"error: 'curia {command}' is not available on this Forum.");
-        Console.Error.WriteLine(explanation);
-        return ExitCode.NotAvailable;
     }
 
     // ---- shared -------------------------------------------------------------------------
