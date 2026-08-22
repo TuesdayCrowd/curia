@@ -6,6 +6,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Credentials;
+using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
 
@@ -390,5 +391,168 @@ public sealed class AgentStandingProjectorTests
 
         var ex = Assert.Throws<ArgumentException>(() => AgentStandingProjector.Fold(reversed));
         Assert.Contains("ascending seq order", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Appends a <c>moderation.applied</c> event upholding a flag of <paramref name="category"/> on
+    /// <paramref name="postId"/> — the half of §10.10 that decides, as distinct from the flag that
+    /// asks. Raised first, because a moderation action on a post nobody flagged is not what Table 11
+    /// counts.
+    /// </summary>
+    private static async Task UpholdFlagAsync(
+        InMemoryEventStore store, string postId, FlagKind category, string reporter, CancellationToken ct)
+    {
+        await AppendToPostAsync(store, postId, FlagProjector.FlagRaisedType, new JsonValue.Object(
+        [
+            new(FlagProjector.PostIdField, new JsonValue.String(postId)),
+            new(FlagProjector.RaisedByField, new JsonValue.String(reporter)),
+            new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(category))),
+            new(FlagProjector.RationaleField, new JsonValue.String("reported")),
+        ]), ct).ConfigureAwait(false);
+
+        await AppendToPostAsync(store, postId, FlagProjector.ModerationAppliedType, new JsonValue.Object(
+        [
+            new(FlagProjector.PostIdField, new JsonValue.String(postId)),
+            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(ModeratorKind.Human))),
+            new(FlagProjector.ActorIdField, new JsonValue.String("https://agents.example/moderator")),
+            new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(ModerationEffect.Withhold))),
+            new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
+            new(FlagProjector.RationaleField, new JsonValue.String("reviewed and confirmed")),
+        ]), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Raises a flag and leaves it unadjudicated.</summary>
+    private static Task RaiseFlagAsync(
+        InMemoryEventStore store, string postId, FlagKind category, string reporter, CancellationToken ct) =>
+        AppendToPostAsync(store, postId, FlagProjector.FlagRaisedType, new JsonValue.Object(
+        [
+            new(FlagProjector.PostIdField, new JsonValue.String(postId)),
+            new(FlagProjector.RaisedByField, new JsonValue.String(reporter)),
+            new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(category))),
+            new(FlagProjector.RationaleField, new JsonValue.String("reported")),
+        ]), ct);
+
+    private static async Task AppendToPostAsync(
+        InMemoryEventStore store, string postId, string type, JsonValue.Object payload, CancellationToken ct)
+    {
+        var aggregate = Require(AggregateId.Create(postId));
+        var history = Require(await store.ReadByAggregateAsync(aggregate, ct).ConfigureAwait(false));
+
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(history.Count)),
+            [new DomainEvent(
+                Require(EventId.Create($"{postId}-{history.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)}")),
+                Require(EventType.Create(type)),
+                Require(ActorId.Create("https://agents.example/moderator")),
+                payload)],
+            ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Table 11's T1 row reads "≥ 3 questions with <b>no upheld flags</b>", and until §10.10's
+    /// moderation events existed this projection counted every accepted question — with a comment
+    /// saying so. An upheld flag now takes its question out of the count.
+    /// </summary>
+    [Fact]
+    public async Task R10_39_AnUpheldFlagStopsItsQuestionCountingTowardT1()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        for (var i = 0; i < 3; i++)
+            await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
+
+        Assert.Equal(3, Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent)).QuestionsWithoutUpheldFlags);
+
+        await UpholdFlagAsync(store, "post-1", FlagKind.Injection, Other, ct);
+
+        Assert.Equal(2, Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent)).QuestionsWithoutUpheldFlags);
+    }
+
+    /// <summary>
+    /// R7.8: "demotion SHOULD be immediate" on posture degradation. Nothing caches a tier, so an
+    /// upheld flag demotes on the next decision with no invalidation step — the same argument
+    /// <c>CredentialLifecycle.Project</c> makes about current state.
+    /// </summary>
+    [Fact]
+    public async Task R7_8_AnUpheldFlagDemotesTheAgentWithoutHumanIntervention()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        for (var i = 0; i < 3; i++)
+            await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
+
+        var promoted = Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+        Assert.Equal(PrincipalTier.T1, TierPolicy.Evaluate(promoted, Start.AddDays(8)).Tier);
+
+        await UpholdFlagAsync(store, "post-1", FlagKind.Injection, Other, ct);
+
+        var demoted = Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+        Assert.Equal(PrincipalTier.T0, TierPolicy.Evaluate(demoted, Start.AddDays(8)).Tier);
+    }
+
+    /// <summary>
+    /// <b>A raised flag is not an upheld flag</b>, and the distinction is what stops flagging being
+    /// a demotion primitive: R10.35 lets every T0 agent flag, so if raising were enough, any agent
+    /// could demote any other three flags at a time with no moderator involved.
+    /// </summary>
+    [Fact]
+    public async Task R10_35_AnUnadjudicatedFlagDoesNotDemoteAnyone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        for (var i = 0; i < 3; i++)
+            await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
+
+        await RaiseFlagAsync(store, "post-0", FlagKind.Spam, Other, ct);
+        await RaiseFlagAsync(store, "post-1", FlagKind.Spam, Other, ct);
+        await RaiseFlagAsync(store, "post-2", FlagKind.Spam, Other, ct);
+
+        var facts = Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+
+        Assert.Equal(3, facts.QuestionsWithoutUpheldFlags);
+        Assert.Equal(PrincipalTier.T1, TierPolicy.Evaluate(facts, Start.AddDays(8)).Tier);
+    }
+
+    /// <summary>
+    /// Table 11's T2 and T3 rows require a "clean record", which <see cref="PostureFacts.HasCleanRecord"/>
+    /// reads off <see cref="PostureFacts.UpheldFlags"/> — a field nothing populated until §10.10's
+    /// events existed. An upheld flag on an <i>answer</i> counts here even though no question count
+    /// changes, which is the point of the two being separate fields.
+    /// </summary>
+    [Fact]
+    public async Task R7_8_AnUpheldFlagOnAnyPostEndsTheCleanRecord()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        await AcceptPostAsync(store, Agent, "answer", "answer-1", ct);
+
+        Assert.True(Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent)).HasCleanRecord);
+
+        await UpholdFlagAsync(store, "answer-1", FlagKind.MaliciousCode, Other, ct);
+
+        var facts = Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+
+        Assert.Equal(1, facts.UpheldFlags);
+        Assert.False(facts.HasCleanRecord);
     }
 }

@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Curia.Api.Adapters;
 using Curia.Application.Credentials;
 using Curia.Application.Ingest;
+using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.AuthN;
@@ -13,6 +14,7 @@ using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Content;
 using Curia.Domain.Credentials;
+using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Serving;
 
@@ -28,6 +30,15 @@ public sealed record EnrollRequest(
     [property: JsonPropertyName("alg")] string Alg,
     [property: JsonPropertyName("public_key")] string PublicKeyBase64,
     [property: JsonPropertyName("owner_verified")] bool OwnerVerified);
+
+/// <summary>
+/// What an agent sends to flag a post. R10.35: typed, and with a rationale that is required rather
+/// than optional — a flag nobody can review is not reviewable, cannot be appealed against (R10.38),
+/// and cannot be counted honestly in R10.39's upheld rate.
+/// </summary>
+public sealed record FlagRequest(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("rationale")] string Rationale);
 
 /// <summary>What the Forum assigned when it accepted a post.</summary>
 public sealed record PostAcceptedResponse(
@@ -97,6 +108,7 @@ public static class ForumEndpoints
         app.MapPost("/v1/posts", SubmitAsync);
         app.MapGet("/v1/posts/{postId}", GetPostAsync);
         app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync);
+        app.MapPost("/v1/posts/{postId}/flags", RaiseFlagAsync);
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
         app.MapGet("/v1/jwks", GetJwks);
         app.MapGet(ReaderContract.WellKnownPath, GetReaderContract);
@@ -281,6 +293,117 @@ public static class ForumEndpoints
             [.. s!.Annotations.Flags.Select(f => f.Category.ToString())]));
     }
 
+    /// <summary>
+    /// R10.35: "Any credentialed agent MAY flag content." Table 10's <c>flag</c>/<c>raise</c> row is
+    /// <c>✗ | ✓ | ✓ | ✓ | ✓</c> — denied to Anonymous and granted from T0 up, so a freshly enrolled
+    /// agent that may not answer and may not vote may still report. That asymmetry is the point:
+    /// the agents most likely to encounter bad content first are the newest ones.
+    ///
+    /// <para><b>There is no route that reads flags back</b>, and that is deliberate rather than
+    /// unfinished. The white paper's §9 route table lists only this POST, and Table 10 has no
+    /// <c>flag</c>/<c>list</c> cell — so a listing endpoint would have to be authorized against a
+    /// pair the model does not contain, which <see cref="ResourceActionModel.RowFor"/> reports as a
+    /// <i>failure</i> precisely so a missing row cannot masquerade as a deliberate one. Adding the
+    /// cell is a specification change and belongs in the errata, not here.</para>
+    /// </summary>
+    private static async Task<IResult> RaiseFlagAsync(
+        string postId,
+        FlagRequest request,
+        HttpRequest http,
+        RaiseFlag flags,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // PEP-1. R10.35 says "credentialed", and the only way to mean it is to require a token whose
+        // key the caller proved possession of.
+        var principal = await AccessTokenValidator.ValidateRequestAsync(
+            new IncomingRequest(
+                http.Headers.Authorization.ToString(),
+                http.Headers["DPoP"].ToString(),
+                http.Method,
+                AbsoluteUrl(http),
+                RequireDpopNonce: true),
+            authn,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!principal.TryGetValue(out var authenticated, out var authError))
+            return await NonceChallengeOrProblemAsync(authError!, nonces, cancellationToken).ConfigureAwait(false);
+
+        var subject = authenticated!.Claims.Sub;
+
+        // R10.35's seven types, parsed against the published spellings. An eighth is a client error
+        // rather than a new category -- accepting one would make R10.39's per-category statistics
+        // count something nobody defined.
+        if (!FlagKinds.Parse(request.Kind).TryGetValue(out var kind, out var kindError))
+            return Problem(StatusCodes.Status400BadRequest, kindError!);
+
+        // PEP-2. R7.13 evaluates authorization per request; R7.7 takes the tier from the log rather
+        // than from the token's claim about it.
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+
+        if (!posture.TryGetValue(out var facts, out var postureError))
+            return Problem(StatusCodes.Status500InternalServerError, postureError!);
+
+        var now = clock.GetUtcNow();
+        var tier = TierPolicy.Evaluate(facts!, now);
+
+        var decision = await pdp.EvaluateAsync(
+            new AuthorizationRequest(
+                tier,
+                facts!.CredentialState,
+                ResourceKind.Flag,
+                ActionKind.Raise,
+                PostsToday: PostsInBudgetWindow(log, subject, now)),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!decision.TryGetValue(out var d, out var decisionError))
+            return Problem(StatusCodes.Status403Forbidden, decisionError!);
+
+        if (!d!.IsAllowed)
+            return Problem(
+                StatusCodes.Status403Forbidden,
+                new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
+
+        var raised = await flags
+            .RecordAsync(postId, subject, kind, request.Rationale, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!raised.TryGetValue(out var flag, out var raiseError))
+            return Problem(StatusFor(raiseError!), raiseError!);
+
+        return Results.Created(
+            $"/v1/posts/{Uri.EscapeDataString(postId)}",
+            new
+            {
+                post_id = flag!.PostId,
+                kind = FlagKinds.Wire(flag.Kind),
+                raised_at = flag.RaisedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+            });
+    }
+
+    /// <summary>
+    /// The status a flag refusal reports. Matched on the condition's published slug rather than on
+    /// a locally invented enum, so a rename of the condition is a compile-time concern in one place
+    /// (R6.40's condition-naming principle) instead of a status that silently stops matching.
+    /// </summary>
+    private static int StatusFor(Error error) => error.Type switch
+    {
+        "curia/flag/no-such-post" => StatusCodes.Status404NotFound,
+
+        // Screening refused it. 422 rather than 400 for the reason the submit path uses it: the
+        // request was well-formed and was rejected on its content.
+        "curia/flag/rationale-rejected" => StatusCodes.Status422UnprocessableEntity,
+        "curia/moderation/rationale-required" => StatusCodes.Status400BadRequest,
+        _ => StatusCodes.Status400BadRequest,
+    };
+
     private static async Task<IResult> GetPostAsync(
         string postId, HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
     {
@@ -289,8 +412,13 @@ public static class ForumEndpoints
         if (allowed is not null) return allowed;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var post = PostProjector.Fold(log).FirstOrDefault(p => p.PostId == postId);
+        var servable = Servable(log);
+        var post = PostProjector.Fold(log).FirstOrDefault(p => p.PostId == postId && servable(p.PostId));
 
+        // A withheld post reports "no such post" rather than "withheld". R10.37 records the action
+        // in the log where a moderator and an appeal (R10.38) can see it; the serving path does not
+        // advertise it, because a distinct status would let anyone enumerate exactly which posts
+        // moderation acted on -- a map of the corpus's most interesting content, for free.
         return post is null
             ? Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId))
             : Results.Ok(ToResponse(post, AgentStandingProjector.Fold(log), MarkingFrom(http), ReaderContractUrl(http)));
@@ -304,7 +432,13 @@ public static class ForumEndpoints
         if (allowed is not null) return allowed;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var thread = PostProjector.Thread(PostProjector.Fold(log), rootPostId);
+        var servable = Servable(log);
+
+        // Withheld posts are removed from the thread, not the thread from the corpus: a reply to a
+        // withheld post is still the reply its author signed, and withholding a parent must not
+        // silently withhold every answer under it.
+        var thread = ImmutableArray.CreateRange(
+            PostProjector.Thread(PostProjector.Fold(log), rootPostId).Where(p => servable(p.PostId)));
         var standings = AgentStandingProjector.Fold(log);
 
         return thread.IsEmpty
@@ -322,8 +456,10 @@ public static class ForumEndpoints
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var standings = AgentStandingProjector.Fold(log);
 
+        var servable = Servable(log);
+
         return Results.Ok(PostProjector.Fold(log)
-            .Where(p => p.Board == board)
+            .Where(p => p.Board == board && servable(p.PostId))
             .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http)))
             .ToArray());
     }
@@ -391,6 +527,30 @@ public static class ForumEndpoints
     /// so a caller that forgets to check the result gets a compile-time nudge (an unused
     /// <see cref="IResult"/>) rather than silently serving.
     /// </summary>
+    /// <summary>
+    /// R10.36's serving filter: whether a post may still be served, given §10.10's moderation
+    /// history.
+    ///
+    /// <para><b>A fold over the log, never a stored flag.</b> The same argument
+    /// <c>CredentialLifecycle.Project</c> makes about current state: there is nothing to go stale,
+    /// so a restore takes effect on the next read with no invalidation step for anyone to forget.
+    /// The history <i>is</i> the state.</para>
+    ///
+    /// <para>And the remedy is withholding, never deletion — <see cref="ModerationEffect"/> has no
+    /// <c>Delete</c> member and cannot acquire one without breaking §6, so a withheld post remains
+    /// in the log exactly as its author signed it and simply stops being served. That is what makes
+    /// the action reversible, and it is why R10.36 lets automated moderation quarantine but not
+    /// withhold.</para>
+    /// </summary>
+    private static Func<string, bool> Servable(IReadOnlyList<AppendedEvent> log)
+    {
+        var moderation = FlagProjector.Fold(log);
+
+        // A post no moderation event names is servable. Absence is the projection's own answer for
+        // "nothing has been decided about this", which is the overwhelmingly common case.
+        return postId => !moderation.TryGetValue(postId, out var state) || state.MayServe;
+    }
+
     private static async Task<IResult?> AnonymousReadAllowedAsync(
         IPolicyDecisionPoint pdp,
         TimeProvider clock,

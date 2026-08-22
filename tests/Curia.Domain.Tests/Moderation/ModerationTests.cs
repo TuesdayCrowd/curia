@@ -182,4 +182,117 @@ public sealed class ModerationTests
             },
             properties.Where(p => p.PropertyType == typeof(string)).Select(p => p.Name).ToArray());
     }
+
+    private static ModerationAction On(
+        FlagKind category, ModerationEffect effect, ModeratorKind moderator = ModeratorKind.Human) =>
+        new("01J0", moderator, "mod-1", effect, category, "reviewed", Now);
+
+    /// <summary>
+    /// Table 11's "≥ 3 questions with no upheld flags" needs a definition of <i>upheld</i>, and the
+    /// specification never gives one directly — R10.39 publishes an "upheld rate" and leaves the
+    /// numerator to the implementation. It is defined here as the moderation outcome, not the flag:
+    /// a flag is upheld when the most recent moderation action citing its category acted on the
+    /// content. A flag nobody has reviewed is not upheld, which is the safe direction — the opposite
+    /// reading would let any agent demote any other by raising a flag nobody adjudicates.
+    /// </summary>
+    [Fact]
+    public void R10_39_AnUnreviewedFlagIsNotUpheld() =>
+        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, []));
+
+    /// <summary>Acting on the content upholds the flag; both acting effects count.</summary>
+    [Theory]
+    [InlineData(ModerationEffect.Quarantine)]
+    [InlineData(ModerationEffect.Withhold)]
+    public void R10_39_ActingOnContentUpholdsTheFlag(ModerationEffect effect) =>
+        Assert.True(ModerationPolicy.IsUpheld(FlagKind.Injection, [On(FlagKind.Injection, effect)]));
+
+    /// <summary>
+    /// A dismissal is the denominator's other half: reviewed, and found not to warrant action.
+    /// </summary>
+    [Fact]
+    public void R10_39_ADismissalDoesNotUpholdTheFlag() =>
+        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, [On(FlagKind.Injection, ModerationEffect.Dismiss)]));
+
+    /// <summary>
+    /// A restore reverses the upholding as well as the withholding. R7.8 requires demotion on
+    /// posture degradation; nothing in Table 11 says the degradation outlives the decision that
+    /// caused it, and an agent left demoted by a reversed action would be serving a penalty a
+    /// moderator explicitly lifted.
+    /// </summary>
+    [Fact]
+    public void R10_39_ARestoreReversesTheUpholding() =>
+        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, [
+            On(FlagKind.Injection, ModerationEffect.Withhold),
+            On(FlagKind.Injection, ModerationEffect.Restore)]));
+
+    /// <summary>
+    /// Categories are decided independently. A post withheld for <c>Spam</c> says nothing about
+    /// whether its <c>Injection</c> flag was upheld — R10.37 records a category on every action
+    /// precisely so the two can be told apart, and collapsing them would make one moderator's
+    /// decision silently answer a question they never considered.
+    /// </summary>
+    [Fact]
+    public void R10_37_UpholdingIsDecidedPerCategory()
+    {
+        var history = (ModerationAction[])[On(FlagKind.Spam, ModerationEffect.Withhold)];
+
+        Assert.True(ModerationPolicy.IsUpheld(FlagKind.Spam, history));
+        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, history));
+    }
+
+    /// <summary>
+    /// The most recent decision in a category governs, for the reason <see cref="ModerationPolicy.MayServe"/>
+    /// folds rather than stores: the history is the state, so a reversal needs nothing invalidated.
+    /// </summary>
+    [Fact]
+    public void UpholdingIsAFoldOverHistory() =>
+        Assert.True(ModerationPolicy.IsUpheld(FlagKind.Injection, [
+            On(FlagKind.Injection, ModerationEffect.Quarantine),
+            On(FlagKind.Injection, ModerationEffect.Restore),
+            On(FlagKind.Injection, ModerationEffect.Withhold)]));
+
+    /// <summary>
+    /// R10.35 names the seven types in the spelling they travel in: <c>injection</c>,
+    /// <c>credential_leak</c>, <c>incorrect</c>, <c>spam</c>, <c>duplicate</c>,
+    /// <c>license_violation</c>, <c>malicious_code</c>. Asserted against the published strings
+    /// rather than against <c>ToString()</c>, because the C# member names differ from them and a
+    /// wire format derived from an identifier changes whenever someone renames the identifier.
+    /// </summary>
+    [Theory]
+    [InlineData(FlagKind.Injection, "injection")]
+    [InlineData(FlagKind.CredentialLeak, "credential_leak")]
+    [InlineData(FlagKind.Incorrect, "incorrect")]
+    [InlineData(FlagKind.Spam, "spam")]
+    [InlineData(FlagKind.Duplicate, "duplicate")]
+    [InlineData(FlagKind.LicenseViolation, "license_violation")]
+    [InlineData(FlagKind.MaliciousCode, "malicious_code")]
+    public void R10_35_FlagKindsTravelInTheSpellingTheSpecificationPublishes(FlagKind kind, string wire)
+    {
+        Assert.Equal(wire, FlagKinds.Wire(kind));
+        Assert.True(FlagKinds.Parse(wire).TryGetValue(out var parsed, out _));
+        Assert.Equal(kind, parsed);
+    }
+
+    /// <summary>
+    /// An unrecognised spelling is a failure, never a default. A parser that fell back to a member
+    /// would let a typo silently become a real flag category, and R10.39's per-category statistics
+    /// would then be counting something nobody raised.
+    /// </summary>
+    [Fact]
+    public void R10_35_AnUnknownFlagSpellingDoesNotParse()
+    {
+        Assert.False(FlagKinds.Parse("not_a_flag").TryGetValue(out _, out var error));
+        Assert.Equal("curia/flag/unknown-kind", error!.Type);
+    }
+
+    /// <summary>Every member round-trips, so an eighth type added without a spelling fails here.</summary>
+    [Fact]
+    public void EveryFlagKindHasAWireSpelling()
+    {
+        foreach (var kind in Enum.GetValues<FlagKind>())
+        {
+            Assert.True(FlagKinds.Parse(FlagKinds.Wire(kind)).TryGetValue(out var parsed, out _));
+            Assert.Equal(kind, parsed);
+        }
+    }
 }

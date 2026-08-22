@@ -16,6 +16,61 @@ public enum FlagKind
 }
 
 /// <summary>
+/// R10.35's seven spellings, as they travel. The wire form is published in the specification, so it
+/// is written out here rather than derived from the identifier: a format derived from a C# member
+/// name changes whenever someone renames the member, and this one is part of an API contract.
+/// </summary>
+public static class FlagKinds
+{
+    /// <summary>The spelling R10.35 publishes for a kind.</summary>
+    public static string Wire(FlagKind kind) => kind switch
+    {
+        FlagKind.Injection => "injection",
+        FlagKind.CredentialLeak => "credential_leak",
+        FlagKind.Incorrect => "incorrect",
+        FlagKind.Spam => "spam",
+        FlagKind.Duplicate => "duplicate",
+        FlagKind.LicenseViolation => "license_violation",
+        FlagKind.MaliciousCode => "malicious_code",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not one of R10.35's seven flag types"),
+    };
+
+    /// <summary>
+    /// The seven spellings, as a lookup table.
+    ///
+    /// <para><b>A table rather than a <c>switch</c>, and the reason is worth recording.</b> At seven
+    /// or more string cases Roslyn stops emitting a comparison chain and lowers the switch to a hash
+    /// probe, which makes the switching type depend on <c>&lt;PrivateImplementationDetails&gt;</c> —
+    /// a type in the global namespace, and therefore a CS-7 offender under
+    /// <c>Curia.Architecture.Tests.LayeringTests</c>'s allow-list, on a dependency nobody took. The
+    /// rule is right to be strict; the code should not be asking the compiler to choose. A map is
+    /// what this always was, it is the shape <see cref="ModerationPolicy"/> already uses for
+    /// R10.36's authority table, and it does not change behaviour at the seventh entry.</para>
+    /// </summary>
+    private static readonly FrozenDictionary<string, FlagKind> ByWire =
+        new Dictionary<string, FlagKind>(StringComparer.Ordinal)
+        {
+            ["injection"] = FlagKind.Injection,
+            ["credential_leak"] = FlagKind.CredentialLeak,
+            ["incorrect"] = FlagKind.Incorrect,
+            ["spam"] = FlagKind.Spam,
+            ["duplicate"] = FlagKind.Duplicate,
+            ["license_violation"] = FlagKind.LicenseViolation,
+            ["malicious_code"] = FlagKind.MaliciousCode,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The kind a spelling names, or a failure. Never a default: a parser that fell back to a
+    /// member would let a typo become a real category, and R10.39's per-category statistics would
+    /// then count something nobody raised.
+    /// </summary>
+    public static Result<FlagKind> Parse(string? wire) =>
+        wire is not null && ByWire.TryGetValue(wire, out var kind)
+            ? Result<FlagKind>.Ok(kind)
+            : Result<FlagKind>.Fail(ModerationErrors.UnknownFlagKind(wire));
+}
+
+/// <summary>
 /// What a moderation action does to content — and, more importantly, what none of them does.
 ///
 /// <para><b>There is no <c>Delete</c> and no <c>Redact</c>, by construction.</b> R10.26 states the
@@ -67,6 +122,60 @@ public enum ModeratorKind
     /// offer at all.
     /// </summary>
     DelegatedAgent,
+}
+
+/// <summary>
+/// How a <see cref="ModerationEffect"/> travels in an event payload.
+///
+/// <para><b>Written out rather than derived from the identifier</b>, for a reason that is stronger
+/// here than for a wire format: these strings go into an append-only log. A payload spelled by
+/// <c>ToString()</c> would be re-spelled by any future rename, and the events already written would
+/// keep the old spelling with nothing to migrate them — there is no <c>UPDATE</c> on the event table
+/// (R11.6), so a rename would silently orphan every moderation action taken before it.</para>
+/// </summary>
+public static class ModerationEffects
+{
+    /// <summary>The spelling this effect travels in.</summary>
+    public static string Wire(ModerationEffect effect) => effect switch
+    {
+        ModerationEffect.Quarantine => "quarantine",
+        ModerationEffect.Withhold => "withhold",
+        ModerationEffect.Restore => "restore",
+        ModerationEffect.Dismiss => "dismiss",
+        _ => throw new ArgumentOutOfRangeException(nameof(effect), effect, "Not a moderation effect"),
+    };
+
+    /// <summary>The effect a spelling names, or a failure. Never a default.</summary>
+    public static Result<ModerationEffect> Parse(string? wire) => wire switch
+    {
+        "quarantine" => Result<ModerationEffect>.Ok(ModerationEffect.Quarantine),
+        "withhold" => Result<ModerationEffect>.Ok(ModerationEffect.Withhold),
+        "restore" => Result<ModerationEffect>.Ok(ModerationEffect.Restore),
+        "dismiss" => Result<ModerationEffect>.Ok(ModerationEffect.Dismiss),
+        _ => Result<ModerationEffect>.Fail(ModerationErrors.UnknownEffect(wire)),
+    };
+}
+
+/// <summary>How a <see cref="ModeratorKind"/> travels, for the reason <see cref="ModerationEffects"/> gives.</summary>
+public static class ModeratorKinds
+{
+    /// <summary>The spelling this moderator kind travels in.</summary>
+    public static string Wire(ModeratorKind moderator) => moderator switch
+    {
+        ModeratorKind.Automated => "automated",
+        ModeratorKind.Human => "human",
+        ModeratorKind.DelegatedAgent => "delegated_agent",
+        _ => throw new ArgumentOutOfRangeException(nameof(moderator), moderator, "Not a moderator kind"),
+    };
+
+    /// <summary>The moderator kind a spelling names, or a failure. Never a default.</summary>
+    public static Result<ModeratorKind> Parse(string? wire) => wire switch
+    {
+        "automated" => Result<ModeratorKind>.Ok(ModeratorKind.Automated),
+        "human" => Result<ModeratorKind>.Ok(ModeratorKind.Human),
+        "delegated_agent" => Result<ModeratorKind>.Ok(ModeratorKind.DelegatedAgent),
+        _ => Result<ModeratorKind>.Fail(ModerationErrors.UnknownModerator(wire)),
+    };
 }
 
 /// <summary>
@@ -148,6 +257,50 @@ public static class ModerationPolicy
     }
 
     /// <summary>
+    /// Whether a flag of <paramref name="category"/> has been upheld, given the post's moderation
+    /// history in order.
+    ///
+    /// <para><b>Upheld is a property of the moderation outcome, never of the flag.</b> R10.39
+    /// publishes an "upheld rate" and Table 11 gates T1 on "≥ 3 questions with no upheld flags",
+    /// but neither defines the term. Defining it as "a flag was raised" would let any credentialed
+    /// agent demote any other by raising a flag nobody ever adjudicates — R10.35 opens flagging to
+    /// every T0 agent, so that reading hands every agent a demotion primitive. An unreviewed flag
+    /// is therefore not upheld.</para>
+    ///
+    /// <para>A fold rather than a search, and per category, for the two reasons
+    /// <see cref="MayServe"/> gives: the history is the state, so a reversal needs nothing
+    /// invalidated; and R10.37 records a category on every action precisely so one moderator's
+    /// decision cannot silently answer a question they never considered.</para>
+    /// </summary>
+    public static bool IsUpheld(FlagKind category, IReadOnlyList<ModerationAction> historyInOrder)
+    {
+        ArgumentNullException.ThrowIfNull(historyInOrder);
+
+        var upheld = false;
+
+        foreach (var action in historyInOrder)
+        {
+            if (action.Category != category) continue;
+
+            upheld = action.Effect switch
+            {
+                ModerationEffect.Quarantine => true,
+                ModerationEffect.Withhold => true,
+
+                // A restore lifts the penalty as well as the withholding: an agent left demoted by
+                // an action a moderator explicitly reversed would be serving it anyway.
+                ModerationEffect.Restore => false,
+
+                // Reviewed, and found not to warrant action.
+                ModerationEffect.Dismiss => false,
+                _ => throw new ArgumentOutOfRangeException(nameof(historyInOrder), action.Effect, "Not an effect"),
+            };
+        }
+
+        return upheld;
+    }
+
+    /// <summary>
     /// Whether a post may be served, given its moderation history in order.
     ///
     /// <para>A fold rather than a stored flag, for the reason <c>CredentialLifecycle.Project</c>
@@ -191,6 +344,28 @@ public static class ModerationErrors
         "curia/moderation/not-permitted",
         "That moderator may not take that action (R10.36)",
         $"moderator={moderator} effect={effect}");
+
+    /// <summary>
+    /// R10.35 fixes the seven spellings; anything else is a client error rather than a new category.
+    /// The detail lists what was accepted, because a client that sent <c>credentialLeak</c> cannot
+    /// guess <c>credential_leak</c> from "unknown".
+    /// </summary>
+    public static Error UnknownFlagKind(string? wire) => new(
+        "curia/flag/unknown-kind",
+        "Not one of R10.35's seven flag types",
+        $"received={wire ?? "(none)"} expected=injection, credential_leak, incorrect, spam, duplicate, license_violation, malicious_code");
+
+    /// <summary>An effect spelling the log does not define. Refused rather than defaulted.</summary>
+    public static Error UnknownEffect(string? wire) => new(
+        "curia/moderation/unknown-effect",
+        "Not a moderation effect",
+        $"received={wire ?? "(none)"} expected=quarantine, withhold, restore, dismiss");
+
+    /// <summary>A moderator-kind spelling the log does not define. Refused rather than defaulted.</summary>
+    public static Error UnknownModerator(string? wire) => new(
+        "curia/moderation/unknown-moderator",
+        "Not a moderator kind",
+        $"received={wire ?? "(none)"} expected=automated, human, delegated_agent");
 
     /// <summary>R10.37 requires a rationale on every action; R10.38's appeal path is unusable without one.</summary>
     public static Error RationaleRequired() => new(
