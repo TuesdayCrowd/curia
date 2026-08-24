@@ -157,6 +157,86 @@ public sealed class JsonReaderTests
         Assert.Equal("curia/admit/string-too-long", Parse(json).Match(_ => "ok", e => e.Type));
     }
 
+    // R6.39's second sentence -- "Published vectors SHALL exercise both sides of each of the
+    // four boundaries -- the value at the limit (accepted) and one past it (rejected)" -- was
+    // discharged for depth alone. The three tests above reject one past three caps; nothing
+    // anywhere accepted the value AT those caps, so an off-by-one narrowing any of them by a
+    // single unit was invisible in both implementations.
+    //
+    // Expectations still derive from AdmitLimits.Default, which is only legitimate because
+    // PublishedAdmitLimitsTests now pins those constants against R6.39's own sentence.
+
+    [Fact]
+    public void AcceptsAnObjectWithExactlyTheMemberCap()
+    {
+        var json = "{" + string.Join(",", Enumerable.Range(0, AdmitLimits.Default.MaxMembersPerObject).Select(i => $"\"k{i}\":0")) + "}";
+        Assert.True(Parse(json).IsOk);
+    }
+
+    [Fact]
+    public void AcceptsAStringOfExactlyTheStringCap()
+    {
+        var json = "{\"a\":\"" + new string('x', AdmitLimits.Default.MaxStringBytes) + "\"}";
+        Assert.True(Parse(json).IsOk);
+    }
+
+    /// <summary>
+    /// R6.39 measures the string cap "in UTF-8 bytes", and an all-ASCII suite cannot tell that
+    /// from "in characters" -- every fixture above agrees under both readings. U+00E9 is two
+    /// UTF-8 bytes, so half the cap's worth of them lands exactly on the boundary and one more
+    /// crosses it by two; an implementation counting characters would accept both, having seen
+    /// 131,073 of a permitted 262,144.
+    ///
+    /// <para>Written as literal, unescaped UTF-8. The escaped form is deliberately not tested
+    /// here: fed 131,072 escaped U+00E9 -- 262,144 decoded bytes, exactly the cap, but 786,432
+    /// bytes of JSON source -- this implementation rejects and curia-testis admits, because this
+    /// one caps <c>reader.ValueSpan.Length</c> and that one caps the decoded string. R6.39 does
+    /// not say which is meant, so pinning either here would freeze a reading by accident. The
+    /// case is carried as supplemental case 8 in tools/differential-oracle/compare.mjs.</para>
+    /// </summary>
+    [Fact]
+    public void StringCapCountsUtf8BytesNotCharacters()
+    {
+        var atCap = string.Concat(Enumerable.Repeat("\u00e9", AdmitLimits.Default.MaxStringBytes / 2));
+        Assert.Equal(AdmitLimits.Default.MaxStringBytes, Encoding.UTF8.GetByteCount(atCap));
+        Assert.True(Parse("{\"a\":\"" + atCap + "\"}").IsOk);
+
+        var pastCap = atCap + "\u00e9";
+        Assert.Equal(AdmitLimits.Default.MaxStringBytes + 2, Encoding.UTF8.GetByteCount(pastCap));
+        Assert.Equal("curia/admit/string-too-long", Parse("{\"a\":\"" + pastCap + "\"}").Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void AcceptsASubmissionOfExactlyTheSizeCap()
+    {
+        var doc = DocumentOfExactSize(AdmitLimits.Default.MaxBytes);
+        Assert.Equal(AdmitLimits.Default.MaxBytes, doc.Length);
+        Assert.True(Parse(Encoding.UTF8.GetBytes(doc)).IsOk);
+    }
+
+    /// <summary>
+    /// A syntactically valid document of exactly <paramref name="total"/> bytes that no cap
+    /// other than the submission-size cap can decide: sixteen members (far under the
+    /// 1,024-member cap), each holding a string far under the 256 KiB string cap.
+    ///
+    /// <para>The naive fixture -- one giant string in a one-member object -- cannot reach the
+    /// size cap at all, because the string cap fires four times sooner. curia-testis's
+    /// admit_fuzz.rs had exactly that fixture under a "submission-size-boundary" label, and
+    /// three of its four cases were being decided by the string cap.</para>
+    /// </summary>
+    private static string DocumentOfExactSize(int total)
+    {
+        const int slots = 16;
+        var skeleton = 2 + (slots * 6) + (slots - 1);   // {"a":"", ... ,"p":""}
+        var payload = total - skeleton;
+        var (basis, extra) = (payload / slots, payload % slots);
+
+        var members = Enumerable.Range(0, slots).Select(i =>
+            $"\"{(char)('a' + i)}\":\"" + new string('a', basis + (i == 0 ? extra : 0)) + "\"");
+
+        return "{" + string.Join(",", members) + "}";
+    }
+
     /// <summary>
     /// Utf8JsonReader.GetDouble() returns +/-Infinity for a syntactically valid literal
     /// whose magnitude overflows a double (e.g. 1e400), rather than throwing -- and

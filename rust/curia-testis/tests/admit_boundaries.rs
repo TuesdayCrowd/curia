@@ -164,3 +164,141 @@ fn zero_is_accepted() {
     let doc = envelope_with_number("0");
     assert_eq!(admit(&doc), Ok(()));
 }
+
+// ---------------------------------------------------------------------
+// R6.39's other three caps: member count, string length, submission size.
+//
+// R6.39's second sentence is explicit -- "Published vectors SHALL exercise
+// both sides of each of the four boundaries -- the value at the limit
+// (accepted) and one past it (rejected)" -- and before this section only
+// depth had both sides anywhere, in either implementation. `admit_fuzz.rs`
+// sweeps values around three of the four, but grades every case on panic
+// freedom alone and discards the verdict; the published corpus has one
+// reject-side vector (`over-nested`) and nothing else.
+//
+// Expectations are derived from the `ADMIT_MAX_*` constants rather than from
+// literals, which is only legitimate because
+// `tests/published_admit_limits.rs` now pins those constants against R6.39's
+// own sentence. Before that file existed, deriving from the constant is
+// exactly what made this whole family blind to the constant's value.
+// ---------------------------------------------------------------------
+
+use curia_testis::json::{
+    ADMIT_MAX_OBJECT_MEMBERS, ADMIT_MAX_STRING_BYTES, ADMIT_MAX_SUBMISSION_BYTES,
+};
+
+/// `{"k0":0,...}` with exactly `n` distinct members.
+fn object_with_members(n: usize) -> Vec<u8> {
+    let members: Vec<String> = (0..n).map(|i| format!("\"k{i}\":0")).collect();
+    format!("{{{}}}", members.join(",")).into_bytes()
+}
+
+/// `{"s":"<body>"}` — the cap under test applies to the member *value*.
+///
+/// Member names and `\uXXXX`-escaped values are deliberately avoided: the two
+/// implementations disagree about both, R6.39's wording does not settle
+/// either, and a test here would freeze one reading by accident. Both are
+/// recorded as open in `tools/differential-oracle/compare.mjs`'s supplemental
+/// cases 8 and 9 instead.
+fn object_with_string_value(body: &str) -> Vec<u8> {
+    format!("{{\"s\":\"{body}\"}}").into_bytes()
+}
+
+/// A syntactically valid document of exactly `total` bytes that no cap other
+/// than the submission-size cap can decide: sixteen members (far under the
+/// 1,024-member cap), each holding a string far under the 256 KiB string cap,
+/// nested one level deep.
+fn document_of_exact_size(total: usize) -> Vec<u8> {
+    const SLOTS: usize = 16;
+    let skeleton = 2 + SLOTS * 6 + (SLOTS - 1); // {"a":"", ... ,"p":""}
+    assert!(total >= skeleton, "{total} is smaller than the skeleton");
+
+    let payload = total - skeleton;
+    let base = payload / SLOTS;
+    let extra = payload % SLOTS;
+    assert!(
+        base + extra <= ADMIT_MAX_STRING_BYTES,
+        "a {total}-byte document spread over {SLOTS} members would trip the string cap first"
+    );
+
+    let mut doc = String::with_capacity(total);
+    doc.push('{');
+    for i in 0..SLOTS {
+        if i > 0 {
+            doc.push(',');
+        }
+        doc.push('"');
+        doc.push((b'a' + i as u8) as char);
+        doc.push_str("\":\"");
+        for _ in 0..base + if i == 0 { extra } else { 0 } {
+            doc.push('a');
+        }
+        doc.push('"');
+    }
+    doc.push('}');
+
+    assert_eq!(doc.len(), total, "exact-size builder is off");
+    doc.into_bytes()
+}
+
+#[test]
+fn members_exactly_at_the_cap_are_accepted() {
+    let doc = object_with_members(ADMIT_MAX_OBJECT_MEMBERS);
+    assert_eq!(admit(&doc), Ok(()));
+}
+
+#[test]
+fn members_one_past_the_cap_are_rejected() {
+    let doc = object_with_members(ADMIT_MAX_OBJECT_MEMBERS + 1);
+    let err = admit(&doc).expect_err("one member past the cap must be rejected");
+    assert_eq!(err.predicate(), "curia/admit/members-exceeded");
+}
+
+#[test]
+fn a_string_exactly_at_the_cap_is_accepted() {
+    let doc = object_with_string_value(&"a".repeat(ADMIT_MAX_STRING_BYTES));
+    assert_eq!(admit(&doc), Ok(()));
+}
+
+#[test]
+fn a_string_one_byte_past_the_cap_is_rejected() {
+    let doc = object_with_string_value(&"a".repeat(ADMIT_MAX_STRING_BYTES + 1));
+    let err = admit(&doc).expect_err("one byte past the string cap must be rejected");
+    assert_eq!(err.predicate(), "curia/admit/string-too-long");
+}
+
+/// R6.39 says the string cap is "measured in UTF-8 bytes", and an all-ASCII
+/// suite cannot tell that from "measured in characters" -- the two agree on
+/// every fixture above. U+00E9 is two UTF-8 bytes, so exactly half the cap's
+/// worth of them sits on the boundary and one more character crosses it by
+/// two bytes; an implementation counting characters would accept both, having
+/// seen only 131,073 of a permitted 262,144.
+///
+/// Written as literal (unescaped) UTF-8, which is the one form both
+/// implementations agree on -- see `object_with_string_value`.
+#[test]
+fn the_string_cap_counts_utf8_bytes_not_characters() {
+    let at_cap = "\u{00e9}".repeat(ADMIT_MAX_STRING_BYTES / 2);
+    assert_eq!(at_cap.len(), ADMIT_MAX_STRING_BYTES);
+    assert_eq!(admit(&object_with_string_value(&at_cap)), Ok(()));
+
+    let past_cap = "\u{00e9}".repeat(ADMIT_MAX_STRING_BYTES / 2 + 1);
+    assert_eq!(past_cap.len(), ADMIT_MAX_STRING_BYTES + 2);
+    let err = admit(&object_with_string_value(&past_cap))
+        .expect_err("262,146 UTF-8 bytes must be rejected however few characters they are");
+    assert_eq!(err.predicate(), "curia/admit/string-too-long");
+}
+
+#[test]
+fn a_submission_exactly_at_the_size_cap_is_accepted() {
+    let doc = document_of_exact_size(ADMIT_MAX_SUBMISSION_BYTES);
+    assert_eq!(doc.len(), ADMIT_MAX_SUBMISSION_BYTES);
+    assert_eq!(admit(&doc), Ok(()));
+}
+
+#[test]
+fn a_submission_one_byte_past_the_size_cap_is_rejected() {
+    let doc = document_of_exact_size(ADMIT_MAX_SUBMISSION_BYTES + 1);
+    let err = admit(&doc).expect_err("one byte past the submission cap must be rejected");
+    assert_eq!(err.predicate(), "curia/admit/size-exceeded");
+}

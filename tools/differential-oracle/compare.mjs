@@ -259,6 +259,69 @@ function buildSupplementalCases() {
   //    "canonical" bytes contain two members sharing one key: not valid I-JSON.
   add('nfc-collision-duplicate-key', 'canonicalize_nfc', Buffer.from('{"café":1,"café":2}', 'utf8'));
 
+  // 7. R6.39's submission-size cap, ACCEPTED side. Case 1 above covers cap+1;
+  //    nothing anywhere covered the cap itself, in either implementation --
+  //    admit_fuzz.rs's "submission-size-boundary" sweep looks like it does, but
+  //    its filler arithmetic (n-10 bytes inside an 8-byte wrapper) yields a
+  //    document of n-2 bytes whose single string is ~1 MiB, so three of its four
+  //    cases are rejected by the 256 KiB *string* cap and the fourth is nearly
+  //    double the size cap. R6.39 is explicit that both sides of each of the four
+  //    boundaries must be exercised, so here is the side that was missing:
+  //    exactly 1,048,576 bytes, spread over sixteen members so that no string
+  //    approaches the string cap and no object approaches the member cap. Only
+  //    the size cap can decide this document.
+  {
+    const SLOTS = 16;
+    const skeleton = 2 + SLOTS * 6 + (SLOTS - 1); // {"a":"", ... ,"p":""}
+    const payload = 1_048_576 - skeleton;
+    const base = Math.floor(payload / SLOTS);
+    const extra = payload % SLOTS;
+    const parts = [];
+    for (let i = 0; i < SLOTS; i++) {
+      const name = String.fromCharCode(0x61 + i);
+      parts.push(`"${name}":"${'a'.repeat(base + (i === 0 ? extra : 0))}"`);
+    }
+    const atCap = '{' + parts.join(',') + '}';
+    if (Buffer.byteLength(atCap, 'utf8') !== 1_048_576) throw new Error('size-at-cap builder is off');
+    add('size-at-cap-must-be-admitted', 'admit', Buffer.from(atCap, 'utf8'));
+  }
+
+  // 8. R6.39's string cap, measured over WHICH bytes? Confirmed divergence,
+  //    reproduced by running both endpoints rather than by reading them.
+  //    131,072 x é decodes to exactly 262,144 UTF-8 bytes -- the cap on the
+  //    nose -- but occupies 786,432 bytes of JSON source. C# caps
+  //    reader.ValueSpan.Length (JsonReader.cs, ReadString), the raw source span
+  //    with escapes uncollapsed, and REJECTS; curia-testis's check_string caps
+  //    s.len() on the decoded String (json.rs) and ADMITS. The identical document
+  //    written with literal (unescaped) U+00E9 is admitted by both, so the
+  //    divergence is invisible to any corpus that does not escape.
+  //
+  //    R6.39 says "maximum string length 256 KiB (262,144 bytes), measured in
+  //    UTF-8 bytes" and does not say whether that is the decoded value or the
+  //    source span. Both readings are defensible from the words, so this is a
+  //    specification gap before it is an implementation defect -- recorded here
+  //    so the harness reports it on every run until an erratum settles it, and
+  //    deliberately NOT pinned by a unit test in either implementation, which
+  //    would freeze one reading by accident.
+  add('string-cap-escaped-at-decoded-cap', 'admit',
+    Buffer.from('{"s":"' + '\\u00e9'.repeat(131_072) + '"}', 'utf8'));
+
+  // 9. R6.39's string cap: does an object member NAME count as a string?
+  //    Confirmed divergence, likewise reproduced by execution. A 262,145-byte
+  //    member name is ADMITTED by C# and REJECTED by curia-testis. C#'s
+  //    ReadObject reads member names through ReadStringValue directly, which
+  //    takes no caps argument, so no length cap applies to a member name at all
+  //    -- bounded only by the 1 MiB submission cap, four times larger.
+  //    curia-testis's check_node calls check_string(key), whose own doc comment
+  //    says it covers "an object member name or a string value".
+  //
+  //    Same status as case 8: R6.39 does not say whether member names are
+  //    strings for this purpose, so it is errata material first. The member-name
+  //    direction is the one that matters operationally, since it admits a
+  //    document past the Forum's published cap.
+  add('string-cap-member-name', 'admit',
+    Buffer.from('{"' + 'a'.repeat(262_145) + '":0}', 'utf8'));
+
   return cases;
 }
 
