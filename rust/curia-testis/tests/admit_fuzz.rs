@@ -32,6 +32,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::time::Instant;
 
 use curia_testis::conformance::Corpus;
+use curia_testis::json::ADMIT_MAX_SUBMISSION_BYTES;
 
 /// `splitmix64` — a small, public-domain, dependency-free PRNG. Not
 /// cryptographic, not trying to be; only reproducibility and reasonable
@@ -82,6 +83,36 @@ fn run_no_panic(label: &str, input: &[u8], calls: &mut usize, failures: &mut Vec
             &input[..input.len().min(64)]
         ));
     }
+}
+
+/// A syntactically valid document of exactly `total` bytes whose verdict only
+/// the submission-size cap can decide: sixteen members (far under the
+/// 1,024-member cap), each holding a string far under the 256 KiB string cap.
+fn document_of_exact_size(total: usize) -> Vec<u8> {
+    const SLOTS: usize = 16;
+    let skeleton = 2 + SLOTS * 6 + (SLOTS - 1); // {"a":"", ... ,"p":""}
+    let payload = total - skeleton;
+    let base = payload / SLOTS;
+    let extra = payload % SLOTS;
+
+    let mut doc = String::with_capacity(total);
+    doc.push('{');
+    for i in 0..SLOTS {
+        if i > 0 {
+            doc.push(',');
+        }
+        doc.push('"');
+        doc.push((b'a' + i as u8) as char);
+        doc.push_str("\":\"");
+        for _ in 0..base + if i == 0 { extra } else { 0 } {
+            doc.push('a');
+        }
+        doc.push('"');
+    }
+    doc.push('}');
+
+    assert_eq!(doc.len(), total, "exact-size builder is off");
+    doc.into_bytes()
 }
 
 /// Real, varied, already-adversarial JSON documents pulled from the
@@ -307,14 +338,43 @@ fn no_panic_on_adversarial_input() {
         );
     }
 
-    // 7. Submission-size boundary and beyond (the 1 MiB cap), including one
-    //    input roughly double the cap to confirm the early-return size
-    //    check doesn't scan the whole buffer first.
+    // 7a. Very large single-string documents. These were labelled
+    //     "submission-size-boundary" and are not: `{"s":"<n-10 a's>"}` is a
+    //     document of n-2 bytes, so at n = 1_048_577 it is still 1,048,575
+    //     bytes -- under the 1 MiB cap -- and all three of the sub-2 MB cases
+    //     are decided by the 256 KiB *string* cap long before the size cap is
+    //     consulted. Verified by running both differential endpoints, which
+    //     answer curia/admit/string-too-long for the first three.
+    //
+    //     Kept, under an honest label: a ~1 MiB single string is still a
+    //     worthwhile panic-freedom case for the string path.
     for n in [1_048_575usize, 1_048_576, 1_048_577, 2_000_000] {
         let filler = "a".repeat(n.saturating_sub(10));
         run_no_panic(
-            "submission-size-boundary",
+            "oversize-single-string",
             format!("{{\"s\":\"{filler}\"}}").as_bytes(),
+            &mut calls,
+            &mut failures,
+        );
+    }
+
+    // 7b. The submission-size boundary the label above promised, actually
+    //     straddled. Reaching the 1 MiB cap means spreading the bytes so that
+    //     no single string approaches the 256 KiB string cap and no object
+    //     approaches the 1,024-member cap -- sixteen members of ~64 KiB each.
+    //     Both sides of this boundary are graded in
+    //     `tests/admit_boundaries.rs`; here they only have to not panic, but a
+    //     maximal admitted document is the interesting panic case, and before
+    //     this block no such document was ever built.
+    for n in [
+        ADMIT_MAX_SUBMISSION_BYTES - 1,
+        ADMIT_MAX_SUBMISSION_BYTES,
+        ADMIT_MAX_SUBMISSION_BYTES + 1,
+        2_000_000,
+    ] {
+        run_no_panic(
+            "submission-size-boundary",
+            &document_of_exact_size(n),
             &mut calls,
             &mut failures,
         );

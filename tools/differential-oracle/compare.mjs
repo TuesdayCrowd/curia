@@ -259,6 +259,98 @@ function buildSupplementalCases() {
   //    "canonical" bytes contain two members sharing one key: not valid I-JSON.
   add('nfc-collision-duplicate-key', 'canonicalize_nfc', Buffer.from('{"café":1,"café":2}', 'utf8'));
 
+  // 7. R6.39's submission-size cap, ACCEPTED side. Case 1 above covers cap+1;
+  //    nothing anywhere covered the cap itself, in either implementation --
+  //    admit_fuzz.rs's "submission-size-boundary" sweep looks like it does, but
+  //    its filler arithmetic (n-10 bytes inside an 8-byte wrapper) yields a
+  //    document of n-2 bytes whose single string is ~1 MiB, so three of its four
+  //    cases are rejected by the 256 KiB *string* cap and the fourth is nearly
+  //    double the size cap. R6.39 is explicit that both sides of each of the four
+  //    boundaries must be exercised, so here is the side that was missing:
+  //    exactly 1,048,576 bytes, spread over sixteen members so that no string
+  //    approaches the string cap and no object approaches the member cap. Only
+  //    the size cap can decide this document.
+  {
+    const SLOTS = 16;
+    const skeleton = 2 + SLOTS * 6 + (SLOTS - 1); // {"a":"", ... ,"p":""}
+    const payload = 1_048_576 - skeleton;
+    const base = Math.floor(payload / SLOTS);
+    const extra = payload % SLOTS;
+    const parts = [];
+    for (let i = 0; i < SLOTS; i++) {
+      const name = String.fromCharCode(0x61 + i);
+      parts.push(`"${name}":"${'a'.repeat(base + (i === 0 ? extra : 0))}"`);
+    }
+    const atCap = '{' + parts.join(',') + '}';
+    if (Buffer.byteLength(atCap, 'utf8') !== 1_048_576) throw new Error('size-at-cap builder is off');
+    add('size-at-cap-must-be-admitted', 'admit', Buffer.from(atCap, 'utf8'));
+  }
+
+  // 8. R6.39's string cap, measured over WHICH bytes? Confirmed divergence,
+  //    reproduced by running both endpoints rather than by reading them.
+  //    131,072 x é decodes to exactly 262,144 UTF-8 bytes -- the cap on the
+  //    nose -- but occupies 786,432 bytes of JSON source. C# caps
+  //    reader.ValueSpan.Length (JsonReader.cs, ReadString), the raw source span
+  //    with escapes uncollapsed, and REJECTS; curia-testis's check_string caps
+  //    s.len() on the decoded String (json.rs) and ADMITS. The identical document
+  //    written with literal (unescaped) U+00E9 is admitted by both, so the
+  //    divergence is invisible to any corpus that does not escape.
+  //
+  //    R6.39 says "maximum string length 256 KiB (262,144 bytes), measured in
+  //    UTF-8 bytes" and does not say whether that is the decoded value or the
+  //    source span. Both readings are defensible from the words, so this is a
+  //    specification gap before it is an implementation defect -- recorded here
+  //    so the harness reports it on every run until an erratum settles it, and
+  //    deliberately NOT pinned by a unit test in either implementation, which
+  //    would freeze one reading by accident.
+  add('string-cap-escaped-at-decoded-cap', 'admit',
+    Buffer.from('{"s":"' + '\\u00e9'.repeat(131_072) + '"}', 'utf8'));
+
+  // 9. R6.39's string cap: does an object member NAME count as a string?
+  //    Confirmed divergence, likewise reproduced by execution. A 262,145-byte
+  //    member name is ADMITTED by C# and REJECTED by curia-testis. C#'s
+  //    ReadObject reads member names through ReadStringValue directly, which
+  //    takes no caps argument, so no length cap applies to a member name at all
+  //    -- bounded only by the 1 MiB submission cap, four times larger.
+  //    curia-testis's check_node calls check_string(key), whose own doc comment
+  //    says it covers "an object member name or a string value".
+  //
+  //    Same status as case 8: R6.39 does not say whether member names are
+  //    strings for this purpose, so it is errata material first. The member-name
+  //    direction is the one that matters operationally, since it admits a
+  //    document past the Forum's published cap.
+  add('string-cap-member-name', 'admit',
+    Buffer.from('{"' + 'a'.repeat(262_145) + '":0}', 'utf8'));
+
+  // 10. How far past the published cap does the C# member-name gap actually
+  //     reach? Case 9 establishes that it reaches at least one byte past;
+  //     this one measures the ceiling. A member name of 1,048,570 bytes makes
+  //     the document exactly 1 MiB, so nothing but the submission cap is left
+  //     to stop it -- and nothing does: C# ADMITS, curia-testis rejects with
+  //     curia/admit/string-too-long. That is 4.0x the published 256 KiB cap,
+  //     measured rather than inferred. One byte more and both answer
+  //     curia/admit/size-exceeded, which is the control that proves the
+  //     submission cap is the only remaining bound.
+  add('string-cap-member-name-at-submission-cap', 'admit',
+    Buffer.from('{"' + 'a'.repeat(1_048_570) + '":0}', 'utf8'));
+
+  // 11. The same ambiguity expressed as a PREDICATE divergence rather than an
+  //     accept/reject one, which is a class cases 8-10 cannot reach. Here the
+  //     decoded string is 262,143 bytes -- UNDER the cap -- while its source
+  //     span is 262,146, over it. Both implementations reject; they disagree
+  //     about why. C# answers curia/admit/string-too-long (its span-based cap
+  //     fires first); curia-testis answers curia/admit/noncharacter (its
+  //     decoded-based cap does not fire, so the U+FFFE scan is what catches
+  //     it). R14.8 makes the rejection predicate a normative component of the
+  //     answer, so this is a divergence even though the verdict agrees, and it
+  //     is invisible to any comparison that asks only whether a document was
+  //     admitted. Errata G1 settles the basis AND the precedence, because
+  //     fixing one without the other moves this divergence instead of closing
+  //     it. Deliberately not pinned by a unit test in either implementation,
+  //     for the same reason as cases 8 and 9.
+  add('string-cap-precedence-escaped-noncharacter', 'admit',
+    Buffer.from('{"s":"' + 'a'.repeat(262_140) + '\\uFFFE"}', 'utf8'));
+
   return cases;
 }
 
