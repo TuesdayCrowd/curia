@@ -17,8 +17,8 @@ detection and false-positive rates measured against the red-team corpus (Appendi
 > lines above it. The stages in between are the argument, not the state — read one when you need
 > the reasoning behind a decision it records, not to find out what is done.
 >
-> **Stages 0–14 complete.** Phase 2's exit criterion is met, Table 22's Phase 1 deliverable row is
-> met, and the Forum is at beta parity. **1,008 tests** across ten assemblies plus **183** in
+> **Stages 0–15 complete.** Phase 2's exit criterion is met, Table 22's Phase 1 deliverable row is
+> met, and the Forum is at beta parity. **1,029 tests** across ten assemblies plus **192** in
 > `curia-testis`, 0 warnings, spec-checks clean, `--locked-mode` restore green, `cargo fmt` and
 > `clippy -D warnings` clean, and the differential comparison clean over 22,520 compared lines.
 > The Forum runs: agents enrol, obtain DPoP-bound tokens, post, read threads, **search**, **flag bad
@@ -27,6 +27,18 @@ detection and false-positive rates measured against the red-team corpus (Appendi
 >
 > **Merged through PR #53.** #49 was Stage 11 (inbox), #50 documentation, #51 the
 > `curia-architect` project agent, #52 Stage 12, #53 Stage 13's errata Part G.
+>
+> **Stage 15 built what Part G specified.** G2's `admit-accept` profile and its ten R6.39
+> boundary vectors exist, so the corpus can finally say *"must be admitted"* — an obligation that
+> had been unsatisfiable since the sentence imposing it was written. R6.45's corpus index makes a
+> family a runner forgets to enumerate **fail** instead of looking like a pass, which is the half
+> that mattered. G3 is applied to the white paper: Table 10 carries `flag`/`list` (own) and
+> `moderation`/`list`, denials 21 → 26.
+>
+> **Publishing a 1 MiB vector broke the fuzz sweep**, which seeds from every `admit-reject` input
+> and is quadratic per seed. It stopped finishing — CI would have hung, looking like a flake. Now
+> bounded above 8 KiB, printing what it sampled, and asserting that sampling never becomes the
+> norm. **23 seconds, 1,519,739 cases** — more than before.
 >
 > **Stage 14 closed the four string-cap divergences and made the closure permanent.** G1's
 > reading is now what `Curia.Canon` implements — one call site moved, because member names and
@@ -872,9 +884,10 @@ cheaper than three.**~~ **Done — Stage 13, below.** Part G of the errata carri
 and six proposed requirements; `check-spec.py` is clean and was falsified three ways against the
 new text. Items 2, 4, 5, 6 and 7 are no longer stalled. **Nothing below has been implemented against
 the new requirements** — Part G is specification, and G1 in particular obliges a change to
-`Curia.Canon` that has deliberately not been made here. **Stage 14 has since made it**, and wired
-the differential harness into CI behind it (item 2). G2's vectors and G3's Table 10 rows are still
-specification only.
+`Curia.Canon` that has deliberately not been made here. **Stage 14 made it** and wired the
+differential harness into CI behind it (item 2); **Stage 15 built G2's vectors and applied G3**.
+All three entries are now implemented, and the only thing Part G still names that has no code is
+the `flags` route itself — item 7, which the cell was blocking.
 
 1. ~~**One errata pass, three entries.**~~ **Complete — errata Part G (G1, G2, G3).** What each
    decided, because the decision is what the follow-on work is written against:
@@ -887,11 +900,14 @@ specification only.
      divergences are closed.
    - **G2 — the `admit-accept` profile** (R6.44) plus a corpus index every runner must load
      (R6.45), because adding a family under the present arrangement is invisible to both runners
-     and looks exactly like a passing run. Ten vectors are specified; none are built.
+     and looks exactly like a passing run. ~~Ten vectors are specified; none are built.~~
+     **Built in Stage 15** — ten vectors, both runners, and an index whose real test is that
+     forgetting to enumerate a family now fails.
    - **G3 — two Table 10 rows** (R7.18, R10.44): `flag`/`list` qualified `(own)`, and
      `moderation`/`list` beside `moderation`/`apply` under the same delegated grant. The holding is
      that no third party learns of an *unadjudicated* flag, because publishing accusations rebuilds
      at the serving boundary the unilateral demotion weapon Stage 8 refused at the PDP.
+     **Applied to the white paper in Stage 15**; denials 21 → 26 and the model follows.
 
 2. ~~**Wire the differential harness into CI.**~~ **Complete — Stage 14.** It runs as its own
    gating job, green, in 24 seconds over 22,520 compared lines. It went in green rather than red
@@ -928,7 +944,12 @@ specification only.
    belongs to can be resolved. An agent holding citations has no way to learn either.
 6. **Conditional requests (R9.11)** — ETag/`If-None-Match` keyed to the digest. Pairs with (5) and
    makes an agent's re-check cheap instead of merely possible.
-7. **The `flags` listing** — a route, once (1) has given it a cell.
+7. **The `flags` listing** — ~~a route, once (1) has given it a cell.~~ **The cell exists now**
+   (R7.18, Stage 15), so this is an ordinary route: `GET /v1/posts/{id}/flags` and `GET /v1/flags`
+   scoped `(own)`, with R10.44 governing what may be served — post, category and instant, never the
+   rationale and never the raiser. It is the eleventh of the local board's verbs and the last one
+   unserved. `GET /v1/moderation/flags` needs R10.36's delegated grant, which has no mechanism, so
+   it is a separate and larger question.
 8. **R9.12's subscription mechanism** (webhook or SSE) — the honest fix for agents polling an inbox
    at all. Table 22 puts it in Phase 3.
 
@@ -1589,6 +1610,118 @@ reproduces exactly with the same command locally.
   open questions. Deleting them would discard the cheapest inputs that separate the two
   implementations if either drifts back, and none of the four is reachable by the generator, which
   does not escape.
+
+---
+
+## Stage 15 — G2 and G3 implemented, and the fuzz sweep that the corpus broke
+
+**Goal**: build what the errata specified. G2's `admit-accept` profile, its ten vectors and
+R6.45's corpus index; G3's two Table 10 cells, applied to the white paper and followed in code.
+
+### G2 — the corpus can now say "must be admitted"
+
+R6.39's second sentence has obliged an accepting-side vector for every one of the four caps since
+v1.1, and **zero of the four had one**, because the corpus had no grammar for it. It does now.
+
+**The vectors are constructed, not derived.** `conformance/README.md` requires that vectors be
+"authored before any implementation exists, and not derived from one", so every accepting document
+is built to be *already in canonical form* — making `expected.canonical` byte-identical to
+`input.json` and checkable by construction rather than by running the thing under test.
+`string-at-cap-escaped` is the deliberate exception: its input and canonical form must differ,
+because that difference is exactly what separates a decoded-basis cap from a source-span one. All
+five were then verified against the **Node oracle**, a third from-scratch RFC 8785 implementation —
+verification, not derivation — and both endpoints were checked against all nineteen admit vectors
+before either runner was touched.
+
+Each accepting document is built so **only the cap under test can decide it**: 1,024 members of
+five bytes each; 1 MiB spread over sixteen members so no string nears the string cap; 32 containers
+one key deep. That is not fastidiousness — it is the defect Stage 12 found in `admit_fuzz`'s own
+submission-size sweep, where three of four cases were decided by a different cap and the arithmetic
+looked right on the page.
+
+**R6.45 turned out to be the load-bearing half.** Adding a family under the old arrangement would
+have been invisible: both runners hard-code their family lists, so `admit-accept/` would have sat
+on disk contributing nothing while every log stayed green. `conformance/index.json` now names all
+nine top-level directories, and the check that matters is not the vector counts but this one:
+**removing `admit-accept` from the C# runner's family list now fails**, where before it would have
+passed. `red-team/` — on disk, in no runner, absent from the README's own Families list — is
+recorded as `"family": false` with a reason, so a legitimate non-family is now distinguishable from
+a lost one.
+
+### G3 — the cell that was blocking the eleventh verb
+
+Applied to the white paper: Table 10 gains `flag`/`list` (own), `moderation` gains `list`, and
+**R7.18** and **R10.44** are now normative in §7.2 and §10.10. The holding is that no third party
+learns of an *unadjudicated* flag — publishing accusations would rebuild at the serving boundary
+the unilateral demotion weapon Stage 8 refused at the PDP.
+
+**The conformance arrangement worked exactly as designed.** The white-paper edit *alone* turned the
+suite red, naming `Flag/List/Anonymous` and four `Moderation/List` cells, and stayed red until the
+model followed. Denials 21 → 26, modelled pairs 16 → 18. Falsified in both directions afterwards.
+
+**Three count-guards had to move, and the third was nearly missed.** `Table10ConformanceTests`'s
+denial count and `ResourceActionModelTests`'s modelled/unmodelled split are in the same file pair
+and were obvious. `InMemoryPolicyDecisionPointTests`'s `160 → 180` sweep count is in a *different
+assembly*, and it surfaced only because the full solution was run rather than the two projects the
+change appeared to touch. All three exist for the same reason — a sweep that silently iterates
+nothing must not read as agreement — and that they are scattered is the cost of having them.
+
+**A sweep of Appendix B turned up a pre-existing gap**: `R7.17` was never indexed when F1 was
+applied. Cross-reference rot at the seam F1 itself created, fixed in the same pass.
+
+### What the corpus did to the fuzz sweep
+
+**`admit_fuzz.rs` stopped finishing**, and the cause was the corpus rather than any code change.
+`representative_documents()` seeds from every `admit-reject` input, and G2's rejecting sides are
+1,048,577 and 262,153 bytes *by construction*. Both offset sweeps are quadratic per seed —
+truncation parses a prefix at every offset; the UTF-8 corruption sweep parses at every offset seven
+times over — so the 1 MiB seed alone is on the order of 10^12 byte-operations. Measured at over
+eleven minutes of CPU without finishing. **CI runs `cargo test --locked`, so this would have hung
+the build**, and it would have looked like an infrastructure flake rather than a consequence of
+publishing a 1 MiB vector.
+
+The fix bounds the two sweeps above 8 KiB: both edges in full, every ADMIT cap boundary the seed
+straddles, and a fixed stride through the interior — deterministic, so the run stays bit-for-bit
+reproducible. **23 seconds, 1,519,739 cases** — more cases than before, because the small new
+vectors add seeds.
+
+Two things about the fix matter more than the speed:
+
+- **It prints what it sampled.** `44 seed(s) exhaustive, 4 sampled: 262151 bytes -> 193 offsets, …`
+  A coverage bound nobody can see reads exactly like coverage, which is the defect this very file
+  was already caught by once.
+- **It refuses to let sampling become the norm.** An assertion fails if sampled seeds ever approach
+  exhaustive ones, because at that point the file would still print a large case count while
+  grading far less than it appears to. Falsified by dropping the threshold to 16 bytes.
+- The module header's claim that every non-random case is "fully enumerated rather than sampled"
+  was true and is now conditional; it says so rather than being left to rot.
+
+**Status**: **Complete.** **1,029 C# tests** across ten assemblies (+21) and **192 Rust** (+9), 0
+warnings, `cargo fmt` and `clippy -D warnings` clean, spec-checks clean, `--locked-mode` restore
+green, differential gate green over 22,520 lines, Postgres-backed suites run against a live server.
+
+**Both runner implementations were dispatched in parallel and gated on return**, not taken at face
+value. The Rust agent's report of the `admit_fuzz` blocker was confirmed by independent measurement
+before being acted on; the C# agent's five falsifications were re-run and four more added, of which
+the family-enumeration one is the only proof that R6.45 does what it was written for.
+
+### One seam recorded rather than hidden
+
+The two runners assert slightly different things at step 3. C# hands `CanonicalizeWithNfc` the tree
+ADMIT just returned; `curia-testis` re-parses the published bytes through R6.41's ADMIT-free path.
+G2 anticipated this exactly and specified the **weaker** claim — *"these bytes admit, and these
+bytes canonicalize to X"* — because it is the form both implementations can express. C# asserts the
+stronger form, which implies the weaker one for any admitted document, so nothing is under-checked;
+but the two are not word-for-word the same test, and that is worth knowing before someone reads one
+and assumes the other.
+
+### What this deliberately did not do
+
+- **The `flags` listing route is still unbuilt.** G3 gave it the cell it was blocked on; item 7 is
+  the route, and the eleventh verb is still unserved. R10.44 constrains what such a route may carry
+  and is, for now, a requirement with no code behind it.
+- **The `moderation`/`list` cell has no route either**, and R10.36's delegated grant has no
+  mechanism, so the review queue remains specified and unimplemented.
 
 ---
 
