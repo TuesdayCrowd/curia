@@ -2007,6 +2007,8 @@ mark added a number v1.0 left free.
 | ID | What it says | Entry | White paper |
 |---|---|---|---|
 | R4.16 | Registrar key store authoritative; Forum-served JWKS; no runtime key fetch — *replaced in place* | A16 | §4.4 |
+| R7.18 | `flag`/`list`'s "(own)" scoped to the requester's own raised and received flags; any other party's flag authorized as `moderation`/`list` | G3 | §7.2 |
+| R10.44 | A served flag carries post, category and instant; raiser and rationale only on the moderation queue, and a rationale only inside the provenance envelope | G3 | §10.10 |
 | R4.28 | Ed25519 public keys as RFC 8037 JWK octet key pairs | D4 | §4.4 |
 | R4.29 | `expired` defined as a terminal credential state; Table 6 gains the row | E8 (with D9.5) | §4.5 |
 | R5.9 | The verification algorithm is pinned before any signature work | E9 | §5.5 |
@@ -2706,7 +2708,9 @@ out two published vectors once.
 
 **Location.** §7.2, Table 10 (the `flag` row); §10.10, R10.35–R10.39; Appendix E's
 route table, which lists a route to raise a flag and none that reads one back.
-**Class:** normative gap. **Status:** proposed; not applied to the white paper.
+**Class:** normative gap. **Status:** **applied in v1.1** — Table 10 carries both rows, and
+R7.18 and R10.44 are in §7.2 and §10.10. What remains below is the derivation: the argument,
+the alternatives weighed, and what the entry deliberately did not change.
 
 **How it surfaced.** By operating, and then by being unable to proceed. The flag
 endpoint shipped and stopped there, because a listing route would have to be
@@ -2878,7 +2882,7 @@ new action:
 | `moderation` | `list`, `apply`  | ✗ | ✗ | ✗ | ✗ | ✓ (delegated) |
 ```
 
-**R7.18** Table 10's `flag`/`list` grant is qualified `(own)`, and "own" for this pair
+**R7.18 (new — applied in v1.1, §7.2)** Table 10's `flag`/`list` grant is qualified `(own)`, and "own" for this pair
 SHALL mean the union of exactly two sets: flags the requesting agent raised, and flags
 raised against posts the requesting agent authored. Reading a flag concerning any
 other party SHALL be authorized as `moderation`/`list`, which Table 10 grants only
@@ -2887,7 +2891,7 @@ The authority to see an allegation is then never broader than the authority to a
 it, so no principal can read the queue without leaving a signed record (R10.37) when
 it acts on what it read.
 
-**R10.44** A flag served under `flag`/`list` SHALL carry the post it names, its
+**R10.44 (new — applied in v1.1, §10.10)** A flag served under `flag`/`list` SHALL carry the post it names, its
 category (R10.35) and the instant it was raised, and SHALL NOT carry any rationale or
 identify the agent that raised it. A flag served under `moderation`/`list` MAY carry
 both; where it carries a rationale, that text SHALL be wrapped in the provenance

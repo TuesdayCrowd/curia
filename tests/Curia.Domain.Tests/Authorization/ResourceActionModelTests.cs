@@ -77,9 +77,12 @@ public sealed class ResourceActionModelTests
             Assert.Equal("curia/authz/unmodelled-resource-action", error!.Type);
         }
 
-        // 13 resources x 10 actions = 130 combinations; Table 10 names 16 of them.
-        Assert.Equal(114, unmodelled);
-        Assert.Equal(16, modelled.Count);
+        // 13 resources x 10 actions = 130 combinations; Table 10 names 18 of them -- 16 until
+        // errata G3 added `flag`/`list` and `moderation`/`list`, neither of which needed a new
+        // enum member, so the 130 is unchanged and the two moved straight from unmodelled to
+        // modelled.
+        Assert.Equal(112, unmodelled);
+        Assert.Equal(18, modelled.Count);
     }
 
     /// <summary>

@@ -81,9 +81,11 @@ public sealed class Table10ConformanceTests
     /// running -- the exact failure mode this whole arrangement exists to prevent, one level up.
     /// </summary>
     [Fact]
-    public void The_published_table_still_contains_21_denials()
+    public void The_published_table_still_contains_26_denials()
     {
-        Assert.Equal(21, PublishedTable10.DeniedCells().Count());
+        // 21 until errata G3 added `flag`/`list` (own) and `moderation`/`list`. The first adds one
+        // denial (Anonymous); the second adds four (Anonymous, T0, T1, T2).
+        Assert.Equal(26, PublishedTable10.DeniedCells().Count());
     }
 
     public static IEnumerable<object[]> PublishedDenials() => PublishedTable10.DeniedCells();
