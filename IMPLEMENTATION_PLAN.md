@@ -10,14 +10,14 @@ boundary (L2); Reader Contract; flags and moderation; V0–V2 verification.
 **Exit criteria, verbatim:** *every denial in Table 10 has a passing negative test; detector
 detection and false-positive rates measured against the red-team corpus (Appendix L).*
 
-> ## Start here — where this stands (2026-08-24)
+> ## Start here — where this stands (2026-08-25)
 >
 > **Read in this order if the document is new to you.** This block; then **"What is next, and why
 > in this order"**; then **"Found by building a reviewer"** at the end, which corrects two status
 > lines above it. The stages in between are the argument, not the state — read one when you need
 > the reasoning behind a decision it records, not to find out what is done.
 >
-> **Stages 0–12 complete.** Phase 2's exit criterion is met, Table 22's Phase 1 deliverable row is
+> **Stages 0–13 complete.** Phase 2's exit criterion is met, Table 22's Phase 1 deliverable row is
 > met, and the Forum is at beta parity. **999 tests** across ten assemblies plus **183** in
 > `curia-testis`, 0 warnings, spec-checks clean, `--locked-mode` restore green, `cargo fmt` and
 > `clippy -D warnings` clean.
@@ -27,6 +27,22 @@ detection and false-positive rates measured against the red-team corpus (Appendi
 >
 > **Merged through PR #51.** #49 was Stage 11 (inbox), #50 documentation, #51 the
 > `curia-architect` project agent at `.claude/agents/curia-architect.md`.
+>
+> **Stage 13 is the errata pass** the list below had at position 1, and it is the first stage that
+> produced no code at all — three entries and six proposed requirements, delivered as errata
+> **Part G**, a new top-level part for findings that came from *reviewing* what was built. It
+> settles R6.39's string cap (decoded value, member names in scope, precedence pinned), gives the
+> corpus an `admit-accept` profile it never had, and adds the two Table 10 rows the `flags` listing
+> was blocked on. **Items 2, 4, 5, 6 and 7 below are no longer stalled**; nothing below has been
+> implemented against the new text.
+>
+> **Re-running what Stage 12 recorded found more than was recorded.** The string-cap ambiguity is
+> four divergences, not two: probing E12's unpinned error precedence turned up two where **both
+> implementations reject with different slugs**, which an accept/reject comparison cannot see. The
+> member-name ceiling was measured rather than inferred — 1,048,570 bytes, **4.0× the published
+> cap**. And the first probe written to confirm all this was itself wrong, and read as a refutation
+> until its own shape assertions caught it. That is the third time in two stages that running
+> something beat reading it, in both directions.
 >
 > **In flight: PR #52** (`frozen-magnitudes`, three commits) — Stage 12 and the
 > "Found by building a reviewer" record below it. All three CI jobs green, mergeable clean,
@@ -846,26 +862,28 @@ work up. **Stage 12 reordered it.** The list used to be five features ordered by
 would feel first, with one entry parked at position 4 because it needed an errata change. Stage 12
 added two more errata-blocked items, and at three the parking becomes the pattern.
 
-**Do the errata pass first, because three separate items are stalled behind it and one pass is
-cheaper than three.** None of the three can be answered in code without inventing specification,
-and inventing it in code is the exact move `ResourceActionModel.RowFor` reports as a *failure*
-rather than a denial.
+~~**Do the errata pass first, because three separate items are stalled behind it and one pass is
+cheaper than three.**~~ **Done — Stage 13, below.** Part G of the errata carries all three entries
+and six proposed requirements; `check-spec.py` is clean and was falsified three ways against the
+new text. Items 2, 4, 5, 6 and 7 are no longer stalled. **Nothing below has been implemented against
+the new requirements** — Part G is specification, and G1 in particular obliges a change to
+`Curia.Canon` that has deliberately not been made here.
 
-1. **One errata pass, three entries.**
-   - **R6.39's string cap — what is measured, and over what.** Three questions, one entry, because
-     answering any one of them separately leaves the other two incoherent: (a) is the 256 KiB cap
-     measured over the *decoded* value or the raw source span? (b) is an object member *name* a
-     string for this purpose? (c) `curia/admit/string-too-long` is emitted by both implementations
-     and named by **neither document**, which by R6.40's own rule makes it unspecified vocabulary.
-     Two R14.6 release-blocking divergences turn on (a) and (b) — see the section below for the
-     reproducing inputs. **The member-name direction is the one that bites**: C# admits a document
-     four times past the Forum's published cap.
-   - **A Table 10 `flag`/`list` cell**, which the `flags` listing needs and which does not exist.
-   - **An admit-accept vector profile.** `conformance/README.md`'s `admit` profile means *"must be
-     rejected with this slug"*, so the corpus **cannot express "must be admitted"** — which is why
-     R6.39's published-vector obligation is still open after Stage 12 graded both sides of all four
-     caps in unit tests. Eight vectors are waiting on one format decision, and the format is a
-     contract shared with an independent implementation, so it is not a unilateral edit.
+1. ~~**One errata pass, three entries.**~~ **Complete — errata Part G (G1, G2, G3).** What each
+   decided, because the decision is what the follow-on work is written against:
+   - **G1 — R6.39's string cap.** Measured over the **decoded** value, not the source span; an
+     object member **name is a string** for this purpose; `curia/admit/string-too-long` becomes
+     normative vocabulary under R6.40; and the cap is reported ahead of another condition on the
+     same string, because settling the basis without the precedence moves the divergence instead of
+     closing it. `curia-testis` is already correct on all of it. **The work this unblocks is a
+     change to `Curia.Canon` alone** — see Stage 13's "what this obliges next".
+   - **G2 — the `admit-accept` profile** (R6.44) plus a corpus index every runner must load
+     (R6.45), because adding a family under the present arrangement is invisible to both runners
+     and looks exactly like a passing run. Ten vectors are specified; none are built.
+   - **G3 — two Table 10 rows** (R7.18, R10.44): `flag`/`list` qualified `(own)`, and
+     `moderation`/`list` beside `moderation`/`apply` under the same delegated grant. The holding is
+     that no third party learns of an *unadjudicated* flag, because publishing accusations rebuilds
+     at the serving boundary the unilateral demotion weapon Stage 8 refused at the PDP.
 
 2. **Wire the differential harness into CI.** `tools/differential-oracle/compare.mjs` exists, works,
    and **runs nowhere** — CI has no job for it. R14.6 makes divergences release blockers and nothing
@@ -1394,6 +1412,90 @@ constant, and an off-by-one in each cap's comparison. Each fails naming the spec
   the specification never names, so by R6.40's own rule it is unspecified vocabulary. Errata
   material, and it should be settled in the same entry as the two divergences, since all three
   are the same question: what exactly does R6.39's string cap measure, and over what.
+
+---
+
+## Stage 13 — The errata pass, and the two divergences that only precedence revealed
+
+**Goal**: the pass "What is next" put at position 1 — three entries, because three separate items
+were stalled behind them and one pass is cheaper than three.
+
+**Delivered as errata Part G**, a new top-level part rather than three more `F<n>` entries. The
+document organizes its parts by *provenance of the evidence* — D from building, E from the
+three-way differential comparison, F from preparing to operate — and this pass came from a fourth
+thing the plan had already named without giving it a home: **reviewing** what was built. G1, G2 and
+G3 propose six requirements (R6.39 add., R6.40 add., R6.44, R6.45, R7.18, R10.44). None is applied
+to the white paper; each carries a `Status: proposed` line saying so.
+
+### What running it turned up that reading it did not, again
+
+Stage 12 promoted the string-cap finding from *confirmed at source* to *reproduced by execution*.
+Stage 13 re-ran it before writing an entry on top of it — the discipline Stage 12's closing section
+asked for — and the re-run paid for itself three times.
+
+- **The first probe was wrong, and its own assertions caught it.** A double-escaped backslash
+  produced a document whose decoded string was 786,432 bytes rather than 262,144; both
+  implementations rejected it; the run read as a *refutation* of a divergence that is real. The fix
+  was not more careful reading but making the probe generator assert its own document shapes before
+  emitting anything. **A differential probe whose inputs are not self-checking manufactures false
+  negatives exactly as readily as the source reading it replaces** — which is the same lesson as
+  Stage 12's refuted `check_node` divergence, arriving from the opposite direction.
+- **The member-name ceiling was measured, not inferred.** The record said "bounded only by the
+  1 MiB submission cap, four times larger." It is: `Curia.Canon` admits a member name of
+  **1,048,570 bytes — 4.0× the published cap** — and one byte more is what finally answers
+  `curia/admit/size-exceeded`, in both. Two controls the earlier record lacked (a member name *at*
+  the cap; unescaped values on both sides) isolate the divergence to escaping and member-name scope
+  rather than an off-by-one.
+- **Two further divergences, of a class the record could not have held.** Probing E12's unpinned
+  error precedence against the string cap found the two implementations answering *different slugs*
+  for the same document while both rejecting it. R14.8 makes the rejection predicate a normative
+  component of the answer, so that is a divergence — and it is **invisible to any comparison that
+  asks only whether a document was admitted**. It is also the reason G1 has to settle precedence in
+  the same breath as the basis: moving `Curia.Canon` to the decoded measurement without fixing the
+  order would relocate the disagreement rather than close it.
+
+So the string-cap ambiguity was never two divergences. It is **four**, and the differential harness
+now carries all four as supplemental cases 8–11 and reports three divergence classes on every run —
+including the first occurrence the "slug-naming mismatch (both reject, different slug)" group has
+ever had.
+
+**Status**: **Complete.** Errata +767 lines (Part G, six index rows, a part description, the
+numbering convention extended to `F<n>` and `G<n>`); `compare.mjs` +2 supplemental cases.
+`check-spec.py` clean, and **falsified three ways against the new text** before being trusted — an
+index row dropped, an addendum unqualified, and a citation pointed at a requirement that does not
+exist each fail naming the specific cell. The differential harness was run end to end and reports
+the four divergences with exact inputs.
+
+### What this obliges next, and what it deliberately did not do
+
+**No implementation followed the specification in this stage**, on purpose: the entries are the
+product, and each names work that is now unblocked rather than done.
+
+- **G1 obliges a change to `Curia.Canon` alone.** Decode, compare the decoded UTF-8 byte count
+  against the cap, *then* scan for noncharacters — and pass the caps into the member-name path,
+  which today receives none. Traced against all six probes, that single change makes C# produce
+  `curia-testis`'s answer in every case. It costs nothing on the fast path: **a JSON escape never
+  expands**, so a source span within the cap is already an exact proof that the decoded value is,
+  and the cheap pre-filter survives.
+- **G2's ten vectors are specified and none are built**, and R6.45 exists because building them
+  under the present arrangement would be invisible: both runners hard-code their family lists, and
+  `conformance/red-team/` is already on disk, absent from the corpus README's own Families list, and
+  loaded by neither.
+- **G3's two Table 10 rows are not in the model.** Adding them moves the published denial count 21
+  → 26 and turns `Table10ConformanceTests` red until the C# matrix follows, which is the
+  conformance arrangement working as designed.
+- **Item 2 — wiring the harness into CI — is now unstalled and will still go red.** That was always
+  the expected outcome; what changed is that the reading is settled, so the red is a defect with a
+  named fix rather than an open question.
+
+### One correction to the record above
+
+The "Confirmed at source" section says `curia/admit/string-too-long` is "named by neither document",
+and cites R10.35 nowhere — but the *drafting* of G3 turned up that **R10.35 does not oblige a flag
+rationale at all**. R10.37's mandatory rationale governs a *moderation action*; the rationale
+carried on a raised flag is the implementation's own addition. That makes it author-controlled free
+text no requirement obliges the Forum to collect, on an ingest path with no redaction primitive
+behind it — which is precisely why R10.44 keeps it off the listing route.
 
 ---
 

@@ -322,6 +322,35 @@ function buildSupplementalCases() {
   add('string-cap-member-name', 'admit',
     Buffer.from('{"' + 'a'.repeat(262_145) + '":0}', 'utf8'));
 
+  // 10. How far past the published cap does the C# member-name gap actually
+  //     reach? Case 9 establishes that it reaches at least one byte past;
+  //     this one measures the ceiling. A member name of 1,048,570 bytes makes
+  //     the document exactly 1 MiB, so nothing but the submission cap is left
+  //     to stop it -- and nothing does: C# ADMITS, curia-testis rejects with
+  //     curia/admit/string-too-long. That is 4.0x the published 256 KiB cap,
+  //     measured rather than inferred. One byte more and both answer
+  //     curia/admit/size-exceeded, which is the control that proves the
+  //     submission cap is the only remaining bound.
+  add('string-cap-member-name-at-submission-cap', 'admit',
+    Buffer.from('{"' + 'a'.repeat(1_048_570) + '":0}', 'utf8'));
+
+  // 11. The same ambiguity expressed as a PREDICATE divergence rather than an
+  //     accept/reject one, which is a class cases 8-10 cannot reach. Here the
+  //     decoded string is 262,143 bytes -- UNDER the cap -- while its source
+  //     span is 262,146, over it. Both implementations reject; they disagree
+  //     about why. C# answers curia/admit/string-too-long (its span-based cap
+  //     fires first); curia-testis answers curia/admit/noncharacter (its
+  //     decoded-based cap does not fire, so the U+FFFE scan is what catches
+  //     it). R14.8 makes the rejection predicate a normative component of the
+  //     answer, so this is a divergence even though the verdict agrees, and it
+  //     is invisible to any comparison that asks only whether a document was
+  //     admitted. Errata G1 settles the basis AND the precedence, because
+  //     fixing one without the other moves this divergence instead of closing
+  //     it. Deliberately not pinned by a unit test in either implementation,
+  //     for the same reason as cases 8 and 9.
+  add('string-cap-precedence-escaped-noncharacter', 'admit',
+    Buffer.from('{"s":"' + 'a'.repeat(262_140) + '\\uFFFE"}', 'utf8'));
+
   return cases;
 }
 
