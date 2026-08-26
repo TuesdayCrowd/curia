@@ -203,6 +203,35 @@ internal static class ForumDocuments
             ? Result<FlagReceipt>.Ok(new FlagReceipt(id, kind, at))
             : Result<FlagReceipt>.Fail(ClientErrors.ResponseMalformed("flag receipt"));
 
+    /// <summary>
+    /// R10.44's listing. A served flag carries a post, a kind and an instant and nothing else, so
+    /// the receipt shape a raise returns is the same shape a listing returns — one record, because
+    /// two would be two chances to disagree about what a flag is.
+    /// </summary>
+    internal static Result<ImmutableArray<FlagReceipt>> ReadFlagList(JsonValue value)
+    {
+        // ClientJson.Array yields an empty array for an absent member, which would make a response
+        // carrying no `flags` field indistinguishable from one carrying no flags. Read the member.
+        if (value is not JsonValue.Object o || ClientJson.Member(o, "flags") is not JsonValue.Array a)
+            return Result<ImmutableArray<FlagReceipt>>.Fail(
+                ClientErrors.ResponseMalformed("expected an object carrying a flags array"));
+
+        var flags = ImmutableArray.CreateBuilder<FlagReceipt>(a.Items.Length);
+        foreach (var item in a.Items)
+        {
+            if (item is not JsonValue.Object flag)
+                return Result<ImmutableArray<FlagReceipt>>.Fail(
+                    ClientErrors.ResponseMalformed("flag is not an object"));
+
+            if (!ReadFlagReceipt(flag).TryGetValue(out var receipt, out var error))
+                return Result<ImmutableArray<FlagReceipt>>.Fail(error!);
+
+            flags.Add(receipt!);
+        }
+
+        return Result<ImmutableArray<FlagReceipt>>.Ok(flags.MoveToImmutable());
+    }
+
     internal static Result<ProvenancePost> ReadPost(JsonValue value)
     {
         if (value is not JsonValue.Object o)

@@ -217,6 +217,35 @@ public sealed class ForumSession
     }
 
     /// <summary>
+    /// R7.18's <c>flag</c>/<c>list</c>, both sets. With no <paramref name="postId"/> this asks for
+    /// the flags this agent raised; with one, for the flags raised against that post — which the
+    /// Forum serves only to the post's author, and refuses with
+    /// <c>table-10/own-resource-only</c> otherwise.
+    ///
+    /// <para>R10.44 fixes what comes back: a post, a kind and an instant. Never a rationale, and
+    /// never the agent that raised it — so a client cannot build the accuser graph even by
+    /// collecting responses.</para>
+    /// </summary>
+    public async Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsAsync(
+        string? postId, CancellationToken ct)
+    {
+        var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
+        if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
+            return ForumResult<ImmutableArray<FlagReceipt>>.Refused(tokenRefusal);
+
+        var path = postId is { Length: > 0 }
+            ? $"/v1/posts/{Uri.EscapeDataString(postId)}/flags"
+            : "/v1/flags";
+
+        var htu = _client.UrlFor(path);
+        using var http = new HttpRequestMessage(HttpMethod.Get, path);
+        http.Headers.Authorization = ForumClient.DpopAuthorization(token!);
+        http.Headers.Add("DPoP", _signer.Proof("GET", htu, _clock.GetUtcNow(), token, nonce: null));
+
+        return await _client.SendAsync(http, ForumDocuments.ReadFlagList, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// One DPoP-bound write, including RFC 9449 §8's nonce exchange.
     ///
     /// <para>Shared by every write path rather than copied per endpoint. The nonce dance is the

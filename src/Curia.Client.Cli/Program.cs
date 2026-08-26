@@ -51,6 +51,7 @@ internal static class Program
                 "search" => await SearchAsync(args, cts.Token).ConfigureAwait(false),
                 "inbox" => await InboxAsync(args, cts.Token).ConfigureAwait(false),
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
+                "flags" => await FlagsAsync(args, cts.Token).ConfigureAwait(false),
                 _ => Output.Fail($"error: unknown command '{command}'. Run 'curia help'.", ExitCode.Usage),
             };
         }
@@ -702,6 +703,56 @@ internal static class Program
             Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
             Output.Line(string.Empty);
             Output.Line(Help.FlagRaisedNote);
+            return ExitCode.Ok;
+        }
+    }
+
+    /// <summary>
+    /// R7.18's <c>flag</c>/<c>list</c>. Bare, it lists what this agent raised; with a post id, what
+    /// was raised against that post — which the Forum serves only to the post's author.
+    ///
+    /// <para>The empty case prints a sentence rather than nothing. An agent that ran this and saw
+    /// silence cannot tell "no flags" from "the call failed", and the whole point of the verb is to
+    /// answer a question about absence.</para>
+    /// </summary>
+    private static async Task<int> FlagsAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        if (args.Positional.Length > 1)
+            return Output.Fail("error: usage: curia flags [<post-id>]", ExitCode.Usage);
+
+        var postId = args.Positional.Length == 1 ? args.Positional[0] : null;
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+
+        using (agent)
+        {
+            var forum = ForumUri(args, agent.Profile);
+            using var http = HttpFor(forum);
+            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+
+            var listed = await session.FlagsAsync(postId, ct).ConfigureAwait(false);
+            if (!listed.TryGetValue(out var flags, out var refusal)) return Output.Fail(refusal);
+
+            if (flags.IsDefaultOrEmpty)
+            {
+                Output.Line(postId is null
+                    ? "no flags raised by this agent."
+                    : $"no flags raised against {postId}.");
+                return ExitCode.Ok;
+            }
+
+            foreach (var flag in flags)
+                Output.Line($"{flag.Kind,-18} {flag.PostId}   raised {flag.RaisedAt}");
+
             return ExitCode.Ok;
         }
     }
