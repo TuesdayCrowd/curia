@@ -128,7 +128,14 @@ dotnet test Curia.sln                       # needs a reachable Postgres (see be
 dotnet restore Curia.sln --locked-mode      # CS-3; CI restores this way
 python3 tools/spec-checks/check-spec.py     # cross-reference checks over the three documents
 cd rust/curia-testis && cargo test          # the independent verifier
+node tools/differential-oracle/compare.mjs --fail-on-divergence   # R14.6; needs both endpoints built
 ```
+
+The differential run needs its two endpoints built first — `dotnet build
+tools/Curia.Differential/Curia.Differential.csproj -c Release` and `cargo build --release
+--bin curia-differential` — and says so rather than skipping if they are missing. Without
+`--fail-on-divergence` it exits 0 even having found divergences, which is right for a human
+run judged by the report and wrong for a gate; CI passes the flag.
 
 **Postgres is required, not optional.** `Curia.Infrastructure.Tests` and `Curia.Api.Tests`
 provision a throwaway database per run and apply `db/*.sql` through the production renderer.
@@ -141,7 +148,8 @@ startup fails loudly without either, because R11.6's append-only guarantee is a 
 grant and a Forum without one would look identical and be a different system.
 
 CI (`.github/workflows/ci.yml`) runs all of the above on every push, including building
-`curia-testis` and running the offline-verification test against it.
+`curia-testis` and running the offline-verification test against it, and — since the four
+string-cap divergences were closed — the differential comparison as its own gating job.
 
 Test layers and what each proves: Canon (xUnit v3 + CsCheck + the Appendix C.4
 conformance vectors), Domain (CsCheck P6, P8–P26), Application (in-memory fakes),

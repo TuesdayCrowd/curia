@@ -126,3 +126,60 @@ jobs:
       # tests across 12 binaries are not a secondary suite.
       - name: Test
         run: cargo test --locked
+
+  # R14.6 makes a divergence between the two implementations a release blocker. Until now
+  # nothing looked for one: compare.mjs existed, worked, and ran nowhere, so every divergence
+  # this project has found was found by someone remembering to run it by hand -- and the last
+  # four sat undetected long enough to need an erratum (Part G) before they could be fixed.
+  #
+  # This job was deliberately not added earlier. It would have gone red, because two known
+  # string-cap divergences were carried in the harness on purpose while R6.39's reading was
+  # genuinely undecided. G1 decided it and Curia.Canon now follows, so the run is green and the
+  # gate is worth having. If it goes red, that is the requirement working: do not add an
+  # expected-divergence baseline to quiet it without recording why.
+  differential:
+    name: Differential — C# vs curia-testis vs oracle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/curia-testis
+
+      # Both endpoints are built by name rather than left to the harness's own fallback, so a
+      # build failure is attributed to the implementation that failed instead of surfacing as
+      # "endpoint not built" from the comparison step.
+      - name: Build the C# differential endpoint
+        run: dotnet build tools/Curia.Differential/Curia.Differential.csproj -c Release
+
+      - name: Build the curia-testis differential endpoint
+        run: cargo build --locked --release --bin curia-differential
+        working-directory: rust/curia-testis
+
+      # The default seed is fixed, so a red run here reproduces exactly with the same command
+      # locally. The corpus reaches ~2 GB on disk (single lines legitimately approach the
+      # 256 KiB string cap), which is why it goes under RUNNER_TEMP and is never uploaded --
+      # only the report is, and only when there is something to read in it.
+      - name: Compare
+        run: >-
+          node tools/differential-oracle/compare.mjs
+          --workdir "$RUNNER_TEMP/differential"
+          --report "$RUNNER_TEMP/DIVERGENCES.md"
+          --fail-on-divergence
+
+      - name: Upload the divergence report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: divergence-report
+          path: ${{ runner.temp }}/DIVERGENCES.md
+          if-no-files-found: warn

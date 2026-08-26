@@ -61,7 +61,7 @@
 //
 // Usage:
 //   node tools/differential-oracle/compare.mjs [--seed N] [--count N]
-//     [--workdir DIR] [--report PATH] [--no-supplemental]
+//     [--workdir DIR] [--report PATH] [--no-supplemental] [--fail-on-divergence]
 //
 // All file I/O for the corpus and the three endpoints' raw output happens through
 // real file descriptors (spawnSync with stdio: [fd, fd, fd]) so a multi-hundred-
@@ -101,6 +101,7 @@ function parseArgs(argv) {
     workdir: null,
     report: path.join(HERE, 'DIVERGENCES.md'),
     supplemental: true,
+    failOnDivergence: false,
     minimizeBudget: 400,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -110,6 +111,7 @@ function parseArgs(argv) {
     else if (a === '--workdir') args.workdir = argv[++i];
     else if (a === '--report') args.report = path.resolve(argv[++i]);
     else if (a === '--no-supplemental') args.supplemental = false;
+    else if (a === '--fail-on-divergence') args.failOnDivergence = true;
     else if (a === '--minimize-budget') args.minimizeBudget = Number(argv[++i]);
     else { process.stderr.write(`compare.mjs: unrecognized argument '${a}'\n`); process.exit(2); }
   }
@@ -296,13 +298,15 @@ function buildSupplementalCases() {
   //    written with literal (unescaped) U+00E9 is admitted by both, so the
   //    divergence is invisible to any corpus that does not escape.
   //
-  //    R6.39 says "maximum string length 256 KiB (262,144 bytes), measured in
-  //    UTF-8 bytes" and does not say whether that is the decoded value or the
-  //    source span. Both readings are defensible from the words, so this is a
-  //    specification gap before it is an implementation defect -- recorded here
-  //    so the harness reports it on every run until an erratum settles it, and
-  //    deliberately NOT pinned by a unit test in either implementation, which
-  //    would freeze one reading by accident.
+  //    SETTLED. R6.39 said "measured in UTF-8 bytes" without saying whether that
+  //    was the decoded value or the source span; both readings were defensible,
+  //    so this case was carried here and deliberately left unpinned by any unit
+  //    test. Errata G1 -- R6.39 (addendum) -- chose the decoded value, and
+  //    Curia.Canon now measures it there. Both endpoints ADMIT this document.
+  //    Kept as a regression guard rather than as an open question: it is the
+  //    cheapest input that tells the two implementations apart if either drifts
+  //    back to span-measurement, and no generated case reaches it, because the
+  //    generator does not escape.
   add('string-cap-escaped-at-decoded-cap', 'admit',
     Buffer.from('{"s":"' + '\\u00e9'.repeat(131_072) + '"}', 'utf8'));
 
@@ -315,10 +319,14 @@ function buildSupplementalCases() {
   //    curia-testis's check_node calls check_string(key), whose own doc comment
   //    says it covers "an object member name or a string value".
   //
-  //    Same status as case 8: R6.39 does not say whether member names are
-  //    strings for this purpose, so it is errata material first. The member-name
-  //    direction is the one that matters operationally, since it admits a
-  //    document past the Forum's published cap.
+  //    SETTLED alongside case 8. R6.39 (addendum) makes an object member name a
+  //    string for the cap's purposes, and ReadStringValue -- the one call site
+  //    both positions share -- now applies it. Both endpoints REJECT this
+  //    document with curia/admit/string-too-long. This was the direction that
+  //    mattered operationally: a document admitted here and refused by
+  //    curia-testis is stored, served, attributed, and then unverifiable
+  //    offline, which is Phase 1's exit criterion failing on one post rather
+  //    than on all of them.
   add('string-cap-member-name', 'admit',
     Buffer.from('{"' + 'a'.repeat(262_145) + '":0}', 'utf8'));
 
@@ -327,10 +335,12 @@ function buildSupplementalCases() {
   //     this one measures the ceiling. A member name of 1,048,570 bytes makes
   //     the document exactly 1 MiB, so nothing but the submission cap is left
   //     to stop it -- and nothing does: C# ADMITS, curia-testis rejects with
-  //     curia/admit/string-too-long. That is 4.0x the published 256 KiB cap,
-  //     measured rather than inferred. One byte more and both answer
-  //     curia/admit/size-exceeded, which is the control that proves the
-  //     submission cap is the only remaining bound.
+  //     curia/admit/string-too-long -- 4.0x the published 256 KiB cap, measured
+  //     rather than inferred. Both endpoints now REJECT it. Retained because it
+  //     is the case that shows the member-name cap is enforced at its own bound
+  //     and not merely somewhere below the submission cap: a regression that
+  //     dropped the name cap would still pass cases 3 and 4 of the C# suite if
+  //     the submission cap happened to catch the document first.
   add('string-cap-member-name-at-submission-cap', 'admit',
     Buffer.from('{"' + 'a'.repeat(1_048_570) + '":0}', 'utf8'));
 
@@ -344,10 +354,12 @@ function buildSupplementalCases() {
   //     it). R14.8 makes the rejection predicate a normative component of the
   //     answer, so this is a divergence even though the verdict agrees, and it
   //     is invisible to any comparison that asks only whether a document was
-  //     admitted. Errata G1 settles the basis AND the precedence, because
-  //     fixing one without the other moves this divergence instead of closing
-  //     it. Deliberately not pinned by a unit test in either implementation,
-  //     for the same reason as cases 8 and 9.
+  //     admitted. SETTLED: G1 fixed the basis AND the precedence together --
+  //     R6.39 (addendum, cont.) reports the cap ahead of another condition on
+  //     the same string -- because fixing either alone relocates this divergence
+  //     instead of closing it. Both endpoints now answer
+  //     curia/admit/noncharacter. Kept as the regression guard for the ordering,
+  //     which no accept/reject comparison can see.
   add('string-cap-precedence-escaped-noncharacter', 'admit',
     Buffer.from('{"s":"' + 'a'.repeat(262_140) + '\\uFFFE"}', 'utf8'));
 
@@ -1067,6 +1079,20 @@ async function main() {
     workdir: args.workdir,
   };
   process.stdout.write(JSON.stringify(summaryObj, null, 2) + '\n');
+
+  // Exit status is a separate question from "did the run complete". A comparison that finds
+  // divergences has succeeded at its job, so the default stays 0 and a human run is judged by
+  // the report. A CI gate needs the opposite: R14.6 makes divergences release blockers, and a
+  // step that exits 0 having found four of them is a green light reporting a red state --
+  // which is the same defect as a test suite that skips and reports success. --fail-on-divergence
+  // is what makes this runnable as a gate, and it is why the flag exists rather than CI grepping
+  // stdout for a number.
+  if (args.failOnDivergence && compareResult.divergences.size > 0) {
+    process.stderr.write(
+      `compare.mjs: ${compareResult.divergences.size} divergence class(es) found; ` +
+      `see ${args.report}\n`);
+    process.exit(1);
+  }
 }
 
 main().catch((e) => {
