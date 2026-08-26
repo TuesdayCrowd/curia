@@ -1,5 +1,5 @@
 {
   "profile": "admit",
-  "requirement": "R6.15",
-  "note": "33 levels exceeds the depth cap of 32"
+  "requirement": "R6.39",
+  "note": "33 container openings, one past R6.39's depth cap of 32, counted by R6.15's convention; the rejecting half of R6.39's depth boundary"
 }

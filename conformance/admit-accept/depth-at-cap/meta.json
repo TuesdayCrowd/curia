@@ -1,0 +1,6 @@
+{
+  "profile": "admit-accept",
+  "requirement": "R6.39",
+  "pairs-with": "admit-reject/over-nested",
+  "note": "32 container openings, exactly R6.15's counting convention at R6.39's cap; one key per level and no string near any other cap, so only depth can decide it"
+}

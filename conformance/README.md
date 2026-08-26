@@ -18,6 +18,102 @@ so. A vector under any profile may therefore carry `expect-reject` instead of
 must fail with this slug*. `unicode/duplicate-normalized-key/` is the first such
 vector.
 
+## Saying that a document must be admitted
+
+For most of this corpus's life there was no way to write it. The `admit` profile means
+*"must be rejected with this slug"*, and the expectation files offered exactly two shapes —
+`expected.canonical` + `expected.digest`, or `expect-reject`. So R6.39's second sentence,
+*"Published vectors SHALL exercise both sides of each of the four boundaries — the value at
+the limit (accepted) and one past it (rejected)"*, was **unsatisfiable from the day it was
+written**, and nothing about the corpus said so. Zero of the four boundaries had an
+accepting-side vector. See errata G2.
+
+`admit-accept` is that missing half. A vector declaring it carries the same four files an
+ordinary canonicalizing vector does, plus one key:
+
+```json
+{
+  "profile": "admit-accept",
+  "requirement": "R6.39",
+  "pairs-with": "admit-reject/string-over-cap",
+  "note": "..."
+}
+```
+
+A runner SHALL:
+
+1. feed `input.json` to the ADMIT phase **unmodified**, as for every other profile;
+2. fail if ADMIT rejects it, **naming the slug ADMIT produced** — otherwise a cap set one
+   byte too tight is indistinguishable in the log from a broken harness;
+3. require that the same bytes canonicalize under `CanonicalizeWithNfc` to exactly
+   `expected.canonical`, whose SHA-256 is `expected.digest`.
+
+**Step 3 is what stops the profile being vacuous.** Acceptance alone asserts almost nothing:
+an ADMIT phase that admits everything passes a bare accept vector, and so does one that
+admits the document and then canonicalizes it wrongly. Making the expectation a byte-level
+statement costs nothing — both runners already have the comparison — and turns "it was
+admitted" into a claim that can fail.
+
+**The profile declares acceptance, never the absence of a file.** A vector whose
+`expect-reject` failed to be committed must fail, not silently become an accept vector.
+For the same reason a runner encountering a `profile` value it does not recognize SHALL
+fail rather than skip, and SHALL route every vector **by its declared profile** rather than
+by the directory it occupies.
+
+**`pairs-with` names the rejecting-side twin**, and a runner SHALL fail when the named
+vector is absent. An accepting-side vector cannot detect a cap that is too generous and a
+rejecting-side vector cannot detect one that is too strict; only the pair locates a
+boundary. Without the link, a corpus that shipped only the easy half reports exactly what a
+complete one reports.
+
+### How the R6.39 boundary vectors are constructed
+
+Each accepting-side document is built so that **only the cap under test can decide it** —
+no other cap is within reach. That is not fastidiousness: `curia-testis`'s own
+submission-size fuzz sweep never once straddled 1 MiB, because three of its four cases were
+being decided by the 256 KiB string cap instead, and reading the fixture made the arithmetic
+look right.
+
+| Vector | Construction |
+|---|---|
+| `depth-at-cap` | 32 container openings, one key per level, innermost value `0` — 193 bytes |
+| `members-at-cap` | 1,024 members at depth 1, names `"k0000"`–`"k1023"` — fixed width, so lexicographic order is numeric order and the document is already canonically sorted; every name is 5 bytes |
+| `size-at-cap` | exactly 1,048,576 bytes over sixteen members of ≈ 65,528 bytes each, so every string sits near a quarter of the string cap |
+| `string-at-cap-escaped` | 131,072 `\u00e9` escapes — 262,144 **decoded** bytes, exactly the cap, in 786,440 bytes of source. Its `expected.canonical` carries U+00E9 literally, because RFC 8785 escapes only `"`, `\` and C0, and U+00E9 is already NFC |
+| `member-name-at-cap` | an object member name of exactly 262,144 bytes |
+
+**Every accepting-side document except `string-at-cap-escaped` is already in canonical form**,
+so its `expected.canonical` is byte-identical to its `input.json`. That is deliberate: it
+lets the expectation be checked by construction rather than produced by an implementation,
+which is what "authored before any implementation exists, and not derived from one" requires
+of this corpus. `string-at-cap-escaped` is the exception on purpose — the difference between
+its input and its canonical form *is* the thing that separates a decoded-basis cap from a
+source-span one, and its canonical form is likewise constructed rather than derived.
+
+**A generator is not committed.** R6.11 makes the vector's *bytes* the specification, and a
+generator run at test time is a second implementation of the vector — the exact substitution
+errata E6 found had already hollowed out two published vectors once. The table above is the
+construction rule; the bytes on disk are the contract.
+
+## `index.json` — every directory accounted for
+
+`conformance/index.json` names **every** top-level directory, says whether it is a vector
+family, and for each family gives the profiles its vectors may declare and its vector count.
+Every runner loads it and fails when it disagrees with what is on disk (R6.45).
+
+This exists because both runners hard-code their family lists in source, so a family added
+to the corpus is invisible to each implementation until that implementation is separately
+edited — and its absence looks, in a passing test-run log, exactly like a family that ran.
+That was not hypothetical when the requirement was written: `red-team/` was on disk, absent
+from this README's own "Families" list, and loaded by neither runner. It is legitimately not
+a vector family, which is the point — **nothing on disk distinguished that case from a lost
+one.** It is now listed with `"family": false` and a reason, so the decision is recorded
+rather than merely true.
+
+**A vector family a runner does not enumerate contributes no assurance.** Adding a directory
+without adding it here fails; adding it here without teaching a runner to load it fails
+there. Either way the omission is loud.
+
 **A vector's `input.json` is fed to the function under test verbatim.** A harness
 that wraps, unwraps, re-encodes, or otherwise transforms those bytes first is not
 running that vector — it is running a different one it invented, and the
@@ -40,7 +136,8 @@ the mistake this section exists to prevent.
 |---|---|---|
 | `rfc8785` | `Canonicalize` | Pure RFC 8785. Performs **no** Unicode normalization. |
 | `canonicalize-with-nfc` | `CanonicalizeWithNfc` | NFC every object key and string value, recursively, **then** canonicalize. |
-| `admit` | the ADMIT phase | Input must be rejected with the slug in `expect-reject`; canonicalization is never reached. |
+| `admit` | the ADMIT phase | Input must be **rejected** with the slug in `expect-reject`; canonicalization is never reached. |
+| `admit-accept` | the ADMIT phase, then `CanonicalizeWithNfc` | Input must be **admitted**, and the same bytes must then canonicalize to `expected.canonical` (digest `expected.digest`). See "Saying that a document must be admitted" above. |
 | `envelope` | `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify` | End-to-end: canonicalize a full Table 9 envelope, digest it, and verify its detached JWS. See "The `envelope/` family" below — its directory shape is different from every other family's. |
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -69,9 +166,14 @@ get the count up will look like it is converging. It is not.
 - `unicode/` — NFC normalization behaviour.
 - `numbers/` — ECMAScript number serialization.
 - `admit-reject/` — inputs that must be rejected rather than canonicalized,
-  one per admission-rule bullet.
+  one per admission-rule bullet, plus the rejecting side of each R6.39 boundary.
+- `admit-accept/` — inputs that must be **admitted** and then canonicalize to a
+  pinned form: the accepting side of each R6.39 boundary. See above.
 - `envelope/` — end-to-end signed fixtures: a full Table 9 envelope, its wire
   submission, its verification keys, and its canonical form. See below.
+
+`red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
+measurement (Appendix L), and `index.json` records that with a reason.
 
 These files are the shared conformance contract between independent
 implementations (C#, Rust, ...) of the Cūria canonicalizer. They are

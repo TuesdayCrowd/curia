@@ -12,7 +12,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use curia_testis::conformance::{Corpus, LoaderError};
+use curia_testis::conformance::{Corpus, Index, LoaderError};
 
 /// A fresh, empty scratch directory under the OS temp dir, unique to this
 /// test process and this call site. Not under `conformance/` or anywhere
@@ -62,6 +62,7 @@ fn scaffold_empty_corpus(root: &Path) {
         "unicode",
         "numbers",
         "admit-reject",
+        "admit-accept",
         "envelope",
     ] {
         fs::create_dir_all(root.join(family)).expect("can scaffold an empty family dir");
@@ -303,5 +304,182 @@ fn non_utf8_bytes_in_a_slug_file_are_reported_not_panicked() {
     assert!(
         matches!(err, LoaderError::NotUtf8 { .. }),
         "expected LoaderError::NotUtf8, got: {err:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// conformance/index.json — R6.45
+//
+// `tests/vectors.rs` runs the index check against the real corpus, where it
+// passes. These build small corpora whose index deliberately disagrees with
+// disk, so the check is known to fail when it should — an index check that
+// cannot go red is indistinguishable, in a passing log, from one that can.
+// ---------------------------------------------------------------------
+
+/// An `index.json` that matches [`scaffold_empty_corpus`]: every family this
+/// runner loads, listed with the right shape and profiles and a count of
+/// zero. Tests below break exactly one thing about it.
+fn write_matching_index(root: &Path) {
+    write(
+        &root.join("index.json"),
+        r#"{
+  "directories": [
+    {"name": "rfc8785", "family": true, "shape": "file-pairs", "profiles": ["rfc8785"], "count": 0},
+    {"name": "c4", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "ordering", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "unicode", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "numbers", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "admit-reject", "family": true, "shape": "directory", "profiles": ["admit"], "count": 0},
+    {"name": "admit-accept", "family": true, "shape": "directory", "profiles": ["admit-accept"], "count": 0},
+    {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0}
+  ]
+}"#,
+    );
+}
+
+fn index_of(root: &Path) -> Index {
+    Index::load(root).expect("the scaffolded index loads")
+}
+
+fn mismatch_problems(err: LoaderError) -> Vec<String> {
+    match err {
+        LoaderError::IndexMismatch { problems, .. } => problems,
+        other => panic!("expected LoaderError::IndexMismatch, got: {other:?}"),
+    }
+}
+
+#[test]
+fn an_index_matching_disk_agrees() {
+    let root = scratch_dir("index-agrees");
+    scaffold_empty_corpus(&root);
+    write_matching_index(&root);
+
+    index_of(&root)
+        .check_against_disk(&root)
+        .expect("an index that matches disk must agree with it");
+}
+
+#[test]
+fn index_without_a_directories_array_is_reported_not_panicked() {
+    let root = scratch_dir("index-no-directories");
+    scaffold_empty_corpus(&root);
+    write(&root.join("index.json"), r#"{"families": []}"#);
+
+    let err = Index::load(&root).expect_err("an index with no `directories` must not load");
+    assert!(
+        matches!(err, LoaderError::MalformedIndex { .. }),
+        "expected LoaderError::MalformedIndex, got: {err:?}"
+    );
+}
+
+#[test]
+fn index_count_disagreeing_with_disk_is_reported() {
+    let root = scratch_dir("index-wrong-count");
+    scaffold_empty_corpus(&root);
+    write_matching_index(&root);
+    // The index still says c4 holds no vectors; disk now holds one.
+    write(
+        &root.join("c4/vector-01/meta.json"),
+        r#"{"profile": "canonicalize-with-nfc", "requirement": "R6.8"}"#,
+    );
+    write(&root.join("c4/vector-01/input.json"), "{}");
+    write(&root.join("c4/vector-01/expected.canonical"), "{}");
+    write(
+        &root.join("c4/vector-01/expected.digest"),
+        "0".repeat(64).as_str(),
+    );
+
+    let err = index_of(&root)
+        .check_against_disk(&root)
+        .expect_err("a miscounted family must not agree with disk");
+    let problems = mismatch_problems(err);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("count 0") && p.contains('1')),
+        "expected a count disagreement for c4, got: {problems:?}"
+    );
+}
+
+#[test]
+fn directory_on_disk_and_absent_from_the_index_is_reported() {
+    let root = scratch_dir("index-unlisted-dir");
+    scaffold_empty_corpus(&root);
+    write_matching_index(&root);
+    fs::create_dir_all(root.join("surprise")).expect("can create an unlisted directory");
+
+    let err = index_of(&root)
+        .check_against_disk(&root)
+        .expect_err("a directory absent from the index must not agree with disk");
+    let problems = mismatch_problems(err);
+    assert!(
+        problems.iter().any(|p| p.contains("surprise")),
+        "expected the unlisted directory to be named, got: {problems:?}"
+    );
+}
+
+#[test]
+fn family_in_the_index_that_no_runner_loads_is_reported() {
+    // The defect R6.45 exists for: a family added to the corpus and to the
+    // index, which `Corpus::load` never enumerates. Without this check it
+    // looks, in a passing test-run log, exactly like a family that ran.
+    let root = scratch_dir("index-unloaded-family");
+    scaffold_empty_corpus(&root);
+    write(
+        &root.join("index.json"),
+        r#"{
+  "directories": [
+    {"name": "rfc8785", "family": true, "shape": "file-pairs", "profiles": ["rfc8785"], "count": 0},
+    {"name": "c4", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "ordering", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "unicode", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "numbers", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
+    {"name": "admit-reject", "family": true, "shape": "directory", "profiles": ["admit"], "count": 0},
+    {"name": "admit-accept", "family": true, "shape": "directory", "profiles": ["admit-accept"], "count": 0},
+    {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0},
+    {"name": "newfam", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0}
+  ]
+}"#,
+    );
+    fs::create_dir_all(root.join("newfam")).expect("can create the new family dir");
+
+    let err = index_of(&root)
+        .check_against_disk(&root)
+        .expect_err("a family no runner loads must not agree with disk");
+    let problems = mismatch_problems(err);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("newfam") && p.contains("does not enumerate")),
+        "expected the unenumerated family to be named, got: {problems:?}"
+    );
+}
+
+#[test]
+fn vector_declaring_a_profile_its_family_forbids_is_reported() {
+    let root = scratch_dir("index-forbidden-profile");
+    scaffold_empty_corpus(&root);
+    write_matching_index(&root);
+    // A vector that loads perfectly well, in a family whose index entry
+    // permits only `canonicalize-with-nfc`.
+    write(
+        &root.join("c4/vector-01/meta.json"),
+        r#"{"profile": "admit", "requirement": "R6.15"}"#,
+    );
+    write(&root.join("c4/vector-01/input.json"), "{}");
+    write(
+        &root.join("c4/vector-01/expect-reject"),
+        "curia/admit/depth-exceeded",
+    );
+
+    let err = index_of(&root)
+        .check_against_disk(&root)
+        .expect_err("a vector whose profile its family forbids must not agree with the index");
+    let problems = mismatch_problems(err);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("c4/vector-01") && p.contains("does not permit")),
+        "expected the forbidden profile to be named, got: {problems:?}"
     );
 }

@@ -1,0 +1,6 @@
+{
+  "profile": "admit-accept",
+  "requirement": "R6.39",
+  "pairs-with": "admit-reject/size-over-cap",
+  "note": "exactly 1048576 bytes over sixteen members of about 65536 bytes each, so every string sits near a quarter of the string cap and only the submission cap can decide it"
+}
