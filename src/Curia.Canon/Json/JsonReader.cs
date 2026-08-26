@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;               // Encoding.UTF8.GetByteCount
 using System.Text.Json;
 using System.Text.Unicode;          // Utf8.IsValid
 using Curia.Domain.Primitives;
@@ -295,10 +296,7 @@ public static class JsonReader
 
     private static Result<JsonValue> ReadString(ref Utf8JsonReader reader, Policy policy)
     {
-        if (policy.Caps is { } caps && reader.ValueSpan.Length > caps.MaxStringBytes)
-            return Result<JsonValue>.Fail(CanonErrors.StringTooLong(caps.MaxStringBytes));
-
-        var value = ReadStringValue(ref reader, policy.RejectNoncharacters);
+        var value = ReadStringValue(ref reader, policy);
         return value.IsOk
             ? Result<JsonValue>.Ok(new JsonValue.String(value.Match(v => v, _ => "")))
             : value.ToFailure<JsonValue>();
@@ -336,8 +334,15 @@ public static class JsonReader
     /// (R6.38) — both are independently guaranteed regardless of which layer noticed the
     /// noncharacter first.
     /// </summary>
-    private static Result<string> ReadStringValue(ref Utf8JsonReader reader, bool rejectNoncharacters)
+    private static Result<string> ReadStringValue(ref Utf8JsonReader reader, Policy policy)
     {
+        // Read before GetString() for the fast path below. GetString() does not advance the
+        // reader, so this would still be valid afterwards; taking it first keeps the two
+        // lengths obviously paired. The reader is always constructed over a single
+        // ReadOnlySpan (see ParseCore), so HasValueSequence is never true here and ValueSpan
+        // is the whole token -- the raw source between the quotes, escapes uncollapsed.
+        var sourceSpanLength = reader.ValueSpan.Length;
+
         string value;
         try
         {
@@ -348,7 +353,31 @@ public static class JsonReader
             return Result<string>.Fail(CanonErrors.UnpairedSurrogate());
         }
 
-        if (rejectNoncharacters)
+        // R6.39 (addendum), errata G1: the cap is measured over the DECODED value, never over
+        // the raw source span, and it applies to an object member name exactly as to a string
+        // value -- which is why this check lives here, at the one call site both positions
+        // share, rather than in ReadString where it reached only one of them.
+        //
+        // A JSON escape never expands: \u00e9 is six source bytes and two decoded, a surrogate
+        // pair twelve and four, a literal multi-byte character the same either way. So
+        // decoded <= source, always, and a source span within the cap is already an exact
+        // proof that the decoded value is too. That makes the span a free conservative
+        // pre-filter and keeps GetByteCount off the path of every ordinary string; it runs
+        // only for one whose raw span is already over the cap.
+        //
+        // Checked ahead of the noncharacter scan on purpose (R6.39 addendum, cont.). Both are
+        // policy ADMIT alone enforces (R6.38), so nothing orders them by class; G1 breaks the
+        // tie toward the cap because that is the answer this implementation and curia-testis
+        // already agreed on for a string value, and leaving it unstated is how the two came to
+        // disagree for a member name.
+        if (policy.Caps is { } caps
+            && sourceSpanLength > caps.MaxStringBytes
+            && Encoding.UTF8.GetByteCount(value) > caps.MaxStringBytes)
+        {
+            return Result<string>.Fail(CanonErrors.StringTooLong(caps.MaxStringBytes));
+        }
+
+        if (policy.RejectNoncharacters)
         {
             foreach (var rune in value.EnumerateRunes())
             {
@@ -389,7 +418,7 @@ public static class JsonReader
             if (reader.TokenType != JsonTokenType.PropertyName)
                 return Result<JsonValue>.Fail(CanonErrors.Malformed($"expected property name, saw {reader.TokenType}"));
 
-            var keyResult = ReadStringValue(ref reader, policy.RejectNoncharacters);
+            var keyResult = ReadStringValue(ref reader, policy);
             if (!keyResult.IsOk)
                 return keyResult.ToFailure<JsonValue>();
 

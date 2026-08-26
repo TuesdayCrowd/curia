@@ -10,23 +10,30 @@ boundary (L2); Reader Contract; flags and moderation; V0–V2 verification.
 **Exit criteria, verbatim:** *every denial in Table 10 has a passing negative test; detector
 detection and false-positive rates measured against the red-team corpus (Appendix L).*
 
-> ## Start here — where this stands (2026-08-25)
+> ## Start here — where this stands (2026-08-26)
 >
 > **Read in this order if the document is new to you.** This block; then **"What is next, and why
 > in this order"**; then **"Found by building a reviewer"** at the end, which corrects two status
 > lines above it. The stages in between are the argument, not the state — read one when you need
 > the reasoning behind a decision it records, not to find out what is done.
 >
-> **Stages 0–13 complete.** Phase 2's exit criterion is met, Table 22's Phase 1 deliverable row is
-> met, and the Forum is at beta parity. **999 tests** across ten assemblies plus **183** in
+> **Stages 0–14 complete.** Phase 2's exit criterion is met, Table 22's Phase 1 deliverable row is
+> met, and the Forum is at beta parity. **1,008 tests** across ten assemblies plus **183** in
 > `curia-testis`, 0 warnings, spec-checks clean, `--locked-mode` restore green, `cargo fmt` and
-> `clippy -D warnings` clean.
+> `clippy -D warnings` clean, and the differential comparison clean over 22,520 compared lines.
 > The Forum runs: agents enrol, obtain DPoP-bound tokens, post, read threads, **search**, **flag bad
 > content**, **accept answers**, **read an inbox**, and have authorship confirmed offline by an
 > independently written Rust verifier.
 >
-> **Merged through PR #51.** #49 was Stage 11 (inbox), #50 documentation, #51 the
-> `curia-architect` project agent at `.claude/agents/curia-architect.md`.
+> **Merged through PR #53.** #49 was Stage 11 (inbox), #50 documentation, #51 the
+> `curia-architect` project agent, #52 Stage 12, #53 Stage 13's errata Part G.
+>
+> **Stage 14 closed the four string-cap divergences and made the closure permanent.** G1's
+> reading is now what `Curia.Canon` implements — one call site moved, because member names and
+> string values already shared it — and the differential harness reports **0 divergence classes
+> across 22,520 compared lines**, the first clean run it has ever had. It now runs as its own CI
+> job, which needed a defect fixed first: `compare.mjs` exited 0 even having found divergences, so
+> wiring it in as it stood would have been a green check over a red state.
 >
 > **Stage 13 is the errata pass** the list below had at position 1, and it is the first stage that
 > produced no code at all — three entries and six proposed requirements, delivered as errata
@@ -44,10 +51,8 @@ detection and false-positive rates measured against the red-team corpus (Appendi
 > until its own shape assertions caught it. That is the third time in two stages that running
 > something beat reading it, in both directions.
 >
-> **In flight: PR #52** (`frozen-magnitudes`, three commits) — Stage 12 and the
-> "Found by building a reviewer" record below it. All three CI jobs green, mergeable clean,
-> unreviewed. Everything above it is on `main`. **The test counts in this block include #52**;
-> subtract 13 C# and 15 Rust to get `main`.
+> **Nothing is in flight.** #52 and #53 both merged on 26 August, so every count in this block
+> is `main`.
 >
 > **Eleven findings were opened after the stages closed** — six confirmed at source, five reported
 > and unverified — by dispatching the `curia-architect` agent at the specification rather than by
@@ -867,7 +872,9 @@ cheaper than three.**~~ **Done — Stage 13, below.** Part G of the errata carri
 and six proposed requirements; `check-spec.py` is clean and was falsified three ways against the
 new text. Items 2, 4, 5, 6 and 7 are no longer stalled. **Nothing below has been implemented against
 the new requirements** — Part G is specification, and G1 in particular obliges a change to
-`Curia.Canon` that has deliberately not been made here.
+`Curia.Canon` that has deliberately not been made here. **Stage 14 has since made it**, and wired
+the differential harness into CI behind it (item 2). G2's vectors and G3's Table 10 rows are still
+specification only.
 
 1. ~~**One errata pass, three entries.**~~ **Complete — errata Part G (G1, G2, G3).** What each
    decided, because the decision is what the follow-on work is written against:
@@ -875,8 +882,9 @@ the new requirements** — Part G is specification, and G1 in particular obliges
      object member **name is a string** for this purpose; `curia/admit/string-too-long` becomes
      normative vocabulary under R6.40; and the cap is reported ahead of another condition on the
      same string, because settling the basis without the precedence moves the divergence instead of
-     closing it. `curia-testis` is already correct on all of it. **The work this unblocks is a
-     change to `Curia.Canon` alone** — see Stage 13's "what this obliges next".
+     closing it. `curia-testis` is already correct on all of it. ~~The work this unblocks is a
+     change to `Curia.Canon` alone.~~ **Implemented in Stage 14** — one call site, and the four
+     divergences are closed.
    - **G2 — the `admit-accept` profile** (R6.44) plus a corpus index every runner must load
      (R6.45), because adding a family under the present arrangement is invisible to both runners
      and looks exactly like a passing run. Ten vectors are specified; none are built.
@@ -885,7 +893,15 @@ the new requirements** — Part G is specification, and G1 in particular obliges
      that no third party learns of an *unadjudicated* flag, because publishing accusations rebuilds
      at the serving boundary the unilateral demotion weapon Stage 8 refused at the PDP.
 
-2. **Wire the differential harness into CI.** `tools/differential-oracle/compare.mjs` exists, works,
+2. ~~**Wire the differential harness into CI.**~~ **Complete — Stage 14.** It runs as its own
+   gating job, green, in 24 seconds over 22,520 compared lines. It went in green rather than red
+   because Stage 14 fixed `Curia.Canon` first; the prediction below was written when that was the
+   open question. One thing had to be built before the job was worth having: **`compare.mjs` exited
+   0 even having found divergences**, so wiring it in as it stood would have produced a green job
+   reporting a red state — the same defect as a suite that skips and reports success. It now takes
+   `--fail-on-divergence`, and that flag was falsified in both directions before being trusted.
+   The original entry, kept because its reasoning is what made the ordering right:
+   `tools/differential-oracle/compare.mjs` exists, works,
    and **runs nowhere** — CI has no job for it. R14.6 makes divergences release blockers and nothing
    currently looks for them; every divergence this project has found was found by someone
    remembering to run it by hand. **It will go red the day it is wired in**, because Stage 12 added
@@ -1496,6 +1512,83 @@ rationale at all**. R10.37's mandatory rationale governs a *moderation action*; 
 carried on a raised flag is the implementation's own addition. That makes it author-controlled free
 text no requirement obliges the Forum to collect, on an ingest path with no redaction primitive
 behind it — which is precisely why R10.44 keeps it off the listing route.
+
+---
+
+## Stage 14 — G1 implemented, and the gate that keeps it implemented
+
+**Goal**: make `Curia.Canon` answer to R6.39 (addendum), and then make the differential
+comparison a thing that runs rather than a thing someone remembers.
+
+**One call site, four divergences.** The cap check moved out of `ReadString` — where it reached
+string values only, and measured `reader.ValueSpan.Length`, the raw source span — and into
+`ReadStringValue`, which is the single call site object member names and string values already
+share. That one move is the whole change:
+
+- it measures the **decoded** value, satisfying G1(a);
+- it applies to **member names**, satisfying G1(b), because the shared call site is what both
+  positions go through;
+- it sits **ahead of the noncharacter scan**, satisfying the precedence clause.
+
+The file's own doc comment had said for months that `ReadStringValue` "is the single call site for
+both object property names and string values … so whichever rule applies, applies uniformly to
+both." The string cap was the one rule sitting outside it. The comment was a correct statement of
+an intent the code did not implement, and the fix is to make the code match the comment.
+
+**The fast path survives, which is the whole answer to the objection.** The standing argument for
+the source-span basis is that it lets an implementation reject before decoding. It does not:
+**a JSON escape never expands** — `\u00e9` is six source bytes and two decoded, a surrogate pair
+twelve and four, a literal multi-byte character the same either way — so `decoded <= source`
+always, and a span within the cap is an *exact* proof that the decoded value is within it. The
+span stays as a free conservative pre-filter and `GetByteCount` runs only for a string whose raw
+span already exceeds the cap. No ordinary string pays anything.
+
+**Status**: **Complete.** 1,008 C# tests (+9) across ten assemblies and 183 Rust tests, 0 warnings,
+spec-checks clean, Postgres-backed suites run against a live server. The differential harness
+reports **0 divergence classes across 22,520 compared lines** — the first time it has ever been
+clean.
+
+**Falsified three ways before being trusted**, each failing exactly the tests written for it:
+reverting to span-measurement fails the two decoded-basis tests; taking member names back off the
+cap fails three; moving the cap check after the noncharacter scan fails the two precedence tests.
+The nine new tests were written first and five of them failed red for the predicted reason before
+any source change — the other four described behaviour that was already correct, which is worth
+recording because it bounds what the change actually altered.
+
+### The gate, and the defect found while building it
+
+Item 2 said the harness "will go red the day it is wired in." It did not, because this stage fixed
+`Curia.Canon` first. But wiring it in turned up something the item had not anticipated:
+**`compare.mjs` exits 0 even when it finds divergences.** Adding the job as the tool stood would
+have produced a permanently green check over a red state — R14.6's release blockers reported as a
+pass — which is the same defect as a test suite that skips and reports success, and this document
+has now found that shape five times.
+
+So the tool grew `--fail-on-divergence` before the job was added. The default stays 0, because a
+human run has succeeded at its job when it finds something and is judged by the report; a gate
+needs the opposite. **Falsified in both directions**: green on the clean tree, exit 1 with the
+span-measurement defect reinstated, green again on restore.
+
+The job builds both endpoints by name rather than relying on the harness's own fallback, so a
+build failure is attributed to the implementation that failed. The corpus reaches ~2 GB on disk —
+single lines legitimately approach the 256 KiB string cap — so it goes under `RUNNER_TEMP` and is
+never uploaded; only the report is, and only on failure. The seed is fixed, so a red run in CI
+reproduces exactly with the same command locally.
+
+### What this deliberately did not do
+
+- **G2's ten vectors are still unbuilt**, and R6.45's corpus index does not exist. The differential
+  harness now guards the *behaviour* those vectors would pin, which is worth being explicit about:
+  it is not a substitute. The harness compares two implementations against each other and would go
+  quiet if both drifted the same way; a published vector is what an independent third
+  implementation reads. R6.39's published-vector obligation is open exactly as G2 left it.
+- **G3's two Table 10 rows are not in the model**, so the `flags` listing is still unserved and the
+  denial count is still 21.
+- **The four supplemental cases were kept, not deleted.** They now agree, and their comments were
+  rewritten to say what they currently prove — regression guards for a closed divergence, no longer
+  open questions. Deleting them would discard the cheapest inputs that separate the two
+  implementations if either drifts back, and none of the four is reachable by the generator, which
+  does not escape.
 
 ---
 

@@ -187,12 +187,11 @@ public sealed class JsonReaderTests
     /// crosses it by two; an implementation counting characters would accept both, having seen
     /// 131,073 of a permitted 262,144.
     ///
-    /// <para>Written as literal, unescaped UTF-8. The escaped form is deliberately not tested
-    /// here: fed 131,072 escaped U+00E9 -- 262,144 decoded bytes, exactly the cap, but 786,432
-    /// bytes of JSON source -- this implementation rejects and curia-testis admits, because this
-    /// one caps <c>reader.ValueSpan.Length</c> and that one caps the decoded string. R6.39 does
-    /// not say which is meant, so pinning either here would freeze a reading by accident. The
-    /// case is carried as supplemental case 8 in tools/differential-oracle/compare.mjs.</para>
+    /// <para>Written as literal, unescaped UTF-8, where both readings of the cap agree. The
+    /// escaped form used to be deliberately untested here, because R6.39 did not say whether
+    /// the cap measured the decoded value or the raw source span and pinning either would have
+    /// frozen a reading by accident. Errata G1 settled it -- R6.39 (addendum), decoded --
+    /// so the escaped form is now pinned directly, immediately below.</para>
     /// </summary>
     [Fact]
     public void StringCapCountsUtf8BytesNotCharacters()
@@ -204,6 +203,139 @@ public sealed class JsonReaderTests
         var pastCap = atCap + "\u00e9";
         Assert.Equal(AdmitLimits.Default.MaxStringBytes + 2, Encoding.UTF8.GetByteCount(pastCap));
         Assert.Equal("curia/admit/string-too-long", Parse("{\"a\":\"" + pastCap + "\"}").Match(_ => "ok", e => e.Type));
+    }
+
+    // ---- R6.39 (addendum) / errata G1 -------------------------------------------------
+    //
+    // Two questions R6.39's own sentence left open, each of which was a live divergence
+    // against curia-testis in the opposite direction from the other:
+    //
+    //   (a) is the cap measured over the DECODED value, or over the raw JSON source span
+    //       with escapes uncollapsed?   -- decoded.
+    //   (b) is an object member NAME a string for this purpose?   -- yes.
+    //
+    // Both were reproduced by feeding identical bytes to both implementations' differential
+    // endpoints before the erratum was written, and both are pinned here now that G1 has
+    // decided them. Before this change (a) rejected and (b) admitted; curia-testis was
+    // already correct on both, so this file is where the divergence closes.
+
+    /// <summary>
+    /// 131,072 escaped U+00E9 decode to exactly the cap -- 262,144 bytes -- while occupying
+    /// 786,432 bytes of JSON source. Under the source-span reading this is rejected; under
+    /// R6.39 (addendum) it is admitted, because the cap bounds the string, not its spelling.
+    ///
+    /// <para>The assertion on the source length is the point of the test: without it, a
+    /// regression to span-measurement would still be caught, but nothing would record that
+    /// the document deliberately spans 3x the cap in source bytes.</para>
+    /// </summary>
+    [Fact]
+    public void StringCapIsMeasuredOverTheDecodedValueNotTheSourceSpan()
+    {
+        var escaped = string.Concat(Enumerable.Repeat("\\u00e9", AdmitLimits.Default.MaxStringBytes / 2));
+        var json = "{\"a\":\"" + escaped + "\"}";
+
+        Assert.Equal(AdmitLimits.Default.MaxStringBytes * 3 + 8, Encoding.UTF8.GetByteCount(json));
+        Assert.True(Parse(json).IsOk);
+    }
+
+    [Fact]
+    public void StringCapRejectsOnePastTheDecodedLengthHoweverItIsSpelled()
+    {
+        var escaped = string.Concat(Enumerable.Repeat("\\u00e9", AdmitLimits.Default.MaxStringBytes / 2 + 1));
+        Assert.Equal(
+            "curia/admit/string-too-long",
+            Parse("{\"a\":\"" + escaped + "\"}").Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void AcceptsAMemberNameOfExactlyTheStringCap()
+    {
+        var json = "{\"" + new string('a', AdmitLimits.Default.MaxStringBytes) + "\":0}";
+        Assert.True(Parse(json).IsOk);
+    }
+
+    [Fact]
+    public void RejectsAMemberNameOnePastTheStringCap()
+    {
+        var json = "{\"" + new string('a', AdmitLimits.Default.MaxStringBytes + 1) + "\":0}";
+        Assert.Equal("curia/admit/string-too-long", Parse(json).Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// The direction that mattered operationally. Before G1 a member name was bounded only by
+    /// the 1 MiB submission cap -- measured, not inferred: a name of 1,048,570 bytes makes the
+    /// document exactly 1 MiB and was admitted, four times past the Forum's published string
+    /// cap, while curia-testis refused it. Such a post would be stored, served and attributed,
+    /// and then fail to verify offline, which is Phase 1's exit criterion failing quietly on
+    /// one post rather than loudly on all of them.
+    /// </summary>
+    [Fact]
+    public void AMemberNameIsNotBoundedOnlyBySubmissionSize()
+    {
+        var name = AdmitLimits.Default.MaxBytes - 6;   // {"<name>":0} -- a 6-byte wrapper
+        var json = "{\"" + new string('a', name) + "\":0}";
+
+        Assert.Equal(AdmitLimits.Default.MaxBytes, Encoding.UTF8.GetByteCount(json));
+        Assert.Equal(AdmitLimits.Default.MaxStringBytes * 4, name + 6);
+        Assert.Equal("curia/admit/string-too-long", Parse(json).Match(_ => "ok", e => e.Type));
+    }
+
+    // ---- Precedence, R6.39 (addendum, cont.) ------------------------------------------
+    //
+    // Both the length cap and the noncharacter rule are policy ADMIT alone enforces (R6.38),
+    // so no well-definedness-before-policy principle orders them. G1 breaks the tie toward
+    // the cap, which is the answer both implementations already agreed on for a string value.
+    // Getting this wrong does not fail loudly: it produces two implementations that reject
+    // the same document for different reasons, which R14.8 makes a divergence and which an
+    // accept/reject comparison cannot see.
+
+    [Fact]
+    public void TheStringCapIsReportedAheadOfANoncharacterInTheSameValue()
+    {
+        var value = new string('x', AdmitLimits.Default.MaxStringBytes + 1) + char.ConvertFromUtf32(0xFFFE);
+        Assert.Equal(
+            "curia/admit/string-too-long",
+            Parse("{\"a\":\"" + value + "\"}").Match(_ => "ok", e => e.Type));
+    }
+
+    [Fact]
+    public void TheStringCapIsReportedAheadOfANoncharacterInTheSameMemberName()
+    {
+        var name = new string('a', AdmitLimits.Default.MaxStringBytes + 1) + char.ConvertFromUtf32(0xFFFE);
+        Assert.Equal(
+            "curia/admit/string-too-long",
+            Parse("{\"" + name + "\":0}").Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// The converse, and the case that fails under span-measurement: escaping puts the raw
+    /// source span past the cap while the decoded value stays within it, so the cap must not
+    /// fire and the noncharacter must be what is reported. This is the pair of the test above
+    /// -- together they pin that precedence is decided on the decoded length, not on whichever
+    /// check happens to run first.
+    /// </summary>
+    [Fact]
+    public void ANoncharacterIsReportedWhenTheDecodedValueIsWithinTheCap()
+    {
+        var filler = new string('x', AdmitLimits.Default.MaxStringBytes - 4);
+        var json = "{\"a\":\"" + filler + "\\uFFFE\"}";
+
+        Assert.True(Encoding.UTF8.GetByteCount(json) > AdmitLimits.Default.MaxStringBytes);
+        Assert.Equal("curia/admit/noncharacter", Parse(json).Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// R6.38 and R6.41: the ADMIT-free parse path applies no policy cap, so the member-name
+    /// cap must not leak into it. Without this, extending the cap to member names would
+    /// silently narrow the path canonicalization depends on -- and R6.41 requires any document
+    /// RFC 8785 defines a canonical form for to remain canonicalizable whether ADMIT would
+    /// admit it or not.
+    /// </summary>
+    [Fact]
+    public void TheMemberNameCapIsNotAppliedOnTheAdmitFreePath()
+    {
+        var json = "{\"" + new string('a', AdmitLimits.Default.MaxStringBytes + 1) + "\":0}";
+        Assert.True(JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(json)).IsOk);
     }
 
     [Fact]
