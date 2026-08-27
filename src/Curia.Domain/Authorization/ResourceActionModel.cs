@@ -32,8 +32,9 @@ namespace Curia.Domain.Authorization;
 /// | `answer`       | `accept` (own thread) | ✗               | ✓            | ✓   | ✓   | ✓             |
 /// | `tag`          | `create`              | ✗               | ✗            | ✗   | ✓   | ✓             |
 /// | `flag`         | `raise`               | ✗               | ✓            | ✓   | ✓   | ✓             |
+/// | `flag`         | `list` (own)          | ✗               | ✓            | ✓   | ✓   | ✓             |
 /// | `verification` | `submit`              | ✗               | ✗            | ✓   | ✓   | ✓             |
-/// | `moderation`   | `apply`               | ✗               | ✗            | ✗   | ✗   | ✓ (delegated) |
+/// | `moderation`   | `list`, `apply`       | ✗               | ✗            | ✗   | ✗   | ✓ (delegated) |
 /// | `agent`        | `enroll`              | owner-auth only |              |     |     |               |
 /// </code>
 /// </summary>
@@ -88,10 +89,23 @@ public static class ResourceActionModel
             // `flag` | `raise`
             [(ResourceKind.Flag, ActionKind.Raise)] = new(N, Y, Y, Y, Y),
 
+            // `flag` | `list` (own) -- R7.18 defines "own" as the union of flags the requester
+            // raised and flags raised against posts the requester authored. It is a separate row
+            // from `raise` despite an identical tier vector, because Table 10 attaches its
+            // parenthetical to a whole row and `raise` carries none. Anonymous is ✗ because an
+            // anonymous principal authors nothing and raises nothing, so "own" is empty for it and
+            // a ✓ would be a permission conferring access to no flag that can exist.
+            [(ResourceKind.Flag, ActionKind.List)] = new(N, Y, Y, Y, Y, GrantQualifier.OwnResourceOnly),
+
             // `verification` | `submit`
             [(ResourceKind.Verification, ActionKind.Submit)] = new(N, N, Y, Y, Y),
 
-            // `moderation` | `apply` -- T3's cell is "✓ (delegated)".
+            // `moderation` | `list`, `apply` -- T3's cell is "✓ (delegated)"; one row, two pairs.
+            // Reading a third party's flag is exercising moderation authority, so R7.18 puts it
+            // here rather than widening `flag`/`list`: the authority to see an allegation is then
+            // never broader than the authority to act on it, and every principal that can read the
+            // queue leaves a signed record (R10.37) when it acts on what it read.
+            [(ResourceKind.Moderation, ActionKind.List)] = new(N, N, N, N, Y, GrantQualifier.Delegated),
             [(ResourceKind.Moderation, ActionKind.Apply)] = new(N, N, N, N, Y, GrantQualifier.Delegated),
 
             // `agent` | `enroll` -- "owner-auth only", spanning every tier column.

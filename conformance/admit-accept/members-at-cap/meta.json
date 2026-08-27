@@ -1,0 +1,6 @@
+{
+  "profile": "admit-accept",
+  "requirement": "R6.39",
+  "pairs-with": "admit-reject/members-over-cap",
+  "note": "exactly 1024 members at depth 1; every name is 5 bytes, so no string approaches the string cap and only the member cap can decide it"
+}

@@ -366,12 +366,16 @@ public static class ForumEndpoints
     /// agent that may not answer and may not vote may still report. That asymmetry is the point:
     /// the agents most likely to encounter bad content first are the newest ones.
     ///
-    /// <para><b>There is no route that reads flags back</b>, and that is deliberate rather than
-    /// unfinished. The white paper's §9 route table lists only this POST, and Table 10 has no
-    /// <c>flag</c>/<c>list</c> cell — so a listing endpoint would have to be authorized against a
-    /// pair the model does not contain, which <see cref="ResourceActionModel.RowFor"/> reports as a
-    /// <i>failure</i> precisely so a missing row cannot masquerade as a deliberate one. Adding the
-    /// cell is a specification change and belongs in the errata, not here.</para>
+    /// <para><b>There was no route that read flags back</b>, and that was deliberate rather than
+    /// unfinished: Table 10 had no <c>flag</c>/<c>list</c> cell, so a listing endpoint would have
+    /// had to be authorized against a pair the model does not contain, which
+    /// <see cref="ResourceActionModel.RowFor"/> reports as a <i>failure</i> precisely so a missing
+    /// row cannot masquerade as a deliberate one. Errata G3 added the cell (R7.18), qualified
+    /// <c>(own)</c> — the union of flags this agent raised and flags raised against posts it
+    /// authored. Reading any other party's flag is <c>moderation</c>/<c>list</c>, under the same
+    /// delegated grant as <c>moderation</c>/<c>apply</c>, so the authority to see an allegation is
+    /// never broader than the authority to act on it. R10.44 governs what a served flag may
+    /// carry: post, category and instant, never the rationale and never the raiser.</para>
     /// </summary>
     private static async Task<IResult> RaiseFlagAsync(
         string postId,

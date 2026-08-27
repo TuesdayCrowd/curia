@@ -1,0 +1,6 @@
+{
+  "profile": "admit-accept",
+  "requirement": "R6.39",
+  "pairs-with": "admit-reject/string-over-cap",
+  "note": "131072 escaped U+00E9 decode to exactly 262144 bytes -- R6.39's cap on the nose -- in 786440 bytes of JSON source. R6.39 (addendum) measures the decoded value, so this is admitted; an implementation capping the raw source span rejects it"
+}

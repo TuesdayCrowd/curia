@@ -1,0 +1,82 @@
+{
+  "$comment": "R6.45. Every top-level directory under conformance/ is named here, with its vector count and the profiles its vectors may declare. Every conformance runner SHALL load this file and fail when it disagrees with what is on disk. A family a runner does not enumerate contributes no assurance while looking, in a passing test-run log, exactly like one that does -- and every runner hard-codes its family list in source, so a family added to the corpus is invisible to each implementation until that implementation is separately edited. This file is what makes that omission fail.",
+  "directories": [
+    {
+      "name": "admit-accept",
+      "family": true,
+      "shape": "directory",
+      "profiles": [
+        "admit-accept"
+      ],
+      "count": 5
+    },
+    {
+      "name": "admit-reject",
+      "family": true,
+      "shape": "directory",
+      "profiles": [
+        "admit"
+      ],
+      "count": 14
+    },
+    {
+      "name": "c4",
+      "family": true,
+      "shape": "directory",
+      "profiles": [
+        "canonicalize-with-nfc"
+      ],
+      "count": 10
+    },
+    {
+      "name": "envelope",
+      "family": true,
+      "shape": "envelope",
+      "profiles": [
+        "envelope"
+      ],
+      "count": 6
+    },
+    {
+      "name": "numbers",
+      "family": true,
+      "shape": "directory",
+      "profiles": [
+        "canonicalize-with-nfc"
+      ],
+      "count": 9
+    },
+    {
+      "name": "ordering",
+      "family": true,
+      "shape": "directory",
+      "profiles": [
+        "canonicalize-with-nfc"
+      ],
+      "count": 3
+    },
+    {
+      "name": "red-team",
+      "family": false,
+      "note": "Detector corpus for R10.11's measurement (Appendix L), not canonicalization vectors. Listed so that its absence from every runner is a recorded decision rather than an oversight."
+    },
+    {
+      "name": "rfc8785",
+      "family": true,
+      "shape": "file-pairs",
+      "profiles": [
+        "rfc8785"
+      ],
+      "count": 6
+    },
+    {
+      "name": "unicode",
+      "family": true,
+      "shape": "directory",
+      "profiles": [
+        "canonicalize-with-nfc"
+      ],
+      "count": 6
+    }
+  ]
+}

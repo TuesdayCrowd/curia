@@ -428,7 +428,20 @@ public sealed class JsonReaderTests
     {
         var data = new TheoryData<string, byte[], string>();
         foreach (var v in VectorLoader.Load("admit-reject"))
-            data.Add(v.Name, v.Input, v.ExpectRejectSlug!);
+        {
+            // R6.44: route by the declared profile, never by the directory a vector occupies.
+            // Without this, a vector filed here under some other profile -- admit-accept most
+            // obviously -- would be run as a rejection case and fail with a slug comparison
+            // that says nothing about why, and a vector whose expect-reject was never
+            // committed would surface as a NullReferenceException from the "!" that used to
+            // stand here rather than as the corpus defect it is.
+            if (v.Profile is not VectorProfile.Admit)
+                throw new InvalidOperationException(
+                    $"admit-reject/{v.Name} declares profile \"{VectorLoader.ProfileName(v.Profile)}\", not \"admit\"");
+
+            data.Add(v.Name, v.Input, v.ExpectRejectSlug
+                ?? throw new InvalidOperationException($"admit-reject/{v.Name} declares profile \"admit\" but has no expect-reject file"));
+        }
         return data;
     }
 }

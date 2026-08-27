@@ -1,0 +1,5 @@
+{
+  "profile": "admit",
+  "requirement": "R6.39",
+  "note": "an object member name of 262145 bytes. R6.39 (addendum) makes a member name a string for the cap's purposes; before it, this document was admitted four times past the cap"
+}

@@ -1,0 +1,5 @@
+{
+  "profile": "admit",
+  "requirement": "R6.39",
+  "note": "1048577 bytes, one past R6.39's cap, built the same way; first vector to pin this slug (R6.40)"
+}

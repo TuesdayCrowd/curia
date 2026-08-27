@@ -10,6 +10,7 @@ public sealed class VectorLoaderTests
     [InlineData("unicode")]
     [InlineData("numbers")]
     [InlineData("admit-reject")]
+    [InlineData("admit-accept")]
     public void EveryFamilyLoadsAndEveryVectorCitesARequirement(string family)
     {
         var vectors = VectorLoader.Load(family);
@@ -44,7 +45,14 @@ public sealed class VectorLoaderTests
     // unicode/nfd-to-nfc-composed and unicode/singleton-ohm went undetected: their
     // literal-character input.json had already been NFC-normalized before it reached
     // disk, silently reducing both to identity vectors.
-    private static readonly string[] AllFamilies = ["c4", "ordering", "unicode", "numbers", "admit-reject"];
+    /// <summary>
+    /// Every directory-shaped family this suite loads. Cross-checked against
+    /// <c>conformance/index.json</c> by
+    /// <see cref="ConformanceIndexTests.EveryDirectoryShapedFamilyIsEnumeratedByThisRunner"/>,
+    /// so a family added to the corpus can no longer be invisible here (R6.45).
+    /// </summary>
+    internal static readonly string[] AllFamilies =
+        ["c4", "ordering", "unicode", "numbers", "admit-reject", "admit-accept"];
 
     [Fact]
     public void EveryR6NineTransformationVectorActuallyTransforms()

@@ -5,11 +5,18 @@
 //! - `rfc8785/` — `input-<name>.json` / `output-<name>.json` file pairs, no
 //!   `meta.json`, profile implicitly `rfc8785`.
 //! - `<family>/<case>/` — the common shape (`c4`, `ordering`, `unicode`,
-//!   `numbers`, `admit-reject`): `input.json`, `meta.json`, and either
-//!   `expected.canonical` + `expected.digest` or `expect-reject`.
+//!   `numbers`, `admit-reject`, `admit-accept`): `input.json`, `meta.json`,
+//!   and either `expected.canonical` + `expected.digest` or `expect-reject`.
+//!   An `admit-accept/` case additionally carries `"pairs-with"` in its
+//!   `meta.json`, naming its rejecting-side twin (R6.44 addendum).
 //! - `envelope/<case>/` — six files, no `input.json`: `submission.json`,
 //!   `jwks.json`, `private-keys.json`, `expected.canonical`,
 //!   `expected.digest`, `meta.json`.
+//!
+//! `conformance/index.json` (R6.45) names every top-level directory and is
+//! loaded by [`Index::load`]; [`Index::check_against_disk`] is what turns a
+//! family this loader does not enumerate into a failure instead of a silent
+//! omission.
 //!
 //! This module is deliberately not the place that decides what any of these
 //! bytes *mean* — that is [`crate::canonicalize`], [`crate::canonicalize_with_nfc`],
@@ -73,17 +80,35 @@ pub enum Profile {
     CanonicalizeWithNfc,
     /// The ADMIT phase: accept-or-reject, no canonicalization reached.
     Admit,
+    /// The ADMIT phase, then `CanonicalizeWithNfc` (R6.44). The input must
+    /// be **admitted**, and the same bytes must then canonicalize to
+    /// `expected.canonical` with `expected.digest` as its SHA-256.
+    ///
+    /// The profile, and never the absence of `expect-reject`, is what
+    /// declares acceptance: a vector whose `expect-reject` failed to be
+    /// committed must fail rather than silently become an accept vector.
+    /// `load_expectation` enforces exactly that — it reads the files, not
+    /// the profile — so a directory with neither expectation file is still
+    /// [`LoaderError::MissingExpectation`] here, and an `admit-accept`
+    /// vector carrying `expect-reject` loads as
+    /// [`Expectation::Reject`], a pairing the runner has no arm for and
+    /// therefore fails on.
+    AdmitAccept,
     /// `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify`,
     /// end to end.
     Envelope,
 }
 
 impl Profile {
+    /// Parses `meta.json`'s `profile` string. An unrecognized value is
+    /// [`LoaderError::UnknownProfile`], never a skip: "a skipped vector is
+    /// indistinguishable in a passing log from a satisfied one" (R6.44).
     fn parse(raw: &str, path: &Path) -> Result<Self, LoaderError> {
         match raw {
             "rfc8785" => Ok(Profile::Rfc8785),
             "canonicalize-with-nfc" => Ok(Profile::CanonicalizeWithNfc),
             "admit" => Ok(Profile::Admit),
+            "admit-accept" => Ok(Profile::AdmitAccept),
             "envelope" => Ok(Profile::Envelope),
             other => Err(LoaderError::UnknownProfile {
                 path: path.to_path_buf(),
@@ -97,6 +122,7 @@ impl Profile {
             Profile::Rfc8785 => "rfc8785",
             Profile::CanonicalizeWithNfc => "canonicalize-with-nfc",
             Profile::Admit => "admit",
+            Profile::AdmitAccept => "admit-accept",
             Profile::Envelope => "envelope",
         }
     }
@@ -121,7 +147,7 @@ pub struct Rfc8785Vector {
 }
 
 /// A vector from one of the common-shape families: `c4/`, `ordering/`,
-/// `unicode/`, `numbers/`, `admit-reject/`.
+/// `unicode/`, `numbers/`, `admit-reject/`, `admit-accept/`.
 #[derive(Debug, Clone)]
 pub struct DirectoryVector {
     pub family: String,
@@ -129,6 +155,15 @@ pub struct DirectoryVector {
     pub profile: Profile,
     pub requirement: String,
     pub note: Option<String>,
+    /// `meta.json`'s `"pairs-with"`: `"<family>/<case>"` naming the
+    /// rejecting-side twin of an accepting-side boundary vector (R6.44
+    /// addendum). Only `admit-accept/` vectors carry it today, and a runner
+    /// SHALL fail when the named vector is absent from the corpus — see
+    /// [`Corpus::contains_case`], which is how `tests/vectors.rs` resolves
+    /// it. Optional here rather than required, because the loader's job is
+    /// to report the bytes on disk faithfully; whether a *given profile*
+    /// must carry the key is the runner's assertion, not the loader's.
+    pub pairs_with: Option<String>,
     pub input: Vec<u8>,
     pub expectation: Expectation,
 }
@@ -171,8 +206,29 @@ pub struct Corpus {
     pub unicode: Vec<DirectoryVector>,
     pub numbers: Vec<DirectoryVector>,
     pub admit_reject: Vec<DirectoryVector>,
+    pub admit_accept: Vec<DirectoryVector>,
     pub envelope: Vec<EnvelopeVector>,
 }
+
+/// Every family name this loader enumerates, in the order [`Corpus::load`]
+/// loads them.
+///
+/// This list is the thing R6.45 exists to police. `Corpus::load` hard-codes
+/// its families in source, so a family added to `conformance/` is invisible
+/// here until this file is separately edited — and its absence looks, in a
+/// passing test-run log, exactly like a family that ran. Naming the list
+/// once lets [`Index::check_against_disk`] compare it against
+/// `conformance/index.json` and fail when the two disagree.
+pub const LOADED_FAMILIES: &[&str] = &[
+    "rfc8785",
+    "c4",
+    "ordering",
+    "unicode",
+    "numbers",
+    "admit-reject",
+    "admit-accept",
+    "envelope",
+];
 
 impl Corpus {
     /// Loads every family under `root`.
@@ -184,6 +240,7 @@ impl Corpus {
             unicode: load_directory_family(root, "unicode")?,
             numbers: load_directory_family(root, "numbers")?,
             admit_reject: load_directory_family(root, "admit-reject")?,
+            admit_accept: load_directory_family(root, "admit-accept")?,
             envelope: load_envelope_family(root)?,
         })
     }
@@ -202,7 +259,40 @@ impl Corpus {
             + self.unicode.len()
             + self.numbers.len()
             + self.admit_reject.len()
+            + self.admit_accept.len()
             + self.envelope.len()
+    }
+
+    /// Whether the corpus holds `<family>/<case>` — the shape
+    /// `meta.json`'s `"pairs-with"` uses.
+    ///
+    /// `None` means *this loader does not enumerate a family of that name*,
+    /// which is a different failure from "the case is missing" and must not
+    /// be reported as the same thing: one says the corpus lost a vector,
+    /// the other says the runner never looked. Callers are expected to fail
+    /// loudly on both (R6.44 addendum).
+    pub fn contains_case(&self, family: &str, case: &str) -> Option<bool> {
+        match family {
+            "rfc8785" => Some(self.rfc8785.iter().any(|v| v.name == case)),
+            "envelope" => Some(self.envelope.iter().any(|v| v.case == case)),
+            other => self
+                .directory_family(other)
+                .map(|vectors| vectors.iter().any(|v| v.case == case)),
+        }
+    }
+
+    /// The loaded vectors of a common-shape family, by its on-disk
+    /// directory name. `None` when this loader does not enumerate it.
+    pub fn directory_family(&self, family: &str) -> Option<&[DirectoryVector]> {
+        match family {
+            "c4" => Some(&self.c4),
+            "ordering" => Some(&self.ordering),
+            "unicode" => Some(&self.unicode),
+            "numbers" => Some(&self.numbers),
+            "admit-reject" => Some(&self.admit_reject),
+            "admit-accept" => Some(&self.admit_accept),
+            _ => None,
+        }
     }
 }
 
@@ -233,7 +323,7 @@ pub enum LoaderError {
     EmptyRequirement {
         path: PathBuf,
     },
-    /// `meta.json`'s `profile` is not one of the four documented values.
+    /// `meta.json`'s `profile` is not one of the five documented values.
     UnknownProfile {
         path: PathBuf,
         profile: String,
@@ -257,6 +347,21 @@ pub enum LoaderError {
     UnpairedRfc8785Vector {
         path: PathBuf,
         name: String,
+    },
+    /// `conformance/index.json` is structurally malformed: a required key is
+    /// missing, or a key has the wrong JSON type. Distinct from
+    /// [`LoaderError::IndexMismatch`], which is a well-formed index that
+    /// disagrees with disk.
+    MalformedIndex {
+        path: PathBuf,
+        problem: String,
+    },
+    /// `conformance/index.json` disagrees with what is on disk (R6.45).
+    /// Every disagreement found is reported at once: fixing them one
+    /// round-trip at a time is how a second one gets missed.
+    IndexMismatch {
+        path: PathBuf,
+        problems: Vec<String>,
     },
 }
 
@@ -287,7 +392,7 @@ impl fmt::Display for LoaderError {
                 write!(
                     f,
                     "{}: unknown profile `{profile}` (expected one of: rfc8785, \
-                     canonicalize-with-nfc, admit, envelope)",
+                     canonicalize-with-nfc, admit, admit-accept, envelope)",
                     path.display()
                 )
             }
@@ -314,6 +419,20 @@ impl fmt::Display for LoaderError {
                     "{}: `{name}` has an input-*.json with no matching output-*.json (or vice versa)",
                     path.display()
                 )
+            }
+            LoaderError::MalformedIndex { path, problem } => {
+                write!(f, "{}: {problem}", path.display())
+            }
+            LoaderError::IndexMismatch { path, problems } => {
+                write!(
+                    f,
+                    "{} disagrees with the corpus on disk (R6.45):",
+                    path.display()
+                )?;
+                for problem in problems {
+                    write!(f, "\n  - {problem}")?;
+                }
+                Ok(())
             }
         }
     }
@@ -368,6 +487,9 @@ struct RawMeta {
     profile: String,
     requirement: String,
     note: Option<String>,
+    /// `"pairs-with"` — hyphenated on the wire, so it is read by its literal
+    /// key here rather than by a field name. See [`DirectoryVector::pairs_with`].
+    pairs_with: Option<String>,
 }
 
 fn parse_meta_value(bytes: &[u8], path: &Path) -> Result<Value, LoaderError> {
@@ -405,10 +527,15 @@ fn load_meta(path: &Path) -> Result<RawMeta, LoaderError> {
         .get("note")
         .and_then(Value::as_str)
         .map(|s| s.to_string());
+    let pairs_with = value
+        .get("pairs-with")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
     Ok(RawMeta {
         profile,
         requirement,
         note,
+        pairs_with,
     })
 }
 
@@ -495,6 +622,7 @@ fn load_directory_family(root: &Path, family: &str) -> Result<Vec<DirectoryVecto
             profile,
             requirement: meta.requirement,
             note: meta.note,
+            pairs_with: meta.pairs_with,
             input,
             expectation,
         });
@@ -623,4 +751,333 @@ fn load_envelope_family(root: &Path) -> Result<Vec<EnvelopeVector>, LoaderError>
         });
     }
     Ok(vectors)
+}
+
+// ---------------------------------------------------------------------
+// conformance/index.json — R6.45
+// ---------------------------------------------------------------------
+
+/// One entry of `conformance/index.json`'s `directories` array: a top-level
+/// directory of the corpus, and whether it is a vector family.
+#[derive(Debug, Clone)]
+pub struct IndexEntry {
+    pub name: String,
+    pub family: bool,
+    /// `"directory"`, `"file-pairs"` or `"envelope"`. Required on a family
+    /// entry, absent on a non-family one.
+    pub shape: Option<String>,
+    /// The profiles this family's vectors may declare. Empty for a
+    /// non-family entry.
+    pub profiles: Vec<String>,
+    /// How many vectors the family holds. Required on a family entry.
+    pub count: Option<usize>,
+    /// Why a non-family directory is not a vector family. `red-team/`
+    /// carries one; the README explains that recording the decision is the
+    /// whole point of listing it.
+    pub note: Option<String>,
+}
+
+/// `conformance/index.json` — R6.45's machine-readable index of every
+/// top-level directory in the corpus.
+///
+/// It exists because this loader hard-codes its family list in source (see
+/// [`LOADED_FAMILIES`]): a family added to `conformance/` is invisible here
+/// until `conformance.rs` is separately edited, and its absence looks, in a
+/// passing test-run log, exactly like a family that ran.
+/// [`Index::check_against_disk`] is the assertion that makes that omission
+/// loud.
+#[derive(Debug, Clone)]
+pub struct Index {
+    pub directories: Vec<IndexEntry>,
+    /// The path the index was read from, so failures name the file.
+    pub path: PathBuf,
+}
+
+impl Index {
+    /// Loads `<root>/index.json`.
+    pub fn load(root: &Path) -> Result<Index, LoaderError> {
+        let path = root.join("index.json");
+        let bytes = read_file(&path)?;
+        let value = parse_meta_value(&bytes, &path)?;
+
+        let raw_entries = value
+            .get("directories")
+            .and_then(Value::as_array)
+            .ok_or_else(|| LoaderError::MalformedIndex {
+                path: path.clone(),
+                problem: "missing a `directories` array".to_string(),
+            })?;
+
+        let mut directories = Vec::with_capacity(raw_entries.len());
+        for raw in raw_entries {
+            directories.push(parse_index_entry(raw, &path)?);
+        }
+        Ok(Index { directories, path })
+    }
+
+    /// Loads from [`conformance_dir`].
+    pub fn load_default() -> Result<Index, LoaderError> {
+        Self::load(&conformance_dir())
+    }
+
+    fn entry(&self, name: &str) -> Option<&IndexEntry> {
+        self.directories.iter().find(|e| e.name == name)
+    }
+
+    /// Fails when the index disagrees with the corpus on disk (R6.45).
+    ///
+    /// Four disagreements are checked, and every one found is reported
+    /// together:
+    ///
+    /// 1. **Membership, both ways.** Every top-level directory on disk is
+    ///    named in the index, and every name in the index is a directory on
+    ///    disk.
+    /// 2. **Counts.** A family's `count` equals the number of vectors
+    ///    actually present — subdirectories for `shape` `"directory"` and
+    ///    `"envelope"`, `input-*.json` files for `"file-pairs"`.
+    /// 3. **Profiles.** Every vector's declared `profile` is one the
+    ///    family's `profiles` list permits, and every profile the index
+    ///    lists is one this runner recognizes. A `"file-pairs"` family has
+    ///    no `meta.json` to read, so its implicit `rfc8785` profile
+    ///    (`conformance/README.md`) is what must be listed.
+    /// 4. **Enumeration.** Every family the index declares is one
+    ///    [`Corpus::load`] actually loads, and vice versa. This is the
+    ///    defect R6.45 was written for: an unenumerated family contributes
+    ///    no assurance while looking exactly like one that does.
+    pub fn check_against_disk(&self, root: &Path) -> Result<(), LoaderError> {
+        let mut problems = Vec::new();
+
+        let mut on_disk: Vec<String> = Vec::new();
+        for path in list_dir_sorted(root)? {
+            if !path.is_dir() {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or(LoaderError::NotUtf8 { path: path.clone() })?;
+            // Tool and VCS directories are not corpus content and are not
+            // what R6.45 is counting.
+            if name.starts_with('.') {
+                continue;
+            }
+            on_disk.push(name.to_string());
+        }
+
+        for name in &on_disk {
+            if self.entry(name).is_none() {
+                problems.push(format!(
+                    "`{name}/` exists on disk but is not named in the index"
+                ));
+            }
+        }
+        for entry in &self.directories {
+            if !on_disk.iter().any(|name| name == &entry.name) {
+                problems.push(format!(
+                    "the index names `{}`, which is not a directory under {}",
+                    entry.name,
+                    root.display()
+                ));
+            }
+        }
+
+        for entry in &self.directories {
+            if !entry.family {
+                continue;
+            }
+            if !LOADED_FAMILIES.contains(&entry.name.as_str()) {
+                problems.push(format!(
+                    "`{}` is declared a vector family but this runner does not \
+                     enumerate it (see LOADED_FAMILIES in src/conformance.rs); a \
+                     family no runner loads contributes no assurance",
+                    entry.name
+                ));
+            }
+            let dir = root.join(&entry.name);
+            if !dir.is_dir() {
+                // Already reported above; nothing further can be checked.
+                continue;
+            }
+            self.check_family(entry, &dir, &mut problems)?;
+        }
+
+        for family in LOADED_FAMILIES {
+            match self.entry(family) {
+                Some(entry) if entry.family => {}
+                Some(_) => problems.push(format!(
+                    "this runner loads `{family}` as a vector family, but the \
+                     index says it is not one"
+                )),
+                None => problems.push(format!(
+                    "this runner loads `{family}`, which the index does not name"
+                )),
+            }
+        }
+
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(LoaderError::IndexMismatch {
+                path: self.path.clone(),
+                problems,
+            })
+        }
+    }
+
+    fn check_family(
+        &self,
+        entry: &IndexEntry,
+        dir: &Path,
+        problems: &mut Vec<String>,
+    ) -> Result<(), LoaderError> {
+        let name = &entry.name;
+
+        for profile in &entry.profiles {
+            if Profile::parse(profile, &self.path).is_err() {
+                problems.push(format!(
+                    "`{name}` lists profile `{profile}`, which this runner does \
+                     not recognize"
+                ));
+            }
+        }
+
+        let shape = entry.shape.as_deref().unwrap_or_default();
+        let actual = match shape {
+            "directory" | "envelope" => {
+                let cases: Vec<PathBuf> = list_dir_sorted(dir)?
+                    .into_iter()
+                    .filter(|p| p.is_dir())
+                    .collect();
+                for case in &cases {
+                    let meta = load_meta(&case.join("meta.json"))?;
+                    if !entry.profiles.contains(&meta.profile) {
+                        problems.push(format!(
+                            "`{}/{}` declares profile `{}`, which `{name}`'s index \
+                             entry does not permit ({:?})",
+                            name,
+                            case.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+                            meta.profile,
+                            entry.profiles
+                        ));
+                    }
+                }
+                cases.len()
+            }
+            "file-pairs" => {
+                // No `meta.json` exists in this shape: `conformance/README.md`
+                // says the family "carries the rfc8785 profile implicitly",
+                // so the index must say so too or the two disagree about what
+                // the vendored pairs test.
+                if !entry.profiles.iter().any(|p| p == "rfc8785") {
+                    problems.push(format!(
+                        "`{name}` has shape `file-pairs`, whose vectors carry the \
+                         `rfc8785` profile implicitly, but the index does not list \
+                         it ({:?})",
+                        entry.profiles
+                    ));
+                }
+                list_dir_sorted(dir)?
+                    .into_iter()
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with("input-") && n.ends_with(".json"))
+                    })
+                    .count()
+            }
+            other => {
+                problems.push(format!(
+                    "`{name}` declares unknown shape `{other}` (expected one of: \
+                     directory, file-pairs, envelope)"
+                ));
+                return Ok(());
+            }
+        };
+
+        match entry.count {
+            Some(count) if count == actual => {}
+            Some(count) => problems.push(format!(
+                "`{name}` says count {count}, but {actual} vectors are on disk"
+            )),
+            None => problems.push(format!("`{name}` is a family but states no count")),
+        }
+        Ok(())
+    }
+}
+
+fn parse_index_entry(raw: &Value, path: &Path) -> Result<IndexEntry, LoaderError> {
+    let malformed = |problem: String| LoaderError::MalformedIndex {
+        path: path.to_path_buf(),
+        problem,
+    };
+
+    let name = raw
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| malformed("a `directories` entry has no string `name`".to_string()))?
+        .to_string();
+    let family = raw
+        .get("family")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| malformed(format!("`{name}` has no boolean `family`")))?;
+
+    let shape = raw
+        .get("shape")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
+    let count = raw.get("count").and_then(Value::as_u64).map(|n| n as usize);
+    let note = raw
+        .get("note")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
+    let profiles = match raw.get("profiles") {
+        None => Vec::new(),
+        Some(value) => {
+            let array = value
+                .as_array()
+                .ok_or_else(|| malformed(format!("`{name}`'s `profiles` is not an array")))?;
+            let mut profiles = Vec::with_capacity(array.len());
+            for item in array {
+                profiles.push(
+                    item.as_str()
+                        .ok_or_else(|| {
+                            malformed(format!("`{name}` has a non-string entry in `profiles`"))
+                        })?
+                        .to_string(),
+                );
+            }
+            profiles
+        }
+    };
+
+    // A family entry must be complete enough to be checkable at all. A
+    // missing `shape` or `count` here would otherwise degrade the R6.45
+    // check into a no-op for that family, which is the failure mode the
+    // requirement exists to prevent.
+    if family {
+        if shape.is_none() {
+            return Err(malformed(format!(
+                "`{name}` is a family but states no shape"
+            )));
+        }
+        if count.is_none() {
+            return Err(malformed(format!(
+                "`{name}` is a family but states no count"
+            )));
+        }
+        if profiles.is_empty() {
+            return Err(malformed(format!(
+                "`{name}` is a family but lists no profiles"
+            )));
+        }
+    }
+
+    Ok(IndexEntry {
+        name,
+        family,
+        shape,
+        profiles,
+        count,
+        note,
+    })
 }

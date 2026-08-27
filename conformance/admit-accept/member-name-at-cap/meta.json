@@ -1,0 +1,6 @@
+{
+  "profile": "admit-accept",
+  "requirement": "R6.39",
+  "pairs-with": "admit-reject/member-name-over-cap",
+  "note": "an object member name of exactly 262144 bytes; admitted under both readings today, and the case that goes red against an off-by-one once the name cap exists"
+}

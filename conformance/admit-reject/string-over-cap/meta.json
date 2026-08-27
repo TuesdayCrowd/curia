@@ -1,0 +1,5 @@
+{
+  "profile": "admit",
+  "requirement": "R6.39",
+  "note": "a string value of 262145 bytes written literally, so both readings of the cap agree it is over; first vector to pin this slug, which R6.40 (addendum) makes normative"
+}

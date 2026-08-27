@@ -161,8 +161,9 @@ public sealed class InMemoryPolicyDecisionPointTests
             compared++;
         }
 
-        // 16 pairs x 5 tiers x 2 states. Asserted so that a sweep which silently iterated nothing
+        // 18 pairs x 5 tiers x 2 states -- 16 pairs until errata G3 added `flag`/`list` and
+        // `moderation`/`list` to Table 10. Asserted so that a sweep which silently iterated nothing
         // -- the failure this project keeps rediscovering -- cannot pass as agreement.
-        Assert.Equal(160, compared);
+        Assert.Equal(180, compared);
     }
 }

@@ -23,7 +23,7 @@ use std::sync::OnceLock;
 use base64::Engine;
 
 use curia_testis::conformance::{
-    Corpus, DirectoryVector, EnvelopeVector, Expectation, Profile, Rfc8785Vector,
+    Corpus, DirectoryVector, EnvelopeVector, Expectation, Index, Profile, Rfc8785Vector,
 };
 
 fn corpus() -> &'static Corpus {
@@ -122,9 +122,11 @@ fn rfc8785() {
 }
 
 // ---------------------------------------------------------------------
-// c4/, ordering/, unicode/, numbers/, admit-reject/ — the common directory
-// shape. c4/ordering/unicode/numbers carry profile `canonicalize-with-nfc`;
-// admit-reject carries profile `admit`.
+// c4/, ordering/, unicode/, numbers/, admit-reject/, admit-accept/ — the
+// common directory shape. c4/ordering/unicode/numbers carry profile
+// `canonicalize-with-nfc`; admit-reject carries `admit`; admit-accept
+// carries `admit-accept`. Routing is by the vector's declared profile, never
+// by the directory it sits in (R6.44).
 // ---------------------------------------------------------------------
 
 // Generic over the error type (bounded only by `Display`), rather than the
@@ -179,6 +181,42 @@ fn check_admit(input: &[u8], expected_slug: &str) -> Result<(), String> {
             e.predicate()
         )),
     }
+}
+
+/// The `admit-accept` profile (R6.44): the accepting side of a boundary.
+///
+/// Two assertions, in this order:
+///
+/// 1. ADMIT must accept `input` **unmodified** (R6.11, and E6's addendum on
+///    harnesses that wrap the published bytes before feeding them in). A
+///    rejection fails the vector and names the slug ADMIT produced —
+///    otherwise a cap set one byte too tight is indistinguishable in the log
+///    from a broken harness.
+/// 2. The same bytes must canonicalize to `expected.canonical`, whose
+///    SHA-256 is `expected.digest`. **This is what stops the profile being
+///    vacuous**: acceptance alone asserts almost nothing, since an ADMIT
+///    phase that admits everything passes a bare accept vector, and so does
+///    one that admits the document and then canonicalizes it wrongly. The
+///    comparison is [`check_canonicalize`] unchanged — the same machinery
+///    every canonicalizing vector already uses.
+fn check_admit_accept(
+    input: &[u8],
+    expected_canonical: &[u8],
+    expected_digest: &str,
+) -> Result<(), String> {
+    if let Err(e) = curia_testis::admit(input) {
+        return Err(format!(
+            "expected ADMIT to accept these bytes, but it rejected them with \
+             predicate `{}`",
+            e.predicate()
+        ));
+    }
+    check_canonicalize(
+        curia_testis::canonicalize_with_nfc,
+        input,
+        expected_canonical,
+        expected_digest,
+    )
 }
 
 /// A canonicalization vector that must *fail*.
@@ -238,10 +276,19 @@ fn check_directory_vector(v: &DirectoryVector) -> Result<(), String> {
             check_canonicalize_rejects(curia_testis::canonicalize_with_nfc, &v.input, slug)
         }
         (Profile::Admit, Expectation::Reject { slug }) => check_admit(&v.input, slug),
+        (Profile::AdmitAccept, Expectation::Canonicalize { canonical, digest }) => {
+            check_admit_accept(&v.input, canonical, digest)
+        }
+        // Deliberately no `(Profile::AdmitAccept, Expectation::Reject)` arm.
+        // "The profile declares acceptance, never the absence of a file"
+        // (R6.44): an `admit-accept` vector carrying `expect-reject` is a
+        // contradiction, and it must fall through to the catch-all and fail
+        // rather than be quietly run as a rejection vector.
         (profile, expectation) => Err(format!(
-            "loader produced an unexpected profile/expectation pairing: \
-             {profile:?} / {expectation:?} (this indicates a loader bug, \
-             not a missing implementation)"
+            "unexpected profile/expectation pairing: {profile:?} / \
+             {expectation:?} (either a loader bug or a vector whose profile \
+             contradicts its expectation files — never a missing \
+             implementation)"
         )),
     }
 }
@@ -278,6 +325,77 @@ fn numbers() {
 #[test]
 fn admit_reject() {
     directory_family_test("admit-reject", &corpus().admit_reject);
+}
+
+#[test]
+fn admit_accept() {
+    directory_family_test("admit-accept", &corpus().admit_accept);
+}
+
+/// R6.44 (addendum): an accepting-side vector names its rejecting-side twin
+/// as `"pairs-with": "<family>/<case>"`, and a runner SHALL fail when the
+/// named vector is absent from the corpus.
+///
+/// This is the assertion that makes the pair, rather than either half, the
+/// thing that locates a boundary: an accepting-side vector cannot detect a
+/// cap that is too generous and a rejecting-side vector cannot detect one
+/// that is too strict. Without it, a corpus that shipped only the easy half
+/// reports exactly what a complete one reports.
+///
+/// Checked for every directory family, not just `admit-accept/`, so a
+/// `pairs-with` added elsewhere is resolved rather than ignored.
+#[test]
+fn pairs_with_targets_resolve() {
+    let c = corpus();
+    let mut problems = Vec::new();
+
+    for family in curia_testis::conformance::LOADED_FAMILIES {
+        let Some(vectors) = c.directory_family(family) else {
+            // rfc8785/ and envelope/ are not directory-shaped families;
+            // neither shape carries `pairs-with` today.
+            continue;
+        };
+        for v in vectors {
+            let Some(reference) = v.pairs_with.as_deref() else {
+                if v.profile == Profile::AdmitAccept {
+                    problems.push(format!(
+                        "{family}/{}: profile `admit-accept` but meta.json has no \
+                         `pairs-with` naming its rejecting-side twin (R6.44 addendum)",
+                        v.case
+                    ));
+                }
+                continue;
+            };
+            let Some((target_family, target_case)) = reference.split_once('/') else {
+                problems.push(format!(
+                    "{family}/{}: `pairs-with` is `{reference}`, which is not of the \
+                     form <family>/<case>",
+                    v.case
+                ));
+                continue;
+            };
+            match c.contains_case(target_family, target_case) {
+                Some(true) => {}
+                Some(false) => problems.push(format!(
+                    "{family}/{}: `pairs-with` names `{reference}`, which is not in \
+                     the corpus",
+                    v.case
+                )),
+                None => problems.push(format!(
+                    "{family}/{}: `pairs-with` names `{reference}`, whose family this \
+                     runner does not load, so the twin cannot be resolved",
+                    v.case
+                )),
+            }
+        }
+    }
+
+    assert!(
+        problems.is_empty(),
+        "{} unresolved `pairs-with` reference(s):\n{}",
+        problems.len(),
+        problems.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -396,15 +514,31 @@ fn envelope() {
 }
 
 // ---------------------------------------------------------------------
-// A whole-corpus sanity check, independent of any canonicalization logic:
-// the loader itself must find every vector the controller counted by hand
-// (50 vector directories, per CHARTER.md, plus the 6 vendored rfc8785 file
-// pairs). This is not one of Step 3's per-family assertions; it exists so a
-// future change to the loader that silently drops a family (e.g. an empty
-// Vec from a typo'd directory name) fails here instead of just quietly
-// shrinking every family's count.
+// Whole-corpus checks, independent of any canonicalization logic: the
+// loader itself must find every vector that is on disk, and
+// `conformance/index.json` must agree with what is there (R6.45). These are
+// not per-family assertions; they exist so a change that silently drops a
+// family (an empty Vec from a typo'd directory name, or a family nobody
+// taught this runner to load) fails here instead of quietly shrinking a
+// count nobody is watching.
 // ---------------------------------------------------------------------
 
+/// The three-way agreement: this hand count, the vectors the loader found on
+/// disk, and the counts `conformance/index.json` publishes.
+///
+/// The literals below are counted from the corpus directory, family by
+/// family: admit-accept 5, admit-reject 14, c4 10, numbers 9, ordering 3,
+/// unicode 6, envelope 6 — 53 vector directories — plus the 6 vendored
+/// `rfc8785/` file pairs, 59 in all. (An earlier version of this comment
+/// cited "50 vector directories, per CHARTER.md": a count that contradicted
+/// the assertion beneath it, and a file that does not exist in this
+/// repository. Both are corrected here.)
+///
+/// The literal is deliberately not derived from the index: the index is the
+/// thing being checked. Asserting disk against index alone would pass when
+/// both are wrong in the same direction — which is exactly what happens when
+/// a family is added to `conformance/` and to `index.json` in one commit
+/// while no runner learns to load it.
 #[test]
 fn corpus_size_matches_charter() {
     let c = corpus();
@@ -415,9 +549,47 @@ fn corpus_size_matches_charter() {
             + c.unicode.len()
             + c.numbers.len()
             + c.admit_reject.len()
+            + c.admit_accept.len()
             + c.envelope.len(),
-        44,
+        53,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
-         + admit-reject + envelope)"
+         + admit-reject + admit-accept + envelope)"
     );
+    assert_eq!(c.total_len(), 59, "every vector in conformance/");
+
+    // `Index::load` already refuses a family entry with no `count`, so
+    // `filter_map` here drops only the non-family entries (`red-team/`).
+    let index = Index::load_default().expect("conformance/index.json loads");
+    let declared: usize = index
+        .directories
+        .iter()
+        .filter(|e| e.family)
+        .filter_map(|e| e.count)
+        .sum();
+    assert_eq!(
+        declared, 59,
+        "conformance/index.json's declared family counts"
+    );
+}
+
+/// R6.45: every runner loads `conformance/index.json` and fails when it
+/// disagrees with what is on disk.
+///
+/// The disagreement this exists to catch is not a miscount. It is a family
+/// directory that no runner enumerates: it contributes no assurance while
+/// looking, in a passing test-run log, exactly like a family that ran.
+/// `Corpus::load` hard-codes its family list in source, so nothing else in
+/// this crate can notice.
+#[test]
+fn index_agrees_with_the_corpus_on_disk() {
+    let root = curia_testis::conformance::conformance_dir();
+    let index = Index::load(&root).unwrap_or_else(|err| {
+        panic!(
+            "failed to load {}: {err}",
+            root.join("index.json").display()
+        )
+    });
+    if let Err(err) = index.check_against_disk(&root) {
+        panic!("{err}");
+    }
 }

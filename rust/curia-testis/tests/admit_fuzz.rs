@@ -7,8 +7,10 @@
 //! `splitmix64` PRNG (public-domain algorithm, ~10 lines, no crate needed)
 //! drives the random component, and every non-random case (truncation,
 //! bracket-balance, depth/size/width boundaries, adversarial escapes) is
-//! fully enumerated rather than sampled, so the whole run is bit-for-bit
-//! reproducible given the fixed seed below.
+//! fully enumerated rather than sampled -- with one bounded exception
+//! documented at `EXHAUSTIVE_OFFSET_SWEEP_MAX_BYTES` below, which the run
+//! prints -- so the whole run is bit-for-bit reproducible given the fixed
+//! seed below.
 //!
 //! **What this file grades, and what it does not.** Every case here is
 //! graded on exactly one property: `curia_testis::json::parse` and
@@ -28,11 +30,74 @@
 //! end — that transcript, not this comment, is the actual deliverable the
 //! brief asks for ("report what you ran and for how long").
 
+use std::collections::BTreeSet;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::Instant;
 
 use curia_testis::conformance::Corpus;
-use curia_testis::json::ADMIT_MAX_SUBMISSION_BYTES;
+use curia_testis::json::{ADMIT_MAX_STRING_BYTES, ADMIT_MAX_SUBMISSION_BYTES};
+
+/// Above this seed size, the two offset sweeps sample rather than exhaust.
+///
+/// Both are quadratic in the seed: truncation parses a prefix at every offset,
+/// and the UTF-8 corruption sweep parses at every offset seven times over. That
+/// was free while the largest corpus document was a few hundred bytes. It stopped
+/// being free when errata G2 published R6.39's boundary vectors, whose rejecting
+/// sides are 1,048,577 and 262,153 bytes *by construction* -- the 1 MiB seed alone
+/// is on the order of 10^12 byte-operations across the two sweeps, which is hours.
+///
+/// A seed at or below this size still gets every offset, exactly as before. A
+/// larger one gets a bounded, deterministic set: both edges, every ADMIT cap
+/// boundary it straddles, and a fixed stride through the interior. The edges and
+/// the cap boundaries are where a truncation or corruption bug actually lives; a
+/// uniform sweep of the interior of a 1 MiB run of `a` bytes re-tests one code
+/// path a million times.
+///
+/// **The run prints which seeds were sampled and how many offsets each
+/// contributed**, and a test below fails if sampling ever silently becomes the
+/// common case. A coverage bound nobody can see reads exactly like coverage --
+/// which is the defect this suite has already been caught by once, when the
+/// submission-size sweep never straddled its boundary and looked green doing it.
+const EXHAUSTIVE_OFFSET_SWEEP_MAX_BYTES: usize = 8 * 1024;
+
+/// Interior stride budget for a sampled seed. With the edges and cap boundaries
+/// added, a large seed contributes a few hundred offsets rather than a million.
+const SAMPLED_INTERIOR_OFFSETS: usize = 96;
+
+/// Offsets to probe in a seed of `len` bytes, and whether they are exhaustive.
+///
+/// Deterministic: no PRNG, so this run stays bit-for-bit reproducible.
+fn sweep_offsets(len: usize) -> (Vec<usize>, bool) {
+    if len <= EXHAUSTIVE_OFFSET_SWEEP_MAX_BYTES {
+        return ((0..=len).collect(), true);
+    }
+
+    let mut offsets: BTreeSet<usize> = BTreeSet::new();
+
+    // Both edges in full: a truncation bug that exists at all almost certainly
+    // exists in the first or last few dozen bytes, where the container and string
+    // framing is.
+    let edge = 48.min(len);
+    offsets.extend(0..edge);
+    offsets.extend(len.saturating_sub(edge)..=len);
+
+    // Every ADMIT cap boundary the seed straddles, and its immediate neighbours --
+    // the offsets where truncating or corrupting flips which rule decides the verdict.
+    for boundary in [ADMIT_MAX_STRING_BYTES, ADMIT_MAX_SUBMISSION_BYTES] {
+        for delta in -2i64..=2 {
+            let at = boundary as i64 + delta;
+            if at >= 0 && (at as usize) <= len {
+                offsets.insert(at as usize);
+            }
+        }
+    }
+
+    // A fixed stride through the interior, so no large region is wholly unprobed.
+    let stride = (len / SAMPLED_INTERIOR_OFFSETS).max(1);
+    offsets.extend((0..=len).step_by(stride));
+
+    (offsets.into_iter().collect(), false)
+}
 
 /// `splitmix64` — a small, public-domain, dependency-free PRNG. Not
 /// cryptographic, not trying to be; only reproducibility and reasonable
@@ -210,8 +275,16 @@ fn no_panic_on_adversarial_input() {
     //    brief's explicit "truncation at every byte offset of a valid
     //    document" requirement, run against ~42 different real documents
     //    rather than one.
+    let mut exhaustive_seeds = 0usize;
+    let mut sampled_seeds: Vec<(usize, usize)> = Vec::new();
     for doc in &seeds {
-        for end in 0..=doc.len() {
+        let (offsets, exhaustive) = sweep_offsets(doc.len());
+        if exhaustive {
+            exhaustive_seeds += 1;
+        } else {
+            sampled_seeds.push((doc.len(), offsets.len()));
+        }
+        for &end in &offsets {
             run_no_panic("truncation", &doc[..end], &mut calls, &mut failures);
         }
     }
@@ -219,12 +292,17 @@ fn no_panic_on_adversarial_input() {
     // 2. Single-byte UTF-8 corruption at every offset of every seed
     //    document, with several different invalid lead/continuation bytes.
     for doc in &seeds {
-        for pos in 0..doc.len() {
+        // One buffer per seed, restored after each offset, rather than a fresh clone
+        // per case: at these sizes the clone was costing more than the parse.
+        let mut mutated = doc.clone();
+        let (offsets, _) = sweep_offsets(doc.len());
+        for &pos in offsets.iter().filter(|&&p| p < doc.len()) {
+            let original = mutated[pos];
             for &bad in &[0xFFu8, 0xFEu8, 0x80u8, 0xC0u8, 0xEDu8, 0xA0u8, 0xF5u8] {
-                let mut mutated = doc.clone();
                 mutated[pos] = bad;
                 run_no_panic("bad-utf8-byte", &mutated, &mut calls, &mut failures);
             }
+            mutated[pos] = original;
         }
     }
 
@@ -443,6 +521,33 @@ fn no_panic_on_adversarial_input() {
         "no_panic_on_adversarial_input: {calls} cases (parse+admit each) in {elapsed:?} \
          ({:.0} cases/sec)",
         calls as f64 / elapsed.as_secs_f64().max(1e-9)
+    );
+
+    println!(
+        "  offset sweeps: {exhaustive_seeds} seed(s) exhaustive (<= {EXHAUSTIVE_OFFSET_SWEEP_MAX_BYTES} bytes), \
+         {} sampled: {}",
+        sampled_seeds.len(),
+        if sampled_seeds.is_empty() {
+            "none".to_string()
+        } else {
+            sampled_seeds
+                .iter()
+                .map(|(len, n)| format!("{len} bytes -> {n} offsets"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    );
+
+    // Sampling is a bounded exception, not the arrangement. If most seeds ever became
+    // large enough to sample, this file would still print a large case count and would
+    // be grading far less than it appears to -- the exact shape it was already caught
+    // by once.
+    assert!(
+        exhaustive_seeds > sampled_seeds.len() * 4,
+        "offset sweeps are mostly sampled ({exhaustive_seeds} exhaustive vs {} sampled); \
+         the corpus has grown past what this sweep's bound assumes, and the coverage claim \
+         in this file's header no longer holds",
+        sampled_seeds.len()
     );
 
     assert!(
