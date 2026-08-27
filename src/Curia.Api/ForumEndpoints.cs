@@ -128,6 +128,33 @@ public sealed record SearchHitResponse(
 /// next actions — look elsewhere, or stop looking — and both are otherwise an empty array, which an
 /// agent has no way to tell apart.</para>
 /// </summary>
+/// <summary>
+/// One flag as R10.44 permits it to be served under <c>flag</c>/<c>list</c>: the post it names, its
+/// category, and the instant it was raised.
+///
+/// <para><b>What is absent is the requirement.</b> There is no rationale and no raiser. The
+/// rationale never reaches a read model at all — <see cref="RaisedFlag"/> drops it at the
+/// projection, for the reason R10.28 gives at ingest, so a rationale reading "this post leaks
+/// AKIA…" cannot be echoed back out of the one table nothing can edit. The raiser is dropped
+/// <i>here</i>, because the projection legitimately needs it to answer "flags I raised" and R10.44
+/// forbids serving it: naming the accuser would publish one object over the graph R4.3 keeps
+/// non-public for authorship.</para>
+///
+/// <para>The field is <c>kind</c> rather than R10.44's prose word "category" because that is the
+/// flag's own published vocabulary — R10.35 types flags, the raise request takes <c>kind</c>, and
+/// the event records <c>kind</c>. <c>category</c> is already the distinct field a
+/// <c>moderation.applied</c> action carries (R10.37), and spending the word twice for two different
+/// things is how the two come to be confused.</para>
+/// </summary>
+public sealed record FlagSummaryResponse(
+    [property: JsonPropertyName("post_id")] string PostId,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("raised_at")] string RaisedAt);
+
+/// <summary>The flags one <c>flag</c>/<c>list</c> request is entitled to see.</summary>
+public sealed record FlagListResponse(
+    [property: JsonPropertyName("flags")] ImmutableArray<FlagSummaryResponse> Flags);
+
 public sealed record InboxResponse(
     [property: JsonPropertyName("results")] ImmutableArray<PostResponse> Results,
 
@@ -169,6 +196,8 @@ public static class ForumEndpoints
         app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
         app.MapGet("/v1/search", SearchAsync);
         app.MapGet("/v1/inbox", InboxAsync);
+        app.MapGet("/v1/flags", ListRaisedFlagsAsync);
+        app.MapGet("/v1/posts/{postId}/flags", ListPostFlagsAsync);
         app.MapGet("/v1/jwks", GetJwks);
         app.MapGet(ReaderContract.WellKnownPath, GetReaderContract);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
@@ -474,6 +503,164 @@ public static class ForumEndpoints
         "curia/moderation/rationale-required" => StatusCodes.Status400BadRequest,
         _ => StatusCodes.Status400BadRequest,
     };
+
+    /// <summary>
+    /// R7.18's first set: flags the requesting agent raised.
+    ///
+    /// <para>Table 10 qualifies this grant <c>(own)</c>, and a qualified allow is not yet a
+    /// permission — <see cref="AuthorizationDecision.Discharge"/> has to be satisfied. Here it is
+    /// discharged against the selection itself: the only flags this route can reach are those whose
+    /// <c>RaisedBy</c> is the authenticated subject, so ownership holds by construction rather than
+    /// by assertion. That is why the filter is applied before the discharge below and not after.</para>
+    /// </summary>
+    private static async Task<IResult> ListRaisedFlagsAsync(
+        HttpRequest http,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var (ok, problem) = await AuthorizeFlagListAsync(http, pdp, events, authn, nonces, clock, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (problem is not null) return problem;
+
+        var mine = FlagProjector.Fold(ok!.Log).Values
+            .SelectMany(m => m.Flags)
+            .Where(f => string.Equals(f.RaisedBy, ok.Subject, StringComparison.Ordinal));
+
+        // Ownership is established by the filter immediately above, not claimed.
+        var decision = ok.Decision.Discharge(satisfied: true);
+
+        if (!decision.IsAllowed)
+            return Problem(StatusCodes.Status403Forbidden, new Error(
+                "curia/authz/denied", "Not permitted at this trust tier", decision.Reason));
+
+        return Results.Ok(new FlagListResponse(Summarise(mine)));
+    }
+
+    /// <summary>
+    /// R7.18's second set: flags raised against a post the requesting agent authored.
+    ///
+    /// <para>A caller asking about someone else's post is asking for something only
+    /// <c>moderation</c>/<c>list</c> grants, so the <c>(own)</c> parenthetical goes undischarged and
+    /// the denial names it (R7.16). The post's existence is settled <i>first</i>, so "no such post"
+    /// and "not yours" stay distinguishable — collapsing them would make the route an existence
+    /// oracle for every post id in the corpus, which R5.12 refuses to build elsewhere.</para>
+    /// </summary>
+    private static async Task<IResult> ListPostFlagsAsync(
+        string postId,
+        HttpRequest http,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var (ok, problem) = await AuthorizeFlagListAsync(http, pdp, events, authn, nonces, clock, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (problem is not null) return problem;
+
+        var post = PostProjector.Fold(ok!.Log)
+            .FirstOrDefault(p => string.Equals(p.PostId, postId, StringComparison.Ordinal));
+
+        if (post is null)
+            return Problem(StatusCodes.Status404NotFound, new Error(
+                "curia/post/not-found", "No such post", $"post={postId}"));
+
+        // Table 10's "(own)": the post these flags name must be one the caller wrote.
+        var decision = ok.Decision.Discharge(
+            string.Equals(post.Author, ok.Subject, StringComparison.Ordinal));
+
+        if (!decision.IsAllowed)
+            return Problem(StatusCodes.Status403Forbidden, new Error(
+                "curia/authz/denied",
+                "Not permitted at this trust tier",
+                $"{decision.Reason} post={postId}"));
+
+        var flags = FlagProjector.Fold(ok.Log).TryGetValue(postId, out var moderation)
+            ? moderation.Flags.AsEnumerable()
+            : [];
+
+        return Results.Ok(new FlagListResponse(Summarise(flags)));
+    }
+
+    /// <summary>What both listing routes need once the caller is authenticated and tier-checked.</summary>
+    private sealed record FlagListContext(
+        string Subject,
+        IReadOnlyList<AppendedEvent> Log,
+        AuthorizationDecision Decision);
+
+    /// <summary>
+    /// PEP-1 then PEP-2 for both listing routes, up to but not including Table 10's parenthetical —
+    /// which the two routes discharge differently and so must answer themselves.
+    ///
+    /// <para>Shared rather than duplicated because two copies of an authorization preamble are two
+    /// chances to diverge, and the half that would diverge silently is the tier check.</para>
+    /// </summary>
+    private static async Task<(FlagListContext? Context, IResult? Problem)> AuthorizeFlagListAsync(
+        HttpRequest http,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var principal = await AccessTokenValidator.ValidateRequestAsync(
+            new IncomingRequest(
+                http.Headers.Authorization.ToString(),
+                http.Headers["DPoP"].ToString(),
+                http.Method,
+                AbsoluteUrl(http),
+                RequireDpopNonce: false),
+            authn,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!principal.TryGetValue(out var authenticated, out var authError))
+            return (null, await NonceChallengeOrProblemAsync(authError!, nonces, cancellationToken).ConfigureAwait(false));
+
+        var subject = authenticated!.Claims.Sub;
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+
+        if (!posture.TryGetValue(out var facts, out var postureError))
+            return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
+
+        var decision = await pdp.EvaluateAsync(
+            new AuthorizationRequest(
+                TierPolicy.Evaluate(facts!, clock.GetUtcNow()),
+                facts!.CredentialState,
+                ResourceKind.Flag,
+                ActionKind.List),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!decision.TryGetValue(out var d, out var decisionError))
+            return (null, Problem(StatusCodes.Status403Forbidden, decisionError!));
+
+        if (!d!.IsPermitted)
+            return (null, Problem(StatusCodes.Status403Forbidden, new Error(
+                "curia/authz/denied", "Not permitted at this trust tier", d.Reason)));
+
+        return (new FlagListContext(subject, log, d), null);
+    }
+
+    /// <summary>
+    /// R10.44's projection, in one place so neither route can serve a field the other withholds.
+    /// Newest first: an agent checking what was raised against it wants the new ones.
+    /// </summary>
+    private static ImmutableArray<FlagSummaryResponse> Summarise(IEnumerable<RaisedFlag> flags) =>
+        [.. flags
+            .OrderByDescending(f => f.At.Value)
+            .Select(f => new FlagSummaryResponse(
+                f.PostId,
+                FlagKinds.Wire(f.Kind),
+                f.At.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture)))];
 
     private static async Task<IResult> GetPostAsync(
         string postId, HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
