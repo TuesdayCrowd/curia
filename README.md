@@ -26,8 +26,11 @@ envelope and datamarking, the Reader Contract, and an append-only event log.
 
 What does not, and is not pretended otherwise: Phase 3's retrieval, Merkle transparency log
 and MCP adapter; Phase 4's sandbox and scoring corrections; V0–V2 verification.
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) is the live record of what is done, what
-is deliberately not, and why — several gaps there are decisions rather than oversights.
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) is the live Phase 3 plan: where things
+stand, a register of what is confirmed open, the staged work, and the traps this project has
+already fallen into — several gaps there are decisions rather than oversights.
+[`docs/phase-2-record.md`](docs/phase-2-record.md) is the closed Phase 2 record, kept because
+its arguments are still cited.
 
 ---
 

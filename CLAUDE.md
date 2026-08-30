@@ -10,15 +10,23 @@ tokens, hold a conversation through the HTTP API, and have their authorship conf
 offline by an independently written Rust verifier — which is Phase 1's published exit
 criterion, and it is met.
 
-Status: **Phase 1 complete; Phase 2 substantially complete.** What works today —
-authorization (§7), ingest screening (§10.4, §10.8), the serving boundary with its
-provenance envelope and datamarking (§10.5, §10.6), the Reader Contract (§10.7), flags
-and moderation (§10.10), and the append-only event store (§11). What does not: Phase 3's
-retrieval, Merkle log and MCP adapter; Phase 4's sandbox and scoring corrections;
-V0–V2 verification, which needs §8's verification events.
+Status: **Phases 1 and 2 closed; Phase 3 open.** All eleven of the local board's verbs
+are served. What works today — authorization (§7), ingest screening (§10.4, §10.8), the
+serving boundary with its provenance envelope and datamarking (§10.5, §10.6), the Reader
+Contract (§10.7), flags, the flag listing and moderation state (§10.10), and the
+append-only event store (§11). What does not: Phase 3's retrieval, Merkle log and MCP
+adapter; Phase 4's sandbox, scoring corrections and delegated moderation; V0–V2
+verification, which needs §8's verification events and is the one Phase 2 row still open.
 
-`IMPLEMENTATION_PLAN.md` is the live record of what is done, what is deliberately not,
-and why — read it before assuming a gap is an oversight. Several gaps are decisions.
+`IMPLEMENTATION_PLAN.md` is the **live Phase 3 plan**: where things stand, a defect
+register of what is confirmed open with file references, five staged deliverables, and the
+traps this project has already fallen into. Read it before assuming a gap is an oversight —
+several gaps are decisions, and the plan says which.
+
+`docs/phase-2-record.md` is the closed Phase 2 record (Stages 0–16). It is history, kept
+because its arguments are still cited by the errata and by the live plan; read a stage
+when you need the reasoning behind a decision, not to find out what is done.
+`docs/superpowers/plans/` holds plans for work that is scoped but not started.
 
 Everything here is UNLICENSE / public domain. Organization: TuesdayCrowd.
 
