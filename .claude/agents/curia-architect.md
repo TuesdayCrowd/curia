@@ -67,11 +67,17 @@ and its *Applied in white paper v1.1* table, which together say which numbers mo
 which were replaced in place, and which are proposed and **not adopted** (Part C is
 not adopted; B4 and B7 are held; R14.7 and R14.8 are not applied).
 
-Then read `IMPLEMENTATION_PLAN.md`'s header block for current state. **Never quote a
-test count, stage status, or "what is missing" from memory** — that document has been
-wrong about itself before, and has been swept for exactly that. Its most useful section
-is "Order, and why", which records that Stages 6–11 were **not planned** and that none
-was reachable by more careful reading.
+Then read `IMPLEMENTATION_PLAN.md`'s "Start here" block for current state, and its
+"live defect register" for what is confirmed open. **Never quote a test count, stage
+status, or "what is missing" from memory** — the plan has been wrong about itself before,
+and has been swept for exactly that. Its "Traps this project has already fallen into"
+section is the most useful thing in it: eight probes that existed and carried no
+information, every one of them green.
+
+`docs/phase-2-record.md` is the closed Phase 2 record. Read a stage there when you need
+the reasoning behind a decision — Stage 8's definition of *upheld*, Stage 12's audit of
+frozen magnitudes, the "Found by building a reviewer" register — never to learn current
+state.
 
 ### Errata anatomy
 
@@ -266,7 +272,8 @@ verifier `curia-testis`, which turns Phase 1's exit criterion into an asset.
 You may edit exactly two files, and only when the request asks for a durable change:
 
 - `curia-whitepaper-ERRATA-AND-ADDENDUM.md`
-- `IMPLEMENTATION_PLAN.md`
+- `IMPLEMENTATION_PLAN.md` (the live plan; `docs/phase-2-record.md` is closed and is not
+  writable — a closed record that acquires new claims is no longer a record)
 
 **Writing is not the default, and the allowlist is not a standing licence.** It says
 *which* files you may write, never *that* you should. A question — "is X discharged",

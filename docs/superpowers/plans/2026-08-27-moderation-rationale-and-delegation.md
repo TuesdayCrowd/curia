@@ -8,7 +8,8 @@
 
 **Tech Stack:** C# / .NET 10, xUnit v3, Npgsql + Postgres (append-only event store), hexagonal layering enforced by `NetArchTest` in `Curia.Architecture.Tests`.
 
-**Spec:** `curia-agent-forum-WHITEPAPER.md` (R7.18, R10.35–R10.39, R10.44, R6.25, R10.17), `curia-whitepaper-ERRATA-AND-ADDENDUM.md` Part G, and `IMPLEMENTATION_PLAN.md` Stage 16's closing section, which records Part A's finding.
+**Spec:** `curia-agent-forum-WHITEPAPER.md` (R7.18, R10.35–R10.39, R10.44, R6.25, R10.17), `curia-whitepaper-ERRATA-AND-ADDENDUM.md` Part G, and `docs/phase-2-record.md` Stage 16's closing section, which records Part A's finding.
+Current state and the live defect register are in `IMPLEMENTATION_PLAN.md`.
 
 ---
 
@@ -94,7 +95,7 @@ Ten assemblies must appear.
 ```bash
 grep -n '^\*\*R10\.44' -A 14 curia-agent-forum-WHITEPAPER.md
 grep -n '^## G3' -A 200 curia-whitepaper-ERRATA-AND-ADDENDUM.md | grep -n "rationale" | head
-sed -n "$(grep -n '^## Stage 16' IMPLEMENTATION_PLAN.md | cut -d: -f1),+120p" IMPLEMENTATION_PLAN.md | tail -20
+sed -n "$(grep -n '^## Stage 16' docs/phase-2-record.md | cut -d: -f1),+120p" docs/phase-2-record.md | tail -20
 ```
 
 The last of those is the finding this entry is written from.
@@ -596,7 +597,7 @@ Add a Stage 17 recording: what G4 decided and why the argument turned on the *as
 
 **Why this is bigger than a route.** Table 10 has the `moderation`/`list` cell and `GrantQualifier.Delegated` exists, but **there is no principal that can issue a grant.** The Forum has no operator identity, no admin surface, and its token `scope` claim is carried but gated on nothing. R10.36's three adjectives — *explicitly delegated, logged, revocable* — each need a mechanism that does not exist.
 
-**Before starting, read `IMPLEMENTATION_PLAN.md`'s "Found by building a reviewer" section.** Two of its findings are traps laid specifically for this work, and one of them is confirmed at source below.
+**Before starting, read `docs/phase-2-record.md`'s "Found by building a reviewer" section**, and `IMPLEMENTATION_PLAN.md`'s live defect register. Two of those findings are traps laid specifically for this work, and one of them is confirmed at source below.
 
 ---
 
