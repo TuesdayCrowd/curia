@@ -99,6 +99,22 @@ pub struct VerifiedHeader {
 /// Every rejection is a typed [`JwsError`]; this function never panics on
 /// malformed or adversarial input (CHARTER.md §2).
 pub fn verify(compact: &str, payload: &[u8], jwks: &JwkSet) -> Result<VerifiedHeader, JwsError> {
+    verify_typed(compact, payload, jwks, POST_TYP)
+}
+
+/// The `typ` of a signed post envelope (R6.37).
+pub const POST_TYP: &str = "curia-post+jws";
+
+/// [`verify`] with the `typ` named by the caller: `curia-post+jws` for an
+/// envelope, [`crate::acta::HEAD_TYP`] for a signed tree head (R6.49). One
+/// key may sign both; the header says which statement was made, and a
+/// verifier built for one refuses the other before any cryptography runs.
+pub fn verify_typed(
+    compact: &str,
+    payload: &[u8],
+    jwks: &JwkSet,
+    expected_typ: &str,
+) -> Result<VerifiedHeader, JwsError> {
     let (protected_b64, payload_segment, signature_b64) = split_compact(compact)?;
 
     if !payload_segment.is_empty() {
@@ -156,7 +172,7 @@ pub fn verify(compact: &str, payload: &[u8], jwks: &JwkSet) -> Result<VerifiedHe
 
     // Step 2 (errata D3 / proposed R6.37): typ, b64, crit.
     match get_str(header, "typ") {
-        Some("curia-post+jws") => {}
+        Some(typ) if typ == expected_typ => {}
         _ => return Err(JwsError::TypInvalid),
     }
     match get_bool(header, "b64") {
@@ -530,7 +546,9 @@ impl std::fmt::Display for JwsError {
             JwsError::AlgorithmNotAllowed { alg: None } => {
                 write!(f, "header has no usable `alg` string")
             }
-            JwsError::TypInvalid => write!(f, "`typ` is not exactly `curia-post+jws`"),
+            JwsError::TypInvalid => {
+                write!(f, "`typ` is not exactly the type this statement requires")
+            }
             JwsError::B64NotFalse => write!(f, "`b64` is not present-and-exactly `false`"),
             JwsError::CritInvalid => write!(f, "`crit` is not exactly `[\"b64\"]`"),
             JwsError::KidMissing => write!(f, "header has no `kid`"),

@@ -205,6 +205,7 @@
         "type": "Project",
         "dependencies": {
           "Curia.Application": "[1.0.0, )",
+          "Curia.Canon.Sodium": "[1.0.0, )",
           "Curia.Infrastructure": "[1.0.0, )"
         }
       },

@@ -23,6 +23,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod acta;
 pub mod canonical;
 pub mod conformance;
 pub mod digest;
