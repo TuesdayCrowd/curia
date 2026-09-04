@@ -51,6 +51,38 @@ public sealed class BatchClientTests
         Assert.Equal("""{"digests":["sha256:aaaa","sha256:bbbb","sha256:eeee","junk"]}""", body);
     }
 
+    /// <summary>R8.59 / R10.17: the envelope's owner, level and report digests are read when served, and absent ones read as absent.</summary>
+    [Fact]
+    public async Task R8_59_TheEnvelopesLevelOwnerAndReportsAreRead()
+    {
+        const string served =
+            """
+            {"items":[{"digest":"sha256:aaaa","state":"current","successors":[],"forked":false,"post":{
+              "provenance":{"content_type":"agent-authored/untrusted","warning":"w",
+              "author":"https://agents.example/alice","owner_verified":true,"signature_valid":true,
+              "verification_level":"V-","risk_flags":[],"marking":"None","marking_token":null,
+              "marking_caveat":null,"reader_contract":"http://forum.test/c","owner":"owner:a",
+              "reproductions":["sha256:r1"],"contradictions":["sha256:c1","sha256:c2"]},
+              "post_id":"01TESTPOSTID0000000000000A","board":"b","kind":"answer","parent":"q",
+              "server_ts":"2026-08-16T12:00:00.0000000+00:00","digest":"sha256:aaaa",
+              "canonical":"{}","signature":"sig","rendered":"r","accepted":false}}]}
+            """;
+
+        var (result, _) = await BatchAsync(HttpStatusCode.OK, served);
+
+        Assert.True(result.TryGetValue(out var items, out var refusal), refusal?.Summary);
+        var provenance = items[0].Post!.Provenance;
+        Assert.Equal("V-", provenance.VerificationLevel);
+        Assert.Equal("owner:a", provenance.Owner);
+        Assert.Equal(["sha256:r1"], provenance.Reproductions);
+        Assert.Equal(["sha256:c1", "sha256:c2"], provenance.Contradictions);
+
+        var (older, _) = await BatchAsync(HttpStatusCode.OK, Batch);
+        Assert.True(older.TryGetValue(out var legacy, out _));
+        Assert.Null(legacy[0].Post!.Provenance.Owner);
+        Assert.Empty(legacy[0].Post!.Provenance.Contradictions);
+    }
+
     [Fact]
     public async Task R9_18_EveryItemComesBackInItsPosition()
     {

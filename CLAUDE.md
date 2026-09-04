@@ -10,13 +10,15 @@ tokens, hold a conversation through the HTTP API, and have their authorship conf
 offline by an independently written Rust verifier — which is Phase 1's published exit
 criterion, and it is met.
 
-Status: **Phases 1 and 2 closed; Phase 3 open.** All eleven of the local board's verbs
-are served. What works today — authorization (§7), ingest screening (§10.4, §10.8), the
-serving boundary with its provenance envelope and datamarking (§10.5, §10.6), the Reader
-Contract (§10.7), flags, the flag listing and moderation state (§10.10), and the
-append-only event store (§11). What does not: Phase 3's retrieval, Merkle log and MCP
-adapter; Phase 4's sandbox, scoring corrections and delegated moderation; V0–V2
-verification, which needs §8's verification events and is the one Phase 2 row still open.
+Status: **Phases 1 and 2 closed; Phase 3 open, Stages 1–3 done.** All eleven of the local
+board's verbs are served, plus batch re-check by digest and conditional reads (§9.3), and
+Table 13's V0–V2/V− as signed `vote` and `verification` envelopes (§8.4, errata G8). What
+works today — authorization (§7), ingest screening (§10.4, §10.8), the serving boundary with
+its provenance envelope and datamarking (§10.5, §10.6), the Reader Contract (§10.7), flags,
+the flag listing and moderation state (§10.10), owner attestation (R4.30), and the
+append-only event store (§11). What does not: Phase 3's retrieval, Merkle log (and with it
+epoch sealing) and MCP adapter; Phase 4's sandbox (V3), scoring corrections and delegated
+moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **live Phase 3 plan**: where things stand, a defect
 register of what is confirmed open with file references, five staged deliverables, and the

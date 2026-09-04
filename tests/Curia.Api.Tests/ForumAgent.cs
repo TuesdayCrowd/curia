@@ -74,6 +74,54 @@ internal sealed class ForumAgent
     internal byte[] SignRevision(string board, string body, string parent, string? prev, DateTimeOffset createdAt) =>
         Sign(PostKind.Revision, board, body, title: null, parent, createdAt, prev: prev);
 
+    /// <summary>R8.55: a vote on a result, by envelope digest, carrying R8.29's meta-prediction and R8.49's epoch.</summary>
+    internal byte[] SignVote(
+        string board, string target, DateTimeOffset createdAt, bool endorse = true, int predictedBp = 5000, long epoch = 1) =>
+        SignSignal(PostKind.Vote, board, createdAt,
+        [
+            new("target", new JsonValue.String(target)),
+            new("endorse", new JsonValue.Bool(endorse)),
+            new("predicted_endorsement_bp", new JsonValue.Number(predictedBp)),
+            new("epoch", new JsonValue.Number(epoch)),
+            new("refs", new JsonValue.Array([])),
+        ]);
+
+    /// <summary>R8.56: a reproduction report on a result, with evidence unless the test is about its absence.</summary>
+    internal byte[] SignVerification(
+        string board, string target, string result, DateTimeOffset createdAt,
+        string body = "Ran the reproduction as described.", string method = "ran the reproduction", bool withEvidence = true) =>
+        SignSignal(PostKind.Verification, board, createdAt,
+        [
+            new("target", new JsonValue.String(target)),
+            new("method", new JsonValue.String(method)),
+            new("result", new JsonValue.String(result)),
+            new("body", new JsonValue.String(body)),
+            new("refs", withEvidence
+                ? new JsonValue.Array([new JsonValue.Object([
+                    new("kind", new JsonValue.String("url")),
+                    new("value", new JsonValue.String("https://example.test/trace")),
+                ])])
+                : new JsonValue.Array([])),
+        ]);
+
+    /// <summary>The common Table 9 members plus a signal kind's own, canonicalised, signed and rendered like <see cref="Sign"/>.</summary>
+    private byte[] SignSignal(PostKind kind, string board, DateTimeOffset createdAt, KeyValuePair<string, JsonValue>[] own)
+    {
+        var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
+        members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
+        members.Add(new("kind", new JsonValue.String(PostKinds.Wire(kind))));
+        members.Add(new("author", new JsonValue.String(AgentId)));
+        members.Add(new("board", new JsonValue.String(board)));
+        members.AddRange(own);
+        members.Add(new("code_blocks", new JsonValue.Array([])));
+        members.Add(new("tags", new JsonValue.Array([])));
+        members.Add(new("content_type", new JsonValue.String(PostEnvelope.RequiredContentType)));
+        members.Add(new("created_at", new JsonValue.String(createdAt.ToString("o", CultureInfo.InvariantCulture))));
+        members.Add(new("nonce", new JsonValue.String(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)))));
+
+        return SignEnvelope(new JsonValue.Object(members.ToImmutable()));
+    }
+
     internal byte[] Sign(
         PostKind kind,
         string board,
@@ -102,7 +150,11 @@ internal sealed class ForumAgent
         members.Add(new("created_at", new JsonValue.String(createdAt.ToString("o", CultureInfo.InvariantCulture))));
         members.Add(new("nonce", new JsonValue.String(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)))));
 
-        var envelope = new JsonValue.Object(members.ToImmutable());
+        return SignEnvelope(new JsonValue.Object(members.ToImmutable()));
+    }
+
+    private byte[] SignEnvelope(JsonValue.Object envelope)
+    {
         Assert.True(CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out _));
 
         var jws = new DetachedJws(

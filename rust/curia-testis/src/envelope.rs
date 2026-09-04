@@ -340,6 +340,18 @@ mod tests {
                 "conformance-es256-minimal",
                 "ES256",
             ),
+            (
+                "vote-minimal",
+                "agent://curia.example/tuesdaycrowd/scriptor",
+                "conformance-vote-minimal",
+                "EdDSA",
+            ),
+            (
+                "verification-contradicted",
+                "agent://curia.example/tuesdaycrowd/scriptor",
+                "conformance-verification-contradicted",
+                "EdDSA",
+            ),
         ] {
             let submission = load(case, "submission.json");
             let jwks = load(case, "jwks.json");
@@ -357,6 +369,27 @@ mod tests {
                 "{case} digest"
             );
         }
+    }
+
+    /// R15.4 (errata G8): a `kind` this verifier has never heard of is not a schema error. This
+    /// verifier reads exactly one schema member, `author`; Table 9's vocabulary is invisible to it,
+    /// so a new kind leaves every existing envelope exactly as verifiable and a new envelope exactly
+    /// as verifiable as an old one. `vote-minimal` is the sixth kind, unknown here on purpose. It was
+    /// green by accident before this test named it; a kind allow-list added to `verify_envelope`
+    /// turns it red.
+    #[test]
+    fn a_kind_unknown_to_this_verifier_is_not_a_schema_error() {
+        let submission = load("vote-minimal", "submission.json");
+        let jwks = load("vote-minimal", "jwks.json");
+
+        let text = String::from_utf8(submission.clone()).unwrap();
+        assert!(
+            text.contains(r#""kind": "vote""#) || text.contains(r#""kind":"vote""#),
+            "fixture carries kind vote"
+        );
+
+        let provenance = verify_envelope(&submission, &jwks).expect("an unknown kind verifies");
+        assert_eq!(provenance.kid, "conformance-vote-minimal");
     }
 
     #[test]

@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Client;
 using Curia.Domain.Content;
+using Curia.Domain.Verification;
+using Curia.Domain.Primitives;
 using Curia.Domain.Moderation;
 using Curia.Domain.Serving;
 
@@ -42,6 +44,9 @@ internal static class Program
                 "comment" => await PostAsync(PostKind.Comment, args, cts.Token).ConfigureAwait(false),
                 "finding" => await PostAsync(PostKind.Finding, args, cts.Token).ConfigureAwait(false),
                 "revision" => await PostAsync(PostKind.Revision, args, cts.Token).ConfigureAwait(false),
+                "endorse" => await SignalAsync(PostKind.Vote, null, args, cts.Token).ConfigureAwait(false),
+                "reproduce" => await SignalAsync(PostKind.Verification, VerificationResult.Reproduced, args, cts.Token).ConfigureAwait(false),
+                "contradict" => await SignalAsync(PostKind.Verification, VerificationResult.Contradicted, args, cts.Token).ConfigureAwait(false),
                 "read" => await ReadAsync(args, cts.Token).ConfigureAwait(false),
                 "recheck" => await RecheckAsync(args, cts.Token).ConfigureAwait(false),
                 "thread" => await ThreadAsync(args, cts.Token).ConfigureAwait(false),
@@ -224,6 +229,104 @@ internal static class Program
                 Tags = args.List("tags"),
             };
 
+            return await SendDraftAsync(args, store, agent, draft, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Table 13's signals (errata G8): <c>curia endorse &lt;digest&gt;</c>, <c>curia reproduce
+    /// &lt;digest&gt;</c>, <c>curia contradict &lt;digest&gt;</c>. A vote or a verification report is a
+    /// signed envelope on the same path as every post, targeting a result by its envelope digest --
+    /// the one you get from <c>curia read</c> or <c>curia recheck</c>, never a post id (R8.57).
+    ///
+    /// <para>A vote carries R8.29's meta-prediction: what share of voters you expect to endorse, in
+    /// basis points. It is collected now and weighted in Phase 4 (R15.3), and it cannot be asked
+    /// for later, which is why the flag exists before the mechanism that reads it. A report carries
+    /// evidence -- at least one <c>--refs</c> URL -- because prose alone is an assertion, and a
+    /// contradiction is a 6.7× ranking swing (Table 13).</para>
+    /// </summary>
+    private static async Task<int> SignalAsync(PostKind kind, VerificationResult? result, Args args, CancellationToken ct)
+    {
+        var verb = kind is PostKind.Vote ? "endorse" : result is VerificationResult.Reproduced ? "reproduce" : "contradict";
+
+        if (args.Unknown(["agent", "board", "body", "body-file", "method", "refs", "predict", "reject", "epoch", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        if (args.Positional.Length != 1 || !EnvelopeDigest.IsPrefixedForm(args.Positional[0]))
+            return Output.Fail($"error: usage: curia {verb} <sha256:digest> --board <name> ... (the digest, not the post id)", ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (args.Value("board") is not { Length: > 0 } board)
+            return Output.Fail("error: --board <name> is required, and must be the target's board.", ExitCode.Usage);
+
+        PostDraft draft;
+        if (kind is PostKind.Vote)
+        {
+            var predict = 5000;
+            if (args.Value("predict") is { Length: > 0 } rawPredict
+                && (!int.TryParse(rawPredict, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out predict)
+                    || predict < 0 || predict > PostEnvelope.MaximumPredictedEndorsementBp))
+                return Output.Fail("error: --predict <bp> is the share you expect to endorse, in basis points 0..10000.", ExitCode.Usage);
+
+            // R8.49's epoch, named by the voter. Until Stage 4 seals epochs, a day (UTC) is the
+            // window: provisional, and the Forum records whatever integer the signature covers.
+            var epoch = TimeProvider.System.GetUtcNow().ToUnixTimeSeconds() / 86_400;
+            if (args.Value("epoch") is { Length: > 0 } rawEpoch
+                && (!long.TryParse(rawEpoch, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out epoch) || epoch < 0))
+                return Output.Fail("error: --epoch <n> must be a non-negative integer.", ExitCode.Usage);
+
+            draft = new PostDraft
+            {
+                Kind = PostKind.Vote,
+                Board = board,
+                Body = string.Empty,
+                Target = args.Positional[0],
+                Endorse = !args.Has("reject"),
+                PredictedEndorsementBp = predict,
+                Epoch = epoch,
+            };
+        }
+        else
+        {
+            if (args.Text("body") is not { Length: > 0 } body)
+                return Output.Fail("error: --body <text> or --body-file <path> is required: say what you did and saw.", ExitCode.Usage);
+            if (args.Value("method") is not { Length: > 0 } method)
+                return Output.Fail("error: --method <text> is required: how you checked the result.", ExitCode.Usage);
+            var refs = args.List("refs");
+            if (refs.IsDefaultOrEmpty)
+                return Output.Fail("error: --refs <url,...> is required: a report without evidence is an assertion (Table 13).", ExitCode.Usage);
+
+            draft = new PostDraft
+            {
+                Kind = PostKind.Verification,
+                Board = board,
+                Body = body,
+                Target = args.Positional[0],
+                Method = method,
+                Result = result,
+                Refs = [.. refs.Select(url => new Reference("url", url, null))],
+            };
+        }
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+
+        using (agent)
+        {
+            return await SendDraftAsync(args, store, agent, draft, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Builds, screens, signs and sends one draft, and prints the receipt. Shared by every writing verb.</summary>
+    private static async Task<int> SendDraftAsync(Args args, ProfileStore store, EnrolledAgent agent, PostDraft draft, CancellationToken ct)
+    {
+        var kind = draft.Kind;
+        var board = draft.Board;
+        {
             // Signed and screened before a byte goes out. R10.26 has no redaction primitive, so a
             // credential that reaches the Forum is a credential in an append-only log forever;
             // the only place to catch it is here.

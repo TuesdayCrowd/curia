@@ -312,7 +312,10 @@ internal static class ForumDocuments
             marking,
             ClientJson.String(p, "marking_token"),
             ClientJson.String(p, "reader_contract") ?? string.Empty,
-            ClientJson.String(p, "marking_caveat"));
+            ClientJson.String(p, "marking_caveat"),
+            ClientJson.String(p, "owner"),
+            Strings(p, "reproductions"),
+            Strings(p, "contradictions"));
 
         if (ClientJson.String(o, "post_id") is not { } postId
             || ClientJson.String(o, "canonical") is not { } canonical

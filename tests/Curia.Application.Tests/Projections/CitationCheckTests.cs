@@ -124,6 +124,18 @@ public sealed class CitationCheckTests
         Assert.Equal(CitationStatus.Unknown, unknown.Status);
     }
 
+    /// <summary>R8.55: a vote is never served to readers before its epoch is sealed, so its digest resolves as if no served post bore it.</summary>
+    [Fact]
+    public void R8_55_AVoteDigestIsNotServedThroughTheBatch()
+    {
+        var vote = Post("v-1", "sha256:" + new string('9', 64)) with { Kind = "vote" };
+
+        var state = CitationCheck.Resolve(vote.Digest, [.. Posts, vote], AllServable);
+
+        Assert.Equal(CitationStatus.Unknown, state.Status);
+        Assert.Null(state.Post);
+    }
+
     [Fact]
     public void EveryStateHasASpelling()
     {

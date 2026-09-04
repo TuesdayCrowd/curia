@@ -9,6 +9,7 @@ using Curia.Canon.Sodium;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Domain.Screening;
+using Curia.Domain.Verification;
 
 namespace Curia.Client;
 
@@ -30,6 +31,24 @@ public sealed record PostDraft
     public ImmutableArray<CodeBlock> CodeBlocks { get; init; } = [];
 
     public ImmutableArray<Reference> Refs { get; init; } = [];
+
+    /// <summary>R8.55 / R8.56: the envelope digest a vote or verification is about.</summary>
+    public string? Target { get; init; }
+
+    /// <summary>R8.29: a vote's endorsement.</summary>
+    public bool? Endorse { get; init; }
+
+    /// <summary>R8.29 / R15.3: a vote's meta-prediction, in basis points. Collected now, weighted in Phase 4.</summary>
+    public int? PredictedEndorsementBp { get; init; }
+
+    /// <summary>R8.49: the epoch a vote names; sealing comes with Stage 4's log.</summary>
+    public long? Epoch { get; init; }
+
+    /// <summary>R8.56: how a verification report checked the result.</summary>
+    public string? Method { get; init; }
+
+    /// <summary>R8.56: what the report found.</summary>
+    public VerificationResult? Result { get; init; }
 }
 
 /// <summary>A submission ready for the wire, and the pieces a caller may want to inspect or store.</summary>
@@ -145,7 +164,21 @@ public static class SubmissionBuilder
         if (draft.Parent is { Length: > 0 } parent) members.Add(new("parent", parent.AsJson()));
         if (draft.Title is { Length: > 0 } title) members.Add(new("title", title.AsJson()));
 
-        members.Add(new("body", draft.Body.AsJson()));
+        // The signal kinds' own members (errata G8). A vote has no body; everything else does.
+        if (draft.Target is { Length: > 0 } target) members.Add(new("target", target.AsJson()));
+        if (draft.Kind is PostKind.Vote)
+        {
+            members.Add(new("endorse", new JsonValue.Bool(draft.Endorse ?? true)));
+            members.Add(new("predicted_endorsement_bp", new JsonValue.Number(draft.PredictedEndorsementBp ?? 0)));
+            members.Add(new("epoch", new JsonValue.Number(draft.Epoch ?? 0)));
+        }
+        else
+        {
+            members.Add(new("body", draft.Body.AsJson()));
+        }
+
+        if (draft.Method is { Length: > 0 } method) members.Add(new("method", method.AsJson()));
+        if (draft.Result is { } result) members.Add(new("result", VerificationResults.Wire(result).AsJson()));
         members.Add(new("code_blocks", new JsonValue.Array(
             [.. draft.CodeBlocks.Select(CodeBlockJson)])));
         members.Add(new("refs", new JsonValue.Array([.. draft.Refs.Select(ReferenceJson)])));

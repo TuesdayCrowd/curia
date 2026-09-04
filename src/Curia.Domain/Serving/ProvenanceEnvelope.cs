@@ -60,7 +60,10 @@ public sealed record Provenance(
     MarkingMode Marking,
     string? MarkingToken,
     string ReaderContract,
-    string? MarkingCaveat)
+    string? MarkingCaveat,
+    string? Owner,
+    ImmutableArray<string> Reproductions,
+    ImmutableArray<string> Contradictions)
 {
     /// <summary>
     /// R10.17's exact wording, and it is a constant rather than a template because the sentence is

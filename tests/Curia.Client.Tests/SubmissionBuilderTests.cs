@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Curia.Canon.Canonical;
 using Curia.Canon.Envelope;
@@ -6,6 +7,8 @@ using Curia.Canon.Jws;
 using Curia.Canon.Sodium;
 using Curia.Client;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives;
+using Curia.Domain.Verification;
 using Xunit;
 
 namespace Curia.Client.Tests;
@@ -13,6 +16,10 @@ namespace Curia.Client.Tests;
 /// <summary>
 /// What the client puts on the wire, checked against the same predicates the Forum applies to it.
 /// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class SubmissionBuilderTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("curia-builder-tests-").FullName;
@@ -45,6 +52,50 @@ public sealed class SubmissionBuilderTests : IDisposable
         Body = "RFC 8785 §3.2.3 says so. Does Cūria agree?",
         Tags = ["jcs"],
     };
+
+    private static readonly string Target = "sha256:" + new string('b', 64);
+
+    /// <summary>R8.55: a vote draft builds an envelope the Forum's own schema check admits, carrying what R8.29 requires and no body.</summary>
+    [Fact]
+    public void R8_55_AVoteDraftBuildsAValidVoteEnvelope()
+    {
+        var draft = new PostDraft
+        {
+            Kind = PostKind.Vote, Board = "b", Body = string.Empty, Target = Target,
+            Endorse = true, PredictedEndorsementBp = 6200, Epoch = 17,
+        };
+
+        Assert.True(SubmissionBuilder.Build(_agent, draft, When).TryGetValue(out var signed, out var error), error?.Title);
+
+        var canonical = Encoding.UTF8.GetString(signed!.Canonical.Span);
+        Assert.Contains("\"kind\":\"vote\"", canonical, StringComparison.Ordinal);
+        Assert.Contains("\"predicted_endorsement_bp\":6200", canonical, StringComparison.Ordinal);
+        Assert.Contains("\"epoch\":17", canonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"body\"", canonical, StringComparison.Ordinal);
+
+        Assert.True(JsonReader.Parse(signed.Canonical.Span, AdmitLimits.Default).TryGetValue(out var tree, out _));
+        Assert.True(PostEnvelope.Read((JsonValue.Object)tree!).TryGetValue(out var envelope, out var schemaError), schemaError?.Type);
+        Assert.Equal(Target, envelope!.Target);
+        Assert.True(envelope.Endorse);
+    }
+
+    /// <summary>R8.56: a report draft builds an envelope with method, result and evidence; without evidence it is refused locally, by the Table 9 rule's name.</summary>
+    [Fact]
+    public void R8_56_AReportDraftNeedsEvidence()
+    {
+        var withEvidence = new PostDraft
+        {
+            Kind = PostKind.Verification, Board = "b", Body = "It fails on 4.3.0.", Target = Target,
+            Method = "ran the repro", Result = VerificationResult.Contradicted,
+            Refs = [new Reference("url", "https://example.test/trace", null)],
+        };
+        Assert.True(SubmissionBuilder.Build(_agent, withEvidence, When).TryGetValue(out var signed, out var error), error?.Title);
+        Assert.Contains("\"result\":\"contradicted\"", Encoding.UTF8.GetString(signed!.Canonical.Span), StringComparison.Ordinal);
+
+        var withoutEvidence = withEvidence with { Refs = [] };
+        Assert.False(SubmissionBuilder.Build(_agent, withoutEvidence, When).TryGetValue(out _, out var refused));
+        Assert.Contains("curia/content/evidence-required", refused!.Detail, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void TheSignatureVerifiesOverBytesRecanonicalizedFromTheWireForm()
