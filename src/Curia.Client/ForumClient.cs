@@ -67,32 +67,61 @@ public sealed class ForumClient
         return SendJsonAsync("/v1/agents", body, ForumDocuments.ReadEnrollment, ct);
     }
 
-    public Task<ForumResult<ProvenancePost>> GetPostAsync(
-        string postId, MarkingMode marking, CancellationToken ct) =>
-        GetAsync($"/v1/posts/{Uri.EscapeDataString(postId)}{MarkingQuery(marking)}",
-            ForumDocuments.ReadPost, ct);
+    public async Task<ForumResult<ProvenancePost>> GetPostAsync(
+        string postId, MarkingMode marking, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get, $"/v1/posts/{Uri.EscapeDataString(postId)}{MarkingQuery(marking)}");
+
+        return await SendTaggedAsync(
+            request,
+            (value, tag) => ForumDocuments.ReadPost(value).Map(post => post with { EntityTag = tag }),
+            ct).ConfigureAwait(false);
+    }
 
     /// <summary>
-    /// R9.11's conditional read: "has this changed?" for a digest the caller already holds, at the
-    /// cost of a round trip and no body when it has not. A 304 is a result here, not a refusal --
-    /// it is the cheap answer the request exists to get. A post's bytes never change, so the answer
-    /// is either "still served, unchanged" or the post as now served; a withheld post is a
-    /// <see cref="RefusalKind.NotFound"/>, never a 304, because gone is the one way a post changes.
+    /// R9.11's conditional read: "has this changed?" for a representation the caller already holds
+    /// -- the <see cref="ProvenancePost.EntityTag"/> a previous read returned -- at the cost of a
+    /// round trip and no body when it has not. A 304 is a result here, not a refusal: it is the
+    /// cheap answer the request exists to get. The tag is sent exactly as it was received; a client
+    /// that synthesised it from the digest would be told "unchanged" after an owner attestation or
+    /// an accepted answer (errata G6). A withheld post is a <see cref="RefusalKind.NotFound"/>,
+    /// never a 304, because gone is the other way a served post changes.
     /// </summary>
     public async Task<ForumResult<PostCheck>> GetPostIfChangedAsync(
-        string postId, string knownDigest, MarkingMode marking, CancellationToken ct)
+        string postId, string knownEntityTag, MarkingMode marking, CancellationToken ct)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(knownDigest);
+        ArgumentException.ThrowIfNullOrWhiteSpace(knownEntityTag);
 
         using var request = new HttpRequestMessage(
             HttpMethod.Get, $"/v1/posts/{Uri.EscapeDataString(postId)}{MarkingQuery(marking)}");
-        request.Headers.TryAddWithoutValidation("If-None-Match", "\"" + knownDigest + "\"");
+        request.Headers.TryAddWithoutValidation("If-None-Match", knownEntityTag);
 
-        return await SendAsync(
+        return await SendTaggedAsync(
             request,
-            value => ForumDocuments.ReadPost(value).Map(PostCheck.Changed),
+            (value, tag) => ForumDocuments.ReadPost(value).Map(post => PostCheck.Changed(post with { EntityTag = tag })),
             ct,
-            notModified: () => PostCheck.NotModified(knownDigest)).ConfigureAwait(false);
+            notModified: () => PostCheck.NotModified(knownEntityTag)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// R9.10's batch re-check: the digests an agent cited, answered one item per element, in the
+    /// order sent, with nothing omitted (errata G7). Anonymous, like the single read it batches. The
+    /// Forum's cap is published in its refusal (<c>curia/posts/batch-too-large</c>) rather than
+    /// guessed here, so a client that sends too many learns the number from the one place it is
+    /// authoritative.
+    /// </summary>
+    public Task<ForumResult<ImmutableArray<CitationDocument>>> BatchAsync(
+        IReadOnlyList<string> digests, MarkingMode marking, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(digests);
+
+        var body = ClientJson.Render(
+        [
+            new("digests", new JsonValue.Array([.. digests.Select(d => (JsonValue)new JsonValue.String(d))])),
+        ]);
+
+        return SendJsonAsync($"/v1/posts/batch{MarkingQuery(marking)}", body, ForumDocuments.ReadBatch, ct);
     }
 
     public Task<ForumResult<ImmutableArray<ProvenancePost>>> GetThreadAsync(
@@ -219,12 +248,16 @@ public sealed class ForumClient
             ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// <see cref="SendAsync{T}"/> for the reads that carry R9.11's validator: the reader also receives
+    /// the response's <c>ETag</c>, as served, so a post can remember the tag it was given.
+    /// </summary>
     /// <param name="notModified">
-    /// What a 304 means, for the one request that can earn one (R9.11). Every other caller leaves
-    /// it unset and a 304 is what it would otherwise be -- a response this client did not ask for.
+    /// What a 304 means, for the request that can earn one. Left unset, a 304 is what it would
+    /// otherwise be -- a response this client did not ask for.
     /// </param>
-    internal async Task<ForumResult<T>> SendAsync<T>(
-        HttpRequestMessage request, Func<JsonValue, Result<T>> read, CancellationToken ct, Func<T>? notModified = null)
+    internal async Task<ForumResult<T>> SendTaggedAsync<T>(
+        HttpRequestMessage request, Func<JsonValue, string?, Result<T>> read, CancellationToken ct, Func<T>? notModified = null)
     {
         HttpResponseMessage response;
         try
@@ -247,6 +280,33 @@ public sealed class ForumClient
             if (response.StatusCode == HttpStatusCode.NotModified && notModified is not null)
                 return ForumResult<T>.Ok(notModified());
 
+            var tag = response.Headers.ETag?.ToString();
+            var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+            return Interpret(response.StatusCode, bytes, value => read(value, tag));
+        }
+    }
+
+    internal async Task<ForumResult<T>> SendAsync<T>(
+        HttpRequestMessage request, Func<JsonValue, Result<T>> read, CancellationToken ct)
+    {
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+        {
+            return ForumResult<T>.Refused(new Refusal(
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: {ex.Message}")));
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            return ForumResult<T>.Refused(new Refusal(
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: timed out ({ex.Message})")));
+        }
+
+        using (response)
+        {
             var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
             return Interpret(response.StatusCode, bytes, read);
         }

@@ -8,8 +8,9 @@ using Xunit;
 namespace Curia.Client.Tests;
 
 /// <summary>
-/// R9.11 from the client's side: the digest goes out as <c>If-None-Match</c>, a 304 comes back as
-/// "unchanged" rather than as an unparseable refusal, and a 200 is the post as now served.
+/// R9.11 from the client's side: the validator a previous read returned goes out as
+/// <c>If-None-Match</c> exactly as it was received, a 304 comes back as "unchanged" rather than as
+/// an unparseable refusal, and a 200 is the post as now served, carrying its new tag.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -17,7 +18,8 @@ namespace Curia.Client.Tests;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class ConditionalReadTests
 {
-    private const string Digest = "sha-256:abc";
+    private const string KnownTag = "\"representation:" + "abc" + "\"";
+    private const string ServedTag = "\"representation:" + "def" + "\"";
 
     private const string PostBody =
         """
@@ -37,16 +39,17 @@ public sealed class ConditionalReadTests
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://forum.test") };
         var client = new ForumClient(http, new Uri("http://forum.test"));
 
-        var result = await client.GetPostIfChangedAsync("01TESTPOSTID0000000000000A", Digest, MarkingMode.None, CancellationToken.None);
+        var result = await client.GetPostIfChangedAsync("01TESTPOSTID0000000000000A", KnownTag, MarkingMode.None, CancellationToken.None);
         return (result, handler.IfNoneMatch);
     }
 
+    /// <summary>Sent verbatim: the tag is opaque, and a client that rebuilt it from the digest is the defect G6 records.</summary>
     [Fact]
-    public async Task R9_11_TheKnownDigestIsSentAsAStrongEntityTag()
+    public async Task R9_11_TheKnownTagIsSentExactlyAsReceived()
     {
         var (_, sent) = await CheckAsync(HttpStatusCode.NotModified, string.Empty);
 
-        Assert.Equal($"\"{Digest}\"", sent);
+        Assert.Equal(KnownTag, sent);
     }
 
     [Fact]
@@ -56,19 +59,35 @@ public sealed class ConditionalReadTests
 
         Assert.True(result.TryGetValue(out var check, out var refusal), refusal?.Summary);
         Assert.True(check!.Unchanged);
-        Assert.Equal(Digest, check.Digest);
+        Assert.Equal(KnownTag, check.EntityTag);
         Assert.Null(check.Post);
     }
 
     [Fact]
-    public async Task R9_11_A200IsThePostAsNowServed()
+    public async Task R9_11_A200IsThePostAsNowServedWithItsNewTag()
     {
         var (result, _) = await CheckAsync(HttpStatusCode.OK, PostBody);
 
         Assert.True(result.TryGetValue(out var check, out var refusal), refusal?.Summary);
         Assert.False(check!.Unchanged);
-        Assert.Equal("sha-256:def", check.Digest);
+        Assert.Equal(ServedTag, check.EntityTag);
         Assert.Equal("01TESTPOSTID0000000000000A", check.Post!.PostId);
+        Assert.Equal(ServedTag, check.Post.EntityTag);
+    }
+
+    /// <summary>An unconditional read remembers the tag it was given, so a later re-check has something to send.</summary>
+    [Fact]
+    public async Task R9_11_AReadCarriesTheTagItWasServed()
+    {
+        using var handler = new CapturingHandler(HttpStatusCode.OK, PostBody.ReplaceLineEndings(string.Empty));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://forum.test") };
+        var client = new ForumClient(http, new Uri("http://forum.test"));
+
+        var result = await client.GetPostAsync("01TESTPOSTID0000000000000A", MarkingMode.None, CancellationToken.None);
+
+        Assert.True(result.TryGetValue(out var post, out var refusal), refusal?.Summary);
+        Assert.Equal(ServedTag, post!.EntityTag);
+        Assert.Null(handler.IfNoneMatch);
     }
 
     /// <summary>A withheld post is a not-found, never a 304: gone is the one way a post changes.</summary>
@@ -105,6 +124,8 @@ public sealed class ConditionalReadTests
             IfNoneMatch = request.Headers.TryGetValues("If-None-Match", out var values) ? string.Join(", ", values) : null;
 
             var response = new HttpResponseMessage(status);
+            if (status == HttpStatusCode.OK)
+                response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(ServedTag);
             if (status != HttpStatusCode.NotModified)
                 response.Content = new StringContent(body, Encoding.UTF8, "application/json");
             return Task.FromResult(response);

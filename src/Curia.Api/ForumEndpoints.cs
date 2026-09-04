@@ -18,6 +18,7 @@ using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Search;
 using Curia.Domain.Serving;
+using Microsoft.Extensions.Options;
 
 namespace Curia.Api;
 
@@ -102,6 +103,34 @@ public sealed record PostResponse(
     /// and then superseded, because the acceptance that stands is the latest one.
     /// </summary>
     [property: JsonPropertyName("accepted")] bool Accepted);
+
+/// <summary>R9.10's request: the digests an agent cited and wants to re-check, in the order it wants them answered.</summary>
+public sealed record BatchRequest([property: JsonPropertyName("digests")] IReadOnlyList<string?>? Digests);
+
+/// <summary>
+/// One answer of R9.10's batch (errata G7, R9.18–R9.19): the state of a cited digest, the revisions
+/// that chain to it, and the post itself when it may be served. The array it sits in is the same
+/// length and the same order as the request, so an agent correlates by position and nothing can be
+/// omitted.
+/// </summary>
+public sealed record BatchItemResponse(
+    /// <summary>The digest as requested; <see langword="null"/> for a malformed element, which is identified by position and never echoed.</summary>
+    [property: JsonPropertyName("digest")] string? Digest,
+
+    /// <summary>One of <c>current</c>, <c>superseded</c>, <c>withheld</c>, <c>unknown</c>, <c>malformed</c>.</summary>
+    [property: JsonPropertyName("state")] string State,
+
+    /// <summary>Digests of the revisions whose <c>prev</c> names this one (R6.7), in log order; carried on a withheld item too.</summary>
+    [property: JsonPropertyName("successors")] ImmutableArray<string> Successors,
+
+    /// <summary>More than one revision chains here: property P6 has no unique head. Reported, never resolved.</summary>
+    [property: JsonPropertyName("forked")] bool Forked,
+
+    /// <summary>The post exactly as <c>GET /v1/posts/{id}</c> serves it, for a current or superseded item; otherwise <see langword="null"/>.</summary>
+    [property: JsonPropertyName("post")] PostResponse? Post);
+
+/// <summary>R9.10's response. An object rather than a bare array, so the shape can carry more than items without breaking a reader.</summary>
+public sealed record BatchResponse([property: JsonPropertyName("items")] ImmutableArray<BatchItemResponse> Items);
 
 /// <summary>R9.8/R8.36's <c>why_ranked</c> breakdown, per result, when requested.</summary>
 public sealed record WhyRankedResponse(
@@ -195,6 +224,7 @@ public static class ForumEndpoints
         app.MapPost("/v1/agents", EnrollAsync);
         app.MapPost("/v1/posts", SubmitAsync);
         app.MapGet("/v1/posts/{postId}", GetPostAsync);
+        app.MapPost("/v1/posts/batch", BatchAsync);
         app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync);
         app.MapPost("/v1/posts/{postId}/flags", RaiseFlagAsync);
         app.MapPost("/v1/posts/{postId}/accept", AcceptAnswerAsync);
@@ -677,7 +707,13 @@ public static class ForumEndpoints
                 f.At.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture)))];
 
     private static async Task<IResult> GetPostAsync(
-        string postId, HttpRequest http, IEventReader events, IPolicyDecisionPoint pdp, TimeProvider clock, CancellationToken cancellationToken)
+        string postId,
+        HttpRequest http,
+        IEventReader events,
+        IPolicyDecisionPoint pdp,
+        TimeProvider clock,
+        IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> json,
+        CancellationToken cancellationToken)
     {
         var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Thread, ActionKind.Read, cancellationToken)
             .ConfigureAwait(false);
@@ -688,25 +724,120 @@ public static class ForumEndpoints
         var post = PostProjector.Fold(log).FirstOrDefault(p => p.PostId == postId && servable(p.PostId));
 
         // A withheld post reports "no such post" rather than "withheld". R10.37 records the action
-        // in the log where a moderator and an appeal (R10.38) can see it; the serving path does not
-        // advertise it, because a distinct status would let anyone enumerate exactly which posts
-        // moderation acted on -- a map of the corpus's most interesting content, for free. (The
-        // batch route says "withheld", and may: it is keyed by digest, which only a party that has
-        // already seen the content can hold.) No ETag on a 404, either: a withheld post has changed
-        // in the one way a post can, and a validator on the refusal would say otherwise.
+        // in the log where a moderator and an appeal (R10.38) can see it; this path does not
+        // advertise it. That is a convention rather than a control: the board listing serves every
+        // servable post's id anonymously, so the withheld set is the difference of two listings, and
+        // R10.40 already commits the Forum to publishing affected digests on a confirmed campaign.
+        // The batch route (R9.10) says "withheld" outright, for the reasons errata G7 records: the
+        // requirement names moderation as one of the three things it exists to report, a withholding
+        // is an adjudicated outcome and G3 permits disclosing outcomes, and the batch adds convenience
+        // rather than capability. No ETag on a 404, either: a withheld post has changed in the one
+        // way a post can, and a validator on the refusal would say otherwise.
         if (post is null)
             return Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId));
 
-        // R9.11: the validator is the content digest, and a caller presenting it gets 304 and no
-        // body. A post's bytes never change -- a revision is a new post -- so this can only ever
-        // say "still served, unchanged", which is exactly the cheap answer a citing agent wants.
-        http.HttpContext.Response.Headers.ETag = EntityTags.For(post.Digest);
-
-        return EntityTags.Matches(http.Headers.IfNoneMatch, post.Digest)
-            ? Results.StatusCode(StatusCodes.Status304NotModified)
-            : Results.Ok(ToResponse(
+        // R9.11 (rev., errata G6): the validator is a hash of the bytes served, not the content
+        // digest. The envelope's owner_verified, verification_level and accepted members change
+        // while the signed bytes do not, and a digest-keyed tag answered "unchanged" to exactly the
+        // questions a citing agent asks -- see EntityTags. Serialised here, once, so the tag and the
+        // body are computed from the same bytes and cannot disagree.
+        var representation = JsonSerializer.SerializeToUtf8Bytes(
+            ToResponse(
                 post, AgentStandingProjector.Fold(log), MarkingFrom(http), ReaderContractUrl(http),
-                AcceptanceProjector.Fold(log)));
+                AcceptanceProjector.Fold(log)),
+            json.Value.SerializerOptions);
+
+        var entityTag = EntityTags.For(representation);
+        var headers = http.HttpContext.Response.Headers;
+        headers.ETag = entityTag;
+
+        // R7.14 binds a withholding to take effect within 60 seconds across all PEPs; an intermediary
+        // that heuristically cached this body for longer would break that bound for every reader
+        // behind it. no-cache permits storing but requires revalidation, which the tag makes cheap.
+        headers.CacheControl = "no-cache";
+
+        return EntityTags.Matches(http.Headers.IfNoneMatch, entityTag)
+            ? Results.StatusCode(StatusCodes.Status304NotModified)
+            : Results.Bytes(representation, "application/json; charset=utf-8");
+    }
+
+    /// <summary>
+    /// R9.20's cap on one batch: published here, in the refusal that names it, and in the README, so
+    /// R9.15's "limits SHALL be published" holds. At least 32 so an agent's working set of citations
+    /// fits in one round trip; 64 because nothing in the text argues for more and the whole log is
+    /// folded once per request regardless of how many digests it answers.
+    /// </summary>
+    public const int BatchCap = 64;
+
+    /// <summary>
+    /// R9.10 (errata G7): <c>POST /v1/posts/batch</c>, an agent's re-check of the posts it cited --
+    /// "revisions, disputes, or moderation" -- in one round trip.
+    ///
+    /// <para><b>One item per element, in order, nothing omitted.</b> An agent re-checking fifty
+    /// citations cannot tell a filtered array from a short one, so a withheld post says
+    /// <c>withheld</c>, an unknown digest says <c>unknown</c>, and an element that is not a digest
+    /// says <c>malformed</c> -- each in the position the request put it. <c>withheld</c> is one
+    /// state for quarantine and withholding, exactly as the read path already collapses them;
+    /// distinguishing them would disclose whether an automated detector acted, which is a new
+    /// disclosure nobody has argued for. "Disputes" is not expressible today: an unadjudicated flag
+    /// is what G3 forbids disclosing, and the dispute state R8 actually defines is V− (Stage 3).</para>
+    ///
+    /// <para><b>Authorized as the read it batches.</b> The same anonymous <c>thread</c>/<c>read</c>
+    /// decision <see cref="GetPostAsync"/> takes, once per request: the request type carries no
+    /// board or item, so a per-item decision would be the same decision N times. When R9.2's
+    /// per-item revocation exists it will change <c>AuthorizationRequest</c> first, and this route
+    /// with it.</para>
+    ///
+    /// <para><b>Over the cap, the whole request is refused</b> and the problem names the cap and the
+    /// count. Never truncated: a truncated array is indistinguishable from a set of unknown
+    /// digests, which is the failure the positional correspondence exists to prevent.</para>
+    /// </summary>
+    private static async Task<IResult> BatchAsync(
+        BatchRequest request,
+        HttpRequest http,
+        IEventReader events,
+        IPolicyDecisionPoint pdp,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.Digests is null)
+            return Results.BadRequest(new Problem(
+                "curia/posts/batch-malformed", "The body must be an object with a digests array", null));
+
+        if (request.Digests.Count > BatchCap)
+            return Results.BadRequest(new Problem(
+                "curia/posts/batch-too-large",
+                "Too many digests in one batch; split the request",
+                $"cap={BatchCap.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"received={request.Digests.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+
+        var allowed = await AnonymousReadAllowedAsync(pdp, clock, ResourceKind.Thread, ActionKind.Read, cancellationToken)
+            .ConfigureAwait(false);
+        if (allowed is not null) return allowed;
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        var posts = PostProjector.Fold(log);
+        var servable = Servable(log);
+        var standings = AgentStandingProjector.Fold(log);
+        var accepted = AcceptanceProjector.Fold(log);
+        var marking = MarkingFrom(http);
+        var contract = ReaderContractUrl(http);
+
+        var items = ImmutableArray.CreateBuilder<BatchItemResponse>(request.Digests.Count);
+        foreach (var requested in request.Digests)
+        {
+            var state = CitationCheck.Resolve(requested, posts, servable);
+            items.Add(new BatchItemResponse(
+                state.Digest,
+                CitationStatuses.Wire(state.Status),
+                state.Successors,
+                state.Forked,
+                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted)));
+        }
+
+        return Results.Ok(new BatchResponse(items.MoveToImmutable()));
     }
 
     private static async Task<IResult> GetThreadAsync(
