@@ -92,7 +92,9 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
             await prematureAnswer.Content.ReadAsStringAsync(ct),
             StringComparison.Ordinal);
 
-        // Bob earns T1 the way Table 11 says: three clean questions, owner verified, 48 hours.
+        // Bob earns T1 the way Table 11 says: three clean questions, owner verified, 48 hours. The
+        // owner is verified by an operator's attestation (R4.30) -- nothing Bob sends can do it.
+        await forum.AttestOwnerAsync(bob.AgentId, ct);
         for (var i = 0; i < 3; i++)
         {
             var wire = bob.SignQuestion(

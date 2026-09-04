@@ -1,4 +1,8 @@
 using Curia.Api.Issuer;
+using Curia.Application.Credentials;
+using Curia.Domain;
+using Curia.Domain.Credentials;
+using Curia.Domain.Primitives;
 using Curia.Infrastructure.Migrations;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -60,6 +64,33 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
     internal DateTimeOffset Now => Clock.GetUtcNow();
 
     internal HttpClient Client => CreateClient();
+
+    /// <summary>The provisioned database, so a test can drive the operator tool against the same log the host serves from.</summary>
+    internal string ConnectionString => _connectionString;
+
+    /// <summary>
+    /// R4.30's attestation, through the host's own use case -- the same object the operator tool
+    /// calls, so a bug in it fails this suite instead of hiding behind a fixture that builds the
+    /// event correctly by hand. There is no HTTP route for this on purpose (errata G5).
+    /// </summary>
+    internal async Task AttestOwnerAsync(
+        string agentId, CancellationToken ct, string owner = "owner:test", bool verified = true)
+    {
+        using var scope = Services.CreateScope();
+        var attest = scope.ServiceProvider.GetRequiredService<AttestOwner>();
+
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        Require(await attest.RecordAsync(
+            agentId,
+            Require(OwnerId.Create(owner)),
+            verified,
+            OwnerVerificationMethod.Manual,
+            "attested by the test fixture",
+            Require(ActorId.Create("operator:fixture")),
+            ct));
+    }
 
     private static string AdminConnectionString =>
         Environment.GetEnvironmentVariable(EnvVarName)

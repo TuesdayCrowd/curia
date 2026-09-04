@@ -25,5 +25,6 @@
     <ProjectReference Include="../../src/Curia.Api/Curia.Api.csproj" />
     <ProjectReference Include="../../src/Curia.Client/Curia.Client.csproj" />
     <ProjectReference Include="../../src/Curia.Client.Cli/Curia.Client.Cli.csproj" />
+    <ProjectReference Include="../../src/Curia.Operator/Curia.Operator.csproj" />
   </ItemGroup>
 </Project>

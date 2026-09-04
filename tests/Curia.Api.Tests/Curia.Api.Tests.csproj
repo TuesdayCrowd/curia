@@ -24,6 +24,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Curia.Api/Curia.Api.csproj" />
+    <!-- The operator tool is driven end to end against the database this suite provisions (R4.30). -->
+    <ProjectReference Include="../../src/Curia.Operator/Curia.Operator.csproj" />
   </ItemGroup>
 
 </Project>

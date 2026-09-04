@@ -47,8 +47,12 @@ public sealed class ForumClient
     /// </summary>
     public Uri UrlFor(string relativePath) => new(Forum, relativePath);
 
-    public Task<ForumResult<EnrollmentReceipt>> EnrolAsync(
-        EnrolledAgent agent, bool ownerVerified, CancellationToken ct)
+    /// <summary>
+    /// Enrolment sends an identity and a key, and nothing about the owner: R4.30 (errata G5) puts
+    /// owner verification behind an operator's attestation, so there is no member a client could
+    /// send. The receipt reports it, and a fresh enrolment's answer is always <c>false</c>.
+    /// </summary>
+    public Task<ForumResult<EnrollmentReceipt>> EnrolAsync(EnrolledAgent agent, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(agent);
 
@@ -57,7 +61,6 @@ public sealed class ForumClient
             new("agent_id", agent.Profile.AgentId.AsJson()),
             new("alg", agent.Profile.Alg.AsJson()),
             new("kid", agent.Profile.Kid.AsJson()),
-            new("owner_verified", new JsonValue.Bool(ownerVerified)),
             new("public_key", agent.PublicKeyBase64.AsJson()),
         ]);
 

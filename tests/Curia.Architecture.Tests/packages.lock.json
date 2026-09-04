@@ -201,6 +201,13 @@
           "Curia.Client": "[1.0.0, )"
         }
       },
+      "curia-operator": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Application": "[1.0.0, )",
+          "Curia.Infrastructure": "[1.0.0, )"
+        }
+      },
       "curia.api": {
         "type": "Project",
         "dependencies": {

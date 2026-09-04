@@ -80,7 +80,7 @@ public sealed class LayeringTests
         // and the same honesty: this catches a `using`, not a fully-qualified reference buried
         // mid-expression. It would have caught the violation that prompted it.
         string[] forbidden = ["Npgsql", "NSec", "OpenIddict", "Microsoft.ML.OnnxRuntime"];
-        string[] hostProjects = ["Curia.Api", "Curia.Issuer", "Curia.Gateway", "Curia.Mcp"];
+        string[] hostProjects = ["Curia.Api", "Curia.Operator", "Curia.Issuer", "Curia.Gateway", "Curia.Mcp"];
 
         var repoRoot = FindSourceRoot();
         var offenders = new List<string>();

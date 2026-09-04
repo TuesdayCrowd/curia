@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The operator's out-of-band tool: R4.30's attestation path (errata G5). A composition root in
+    the CS-7 sense: it hands PostgresAdapters a connection string, receives the event store port,
+    and calls Curia.Application's AttestOwner; no domain logic lives here. It has no HTTP surface on
+    purpose: an operator endpoint would need a Table 10 pair that does not exist.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Curia.OperatorTool</RootNamespace>
+    <AssemblyName>curia-operator</AssemblyName>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!--
+      CA1303: every string here is a line of terminal output for an operator, in the register of
+      the specification it cites; there is no resource table (same justification as the CLI).
+      CA1515: OperatorCommands is public so Curia.Api.Tests can drive the tool end to end against
+      the database it provisions (same justification as Curia.Api).
+    -->
+    <NoWarn>$(NoWarn);CA1303;CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Curia.Application/Curia.Application.csproj" />
+    <ProjectReference Include="../Curia.Infrastructure/Curia.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

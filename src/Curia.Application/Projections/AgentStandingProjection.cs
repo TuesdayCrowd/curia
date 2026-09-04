@@ -28,10 +28,18 @@ namespace Curia.Application.Projections;
 /// event; carried here because <see cref="ReachedT1At"/> is computed from it before the posture
 /// fold runs.
 /// </param>
+/// <param name="OwnerId">
+/// R4.1's owner, as the first attestation named it, or <see langword="null"/> before any attestation.
+/// First-wins because R4.1 makes the binding immutable for the life of the agent identity; a later
+/// attestation naming a different owner is refused by <c>AttestOwner</c> and, should one reach the
+/// log anyway, ignored here. This is the agent-to-owner map that R8.16, R8.40 and R4.26 need and
+/// that a boolean never was.
+/// </param>
 /// <param name="OwnerVerified">
-/// Table 11's "owner verified", as of the most recent event that spoke to it. Unlike
+/// Table 11's "owner verified", as of the most recent attestation (R4.30). Unlike
 /// <paramref name="EnrolledAt"/> this genuinely changes -- an owner completing verification later
-/// should count, and one whose verification lapses should stop counting.
+/// should count, and one whose verification lapses should stop counting. Never read from the
+/// enrollment event, whose member of the same name was the enrolling agent's own claim (errata G5).
 /// </param>
 /// <param name="QuestionsWithoutUpheldFlags">Table 11's "≥ 3 questions with no upheld flags".</param>
 /// <param name="AcceptedAnswers">
@@ -55,6 +63,7 @@ public sealed record AgentStanding(
     string AgentId,
     ImmutableArray<CredentialTransitionedEvent> CredentialHistory,
     DateTimeOffset? EnrolledAt,
+    string? OwnerId,
     bool OwnerVerified,
     int QuestionsWithoutUpheldFlags,
     int AcceptedAnswers,
@@ -74,6 +83,7 @@ public sealed record AgentStanding(
         other is not null
         && string.Equals(AgentId, other.AgentId, StringComparison.Ordinal)
         && EnrolledAt == other.EnrolledAt
+        && string.Equals(OwnerId, other.OwnerId, StringComparison.Ordinal)
         && OwnerVerified == other.OwnerVerified
         && QuestionsWithoutUpheldFlags == other.QuestionsWithoutUpheldFlags
         && AcceptedAnswers == other.AcceptedAnswers
@@ -85,6 +95,7 @@ public sealed record AgentStanding(
     public override int GetHashCode() => HashCode.Combine(
         AgentId,
         EnrolledAt,
+        OwnerId,
         OwnerVerified,
         QuestionsWithoutUpheldFlags,
         HashCode.Combine(AcceptedAnswers, UpheldFlags),
@@ -134,17 +145,41 @@ public static class AgentStandingProjector
     public const string EnrolledType = "agent.enrolled";
 
     /// <summary>
-    /// The event <c>EnrollAgent</c> appends when the owner-verification flag changes. Not a
-    /// Table 6 transition -- owner verification is a posture fact, not a credential state -- so it
-    /// contributes nothing to <see cref="AgentStanding.CredentialHistory"/> and
-    /// <see cref="CredentialLifecycle.Project"/> never sees it.
+    /// The event the enrollment endpoint used to append when the request body's
+    /// <c>owner_verified</c> changed -- a claim the enrolling agent made about itself (errata G5,
+    /// plan D2). <b>Deliberately unmodelled.</b> The fold skips it like any other type it does not
+    /// know, so every such event already in a deployed log is inert by construction rather than by
+    /// editing history, which is the only remedy an append-only store has. Named here so the test
+    /// that pins that inertness can spell the type the way the log does.
     /// </summary>
-    public const string OwnerVerificationRecordedType = "agent.owner-verification-recorded";
+    public const string LegacyOwnerVerificationRecordedType = "agent.owner-verification-recorded";
+
+    /// <summary>
+    /// The event <c>AttestOwner</c> appends: R4.30's attestation, by an operator or the owner,
+    /// naming the owner (<see cref="OwnerIdField"/>), whether it is verified
+    /// (<see cref="OwnerVerifiedField"/>) and which of R4.24's proofs was satisfied
+    /// (<see cref="MethodField"/>). The attesting actor is the event's own
+    /// <see cref="DomainEvent.Actor"/> -- R4.21's "actor" -- and the instant is the store's
+    /// <c>server_ts</c>. Not a Table 6 transition: owner verification is a posture fact, not a
+    /// credential state, so it contributes nothing to <see cref="AgentStanding.CredentialHistory"/>
+    /// and <see cref="CredentialLifecycle.Project"/> never sees it.
+    /// </summary>
+    public const string OwnerAttestedType = "agent.owner-attested";
+
+    /// <summary>The payload member of <see cref="OwnerAttestedType"/> naming R4.1's owner.</summary>
+    public const string OwnerIdField = "owner_id";
+
+    /// <summary>The payload member of <see cref="OwnerAttestedType"/> naming the R4.24 proof, spelled per <see cref="OwnerVerificationMethods.Wire"/>.</summary>
+    public const string MethodField = "method";
 
     /// <summary>The payload member both event types carry naming the agent they are about.</summary>
     public const string AgentIdField = "agent_id";
 
-    /// <summary>The payload member carrying Table 11's "owner verified" as an I-JSON boolean.</summary>
+    /// <summary>
+    /// The payload member carrying Table 11's "owner verified" as an I-JSON boolean. Read from
+    /// <see cref="OwnerAttestedType"/> only. Legacy <see cref="EnrolledType"/> events carry a member
+    /// of this name too, and it is ignored there: it was the enrolling agent's own claim.
+    /// </summary>
     public const string OwnerVerifiedField = "owner_verified";
 
     /// <summary>
@@ -226,8 +261,8 @@ public static class AgentStandingProjector
                     ApplyEnrollment(builders, Members(payload), appended);
                     break;
 
-                case OwnerVerificationRecordedType:
-                    ApplyOwnerVerification(builders, Members(payload), appended);
+                case OwnerAttestedType:
+                    ApplyOwnerAttestation(builders, Members(payload), appended);
                     break;
 
                 case PostProjector.PostAcceptedType:
@@ -287,10 +322,12 @@ public static class AgentStandingProjector
         AppendedEvent appended)
     {
         if (!Str(fields, AgentIdField, out var agentId)) return;
-        if (!Bool(fields, OwnerVerifiedField, out var ownerVerified)) return;
         if (!Str(fields, ReasonField, out var reasonText)) return;
         if (!TransitionReason.Create(reasonText).TryGetValue(out var reason, out _)) return;
 
+        // Not required, and not read: legacy events carry an owner_verified member here that was
+        // the enrolling agent's own claim (errata G5). Requiring it would skip every new enrollment;
+        // honouring it would keep trusting the claim. Neither, and the enrollment stands on its own.
         var builder = For(builders, agentId);
 
         // The event's own recorded server_ts is the enrollment instant, not anything in the
@@ -303,19 +340,29 @@ public static class AgentStandingProjector
             appended.ServerTimestamp.Value));
 
         builder.EnrolledAt ??= appended.ServerTimestamp.Value;
-        builder.OwnerVerified = ownerVerified;
-        builder.NoteCountableCriteria(appended.ServerTimestamp.Value);
     }
 
-    private static void ApplyOwnerVerification(
+    private static void ApplyOwnerAttestation(
         Dictionary<string, Builder> builders,
         Dictionary<string, JsonValue> fields,
         AppendedEvent appended)
     {
         if (!Str(fields, AgentIdField, out var agentId)) return;
+        if (!Str(fields, OwnerIdField, out var ownerId)) return;
         if (!Bool(fields, OwnerVerifiedField, out var ownerVerified)) return;
+        if (!Str(fields, MethodField, out var method)) return;
+        if (!OwnerVerificationMethods.Parse(method).TryGetValue(out _, out _)) return;
 
         var builder = For(builders, agentId);
+
+        // R4.1: the binding is immutable. AttestOwner refuses a different owner before anything is
+        // appended; this is the same rule applied to whatever the log turns out to hold, so a stray
+        // event cannot re-home an agent on replay.
+        if (builder.OwnerId is null)
+            builder.OwnerId = ownerId;
+        else if (!string.Equals(builder.OwnerId, ownerId, StringComparison.Ordinal))
+            return;
+
         builder.OwnerVerified = ownerVerified;
         builder.NoteCountableCriteria(appended.ServerTimestamp.Value);
     }
@@ -421,6 +468,8 @@ public static class AgentStandingProjector
 
         public DateTimeOffset? EnrolledAt { get; set; }
 
+        public string? OwnerId { get; set; }
+
         public bool OwnerVerified { get; set; }
 
         public int CleanQuestions { get; set; }
@@ -449,6 +498,7 @@ public static class AgentStandingProjector
             AgentId,
             [.. Credentials],
             EnrolledAt,
+            OwnerId,
             OwnerVerified,
             CleanQuestions,
             AcceptedAnswers,

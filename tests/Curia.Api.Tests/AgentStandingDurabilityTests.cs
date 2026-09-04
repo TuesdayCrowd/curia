@@ -50,10 +50,9 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
         return json.RootElement.GetProperty("post_id").GetString()!;
     }
 
-    private static async Task<DateTimeOffset> EnrollAsync(
-        ForumAgent agent, HttpClient http, bool ownerVerified, CancellationToken ct)
+    private static async Task<DateTimeOffset> EnrollAsync(ForumAgent agent, HttpClient http, CancellationToken ct)
     {
-        using var response = await agent.EnrollAsync(http, ct, ownerVerified);
+        using var response = await agent.EnrollAsync(http, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
@@ -87,6 +86,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
         var agent = NewAgent();
 
         var (dpop, token) = await agent.AuthenticateAsync(http, TokenEndpoint, forum.Now, ct);
+        await forum.AttestOwnerAsync(agent.AgentId, ct);
 
         // Table 11's T1 row: three questions with no upheld flags, owner verified, 48 hours.
         var questionIds = new List<string>();
@@ -129,34 +129,35 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
         var http = forum.Client;
         var agent = NewAgent();
 
-        var first = await EnrollAsync(agent, http, ownerVerified: true, ct);
+        var first = await EnrollAsync(agent, http, ct);
 
         forum.Clock.Advance(TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1));
-        var second = await EnrollAsync(agent, http, ownerVerified: true, ct);
+        var second = await EnrollAsync(agent, http, ct);
 
         Assert.Equal(first, second);
         Assert.NotEqual(forum.Now, second);
     }
 
     /// <summary>
-    /// Owner verification genuinely changes, so it has an event of its own -- and granting it
-    /// later takes effect on the next request (R4.22's shape, one layer up: the PDP is consulted
-    /// per request against a fresh projection, so there is no cached tier to invalidate).
+    /// R4.30: owner verification is an operator's attestation, recorded after enrollment -- and it
+    /// takes effect on the next request (R4.22's shape, one layer up: the PDP is consulted per
+    /// request against a fresh projection, so there is no cached tier to invalidate).
     ///
     /// <para>Asserted through the tier rather than by reading a field back, because what matters is
-    /// that the flag changes an authorization outcome: the same agent, with the same tenure and the
-    /// same three questions, is refused <c>answer:create</c> before verification and allowed it
-    /// after.</para>
+    /// that the fact changes an authorization outcome: the same agent, with the same tenure and the
+    /// same three questions, is refused <c>answer:create</c> before the attestation and allowed it
+    /// after. Nothing the agent sends can produce the second outcome; the fixture's attestation is
+    /// what does.</para>
     /// </summary>
     [Fact]
-    public async Task OwnerVerificationGrantedLaterTakesEffect()
+    public async Task R4_30_AnOperatorsAttestationTakesEffectOnTheNextRequest()
     {
         var ct = TestContext.Current.CancellationToken;
         var http = forum.Client;
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         var agent = NewAgent();
 
-        var enrolledAt = await EnrollAsync(agent, http, ownerVerified: false, ct);
+        var enrolledAt = await EnrollAsync(agent, http, ct);
         var dpop = DpopClient.For(agent, agent.AssertionKey);
         var token = await dpop.GetTokenAsync(http, TokenEndpoint, forum.Now, ct);
 
@@ -183,8 +184,10 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
                 StringComparison.Ordinal);
         }
 
-        // The owner completes verification. The enrollment instant is untouched by it.
-        Assert.Equal(enrolledAt, await EnrollAsync(agent, http, ownerVerified: true, ct));
+        // An operator attests the owner. The enrollment instant is untouched by it, and a repeat
+        // enrollment afterwards reports both facts as the log holds them.
+        await forum.AttestOwnerAsync(agent.AgentId, ct);
+        Assert.Equal(enrolledAt, await EnrollAsync(agent, http, ct));
 
         using var allowed = await dpop.PostAsync(
             http, PostsUrl, afterWaiting,
@@ -210,8 +213,9 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
         var verified = NewAgent();
         var unverified = NewAgent();
 
-        await EnrollAsync(verified, http, ownerVerified: true, ct);
-        await EnrollAsync(unverified, http, ownerVerified: false, ct);
+        await EnrollAsync(verified, http, ct);
+        await forum.AttestOwnerAsync(verified.AgentId, ct);
+        await EnrollAsync(unverified, http, ct);
 
         await AskOneQuestionAsync(verified, http, board, ct);
         await AskOneQuestionAsync(unverified, http, board, ct);
@@ -225,5 +229,40 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
 
         Assert.True(byAuthor[verified.AgentId]);
         Assert.False(byAuthor[unverified.AgentId]);
+    }
+
+    /// <summary>
+    /// Errata G5 / plan D2, watched on the path an attacker would use: a request body that says
+    /// <c>owner_verified: true</c> enrols the agent and verifies nobody. The receipt says so at
+    /// once, and the served envelope says so on every post.
+    /// </summary>
+    [Fact]
+    public async Task G5_ARequestBodyClaimingOwnerVerificationVerifiesNobody()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var agent = NewAgent();
+
+        using var response = await http.PostAsJsonAsync("/v1/agents", new
+        {
+            agent_id = agent.AgentId,
+            kid = agent.Kid,
+            alg = "ES256",
+            public_key = agent.PublicKeyBase64,
+            owner_verified = true,
+        }, ct);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var receipt = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        Assert.False(receipt.RootElement.GetProperty("owner_verified").GetBoolean());
+
+        await AskOneQuestionAsync(agent, http, board, ct);
+
+        var listed = await http.GetFromJsonAsync<JsonElement>($"/v1/boards/{board}/posts", ct);
+        var envelope = Assert.Single(listed.EnumerateArray()).GetProperty("provenance");
+
+        Assert.Equal(agent.AgentId, envelope.GetProperty("author").GetString());
+        Assert.False(envelope.GetProperty("owner_verified").GetBoolean());
     }
 }

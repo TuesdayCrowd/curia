@@ -79,7 +79,7 @@ internal static class Program
 
     private static async Task<int> EnrolAsync(Args args, CancellationToken ct)
     {
-        if (args.Unknown(["agent", "agent-id", "kid", "forum", "owner-verified", "no-owner-verified"]) is { } bad)
+        if (args.Unknown(["agent", "agent-id", "kid", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
 
         if (args.Value("agent") is not { Length: > 0 } slug)
@@ -95,8 +95,6 @@ internal static class Program
         // collision essentially impossible without asking the operator to invent one.
         var kid = args.Value("kid") ?? $"{slug}-{Guid.NewGuid().ToString("N")[..8]}";
 
-        var ownerVerified = !args.Has("no-owner-verified");
-
         var store = ProfileStore.Default();
         if (!store.Create(slug, agentId, kid, forum).TryGetValue(out var agent, out var createError))
             return Output.Fail($"error: {createError!.Title}" + Detail(createError.Detail), ExitCode.Local);
@@ -106,7 +104,7 @@ internal static class Program
             using var http = HttpFor(forum);
             var client = new ForumClient(http, forum);
 
-            var result = await client.EnrolAsync(agent, ownerVerified, ct).ConfigureAwait(false);
+            var result = await client.EnrolAsync(agent, ct).ConfigureAwait(false);
             if (!result.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
 
             store.RecordEnrollment(agent.Profile, receipt.EnrolledAt);
@@ -115,6 +113,13 @@ internal static class Program
             Output.Line($"kid       {receipt.Kid}");
             Output.Line($"at        {receipt.EnrolledAt}");
             Output.Line($"forum     {forum}");
+
+            // R4.30: said here because nothing the agent can send changes it, and an agent that
+            // learns it two days later, by being refused an answer, has no way to tell that refusal
+            // from a tenure it has not yet earned.
+            Output.Line(receipt.OwnerVerified
+                ? "owner     verified"
+                : "owner     NOT verified -- the Forum's operator must attest your owner before T1 (answer, vote) is reachable");
             Output.Line($"keys      {store.DirectoryFor(slug)}  (mode 0600)");
             Output.Blank();
             Output.Line(Help.TierReminder);

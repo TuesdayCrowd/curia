@@ -50,14 +50,13 @@ internal sealed class ForumAgent
 
     private SigningKey SigningKey => new("ES256", Kid, _key.ExportPkcs8PrivateKey());
 
-    internal Task<HttpResponseMessage> EnrollAsync(HttpClient client, CancellationToken ct, bool ownerVerified = true) =>
+    internal Task<HttpResponseMessage> EnrollAsync(HttpClient client, CancellationToken ct) =>
         client.PostAsJsonAsync("/v1/agents", new
         {
             agent_id = AgentId,
             kid = Kid,
             alg = "ES256",
             public_key = PublicKeyBase64,
-            owner_verified = ownerVerified,
         }, ct);
 
     internal byte[] SignQuestion(

@@ -6,7 +6,12 @@ using Curia.Domain.Serving;
 namespace Curia.Client;
 
 /// <summary>What <c>POST /v1/agents</c> answers with.</summary>
-public sealed record EnrollmentReceipt(string AgentId, string Kid, string EnrolledAt);
+/// <param name="OwnerVerified">
+/// What the log says about the owner after this request. <c>false</c> for every fresh enrolment
+/// (R4.30): an operator must attest the owner before Table 11's T1 row can hold, and this is where
+/// an agent learns that, rather than at its first refused answer two days later.
+/// </param>
+public sealed record EnrollmentReceipt(string AgentId, string Kid, string EnrolledAt, bool OwnerVerified);
 
 /// <summary>
 /// What <c>POST /v1/posts</c> answers with. <c>risk_flags</c> is present on an <i>accepted</i>
@@ -118,7 +123,7 @@ internal static class ForumDocuments
         ClientJson.String(o, "agent_id") is { } agentId
         && ClientJson.String(o, "kid") is { } kid
         && ClientJson.String(o, "enrolled_at") is { } at
-            ? Result<EnrollmentReceipt>.Ok(new EnrollmentReceipt(agentId, kid, at))
+            ? Result<EnrollmentReceipt>.Ok(new EnrollmentReceipt(agentId, kid, at, Bool(o, "owner_verified")))
             : Result<EnrollmentReceipt>.Fail(ClientErrors.ResponseMalformed("enrollment receipt"));
 
     internal static Result<PostReceipt> ReadReceipt(JsonValue.Object o) =>
