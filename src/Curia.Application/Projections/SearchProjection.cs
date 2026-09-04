@@ -88,6 +88,10 @@ public static class SearchProjector
         if (value is not JsonValue.Object root) return null;
         if (!PostEnvelope.Read(root).TryGetValue(out var envelope, out _)) return null;
 
+        // A vote is never served before its epoch is sealed (R8.55) and a verification report is
+        // read on its result's envelope, not found by keyword; neither is discussion (R8.59).
+        if (!PostKinds.IsDiscussion(envelope!.Kind)) return null;
+
         // A payload nothing can parse is skipped rather than thrown. Nothing should be able to put
         // one in the log -- PERSIST writes only what VERIFY consumed -- but a projection that threw
         // would take down every read path over one bad row, and R11.9's replay would stop at it
@@ -95,7 +99,7 @@ public static class SearchProjector
         return new SearchablePost(
             postId,
             digest,
-            envelope!.Board,
+            envelope.Board,
             envelope.Kind,
             envelope.Title,
             envelope.Body,

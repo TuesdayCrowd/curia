@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using Curia.Domain.Content;
+using Curia.Domain.Primitives;
 
 namespace Curia.Application.Projections;
 
@@ -67,20 +69,8 @@ public sealed record CitationState(
 /// </summary>
 public static class CitationCheck
 {
-    /// <summary>The digest spelling the Forum serves: <c>sha256:</c> and 64 lowercase hex characters (D9.6 records the fixtures' prefix-less form as the other encoding in circulation).</summary>
-    public static bool IsDigest(string? value)
-    {
-        const string prefix = "sha256:";
-        if (value is null || value.Length != prefix.Length + 64) return false;
-        if (!value.StartsWith(prefix, StringComparison.Ordinal)) return false;
-
-        foreach (var c in value.AsSpan(prefix.Length))
-        {
-            if (!(c is >= '0' and <= '9' or >= 'a' and <= 'f')) return false;
-        }
-
-        return true;
-    }
+    /// <summary>The digest spelling the Forum serves: <see cref="EnvelopeDigest.IsPrefixedForm"/>.</summary>
+    public static bool IsDigest(string? value) => EnvelopeDigest.IsPrefixedForm(value);
 
     /// <summary>
     /// The state of one cited element.
@@ -105,7 +95,11 @@ public static class CitationCheck
             .ToImmutableArray();
 
         var post = posts.FirstOrDefault(p => string.Equals(p.Digest, digest, StringComparison.Ordinal));
-        if (post is null)
+
+        // A vote is never served to readers before its epoch is sealed (R8.55), and there is no
+        // sealing yet, so its digest answers as no served post bears it. The voter holds its own
+        // vote; nobody else learns of it through this route.
+        if (post is null || !PostKinds.TryParse(post.Kind, out var kind) || !PostKinds.IsServedToReaders(kind))
             return new CitationState(digest, CitationStatus.Unknown, successors, null);
 
         if (!servable(post.PostId))

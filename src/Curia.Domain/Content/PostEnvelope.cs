@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Canon.Json;
 using Curia.Domain.Primitives;
+using Curia.Domain.Verification;
 
 namespace Curia.Domain.Content;
 
@@ -46,8 +47,18 @@ public sealed record PostEnvelope(
     string ContentType,
     DateTimeOffset CreatedAt,
     string Nonce,
-    string? ModelHint)
+    string? ModelHint,
+    string? Target = null,
+    bool? Endorse = null,
+    int? PredictedEndorsementBp = null,
+    long? Epoch = null,
+    string? Method = null,
+    VerificationResult? Result = null,
+    string? ArtifactDigest = null)
 {
+    /// <summary>R8.29 / R6.33: the meta-prediction is an integer in basis points, inclusive both ends.</summary>
+    public const int MaximumPredictedEndorsementBp = 10_000;
+
     /// <summary>
     /// Table 9: <c>content_type</c> is "Always <c>agent-authored/untrusted</c> -- see §10.6". A
     /// constant rather than a field the author chooses, because §10.6's provenance envelope makes
@@ -87,8 +98,12 @@ public sealed record PostEnvelope(
         if (!TryString(fields, "board", out var board) || board.Length == 0)
             return Fail(ContentErrors.MissingOrInvalid("board"));
 
-        if (!TryString(fields, "body", out var body))
+        // Table 9's body, required for every discussion kind and for a verification report; a vote
+        // has none (PostKinds.RequiresBody). Absent reads as empty for the one kind that allows it.
+        var hasBody = TryString(fields, "body", out var body);
+        if (PostKinds.RequiresBody(kind) && !hasBody)
             return Fail(ContentErrors.MissingOrInvalid("body"));
+        if (!hasBody) body = string.Empty;
 
         if (!TryString(fields, "content_type", out var contentType) || contentType != RequiredContentType)
             return Fail(ContentErrors.MissingOrInvalid("content_type"));
@@ -114,6 +129,73 @@ public sealed record PostEnvelope(
         if (!PostKinds.RequiresParent(kind) && parent is not null)
             return Fail(ContentErrors.ParentNotAllowed(kind));
 
+        var codeBlocks = ReadCodeBlocks(fields);
+        var refs = ReadRefs(fields);
+
+        // R8.55 / R8.56 (errata G8): a vote and a verification name their subject by envelope
+        // digest, and each carries what its kind is for. Checked here, once, for the reason the
+        // title and parent rules are: a second reader of these members is how they drift.
+        string? target = null;
+        bool? endorse = null;
+        int? predictedBp = null;
+        long? epoch = null;
+        string? method = null;
+        VerificationResult? result = null;
+        string? artifactDigest = null;
+
+        if (PostKinds.RequiresTarget(kind))
+        {
+            if (!TryString(fields, "target", out var targetWire) || !EnvelopeDigest.IsPrefixedForm(targetWire))
+                return Fail(ContentErrors.TargetRequired(kind));
+            target = targetWire;
+        }
+
+        if (kind is PostKind.Vote)
+        {
+            if (!TryBool(fields, "endorse", out var endorseValue))
+                return Fail(ContentErrors.MissingOrInvalid("endorse"));
+            endorse = endorseValue;
+
+            // Rejected, never clamped: Appendix K says a vote without a meta-prediction is
+            // rejected, and a clamped one is a meta-prediction nobody made. R6.33 bounds numbers
+            // only at ±(2^53−1); the basis-point range is this kind's own rule.
+            if (!TryInt(fields, "predicted_endorsement_bp", out var bp)
+                || bp < 0 || bp > MaximumPredictedEndorsementBp)
+                return Fail(ContentErrors.PredictedEndorsementOutOfRange());
+            predictedBp = bp;
+
+            // R8.49's epoch, named by the voter so R8.50's "addressed to a sealed epoch" is a claim
+            // the signature covers. Recorded from the first vote; sealing itself is Stage 4's.
+            if (!TryLong(fields, "epoch", out var epochValue) || epochValue < 0)
+                return Fail(ContentErrors.MissingOrInvalid("epoch"));
+            epoch = epochValue;
+        }
+
+        if (kind is PostKind.Verification)
+        {
+            if (!TryString(fields, "method", out var methodValue) || string.IsNullOrWhiteSpace(methodValue))
+                return Fail(ContentErrors.MethodRequired());
+            method = methodValue;
+
+            if (!TryString(fields, "result", out var resultWire)
+                || !VerificationResults.Parse(resultWire).TryGetValue(out var parsedResult, out _))
+                return Fail(ContentErrors.ResultInvalid());
+            result = parsedResult;
+
+            // Table 13's "with evidence", R8.56: prose alone is an assertion, and a 6.7× ranking
+            // swing on an assertion is a demotion primitive. The same bar for both results, because
+            // V2 is a 2.0× promotion on one report.
+            if (refs.IsEmpty && codeBlocks.IsEmpty)
+                return Fail(ContentErrors.EvidenceRequired());
+
+            if (OptionalString(fields, "artifact_digest") is { } artifact)
+            {
+                if (!EnvelopeDigest.IsPrefixedForm(artifact))
+                    return Fail(ContentErrors.MissingOrInvalid("artifact_digest"));
+                artifactDigest = artifact;
+            }
+        }
+
         return Result<PostEnvelope>.Ok(new PostEnvelope(
             v,
             kind,
@@ -123,13 +205,20 @@ public sealed record PostEnvelope(
             OptionalString(fields, "prev"),
             title,
             body,
-            ReadCodeBlocks(fields),
-            ReadRefs(fields),
+            codeBlocks,
+            refs,
             ReadTags(fields),
             contentType,
             createdAt,
             nonce,
-            OptionalString(fields, "model_hint")));
+            OptionalString(fields, "model_hint"),
+            target,
+            endorse,
+            predictedBp,
+            epoch,
+            method,
+            result,
+            artifactDigest));
     }
 
     private static Result<PostEnvelope> Fail(Error error) => Result<PostEnvelope>.Fail(error);
@@ -143,6 +232,30 @@ public sealed record PostEnvelope(
         }
 
         value = string.Empty;
+        return false;
+    }
+
+    private static bool TryBool(Dictionary<string, JsonValue> fields, string name, out bool value)
+    {
+        if (fields.TryGetValue(name, out var raw) && raw is JsonValue.Bool b)
+        {
+            value = b.Value;
+            return true;
+        }
+
+        value = false;
+        return false;
+    }
+
+    private static bool TryLong(Dictionary<string, JsonValue> fields, string name, out long value)
+    {
+        if (fields.TryGetValue(name, out var raw) && raw is JsonValue.Number n && n.Value == Math.Floor(n.Value))
+        {
+            value = (long)n.Value;
+            return true;
+        }
+
+        value = 0;
         return false;
     }
 

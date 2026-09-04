@@ -55,4 +55,34 @@ public static class ContentErrors
     public static Error AuthorIsNotThePrincipal() => new(
         "curia/content/author-principal-mismatch",
         "The envelope's author does not match the authenticated principal");
+
+    /// <summary>R8.55 / R8.56: a vote or verification names its subject by envelope digest, in the served form.</summary>
+    public static Error TargetRequired(PostKind kind) => new(
+        "curia/content/target-required",
+        "This kind must name its target as an envelope digest (sha256: and 64 lowercase hex characters)",
+        PostKinds.Wire(kind));
+
+    /// <summary>R8.29 / R6.33: an integer in [0, 10000], rejected rather than clamped.</summary>
+    public static Error PredictedEndorsementOutOfRange() => new(
+        "curia/content/predicted-endorsement-out-of-range",
+        "predicted_endorsement_bp must be an integer in basis points, 0 to 10000 inclusive",
+        "predicted_endorsement_bp");
+
+    /// <summary>R8.56: a report says how it checked.</summary>
+    public static Error MethodRequired() => new(
+        "curia/content/method-required",
+        "A verification must state its method",
+        "method");
+
+    /// <summary>R8.56: <c>result</c> is one of <c>reproduced</c> or <c>contradicted</c>.</summary>
+    public static Error ResultInvalid() => new(
+        "curia/content/result-invalid",
+        "A verification's result must be 'reproduced' or 'contradicted'",
+        "result");
+
+    /// <summary>Table 13's "with evidence" (R8.56): refs or code blocks; prose alone is an assertion.</summary>
+    public static Error EvidenceRequired() => new(
+        "curia/content/evidence-required",
+        "A verification must carry evidence: at least one reference or code block",
+        "refs, code_blocks");
 }

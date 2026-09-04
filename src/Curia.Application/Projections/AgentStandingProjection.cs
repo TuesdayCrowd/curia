@@ -293,8 +293,15 @@ public static class AgentStandingProjector
     /// nothing, which is exactly what Table 11's lowest row being "entered by enrollment"
     /// means.</para>
     /// </summary>
+    /// <param name="standings">The fold.</param>
+    /// <param name="agentId">The agent.</param>
+    /// <param name="verifiedFindings">
+    /// Table 11's "≥ 1 verified finding" (R7.19), from <see cref="VerificationProjector.VerifiedFindingsBy"/>.
+    /// Not folded here because it needs the verification read model; until Stage 3 nothing
+    /// populated it at all, and T2's disjunction ran on one arm.
+    /// </param>
     public static Result<PostureFacts> PostureOf(
-        IReadOnlyDictionary<string, AgentStanding> standings, string agentId)
+        IReadOnlyDictionary<string, AgentStanding> standings, string agentId, int verifiedFindings = 0)
     {
         ArgumentNullException.ThrowIfNull(standings);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
@@ -313,7 +320,8 @@ public static class AgentStandingProjector
                 OwnerVerified: standing.OwnerVerified,
                 QuestionsWithoutUpheldFlags: standing.QuestionsWithoutUpheldFlags,
                 AcceptedAnswers: standing.AcceptedAnswers,
-                UpheldFlags: standing.UpheldFlags));
+                UpheldFlags: standing.UpheldFlags,
+                VerifiedFindings: verifiedFindings));
     }
 
     private static void ApplyEnrollment(
