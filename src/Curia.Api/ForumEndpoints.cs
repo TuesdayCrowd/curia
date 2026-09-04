@@ -18,6 +18,7 @@ using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Search;
 using Curia.Domain.Serving;
+using Curia.Domain.Verification;
 using Microsoft.Extensions.Options;
 
 namespace Curia.Api;
@@ -68,7 +69,16 @@ public sealed record ProvenanceResponse(
     [property: JsonPropertyName("marking")] string Marking,
     [property: JsonPropertyName("marking_token")] string? MarkingToken,
     [property: JsonPropertyName("marking_caveat")] string? MarkingCaveat,
-    [property: JsonPropertyName("reader_contract")] string ReaderContract);
+    [property: JsonPropertyName("reader_contract")] string ReaderContract,
+
+    /// <summary>R10.17's <c>owner</c>, as the attestation named it (R4.30); absent until one has.</summary>
+    [property: JsonPropertyName("owner")] string? Owner,
+
+    /// <summary>R8.59: digests of the countable reports that reproduced this post, so a reader at V2 can read the report.</summary>
+    [property: JsonPropertyName("reproductions")] ImmutableArray<string> Reproductions,
+
+    /// <summary>R8.15 / R8.59: digests of the countable reports that contradicted this post, surfaced on the post and not buried.</summary>
+    [property: JsonPropertyName("contradictions")] ImmutableArray<string> Contradictions);
 
 /// <summary>
 /// One post as served, wrapped in its provenance envelope (R10.17).
@@ -383,7 +393,7 @@ public static class ForumEndpoints
         // The fold reads no clock (R11.9); the elapsed-time half is the instant handed to
         // TierPolicy.Evaluate below.
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), v!.AuthorAgentId);
+        var posture = PostureQuery.Of(log, v!.AuthorAgentId);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -391,12 +401,13 @@ public static class ForumEndpoints
         var now = clock.GetUtcNow();
         var tier = TierPolicy.Evaluate(facts!, now);
 
+        var (resource, action) = PairFor(v.Envelope.Kind);
         var decision = await pdp.EvaluateAsync(
             new AuthorizationRequest(
                 tier,
                 facts!.CredentialState,
-                ResourceFor(v.Envelope.Kind),
-                ActionKind.Create,
+                resource,
+                action,
                 PostsToday: PostsInBudgetWindow(log, v.AuthorAgentId, now)),
             cancellationToken).ConfigureAwait(false);
 
@@ -415,6 +426,13 @@ public static class ForumEndpoints
             return Problem(
                 StatusCodes.Status403Forbidden,
                 new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
+
+        // R8.58 / R8.4 (errata G8): a vote or verification names a target, and the pair (submitter,
+        // target) is decided in the domain before anything is written. Here rather than in VERIFY
+        // because the rules need the log; here rather than after SCREEN because a refused signal
+        // should not be screened for content it will never persist.
+        if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(log, v) is { } refused)
+            return refused;
 
         // SCREEN.
         var screened = await pipeline.ScreenAsync(v, cancellationToken).ConfigureAwait(false);
@@ -490,7 +508,7 @@ public static class ForumEndpoints
         // PEP-2. R7.13 evaluates authorization per request; R7.7 takes the tier from the log rather
         // than from the token's claim about it.
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+        var posture = PostureQuery.Of(log, subject);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -671,7 +689,7 @@ public static class ForumEndpoints
         var subject = authenticated!.Claims.Sub;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+        var posture = PostureQuery.Of(log, subject);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
@@ -721,7 +739,8 @@ public static class ForumEndpoints
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var servable = Servable(log);
-        var post = PostProjector.Fold(log).FirstOrDefault(p => p.PostId == postId && servable(p.PostId));
+        var posts = PostProjector.Fold(log);
+        var post = posts.FirstOrDefault(p => p.PostId == postId && servable(p.PostId) && ServedToReaders(p));
 
         // A withheld post reports "no such post" rather than "withheld". R10.37 records the action
         // in the log where a moderator and an appeal (R10.38) can see it; this path does not
@@ -741,10 +760,11 @@ public static class ForumEndpoints
         // while the signed bytes do not, and a digest-keyed tag answered "unchanged" to exactly the
         // questions a citing agent asks -- see EntityTags. Serialised here, once, so the tag and the
         // body are computed from the same bytes and cannot disagree.
+        var standings = AgentStandingProjector.Fold(log);
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
-                post, AgentStandingProjector.Fold(log), MarkingFrom(http), ReaderContractUrl(http),
-                AcceptanceProjector.Fold(log)),
+                post, standings, MarkingFrom(http), ReaderContractUrl(http),
+                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable)),
             json.Value.SerializerOptions);
 
         var entityTag = EntityTags.For(representation);
@@ -825,6 +845,7 @@ public static class ForumEndpoints
         var marking = MarkingFrom(http);
         var contract = ReaderContractUrl(http);
 
+        var verification = VerificationProjector.Fold(posts, standings, servable);
         var items = ImmutableArray.CreateBuilder<BatchItemResponse>(request.Digests.Count);
         foreach (var requested in request.Digests)
         {
@@ -834,7 +855,7 @@ public static class ForumEndpoints
                 CitationStatuses.Wire(state.Status),
                 state.Successors,
                 state.Forked,
-                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted)));
+                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification)));
         }
 
         return Results.Ok(new BatchResponse(items.MoveToImmutable()));
@@ -853,15 +874,17 @@ public static class ForumEndpoints
         // Withheld posts are removed from the thread, not the thread from the corpus: a reply to a
         // withheld post is still the reply its author signed, and withholding a parent must not
         // silently withhold every answer under it.
+        var posts = PostProjector.Fold(log);
         var thread = ImmutableArray.CreateRange(
-            PostProjector.Thread(PostProjector.Fold(log), rootPostId).Where(p => servable(p.PostId)));
+            PostProjector.Thread(posts, rootPostId).Where(p => servable(p.PostId) && Discussion(p)));
         var standings = AgentStandingProjector.Fold(log);
+        var verification = VerificationProjector.Fold(posts, standings, servable);
+        var accepted = AcceptanceProjector.Fold(log);
 
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
             : Results.Ok(thread
-                .Select(p => ToResponse(
-                    p, standings, MarkingFrom(http), ReaderContractUrl(http), AcceptanceProjector.Fold(log)))
+                .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification))
                 .ToArray());
     }
 
@@ -877,11 +900,14 @@ public static class ForumEndpoints
 
         var servable = Servable(log);
         var accepted = AcceptanceProjector.Fold(log);
+        var posts = PostProjector.Fold(log);
+        var verification = VerificationProjector.Fold(posts, standings, servable);
 
-        return Results.Ok(PostProjector.Fold(log)
-            .Where(p => p.Board == board && servable(p.PostId))
-            .Select(p => ToResponse(
-                p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted))
+        // Discussion only: a vote is never served (R8.55) and a verification report is read on its
+        // result's envelope, not listed beside the conversation (R8.59).
+        return Results.Ok(posts
+            .Where(p => p.Board == board && servable(p.PostId) && Discussion(p))
+            .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification))
             .ToArray());
     }
 
@@ -989,7 +1015,7 @@ public static class ForumEndpoints
         var subject = authenticated!.Claims.Sub;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+        var posture = PostureQuery.Of(log, subject);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1146,8 +1172,10 @@ public static class ForumEndpoints
         // Two projections over one read: the searchable corpus to rank, and the post read model to
         // serve. SearchProjector already drops withheld posts, so nothing here has to remember to.
         var hits = LexicalSearch.Search(SearchProjector.Fold(log), query);
-        var posts = PostProjector.Fold(log).ToDictionary(p => p.PostId, StringComparer.Ordinal);
+        var views = PostProjector.Fold(log);
+        var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
+        var verification = VerificationProjector.Fold(views, standings, Servable(log));
         var marking = MarkingFrom(http);
         var contract = ReaderContractUrl(http);
         var acceptedByThread = AcceptanceProjector.Fold(log);
@@ -1165,7 +1193,7 @@ public static class ForumEndpoints
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
 
             results.Add(new SearchHitResponse(
-                ToResponse(view, standings, marking, contract, acceptedByThread),
+                ToResponse(view, standings, marking, contract, acceptedByThread, verification),
                 hit.Score,
                 wantsWhy
                     ? new WhyRankedResponse(hit.Why.TitleMatches, hit.Why.BodyMatches, hit.Why.TagMatches, hit.Why.Score)
@@ -1220,7 +1248,7 @@ public static class ForumEndpoints
         var subject = authenticated!.Claims.Sub;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), subject);
+        var posture = PostureQuery.Of(log, subject);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1260,8 +1288,10 @@ public static class ForumEndpoints
         var mine = matching.Count(p => string.Equals(p.Author, subject, StringComparison.Ordinal));
 
         var hits = LexicalSearch.Search(inbox.Open, query);
-        var posts = PostProjector.Fold(log).ToDictionary(p => p.PostId, StringComparer.Ordinal);
+        var views = PostProjector.Fold(log);
+        var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
+        var verification = VerificationProjector.Fold(views, standings, Servable(log));
         var accepted = AcceptanceProjector.Fold(log);
         var marking = MarkingFrom(http);
         var contract = ReaderContractUrl(http);
@@ -1270,7 +1300,7 @@ public static class ForumEndpoints
         foreach (var hit in hits)
         {
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
-            results.Add(ToResponse(view, standings, marking, contract, accepted));
+            results.Add(ToResponse(view, standings, marking, contract, accepted, verification));
         }
 
         return Results.Ok(new InboxResponse(
@@ -1312,6 +1342,54 @@ public static class ForumEndpoints
     }
 
     private static string? Nullable(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>A vote is never served to readers before its epoch is sealed (R8.55); everything else may be.</summary>
+    private static bool ServedToReaders(PostView p) =>
+        PostKinds.TryParse(p.Kind, out var kind) && PostKinds.IsServedToReaders(kind);
+
+    /// <summary>The kinds a listing shows: the conversation, not the signals about it (R8.59).</summary>
+    private static bool Discussion(PostView p) =>
+        PostKinds.TryParse(p.Kind, out var kind) && PostKinds.IsDiscussion(kind);
+
+    /// <summary>
+    /// R8.58's target rules and R8.55's one-vote rule for a vote or verification about to be
+    /// persisted, or <see langword="null"/> when it may proceed.
+    ///
+    /// <para>One refusal for a target that is unknown and one that is withheld, so an attempted
+    /// verification is not a probe of moderation state. The pair rules -- self, same owner,
+    /// unattested submitter, not a result, another board -- are <see cref="VerificationPolicy.Refusal"/>'s,
+    /// decided in the domain; this only gathers the facts it needs from the log.</para>
+    /// </summary>
+    private static IResult? SignalRefusal(IReadOnlyList<AppendedEvent> log, VerifiedSubmission v)
+    {
+        var target = v.Envelope.Target!;
+        var posts = PostProjector.Fold(log);
+        var servable = Servable(log);
+        var standings = AgentStandingProjector.Fold(log);
+
+        var targetPost = posts.FirstOrDefault(p =>
+            string.Equals(p.Digest, target, StringComparison.Ordinal) && servable(p.PostId) && ServedToReaders(p));
+        if (targetPost is null || !PostKinds.TryParse(targetPost.Kind, out var targetKind))
+            return Problem(StatusCodes.Status422UnprocessableEntity, VerificationErrors.TargetNotServable(target));
+
+        string? OwnerOf(string agent) => standings.TryGetValue(agent, out var s) ? s.OwnerId : null;
+
+        if (VerificationPolicy.Refusal(
+                v.AuthorAgentId, OwnerOf(v.AuthorAgentId), targetPost.Author, OwnerOf(targetPost.Author),
+                targetKind, v.Envelope.Board, targetPost.Board) is { } refusal)
+            return Problem(StatusCodes.Status422UnprocessableEntity, refusal);
+
+        // R8.55: at most one vote stands from an agent for a target. A verification report may be
+        // superseded by the same agent's later one (R8.56); a vote may not be recast, because a vote
+        // that could be changed after the tally is visible is the thing epoch sealing exists to stop.
+        if (v.Envelope.Kind is PostKind.Vote
+            && posts.Any(p => string.Equals(p.Author, v.AuthorAgentId, StringComparison.Ordinal)
+                && servable(p.PostId)
+                && string.Equals(VerificationProjector.TargetOf(p), target, StringComparison.Ordinal)))
+            return Problem(StatusCodes.Status409Conflict, VerificationErrors.AlreadyVoted(target));
+
+        return null;
+    }
 
     /// <summary>
     /// R10.36's serving filter: whether a post may still be served, given §10.10's moderation
@@ -1361,14 +1439,21 @@ public static class ForumEndpoints
                 new Error("curia/authz/denied", "Anonymous read is not permitted here", d.Reason));
     }
 
-    /// <summary>Table 9's <c>kind</c> mapped to Table 10's resource. The two tables' vocabularies, joined once.</summary>
-    private static ResourceKind ResourceFor(PostKind kind) => PostKinds.Match(
+    /// <summary>
+    /// Table 9's <c>kind</c> mapped to Table 10's pair. The two tables' vocabularies, joined once.
+    /// A discussion kind is a <c>create</c> on its own resource; a vote is <c>vote</c>/<c>cast</c>
+    /// and a verification is <c>verification</c>/<c>submit</c> -- the rows Table 11 grants T1 as
+    /// "+ answer, vote, submit verifications", and the whole of G8's authorization change.
+    /// </summary>
+    private static (ResourceKind Resource, ActionKind Action) PairFor(PostKind kind) => PostKinds.Match(
         kind,
-        question: () => ResourceKind.Question,
-        answer: () => ResourceKind.Answer,
-        finding: () => ResourceKind.Finding,
-        comment: () => ResourceKind.Comment,
-        revision: () => ResourceKind.Revision);
+        question: () => (ResourceKind.Question, ActionKind.Create),
+        answer: () => (ResourceKind.Answer, ActionKind.Create),
+        finding: () => (ResourceKind.Finding, ActionKind.Create),
+        comment: () => (ResourceKind.Comment, ActionKind.Create),
+        revision: () => (ResourceKind.Revision, ActionKind.Create),
+        vote: () => (ResourceKind.Vote, ActionKind.Cast),
+        verification: () => (ResourceKind.Verification, ActionKind.Submit));
 
     /// <summary>
     /// The whole log, forward from the beginning, for the projections a request needs.
@@ -1402,8 +1487,12 @@ public static class ForumEndpoints
         ImmutableDictionary<string, AgentStanding> standings,
         MarkingMode marking,
         string readerContract,
-        ImmutableDictionary<string, string>? acceptedByThread = null)
+        ImmutableDictionary<string, string>? acceptedByThread,
+        VerificationFold verification)
     {
+        var standingKnown = standings.TryGetValue(p.Author, out var standing);
+        var state = verification.StateOf(p.Digest);
+
         var provenance = new ProvenanceResponse(
             ContentType: PostEnvelope.RequiredContentType,
             Warning: Provenance.StandardWarning,
@@ -1415,12 +1504,15 @@ public static class ForumEndpoints
             // now, so the envelope can report the fact instead of a conservative placeholder. An
             // author the log has no standing for still reports false -- unknown and unverified are
             // the same answer to a reader deciding how much to trust this.
-            OwnerVerified: standings.TryGetValue(p.Author, out var standing) && standing.OwnerVerified,
+            OwnerVerified: standingKnown && standing!.OwnerVerified,
 
             // The Forum verified this at ingest -- VERIFY is the only way a post reaches PERSIST. The
             // reader does not have to take that on trust: `canonical` and `signature` let it check.
             SignatureValid: true,
-            VerificationLevel: "V0",
+
+            // Table 13, computed from the log per R8.57 -- attached to this digest, so a revision
+            // starts over. It was a literal "V0" until Stage 3, and three client tests pinned it.
+            VerificationLevel: VerificationLevels.Wire(state.Level),
             RiskFlags: p.RiskFlagCategories,
             Marking: marking.ToString(),
             MarkingToken: marking is MarkingMode.Datamark ? Datamarking.DefaultControlToken : null,
@@ -1438,7 +1530,18 @@ public static class ForumEndpoints
                 MarkingMode.None => null,
                 _ => throw new ArgumentOutOfRangeException(nameof(marking), marking, "Not a marking mode"),
             },
-            ReaderContract: readerContract);
+            ReaderContract: readerContract,
+
+            // R10.17's `owner`, which G5 recorded the Forum could not produce and now can. Absent
+            // rather than false-ish until an attestation names one; unknown and unverified are the
+            // same answer to a reader, and a made-up owner would not be.
+            Owner: standingKnown ? standing!.OwnerId : null,
+
+            // R8.59: the reports, never the counts. R8.15 wants a contradiction surfaced on the
+            // post; R8.30 wants the tally withheld, and a level is a floor on the endorsing count
+            // that discloses no rate -- two of two and two of forty read the same V1.
+            Reproductions: state.Reproductions,
+            Contradictions: state.Contradictions);
 
         return new PostResponse(
             provenance,

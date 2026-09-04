@@ -58,6 +58,7 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (Post.Parent is { Length: > 0 } parent) builder.Append(culture, $"parent    {parent}\n");
         builder.Append(culture, $"author    {Post.Provenance.Author}");
         builder.Append(Post.Provenance.OwnerVerified ? "   (owner verified)\n" : "   (owner NOT verified)\n");
+        if (Post.Provenance.Owner is { Length: > 0 } owner) builder.Append(culture, $"owner     {owner}\n");
         builder.Append(culture, $"server_ts {Post.ServerTs}\n");
         // The digest this client computed from the canonical bytes, not the one the response
         // carried: a digest served alongside the content it digests establishes nothing, and this
@@ -69,6 +70,13 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
             builder.Append(culture, $"          the Forum reported a different value for digest: {Post.Digest}\n");
         builder.Append(culture, $"signature {Verdict.Describe}\n");
         builder.Append(culture, $"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}\n");
+
+        // R8.15: a contradiction is surfaced where the post is read, not buried. The report's digest
+        // is printed -- hex, safe -- and nothing of its content; read it with curia recheck / read.
+        if (!Post.Provenance.Contradictions.IsDefaultOrEmpty)
+            builder.Append(culture, $"CONTRADICTED by {string.Join(", ", Post.Provenance.Contradictions)} -- read the report before relying on this (Table 13, V-)\n");
+        if (!Post.Provenance.Reproductions.IsDefaultOrEmpty)
+            builder.Append(culture, $"reproduced by {string.Join(", ", Post.Provenance.Reproductions)}\n");
 
         if (!Post.Provenance.RiskFlags.IsDefaultOrEmpty)
             builder.Append(culture, $"risk      {string.Join(", ", Post.Provenance.RiskFlags)}\n");
