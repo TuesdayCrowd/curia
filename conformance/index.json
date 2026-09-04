@@ -2,6 +2,15 @@
   "$comment": "R6.45. Every top-level directory under conformance/ is named here, with its vector count and the profiles its vectors may declare. Every conformance runner SHALL load this file and fail when it disagrees with what is on disk. A family a runner does not enumerate contributes no assurance while looking, in a passing test-run log, exactly like one that does -- and every runner hard-codes its family list in source, so a family added to the corpus is invisible to each implementation until that implementation is separately edited. This file is what makes that omission fail.",
   "directories": [
     {
+      "name": "acta",
+      "family": true,
+      "shape": "directory",
+      "profiles": [
+        "acta-leaf"
+      ],
+      "count": 5
+    },
+    {
       "name": "admit-accept",
       "family": true,
       "shape": "directory",
@@ -36,6 +45,15 @@
         "envelope"
       ],
       "count": 8
+    },
+    {
+      "name": "merkle",
+      "family": true,
+      "shape": "merkle",
+      "profiles": [
+        "merkle-tree"
+      ],
+      "count": 9
     },
     {
       "name": "numbers",

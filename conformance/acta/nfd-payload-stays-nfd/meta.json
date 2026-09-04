@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R6.46",
+  "note": "A payload string in NFD (e + U+0301). The leaf input is pure RFC 8785 with no Unicode normalization, so the decomposed form survives into the hashed bytes; an implementation that canonicalizes under the NFC profile produces a different leaf. Hashing is not signing (R11.24)."
+}

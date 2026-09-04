@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "Three leaves, the first size that is not a power of two: the split is at 2, not at n/2."
+}

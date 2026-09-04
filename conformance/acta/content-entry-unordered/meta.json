@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R6.46",
+  "note": "The same entry as content-entry, spelled with its members in reverse order and pretty-printed. The leaf input is the canonical form, never the bytes as received: an implementation hashing what it was handed produces a different leaf and interoperates with nobody."
+}

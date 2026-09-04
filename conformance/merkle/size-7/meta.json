@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "Seven leaves: the 3 -> 7 proof is RFC 9162's own worked example (four nodes)."
+}

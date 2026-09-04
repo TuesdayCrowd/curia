@@ -23,8 +23,10 @@ use std::sync::OnceLock;
 use base64::Engine;
 
 use curia_testis::conformance::{
-    Corpus, DirectoryVector, EnvelopeVector, Expectation, Index, Profile, Rfc8785Vector,
+    Corpus, DirectoryVector, EnvelopeVector, Expectation, Index, MerkleVector, Profile,
+    Rfc8785Vector,
 };
+use curia_testis::merkle;
 
 fn corpus() -> &'static Corpus {
     static CORPUS: OnceLock<Corpus> = OnceLock::new();
@@ -279,6 +281,21 @@ fn check_directory_vector(v: &DirectoryVector) -> Result<(), String> {
         (Profile::AdmitAccept, Expectation::Canonicalize { canonical, digest }) => {
             check_admit_accept(&v.input, canonical, digest)
         }
+        // R6.46: the pure profile, then the leaf prefix. The NFC profile is
+        // deliberately not an option here -- `nfd-payload-stays-nfd` is the
+        // vector that fails if it were.
+        (Profile::ActaLeaf, Expectation::Canonicalize { canonical, digest }) => {
+            check_canonicalize(curia_testis::canonicalize, &v.input, canonical, digest)?;
+            let expected = v
+                .expected_leaf
+                .as_deref()
+                .ok_or_else(|| "acta-leaf vector has no expected.leaf".to_string())?;
+            let actual = hex(&merkle::leaf_hash(canonical));
+            if actual != expected {
+                return Err(format!("leaf hash: expected {expected}, got {actual}"));
+            }
+            Ok(())
+        }
         // Deliberately no `(Profile::AdmitAccept, Expectation::Reject)` arm.
         // "The profile declares acceptance, never the absence of a file"
         // (R6.44): an `admit-accept` vector carrying `expect-reject` is a
@@ -330,6 +347,11 @@ fn admit_reject() {
 #[test]
 fn admit_accept() {
     directory_family_test("admit-accept", &corpus().admit_accept);
+}
+
+#[test]
+fn acta() {
+    directory_family_test("acta", &corpus().acta);
 }
 
 /// R6.44 (addendum): an accepting-side vector names its rejecting-side twin
@@ -514,6 +536,104 @@ fn envelope() {
 }
 
 // ---------------------------------------------------------------------
+// merkle/ — RFC 9162 §2.1 over the Certificate Transparency reference
+// leaves (R6.23). Every vector pins the leaf hashes, the root, and every
+// audit path and consistency proof *node for node*, then verifies each with
+// the RFC's own procedures. Matching the path and not only its verdict is
+// the point: a prover with a differently shaped but self-consistent proof
+// would pass its own verifier and interoperate with nobody.
+// ---------------------------------------------------------------------
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn check_merkle_vector(v: &MerkleVector) -> Result<(), String> {
+    let n = v.leaves.len();
+    let leaves: Vec<merkle::Hash> = v.leaves.iter().map(|l| merkle::leaf_hash(l)).collect();
+
+    let actual_leaf_hashes: Vec<String> = leaves.iter().map(|h| hex(h)).collect();
+    if actual_leaf_hashes != v.leaf_hashes {
+        return Err(format!(
+            "leaf hashes differ: expected {:?}, got {:?}",
+            v.leaf_hashes, actual_leaf_hashes
+        ));
+    }
+
+    let root = merkle::root(&leaves);
+    if hex(&root) != v.root {
+        return Err(format!("root: expected {}, got {}", v.root, hex(&root)));
+    }
+
+    if v.inclusion.len() != n {
+        return Err(format!(
+            "a size-{n} vector must carry {n} audit paths, one per leaf; it carries {}",
+            v.inclusion.len()
+        ));
+    }
+    for case in &v.inclusion {
+        let path = merkle::inclusion_path(&leaves, case.index);
+        let spelled: Vec<String> = path.iter().map(|h| hex(h)).collect();
+        if spelled != case.path {
+            return Err(format!(
+                "audit path for leaf {}: expected {:?}, got {:?}",
+                case.index, case.path, spelled
+            ));
+        }
+        if !merkle::verify_inclusion(
+            &leaves[case.index],
+            case.index as u64,
+            n as u64,
+            &path,
+            &root,
+        ) {
+            return Err(format!(
+                "audit path for leaf {} does not verify",
+                case.index
+            ));
+        }
+    }
+
+    if v.consistency.len() != n {
+        return Err(format!(
+            "a size-{n} vector must carry {n} consistency proofs, one per earlier size 1..={n}; \
+             it carries {}",
+            v.consistency.len()
+        ));
+    }
+    for case in &v.consistency {
+        let path = merkle::consistency_path(&leaves, case.from);
+        let spelled: Vec<String> = path.iter().map(|h| hex(h)).collect();
+        if spelled != case.path {
+            return Err(format!(
+                "consistency {} -> {n}: expected {:?}, got {:?}",
+                case.from, case.path, spelled
+            ));
+        }
+        let first_root = merkle::root(&leaves[..case.from]);
+        if !merkle::verify_consistency(case.from as u64, n as u64, &first_root, &root, &path) {
+            return Err(format!("consistency {} -> {n} does not verify", case.from));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn merkle() {
+    let vectors = &corpus().merkle;
+    assert_eq!(
+        vectors.len(),
+        9,
+        "conformance/merkle/ holds one vector per tree size 0..=8"
+    );
+    let mut report = FamilyReport::new("merkle");
+    for v in vectors {
+        report.record(&v.case, check_merkle_vector(v));
+    }
+    report.finish();
+}
+
+// ---------------------------------------------------------------------
 // Whole-corpus checks, independent of any canonicalization logic: the
 // loader itself must find every vector that is on disk, and
 // `conformance/index.json` must agree with what is there (R6.45). These are
@@ -528,9 +648,11 @@ fn envelope() {
 ///
 /// The literals below are counted from the corpus directory, family by
 /// family: admit-accept 5, admit-reject 14, c4 10, numbers 9, ordering 3,
-/// unicode 6, envelope 8 — 55 vector directories — plus the 6 vendored
-/// `rfc8785/` file pairs, 61 in all. (Envelope grew from 6 to 8 with errata
-/// G8's `vote-minimal` and `verification-contradicted`.) (An earlier version of this comment
+/// unicode 6, envelope 8, merkle 9, acta 5 — 69 vector directories — plus
+/// the 6 vendored `rfc8785/` file pairs, 75 in all. (Envelope grew from 6 to
+/// 8 with errata G8's `vote-minimal` and `verification-contradicted`; merkle
+/// and acta arrived with Phase 3 Stage 4 -- one merkle vector per tree size
+/// 0–8, and five acta vectors pinning R6.46's leaf input.) (An earlier version of this comment
 /// cited "50 vector directories, per CHARTER.md": a count that contradicted
 /// the assertion beneath it, and a file that does not exist in this
 /// repository. Both are corrected here.)
@@ -551,12 +673,14 @@ fn corpus_size_matches_charter() {
             + c.numbers.len()
             + c.admit_reject.len()
             + c.admit_accept.len()
-            + c.envelope.len(),
-        55,
+            + c.envelope.len()
+            + c.merkle.len()
+            + c.acta.len(),
+        69,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
-         + admit-reject + admit-accept + envelope)"
+         + admit-reject + admit-accept + envelope + merkle + acta)"
     );
-    assert_eq!(c.total_len(), 61, "every vector in conformance/");
+    assert_eq!(c.total_len(), 75, "every vector in conformance/");
 
     // `Index::load` already refuses a family entry with no `count`, so
     // `filter_map` here drops only the non-family entries (`red-team/`).
@@ -568,7 +692,7 @@ fn corpus_size_matches_charter() {
         .filter_map(|e| e.count)
         .sum();
     assert_eq!(
-        declared, 61,
+        declared, 75,
         "conformance/index.json's declared family counts"
     );
 }

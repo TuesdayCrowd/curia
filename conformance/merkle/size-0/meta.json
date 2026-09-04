@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "The empty tree. Its root is SHA-256 of nothing, not a hash of an empty leaf; there are no paths."
+}

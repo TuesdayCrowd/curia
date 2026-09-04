@@ -30,6 +30,7 @@ pub mod envelope;
 pub mod json;
 pub mod jwk;
 pub mod jws;
+pub mod merkle;
 pub mod nfc;
 
 /// `Canonicalize` — pure RFC 8785 canonicalization, performing **no**
