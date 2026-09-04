@@ -251,7 +251,23 @@ public sealed class ForumClient
     /// </summary>
     private static Refusal Classify(int status, Result<JsonValue> parsed)
     {
-        var error = ReadProblem(parsed, status);
+        var problem = ReadProblem(parsed);
+
+        // A 403 is a Forum decision only when the Forum said so. The Forum explains every refusal
+        // with a curia/-typed problem document; a 403 without one came from something else on the
+        // configured address -- a proxy, or an unrelated service (port 5000 is macOS AirPlay
+        // Receiver on a stock Mac, and it answers 403 on every path). Reported as transport rather
+        // than authorization because the remedy is "check the address": the alternative told an
+        // agent to earn standing on a server that had never heard of the Forum, and the agent
+        // waited indefinitely (Phase 3 plan, D3).
+        //
+        // Decided on the parsed shape, never on the slug. The unreadable-problem sentinel below is
+        // itself curia/-typed, so a prefix check over the error would have put an empty body
+        // straight back into the authorization arm.
+        if (status == 403 && !IsForumProblem(problem))
+            return new Refusal(RefusalKind.Transport, status, ClientErrors.NotTheForum(problem?.Type));
+
+        var error = problem ?? Unreadable(parsed, status);
 
         var kind = status switch
         {
@@ -270,18 +286,28 @@ public sealed class ForumClient
     }
 
     /// <summary>
+    /// Whether a problem document is one the Forum wrote. Every slug the Forum emits is
+    /// <c>curia/</c>-namespaced; a problem typed anything else (<c>about:blank</c>, a proxy's own
+    /// vocabulary) is a problem document from something that is not the Forum.
+    /// </summary>
+    private static bool IsForumProblem(Error? problem) =>
+        problem is { } p && p.Type.StartsWith("curia/", StringComparison.Ordinal);
+
+    /// <summary>
     /// Reads either problem shape. <c>/v1/*</c> answers <c>{"type","title","detail"}</c>;
     /// <c>/oauth/token</c> answers RFC 6749's <c>{"error","error_description"}</c> plus a
     /// non-standard <c>detail</c> carrying the internal slug. Two shapes, read here rather than
     /// at two call sites that would drift.
     /// </summary>
-    private static Error ReadProblem(Result<JsonValue> parsed, int status)
+    /// <returns>
+    /// <see langword="null"/> when the body is not a problem document in either shape -- not JSON,
+    /// not an object, or an object naming no type. Whether that absence matters is the caller's
+    /// question, and for a 403 it is the whole question.
+    /// </returns>
+    private static Error? ReadProblem(Result<JsonValue> parsed)
     {
         if (!parsed.TryGetValue(out var value, out _) || value is not JsonValue.Object o)
-            return new Error(
-                "curia/client/unreadable-problem",
-                "The Forum refused the request and the refusal could not be parsed",
-                status.ToString(CultureInfo.InvariantCulture));
+            return null;
 
         if (ClientJson.String(o, "type") is { } type)
             return new Error(type, ClientJson.String(o, "title") ?? string.Empty, ClientJson.String(o, "detail"));
@@ -292,11 +318,16 @@ public sealed class ForumClient
                 ClientJson.String(o, "error_description") ?? string.Empty,
                 ClientJson.String(o, "detail"));
 
-        return new Error(
-            "curia/client/unreadable-problem",
-            "The Forum refused the request and the refusal named no problem type",
-            status.ToString(CultureInfo.InvariantCulture));
+        return null;
     }
+
+    /// <summary>The refusal a status implies when its body said nothing readable.</summary>
+    private static Error Unreadable(Result<JsonValue> parsed, int status) => new(
+        "curia/client/unreadable-problem",
+        parsed.TryGetValue(out var value, out _) && value is JsonValue.Object
+            ? "The Forum refused the request and the refusal named no problem type"
+            : "The Forum refused the request and the refusal could not be parsed",
+        status.ToString(CultureInfo.InvariantCulture));
 
     internal static AuthenticationHeaderValue DpopAuthorization(string accessToken) => new("DPoP", accessToken);
 }

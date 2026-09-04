@@ -17,8 +17,8 @@ namespace Curia.Client.Tests;
 /// </summary>
 public sealed class RefusalClassificationTests
 {
-    private static ForumResult<string> Interpret(int status, string body) =>
-        ForumClientTestAccess.Interpret(status, body);
+    private static ForumResult<string> Interpret(int status, string body, string contentType = "application/json") =>
+        ForumClientTestAccess.Interpret(status, body, contentType);
 
     [Fact]
     public void ATierDenialIsAuthorization()
@@ -85,13 +85,46 @@ public sealed class RefusalClassificationTests
         Assert.Equal("That agent is not enrolled", refusal.Error.Title);
     }
 
-    [Fact]
-    public void AnUnparseableRefusalIsStillReportedAsARefusal()
+    /// <summary>
+    /// A 403 is a Table 10 denial only when the Forum said so. Port 5000 -- a common default -- is
+    /// macOS AirPlay Receiver on a stock Mac, which answers 403 on every path; a client that read
+    /// that as "your tier does not permit this" would tell its agent to earn standing on a server
+    /// that has never heard of the Forum, and the agent would wait indefinitely (Phase 3 plan, D3).
+    /// The four shapes are what actually arrives from something that is not the Forum: nothing, a
+    /// gateway's HTML, an unrelated service's JSON, and a generic RFC 9457 problem.
+    /// </summary>
+    [Theory]
+    [InlineData("", "application/json")]
+    [InlineData("<html>gateway says no</html>", "text/html")]
+    [InlineData("""{"message":"Forbidden"}""", "application/json")]
+    [InlineData("""{"type":"about:blank","title":"Forbidden","status":403}""", "application/problem+json")]
+    public void A403WithoutAForumProblemDocumentIsATransportFault(string body, string contentType)
     {
-        var result = Interpret(403, "<html>gateway says no</html>");
+        var result = Interpret(403, body, contentType);
 
         Assert.False(result.TryGetValue(out _, out var refusal));
-        Assert.Equal(RefusalKind.Authorization, refusal!.Kind);
+        Assert.Equal(RefusalKind.Transport, refusal!.Kind);
+        Assert.Equal(403, refusal.Status);
+        Assert.Equal("curia/client/not-the-forum", refusal.Error.Type);
+        Assert.Contains("not the Forum", refusal.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("Waiting is the only remedy", refusal.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The unreadable-problem sentinel is itself <c>curia/</c>-typed, so a classification keyed on
+    /// the slug's prefix would have read an empty-bodied 403 as a tier denial again. Every other
+    /// status keeps reporting an unparseable body as a refusal it could not read.
+    /// </summary>
+    [Theory]
+    [InlineData(401, RefusalKind.Authentication)]
+    [InlineData(404, RefusalKind.NotFound)]
+    [InlineData(500, RefusalKind.ServerFault)]
+    public void AnUnparseableRefusalIsStillReportedAsARefusal(int status, RefusalKind expected)
+    {
+        var result = Interpret(status, "<html>gateway says no</html>", "text/html");
+
+        Assert.False(result.TryGetValue(out _, out var refusal));
+        Assert.Equal(expected, refusal!.Kind);
         Assert.Equal("curia/client/unreadable-problem", refusal.Error.Type);
     }
 }
@@ -104,9 +137,9 @@ public sealed class RefusalClassificationTests
 /// </summary>
 internal static class ForumClientTestAccess
 {
-    internal static ForumResult<string> Interpret(int status, string body)
+    internal static ForumResult<string> Interpret(int status, string body, string contentType)
     {
-        using var handler = new CannedHandler((HttpStatusCode)status, body);
+        using var handler = new CannedHandler((HttpStatusCode)status, body, contentType);
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://forum.test") };
         var client = new ForumClient(http, new Uri("http://forum.test"));
 
@@ -119,13 +152,13 @@ internal static class ForumClientTestAccess
             : ForumResult<string>.Refused(refusal);
     }
 
-    private sealed class CannedHandler(HttpStatusCode status, string body) : HttpMessageHandler
+    private sealed class CannedHandler(HttpStatusCode status, string body, string contentType) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(status)
             {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+                Content = new StringContent(body, Encoding.UTF8, contentType),
             });
     }
 }

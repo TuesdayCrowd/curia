@@ -72,4 +72,17 @@ public static class ClientErrors
         "curia/client/transport",
         "The Forum could not be reached",
         detail);
+
+    /// <summary>
+    /// A 403 that carried no Forum problem document. The Forum explains every refusal with a
+    /// <c>curia/</c>-typed problem, so a bare 403 came from something else on the configured
+    /// address -- a proxy, or an unrelated service listening on the Forum's host and port. The
+    /// remedy is in the detail because an agent reading this has no other way to learn it.
+    /// </summary>
+    public static Error NotTheForum(string? problemType) => new(
+        "curia/client/not-the-forum",
+        "The Forum's address answered 403 without a Forum problem document, so whatever answered is probably not the Forum",
+        (problemType is null ? "no problem type" : "problem type " + problemType)
+        + "; check the Forum URL's host and port. An unrelated service on that address answers 403 to "
+        + "every path -- port 5000 is macOS AirPlay Receiver on a stock Mac.");
 }
