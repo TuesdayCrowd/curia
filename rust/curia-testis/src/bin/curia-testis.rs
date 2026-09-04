@@ -31,6 +31,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use std::collections::HashMap;
+
+use curia_testis::acta::{self, ActaError, VerifiedHead};
 use curia_testis::envelope::VerifyEnvelopeError;
 
 const USAGE: &str = "\
@@ -38,6 +41,14 @@ curia-testis - offline, independent verifier for signed Curia post envelopes
 
 USAGE:
     curia-testis verify --envelope <path> --jwks <path>
+    curia-testis log head        --head <path> --log-jwks <path>
+    curia-testis log inclusion   --entry <path> --proof <path> [--head <path> --log-jwks <path>]
+    curia-testis log consistency --proof <path> [--from-head <path>] [--to-head <path>] [--log-jwks <path>]
+
+    The log verbs take the JSON bodies of GET /v1/log/head, /v1/log/entries/{i},
+    /v1/log/proof/{i}, /v1/log/consistency and /v1/log/jwks, saved to files. The
+    leaf is recomputed from the entry; a head, when given, must cover the exact
+    size and root the proof verifies against.
 
 EXIT CODES:
     0  verification succeeded
@@ -101,6 +112,7 @@ const ENVELOPE_READ_CAP_MULTIPLE: u64 = 8;
 enum CliError {
     Usage(String),
     Verification(VerifyEnvelopeError),
+    Acta(ActaError),
 }
 
 fn main() -> ExitCode {
@@ -125,6 +137,10 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Err(CliError::Verification(err)) => {
+            eprintln!("error: {err}");
+            ExitCode::from(1)
+        }
+        Err(CliError::Acta(err)) => {
             eprintln!("error: {err}");
             ExitCode::from(1)
         }
@@ -157,9 +173,143 @@ fn to_utf8_args(raw: &[OsString]) -> Result<Vec<String>, CliError> {
 fn run(args: &[String]) -> Result<(), CliError> {
     match args.first().map(String::as_str) {
         Some("verify") => run_verify(&args[1..]),
+        Some("log") => run_log(&args[1..]),
         Some(other) => Err(CliError::Usage(format!("unknown subcommand `{other}`"))),
-        None => Err(CliError::Usage("missing subcommand `verify`".to_string())),
+        None => Err(CliError::Usage(
+            "missing subcommand `verify` or `log`".to_string(),
+        )),
     }
+}
+
+/// `curia-testis log <head|inclusion|consistency> --flag <path> ...`
+fn run_log(args: &[String]) -> Result<(), CliError> {
+    let verb = args.first().map(String::as_str).ok_or_else(|| {
+        CliError::Usage("missing log subcommand: head, inclusion or consistency".to_string())
+    })?;
+    let flags = parse_path_flags(&args[1..])?;
+
+    match verb {
+        "head" => {
+            let head = read_flag(&flags, "--head")?;
+            let jwks = read_flag(&flags, "--log-jwks")?;
+            let verified = acta::verify_head(&head, &jwks).map_err(CliError::Acta)?;
+            print_head("head", &verified);
+            Ok(())
+        }
+        "inclusion" => {
+            let entry = read_flag(&flags, "--entry")?;
+            let proof = read_flag(&flags, "--proof")?;
+            let verified = acta::verify_inclusion(&entry, &proof).map_err(CliError::Acta)?;
+            println!("log_index: {}", verified.log_index);
+            println!("tree_size: {}", verified.tree_size);
+            println!("leaf: {}", acta::format_digest(&verified.leaf));
+            println!("root: {}", acta::format_digest(&verified.root));
+            match optional_head(&flags, "--head")? {
+                Some(head) => {
+                    acta::head_covers(&head, verified.tree_size, &verified.root).map_err(CliError::Acta)?;
+                    print_head("head", &head);
+                }
+                None => println!("head: not checked (pass --head and --log-jwks to tie the root to a signed head)"),
+            }
+            Ok(())
+        }
+        "consistency" => {
+            let proof = read_flag(&flags, "--proof")?;
+            let verified = acta::verify_consistency(&proof).map_err(CliError::Acta)?;
+            println!("from_size: {}", verified.from_size);
+            println!("to_size: {}", verified.to_size);
+            println!("from_root: {}", acta::format_digest(&verified.from_root));
+            println!("to_root: {}", acta::format_digest(&verified.to_root));
+            match optional_head(&flags, "--from-head")? {
+                Some(head) => {
+                    acta::head_covers(&head, verified.from_size, &verified.from_root)
+                        .map_err(CliError::Acta)?;
+                    print_head("from_head", &head);
+                }
+                None => println!("from_head: not checked"),
+            }
+            match optional_head(&flags, "--to-head")? {
+                Some(head) => {
+                    acta::head_covers(&head, verified.to_size, &verified.to_root)
+                        .map_err(CliError::Acta)?;
+                    print_head("to_head", &head);
+                }
+                None => println!("to_head: not checked"),
+            }
+            Ok(())
+        }
+        other => Err(CliError::Usage(format!("unknown log subcommand `{other}`"))),
+    }
+}
+
+const LOG_FLAGS: [&str; 6] = [
+    "--head",
+    "--log-jwks",
+    "--entry",
+    "--proof",
+    "--from-head",
+    "--to-head",
+];
+
+fn parse_path_flags(args: &[String]) -> Result<HashMap<String, PathBuf>, CliError> {
+    let mut flags = HashMap::new();
+    let mut i = 0;
+    while i < args.len() {
+        let name = args[i].as_str();
+        if !LOG_FLAGS.contains(&name) {
+            return Err(CliError::Usage(format!("unrecognized argument `{name}`")));
+        }
+        let value = args
+            .get(i + 1)
+            .ok_or_else(|| CliError::Usage(format!("{name} requires a value")))?;
+        if flags
+            .insert(name.to_string(), PathBuf::from(value))
+            .is_some()
+        {
+            return Err(CliError::Usage(format!("{name} given twice")));
+        }
+        i += 2;
+    }
+    Ok(flags)
+}
+
+fn read_flag(flags: &HashMap<String, PathBuf>, name: &str) -> Result<Vec<u8>, CliError> {
+    let path = flags
+        .get(name)
+        .ok_or_else(|| CliError::Usage(format!("missing required {name} <path>")))?;
+    // Every log document is small -- a proof is a few dozen digests, an entry
+    // wraps at most one submission -- so the JWKS bound is generous here too.
+    read_bounded(path, CLI_MAX_JWKS_BYTES, name)
+}
+
+/// A head flag is optional, but when it is given `--log-jwks` must be too:
+/// a head nobody's key verified is not a head.
+fn optional_head(
+    flags: &HashMap<String, PathBuf>,
+    name: &str,
+) -> Result<Option<VerifiedHead>, CliError> {
+    if !flags.contains_key(name) {
+        return Ok(None);
+    }
+    let head = read_flag(flags, name)?;
+    let jwks = flags.get("--log-jwks").ok_or_else(|| {
+        CliError::Usage(format!("{name} needs --log-jwks <path> to verify against"))
+    })?;
+    let jwks = read_bounded(jwks, CLI_MAX_JWKS_BYTES, "--log-jwks")?;
+    acta::verify_head(&head, &jwks)
+        .map(Some)
+        .map_err(CliError::Acta)
+}
+
+fn print_head(label: &str, head: &VerifiedHead) {
+    println!(
+        "{label}: tree_size={} root={} kid={} alg={} timestamp={}",
+        head.tree_size,
+        acta::format_digest(&head.root),
+        head.kid,
+        head.alg,
+        head.timestamp
+    );
 }
 
 struct VerifyArgs {

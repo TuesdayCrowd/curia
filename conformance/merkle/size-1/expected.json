@@ -1,0 +1,18 @@
+{
+  "root": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+  "leaf_hashes": [
+    "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+  ],
+  "inclusion": [
+    {
+      "index": 0,
+      "path": []
+    }
+  ],
+  "consistency": [
+    {
+      "from": 1,
+      "path": []
+    }
+  ]
+}

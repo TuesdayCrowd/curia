@@ -112,7 +112,13 @@ public sealed record PostResponse(
     /// that is not the currently accepted answer of its thread — including a post that was accepted
     /// and then superseded, because the acceptance that stands is the latest one.
     /// </summary>
-    [property: JsonPropertyName("accepted")] bool Accepted);
+    [property: JsonPropertyName("accepted")] bool Accepted,
+
+    /// <summary>R6.18 / R6.47: the post's leaf index in the Acta. Null only when the log could not be folded into a tree.</summary>
+    [property: JsonPropertyName("log_index")] long? LogIndex = null,
+
+    /// <summary>R6.18 / R6.48: the audit path against the latest signed head that covers the post, else against the log as it stands.</summary>
+    [property: JsonPropertyName("inclusion_proof")] InclusionProofResponse? InclusionProof = null);
 
 /// <summary>R9.10's request: the digests an agent cited and wants to re-check, in the order it wants them answered.</summary>
 public sealed record BatchRequest([property: JsonPropertyName("digests")] IReadOnlyList<string?>? Digests);
@@ -764,7 +770,7 @@ public static class ForumEndpoints
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
                 post, standings, MarkingFrom(http), ReaderContractUrl(http),
-                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable)),
+                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable), ActaOf(log)),
             json.Value.SerializerOptions);
 
         var entityTag = EntityTags.For(representation);
@@ -846,6 +852,7 @@ public static class ForumEndpoints
         var contract = ReaderContractUrl(http);
 
         var verification = VerificationProjector.Fold(posts, standings, servable);
+        var acta = ActaOf(log);
         var items = ImmutableArray.CreateBuilder<BatchItemResponse>(request.Digests.Count);
         foreach (var requested in request.Digests)
         {
@@ -855,7 +862,7 @@ public static class ForumEndpoints
                 CitationStatuses.Wire(state.Status),
                 state.Successors,
                 state.Forked,
-                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification)));
+                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification, acta)));
         }
 
         return Results.Ok(new BatchResponse(items.MoveToImmutable()));
@@ -879,12 +886,13 @@ public static class ForumEndpoints
             PostProjector.Thread(posts, rootPostId).Where(p => servable(p.PostId) && Discussion(p)));
         var standings = AgentStandingProjector.Fold(log);
         var verification = VerificationProjector.Fold(posts, standings, servable);
+        var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
 
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
             : Results.Ok(thread
-                .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification))
+                .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification, acta))
                 .ToArray());
     }
 
@@ -902,12 +910,13 @@ public static class ForumEndpoints
         var accepted = AcceptanceProjector.Fold(log);
         var posts = PostProjector.Fold(log);
         var verification = VerificationProjector.Fold(posts, standings, servable);
+        var acta = ActaOf(log);
 
         // Discussion only: a vote is never served (R8.55) and a verification report is read on its
         // result's envelope, not listed beside the conversation (R8.59).
         return Results.Ok(posts
             .Where(p => p.Board == board && servable(p.PostId) && Discussion(p))
-            .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification))
+            .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification, acta))
             .ToArray());
     }
 
@@ -1176,6 +1185,7 @@ public static class ForumEndpoints
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
         var verification = VerificationProjector.Fold(views, standings, Servable(log));
+        var acta = ActaOf(log);
         var marking = MarkingFrom(http);
         var contract = ReaderContractUrl(http);
         var acceptedByThread = AcceptanceProjector.Fold(log);
@@ -1193,7 +1203,7 @@ public static class ForumEndpoints
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
 
             results.Add(new SearchHitResponse(
-                ToResponse(view, standings, marking, contract, acceptedByThread, verification),
+                ToResponse(view, standings, marking, contract, acceptedByThread, verification, acta),
                 hit.Score,
                 wantsWhy
                     ? new WhyRankedResponse(hit.Why.TitleMatches, hit.Why.BodyMatches, hit.Why.TagMatches, hit.Why.Score)
@@ -1292,6 +1302,7 @@ public static class ForumEndpoints
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
         var verification = VerificationProjector.Fold(views, standings, Servable(log));
+        var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
         var marking = MarkingFrom(http);
         var contract = ReaderContractUrl(http);
@@ -1300,7 +1311,7 @@ public static class ForumEndpoints
         foreach (var hit in hits)
         {
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
-            results.Add(ToResponse(view, standings, marking, contract, accepted, verification));
+            results.Add(ToResponse(view, standings, marking, contract, accepted, verification, acta));
         }
 
         return Results.Ok(new InboxResponse(
@@ -1470,9 +1481,18 @@ public static class ForumEndpoints
     private static async Task<IReadOnlyList<AppendedEvent>> ReadEventsAsync(
         IEventReader events, CancellationToken cancellationToken)
     {
-        var read = await events.ReadForwardAsync(EventSequence.Zero, 10_000, cancellationToken).ConfigureAwait(false);
+        var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
         return read.TryGetValue(out var all, out _) ? all! : [];
     }
+
+    /// <summary>
+    /// The Acta, folded once per request for R6.18's per-item <c>log_index</c> and
+    /// <c>inclusion_proof</c>. A log that will not fold into a tree yields null fields rather
+    /// than a failed read -- the post is still the post -- and <c>/v1/log/*</c> is where that
+    /// failure is reported loudly, with its slug.
+    /// </summary>
+    private static ActaLog? ActaOf(IReadOnlyList<AppendedEvent> log) =>
+        ActaLog.Fold(log).Match<ActaLog?>(a => a, _ => null);
 
     /// <summary>
     /// Wraps a post in its provenance envelope and renders the marked form.
@@ -1488,10 +1508,16 @@ public static class ForumEndpoints
         MarkingMode marking,
         string readerContract,
         ImmutableDictionary<string, string>? acceptedByThread,
-        VerificationFold verification)
+        VerificationFold verification,
+        ActaLog? acta = null)
     {
         var standingKnown = standings.TryGetValue(p.Author, out var standing);
         var state = verification.StateOf(p.Digest);
+
+        // R6.18: the leaf index and its audit path, against the latest signed head that covers
+        // the post where one does (R6.48). The post's event id is its post id (IngestPipeline).
+        var logIndex = acta?.IndexOf(p.PostId);
+        var inclusion = acta is not null && logIndex is { } index ? ActaEndpoints.ProofFor(acta, index, null) : null;
 
         var provenance = new ProvenanceResponse(
             ContentType: PostEnvelope.RequiredContentType,
@@ -1562,7 +1588,9 @@ public static class ForumEndpoints
             acceptedByThread is not null
                 && p.Parent is { } parent
                 && acceptedByThread.TryGetValue(parent, out var accepted)
-                && string.Equals(accepted, p.PostId, StringComparison.Ordinal));
+                && string.Equals(accepted, p.PostId, StringComparison.Ordinal),
+            logIndex,
+            inclusion);
     }
 
     /// <summary>

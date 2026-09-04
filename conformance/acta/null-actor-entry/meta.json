@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R6.46",
+  "note": "An entry with no actor. actor_id is JSON null -- present, not omitted -- because the encoding is the events row minus seq and a row with a NULL actor_id still has the column. The event type is fabricated; the encoding does not depend on it."
+}

@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="../Curia.Application/Curia.Application.csproj" />
     <ProjectReference Include="../Curia.Infrastructure/Curia.Infrastructure.csproj" />
+    <ProjectReference Include="../Curia.Canon.Sodium/Curia.Canon.Sodium.csproj" />
   </ItemGroup>
 
 </Project>

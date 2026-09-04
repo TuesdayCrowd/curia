@@ -80,6 +80,11 @@ public sealed class EventStoreWriteSurfaceTests
     private static readonly string[] IntendedWriteSurface =
     [
         "Curia.Domain.Tests.DomainEventTests",
+
+        // Stage 4: the leaf computation R6.46 freezes takes an AppendedEvent, and the test that holds
+        // it to conformance/acta/ has to build one from a vector's entry document. A test, not a
+        // producer; listed here so the widening is a recorded decision rather than a quiet one.
+        "Curia.Domain.Tests.Acta.LogLeafTests",
         "Curia.Application.Tests.InMemory.InMemoryEventStore",
         "Curia.Infrastructure.PostgresEventStore",
     ];

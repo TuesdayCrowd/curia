@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "Six leaves: the right subtree is a two-leaf node."
+}

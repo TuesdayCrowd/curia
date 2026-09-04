@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "One leaf: the root is the leaf hash itself and the only audit path is empty."
+}

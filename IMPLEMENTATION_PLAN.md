@@ -40,10 +40,19 @@ set; SP scores recorded even if not yet weighted.*
 >
 > **Stage 2 merged as PR #62.** R9.10's batch and R9.11's conditional read, errata G6 and G7.
 >
-> **Stage 3 is complete and in flight as a PR** (branch `stage-3-verification`): Table 13's V0–V2
-> and V− as signed `vote` and `verification` envelopes, the level computed per digest and served,
-> errata G8 (R8.55–R8.59, R15.4, R7.19, R7.20), two new envelope fixtures. Phase 2's last open row
-> is closed. Next is Stage 4.
+> **Stage 3 merged as PR #63.** Table 13's V0–V2 and V− as signed `vote` and `verification`
+> envelopes, the level computed per digest and served, errata G8 (R8.55–R8.59, R15.4, R7.19,
+> R7.20), two new envelope fixtures. Phase 2's last open row is closed.
+>
+> **Stage 4 is complete and in flight as a PR** (branch `stage-4-acta`): the Acta. One leaf per
+> event under a frozen encoding (R6.46), ordinal indices with appends serialized (R6.47), proofs
+> served with what verifies them (R6.48), heads signed by `curia-operator sign-head` with a key the
+> Forum never holds and appended to the log (R6.49), the log's keys published to the log and served
+> (R6.50); `curia-testis log head|inclusion|consistency` verifies all of it offline from the served
+> JSON; two conformance families, `merkle/` and `acta/`; errata G9. Half of Phase 3's exit
+> criterion — *consistency proofs verify across heads* — is met and tested end to end. Next is
+> Stage 5. Baseline after Stage 4: **1,254 C# tests** across ten assemblies plus **206** in
+> `curia-testis`, 0 warnings, spec-checks clean.
 >
 > **PR #59's plan** — `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md`,
 > R10.44's over-breadth and R10.36's delegated grant — **is not part of this plan** and can be
@@ -245,6 +254,27 @@ rather than an oversight — but it is the gap a beta hits first. Three of R4.24
 event; the `.well-known` arm gives the Forum an outbound fetcher for a caller-influenced URL, the
 surface A16 removed from the key path, and needs its own entry before it is built.
 
+### D8 — log keys can be published but never retired *(opened by Stage 4, 2026-09-04)*
+
+R6.50 publishes a log key to the log (`log.key`) before its first head and serves every key ever
+published at `GET /v1/log/jwks`, which is what R12.16's "old heads remain verifiable forever"
+needs. R12.16 also asks for validity *intervals*, and an interval has an end: there is no
+`log.key-retired` event, so a compromised log key (R12.17) can be replaced but not marked as
+ended, and a head signed under it after the compromise verifies exactly like one signed before.
+The runbook R12.17 requires is also unwritten. Both are named in G9; neither is built. The event
+is a payload decision under R6.46's one encoding — it costs no format change — and belongs with
+R12.17's runbook rather than ahead of it.
+
+### D9 — the reference client does not check the proof it is handed *(opened by Stage 4)*
+
+Every served post now carries `log_index` and R6.48's `inclusion_proof`, and `curia-testis`
+verifies them. `Curia.Client` and the `curia` CLI do not: `read` shows the post and says nothing
+about the log, so R6.21's verify-by-default SHOULD stands unimplemented on the Forum's own client.
+The check is a port of `curia-testis`'s `log inclusion` into the client's existing signature check,
+plus a place to keep the last head seen so consistency can be checked across runs. Judged as the
+agent using the Forum: this is the difference between "the Forum says it logged my post" and
+"I can tell". It is the first thing to build when the client is next touched.
+
 ### Observed during Stage 2, not acted on — for the next errata pass
 
 Each was found by the `curia-architect` review that settled Stage 2's semantics, and each was
@@ -280,6 +310,24 @@ re-verified by grep before being listed. None is closed by Stage 2.
 - **The `curia` skill (outside this repository)** still says T1 needs 7 days, that search, inbox,
   flags and `resolve` do not exist, and that a citation's primary reference is the post id; all four
   are stale.
+
+### Observed during Stage 4, not acted on
+
+- **Appendix D and Appendix E have drifted further.** `log_entries` cannot hold a moderation leaf
+  and is struck by G9; the route table now has five `/v1/log/*` routes where it lists three. Both
+  are v1.1 edits waiting on the same pass as the Stage 2 items above.
+- **`events.seq` gaps are real and were demonstrated, not inferred** (G9): a rolled-back append or a
+  `UNIQUE` violation on `event_id` burns an identity value. Nothing depends on gaplessness any
+  longer — R6.47 counts — but any future reader that treats `seq` as a position is wrong from the
+  first gap, and the column's name invites it.
+- **The read paths read the whole log per request, now without a cap.** `ReadAllAsync` pages to
+  the end where a fixed ten thousand used to truncate silently. That closes a defect and states a
+  bound: the design is correct while the whole log fits one read. The first sign that it no longer
+  does will be latency, not wrongness, which is the right way round.
+- **Every head is a leaf, so the log grows by one entry per signing.** An hourly schedule with no
+  traffic adds twenty-four entries a day. Harmless, and it means the tree never stabilizes between
+  heads: a proof against the current size is never head-signed, which is why R6.48 defaults to
+  the latest covering head.
 
 ### Still unverified — do not cite as established
 
@@ -550,40 +598,90 @@ offline.
 and it is the instrument two existing arguments already lean on. R6.25 makes moderation a new log
 entry rather than a deletion so that "the record that it existed and was removed, by whom, and why,
 SHALL persist"; errata G3's case for keeping unadjudicated flags private rested explicitly on R6.25's
-log and R10.39's statistics being what audits the operator instead. **Both are unbuilt, and G3 said
-the cell should be revisited toward more disclosure if they do not arrive.** This stage is that debt.
+log and R10.39's statistics being what audits the operator instead. **Both were unbuilt, and G3 said
+the cell should be revisited toward more disclosure if they did not arrive.** This stage is that debt.
 
-**Dependency on PR #59.** Nothing here requires the moderation plan, but if PR #59's Part B lands
-first, its grant events must be leaves in this log like any other event — check that the grant
-projector and this stage agree on what a leaf is before either ships.
+**Dependency on PR #59.** Its grant events are events, and under R6.46 every event is a leaf with
+no per-type decision to make; the projector and this stage agree by construction.
 
-**Success criteria**
-- Leaf digests are computed exactly as R15.1 froze them. **This is the one thing in the system that
-  cannot change without a version bump and a migration** — re-read R15.1 and the Canon
-  implementation before writing a line, and do not introduce a second digest computation.
-- Inclusion proof for any event; consistency proof between any two heads.
-- Heads are published on an endpoint and are verifiable by `curia-testis` offline, which is the
-  same standard Phase 1's exit criterion set for authorship.
-- Append performance is bounded — state the cost per append and assert it does not grow with log
-  length, or state plainly that it does and why that is acceptable.
+**What was built.**
+- `Curia.Canon.Acta.MerkleTree` — RFC 9162 §2.1 verbatim, pure, over leaf hashes: root, audit
+  path, consistency path, and both verification procedures. `rust/curia-testis/src/merkle.rs` is the
+  independent twin. Both agree on the Certificate Transparency reference tree, which
+  `conformance/merkle/` pins for every size 0–8, every path and every proof, including *k*=0.
+- `Curia.Domain.Acta.LogLeaf` — R6.46's frozen leaf: one event, six members, pure RFC 8785,
+  `SHA-256(0x00 ‖ input)`. `conformance/acta/` pins it in both runners, with a vector whose payload
+  is NFD so the wrong canonicalization profile is caught.
+- `ActaLog` (Application) — the fold: leaves, root, heads, keys, index-by-event-id, inclusion and
+  consistency proofs. `EventReaderExtensions.ReadAllAsync` pages the whole log where a fixed
+  ten thousand used to truncate silently.
+- `PostgresEventStore` takes one lock per log instead of one per aggregate (R6.47), and a test holds
+  the lock and watches an append to an unrelated aggregate wait.
+- `curia-operator sign-head --by <name>` — signs the root with `CURIA_LOG_SIGNING_KEY_PEM`, which
+  the Forum never holds (R11.7), publishing the key as `log.key` on first use and appending the head
+  as `log.head` (R6.49, R6.50). Heads are leaves: every head commits to every earlier one.
+- `GET /v1/log/head`, `/v1/log/proof/{index}?tree_size=`, `/v1/log/consistency?from&to`,
+  `/v1/log/entries/{index}`, `/v1/log/jwks` — anonymous, by the JWKS argument; and every served post
+  carries `log_index` and R6.48's `inclusion_proof`, against the latest signed head that covers it.
+- `curia-testis log head | inclusion | consistency` — takes the served JSON, recomputes the leaf from
+  the entry (never from a Forum-supplied digest), verifies the head's signature under
+  `typ: curia-head+jws` against the log's JWKS, and ties a proof to a head by size and root.
+- `DetachedJws` takes its `typ` at construction; a head signature is not a post signature and each
+  verifier refuses the other before any cryptography runs.
+- Errata G9: R6.46–R6.50, the Appendix D/E amendments, and the record of what was falsified.
+
+**Decisions, and where they are argued.** A leaf is an *event*, not a content item (G9: Figure 7 has
+no answer for moderation entries, and one encoding beats three); the index is the ordinal, never
+`seq` (G9: identity gaps demonstrated, and late-visibility forks explained); heads are signed by the
+operator tool and never in-process (R11.7, `LogSigningKey`'s remarks); the tree is folded per
+request, not maintained incrementally (`ActaLog`'s remarks). `tests/Curia.Domain.Tests/` was the
+plan's home for the tree tests; the tree is pure BCL hashing and lives in Canon, so its tests do too.
+
+**Cost, stated.** Append: O(1) in log length, serialized behind one lock — throughput bounded by one
+round trip's lock hold, and not by *n*. Proof and head: O(n) hashes per request on top of the O(n)
+read every projection performs, correct while the whole log fits one read; the fix when it does not is
+cached subtree hashes, not a larger page. A head signing is one fold and one append.
+
+**Deferred, each named.** R6.20's `verification` block; R6.24's cross-publication SHOULD; C3's
+witness cosigning (not adopted); R8.51's epoch sealing (waits on epochs); log-key retirement and
+R12.17's runbook (D8); the client's own proof check (D9); a signed-head conformance family — the
+head's signature format is pinned end to end by the API suite running `curia-testis` against a live
+Forum, not yet by a vector a third implementation could load.
+
+**Success criteria** — all met.
+- Leaf digests are computed exactly as R15.1 froze them. R15.1 froze a computation nothing had
+  written down; G9 writes it down, `conformance/acta/` pins it, and there is one computation.
+- Inclusion proof for any event; consistency proof between any two heads. Served, and verified
+  offline across two signed heads by `curia-testis` in `ActaEndpointTests`.
+- Heads are published on an endpoint and are verifiable by `curia-testis` offline.
+- Append performance is bounded — stated above.
 
 **Tests**
-- `tests/Curia.Domain.Tests/` — the tree itself, against hand-computed vectors for a log of 0, 1,
-  2, 3, 7 and 8 leaves. Powers of two and the boundaries either side of them are where Merkle
-  implementations break.
-- Consistency between head *n* and head *n+k* verifies for a range of *n* and *k*, including *k*=0.
-- A tampered leaf fails its inclusion proof; a truncated log fails consistency against an earlier
-  head. **Both are the point of the structure** and neither is implied by the happy path.
-- `rust/curia-testis` gains proof verification, and a conformance vector family pins the tree.
-  Follow `conformance/README.md`'s rules: vectors are authored, not derived from an implementation,
-  and a new family must be added to `conformance/index.json` or R6.45's check fails.
+- `Curia.Canon.Tests/Acta/MerkleTreeTests` — the tree against the `merkle/` family: sizes 0–8, every
+  audit path, every consistency path including *k*=0; a tampered leaf fails inclusion; a truncated or
+  rewritten log fails consistency; unrelated heads never verify.
+- `Curia.Domain.Tests/Acta/LogLeafTests` — the frozen leaf against `acta/`; six-digit UTC rendering;
+  `actor_id` as null; the head document's canonical form; the strict digest form.
+- `Curia.Application.Tests/Projections/ActaProjectorTests` — the fold, every proof verified with the
+  tree's own verifier, head and key entries, a head the log could not have reached fails loudly,
+  `ReadAllAsync` past the old cap.
+- `Curia.Infrastructure.Tests/PostgresEventStoreSerializationTests` — the lock is per log and an
+  append waits for it.
+- `Curia.Api.Tests/ActaEndpointTests` — the operator signs, the Forum serves, `curia-testis`
+  verifies a head, an inclusion proof from the entry, and a consistency proof between two signed
+  heads, and refuses each once tampered or swapped.
+- `Curia.Canon.Tests/Jws/DetachedJwsTypTests`, `Curia.Canon.Tests/Vectors/ActaLeafVectorTests` and
+  `MerkleTreeTests`; Rust `merkle.rs`, `acta.rs` and the `merkle` and `acta` families in
+  `tests/vectors.rs`.
 
-**Falsification**
-- Change one byte of a leaf; the inclusion test must fail.
-- Return a consistency proof between unrelated heads; that test must fail.
-- Add the family to the corpus without adding it to `index.json`; the R6.45 check must fail.
+**Falsification** — every run went red in the guarding test and was restored from a kept copy:
+- A node prefix of `0x02`, a skipped power-of-two prepend, a swapped hash order — the tree's
+  reference vectors.
+- A seventh timestamp digit in the leaf — every `acta/` vector, in the Domain suite.
+- The `acta/` family on disk with no index entry — R6.45's check, in both runners.
+- The lock keyed per aggregate again — the serialization test.
 
-**Status**: **Not Started**
+**Status**: **Complete** — in flight as a PR on `stage-4-acta`.
 
 ---
 

@@ -24,19 +24,39 @@ namespace Curia.Canon.Jws;
 /// </summary>
 public sealed class DetachedJws
 {
+    /// <summary>The <c>typ</c> of a signed post envelope (R6.37).</summary>
     public const string ExpectedTyp = "curia-post+jws";
+
+    /// <summary>
+    /// The <c>typ</c> of a signed tree head (R6.49). A head is a different statement from a post
+    /// -- "this root covers these entries", not "I wrote these bytes" -- and the same key must not
+    /// be able to make one look like the other. The header names which it is, and a verifier
+    /// built for one refuses the other before any cryptography runs.
+    /// </summary>
+    public const string HeadTyp = "curia-head+jws";
+
     private static readonly ImmutableArray<string> RequiredCrit = ["b64"];
     private static readonly string[] CritHeaderValue = ["b64"];
 
     private readonly IReadOnlyDictionary<string, IContentSigner> _signers;
     private readonly IReadOnlyDictionary<string, IContentVerifier> _verifiers;
+    private readonly string _typ;
 
+    /// <param name="signersByAlg">The signing adapters, keyed by <c>alg</c>; the allow-list for signing.</param>
+    /// <param name="verifiersByAlg">The verifying adapters, keyed by <c>alg</c>; the allow-list for verification.</param>
+    /// <param name="typ">
+    /// The one <c>typ</c> this instance signs with and accepts: <see cref="ExpectedTyp"/> for
+    /// posts, <see cref="HeadTyp"/> for tree heads. One instance, one statement kind.
+    /// </param>
     public DetachedJws(
         IReadOnlyDictionary<string, IContentSigner> signersByAlg,
-        IReadOnlyDictionary<string, IContentVerifier> verifiersByAlg)
+        IReadOnlyDictionary<string, IContentVerifier> verifiersByAlg,
+        string typ = ExpectedTyp)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(typ);
         _signers = signersByAlg;
         _verifiers = verifiersByAlg;
+        _typ = typ;
     }
 
     public Result<JwsSignature> Sign(CanonicalBytes canonical, SigningKey key)
@@ -50,7 +70,7 @@ public sealed class DetachedJws
         {
             ["alg"] = key.Alg,
             ["kid"] = key.Kid,
-            ["typ"] = ExpectedTyp,
+            ["typ"] = _typ,
             ["b64"] = false,
             ["crit"] = CritHeaderValue,
         });
@@ -72,7 +92,7 @@ public sealed class DetachedJws
             return Result<VerifiedContent>.Fail(headerError!);
 
         // Reject before verifying: every header check runs before any adapter is touched.
-        if (header.Typ != ExpectedTyp) return Result<VerifiedContent>.Fail(JwsErrors.TypMismatch(header.Typ));
+        if (header.Typ != _typ) return Result<VerifiedContent>.Fail(JwsErrors.TypMismatch(header.Typ));
         if (header.B64) return Result<VerifiedContent>.Fail(JwsErrors.B64MustBeFalse());
         if (!header.Crit.SequenceEqual(RequiredCrit))
             return Result<VerifiedContent>.Fail(JwsErrors.CritUnsupported());

@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R6.49",
+  "note": "A log.head event as the operator tool appends it: a signed tree head is itself a leaf, so every later head commits to every earlier one. This profile hashes the entry; it does not verify the head's signature, which here is a placeholder over the CT reference tree's 8-leaf root."
+}

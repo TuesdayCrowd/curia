@@ -1,6 +1,6 @@
 //! Loader for the `conformance/` corpus.
 //!
-//! `conformance/README.md` documents three directory shapes:
+//! `conformance/README.md` documents four directory shapes:
 //!
 //! - `rfc8785/` — `input-<name>.json` / `output-<name>.json` file pairs, no
 //!   `meta.json`, profile implicitly `rfc8785`.
@@ -12,6 +12,11 @@
 //! - `envelope/<case>/` — six files, no `input.json`: `submission.json`,
 //!   `jwks.json`, `private-keys.json`, `expected.canonical`,
 //!   `expected.digest`, `meta.json`.
+//! - `merkle/<case>/` — `input.json` holding hex leaf inputs, `expected.json`
+//!   holding the root and every audit path and consistency proof, and
+//!   `meta.json` (R6.23; "The `merkle/` family").
+//! - `acta/<case>/` — the common shape plus `expected.leaf`, the hex leaf
+//!   hash of `expected.canonical` (R6.46; "The `acta/` family").
 //!
 //! `conformance/index.json` (R6.45) names every top-level directory and is
 //! loaded by [`Index::load`]; [`Index::check_against_disk`] is what turns a
@@ -97,6 +102,13 @@ pub enum Profile {
     /// `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify`,
     /// end to end.
     Envelope,
+    /// [`crate::merkle`]: hash the given leaves, build the RFC 9162 tree,
+    /// and reproduce and verify every audit path and consistency proof
+    /// (R6.23).
+    MerkleTree,
+    /// [`crate::canonicalize`] (pure RFC 8785, never the NFC profile), then
+    /// [`crate::merkle::leaf_hash`]: R6.46's leaf input, frozen by R15.1.
+    ActaLeaf,
 }
 
 impl Profile {
@@ -110,6 +122,8 @@ impl Profile {
             "admit" => Ok(Profile::Admit),
             "admit-accept" => Ok(Profile::AdmitAccept),
             "envelope" => Ok(Profile::Envelope),
+            "merkle-tree" => Ok(Profile::MerkleTree),
+            "acta-leaf" => Ok(Profile::ActaLeaf),
             other => Err(LoaderError::UnknownProfile {
                 path: path.to_path_buf(),
                 profile: other.to_string(),
@@ -124,6 +138,8 @@ impl Profile {
             Profile::Admit => "admit",
             Profile::AdmitAccept => "admit-accept",
             Profile::Envelope => "envelope",
+            Profile::MerkleTree => "merkle-tree",
+            Profile::ActaLeaf => "acta-leaf",
         }
     }
 }
@@ -166,6 +182,10 @@ pub struct DirectoryVector {
     pub pairs_with: Option<String>,
     pub input: Vec<u8>,
     pub expectation: Expectation,
+    /// `expected.leaf`: the lowercase hex of `SHA-256(0x00 ‖ expected.canonical)`.
+    /// Only `acta/` vectors carry it; the runner, not the loader, insists
+    /// that an `acta-leaf` vector has one.
+    pub expected_leaf: Option<String>,
 }
 
 /// A vector from the `envelope/` family: the six-file shape described in
@@ -208,6 +228,8 @@ pub struct Corpus {
     pub admit_reject: Vec<DirectoryVector>,
     pub admit_accept: Vec<DirectoryVector>,
     pub envelope: Vec<EnvelopeVector>,
+    pub merkle: Vec<MerkleVector>,
+    pub acta: Vec<DirectoryVector>,
 }
 
 /// Every family name this loader enumerates, in the order [`Corpus::load`]
@@ -228,6 +250,8 @@ pub const LOADED_FAMILIES: &[&str] = &[
     "admit-reject",
     "admit-accept",
     "envelope",
+    "merkle",
+    "acta",
 ];
 
 impl Corpus {
@@ -242,6 +266,8 @@ impl Corpus {
             admit_reject: load_directory_family(root, "admit-reject")?,
             admit_accept: load_directory_family(root, "admit-accept")?,
             envelope: load_envelope_family(root)?,
+            merkle: load_merkle_family(root)?,
+            acta: load_directory_family(root, "acta")?,
         })
     }
 
@@ -261,6 +287,8 @@ impl Corpus {
             + self.admit_reject.len()
             + self.admit_accept.len()
             + self.envelope.len()
+            + self.merkle.len()
+            + self.acta.len()
     }
 
     /// Whether the corpus holds `<family>/<case>` — the shape
@@ -275,6 +303,7 @@ impl Corpus {
         match family {
             "rfc8785" => Some(self.rfc8785.iter().any(|v| v.name == case)),
             "envelope" => Some(self.envelope.iter().any(|v| v.case == case)),
+            "merkle" => Some(self.merkle.iter().any(|v| v.case == case)),
             other => self
                 .directory_family(other)
                 .map(|vectors| vectors.iter().any(|v| v.case == case)),
@@ -291,9 +320,45 @@ impl Corpus {
             "numbers" => Some(&self.numbers),
             "admit-reject" => Some(&self.admit_reject),
             "admit-accept" => Some(&self.admit_accept),
+            "acta" => Some(&self.acta),
             _ => None,
         }
     }
+}
+
+/// One audit path of a `merkle/` vector: the leaf index it proves and the
+/// path's nodes as lowercase hex, leaf-side first.
+#[derive(Debug, Clone)]
+pub struct MerkleInclusion {
+    pub index: usize,
+    pub path: Vec<String>,
+}
+
+/// One consistency proof of a `merkle/` vector: the earlier tree size and
+/// the proof's nodes as lowercase hex. `from` equal to the vector's size
+/// carries an empty path.
+#[derive(Debug, Clone)]
+pub struct MerkleConsistency {
+    pub from: usize,
+    pub path: Vec<String>,
+}
+
+/// A vector from the `merkle/` family: `conformance/README.md`, "The
+/// `merkle/` family". The leaf inputs are the decoded bytes; every
+/// expectation stays as the lowercase hex the corpus publishes, so a runner
+/// compares spellings rather than re-encoding.
+#[derive(Debug, Clone)]
+pub struct MerkleVector {
+    pub case: String,
+    pub requirement: String,
+    pub note: Option<String>,
+    /// The leaf *inputs* — what gets prefixed with `0x00` and hashed — in
+    /// tree order. Their number is the tree size.
+    pub leaves: Vec<Vec<u8>>,
+    pub root: String,
+    pub leaf_hashes: Vec<String>,
+    pub inclusion: Vec<MerkleInclusion>,
+    pub consistency: Vec<MerkleConsistency>,
 }
 
 /// A typed loader failure. The loader never panics: a missing or malformed
@@ -341,6 +406,13 @@ pub enum LoaderError {
     MissingSubmissionField {
         path: PathBuf,
         field: &'static str,
+    },
+    /// A `merkle/` vector's `input.json` or `expected.json` is well-formed
+    /// JSON with the wrong shape: a missing key, a non-hex string, an
+    /// index that is not a number.
+    MalformedMerkleVector {
+        path: PathBuf,
+        problem: String,
     },
     /// A `conformance/rfc8785/input-<name>.json` has no matching
     /// `output-<name>.json`, or vice versa.
@@ -392,7 +464,8 @@ impl fmt::Display for LoaderError {
                 write!(
                     f,
                     "{}: unknown profile `{profile}` (expected one of: rfc8785, \
-                     canonicalize-with-nfc, admit, admit-accept, envelope)",
+                     canonicalize-with-nfc, admit, admit-accept, envelope, merkle-tree, \
+                     acta-leaf)",
                     path.display()
                 )
             }
@@ -412,6 +485,9 @@ impl fmt::Display for LoaderError {
             }
             LoaderError::MissingSubmissionField { path, field } => {
                 write!(f, "{}: submission is missing `{field}`", path.display())
+            }
+            LoaderError::MalformedMerkleVector { path, problem } => {
+                write!(f, "{}: {problem}", path.display())
             }
             LoaderError::UnpairedRfc8785Vector { path, name } => {
                 write!(
@@ -615,6 +691,12 @@ fn load_directory_family(root: &Path, family: &str) -> Result<Vec<DirectoryVecto
         let profile = Profile::parse(&meta.profile, &path.join("meta.json"))?;
         let input = read_file(&path.join("input.json"))?;
         let expectation = load_expectation(&path)?;
+        let leaf_path = path.join("expected.leaf");
+        let expected_leaf = if leaf_path.is_file() {
+            Some(read_text_trimmed(&leaf_path)?)
+        } else {
+            None
+        };
 
         vectors.push(DirectoryVector {
             family: family.to_string(),
@@ -625,6 +707,7 @@ fn load_directory_family(root: &Path, family: &str) -> Result<Vec<DirectoryVecto
             pairs_with: meta.pairs_with,
             input,
             expectation,
+            expected_leaf,
         });
     }
     Ok(vectors)
@@ -753,6 +836,145 @@ fn load_envelope_family(root: &Path) -> Result<Vec<EnvelopeVector>, LoaderError>
     Ok(vectors)
 }
 
+fn load_merkle_family(root: &Path) -> Result<Vec<MerkleVector>, LoaderError> {
+    let family_dir = root.join("merkle");
+    let mut vectors = Vec::new();
+    for path in list_dir_sorted(&family_dir)? {
+        if !path.is_dir() {
+            continue;
+        }
+        let case = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(LoaderError::NotUtf8 { path: path.clone() })?
+            .to_string();
+
+        let meta_path = path.join("meta.json");
+        let meta = load_meta(&meta_path)?;
+        // As for `envelope/`: a `merkle/` case that declares anything but
+        // `merkle-tree` is reported, never routed elsewhere or skipped.
+        match Profile::parse(&meta.profile, &meta_path)? {
+            Profile::MerkleTree => {}
+            _ => {
+                return Err(LoaderError::UnknownProfile {
+                    path: meta_path,
+                    profile: meta.profile,
+                })
+            }
+        }
+
+        let input_path = path.join("input.json");
+        let input = parse_meta_value(&read_file(&input_path)?, &input_path)?;
+        let leaves = hex_array(&input, "leaves", &input_path)?;
+
+        let expected_path = path.join("expected.json");
+        let expected = parse_meta_value(&read_file(&expected_path)?, &expected_path)?;
+        let malformed = |problem: String| LoaderError::MalformedMerkleVector {
+            path: expected_path.clone(),
+            problem,
+        };
+        let root = expected
+            .get("root")
+            .and_then(Value::as_str)
+            .ok_or_else(|| malformed("missing string `root`".to_string()))?
+            .to_string();
+        let leaf_hashes = string_array(&expected, "leaf_hashes", &expected_path)?;
+
+        let mut inclusion = Vec::new();
+        for entry in json_array(&expected, "inclusion", &expected_path)? {
+            let index = entry.get("index").and_then(Value::as_u64).ok_or_else(|| {
+                malformed("an `inclusion` entry has no integer `index`".to_string())
+            })?;
+            inclusion.push(MerkleInclusion {
+                index: index as usize,
+                path: string_array(entry, "path", &expected_path)?,
+            });
+        }
+
+        let mut consistency = Vec::new();
+        for entry in json_array(&expected, "consistency", &expected_path)? {
+            let from = entry.get("from").and_then(Value::as_u64).ok_or_else(|| {
+                malformed("a `consistency` entry has no integer `from`".to_string())
+            })?;
+            consistency.push(MerkleConsistency {
+                from: from as usize,
+                path: string_array(entry, "path", &expected_path)?,
+            });
+        }
+
+        vectors.push(MerkleVector {
+            case,
+            requirement: meta.requirement,
+            note: meta.note,
+            leaves,
+            root,
+            leaf_hashes,
+            inclusion,
+            consistency,
+        });
+    }
+    Ok(vectors)
+}
+
+fn json_array<'a>(
+    value: &'a Value,
+    key: &'static str,
+    path: &Path,
+) -> Result<&'a [Value], LoaderError> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .ok_or_else(|| LoaderError::MalformedMerkleVector {
+            path: path.to_path_buf(),
+            problem: format!("missing array `{key}`"),
+        })
+}
+
+fn string_array(value: &Value, key: &'static str, path: &Path) -> Result<Vec<String>, LoaderError> {
+    json_array(value, key, path)?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| LoaderError::MalformedMerkleVector {
+                    path: path.to_path_buf(),
+                    problem: format!("`{key}` has a non-string entry"),
+                })
+        })
+        .collect()
+}
+
+fn hex_array(value: &Value, key: &'static str, path: &Path) -> Result<Vec<Vec<u8>>, LoaderError> {
+    string_array(value, key, path)?
+        .iter()
+        .map(|s| {
+            decode_hex(s).ok_or_else(|| LoaderError::MalformedMerkleVector {
+                path: path.to_path_buf(),
+                problem: format!("`{key}` entry `{s}` is not lowercase hex of whole bytes"),
+            })
+        })
+        .collect()
+}
+
+/// Lowercase hex, an even number of digits, to bytes. Uppercase is refused
+/// because the corpus publishes lowercase and a runner that accepted both
+/// would compare spellings less strictly than the README promises.
+fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    let digit = |c: u8| match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        _ => None,
+    };
+    s.as_bytes()
+        .chunks(2)
+        .map(|pair| Some(digit(pair[0])? << 4 | digit(pair[1])?))
+        .collect()
+}
+
 // ---------------------------------------------------------------------
 // conformance/index.json — R6.45
 // ---------------------------------------------------------------------
@@ -763,8 +985,8 @@ fn load_envelope_family(root: &Path) -> Result<Vec<EnvelopeVector>, LoaderError>
 pub struct IndexEntry {
     pub name: String,
     pub family: bool,
-    /// `"directory"`, `"file-pairs"` or `"envelope"`. Required on a family
-    /// entry, absent on a non-family one.
+    /// `"directory"`, `"file-pairs"`, `"envelope"` or `"merkle"`. Required
+    /// on a family entry, absent on a non-family one.
     pub shape: Option<String>,
     /// The profiles this family's vectors may declare. Empty for a
     /// non-family entry.
@@ -833,8 +1055,8 @@ impl Index {
     ///    named in the index, and every name in the index is a directory on
     ///    disk.
     /// 2. **Counts.** A family's `count` equals the number of vectors
-    ///    actually present — subdirectories for `shape` `"directory"` and
-    ///    `"envelope"`, `input-*.json` files for `"file-pairs"`.
+    ///    actually present — subdirectories for `shape` `"directory"`,
+    ///    `"envelope"` and `"merkle"`, `input-*.json` files for `"file-pairs"`.
     /// 3. **Profiles.** Every vector's declared `profile` is one the
     ///    family's `profiles` list permits, and every profile the index
     ///    lists is one this runner recognizes. A `"file-pairs"` family has
@@ -943,7 +1165,7 @@ impl Index {
 
         let shape = entry.shape.as_deref().unwrap_or_default();
         let actual = match shape {
-            "directory" | "envelope" => {
+            "directory" | "envelope" | "merkle" => {
                 let cases: Vec<PathBuf> = list_dir_sorted(dir)?
                     .into_iter()
                     .filter(|p| p.is_dir())
@@ -988,7 +1210,7 @@ impl Index {
             other => {
                 problems.push(format!(
                     "`{name}` declares unknown shape `{other}` (expected one of: \
-                     directory, file-pairs, envelope)"
+                     directory, file-pairs, envelope, merkle)"
                 ));
                 return Ok(());
             }

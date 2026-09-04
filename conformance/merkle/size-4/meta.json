@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "Four leaves, a perfect tree: every consistency proof from a power-of-two size omits the first root."
+}

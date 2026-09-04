@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "Eight leaves, the Certificate Transparency reference tree; its root is the value every RFC 6962/9162 implementation is checked against."
+}

@@ -139,6 +139,8 @@ the mistake this section exists to prevent.
 | `admit` | the ADMIT phase | Input must be **rejected** with the slug in `expect-reject`; canonicalization is never reached. |
 | `admit-accept` | the ADMIT phase, then `CanonicalizeWithNfc` | Input must be **admitted**, and the same bytes must then canonicalize to `expected.canonical` (digest `expected.digest`). See "Saying that a document must be admitted" above. |
 | `envelope` | `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify` | End-to-end: canonicalize a full Table 9 envelope, digest it, and verify its detached JWS. See "The `envelope/` family" below — its directory shape is different from every other family's. |
+| `merkle-tree` | `MerkleTree` (RFC 9162 §2.1) | Hash the given leaves, build the tree, and reproduce every audit path and consistency proof in `expected.json`; then verify each with the RFC's verification procedures. See "The `merkle/` family" below.
+| `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
 author's own data, vendored unmodified as input/output file pairs rather than as
@@ -171,6 +173,12 @@ get the count up will look like it is converging. It is not.
   pinned form: the accepting side of each R6.39 boundary. See above.
 - `envelope/` — end-to-end signed fixtures: a full Table 9 envelope, its wire
   submission, its verification keys, and its canonical form. See below.
+- `merkle/` — the Acta's hash tree (§6.6, R6.23): RFC 9162's Merkle Tree Hash,
+  audit paths and consistency proofs over the Certificate Transparency reference
+  leaves, one vector per tree size 0–8. See below.
+- `acta/` — the Acta's leaf input (R6.46, frozen by R15.1): a log entry document
+  in, its canonical form and leaf hash out. The Cūria-specific half of the log;
+  `merkle/` is the RFC's half. See below.
 
 `red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
 measurement (Appendix L), and `index.json` records that with a reason.
@@ -269,3 +277,73 @@ for the wrong reason) is worse than no fixture, and is never committed. Run
 `dotnet run --project tools/GenerateEnvelopeFixtures` to regenerate and
 re-verify the whole family; its console output is the evidence recorded in
 this task's report.
+
+## The `merkle/` family
+
+The transparency log (§6.6) is a Merkle tree on the Certificate Transparency model,
+and a reader that checks an inclusion or consistency proof (R6.23) is running
+RFC 9162 §2.1 verbatim: leaf `SHA-256(0x00 ‖ input)`, node
+`SHA-256(0x01 ‖ left ‖ right)`, empty tree `SHA-256()`, every split at the largest
+power of two strictly below the size. This family pins that arithmetic. What a
+leaf's *input* is — the bytes of Figure 7's `entry_i` — is a separate question
+with its own vectors; these vectors take the leaf inputs as given.
+
+### Directory shape
+
+`shape: "merkle"` in `index.json`. One directory per tree size, `size-0/` to
+`size-8/`, each holding three files:
+
+- `input.json` — `{"leaves": [<hex>, ...]}`: the first *n* leaf inputs as
+  lowercase hex, because the reference inputs include the empty string and a
+  lone `0x00`, which JSON strings cannot carry faithfully.
+- `expected.json` — `root` (hex), `leaf_hashes` (hex, one per leaf), `inclusion`
+  (`{index, path}` for every leaf of the tree) and `consistency` (`{from, path}`
+  for every earlier size 1..*n*, with `from == n` carrying the empty path).
+- `meta.json` — `{"profile": "merkle-tree", "requirement": "R6.23", "note": ...}`.
+
+A runner SHALL, for each vector: hash the leaves and compare each to
+`leaf_hashes`; build the tree and compare its root to `root`; for each
+`inclusion` entry, compute the audit path, compare it node for node, and verify it
+with RFC 9162 §2.1.3.2 against the root; for each `consistency` entry, compute the
+proof from the first `from` leaves to all *n*, compare it node for node, and verify
+it with §2.1.4.2 against the root of the first `from` leaves and the root of all
+*n*. Comparing the *path* and not only its verdict is what makes the family bite: a
+prover that emits a differently shaped but internally consistent proof would verify
+against its own verifier and interoperate with nobody.
+
+### Provenance
+
+The eight leaf inputs are the Certificate Transparency reference implementation's
+test inputs (`""`, `00`, `10`, `2021`, `3031`, `40414243`, `5051525354555657`,
+`606162636465666768696a6b6c6d6e6f`), and `size-8/`'s root
+`5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328` is the value
+every RFC 6962 / RFC 9162 implementation is checked against. Every root, path and
+proof in the family was computed by an oracle written from the RFC's recursive
+definitions alone (`MTH`, `PATH`, `SUBPROOF`), before either of this repository's
+implementations existed, and the published CT values agree with it. Neither
+implementation produced any expected value here.
+
+## The `acta/` family
+
+`merkle/` pins the tree and says nothing about what a leaf's input is. This family pins
+that: R6.46's leaf is one event of the append-only store, rendered as
+`{actor_id, aggregate_id, event_id, event_type, payload, server_ts}` -- the `events` row
+minus `seq` -- canonicalized under **pure** RFC 8785, and hashed as
+`SHA-256(0x00 ‖ leaf_input)`. R15.1 froze this computation in Phase 1 without anyone
+having written it down (errata G9); these vectors are where it is written down.
+
+Ordinary directory shape, ordinary files, plus one: `expected.leaf` holds the lowercase hex
+leaf hash. `expected.digest` keeps its usual meaning -- SHA-256 of `expected.canonical`,
+with no leaf prefix -- so that a runner cannot pass by confusing the two.
+
+A runner SHALL parse `input.json` **without ADMIT's caps** (an entry wraps a whole
+canonical envelope, so a real one can exceed the submission cap), canonicalize it with the
+pure profile, compare the bytes and their digest, and then compare the prefixed hash to
+`expected.leaf`. Without the pure/NFC distinction the family is vacuous: every vector but
+`nfd-payload-stays-nfd` is already NFC. That vector is the one that fails an implementation
+using the wrong function.
+
+Every value here was computed by a twelve-line JCS written for the purpose, from the
+documents as authored; neither implementation produced any expected file. `content-entry`
+wraps `envelope/ed25519-minimal`'s published canonical form and signature verbatim, so the
+two families describe the same post.

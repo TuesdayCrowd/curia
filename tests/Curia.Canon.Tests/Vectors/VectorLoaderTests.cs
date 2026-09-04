@@ -11,6 +11,7 @@ public sealed class VectorLoaderTests
     [InlineData("numbers")]
     [InlineData("admit-reject")]
     [InlineData("admit-accept")]
+    [InlineData("acta")]
     public void EveryFamilyLoadsAndEveryVectorCitesARequirement(string family)
     {
         var vectors = VectorLoader.Load(family);
@@ -52,7 +53,7 @@ public sealed class VectorLoaderTests
     /// so a family added to the corpus can no longer be invisible here (R6.45).
     /// </summary>
     internal static readonly string[] AllFamilies =
-        ["c4", "ordering", "unicode", "numbers", "admit-reject", "admit-accept"];
+        ["c4", "ordering", "unicode", "numbers", "admit-reject", "admit-accept", "acta"];
 
     [Fact]
     public void EveryR6NineTransformationVectorActuallyTransforms()

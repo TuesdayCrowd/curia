@@ -64,6 +64,8 @@ fn scaffold_empty_corpus(root: &Path) {
         "admit-reject",
         "admit-accept",
         "envelope",
+        "merkle",
+        "acta",
     ] {
         fs::create_dir_all(root.join(family)).expect("can scaffold an empty family dir");
     }
@@ -331,7 +333,9 @@ fn write_matching_index(root: &Path) {
     {"name": "numbers", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
     {"name": "admit-reject", "family": true, "shape": "directory", "profiles": ["admit"], "count": 0},
     {"name": "admit-accept", "family": true, "shape": "directory", "profiles": ["admit-accept"], "count": 0},
-    {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0}
+    {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0},
+    {"name": "merkle", "family": true, "shape": "merkle", "profiles": ["merkle-tree"], "count": 0},
+    {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0}
   ]
 }"#,
     );
@@ -437,6 +441,8 @@ fn family_in_the_index_that_no_runner_loads_is_reported() {
     {"name": "admit-reject", "family": true, "shape": "directory", "profiles": ["admit"], "count": 0},
     {"name": "admit-accept", "family": true, "shape": "directory", "profiles": ["admit-accept"], "count": 0},
     {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0},
+    {"name": "merkle", "family": true, "shape": "merkle", "profiles": ["merkle-tree"], "count": 0},
+    {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0},
     {"name": "newfam", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0}
   ]
 }"#,

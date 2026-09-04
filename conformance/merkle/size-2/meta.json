@@ -1,0 +1,5 @@
+{
+  "profile": "merkle-tree",
+  "requirement": "R6.23",
+  "note": "Two leaves: the first split, and the first consistency proof that is a single node."
+}

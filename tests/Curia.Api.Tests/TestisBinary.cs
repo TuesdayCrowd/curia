@@ -72,10 +72,13 @@ internal static class TestisBinary
     /// dressed as a rejection would make the negative control pass for the wrong reason.
     /// </summary>
     internal static (int ExitCode, string StdOut, string StdErr) Run(
-        string binary, string envelopePath, string jwksPath)
+        string binary, string envelopePath, string jwksPath) =>
+        Run(binary, $"verify --envelope \"{envelopePath}\" --jwks \"{jwksPath}\"");
+
+    /// <summary>Any subcommand: the Acta verbs take several files, and the caller composes the line.</summary>
+    internal static (int ExitCode, string StdOut, string StdErr) Run(string binary, string arguments)
     {
-        var process = Process.Start(new ProcessStartInfo(
-            binary, $"verify --envelope \"{envelopePath}\" --jwks \"{jwksPath}\"")
+        var process = Process.Start(new ProcessStartInfo(binary, arguments)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,

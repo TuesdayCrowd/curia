@@ -29,6 +29,18 @@ internal enum VectorProfile
 
     /// <summary><c>envelope</c> — canonicalize a full Table 9 envelope, digest it, verify its JWS.</summary>
     Envelope,
+
+    /// <summary>
+    /// <c>merkle-tree</c> — RFC 9162 §2.1 over given leaves: hash them, build the tree, reproduce
+    /// and verify every audit path and consistency proof (R6.23).
+    /// </summary>
+    MerkleTree,
+
+    /// <summary>
+    /// <c>acta-leaf</c> — a log entry document canonicalized under <b>pure</b> RFC 8785 and
+    /// hashed as <c>SHA-256(0x00 ‖ canonical)</c>: R6.46's leaf input, frozen by R15.1.
+    /// </summary>
+    ActaLeaf,
 }
 
 internal sealed record Vector(
@@ -38,6 +50,7 @@ internal sealed record Vector(
     byte[]? ExpectedCanonical,
     string? ExpectedDigestHex,
     string? ExpectRejectSlug,
+    string? ExpectedLeafHex,
     string? PairsWith,
     string Requirement,
     string Note);
@@ -68,6 +81,8 @@ internal static class VectorLoader
         "admit" => VectorProfile.Admit,
         "admit-accept" => VectorProfile.AdmitAccept,
         "envelope" => VectorProfile.Envelope,
+        "merkle-tree" => VectorProfile.MerkleTree,
+        "acta-leaf" => VectorProfile.ActaLeaf,
         _ => throw new InvalidOperationException(
             $"unrecognized conformance profile \"{value}\" -- R6.44 requires a runner to fail rather than skip"),
     };
@@ -80,6 +95,8 @@ internal static class VectorLoader
         VectorProfile.Admit => "admit",
         VectorProfile.AdmitAccept => "admit-accept",
         VectorProfile.Envelope => "envelope",
+        VectorProfile.MerkleTree => "merkle-tree",
+        VectorProfile.ActaLeaf => "acta-leaf",
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "not a conformance profile"),
     };
 
@@ -104,6 +121,7 @@ internal static class VectorLoader
             var canonical = Path.Combine(dir, "expected.canonical");
             var digest = Path.Combine(dir, "expected.digest");
             var reject = Path.Combine(dir, "expect-reject");
+            var leaf = Path.Combine(dir, "expected.leaf");
             vectors.Add(new Vector(
                 Name: Path.GetFileName(dir),
                 Profile: ProfileOf(meta, metaPath),
@@ -111,6 +129,7 @@ internal static class VectorLoader
                 ExpectedCanonical: File.Exists(canonical) ? File.ReadAllBytes(canonical) : null,
                 ExpectedDigestHex: File.Exists(digest) ? File.ReadAllText(digest).Trim() : null,
                 ExpectRejectSlug: File.Exists(reject) ? File.ReadAllText(reject).Trim() : null,
+                ExpectedLeafHex: File.Exists(leaf) ? File.ReadAllText(leaf).Trim() : null,
                 PairsWith: meta.TryGetProperty("pairs-with", out var pairs) ? pairs.GetString() : null,
                 Requirement: meta.GetProperty("requirement").GetString()!,
                 Note: meta.TryGetProperty("note", out var n) ? n.GetString() ?? "" : ""));

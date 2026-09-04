@@ -98,7 +98,7 @@ public static class TokenEndpoint
         // running for a week. It used to know nothing: the in-memory directory this replaced
         // reported every agent unenrolled after a restart, and refused every token request until
         // each agent re-announced itself.
-        var read = await events.ReadForwardAsync(EventSequence.Zero, 10_000, cancellationToken).ConfigureAwait(false);
+        var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var log, out var readError))
             return OAuthError("server_error", "The credential log could not be read", readError!.Type);
 

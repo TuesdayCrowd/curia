@@ -1,0 +1,1 @@
+{"actor_id":null,"aggregate_id":"system:probe","event_id":"01K4CQ4A1B2C3D4E5F6G7H8J9K","event_type":"system.probe","payload":{"note":"an entry with no actor renders actor_id as JSON null, never as an absent member or an empty string"},"server_ts":"2026-09-04T16:30:00.000000Z"}

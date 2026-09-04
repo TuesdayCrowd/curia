@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R6.46",
+  "note": "A post.accepted event as the Forum persists it, wrapping conformance/envelope/ed25519-minimal's canonical form and signature verbatim. The leaf commits to the envelope, its signature, and the Forum's own metadata, in one encoding."
+}

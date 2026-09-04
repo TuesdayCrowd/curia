@@ -213,6 +213,7 @@ public sealed class Program
         var app = builder.Build();
         TokenEndpoint.Map(app);
         ForumEndpoints.Map(app);
+        ActaEndpoints.Map(app);
         return app;
     }
 }
