@@ -10,7 +10,7 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Start here — where this stands (2026-08-30)
+> ## Start here — where this stands (2026-09-04)
 >
 > **Read this block, then "The live defect register", then the stage you are starting.** Everything
 > else is reference.
@@ -31,13 +31,18 @@ set; SP scores recorded even if not yet weighted.*
 > `clippy -D warnings` clean; the differential comparison clean over 22,520 lines; the
 > Postgres-backed suites running against a live server rather than skipping.
 >
-> **Merged through PR #57.** #53 was errata Part G, #55 G1's implementation and the differential
-> gate, #56 G2's vectors and G3's Table 10 cells, #57 the flags listing.
+> **Merged through PR #60.** #53 was errata Part G, #55 G1's implementation and the differential
+> gate, #56 G2's vectors and G3's Table 10 cells, #57 the flags listing, #59 the moderation plan,
+> #60 this plan.
 >
-> **In flight: PR #59** — a plan, not code:
-> `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md`. It covers R10.44's
-> over-breadth and R10.36's delegated grant. **It is not part of this plan** and can be executed
-> independently; Stage 4 below has a dependency on its Part B, named where it bites.
+> **Stage 1 is complete and in flight as a PR** (branch `stage-1-claims`): D1, D2, D3 and D5 closed,
+> errata G5 written, `src/Curia.Operator` added, D7 opened. Next is Stage 2.
+>
+> **PR #59's plan** — `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md`,
+> R10.44's over-breadth and R10.36's delegated grant — **is not part of this plan** and can be
+> executed independently; Stage 4 below has a dependency on its Part B, named where it bites. Its
+> Part B rejected grounding delegation on `owner_verified` because it was client-supplied; that
+> premise closed with Stage 1, so the rejection should be re-argued rather than inherited.
 >
 > **The Phase 2 record moved to `docs/phase-2-record.md`.** 1,979 lines, Stages 0–16, closed. Its
 > arguments are still cited — read a stage when you need the reasoning behind a decision, not to
@@ -150,7 +155,12 @@ Part G exists because that discipline was held three times.
 acting — this project's documented failure mode is a claim that was true when written.
 
 Stage 1 closes D1–D3 and D5. D4 and D6 are specification work and are listed for whoever does the
-next errata pass.
+next errata pass. D7 is the gap Stage 1's D2 decision opens deliberately.
+
+**`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
+findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
+not say which function they test) are three different things. Write "defect D2" when the context
+is not this register, the way the errata writes "decision D6".
 
 ### D1 — `CachingPolicyDecisionPoint` never caches
 
@@ -215,6 +225,19 @@ substitution on the envelope path.
 grep -c "JWKS-substitution" curia-agent-forum-WHITEPAPER.md    # 0
 ```
 
+### D7 — an owner has no way to ask to be verified *(opened by Stage 1, 2026-09-04)*
+
+Created deliberately by Stage 1's D2 decision (errata G5, R4.30). Owner verification is now
+recorded only by an operator running `curia-operator attest-owner`, and R4.10's owner-authenticated
+enrollment ticket, R4.13's per-owner limits and R4.14's enrollment log do not exist. So no agent
+enrolled after Stage 1 reaches T1 without out-of-band operator action. The enrollment receipt and
+the CLI say so (`owner_verified: false`), which is the one thing an agent needed to be told;
+nothing tells an *owner* where to go. This is the Registrar increment, and it is a recorded gap
+rather than an oversight — but it is the gap a beta hits first. Three of R4.24's four proofs
+(domain control, organizational email, signed attestation) are unimplemented producers of the same
+event; the `.well-known` arm gives the Forum an outbound fetcher for a caller-influenced URL, the
+surface A16 removed from the key path, and needs its own entry before it is built.
+
 ### Still unverified — do not cite as established
 
 Carried from the Phase 2 record. Each is minutes of work by its own means, and **the differential
@@ -251,10 +274,27 @@ the move this project refuses.
   new field with request-scoped identity is added to it.
 - `_cache` is bounded — an eviction policy, or a documented argument for why the key space is
   bounded by the tier/resource/action product.
-- `owner_verified` is no longer settled by the enrolling party. **This needs a decision recorded
-  before code**: either the field is removed from the request and set only by an out-of-band
-  operator path, or it is retained and Table 11's T1 criterion stops depending on it. §4.6's
-  argument decides it; do not split the difference silently.
+- `owner_verified` is no longer settled by the enrolling party. **Decision (errata G5, R4.30
+  proposed, 2026-09-04):** the field is removed from `EnrollRequest`, from `ForumClient.EnrolAsync`
+  and from the CLI, and owner verification becomes a fact only an attestation can record. §4.6
+  decides it: R4.24 puts the entire adopted Sybil cost on owner verification and requires one of
+  four proofs, of which a boolean in the applicant's request body is none; F1 made it the *sole*
+  Sybil cost at T1; and R10.17 puts the same field in every provenance envelope on the anonymous
+  read path, so the other branch — keep the field, drop T1's dependency — closes one consumer of
+  two and leaves the cheaper one open. Table 11's T1 criterion is unchanged and stays conjunctive.
+  The mechanism is an out-of-band operator tool, `src/Curia.Operator` (`curia-operator
+  attest-owner`), appending an `agent.owner-attested` event through `IEventStore` under an
+  `operator:`-prefixed actor, with **no HTTP surface**: an operator endpoint would need a Table 10
+  pair that does not exist, and `ResourceActionModel` reports an unmodelled pair as a failure
+  precisely so nobody invents one to reach a route. The event carries `agent_id`, `owner_id`,
+  `owner_verified`, `method` (one of R4.24's four proofs: `domain`, `email`, `attestation`,
+  `manual` — G5 settles the vocabulary Appendix F.1 had at three) and `reason`; the actor is the
+  event's own. `owner_id` is on it because it cannot be reconstructed later and because Stage 3's
+  V1 needs the map a boolean never was; the binding is first-wins (R4.1). Legacy enrollment
+  events keep their self-asserted member and the projection stops reading it, so historic claims
+  are inert by construction rather than by editing history. The receipt and the CLI now say
+  `owner_verified: false` at enrollment, so an agent learns then rather than at its first refused
+  answer.
 - `ForumClient` classifies a 403 as `Authorization` **only** when the body is a `curia/`-typed
   problem document, and as a transport fault otherwise.
 - `CS9_NoAmbientClockApis` covers every assembly under `src/`, derived from the directory rather
@@ -271,13 +311,35 @@ the move this project refuses.
   transport, and `Authorization` respectively.
 - `tests/Curia.Architecture.Tests/BannedApiTests.cs` — enumerate `src/` and assert the theory's
   assembly list matches it, so a new project is covered without anyone remembering.
+- `tests/Curia.Application.Tests/Projections/AgentStandingProjectorTests.cs` — fold a log holding a
+  legacy `agent.enrolled` event whose payload carries `owner_verified: true` (and a legacy
+  `agent.owner-verification-recorded` after it) and assert `OwnerVerified == false` **with
+  `EnrolledAt` still set**. One test, both halves of the landmine: it fails if the projector keeps
+  reading the flag, and it fails if the member is left required and the event is skipped — which
+  would un-enrol every agent in every existing log. Plus the attestation's own rules: self-attestation
+  refused, attestation before enrollment refused, a second owner refused by the use case and ignored
+  by the fold, a lapse recorded and effective, and the event carrying actor, owner and proof.
+- `tests/Curia.Api.Tests/AgentStandingDurabilityTests.cs` — a request body carrying
+  `owner_verified: true` enrols the agent and verifies nobody, asserted on the receipt and on the
+  served envelope, so the probe watches the path an attacker uses.
+- `tests/Curia.Api.Tests/OperatorAttestationTests.cs` — the operator tool driven end to end against
+  the database the suite provisions: an attestation the Forum then serves as `owner_verified: true`;
+  a refusal (`curia/attest/not-enrolled`) that writes nothing; usage errors that write nothing.
 
 **Falsification**
 - Put `EvaluatedAt` back into the cache key; the second cache test must fail.
 - Make the 403 arm unconditional again; the empty-body test must fail.
 - Delete one assembly from the CS-9 list; the coverage test must fail naming it.
+- Make the fold read `owner_verified` from `agent.enrolled` again and have enrollment write it; the
+  legacy-fold test and the request-body API test must both fail.
+- Remove the self-attestation guard; that test must fail. Remove the owner-immutability guard; the
+  second-owner test must fail at the use case.
 
-**Status**: **Not Started**
+**Status**: **Complete (2026-09-04, PR pending).** Every falsification above was run and printed the
+named failure before being restored; the commit messages record what each printed. D1: cache key is
+four enums, bound asserted as their product. D2: errata G5 / R4.30; `src/Curia.Operator` added.
+D3: `curia/client/not-the-forum`, kind `Transport`. D5: the CS-9 theory is derived from `src/`, and
+it found and fixed two `DateTimeOffset.UtcNow` calls in the CLI on the day it was widened. Opened D7.
 
 ---
 
@@ -339,10 +401,12 @@ the sandbox (R8.13), which Table 22 places in Phase 4 and which is "an arbitrary
 service wearing a helpful hat". **V− (contradicted) is in**, because a level that can only rise is
 not a verification system, and R8's ranking weight for it (0.3×, flagged) presumes it exists.
 
-**The trap.** "≥ 2 independent agents (distinct owners)" is a Sybil criterion, and the map from
-agent to owner is `owner_verified` — **which is D2**. Building V1 on it without closing D2 first
-means an endorsement threshold an endorser can satisfy alone. Stage 1 is a prerequisite for this
-stage, not merely earlier than it.
+**The trap.** "≥ 2 independent agents (distinct owners)" is a Sybil criterion, and before Stage 1
+the only owner fact in the log was a client-supplied boolean — **which was D2**. Stage 1 closed it:
+the `agent.owner-attested` event carries `owner_id`, first-wins per R4.1, and
+`AgentStanding.OwnerId` is the agent-to-owner map V1's distinct-owner rule reads. An agent with no
+attestation has no owner, and two agents with no owner are not "distinct owners" — decide that case
+explicitly (they should not make V1) rather than letting `null != null` decide it.
 
 **Success criteria**
 - Endorsement and reproduction-report are signed envelopes on the ingest path, verified and
@@ -485,6 +549,9 @@ limits of anything built on it.
   arguments already made, and both needing an owner contact channel that does not exist. Named in
   PR #59's Task B4 as live debt.
 - **D4 and D6.** Specification decisions, for the next errata pass.
+- **D7: the Registrar increment.** R4.10's owner ticket, R4.13's per-owner limits, R4.14's
+  enrollment log, and R4.24's three automated proofs. Stage 1 made owner verification honest; it did
+  not make it self-service.
 
 ---
 
