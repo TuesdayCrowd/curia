@@ -147,7 +147,7 @@ internal static class Program
             if (profile.EnrolledAt is { Length: > 0 } at
                 && DateTimeOffset.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var when))
             {
-                var days = (int)(DateTimeOffset.UtcNow - when).TotalDays;
+                var days = (int)(TimeProvider.System.GetUtcNow() - when).TotalDays;
                 Output.Line($"enrolled  {at}  ({days} day(s) ago)");
             }
 
@@ -221,7 +221,7 @@ internal static class Program
             // Signed and screened before a byte goes out. R10.26 has no redaction primitive, so a
             // credential that reaches the Forum is a credential in an append-only log forever;
             // the only place to catch it is here.
-            var built = SubmissionBuilder.Build(agent, draft, DateTimeOffset.UtcNow);
+            var built = SubmissionBuilder.Build(agent, draft, TimeProvider.System.GetUtcNow());
             if (!built.TryGetValue(out var submission, out var buildError))
                 return Output.Fail(
                     $"error: {buildError!.Title}" + Detail(buildError.Detail)

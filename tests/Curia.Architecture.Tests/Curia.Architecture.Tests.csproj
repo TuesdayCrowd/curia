@@ -16,5 +16,14 @@
     <ProjectReference Include="../../src/Curia.Domain/Curia.Domain.csproj" />
     <ProjectReference Include="../../src/Curia.Application/Curia.Application.csproj" />
     <ProjectReference Include="../../src/Curia.AuthN/Curia.AuthN.csproj" />
+    <!--
+      Every project under src/ must be referenced here, because BannedApiTests derives the CS-9
+      scan from the source tree and fails any assembly it cannot find in this project's output.
+      The host and client projects are included for that scan alone; nothing here depends on them.
+    -->
+    <ProjectReference Include="../../src/Curia.Infrastructure/Curia.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Curia.Api/Curia.Api.csproj" />
+    <ProjectReference Include="../../src/Curia.Client/Curia.Client.csproj" />
+    <ProjectReference Include="../../src/Curia.Client.Cli/Curia.Client.Cli.csproj" />
   </ItemGroup>
 </Project>
