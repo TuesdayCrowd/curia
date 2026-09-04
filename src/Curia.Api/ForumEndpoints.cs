@@ -24,13 +24,18 @@ namespace Curia.Api;
 /// <summary>An RFC 9457 problem document. Every rejection this API emits is one of these.</summary>
 public sealed record Problem(string Type, string Title, string? Detail);
 
-/// <summary>What an agent sends to enroll: an identity and the public key it will sign with.</summary>
+/// <summary>
+/// What an agent sends to enroll: an identity and the public key it will sign with -- and nothing
+/// about its owner. It used to carry <c>owner_verified</c>, which made Table 11's one Sybil cost a
+/// value the enrolling party supplied (errata G5); R4.30 puts that fact behind an operator's
+/// attestation, out of band. A body that still carries the member is accepted and the member is
+/// ignored, and the receipt says <c>owner_verified: false</c> so the sender learns it at once.
+/// </summary>
 public sealed record EnrollRequest(
     [property: JsonPropertyName("agent_id")] string AgentId,
     [property: JsonPropertyName("kid")] string Kid,
     [property: JsonPropertyName("alg")] string Alg,
-    [property: JsonPropertyName("public_key")] string PublicKeyBase64,
-    [property: JsonPropertyName("owner_verified")] bool OwnerVerified);
+    [property: JsonPropertyName("public_key")] string PublicKeyBase64);
 
 /// <summary>
 /// What an agent sends to flag a post. R10.35: typed, and with a rationale that is required rather
@@ -210,10 +215,14 @@ public static class ForumEndpoints
     /// denial precisely so a caller cannot mistake it for one.
     ///
     /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication.
-    /// This endpoint trusts what it is told, which is acceptable only because nothing downstream
-    /// trusts an agent's *claim* -- authorship is established by signature against the key
-    /// registered here, so a false enrollment can only impersonate an agent whose private key the
-    /// caller already holds. The Registrar and its owner-auth flow are the next increment.</para>
+    /// This endpoint trusts what it is told, which is acceptable because nothing downstream trusts
+    /// an agent's *claim* -- authorship is established by signature against the key registered
+    /// here, so a false enrollment can only impersonate an agent whose private key the caller
+    /// already holds. That sentence was false for as long as the request carried
+    /// <c>owner_verified</c>: Table 11's T1 row and every provenance envelope trusted it (errata
+    /// G5). The request no longer carries it, and R4.30 puts owner verification behind
+    /// <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route. The Registrar and
+    /// its owner-auth flow are still the next increment (plan D7).</para>
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
@@ -254,11 +263,11 @@ public static class ForumEndpoints
         // these facts are -- "state transitions SHALL be append-only events carrying actor, reason,
         // and timestamp; the current state is a projection" -- and the in-process dictionary this
         // replaced lost every agent's standing on restart, silently and in the direction that reads
-        // as policy rather than as an outage. EnrollAgent records nothing new for a repeat
-        // enrollment unless owner verification has actually changed, so Table 11's tenure clock
-        // cannot be restarted by re-announcing an enrollment.
+        // as policy rather than as an outage. EnrollAgent records nothing for a repeat enrollment,
+        // so Table 11's tenure clock cannot be restarted by re-announcing one -- and it records
+        // nothing about the owner at all; that is AttestOwner's, under an operator's actor (R4.30).
         var enrolled = await enroll
-            .RecordAsync(request.AgentId, request.Kid, request.OwnerVerified, cancellationToken)
+            .RecordAsync(request.AgentId, request.Kid, cancellationToken)
             .ConfigureAwait(false);
 
         if (!enrolled.TryGetValue(out var enrollment, out var enrollError))
@@ -272,6 +281,11 @@ public static class ForumEndpoints
             // The instant standing began, which for a repeat enrollment is the first one's and not
             // this request's -- the value Table 11's "≥ 48 hours" is actually counted from.
             enrolled_at = enrollment!.EnrolledAt,
+
+            // R4.30: what the log says, so an agent learns at enrollment -- not at its first refused
+            // answer two days later -- that its owner is unverified and an operator has to act. A
+            // fresh enrollment's answer is always false, whatever the request body claimed.
+            owner_verified = enrollment.OwnerVerified,
         });
     }
 

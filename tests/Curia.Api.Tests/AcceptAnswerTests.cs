@@ -62,6 +62,8 @@ public sealed class AcceptAnswerTests(ForumFixture forum) : IClassFixture<ForumF
 
         // Table 11: T1 needs ≥ 48 hours, ≥ 3 clean questions and owner verification. One hour past
         // the published boundary, so the test demonstrates the rule rather than overshooting it.
+        // The verification is an operator's attestation (R4.30); nothing the answerer sends does it.
+        await forum.AttestOwnerAsync(answerer.AgentId, ct);
         for (var i = 0; i < 3; i++)
         {
             using var warmup = await answererDpop.PostAsync(

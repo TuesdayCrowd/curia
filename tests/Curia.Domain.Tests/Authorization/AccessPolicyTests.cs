@@ -97,6 +97,35 @@ public sealed class AccessPolicyTests
     }
 
     /// <summary>
+    /// A read decision never consults the posting count. Table 11's budget bounds writes, and R7.4
+    /// caches reads only -- so <c>CachingPolicyDecisionPoint</c>'s key omits <c>PostsToday</c>,
+    /// and this is the fact that omission rests on. Checked over every modelled read, every tier
+    /// and every credential state, at both ends of the count, because the claim is about the whole
+    /// table and not the rows someone thought to list. <see cref="Reads_do_not_spend_the_posting_budget"/>
+    /// states Table 11's own argument for three rows; this is the exhaustive form the key depends on.
+    /// </summary>
+    [Fact]
+    public void Read_decisions_do_not_consult_the_posting_count()
+    {
+        var reads = ResourceActionModel.ModelledPairs.Where(pair => ActionKinds.IsRead(pair.Action)).ToArray();
+        Assert.NotEmpty(reads);
+
+        foreach (var pair in reads)
+        foreach (var tier in Enum.GetValues<PrincipalTier>())
+        foreach (var state in Enum.GetValues<CredentialState>())
+        {
+            var none = AccessPolicy.Decide(Request(tier, pair.Resource, pair.Action, state, postsToday: 0));
+            var many = AccessPolicy.Decide(Request(tier, pair.Resource, pair.Action, state, postsToday: int.MaxValue));
+
+            Assert.True(none.TryGetValue(out var noneDecision, out var noneError), noneError?.Type);
+            Assert.True(many.TryGetValue(out var manyDecision, out var manyError), manyError?.Type);
+            Assert.True(
+                noneDecision == manyDecision,
+                $"{PublishedTable10.Describe(pair, tier)} ({state}) decides {noneDecision!.Reason} at 0 posts and {manyDecision!.Reason} at int.MaxValue");
+        }
+    }
+
+    /// <summary>
     /// Table 10's single "rate-limited" cell. An exhausted budget is a denial with its own reason,
     /// not a tier denial -- R7.16 wants the audit trail to tell those apart, since one means
     /// "wait" and the other means "you will never be allowed this".

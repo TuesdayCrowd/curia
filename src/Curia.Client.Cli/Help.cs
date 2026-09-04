@@ -87,10 +87,11 @@ internal static class Help
 
             IDENTITY
               curia enrol  --agent <name> [--agent-id <uri>] [--kid <id>] [--forum <url>]
-                           [--no-owner-verified]
                   Generates two ES256 key pairs, registers the first, and stores both under
                   $CURIA_CLIENT_HOME (default ~/.curia) at mode 0600. Enrolment is idempotent on
-                  the Forum but this command refuses to overwrite a local profile.
+                  the Forum but this command refuses to overwrite a local profile. Owner
+                  verification is not yours to assert: the Forum's operator attests it out of
+                  band, and until then T1 is unreachable (R4.30).
               curia whoami [--agent <name>]        Identity, forum, token state, days enrolled.
               curia agents                         Local profiles.
 

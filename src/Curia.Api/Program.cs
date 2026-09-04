@@ -135,6 +135,15 @@ public sealed class Program
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
+        // R4.30's attestation path (errata G5), reached by no HTTP route: an operator endpoint would
+        // need a Table 10 pair that does not exist, and ResourceActionModel reports an unmodelled
+        // pair as a failure precisely so nobody invents one to reach a route. Registered so this
+        // composition root is the one place that knows how to build it -- the end-to-end tests
+        // resolve it from here, and the operator tool builds the same type over the same store.
+        builder.Services.AddSingleton(sp => new AttestOwner(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<TimeProvider>()));
+
         // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does: it appends a fact
         // about an agent's conduct, and CS-15's phase typing governs submitted content -- there is
         // no envelope here and nothing to verify, only a rationale to screen.

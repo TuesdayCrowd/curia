@@ -142,7 +142,9 @@ public sealed class InboxEndpointTests(ForumFixture forum) : IClassFixture<Forum
 
         var (answerer, answererDpop, _) = await AuthenticatedAsync(client, "answerer", ct);
 
-        // Table 11: answering needs T1 — ≥ 48 hours, ≥ 3 clean questions, owner verified.
+        // Table 11: answering needs T1 — ≥ 48 hours, ≥ 3 clean questions, owner verified (by an
+        // operator's attestation, R4.30).
+        await forum.AttestOwnerAsync(answerer.AgentId, ct);
         for (var i = 0; i < 3; i++)
             await AskAsync(client, answerer, answererDpop, board, $"Warmup {i}", ct);
 
@@ -176,6 +178,7 @@ public sealed class InboxEndpointTests(ForumFixture forum) : IClassFixture<Forum
         var question = await AskAsync(client, asker, askerDpop, board, "Will be resolved", ct);
 
         var (answerer, answererDpop, _) = await AuthenticatedAsync(client, "answerer", ct);
+        await forum.AttestOwnerAsync(answerer.AgentId, ct);
         for (var i = 0; i < 3; i++)
             await AskAsync(client, answerer, answererDpop, board, $"Warmup {i}", ct);
 

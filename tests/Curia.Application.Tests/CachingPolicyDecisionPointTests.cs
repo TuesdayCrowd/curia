@@ -130,9 +130,9 @@ public sealed class CachingPolicyDecisionPointTests
     }
 
     /// <summary>
-    /// Different principals must not share a cached decision. The cache key is the whole request,
-    /// so a tier change is a different key -- but that is exactly the kind of thing that is
-    /// obviously true until someone keys on the resource for speed.
+    /// Different principals must not share a cached decision. A tier change is a different key --
+    /// which is exactly the kind of thing that is obviously true until someone keys on the
+    /// resource for speed.
     /// </summary>
     [Fact]
     public async Task Different_principals_do_not_share_a_cached_decision()
@@ -148,6 +148,85 @@ public sealed class CachingPolicyDecisionPointTests
 
         Assert.Equal(2, inner.Calls);
     }
+
+    /// <summary>
+    /// The defect behind Phase 3's D1. <see cref="AuthorizationRequest"/> carries an
+    /// <see cref="EvaluatedTier"/>, a record struct whose generated equality includes
+    /// <see cref="EvaluatedTier.EvaluatedAt"/> -- so a key on the whole request was unique per
+    /// request in production, where every evaluation carries a fresh instant. The hit rate was 0 %,
+    /// R7.5's stale-read branch was unreachable, and the dictionary grew without bound, while every
+    /// test in this file passed because <see cref="TierFixture"/> pinned one instant. This is the
+    /// test that fixture could not write: two requests that differ only in when the tier was
+    /// evaluated share a decision.
+    /// </summary>
+    [Fact]
+    public async Task R7_4_ARequestDifferingOnlyInTheEvaluationInstantIsACacheHit()
+    {
+        var (pdp, inner, _, clock) = Build();
+        var ct = TestContext.Current.CancellationToken;
+
+        await pdp.EvaluateAsync(Read() with { Tier = TierFixture.As(PrincipalTier.T1, Start) }, ct);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await pdp.EvaluateAsync(Read() with { Tier = TierFixture.As(PrincipalTier.T1, Start.AddSeconds(1)) }, ct);
+
+        Assert.Equal(1, inner.Calls);
+    }
+
+    /// <summary>
+    /// The key is not simply constant. Every field a read decision can turn on -- credential state,
+    /// resource, action (tier is covered above) -- is a different key.
+    /// </summary>
+    [Fact]
+    public async Task Requests_differing_in_state_resource_or_action_do_not_share_a_decision()
+    {
+        var (pdp, inner, _, _) = Build();
+        var ct = TestContext.Current.CancellationToken;
+        var read = Read();
+
+        await pdp.EvaluateAsync(read, ct);
+        await pdp.EvaluateAsync(read with { CredentialState = CredentialState.Quarantined }, ct);
+        await pdp.EvaluateAsync(read with { Resource = ResourceKind.Board }, ct);
+        await pdp.EvaluateAsync(read with { Action = ActionKind.Search }, ct);
+
+        Assert.Equal(4, inner.Calls);
+    }
+
+    /// <summary>
+    /// The key is built from the request by hand, so a field added to <see cref="AuthorizationRequest"/>
+    /// is silently absent from it -- right for a per-request instant, wrong for anything a decision
+    /// turns on. Pinning the request's shape makes the addition a decision taken here rather than a
+    /// default nobody noticed; pinning the key to enum-typed fields is what keeps the cache bounded,
+    /// and the product below is its ceiling. <c>PostsToday</c> is deliberately on one list and not
+    /// the other: reads never consult it (<c>AccessPolicyTests.Read_decisions_do_not_consult_the_posting_count</c>).
+    /// </summary>
+    [Fact]
+    public void The_cache_key_carries_every_request_field_except_the_instant_and_the_post_count()
+    {
+        string[] requestFields = ["Action", "CredentialState", "PostsToday", "Resource", "Tier"];
+        string[] keyFields = ["Action", "CredentialState", "Resource", "Tier"];
+
+        var request = FieldsOf(typeof(AuthorizationRequest));
+        Assert.True(
+            request.Select(p => p.Name).SequenceEqual(requestFields),
+            $"AuthorizationRequest's fields are now [{string.Join(", ", request.Select(p => p.Name))}]. " +
+            "Decide whether CachingPolicyDecisionPoint.CacheKey must carry the new field, then update both lists.");
+
+        var key = FieldsOf(typeof(CachingPolicyDecisionPoint.CacheKey));
+        Assert.Equal(keyFields, key.Select(p => p.Name));
+        Assert.All(key, p => Assert.True(
+            p.ParameterType.IsEnum,
+            $"CacheKey.{p.Name} is a {p.ParameterType.Name}; a key field that is not an enum makes the cache unbounded"));
+
+        var ceiling = key.Aggregate(1L, (n, p) => n * Enum.GetValues(p.ParameterType).Length);
+        Assert.InRange(ceiling, 1, 10_000);
+    }
+
+    private static System.Reflection.ParameterInfo[] FieldsOf(Type record) =>
+        record.GetConstructors()
+            .Single(c => c.GetParameters().Length > 1)
+            .GetParameters()
+            .OrderBy(p => p.Name, StringComparer.Ordinal)
+            .ToArray();
 
     /// <summary>
     /// A failure is not cached. An unmodelled pair is a gap in §7.2, and caching it would turn a

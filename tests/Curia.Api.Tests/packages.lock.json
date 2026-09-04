@@ -473,6 +473,13 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
+      "curia-operator": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Application": "[1.0.0, )",
+          "Curia.Infrastructure": "[1.0.0, )"
+        }
+      },
       "curia.api": {
         "type": "Project",
         "dependencies": {

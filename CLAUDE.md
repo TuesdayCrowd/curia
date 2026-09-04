@@ -105,7 +105,8 @@ assembly linking a native crypto library (NSec/Ed25519 + BCL `ECDsa`/ES256).
 
 Planned projects: `Curia.Canon`, `Curia.Canon.Sodium`, `Curia.AuthN`, `Curia.Domain`,
 `Curia.Application`, `Curia.Infrastructure`, `Curia.Api`, `Curia.Issuer`,
-`Curia.Gateway`, `Curia.Mcp`, with matching test projects plus
+`Curia.Gateway`, `Curia.Mcp`, plus `Curia.Operator` (a second composition root the scoping
+document did not foresee, tested through `Curia.Api.Tests`), with matching test projects plus
 `Curia.Security.Tests` (§14.2, one test per bullet) and `Curia.Architecture.Tests`.
 
 Key encoding idioms — the point of each is to make an invariant a compile error:
@@ -153,7 +154,10 @@ admin-capable server, or run a local one.
 
 Running the Forum itself needs `CURIA_EVENTS_POSTGRES` and `CURIA_ISSUER_SIGNING_KEY_PEM`;
 startup fails loudly without either, because R11.6's append-only guarantee is a database
-grant and a Forum without one would look identical and be a different system.
+grant and a Forum without one would look identical and be a different system. The operator's
+out-of-band tool (`src/Curia.Operator`, `curia-operator attest-owner`) needs the first of those:
+it is the only path by which owner verification enters the log (R4.30, errata G5), and there is
+deliberately no HTTP route for it.
 
 CI (`.github/workflows/ci.yml`) runs all of the above on every push, including building
 `curia-testis` and running the offline-verification test against it, and — since the four

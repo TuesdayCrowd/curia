@@ -87,7 +87,7 @@ internal sealed class Args
     /// reinterpreting the body as a flag rather than by saying so.</para>
     /// </summary>
     private static readonly ImmutableArray<string> Switches =
-        ["no-owner-verified", "owner-verified", "titles", "json"];
+        ["titles", "json"];
 
     internal static Args Parse(IReadOnlyList<string> argv, int from)
     {

@@ -38,6 +38,8 @@ public sealed class AgentStandingProjectorTests
     private const string Agent = "https://agents.example/aurelia";
     private const string Kid = "aurelia-1";
     private const string Other = "https://agents.example/other";
+    private const string Owner = "owner:example";
+    private const string Operator = "operator:reviewer";
 
     private static readonly DateTimeOffset Start = new(2026, 8, 16, 12, 0, 0, TimeSpan.Zero);
 
@@ -47,6 +49,36 @@ public sealed class AgentStandingProjectorTests
     private static async Task<IReadOnlyList<AppendedEvent>> LogAsync(
         InMemoryEventStore store, CancellationToken ct) =>
         Require(await store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct).ConfigureAwait(false));
+
+    /// <summary>
+    /// R4.30's attestation, as an operator records it: the same use case the operator tool calls,
+    /// so these tests exercise the deployment path rather than a hand-built event.
+    /// </summary>
+    private static Task<Result<OwnerAttestation>> AttestAsync(
+        InMemoryEventStore store,
+        ManualTimeProvider clock,
+        string agent,
+        CancellationToken ct,
+        bool verified = true,
+        string owner = Owner,
+        string by = Operator,
+        OwnerVerificationMethod method = OwnerVerificationMethod.Manual) =>
+        new AttestOwner(store, clock).RecordAsync(
+            agent,
+            Require(OwnerId.Create(owner)),
+            verified,
+            method,
+            "reviewed by an operator",
+            Require(ActorId.Create(by)),
+            ct);
+
+    /// <summary>Enrolment followed by attestation -- what an agent needs before Table 11's T1 row can hold.</summary>
+    private static async Task EnrollVerifiedAsync(
+        InMemoryEventStore store, ManualTimeProvider clock, string agent, string kid, CancellationToken ct)
+    {
+        Require(await new EnrollAgent(store, clock).RecordAsync(agent, kid, ct).ConfigureAwait(false));
+        Require(await AttestAsync(store, clock, agent, ct).ConfigureAwait(false));
+    }
 
     /// <summary>
     /// Appends a <c>post.accepted</c> event shaped the way <c>IngestPipeline.PersistAsync</c>
@@ -78,7 +110,8 @@ public sealed class AgentStandingProjectorTests
 
     /// <summary>
     /// R4.21: enrollment is an append-only event, and the credential state is a projection of it.
-    /// The instant is the store's <c>server_ts</c>, not anything the request supplied.
+    /// The instant is the store's <c>server_ts</c>, not anything the request supplied -- and
+    /// neither is the owner's verification, which enrollment cannot set (R4.30).
     /// </summary>
     [Fact]
     public async Task R4_21_EnrollmentFoldsIntoAnActiveCredential()
@@ -88,17 +121,73 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        var recorded = Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        var recorded = Require(await enroll.RecordAsync(Agent, Kid, ct));
 
         Assert.Equal(Start, recorded.EnrolledAt);
         Assert.False(recorded.WasAlreadyEnrolled);
+        Assert.False(recorded.OwnerVerified);
 
         var facts = Require(AgentStandingProjector.PostureOf(
             AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
 
         Assert.Equal(CredentialState.Active, facts.CredentialState);
         Assert.Equal(Start, facts.EnrolledAt);
-        Assert.True(facts.OwnerVerified);
+        Assert.False(facts.OwnerVerified);
+    }
+
+    /// <summary>
+    /// Errata G5 / plan D2: an enrollment event's own <c>owner_verified</c> member was a claim the
+    /// enrolling agent made about itself, and the fold no longer honours it -- while still honouring
+    /// the enrollment beside it. Appended raw, shaped exactly as <c>EnrollAgent</c> shaped it before
+    /// the member was removed, because the log is append-only and every deployed Forum's history
+    /// carries events of this shape forever. The legacy <c>agent.owner-verification-recorded</c>
+    /// event, which the same request body produced, is inert for the same reason.
+    ///
+    /// <para>This one test carries both halves of the landmine: it fails if the projector keeps
+    /// reading the flag from the enrollment event, and it fails if the member is left required and
+    /// the event is skipped -- which would un-enrol every agent in every existing log, silently
+    /// and in the direction that reads as policy.</para>
+    /// </summary>
+    [Fact]
+    public async Task G5_ASelfAssertedOwnerVerificationInTheLogIsInertButTheEnrollmentIsNot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+        var aggregate = Require(AggregateId.Create(Agent));
+
+        Require(await store.AppendAsync(aggregate, AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create("legacy-enrolled")),
+                Require(EventType.Create(AgentStandingProjector.EnrolledType)),
+                Require(ActorId.Create(Agent)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(Agent)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(Kid)),
+                    new(AgentStandingProjector.OwnerVerifiedField, new JsonValue.Bool(true)),
+                    new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted")),
+                ]))],
+            ct));
+
+        Require(await store.AppendAsync(aggregate, Require(AggregateVersion.From(1)),
+            [new DomainEvent(
+                Require(EventId.Create("legacy-verified")),
+                Require(EventType.Create(AgentStandingProjector.LegacyOwnerVerificationRecordedType)),
+                Require(ActorId.Create(Agent)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(Agent)),
+                    new(AgentStandingProjector.OwnerVerifiedField, new JsonValue.Bool(true)),
+                ]))],
+            ct));
+
+        var facts = Require(AgentStandingProjector.PostureOf(
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+
+        Assert.Equal(CredentialState.Active, facts.CredentialState);
+        Assert.Equal(Start, facts.EnrolledAt);
+        Assert.False(facts.OwnerVerified);
     }
 
     /// <summary>An agent the log has never heard of has a pending credential and no tenure.</summary>
@@ -132,10 +221,10 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        Require(await enroll.RecordAsync(Agent, Kid, ct));
 
         clock.Advance(TimeSpan.FromDays(8));
-        var again = Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        var again = Require(await enroll.RecordAsync(Agent, Kid, ct));
 
         Assert.Equal(Start, again.EnrolledAt);
         Assert.True(again.WasAlreadyEnrolled);
@@ -149,52 +238,159 @@ public sealed class AgentStandingProjectorTests
     }
 
     /// <summary>
-    /// Owner verification is the mutable half: it genuinely changes, so it gets its own event and
-    /// the latest one wins -- while the enrollment instant beside it does not move.
+    /// R4.30: owner verification enters the log by an operator's attestation, later than
+    /// enrollment, and takes effect -- while the enrollment instant beside it does not move. A
+    /// repeat enrollment afterwards reports the verified standing and appends nothing.
     /// </summary>
     [Fact]
-    public async Task OwnerVerificationCanBeGrantedLaterAndTakesEffect()
+    public async Task R4_30_OwnerVerificationIsAttestedLaterAndTakesEffect()
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: false, ct));
+        Require(await enroll.RecordAsync(Agent, Kid, ct));
 
         clock.Advance(TimeSpan.FromDays(1));
-        var verified = Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        var attested = Require(await AttestAsync(store, clock, Agent, ct));
 
-        Assert.True(verified.OwnerVerified);
-        Assert.Equal(Start, verified.EnrolledAt);
+        Assert.True(attested.Verified);
+        Assert.Equal(Start.AddDays(1), attested.AttestedAt);
+        Assert.Equal(OwnerVerificationMethod.Manual, attested.Method);
+
+        var again = Require(await enroll.RecordAsync(Agent, Kid, ct));
+        Assert.True(again.OwnerVerified);
+        Assert.Equal(Start, again.EnrolledAt);
 
         var log = await LogAsync(store, ct);
         Assert.Equal(2, log.Count);
 
-        var facts = Require(AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), Agent));
-
-        Assert.True(facts.OwnerVerified);
-        Assert.Equal(Start, facts.EnrolledAt);
+        var standing = AgentStandingProjector.Fold(log)[Agent];
+        Assert.Equal(Owner, standing.OwnerId);
+        Assert.True(standing.OwnerVerified);
+        Assert.Equal(Start, standing.EnrolledAt);
     }
 
     /// <summary>
-    /// Re-announcing the same flag appends nothing. An append-only log cannot take a redundant
-    /// fact back, and a client that re-authenticates on every token refresh would otherwise grow
-    /// the stream without bound.
+    /// R4.21 and R4.30 together: the event carries the attesting actor, the owner, the proof and
+    /// the reason, so a replay can say who attested what for whom -- the facts that could not be
+    /// reconstructed later if the event held only a boolean.
     /// </summary>
     [Fact]
-    public async Task RecordingAnUnchangedOwnerVerificationAppendsNothing()
+    public async Task R4_30_TheAttestationEventNamesTheActorTheOwnerAndTheProof()
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
-        var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ct));
+        Require(await AttestAsync(store, clock, Agent, ct, method: OwnerVerificationMethod.Domain));
 
+        var attestation = (await LogAsync(store, ct))[1];
+        var payload = Assert.IsType<JsonValue.Object>(attestation.Event.Payload);
+        var members = payload.Members.ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal);
+
+        Assert.Equal(AgentStandingProjector.OwnerAttestedType, attestation.Event.Type.Value);
+        Assert.Equal(Operator, attestation.Event.Actor?.Value);
+        Assert.Equal(Owner, Assert.IsType<JsonValue.String>(members[AgentStandingProjector.OwnerIdField]).Value);
+        Assert.Equal("domain", Assert.IsType<JsonValue.String>(members[AgentStandingProjector.MethodField]).Value);
+        Assert.True(Assert.IsType<JsonValue.Bool>(members[AgentStandingProjector.OwnerVerifiedField]).Value);
+        Assert.NotEmpty(Assert.IsType<JsonValue.String>(members[AgentStandingProjector.ReasonField]).Value);
+    }
+
+    /// <summary>
+    /// R4.30: "SHALL NOT accept owner-verification status from an enrolling agent". The one identity
+    /// the domain can recognise without an identifier scheme is the agent's own, and it is refused.
+    /// </summary>
+    [Fact]
+    public async Task R4_30_AnAgentCannotAttestItsOwnOwner()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ct));
+
+        var refused = await AttestAsync(store, clock, Agent, ct, by: Agent);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/attest/self-attestation", error!.Type);
         Assert.Single(await LogAsync(store, ct));
+    }
+
+    /// <summary>An attestation for an agent the log has never enrolled is refused, and appends nothing.</summary>
+    [Fact]
+    public async Task R4_30_AnAttestationNeedsAnEnrollment()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        var refused = await AttestAsync(store, clock, Agent, ct);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/attest/not-enrolled", error!.Type);
+        Assert.Empty(await LogAsync(store, ct));
+    }
+
+    /// <summary>
+    /// R4.1: the agent-to-owner binding is immutable. A second attestation naming a different owner
+    /// is refused by the use case; and should such an event reach the log by any other path, the
+    /// fold keeps the first owner -- asserted with a raw append, because the use case refuses to
+    /// write one.
+    /// </summary>
+    [Fact]
+    public async Task R4_1_ASecondOwnerIsRefusedByTheUseCaseAndIgnoredByTheFold()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
+
+        var refused = await AttestAsync(store, clock, Agent, ct, owner: "owner:someone-else");
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/attest/owner-binding-immutable", error!.Type);
+
+        var aggregate = Require(AggregateId.Create(Agent));
+        Require(await store.AppendAsync(aggregate, Require(AggregateVersion.From(2)),
+            [new DomainEvent(
+                Require(EventId.Create("stray-rehome")),
+                Require(EventType.Create(AgentStandingProjector.OwnerAttestedType)),
+                Require(ActorId.Create(Operator)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(Agent)),
+                    new(AgentStandingProjector.OwnerIdField, new JsonValue.String("owner:someone-else")),
+                    new(AgentStandingProjector.OwnerVerifiedField, new JsonValue.Bool(false)),
+                    new(AgentStandingProjector.MethodField, new JsonValue.String("manual")),
+                ]))],
+            ct));
+
+        var standing = AgentStandingProjector.Fold(await LogAsync(store, ct))[Agent];
+        Assert.Equal(Owner, standing.OwnerId);
+        Assert.True(standing.OwnerVerified);
+    }
+
+    /// <summary>
+    /// Verification can lapse (R4.24's proofs are not permanent), and a lapse is an attestation
+    /// like any other: appended, and the latest one wins.
+    /// </summary>
+    [Fact]
+    public async Task R4_30_ALapseIsAttestedAndTakesEffect()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
+        Require(await AttestAsync(store, clock, Agent, ct, verified: false));
+
+        var standing = AgentStandingProjector.Fold(await LogAsync(store, ct))[Agent];
+        Assert.False(standing.OwnerVerified);
+        Assert.Equal(Owner, standing.OwnerId);
+        Assert.Equal(3, (await LogAsync(store, ct)).Count);
     }
 
     /// <summary>
@@ -208,9 +404,7 @@ public sealed class AgentStandingProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
-        var enroll = new EnrollAgent(store, clock);
-
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
 
         for (var i = 0; i < 3; i++)
             await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
@@ -240,8 +434,8 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
-        Require(await enroll.RecordAsync(Other, "other-1", ownerVerified: true, ct));
+        Require(await enroll.RecordAsync(Agent, Kid, ct));
+        Require(await enroll.RecordAsync(Other, "other-1", ct));
 
         await AcceptPostAsync(store, Agent, "question", "mine-1", ct);
         await AcceptPostAsync(store, Agent, "answer", "mine-2", ct);
@@ -267,7 +461,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
 
         // The three questions land on day one, so the tenure condition is the binding one.
         clock.Advance(TimeSpan.FromDays(1));
@@ -281,12 +475,12 @@ public sealed class AgentStandingProjectorTests
 
         // A second agent, verified only on day twenty: there owner verification is binding, and no
         // amount of later reading moves the answer.
-        Require(await enroll.RecordAsync(Other, "other-1", ownerVerified: false, ct));
+        Require(await enroll.RecordAsync(Other, "other-1", ct));
         for (var i = 0; i < 3; i++)
             await AcceptPostAsync(store, Other, "question", $"other-{i}", ct);
 
         clock.Advance(TimeSpan.FromDays(19));
-        Require(await enroll.RecordAsync(Other, "other-1", ownerVerified: true, ct));
+        Require(await AttestAsync(store, clock, Other, ct));
 
         var late = Require(AgentStandingProjector.PostureOf(
             AgentStandingProjector.Fold(await LogAsync(store, ct)), Other));
@@ -307,11 +501,11 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: false, ct));
+        Require(await enroll.RecordAsync(Agent, Kid, ct));
         await AcceptPostAsync(store, Agent, "question", "q-1", ct);
 
         clock.Advance(TimeSpan.FromDays(2));
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        Require(await AttestAsync(store, clock, Agent, ct));
         await AcceptPostAsync(store, Agent, "question", "q-2", ct);
         await AcceptPostAsync(store, Agent, "question", "q-3", ct);
 
@@ -353,7 +547,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        Require(await enroll.RecordAsync(Agent, Kid, ct));
 
         Require(await store.AppendAsync(
             Require(AggregateId.Create("some-other-aggregate")),
@@ -384,7 +578,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        Require(await enroll.RecordAsync(Agent, Kid, ct));
         await AcceptPostAsync(store, Agent, "question", "q-1", ct);
 
         var reversed = (await LogAsync(store, ct)).Reverse().ToArray();
@@ -461,7 +655,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         for (var i = 0; i < 3; i++)
             await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
 
@@ -486,7 +680,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         for (var i = 0; i < 3; i++)
             await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
 
@@ -513,7 +707,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         for (var i = 0; i < 3; i++)
             await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
 
@@ -541,7 +735,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ownerVerified: true, ct));
+        await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         await AcceptPostAsync(store, Agent, "answer", "answer-1", ct);
 
         Assert.True(Require(AgentStandingProjector.PostureOf(

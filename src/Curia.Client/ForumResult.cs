@@ -18,7 +18,11 @@ public enum RefusalKind
     /// <summary>A fault on this side: no profile, unreadable key, bad arguments.</summary>
     Local,
 
-    /// <summary>The Forum could not be reached at all.</summary>
+    /// <summary>
+    /// The Forum could not be reached at all, or something that is not the Forum answered. A 403
+    /// with no Forum problem document lands here rather than in <see cref="Authorization"/>: the
+    /// remedy for both is the address, not the agent's standing.
+    /// </summary>
     Transport,
 
     /// <summary>A response arrived that this client could not parse.</summary>
