@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Curia.Application.Ports;
 using Curia.Domain.Authorization;
+using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
 
 namespace Curia.Application.Authorization;
@@ -37,9 +38,40 @@ public sealed class CachingPolicyDecisionPoint : IPolicyDecisionPoint
     private readonly IAuthorizationAlertSink _alerts;
     private readonly TimeProvider _clock;
     private readonly TimeSpan _ttl;
-    private readonly ConcurrentDictionary<AuthorizationRequest, Entry> _cache = new();
+    private readonly ConcurrentDictionary<CacheKey, Entry> _cache = new();
 
     private sealed record Entry(AuthorizationDecision Decision, DateTimeOffset CachedAt);
+
+    /// <summary>
+    /// What a cached read decision is keyed on: every field of the request a read decision can
+    /// turn on, and nothing else.
+    ///
+    /// <para><b>Not the request itself, and the difference is the whole cache.</b>
+    /// <see cref="AuthorizationRequest"/> carries an <see cref="EvaluatedTier"/>, whose generated
+    /// equality includes the instant it was evaluated at. Keyed on the whole request, every
+    /// production evaluation -- each carrying a fresh instant -- was a distinct key: the hit rate
+    /// was 0 %, R7.5's stale-read branch was unreachable, and the dictionary grew without bound on
+    /// an anonymously reachable path, while every test passed because the fixture pinned one
+    /// instant (Phase 3 plan, D1).</para>
+    ///
+    /// <para><b>Why <see cref="AuthorizationRequest.PostsToday"/> is absent.</b> R7.4 caches reads
+    /// only, and a read decision never consults the posting count -- Table 11's budget bounds
+    /// writes -- which <c>AccessPolicyTests.Read_decisions_do_not_consult_the_posting_count</c>
+    /// holds over every modelled read, tier and credential state. Leaving it out is what makes the
+    /// cache bounded: the key is four enums, so the dictionary can never hold more entries than
+    /// their product (a few thousand), and no eviction policy is needed -- which matters because
+    /// R7.5's stale-read fallback is deliberately unbounded in age and an eviction by age would
+    /// remove exactly the entries it exists to serve.</para>
+    /// </summary>
+    internal readonly record struct CacheKey(
+        PrincipalTier Tier,
+        CredentialState CredentialState,
+        ResourceKind Resource,
+        ActionKind Action)
+    {
+        internal static CacheKey For(AuthorizationRequest request) =>
+            new(request.Tier.Tier, request.CredentialState, request.Resource, request.Action);
+    }
 
     /// <param name="ttl">
     /// How long a read decision may be reused. Clamped by <see cref="MaximumTtl"/> at construction
@@ -86,10 +118,11 @@ public sealed class CachingPolicyDecisionPoint : IPolicyDecisionPoint
         cancellationToken.ThrowIfCancellationRequested();
 
         var cacheable = IsCacheable(request);
+        var key = CacheKey.For(request);
         var now = _clock.GetUtcNow();
 
         if (cacheable
-            && _cache.TryGetValue(request, out var fresh)
+            && _cache.TryGetValue(key, out var fresh)
             && now - fresh.CachedAt < _ttl)
             return Result<AuthorizationDecision>.Ok(fresh.Decision);
 
@@ -101,13 +134,13 @@ public sealed class CachingPolicyDecisionPoint : IPolicyDecisionPoint
             // question -- an unmodelled pair, or a row decided by owner authentication -- and
             // caching that would turn a specification gap into a sticky one.
             if (cacheable && result.TryGetValue(out var decision, out _))
-                _cache[request] = new Entry(decision!, now);
+                _cache[key] = new Entry(decision!, now);
 
             return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return Unavailable(request, cacheable, ex);
+            return Unavailable(request, key, cacheable, ex);
         }
     }
 
@@ -115,9 +148,10 @@ public sealed class CachingPolicyDecisionPoint : IPolicyDecisionPoint
     /// R7.5: "fail closed for writes and open for reads from cache (principle P6), and SHALL emit
     /// a high-severity alert."
     /// </summary>
-    private Result<AuthorizationDecision> Unavailable(AuthorizationRequest request, bool cacheable, Exception cause)
+    private Result<AuthorizationDecision> Unavailable(
+        AuthorizationRequest request, CacheKey key, bool cacheable, Exception cause)
     {
-        if (cacheable && _cache.TryGetValue(request, out var stale))
+        if (cacheable && _cache.TryGetValue(key, out var stale))
         {
             _alerts.PolicyDecisionPointUnavailable(request, PolicyUnavailabilityOutcome.ServedStaleRead, cause);
             return Result<AuthorizationDecision>.Ok(stale.Decision);

@@ -5,4 +5,8 @@
   <ItemGroup>
     <ProjectReference Include="../Curia.Domain/Curia.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- CS-5: internals visible only to the matching test assembly. -->
+    <InternalsVisibleTo Include="Curia.Application.Tests" />
+  </ItemGroup>
 </Project>
