@@ -690,9 +690,20 @@ public static class ForumEndpoints
         // A withheld post reports "no such post" rather than "withheld". R10.37 records the action
         // in the log where a moderator and an appeal (R10.38) can see it; the serving path does not
         // advertise it, because a distinct status would let anyone enumerate exactly which posts
-        // moderation acted on -- a map of the corpus's most interesting content, for free.
-        return post is null
-            ? Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId))
+        // moderation acted on -- a map of the corpus's most interesting content, for free. (The
+        // batch route says "withheld", and may: it is keyed by digest, which only a party that has
+        // already seen the content can hold.) No ETag on a 404, either: a withheld post has changed
+        // in the one way a post can, and a validator on the refusal would say otherwise.
+        if (post is null)
+            return Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId));
+
+        // R9.11: the validator is the content digest, and a caller presenting it gets 304 and no
+        // body. A post's bytes never change -- a revision is a new post -- so this can only ever
+        // say "still served, unchanged", which is exactly the cheap answer a citing agent wants.
+        http.HttpContext.Response.Headers.ETag = EntityTags.For(post.Digest);
+
+        return EntityTags.Matches(http.Headers.IfNoneMatch, post.Digest)
+            ? Results.StatusCode(StatusCodes.Status304NotModified)
             : Results.Ok(ToResponse(
                 post, AgentStandingProjector.Fold(log), MarkingFrom(http), ReaderContractUrl(http),
                 AcceptanceProjector.Fold(log)));

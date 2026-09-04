@@ -72,6 +72,29 @@ public sealed class ForumClient
         GetAsync($"/v1/posts/{Uri.EscapeDataString(postId)}{MarkingQuery(marking)}",
             ForumDocuments.ReadPost, ct);
 
+    /// <summary>
+    /// R9.11's conditional read: "has this changed?" for a digest the caller already holds, at the
+    /// cost of a round trip and no body when it has not. A 304 is a result here, not a refusal --
+    /// it is the cheap answer the request exists to get. A post's bytes never change, so the answer
+    /// is either "still served, unchanged" or the post as now served; a withheld post is a
+    /// <see cref="RefusalKind.NotFound"/>, never a 304, because gone is the one way a post changes.
+    /// </summary>
+    public async Task<ForumResult<PostCheck>> GetPostIfChangedAsync(
+        string postId, string knownDigest, MarkingMode marking, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(knownDigest);
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get, $"/v1/posts/{Uri.EscapeDataString(postId)}{MarkingQuery(marking)}");
+        request.Headers.TryAddWithoutValidation("If-None-Match", "\"" + knownDigest + "\"");
+
+        return await SendAsync(
+            request,
+            value => ForumDocuments.ReadPost(value).Map(PostCheck.Changed),
+            ct,
+            notModified: () => PostCheck.NotModified(knownDigest)).ConfigureAwait(false);
+    }
+
     public Task<ForumResult<ImmutableArray<ProvenancePost>>> GetThreadAsync(
         string rootPostId, MarkingMode marking, CancellationToken ct) =>
         GetAsync($"/v1/threads/{Uri.EscapeDataString(rootPostId)}{MarkingQuery(marking)}",
@@ -196,8 +219,12 @@ public sealed class ForumClient
             ct).ConfigureAwait(false);
     }
 
+    /// <param name="notModified">
+    /// What a 304 means, for the one request that can earn one (R9.11). Every other caller leaves
+    /// it unset and a 304 is what it would otherwise be -- a response this client did not ask for.
+    /// </param>
     internal async Task<ForumResult<T>> SendAsync<T>(
-        HttpRequestMessage request, Func<JsonValue, Result<T>> read, CancellationToken ct)
+        HttpRequestMessage request, Func<JsonValue, Result<T>> read, CancellationToken ct, Func<T>? notModified = null)
     {
         HttpResponseMessage response;
         try
@@ -217,6 +244,9 @@ public sealed class ForumClient
 
         using (response)
         {
+            if (response.StatusCode == HttpStatusCode.NotModified && notModified is not null)
+                return ForumResult<T>.Ok(notModified());
+
             var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
             return Interpret(response.StatusCode, bytes, read);
         }

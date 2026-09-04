@@ -70,6 +70,22 @@ public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt);
 /// is that a warning a client can strip while keeping the content is a warning that will be
 /// stripped -- and flattening this into "post plus some metadata" is that strip.
 /// </summary>
+/// <summary>
+/// R9.11's answer to "has this changed?" for a digest the caller already holds: either the Forum
+/// still serves exactly that digest, or here is the post as it is served now.
+/// </summary>
+/// <param name="Digest">The digest the answer is about -- the caller's when unchanged, the served post's otherwise.</param>
+/// <param name="Post">The post as now served, or <see langword="null"/> when the Forum answered 304.</param>
+public sealed record PostCheck(string Digest, ProvenancePost? Post)
+{
+    /// <summary>The Forum answered 304: the caller's digest is still exactly what it serves.</summary>
+    public bool Unchanged => Post is null;
+
+    internal static PostCheck Changed(ProvenancePost post) => new(post.Digest, post);
+
+    internal static PostCheck NotModified(string digest) => new(digest, null);
+}
+
 public sealed record ProvenancePost(
     Provenance Provenance,
     string PostId,
