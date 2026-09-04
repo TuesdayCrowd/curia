@@ -21,11 +21,13 @@ namespace Curia.Infrastructure;
 /// batched Postgres transaction would see for one <c>now()</c> read.
 ///
 /// Unlike the in-memory adapter's single in-process <c>lock</c>, concurrency control here has
-/// to be real across processes: a Postgres advisory lock keyed on the target aggregate id
-/// (transaction-scoped, released automatically on commit or rollback) serializes concurrent
-/// appenders to the *same* aggregate without blocking appenders of different aggregates,
-/// mirroring the advisory-lock idiom the scoping doc's "Infrastructure notes" section already
-/// establishes for epoch sealing.
+/// to be real across processes: a Postgres advisory lock (transaction-scoped, released
+/// automatically on commit or rollback) serializes concurrent appenders, mirroring the
+/// advisory-lock idiom the scoping doc's "Infrastructure notes" section already establishes for
+/// epoch sealing. It was keyed on the aggregate id until Stage 4, so appenders of different
+/// aggregates never waited for each other; it is keyed on the log now (R6.47), because the Acta
+/// needs seq order to be commit order and a per-aggregate lock cannot promise that -- see the
+/// comment at the lock in <see cref="AppendAsync"/>.
 /// </summary>
 public sealed class PostgresEventStore : IEventStore
 {
@@ -52,6 +54,12 @@ public sealed class PostgresEventStore : IEventStore
     /// schema per <c>CreateStore()</c> call and this parameter is how it is threaded through
     /// without changing anything about the production, single-schema shape.
     /// </summary>
+    /// <summary>
+    /// The advisory-lock key every append takes (R6.47), exposed so a test can hold it and
+    /// observe that an append waits. One log, one key, per schema.
+    /// </summary>
+    public static string SerializationLockKey(string schema) => schema + ":acta";
+
     public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, string schema = "public")
     {
         ArgumentNullException.ThrowIfNull(dataSource);
@@ -120,12 +128,24 @@ public sealed class PostgresEventStore : IEventStore
         await using (var lockCommand = new NpgsqlCommand(
             "SELECT pg_advisory_xact_lock(hashtextextended(@lockkey, 0));", connection, transaction))
         {
-            // Keyed on schema+aggregate, not aggregate alone: two isolated per-test schemas
-            // (see the schema parameter's remarks) that happen to reuse the same aggregate id
-            // text -- exactly what the contract suite's own fixture-generated ids do -- must
-            // not serialize against each other's advisory lock, since they are not actually
-            // contending for the same rows.
-            lockCommand.Parameters.Add(new NpgsqlParameter("lockkey", NpgsqlDbType.Text) { Value = _schema + ":" + aggregateId.Value });
+            // One lock for the whole log, not one per aggregate -- R6.47. The Acta's leaf order
+            // is ascending seq, and a leaf index is a position, so the order in which events
+            // become *visible* must be the order of their seq values. IDENTITY does not give
+            // that on its own: two transactions can take seq 10 and 11 and commit in the other
+            // order, and a tree folded between the two commits puts the event with seq 11 at
+            // leaf 9 -- then, once seq 10 lands, at leaf 10. A head signed over the first tree
+            // is a head no consistency proof can ever reach from the second: the log would fork
+            // under its own operator with nobody having done anything wrong. Holding one
+            // transaction-scoped lock from before the INSERT until commit makes seq order and
+            // commit order the same order. The per-aggregate version check below still runs
+            // under it, so the optimistic-concurrency contract is unchanged; what changed is
+            // that appends to different aggregates now wait for each other for the length of
+            // one insert. Stated as the cost it is: append throughput is bounded by one
+            // round trip's lock hold, and does not grow with the length of the log.
+            //
+            // Keyed on the schema, not a constant: two isolated per-test schemas (see the schema
+            // parameter's remarks) are two logs, and must not serialize against each other.
+            lockCommand.Parameters.Add(new NpgsqlParameter("lockkey", NpgsqlDbType.Text) { Value = SerializationLockKey(_schema) });
             await lockCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
