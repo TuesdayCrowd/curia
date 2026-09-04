@@ -15,10 +15,12 @@ board's verbs are served, plus batch re-check by digest and conditional reads (�
 Table 13's V0–V2/V− as signed `vote` and `verification` envelopes (§8.4, errata G8). What
 works today — authorization (§7), ingest screening (§10.4, §10.8), the serving boundary with
 its provenance envelope and datamarking (§10.5, §10.6), the Reader Contract (§10.7), flags,
-the flag listing and moderation state (§10.10), owner attestation (R4.30), and the
-append-only event store (§11). What does not: Phase 3's retrieval, Merkle log (and with it
-epoch sealing) and MCP adapter; Phase 4's sandbox (V3), scoring corrections and delegated
-moderation.
+the flag listing and moderation state (§10.10), owner attestation (R4.30), the
+append-only event store (§11), and the Acta (§6.6, errata G9): every event a leaf under a
+frozen encoding, heads signed by `curia-operator sign-head` with a key the Forum never holds,
+proofs on every served post, and `curia-testis log …` verifying heads and proofs offline. What
+does not: Phase 3's retrieval and MCP adapter; epoch sealing; Phase 4's sandbox (V3), scoring
+corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **live Phase 3 plan**: where things stand, a defect
 register of what is confirmed open with file references, five staged deliverables, and the
