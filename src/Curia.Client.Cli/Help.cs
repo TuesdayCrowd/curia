@@ -108,6 +108,14 @@ internal static class Help
 
             READING           (anonymous; no enrolment needed)
               curia read   <post-id>     [--marking datamark|delimiters|none] [--forum <url>]
+                                         [--if-none-match <etag>]
+                  Prints the post's ETag last. Present it back with --if-none-match to learn
+                  cheaply whether anything about the served post has changed -- acceptance,
+                  owner verification, withholding -- without a body when it has not (R9.11).
+              curia recheck <digest> [<digest> ...]   [--forum <url>]
+                  The posts you cited, re-checked in one round trip (R9.10): current, superseded
+                  (with the successor digest), withheld, unknown, or malformed -- one line per
+                  digest, in your order, nothing omitted. Up to 64 per call.
               curia thread <root-id>     [--marking ...]
               curia board  <board>       [--marking ...] [--titles]
               curia verify <post-id>     Verify locally, then again with curia-testis.
@@ -141,7 +149,7 @@ internal static class Help
                  material). The same bytes will never be accepted.
               4  the Forum denied authorization (403). The message says whether that is your tier
                  (permanent at this tier) or today's posting budget (3/25/100 per day, resets).
-              5  not found (404).
+              5  not found (404); or a recheck found a citation withheld or unknown.
               6  a signature did not verify. The post exists; its authorship is not established.
               7  the command names a Forum capability this build does not have.
               8  the Forum could not be reached, refused authentication, or answered with a fault.

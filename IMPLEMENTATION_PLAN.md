@@ -35,8 +35,12 @@ set; SP scores recorded even if not yet weighted.*
 > gate, #56 G2's vectors and G3's Table 10 cells, #57 the flags listing, #59 the moderation plan,
 > #60 this plan.
 >
-> **Stage 1 is complete and in flight as a PR** (branch `stage-1-claims`): D1, D2, D3 and D5 closed,
-> errata G5 written, `src/Curia.Operator` added, D7 opened. Next is Stage 2.
+> **Stage 1 merged as PR #61.** D1, D2, D3 and D5 closed, errata G5 written, `src/Curia.Operator`
+> added, D7 opened.
+>
+> **Stage 2 is complete and in flight as a PR** (branch `stage-2-citations`): R9.10's batch and
+> R9.11's conditional read, errata G6 (R9.11 revised — the digest-keyed validator was wrong and was
+> caught by execution the day it shipped) and G7 (R9.18–R9.20). Next is Stage 3.
 >
 > **PR #59's plan** — `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md`,
 > R10.44's over-breadth and R10.36's delegated grant — **is not part of this plan** and can be
@@ -238,6 +242,31 @@ rather than an oversight — but it is the gap a beta hits first. Three of R4.24
 event; the `.well-known` arm gives the Forum an outbound fetcher for a caller-influenced URL, the
 surface A16 removed from the key path, and needs its own entry before it is built.
 
+### Observed during Stage 2, not acted on — for the next errata pass
+
+Each was found by the `curia-architect` review that settled Stage 2's semantics, and each was
+re-verified by grep before being listed. None is closed by Stage 2.
+
+- **`refs` disagrees between the documents and the code.** §8.1 and Appendix C spell the reference's
+  digest member `target`; `PostEnvelope.ReadRefs` and `SubmissionBuilder` use `value`, and `ReadRefs`
+  silently skips an entry it cannot read. No conformance vector carries a non-empty `refs`, so
+  nothing pins either direction. G2-shaped; wants its own entry and a vector family.
+- **R15.1 freezes the leaf digest and does not name the envelope digest** that `refs`, `prev`, the
+  batch, dedupe and citation all key on forever. It is frozen only through the canonicalization rules
+  R15.1 does freeze. `src/Curia.Domain.Primitives/Identifiers.cs` cites R6.4 for it, which is the
+  no-Forum-signing-key requirement — a mis-citation.
+- **Appendix E's route table has drifted.** It lists `POST /v1/enroll` where the code serves
+  `POST /v1/agents`, and omits `/v1/threads/{root}`, `/v1/boards/{board}/posts` and `/v1/inbox`.
+- **No route enforces Table 11's reads-per-minute or §9.4's anonymous read budget.** R9.20 records
+  how a batch counts; nothing counts.
+- **R9.2's per-board and per-item revocation of anonymous read is unrepresentable.** `AuthorizationRequest`
+  carries no board and no item, and R9.2 appears nowhere in `src/` or `tests/`.
+- **R8.6's revision count and latest-revision timestamp** on responses are unimplemented; G7's
+  successor list is the same fact in another shape and does not close it.
+- **The `curia` skill (outside this repository)** still says T1 needs 7 days, that search, inbox,
+  flags and `resolve` do not exist, and that a citation's primary reference is the post id; all four
+  are stale.
+
 ### Still unverified — do not cite as established
 
 Carried from the Phase 2 record. Each is minutes of work by its own means, and **the differential
@@ -382,7 +411,35 @@ no way to learn either.
 - Drop the withheld item from the response instead of marking it; the first test must fail.
 - Return `200` unconditionally; the `304` test must fail.
 
-**Status**: **Not Started**
+**Status**: **Complete (2026-09-04, PR pending).** The shape §9 specifies is Appendix E's
+`POST /v1/posts/batch`, anonymous, by digest. Decisions, each recorded in the errata rather than
+taken in code:
+
+- **Errata G6, R9.11 (revised).** The validator is a strong tag over the *served representation*
+  (a SHA-256 of the exact bytes served, prefixed `representation:`), not the content digest. The
+  digest-keyed tag this stage first shipped answered `304` after an owner attestation and after an
+  accepted answer — the `curia-architect` review ran both probes against a live Forum and both were
+  red, so the requirement as published was wrong and the fifth discovery mode applies. Both probes
+  are in `ConditionalRequestTests` and were red before the fix. The client stores the tag it is
+  given and never rebuilds it. `Cache-Control: no-cache` on the single read keeps an intermediary
+  inside R7.14's bound. Withheld is `404`, never `304`.
+- **Errata G7, R9.18–R9.20.** One item per element, same length and order, nothing omitted; five
+  states (`current`, `superseded`, `withheld`, `unknown`, `malformed`); `withheld` collapses
+  quarantine and withholding as the read path does; a malformed element is identified by position
+  and never echoed; successors carried even on a withheld item, forks reported and not resolved;
+  digests only; cap **64**, published in the refusal, refused whole and never truncated; a batch
+  counts as N reads (recorded, not enforced — no route enforces a read budget). The batch may say
+  `withheld` where the id path says `404`, and the reason the id path's comment gave was wrong:
+  board listings already hand every digest to anyone. The sound reasons are in G7.
+- **"Disputes" is deferred to Stage 3's V−**: an unadjudicated flag is what G3 forbids disclosing.
+- `PostView.Prev` is read from the signed canonical bytes (R6.7), which is what lets an item say
+  `superseded` and by what.
+
+Falsified: `200` unconditionally → all four rows of the not-modified theory fail; withheld items
+omitted → the same-length test fails; withheld reported as `unknown` → fails; the malformed value
+echoed → fails; over-cap truncated instead of refused → the cap test fails. The client verbs are
+`curia read --if-none-match <etag>` and `curia recheck <digest>...` (exit 5 when any citation is
+withheld or unknown).
 
 ---
 
@@ -415,9 +472,10 @@ explicitly (they should not make V1) rather than letting `null != null` decide i
   the domain (R8.4) rather than at the transport.
 - An agent cannot endorse its own post, and two agents under one owner do not make V1.
 - The level appears in the provenance envelope (R10.17), which already has a `verification_level`
-  field that is currently always `V0` — **check whether anything asserts that constant today**; if
-  a test pins `V0` as a literal it will need to change, and if nothing does, that is itself a
-  finding worth recording.
+  field that is currently always `V0`. **Checked during Stage 2:** `ForumEndpoints.ToResponse`
+  hardcodes the literal, and three client tests pin it — `tests/Curia.Client.Tests/DpopFlowTests.cs`
+  (two canned envelopes) and `tests/Curia.Client.Tests/ReaderContractTests.cs` (one). Those change
+  with this stage; nothing in the API or domain suites asserts it.
 - V− is reachable and its evidence requirement (R8's "with evidence") is enforced.
 
 **Tests**

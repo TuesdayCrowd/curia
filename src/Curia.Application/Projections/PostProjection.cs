@@ -30,6 +30,13 @@ namespace Curia.Application.Projections;
 /// R6.14's annotations, beside the content. Categories only -- the flags carry no content, by
 /// construction.
 /// </param>
+/// <param name="Prev">
+/// Table 9's <c>prev</c>: the digest of the revision this post supersedes, or <see langword="null"/>
+/// for anything that is not a revision. R6.7 makes this the link that "commits to its predecessor's
+/// digest", so it is read from the canonical bytes the author signed rather than from anything the
+/// Forum recorded beside them. It is what lets R9.10's re-check say a cited digest has been
+/// <i>revised</i> and by which successor.
+/// </param>
 public sealed record PostView(
     string PostId,
     string Canonical,
@@ -40,7 +47,8 @@ public sealed record PostView(
     string Kind,
     string? Parent,
     ServerTimestamp ServerTimestamp,
-    ImmutableArray<string> RiskFlagCategories);
+    ImmutableArray<string> RiskFlagCategories,
+    string? Prev = null);
 
 /// <summary>
 /// Builds the post read model purely from the event stream -- R11.9's "all read models SHALL be
@@ -150,7 +158,29 @@ public static class PostProjector
         }
 
         return new PostView(
-            postId, canonical, signature, digest, author, board, kind, parent, serverTs, categories.ToImmutable());
+            postId, canonical, signature, digest, author, board, kind, parent, serverTs, categories.ToImmutable(),
+            PrevOf(canonical));
+    }
+
+    /// <summary>
+    /// The envelope's <c>prev</c>, re-derived from the persisted canonical bytes the way
+    /// <see cref="SearchProjector"/> re-derives the searchable fields: R6.12's byte-identity makes
+    /// <c>canonical</c> exactly what VERIFY consumed, so a member read from it is a member the author
+    /// signed. Lenient on purpose -- an unparseable canonical yields no predecessor rather than no
+    /// post, because <c>prev</c> is an annotation on the view and not a condition of serving it.
+    /// </summary>
+    private static string? PrevOf(string canonical)
+    {
+        var parsed = JsonReader.ParseUnrestricted(System.Text.Encoding.UTF8.GetBytes(canonical));
+        if (!parsed.TryGetValue(out var value, out _) || value is not JsonValue.Object root) return null;
+
+        foreach (var member in root.Members)
+        {
+            if (string.Equals(member.Key, "prev", StringComparison.Ordinal))
+                return member.Value is JsonValue.String s && s.Value.Length > 0 ? s.Value : null;
+        }
+
+        return null;
     }
 
     private static bool Str(Dictionary<string, JsonValue> fields, string name, out string value)

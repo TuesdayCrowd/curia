@@ -70,6 +70,44 @@ public sealed record FlagReceipt(string PostId, string Kind, string RaisedAt);
 /// is that a warning a client can strip while keeping the content is a warning that will be
 /// stripped -- and flattening this into "post plus some metadata" is that strip.
 /// </summary>
+/// <summary>
+/// R9.11's answer to "has this changed?" for a representation the caller already holds: either the
+/// Forum still serves exactly it, or here is the post as it is served now.
+/// </summary>
+/// <param name="EntityTag">
+/// The validator the answer is about -- the caller's when unchanged, the served representation's
+/// otherwise. Opaque: it is a hash of the served bytes (errata G6), not a citation digest, and a
+/// client that reconstructed it from the digest would be told "unchanged" after an owner
+/// attestation or an accepted answer, which is the defect the tag exists to avoid.
+/// </param>
+/// <param name="Post">The post as now served, or <see langword="null"/> when the Forum answered 304.</param>
+public sealed record PostCheck(string EntityTag, ProvenancePost? Post)
+{
+    /// <summary>The Forum answered 304: the caller's representation is still exactly what it serves.</summary>
+    public bool Unchanged => Post is null;
+
+    internal static PostCheck Changed(ProvenancePost post) => new(post.EntityTag ?? string.Empty, post);
+
+    internal static PostCheck NotModified(string entityTag) => new(entityTag, null);
+}
+
+/// <summary>
+/// One answer of R9.10's batch as served (errata G7, R9.18–R9.19): the state of a digest the caller
+/// cited, the revisions that chain to it, and the post when it may be served. The array it arrives
+/// in is the same length and order as the request, so the caller correlates by position.
+/// </summary>
+/// <param name="Digest">The digest as sent, or <see langword="null"/> for a malformed element, which the Forum identifies by position and never echoes.</param>
+/// <param name="State"><c>current</c>, <c>superseded</c>, <c>withheld</c>, <c>unknown</c> or <c>malformed</c>. Passed through as served, so a state this build does not know is visible rather than swallowed.</param>
+/// <param name="Successors">Digests of the revisions chaining to this one (R6.7), in log order.</param>
+/// <param name="Forked">More than one successor: the chain has no unique head, and the Forum did not pick one.</param>
+/// <param name="Post">The post as the single read serves it, for a current or superseded item.</param>
+public sealed record CitationDocument(
+    string? Digest,
+    string State,
+    ImmutableArray<string> Successors,
+    bool Forked,
+    ProvenancePost? Post);
+
 public sealed record ProvenancePost(
     Provenance Provenance,
     string PostId,
@@ -88,7 +126,14 @@ public sealed record ProvenancePost(
     /// reading — "not known to be accepted" and "known not to be" are the same answer to a reader,
     /// and defaulting the other way would let an older Forum's silence look like a resolution.
     /// </summary>
-    bool Accepted = false)
+    bool Accepted = false,
+
+    /// <summary>
+    /// R9.11's validator as the Forum served it, from the <c>ETag</c> header; <see langword="null"/>
+    /// for a post that arrived inside a listing, which carries no per-item tag. Opaque and stored as
+    /// given: reconstructing it from the digest is the defect errata G6 records.
+    /// </summary>
+    string? EntityTag = null)
 {
     /// <summary>
     /// The Forum's own claim about the signature, kept nominally distinct from
@@ -287,6 +332,41 @@ internal static class ForumDocuments
             signature,
             ClientJson.String(o, "rendered") ?? string.Empty,
             Bool(o, "accepted")));
+    }
+
+    // EntityTag is set by the transport from the response header, never parsed from the body.
+
+    /// <summary>
+    /// R9.10's batch. An <c>items</c> member that is absent is malformed, not empty: a client that
+    /// read a missing array as "nothing to report" would tell its agent every citation stands.
+    /// </summary>
+    internal static Result<ImmutableArray<CitationDocument>> ReadBatch(JsonValue.Object o)
+    {
+        if (ClientJson.Member(o, "items") is not JsonValue.Array array)
+            return Result<ImmutableArray<CitationDocument>>.Fail(ClientErrors.ResponseMalformed("batch carries no items array"));
+
+        var items = ImmutableArray.CreateBuilder<CitationDocument>(array.Items.Length);
+        foreach (var element in array.Items)
+        {
+            if (element is not JsonValue.Object item)
+                return Result<ImmutableArray<CitationDocument>>.Fail(ClientErrors.ResponseMalformed("batch item is not an object"));
+
+            if (ClientJson.String(item, "state") is not { Length: > 0 } state)
+                return Result<ImmutableArray<CitationDocument>>.Fail(ClientErrors.ResponseMalformed("batch item names no state"));
+
+            ProvenancePost? post = null;
+            if (ClientJson.Object(item, "post") is { } served)
+            {
+                if (!ReadPost(served).TryGetValue(out var parsed, out var error))
+                    return Result<ImmutableArray<CitationDocument>>.Fail(error!);
+                post = parsed;
+            }
+
+            items.Add(new CitationDocument(
+                ClientJson.String(item, "digest"), state, Strings(item, "successors"), Bool(item, "forked"), post));
+        }
+
+        return Result<ImmutableArray<CitationDocument>>.Ok(items.MoveToImmutable());
     }
 
     internal static Result<ImmutableArray<ProvenancePost>> ReadPosts(JsonValue value)

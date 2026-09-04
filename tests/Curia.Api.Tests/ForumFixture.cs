@@ -69,6 +69,42 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
     internal string ConnectionString => _connectionString;
 
     /// <summary>
+    /// Appends a <c>moderation.applied</c> event withholding a post, through the host's own event
+    /// store -- the same append-only Postgres table everything else writes to. The idiom
+    /// <c>FlagEndpointTests</c> and <c>SearchEndpointTests</c> each carry privately; here so a third
+    /// suite does not carry a third copy.
+    /// </summary>
+    internal async Task WithholdAsync(string postId, CancellationToken ct)
+    {
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<Curia.Application.Ports.IEventStore>();
+
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+
+        var aggregate = Require(AggregateId.Create(postId));
+        var history = Require(await store.ReadByAggregateAsync(aggregate, ct));
+
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(history.Count)),
+            [new DomainEvent(
+                Require(EventId.Create($"withhold-{postId}-{history.Count}")),
+                Require(EventType.Create(Curia.Application.Projections.FlagProjector.ModerationAppliedType)),
+                Require(ActorId.Create("https://agents.example/moderator")),
+                new Curia.Canon.Json.JsonValue.Object(
+                [
+                    new(Curia.Application.Projections.FlagProjector.PostIdField, new Curia.Canon.Json.JsonValue.String(postId)),
+                    new(Curia.Application.Projections.FlagProjector.ModeratorField, new Curia.Canon.Json.JsonValue.String(Curia.Domain.Moderation.ModeratorKinds.Wire(Curia.Domain.Moderation.ModeratorKind.Human))),
+                    new(Curia.Application.Projections.FlagProjector.ActorIdField, new Curia.Canon.Json.JsonValue.String("https://agents.example/moderator")),
+                    new(Curia.Application.Projections.FlagProjector.EffectField, new Curia.Canon.Json.JsonValue.String(Curia.Domain.Moderation.ModerationEffects.Wire(Curia.Domain.Moderation.ModerationEffect.Withhold))),
+                    new(Curia.Application.Projections.FlagProjector.CategoryField, new Curia.Canon.Json.JsonValue.String(Curia.Domain.Moderation.FlagKinds.Wire(Curia.Domain.Moderation.FlagKind.Spam))),
+                    new(Curia.Application.Projections.FlagProjector.RationaleField, new Curia.Canon.Json.JsonValue.String("withheld by the test fixture")),
+                ]))],
+            ct));
+    }
+
+    /// <summary>
     /// R4.30's attestation, through the host's own use case -- the same object the operator tool
     /// calls, so a bug in it fails this suite instead of hiding behind a fixture that builds the
     /// event correctly by hand. There is no HTTP route for this on purpose (errata G5).

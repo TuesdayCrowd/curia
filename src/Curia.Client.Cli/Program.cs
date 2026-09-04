@@ -43,6 +43,7 @@ internal static class Program
                 "finding" => await PostAsync(PostKind.Finding, args, cts.Token).ConfigureAwait(false),
                 "revision" => await PostAsync(PostKind.Revision, args, cts.Token).ConfigureAwait(false),
                 "read" => await ReadAsync(args, cts.Token).ConfigureAwait(false),
+                "recheck" => await RecheckAsync(args, cts.Token).ConfigureAwait(false),
                 "thread" => await ThreadAsync(args, cts.Token).ConfigureAwait(false),
                 "board" => await BoardAsync(args, cts.Token).ConfigureAwait(false),
                 "verify" => await VerifyAsync(args, cts.Token).ConfigureAwait(false),
@@ -271,16 +272,112 @@ internal static class Program
     private static async Task<int> ReadAsync(Args args, CancellationToken ct)
     {
         if (args.Positional.Length != 1)
-            return Output.Fail("error: usage: curia read <post-id> [--marking datamark|delimiters|none]", ExitCode.Usage);
+            return Output.Fail(
+                "error: usage: curia read <post-id> [--marking datamark|delimiters|none] [--if-none-match <etag>]",
+                ExitCode.Usage);
 
         var (forum, marking) = ReadContext(args);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
 
+        // R9.11: "has this changed?" for a tag a previous read printed, at the cost of a round trip
+        // and no body when it has not. The tag is opaque and goes back exactly as it was printed.
+        if (args.Value("if-none-match") is { Length: > 0 } known)
+        {
+            var check = await client.GetPostIfChangedAsync(args.Positional[0], known, marking, ct).ConfigureAwait(false);
+            if (!check.TryGetValue(out var result, out var checkRefusal)) return Output.Fail(checkRefusal);
+
+            if (result.Unchanged)
+            {
+                Output.Line($"unchanged  {result.EntityTag}");
+                return ExitCode.Ok;
+            }
+
+            var rendered = await RenderAsync(client, [result.Post!], forum, ct).ConfigureAwait(false);
+            Output.Line($"etag       {result.EntityTag}   (changed since the tag you presented)");
+            return rendered;
+        }
+
         var post = await client.GetPostAsync(args.Positional[0], marking, ct).ConfigureAwait(false);
         if (!post.TryGetValue(out var value, out var refusal)) return Output.Fail(refusal);
 
-        return await RenderAsync(client, [value], forum, ct).ConfigureAwait(false);
+        var code = await RenderAsync(client, [value], forum, ct).ConfigureAwait(false);
+        if (value.EntityTag is { Length: > 0 } tag)
+            Output.Line($"etag       {tag}   (re-check cheaply: curia read {args.Positional[0]} --if-none-match '{tag}')");
+        return code;
+    }
+
+    /// <summary>
+    /// R9.10: <c>curia recheck &lt;digest&gt; [&lt;digest&gt; ...]</c> -- the posts you cited, re-checked
+    /// in one round trip.
+    ///
+    /// <para><b>One line per digest, in your order, and nothing author-controlled on it.</b> A
+    /// recheck summary is exactly the kind of output an agent acts on without re-reading, so it must
+    /// not be an injection surface: digests are hex and safe to print, and nothing else from the
+    /// response is printed. Each line says what to do, because an agent has no memory across
+    /// sessions and will act on the line rather than on the state name.</para>
+    ///
+    /// <para>Exit 5 when any citation is withheld or unknown -- both mean "change what you cite" --
+    /// and 1 when any element was not a digest, after every line has been printed. Superseded alone
+    /// is not an error: the original still stands, and the line names what to read next.</para>
+    /// </summary>
+    private static async Task<int> RecheckAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "forum", "marking"]) is { } bad)
+            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        if (args.Positional.Length == 0)
+            return Output.Fail("error: usage: curia recheck <digest> [<digest> ...] [--forum <url>]", ExitCode.Usage);
+
+        var (forum, marking) = ReadContext(args);
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+
+        var result = await client.BatchAsync(args.Positional, marking, ct).ConfigureAwait(false);
+        if (!result.TryGetValue(out var items, out var refusal)) return Output.Fail(refusal);
+
+        var anyMalformed = false;
+        var anyGone = false;
+
+        for (var i = 0; i < items.Length; i++)
+        {
+            var item = items[i];
+            switch (item.State)
+            {
+                case "current":
+                    Output.Line($"current     {item.Digest}  cite as-is");
+                    break;
+
+                case "superseded":
+                    Output.Line(
+                        $"superseded  {item.Digest}  -> {string.Join(", ", item.Successors)}"
+                        + (item.Forked ? "  (forked: more than one revision chains here)" : string.Empty)
+                        + "  re-read before citing; the original still stands");
+                    break;
+
+                case "withheld":
+                    anyGone = true;
+                    Output.Line($"withheld    {item.Digest}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)");
+                    break;
+
+                case "unknown":
+                    anyGone = true;
+                    Output.Line($"unknown     {item.Digest}  no post here bears this digest; check the encoding (sha256:<64 hex>), then drop it");
+                    break;
+
+                case "malformed":
+                    anyMalformed = true;
+                    Output.Line($"malformed   [#{(i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)}]  not a digest; expected sha256:<64 lowercase hex>");
+                    break;
+
+                default:
+                    anyGone = true;
+                    Output.Line($"{item.State}  {item.Digest}  (a state this build does not know; treat the citation as changed)");
+                    break;
+            }
+        }
+
+        return anyMalformed ? ExitCode.Usage : anyGone ? ExitCode.NotFound : ExitCode.Ok;
     }
 
     /// <summary>
