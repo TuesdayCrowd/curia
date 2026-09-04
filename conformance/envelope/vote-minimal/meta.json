@@ -1,0 +1,6 @@
+{
+  "profile": "envelope",
+  "requirement": "R8.55",
+  "alg": "EdDSA",
+  "note": "A vote envelope (errata G8): kind vote, target digest, endorse (the family's first boolean), predicted_endorsement_bp (its first non-v integer), epoch, no body. Verifies under a verifier that has never heard of the kind (R15.4)."
+}

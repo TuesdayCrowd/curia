@@ -528,8 +528,9 @@ fn envelope() {
 ///
 /// The literals below are counted from the corpus directory, family by
 /// family: admit-accept 5, admit-reject 14, c4 10, numbers 9, ordering 3,
-/// unicode 6, envelope 6 — 53 vector directories — plus the 6 vendored
-/// `rfc8785/` file pairs, 59 in all. (An earlier version of this comment
+/// unicode 6, envelope 8 — 55 vector directories — plus the 6 vendored
+/// `rfc8785/` file pairs, 61 in all. (Envelope grew from 6 to 8 with errata
+/// G8's `vote-minimal` and `verification-contradicted`.) (An earlier version of this comment
 /// cited "50 vector directories, per CHARTER.md": a count that contradicted
 /// the assertion beneath it, and a file that does not exist in this
 /// repository. Both are corrected here.)
@@ -551,11 +552,11 @@ fn corpus_size_matches_charter() {
             + c.admit_reject.len()
             + c.admit_accept.len()
             + c.envelope.len(),
-        53,
+        55,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
          + admit-reject + admit-accept + envelope)"
     );
-    assert_eq!(c.total_len(), 59, "every vector in conformance/");
+    assert_eq!(c.total_len(), 61, "every vector in conformance/");
 
     // `Index::load` already refuses a family entry with no `count`, so
     // `filter_map` here drops only the non-family entries (`red-team/`).
@@ -567,7 +568,7 @@ fn corpus_size_matches_charter() {
         .filter_map(|e| e.count)
         .sum();
     assert_eq!(
-        declared, 59,
+        declared, 61,
         "conformance/index.json's declared family counts"
     );
 }

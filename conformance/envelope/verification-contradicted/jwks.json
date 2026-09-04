@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "kid": "conformance-verification-contradicted",
+      "alg": "EdDSA",
+      "use": "sig",
+      "x": "FUmei8JFJQ1CgeMz_hy7oSZMPnRQrLON7NeHveQJXPU"
+    }
+  ]
+}

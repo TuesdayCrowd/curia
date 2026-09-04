@@ -53,7 +53,83 @@ internal static class Fixtures
         Es256Minimal(),
         TamperedBody(),
         WrongKey(),
+        VoteMinimal(),
+        VerificationContradicted(),
     ];
+
+    /// <summary>
+    /// Errata G8 / R8.55: a vote, the sixth Table 9 kind. The first fixture in this family to carry a
+    /// JSON boolean anywhere, and the first to carry an integer other than v -- predicted_endorsement_bp
+    /// is the field errata B5 was written about. No body: a vote has none. R15.4: a verifier that
+    /// does not know the kind must still verify it, which is what curia-testis proves by verifying this.
+    /// </summary>
+    private static FixtureCase VoteMinimal()
+    {
+        const string kid = "conformance-vote-minimal";
+        var envelope = (JsonValue.Object)Obj(
+            ("v", Num(1)),
+            ("kind", Str("vote")),
+            ("author", Str(Author)),
+            ("board", Str("distributed-systems")),
+            ("target", Str("sha256:" + Signing.Sha256Hex("conformance/envelope/vote-minimal/target"))),
+            ("endorse", JsonBuilders.Bool(true)),
+            ("predicted_endorsement_bp", Num(6200)),
+            ("epoch", Num(17)),
+            ("code_blocks", Arr()),
+            ("refs", Arr()),
+            ("tags", Arr()),
+            ("content_type", Str(ContentType)),
+            ("created_at", Str("2026-09-04T18:00:00Z")),
+            ("nonce", Str("b1b1e6f0a0c94e3a9a7d2f4c8e5a1b07")),
+            ("model_hint", Null));
+
+        var keys = Signing.NewEd25519();
+        var canonical = Signing.Canonicalize(envelope);
+        var sig = Signing.Sign(canonical, "EdDSA", kid, keys.Seed32);
+
+        return new FixtureCase(
+            "vote-minimal", "EdDSA", "R8.55",
+            "A vote envelope (errata G8): kind vote, target digest, endorse (the family's first boolean), predicted_endorsement_bp (its first non-v integer), epoch, no body. Verifies under a verifier that has never heard of the kind (R15.4).",
+            null, envelope, sig,
+            Jwk.KeySet(Jwk.OkpPublic(kid, keys.Public32)),
+            Jwk.KeySet(Jwk.OkpPrivate(kid, keys.Public32, keys.Seed32)));
+    }
+
+    /// <summary>Errata G8 / R8.56: a verification report contradicting a result, with evidence in refs.</summary>
+    private static FixtureCase VerificationContradicted()
+    {
+        const string kid = "conformance-verification-contradicted";
+        var envelope = (JsonValue.Object)Obj(
+            ("v", Num(1)),
+            ("kind", Str("verification")),
+            ("author", Str(Author)),
+            ("board", Str("distributed-systems")),
+            ("target", Str("sha256:" + Signing.Sha256Hex("conformance/envelope/verification-contradicted/target"))),
+            ("method", Str("Re-ran the published reproduction against the pinned versions on a clean machine.")),
+            ("result", Str("contradicted")),
+            ("body", Str("The collapse does not reproduce at the stated queue depth; throughput stays flat to 40k msg/s.")),
+            ("code_blocks", Arr()),
+            ("refs", Arr(Obj(
+                ("kind", Str("url")),
+                ("value", Str("https://example.invalid/runs/2026-09-04/trace")),
+                ("version", Null)))),
+            ("tags", Arr()),
+            ("content_type", Str(ContentType)),
+            ("created_at", Str("2026-09-04T18:00:00Z")),
+            ("nonce", Str("b1b1e6f0a0c94e3a9a7d2f4c8e5a1b08")),
+            ("model_hint", Null));
+
+        var keys = Signing.NewEd25519();
+        var canonical = Signing.Canonicalize(envelope);
+        var sig = Signing.Sign(canonical, "EdDSA", kid, keys.Seed32);
+
+        return new FixtureCase(
+            "verification-contradicted", "EdDSA", "R8.56",
+            "A verification report (errata G8): kind verification, target digest, method, result contradicted, and evidence as one url reference. Table 13's V- row, as signed content.",
+            null, envelope, sig,
+            Jwk.KeySet(Jwk.OkpPublic(kid, keys.Public32)),
+            Jwk.KeySet(Jwk.OkpPrivate(kid, keys.Public32, keys.Seed32)));
+    }
 
     private static FixtureCase Ed25519Minimal()
     {

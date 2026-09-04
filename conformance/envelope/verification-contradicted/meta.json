@@ -1,0 +1,6 @@
+{
+  "profile": "envelope",
+  "requirement": "R8.56",
+  "alg": "EdDSA",
+  "note": "A verification report (errata G8): kind verification, target digest, method, result contradicted, and evidence as one url reference. Table 13's V- row, as signed content."
+}

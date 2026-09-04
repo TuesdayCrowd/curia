@@ -18,7 +18,20 @@ var repoRoot = FindRepoRoot();
 var outputRoot = Path.Combine(repoRoot, "conformance", "envelope");
 Directory.CreateDirectory(outputRoot);
 
-var cases = Fixtures.BuildAll();
+// `--only a,b` regenerates named cases alone. Every case signs with a key drawn fresh at run
+// time, so a full run rewrites every published fixture's key and signature; a family that grows
+// must therefore grow one case at a time, leaving the six the corpus already publishes as they
+// are. Nothing else about a filtered run differs -- the same self-consistency checks run over
+// what was written.
+var only = args.SkipWhile(a => a != "--only").Skip(1).FirstOrDefault()?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+var cases = only is null
+    ? Fixtures.BuildAll()
+    : Fixtures.BuildAll().Where(c => only.Contains(c.Name, StringComparer.Ordinal)).ToList();
+if (only is not null && cases.Count != only.Length)
+{
+    Console.Error.WriteLine($"--only named {only.Length} case(s) but {cases.Count} matched; known cases: {string.Join(", ", Fixtures.BuildAll().Select(c => c.Name))}");
+    return 2;
+}
 
 Console.WriteLine("=== Generating conformance/envelope/ fixtures (signer: Curia.Canon + Curia.Canon.Sodium) ===");
 foreach (var c in cases)

@@ -37,7 +37,7 @@
 //! `numbers/` (9) — 27 canonical-bytes vectors,
 //! loaded via `Corpus`'s existing per-family `Vec<DirectoryVector>` fields,
 //! all of which carry that one profile (Task 2's report confirmed this by
-//! grep before either task assumed it). The `envelope/` family's six
+//! grep before either task assumed it). The `envelope/` family's eight
 //! `expected.canonical` files are also generated the same way
 //! (`conformance/README.md`, "The `envelope/` family": "canonicalize a real
 //! Table 9 envelope... exactly canonicalize the envelope sub-object") and
@@ -156,7 +156,7 @@ fn assert_envelope_matches_expected_canonical(v: &EnvelopeVector) {
 #[test]
 fn envelope_matches_expected_canonical() {
     let vectors = &corpus().envelope;
-    assert_eq!(vectors.len(), 6, "conformance/envelope/ vector count");
+    assert_eq!(vectors.len(), 8, "conformance/envelope/ vector count");
     for v in vectors {
         assert_envelope_matches_expected_canonical(v);
     }
