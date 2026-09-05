@@ -42,10 +42,34 @@ public sealed record InboxPage(
 public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt);
 
 /// <summary>R9.8/R8.36's breakdown: why this result ranked where it did.</summary>
-public sealed record WhyRanked(int TitleMatches, int BodyMatches, int TagMatches, int Score);
+/// <summary>The lexical channel's part of a ranking: its rank and the match counts behind its score.</summary>
+public sealed record LexicalWhy(int Rank, int TitleMatches, int BodyMatches, int TagMatches, int Score);
+
+/// <summary>The vector channel's part: its rank, the cosine in basis points, and the model that measured it (R9.5).</summary>
+public sealed record VectorWhy(int Rank, int CosineBp, string Model);
+
+/// <summary>
+/// R9.8 / R8.36's breakdown (errata G10): the computed terms -- millionths for the fused terms,
+/// basis points for the weight (R6.33: integers only) -- which recombine within rounding as
+/// <c>(LexicalTermMicro + VectorTermMicro) × VerificationWeightBp / 10000 ≈ ScoreMicro</c>, and
+/// the terms the Forum says it does not compute, each with its reason.
+/// </summary>
+public sealed record WhyRanked(
+    LexicalWhy? Lexical,
+    VectorWhy? Vector,
+    int K,
+    long LexicalTermMicro,
+    long VectorTermMicro,
+    long FusedMicro,
+    string VerificationLevel,
+    int VerificationWeightBp,
+    long ScoreMicro,
+    bool DeferredByDiversification,
+    ImmutableDictionary<string, string> NotComputed);
 
 /// <summary>One search result: the post in its provenance envelope, and why it ranked.</summary>
-public sealed record SearchHitDocument(ProvenancePost Post, int Score, WhyRanked? Why);
+/// <summary>One result: the post in its provenance envelope, its fused score in millionths, and why it ranked when asked.</summary>
+public sealed record SearchHitDocument(ProvenancePost Post, long ScoreMicro, WhyRanked? Why);
 
 /// <summary>
 /// A page of results and R9.7's opaque cursor for the next one.
@@ -54,7 +78,27 @@ public sealed record SearchHitDocument(ProvenancePost Post, int Score, WhyRanked
 /// and is treated as opaque here rather than decoded, because a client that decoded it would be
 /// depending on an encoding the Forum is free to change.</para>
 /// </summary>
-public sealed record SearchPage(ImmutableArray<SearchHitDocument> Results, string? NextCursor);
+/// <summary>R10.2 as stated on the response: the floor in force, where it came from, and the kinds it applied to.</summary>
+public sealed record RetrievalFloorDocument(
+    string Surface, string MinVerification, string Source, ImmutableArray<string> AppliesTo, ImmutableArray<string> NotApplicableTo);
+
+public sealed record SearchPage(
+    ImmutableArray<SearchHitDocument> Results,
+    string? NextCursor,
+    RetrievalFloorDocument Floor,
+    string Model,
+    long CorpusBound);
+
+/// <summary>R8.18 / R8.19's refusal, read from the 409's extension members: the thread to read instead, its answers, and the measures.</summary>
+public sealed record DuplicateRefusalDocument(
+    string CanonicalPostId,
+    string CanonicalDigest,
+    string Board,
+    ImmutableArray<ProvenancePost> Answers,
+    int CosineBp,
+    int LexicalOverlapBp,
+    string Model,
+    string Override);
 
 /// <summary>
 /// What the Forum recorded when it accepted a flag (R10.35).
@@ -233,17 +277,82 @@ internal static class ForumDocuments
 
             hits.Add(new SearchHitDocument(
                 document!,
-                (int)(ClientJson.Number(hit, "score") ?? 0),
-                ClientJson.Object(hit, "why_ranked") is { } why
-                    ? new WhyRanked(
-                        (int)(ClientJson.Number(why, "title_matches") ?? 0),
-                        (int)(ClientJson.Number(why, "body_matches") ?? 0),
-                        (int)(ClientJson.Number(why, "tag_matches") ?? 0),
-                        (int)(ClientJson.Number(why, "score") ?? 0))
-                    : null));
+                (long)(ClientJson.Number(hit, "score_micro") ?? 0),
+                ClientJson.Object(hit, "why_ranked") is { } why ? ReadWhy(why) : null));
         }
 
-        return Result<SearchPage>.Ok(new SearchPage(hits.ToImmutable(), ClientJson.String(o, "next_cursor")));
+        if (ClientJson.Object(o, "floor") is not { } floor)
+            return Result<SearchPage>.Fail(ClientErrors.ResponseMalformed("search page states no floor (R10.2)"));
+
+        return Result<SearchPage>.Ok(new SearchPage(
+            hits.ToImmutable(),
+            ClientJson.String(o, "next_cursor"),
+            new RetrievalFloorDocument(
+                ClientJson.String(floor, "surface") ?? string.Empty,
+                ClientJson.String(floor, "min_verification") ?? string.Empty,
+                ClientJson.String(floor, "source") ?? string.Empty,
+                Strings(floor, "applies_to"),
+                Strings(floor, "not_applicable_to")),
+            ClientJson.String(o, "model") ?? string.Empty,
+            (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
+    }
+
+    private static WhyRanked ReadWhy(JsonValue.Object why)
+    {
+        var notComputed = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+        if (ClientJson.Object(why, "not_computed") is { } absent)
+            foreach (var m in absent.Members)
+                if (m.Value is JsonValue.String reason) notComputed[m.Key] = reason.Value;
+
+        return new WhyRanked(
+            ClientJson.Object(why, "lexical") is { } lexical
+                ? new LexicalWhy(
+                    (int)(ClientJson.Number(lexical, "rank") ?? 0),
+                    (int)(ClientJson.Number(lexical, "title_matches") ?? 0),
+                    (int)(ClientJson.Number(lexical, "body_matches") ?? 0),
+                    (int)(ClientJson.Number(lexical, "tag_matches") ?? 0),
+                    (int)(ClientJson.Number(lexical, "score") ?? 0))
+                : null,
+            ClientJson.Object(why, "vector") is { } vector
+                ? new VectorWhy(
+                    (int)(ClientJson.Number(vector, "rank") ?? 0),
+                    (int)(ClientJson.Number(vector, "cosine_bp") ?? 0),
+                    ClientJson.String(vector, "model") ?? string.Empty)
+                : null,
+            (int)(ClientJson.Number(why, "k") ?? 0),
+            (long)(ClientJson.Number(why, "lexical_term_micro") ?? 0),
+            (long)(ClientJson.Number(why, "vector_term_micro") ?? 0),
+            (long)(ClientJson.Number(why, "fused_micro") ?? 0),
+            ClientJson.String(why, "verification_level") ?? string.Empty,
+            (int)(ClientJson.Number(why, "verification_weight_bp") ?? 0),
+            (long)(ClientJson.Number(why, "score_micro") ?? 0),
+            ClientJson.Member(why, "deferred_by_diversification") is JsonValue.Bool { Value: true },
+            notComputed.ToImmutable());
+    }
+
+    /// <summary>R8.19: the duplicate refusal's extension members, or null when the problem is not that refusal.</summary>
+    public static DuplicateRefusalDocument? ReadDuplicateRefusal(JsonValue? problem)
+    {
+        if (problem is not JsonValue.Object o
+            || ClientJson.String(o, "type") != "curia/posts/duplicate-question"
+            || ClientJson.Object(o, "canonical") is not { } canonical
+            || ClientJson.Object(o, "similarity") is not { } similarity)
+            return null;
+
+        var answers = ImmutableArray.CreateBuilder<ProvenancePost>();
+        if (ClientJson.Member(o, "answers") is JsonValue.Array array)
+            foreach (var element in array.Items.OfType<JsonValue.Object>())
+                if (ReadPost(element).TryGetValue(out var answer, out _)) answers.Add(answer!);
+
+        return new DuplicateRefusalDocument(
+            ClientJson.String(canonical, "post_id") ?? string.Empty,
+            ClientJson.String(canonical, "digest") ?? string.Empty,
+            ClientJson.String(canonical, "board") ?? string.Empty,
+            answers.ToImmutable(),
+            (int)(ClientJson.Number(similarity, "cosine_bp") ?? 0),
+            (int)(ClientJson.Number(similarity, "lexical_overlap_bp") ?? 0),
+            ClientJson.String(similarity, "model") ?? string.Empty,
+            ClientJson.String(o, "override") ?? string.Empty);
     }
 
     internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o) =>

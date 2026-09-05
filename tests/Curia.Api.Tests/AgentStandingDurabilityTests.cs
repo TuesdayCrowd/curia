@@ -67,7 +67,7 @@ public sealed class AgentStandingDurabilityTests(ForumFixture forum) : IClassFix
         var token = await dpop.GetTokenAsync(http, TokenEndpoint, forum.Now, ct);
 
         using var posted = await dpop.PostAsync(
-            http, PostsUrl, token, agent.SignQuestion(board, "Who vouches?", "Provenance", forum.Now), forum.Now, ct);
+            http, PostsUrl, token, agent.SignQuestion(board, "Who vouches? " + Guid.NewGuid().ToString("N"), "Provenance " + Guid.NewGuid().ToString("N"), forum.Now), forum.Now, ct);
 
         await CreatedPostIdAsync(posted, ct);
     }

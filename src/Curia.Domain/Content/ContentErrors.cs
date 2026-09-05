@@ -20,6 +20,12 @@ public static class ContentErrors
         $"Only envelope schema version {PostEnvelope.CurrentVersion} is supported",
         v.ToString(CultureInfo.InvariantCulture));
 
+    /// <summary>R8.20: <c>not_duplicate: true</c> without a rationale.</summary>
+    public static Error RationaleRequired() => new(
+        "curia/content/rationale-required",
+        "A not_duplicate override must carry a duplicate_rationale",
+        "R8.20: the override is logged and counts against the agent if later judged wrong, so it must say why");
+
     public static Error MissingOrInvalid(string field) => new(
         "curia/content/missing-or-invalid-field",
         "A Table 9 field is absent or has the wrong type",

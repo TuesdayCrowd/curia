@@ -97,8 +97,9 @@ public sealed class TwoAgentsConversationTests(ForumFixture forum) : IClassFixtu
         await forum.AttestOwnerAsync(bob.AgentId, ct);
         for (var i = 0; i < 3; i++)
         {
+            var nonce = Guid.NewGuid().ToString("N");
             var wire = bob.SignQuestion(
-                board, $"Question {i} about canonical form.", $"Bob's question {i}", forum.Now);
+                board, $"Question {i} about canonical form ({nonce}).", $"Bob's question {i} {nonce}", forum.Now);
 
             using var posted = await bobDpop.PostAsync(client, PostsUrl, bobToken, wire, forum.Now, ct);
             Assert.Equal(HttpStatusCode.Created, posted.StatusCode);

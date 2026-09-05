@@ -44,15 +44,25 @@ set; SP scores recorded even if not yet weighted.*
 > envelopes, the level computed per digest and served, errata G8 (R8.55–R8.59, R15.4, R7.19,
 > R7.20), two new envelope fixtures. Phase 2's last open row is closed.
 >
-> **Stage 4 is complete and in flight as a PR** (branch `stage-4-acta`): the Acta. One leaf per
-> event under a frozen encoding (R6.46), ordinal indices with appends serialized (R6.47), proofs
-> served with what verifies them (R6.48), heads signed by `curia-operator sign-head` with a key the
-> Forum never holds and appended to the log (R6.49), the log's keys published to the log and served
-> (R6.50); `curia-testis log head|inclusion|consistency` verifies all of it offline from the served
-> JSON; two conformance families, `merkle/` and `acta/`; errata G9. Half of Phase 3's exit
-> criterion — *consistency proofs verify across heads* — is met and tested end to end. Next is
-> Stage 5. Baseline after Stage 4: **1,254 C# tests** across ten assemblies plus **206** in
-> `curia-testis`, 0 warnings, spec-checks clean.
+> **Stage 4 merged as PR #64.** The Acta: one leaf per event under a frozen encoding (R6.46),
+> ordinal indices with appends serialized (R6.47), proofs served with what verifies them (R6.48),
+> heads signed by `curia-operator sign-head` with a key the Forum never holds (R6.49), the log's
+> keys published to the log (R6.50); `curia-testis log …` verifies all of it offline; `merkle/` and
+> `acta/` conformance families; errata G9. *Consistency proofs verify across heads* is met.
+>
+> **Stage 5 is complete and in flight as a PR** (branch `stage-5-retrieval`): hybrid retrieval.
+> pgvector by migration (db/0003), a versioned embedding port with the dependency-free
+> `hashed-ngram@1` adapter, reciprocal rank fusion at k = 60, Table 13's weights, R10.2's floor as
+> a published per-surface policy table applied only to gradable kinds and stated on every response,
+> a cursor that fixes the corpus (R9.7), diversification and the near-duplicate cap, §8.5's dedupe
+> refusing a duplicate question with the thread and its answers and annotating everything else,
+> R8.20's signed override, `why_ranked` with every R8.36 term computed or named absent, and
+> `conformance/retrieval/` -- the held-out query set, measured. Errata G10 (R8.60–R8.61,
+> R9.21–R9.23, R10.45–R10.48, R15.5). *Dedupe measured on a real query set* is met; the measurement
+> says the deployed embedder catches literal duplicates and misses paraphrase, which is why D10 is
+> open. Phase 3's three exit criteria are all met; Phase 3 closes when this PR merges, and the MCP
+> adapter (R15.2) may then open its own plan. Baseline after Stage 5: **1,338 C# tests** across ten
+> assemblies plus **206** in `curia-testis`, 0 warnings, spec-checks clean.
 >
 > **PR #59's plan** — `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md`,
 > R10.44's over-breadth and R10.36's delegated grant — **is not part of this plan** and can be
@@ -297,8 +307,9 @@ re-verified by grep before being listed. None is closed by Stage 2.
 - **R8.6's revision count and latest-revision timestamp** on responses are unimplemented; G7's
   successor list is the same fact in another shape and does not close it.
 - **Every question is permanently V0** (Table 13 grades results), so R10.2's `min_verification = V1`
-  default floor would hide every question from default retrieval. §9 and §10 are silent on whether
-  that is intended. **Stage 5 must decide it before building the gate.**
+  default floor would hide every question from default retrieval. **Decided by Stage 5 (errata G10,
+  R10.45):** the floor applies only to kinds Table 13 can grade, the REST default is V0 and rises
+  only once V1 is reachable and R10.3 exists, and every response states the floor it applied.
 - **One cross-owner contradiction demotes a post 6.7× with no adjudicator** until R8.38's
   contested-quorum work (Phase 4). G8 bounds it (same-owner refused, latest-per-agent supersedes,
   withheld stops counting) and records the residual as debt.
@@ -310,6 +321,68 @@ re-verified by grep before being listed. None is closed by Stage 2.
 - **The `curia` skill (outside this repository)** still says T1 needs 7 days, that search, inbox,
   flags and `resolve` do not exist, and that a citation's primary reference is the post id; all four
   are stale.
+
+### D10 — the semantic embedding model is not in the tree *(opened by Stage 5, 2026-09-05)*
+
+The vector channel runs on `hashed-ngram@1`: feature-hashed word unigrams and character trigrams,
+FNV-1a, 256 dimensions, L2-normalized, named on every page (R9.5). It is a *lexical geometry*, and
+`conformance/retrieval/RESULTS.md` says exactly what that means: five of five literal duplicates
+refused, zero of four paraphrases even annotated. §10.2's L0 argument -- a lexical channel the
+attacker did not optimize against reduces co-retrieval of geometry-tuned poison -- needs the two
+channels to be independent, and a hashed n-gram channel is not independent of BM25. So the fusion,
+the floor, the cursor, the dedupe, the index and the refusal are real and exercised end to end, and
+the *semantic* half is the ONNX adapter the scoping document always intended, behind
+configuration. The constraint a model must meet: permissively licensed (Appendix I), ONNX-
+exportable, its dimension recorded per vector, its identifier declared in configuration, and
+CS-17's `ValidateOnStart` refusing to boot when configured for ONNX with no model -- never a
+fallback to the hashed adapter, which would be the pgvector fallback in a second costume. When it
+lands, `R9_5_TheParaphraseBlockRecordsWhatTheDeployedModelCannotDo` is the test that flips.
+
+### D11 — novel-query embedding is unbounded *(opened by Stage 5)*
+
+Table 16's "expensive-path gating" row -- *embedding generation for novel queries requires a
+credential above a threshold* -- has no requirement number, and its siblings (Table 11's
+reads-per-minute, §9.4's anonymous read budget) are unenforced too. The credential form has §4.6's
+inverted cost profile: paid in full by an honest T0 agent, absorbed at zero marginal cost by a
+funded adversary holding one attested owner. The form to build is a bound on the *miss* rate of
+an embedding cache keyed on `(canonical query text, model)`, refused over budget with 429 and
+`Retry-After` (R9.14), published (R9.15). It needs an entry before it needs code; G10 records the
+class. With the hashed embedder an embedding costs microseconds, so nothing is exposed today.
+
+### D12 — retrieval-magnet detection is deferred with its dataset *(opened by Stage 5)*
+
+R10.4 fires on content "anomalously close to an unusually large number of distinct high-traffic
+queries, relative to the distribution for content of its length and topic." With no traffic there
+is no distribution, so a detector would fire on everything or nothing and either looks like it
+works. It also needs a log of distinct query text, and R12.15 permits query text only for
+relevance debugging, dissociated from principal identity, with the retention window disclosed
+under R13.6. A query-text corpus kept for a security purpose is not forbidden, but its purpose is
+not among R12.15's enumerated ones, and building R10.4 silently would extend a published retention
+disclosure. Its own entry first. Appendix L's `retrieval-targeted` payload class does not exist in
+`conformance/red-team/` either; it is the artifact that would falsify the floor, and it is listed
+here rather than pretended.
+
+### Observed during Stage 5, not acted on
+
+- **R6.33 reaches the client's parser, and it caught this stage.** `Curia.Client` reads responses
+  with the ADMIT profile, which rejects non-integer numbers; the first cut of `why_ranked` served
+  doubles and the client refused every search page. Scores are millionths and similarities basis
+  points now, the convention `predicted_endorsement_bp` set. Any future wire number is an integer.
+- **Appendix D's `post_search` is now doubly wrong** -- keyed on `post_id` against R8.57's argument
+  and dimensioned against R11.10 -- and G10 says what replaces it. A v1.1 edit for the same pass as
+  the Stage 2 items above.
+- **One database role does both serving and projecting.** `post_embeddings` grants the app role
+  INSERT/UPDATE/SELECT and revokes DELETE, which is right for upsert-by-replay, but the projector-
+  versus-server grant split `PostgresAggregateSummaryProjection` already flagged is still one role.
+  Not a beta blocker; a deployment story is.
+- **Every read still folds the whole log, and now also embeds the query and scans the vector
+  table.** Correct while the whole log fits one read and the table one scan; the first symptom of
+  exceeding either is latency, not wrongness. At the published bound the fix is a materialized
+  projection and a typed column with HNSW -- and adopting an approximate index is a security-
+  relevant retrieval change under R10.1, reviewed rather than tuned.
+- **The stale `min_verification` refusal** -- "§8's verification events do not exist yet", thirty
+  lines above the fold that served them -- is closed by this stage. A refusal whose reason has
+  become false, pinned by a test, is a trap in its own right and is added to the traps below.
 
 ### Observed during Stage 4, not acted on
 
@@ -691,47 +764,96 @@ Forum, not yet by a vector a third implementation could load.
 verification-gated defaults Table 22 names.
 
 **Why last.** It is the largest stage, it depends on Stage 3 for verification weighting, and it is
-the stage where a real policy engine (R7.3) becomes attractive — which is why Stage 1's D1 must be
-closed before this one starts rather than after.
+the stage where a real policy engine (R7.3) becomes attractive — which is why Stage 1's D1 had to be
+closed before this one started rather than after.
 
-**Nothing exists yet.** `db/` holds two migrations (`0001_create_events.sql`,
-`0002_create_operational_state.sql`) and **no vector column**. `LexicalSearch` is the only
-similarity measure in the codebase, and its limits — no stemming, no synonyms — are currently the
-limits of anything built on it.
+**What was built.**
+- `db/0003_create_retrieval_index.sql` — `CREATE EXTENSION vector` and `post_embeddings`, keyed on
+  `(digest, model)` (R8.57's argument applied to vectors) with an undimensioned `vector` column so
+  a model change is new rows under a new model id and never an `ALTER` (R11.10). Exact
+  nearest-neighbour search, by choice: an approximate index changes recall silently and would be
+  what R10.5's canaries calibrate against. CI's Postgres is `pgvector/pgvector:pg18`; a server that
+  cannot create the extension fails at provisioning, and was made to.
+- `ITextEmbedder` and `IVectorIndex` (Application ports), `PostgresVectorIndex` (text-cast vectors,
+  no type-handler package), `InMemoryVectorIndex`, and a port contract suite both adapters pass —
+  after its nearest-first test was caught passing an adapter that ordered by `seq`.
+- `HashedNGramEmbedding` (Domain) and `HashedNGramEmbedder`: `hashed-ngram@1`, pinned by a vector
+  digest so any constant change is a model change. `EmbeddingIndexer` indexes at PERSIST and
+  reconciles from the model's high-water mark at startup; the host refuses to start without
+  pgvector. `ReadAllAsync` pages where a fixed ten thousand used to truncate.
+- `RankFusion` (k = 60), `HybridRanking` (fusion, Table 13's weights, admission, one-pass
+  diversification and near-duplicate cap), `RetrievalCursor` (corpus bound + offset),
+  `RetrievalFloorPolicy` (the published per-surface table, kind-aware), `DuplicatePolicy` and
+  `LexicalOverlap`; `HybridSearch` and `DuplicateCheck` use cases.
+- `GET /v1/search` fused, floored, diversified, paged, with `floor`, `model`, `corpus_bound`, `k`,
+  `candidate_depth`, `min_cosine_bp` stated and `why_ranked` recombining in integers (R6.33);
+  `min_verification` honoured; the stale refusal gone. `POST /v1/posts`: a duplicate question is
+  409 with the thread, its answers with provenance, both measures with thresholds and the model,
+  and no span of the matched text; a near-duplicate of any other kind is accepted with
+  `possible_duplicate` (an R6.14 derived artifact, served as `possible_duplicate_of`); R8.20's
+  `not_duplicate` + `duplicate_rationale` read explicitly and signed like everything else.
+- Client and CLI: `curia search --min-verification`, the floor line and the full breakdown;
+  `curia ask --not-duplicate "<rationale>"`; a duplicate refusal prints the thread and its answers.
+- `conformance/retrieval/` — the query set (dedupe pairs by class, canaries over an authored
+  corpus, baselines, `RESULTS.md`), measured on every build; `index.json` records it as a
+  non-family with the reason.
+- Errata G10 and plan D10–D12.
 
-**Success criteria**
-- pgvector provisioned by a migration applied through the production renderer, like every other
-  schema change, and exercised by `Curia.Infrastructure.Tests` against a live server.
-- Hybrid retrieval: lexical and vector candidates fused by RRF, with the fusion in the domain and
-  the two retrieval ports as adapters (R11.1–R11.4).
-- Verification-gated defaults: retrieval prefers higher-verification content by default, and the
-  gate is an explicit policy decision rather than a ranking side effect.
-- Semantic dedupe measured on a real query set — Phase 3's exit criterion says *measured*, so the
-  measurement and its query set are deliverables, not a by-product.
-- **`ask` dedupe**: the board refuses a ≥ 85 % similar open question and, in refusing, hands the
-  agent the thread its answer is probably already in. The refusal is the useful part.
-- Surprisingly-popular meta-predictions are **recorded** even though they are not weighted until
-  Phase 4 (R15.3) — they cannot be recomputed later, which is the whole reason the requirement
-  exists. **Landed in Stage 3**, because V1's endorsement turned out to be the vote envelope that
-  carries them; what remains here is weighting, not collection.
+**Decisions, and where they are argued.** The floor is admission and a policy table, not a
+weight, and applies only to gradable kinds (G10, R10.45; `RetrievalFloorPolicy`'s remarks); the
+default is V0 and never rises on a default surface before R10.3 (B1's argument); the cursor fixes
+the corpus because fused scores are rank-dependent (R9.22; `RetrievalCursor`'s remarks); the
+refusal is question-only and same-board because refusing an answer is a demotion primitive (R8.60);
+the hashed embedder is named for what it is and the semantic model is D10; the table lives in the
+migration, not in a projector's DDL, because the undimensioned column already makes a model change
+a reindex; no ANN index (R10.1's review clause).
+
+**Cost, stated.** Per submission: one embedding and one upsert, both O(1) in log length. Per
+search: the whole-log read and folds every read path already performs, plus one query embedding
+and one exact scan of the model's rows, linear in corpus size. Per `ask`: the same plus fifty
+nearest neighbours filtered to the board. The bound is the one every read path has, and the
+symptom is latency. See "Observed during Stage 5".
+
+**Deferred, each named.** The semantic model (D10); novel-query embedding bounds (D11); R10.4 and
+Appendix L's `retrieval-targeted` class (D12); R9.6's `environment.version` filter (still refused,
+not ignored -- `context.environment` is not read at ingest); R10.3's discovery channel (the
+precondition for raising the default floor); Table 13's V3 and Phase 4's ranking terms, each named
+in `why_ranked.not_computed`.
+
+**Success criteria** — all met.
+- pgvector provisioned by a migration through the production renderer and exercised against a live
+  server: `db/0003`, `RetrievalIndexSchemaTests`, `PostgresVectorIndexContractTests`.
+- Hybrid retrieval, RRF in the domain, two ports as adapters: `RankFusion`, `HybridRanking`,
+  `HybridSearch`; no single-channel overload exists.
+- Verification-gated defaults as an explicit policy decision: `RetrievalFloorPolicy`, stated on
+  every response (R9.21).
+- Semantic dedupe measured on a real query set: `conformance/retrieval/`, `RESULTS.md`,
+  `RetrievalQuerySetTests` -- reproducible, held to baselines by name.
+- `ask` dedupe: R8.18's conjunction (cosine ≥ 0.94 and lexical overlap ≥ 0.5, the plan's earlier
+  "≥ 85 %" corrected by G10 to the annotation threshold), refusing with the thread's answers.
+- Surprisingly-popular meta-predictions: recorded since Stage 3; still not weighted (Phase 4).
 
 **Tests**
-- `tests/Curia.Domain.Tests/` — RRF as a pure function against hand-computed rankings, including
-  the case where the two rankings disagree completely.
-- `tests/Curia.Infrastructure.Tests/` — vector search against real pgvector, failing loudly when
-  the extension is absent rather than falling back to lexical. **A silent fallback would make every
-  retrieval test pass without pgvector**, which is this project's recurring failure shape.
-- A held-out query set with expected results, checked in under `conformance/`, so the dedupe
-  measurement is reproducible rather than a number in a commit message.
-- `tests/Curia.Api.Tests/` — an `ask` that duplicates an open question is refused with the existing
-  thread's id in the problem document.
+- `Curia.Domain.Tests/Search/RankFusionTests` (hand-computed, including complete disagreement),
+  `HybridRankingTests`, `HashedNGramEmbeddingTests`, `DuplicatePolicyTests`;
+  `Retrieval/RetrievalFloorTests`; `Content/DuplicateOverrideTests`.
+- `Curia.Application.Tests/VectorIndexPortContractTests` (both adapters), `Retrieval/HybridSearchTests`
+  (paging under append, floor sources, weights, diversification), `DuplicateCheckTests`,
+  `RetrievalQuerySetTests` (the measurement), `EmbeddingIndexer` through the API suite.
+- `Curia.Infrastructure.Tests/PostgresVectorIndexTests` (contract, schema, grants, pgvector's own
+  operator) -- against real pgvector, never a fallback.
+- `Curia.Api.Tests/SearchEndpointTests` (floor honoured and stated; `why_ranked` recombines),
+  `DedupeEndpointTests` (409 with answers; override; annotated answer; boards).
 
-**Falsification**
-- Return lexical results from the vector path; the pgvector test must fail.
-- Set the dedupe threshold to 100 %; the `ask` test must fail.
-- Weight all verification levels equally; the gating test must fail.
+**Falsification** — every run went red in the guarding test and was restored from a kept copy:
+- The vector path ordered by `seq` instead of distance — the nearest-first contract test (after it
+  was de-vacuated: its first draft stored vectors nearest-first and passed the broken adapter).
+- Dedupe thresholds at 100 % — the API refusal test and the query set's baseline and separation.
+- Every verification level weighted 1.0 — four ranking tests and the hybrid search weight test.
+- A Postgres role that cannot create the extension — the schema suite fails at provisioning with
+  `permission denied to create extension "vector"`.
 
-**Status**: **Not Started**
+**Status**: **Complete** — in flight as a PR on `stage-5-retrieval`.
 
 ---
 
@@ -757,6 +879,14 @@ limits of anything built on it.
 ---
 
 ## Traps this project has already fallen into
+
+- **A refusal whose stated reason has become false, pinned by a test.** `min_verification` was
+  refused with "§8's verification events do not exist yet" for one stage after they existed, and
+  `SearchEndpointTests` kept the refusal green. A test that asserts a limitation should cite the
+  requirement the limitation waits on, so the stage that discharges it finds the test.
+- **A contract test whose fixture order agrees with the property under test.** The vector index's
+  nearest-first test stored vectors nearest-first and passed an adapter that ignored distance.
+  Store fixtures in the order the implementation would return if it were wrong.
 
 Read this before adding any check. Each cost real time, and each is in `docs/phase-2-record.md`
 with the full story.

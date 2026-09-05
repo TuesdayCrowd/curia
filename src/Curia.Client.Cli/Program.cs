@@ -190,9 +190,12 @@ internal static class Program
     private static async Task<int> PostAsync(PostKind kind, Args args, CancellationToken ct)
     {
         if (args.Unknown([
-                "agent", "board", "title", "body", "body-file", "parent", "tags", "forum",
+                "agent", "board", "title", "body", "body-file", "parent", "tags", "forum", "not-duplicate",
             ]) is { } bad)
             return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        if (args.Value("not-duplicate") is { } overrideRationale && (kind is not PostKind.Question || overrideRationale.Length == 0))
+            return Output.Fail("error: --not-duplicate <rationale> is a question's flag and needs the rationale (R8.20).", ExitCode.Usage);
 
         var store = ProfileStore.Default();
         var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
@@ -227,6 +230,8 @@ internal static class Program
                 Title = args.Value("title"),
                 Parent = args.Value("parent"),
                 Tags = args.List("tags"),
+                NotDuplicate = args.Value("not-duplicate") is not null ? true : null,
+                DuplicateRationale = args.Value("not-duplicate"),
             };
 
             return await SendDraftAsync(args, store, agent, draft, ct).ConfigureAwait(false);
@@ -620,7 +625,7 @@ internal static class Program
     private static async Task<int> SearchAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown([
-                "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles",
+                "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles", "min-verification",
             ]) is { } bad)
             return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
 
@@ -661,15 +666,20 @@ internal static class Program
             Cursor = args.Value("cursor"),
             Limit = limit,
             WhyRanked = args.Value("why") is not null,
+            MinVerification = args.Value("min-verification"),
         };
 
         var found = await client.SearchAsync(request, marking, ct).ConfigureAwait(false);
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
         Output.Line(Help.SearchBanner);
+        Output.Line(
+            $"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); "
+            + $"applies to {string.Join(", ", page.Floor.AppliesTo)}; not to {string.Join(", ", page.Floor.NotApplicableTo)}");
+        Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         Output.Line(string.Empty);
 
-        if (page!.Results.IsDefaultOrEmpty)
+        if (page.Results.IsDefaultOrEmpty)
         {
             Output.Line("no results.");
             return ExitCode.Ok;
@@ -677,14 +687,22 @@ internal static class Program
 
         foreach (var hit in page.Results)
         {
-            Output.Line($"{hit.Post.PostId}   score {hit.Score.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro.ToString(System.Globalization.CultureInfo.InvariantCulture)} µ   {hit.Post.Provenance.VerificationLevel}");
 
             if (hit.Why is { } why)
+            {
+                var lexical = why.Lexical is { } l
+                    ? $"lexical rank {l.Rank.ToString(System.Globalization.CultureInfo.InvariantCulture)} (title×{l.TitleMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)} tag×{l.TagMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)} body×{l.BodyMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)})"
+                    : "lexical absent";
+                var vector = why.Vector is { } v
+                    ? $"vector rank {v.Rank.ToString(System.Globalization.CultureInfo.InvariantCulture)} (cosine {v.CosineBp.ToString(System.Globalization.CultureInfo.InvariantCulture)} bp, {v.Model})"
+                    : "vector absent";
+                Output.Line($"  why_ranked  {lexical}; {vector}");
                 Output.Line(
-                    "  why_ranked  title×"
-                    + why.TitleMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    + "  tag×" + why.TagMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    + "  body×" + why.BodyMatches.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    $"              fused {why.FusedMicro.ToString(System.Globalization.CultureInfo.InvariantCulture)} µ × {why.VerificationLevel} weight {why.VerificationWeightBp.ToString(System.Globalization.CultureInfo.InvariantCulture)} bp"
+                    + (why.DeferredByDiversification ? "; deferred by diversification" : string.Empty)
+                    + $"; not computed: {string.Join(", ", why.NotComputed.Keys)}");
+            }
         }
 
         if (page.NextCursor is { Length: > 0 } next)

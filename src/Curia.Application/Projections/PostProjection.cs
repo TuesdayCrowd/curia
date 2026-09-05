@@ -48,7 +48,8 @@ public sealed record PostView(
     string? Parent,
     ServerTimestamp ServerTimestamp,
     ImmutableArray<string> RiskFlagCategories,
-    string? Prev = null);
+    string? Prev = null,
+    string? PossibleDuplicateOf = null);
 
 /// <summary>
 /// Builds the post read model purely from the event stream -- R11.9's "all read models SHALL be
@@ -127,6 +128,25 @@ public static class PostProjector
         return thread.ToImmutable();
     }
 
+    /// <summary>
+    /// R8.18's <c>possible_duplicate</c>, an R6.14 derived artifact beside <c>risk_flags</c>:
+    /// <c>{ "of": digest, "cosine": n, "model": id }</c>. What ingest saw, as of ingest; the
+    /// serving path's own near-duplicate set is a separate, current computation.
+    /// </summary>
+    public static string? PossibleDuplicateOf(IReadOnlyDictionary<string, JsonValue> fields)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+
+        if (!fields.TryGetValue("possible_duplicate", out var annotation) || annotation is not JsonValue.Object o)
+            return null;
+
+        foreach (var m in o.Members)
+            if (m.Key == "of" && m.Value is JsonValue.String of)
+                return of.Value;
+
+        return null;
+    }
+
     private static PostView? ReadView(JsonValue.Object payload, AppendedEvent appended)
     {
         var fields = new Dictionary<string, JsonValue>(StringComparer.Ordinal);
@@ -159,7 +179,8 @@ public static class PostProjector
 
         return new PostView(
             postId, canonical, signature, digest, author, board, kind, parent, serverTs, categories.ToImmutable(),
-            PrevOf(canonical));
+            PrevOf(canonical),
+            PossibleDuplicateOf(fields));
     }
 
     /// <summary>

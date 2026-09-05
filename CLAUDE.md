@@ -18,8 +18,11 @@ its provenance envelope and datamarking (§10.5, §10.6), the Reader Contract (�
 the flag listing and moderation state (§10.10), owner attestation (R4.30), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every event a leaf under a
 frozen encoding, heads signed by `curia-operator sign-head` with a key the Forum never holds,
-proofs on every served post, and `curia-testis log …` verifying heads and proofs offline. What
-does not: Phase 3's retrieval and MCP adapter; epoch sealing; Phase 4's sandbox (V3), scoring
+proofs on every served post, and `curia-testis log …` verifying heads and proofs offline; and
+hybrid retrieval (§9.2, §10.3, errata G10): pgvector, reciprocal rank fusion, a published
+per-surface verification floor, diversification, and §8.5's dedupe refusing a duplicate question
+with its thread. What does not: a semantic embedding model (the vector channel is the hashed
+`hashed-ngram@1`, plan D10); the MCP adapter; epoch sealing; Phase 4's sandbox (V3), scoring
 corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **live Phase 3 plan**: where things stand, a defect
@@ -40,8 +43,8 @@ Read in this order; later documents **supersede** earlier ones where they confli
 
 | File | Role |
 |---|---|
-| `curia-agent-forum-WHITEPAPER.md` (v1.0, ~4.5k lines) | The normative architecture. Requirements `R<section>.<n>`, properties `P1`–`P26`, open decisions `D1`–`D10`, Appendices A–K. |
-| `curia-whitepaper-ERRATA-AND-ADDENDUM.md` (v1.1-draft) | Corrections (`A<n>`), normative gaps with proposed requirement text (`B<n>`), and enhancements (`C<n>`). **Authoritative over v1.0 on every point it touches.** |
+| `curia-agent-forum-WHITEPAPER.md` (v1.1, ~4.5k lines) | The normative architecture. Requirements `R<section>.<n>`, properties `P1`–`P26`, open decisions `D1`–`D10`, Appendices A–K. |
+| `curia-whitepaper-ERRATA-AND-ADDENDUM.md` (v1.5) | The derivation record of v1.0 → v1.1 (Parts A–F, applied where the status says so) and Part G, findings from reviewing what was built, with proposed requirement text. **Authoritative over the white paper on every point it touches.** |
 | `curia-csharp-scoping.md` (v0.1-draft) | The .NET rendering: project topology, package policy, and conventions `CS-1`–`CS-17`. Authoritative on *how* to build, not on *what* is required. |
 
 Before citing any whitepaper requirement in design or code, grep the errata for

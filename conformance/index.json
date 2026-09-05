@@ -79,6 +79,11 @@
       "note": "Detector corpus for R10.11's measurement (Appendix L), not canonicalization vectors. Listed so that its absence from every runner is a recorded decision rather than an oversight."
     },
     {
+      "name": "retrieval",
+      "family": false,
+      "note": "The held-out query set behind Phase 3's 'dedupe measured on a real query set' and R10.5's canaries (conformance/retrieval/README.md). Not a vector family: curia-testis has no embedding capability and cannot run it, so it is enumerated by Curia.Application.Tests alone, and listed here so that is a recorded decision rather than an oversight."
+    },
+    {
       "name": "rfc8785",
       "family": true,
       "shape": "file-pairs",

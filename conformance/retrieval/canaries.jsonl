@@ -1,0 +1,6 @@
+{"id": "canary-reset", "query": "npgsql ECONNRESET pool idles", "expected": "c01", "reason": "the question whose title is the query"}
+{"id": "canary-keepalive", "query": "keepalive connection string npgsql", "expected": "c02", "reason": "the answer that names the setting"}
+{"id": "canary-rotate", "query": "rotate log signing key", "expected": "c04", "reason": "the question with those words in its title"}
+{"id": "canary-jcs", "query": "JCS UTF-16 code units ordering", "expected": "c07", "reason": "the answer that states the rule"}
+{"id": "canary-dpop", "query": "DPoP iat outside window", "expected": "c08", "reason": "the question carrying the slug"}
+{"id": "canary-board", "query": "which board ed25519 finding", "expected": "c10", "reason": "the only post about boards"}

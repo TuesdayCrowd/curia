@@ -55,10 +55,7 @@ public static class SearchProjector
 
             lastSeq = appended.Seq;
 
-            if (appended.Event.Type.Value != PostProjector.PostAcceptedType) continue;
-            if (appended.Event.Payload is not JsonValue.Object payload) continue;
-
-            var post = ReadSearchable(payload, appended);
+            var post = TryRead(appended);
             if (post is null) continue;
 
             if (servable.TryGetValue(post.PostId, out var moderation) && !moderation.MayServe) continue;
@@ -67,6 +64,21 @@ public static class SearchProjector
         }
 
         return posts.ToImmutable();
+    }
+
+    /// <summary>
+    /// The searchable view of one event, or <see langword="null"/> when the event is not a
+    /// discussion post: what <see cref="Fold"/> reads per event, exposed so the vector index embeds
+    /// exactly the text search sees and nothing else.
+    /// </summary>
+    public static SearchablePost? TryRead(AppendedEvent appended)
+    {
+        ArgumentNullException.ThrowIfNull(appended);
+
+        if (appended.Event.Type.Value != PostProjector.PostAcceptedType) return null;
+        if (appended.Event.Payload is not JsonValue.Object payload) return null;
+
+        return ReadSearchable(payload, appended);
     }
 
     private static SearchablePost? ReadSearchable(JsonValue.Object payload, AppendedEvent appended)
@@ -105,7 +117,8 @@ public static class SearchProjector
             envelope.Body,
             envelope.Tags,
             envelope.Author,
-            appended.Seq.Value);
+            appended.Seq.Value,
+            PostProjector.PossibleDuplicateOf(fields));
     }
 
     private static bool Str(Dictionary<string, JsonValue> fields, string name, out string value)

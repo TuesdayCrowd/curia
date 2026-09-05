@@ -177,6 +177,17 @@ public sealed class IngestPipeline : IIngestPipeline
             new("server_ts", new JsonValue.String(
                 serverTs.Value.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture))),
             new("risk_flags", RiskFlagsPayload(screened.Annotations)),
+            .. screened.Duplicate is { } duplicate
+                ? new KeyValuePair<string, JsonValue>[]
+                {
+                    new("possible_duplicate", new JsonValue.Object(
+                    [
+                        new("of", new JsonValue.String(duplicate.OfDigest)),
+                        new("cosine", new JsonValue.Number(duplicate.Cosine)),
+                        new("model", new JsonValue.String(duplicate.Model)),
+                    ])),
+                }
+                : [],
         ]);
 
         var eventId = EventId.Create(postId);
@@ -199,7 +210,7 @@ public sealed class IngestPipeline : IIngestPipeline
             .AppendAsync(aggId, AggregateVersion.New, [domainEvent], cancellationToken)
             .ConfigureAwait(false);
 
-        return appended.Map(_ => new PostAccepted(postId, serverTs, digest.ToPrefixed()));
+        return appended.Map(events => new PostAccepted(postId, serverTs, digest.ToPrefixed(), events[0].Seq.Value));
     }
 
     /// <summary>

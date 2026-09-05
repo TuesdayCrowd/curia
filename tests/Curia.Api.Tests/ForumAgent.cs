@@ -63,6 +63,15 @@ internal sealed class ForumAgent
         string board, string body, string title, DateTimeOffset createdAt, string[]? tags = null) =>
         Sign(PostKind.Question, board, body, title, parent: null, createdAt, tags: tags);
 
+    /// <summary>R8.20: the same question, signed with <c>not_duplicate: true</c> and its rationale.</summary>
+    internal byte[] SignQuestionNotDuplicate(
+        string board, string body, string title, DateTimeOffset createdAt, string rationale, string[]? tags = null) =>
+        Sign(PostKind.Question, board, body, title, parent: null, createdAt, tags: tags, extra:
+        [
+            new("not_duplicate", new JsonValue.Bool(true)),
+            new("duplicate_rationale", new JsonValue.String(rationale)),
+        ]);
+
     internal byte[] SignAnswer(string board, string body, string parent, DateTimeOffset createdAt) =>
         Sign(PostKind.Answer, board, body, title: null, parent, createdAt);
 
@@ -131,9 +140,11 @@ internal sealed class ForumAgent
         DateTimeOffset createdAt,
         string? authorOverride = null,
         string? prev = null,
-        string[]? tags = null)
+        string[]? tags = null,
+        KeyValuePair<string, JsonValue>[]? extra = null)
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
+        if (extra is not null) members.AddRange(extra);
         members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
         members.Add(new("kind", new JsonValue.String(PostKinds.Wire(kind))));
         members.Add(new("author", new JsonValue.String(authorOverride ?? AgentId)));

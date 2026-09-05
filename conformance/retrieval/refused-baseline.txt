@@ -1,0 +1,8 @@
+# Pairs conformance/retrieval/dedupe-pairs.jsonl labels `duplicate` that the deployed model and
+# thresholds refuse today (hashed-ngram@1; cosine >= 0.94 and lexical overlap >= 0.5). A pair that
+# stops being refused fails RetrievalQuerySetTests by name; a pair newly refused is a finding.
+literal-identical
+literal-reordered
+literal-appended
+literal-cased
+literal-one-word

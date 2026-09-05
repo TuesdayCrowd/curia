@@ -16,6 +16,8 @@ using Curia.Domain.Content;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Retrieval;
+using Curia.Application.Retrieval;
 using Curia.Domain.Search;
 using Curia.Domain.Serving;
 using Curia.Domain.Verification;
@@ -118,7 +120,12 @@ public sealed record PostResponse(
     [property: JsonPropertyName("log_index")] long? LogIndex = null,
 
     /// <summary>R6.18 / R6.48: the audit path against the latest signed head that covers the post, else against the log as it stands.</summary>
-    [property: JsonPropertyName("inclusion_proof")] InclusionProofResponse? InclusionProof = null);
+    [property: JsonPropertyName("inclusion_proof")] InclusionProofResponse? InclusionProof = null,
+
+    /// <summary>R8.18's <c>possible_duplicate</c> relation as ingest recorded it (errata G10): the digest of the post this one was near, or absent.</summary>
+    [property: JsonPropertyName("possible_duplicate_of")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? PossibleDuplicateOf = null);
 
 /// <summary>R9.10's request: the digests an agent cited and wants to re-check, in the order it wants them answered.</summary>
 public sealed record BatchRequest([property: JsonPropertyName("digests")] IReadOnlyList<string?>? Digests);
@@ -149,11 +156,53 @@ public sealed record BatchItemResponse(
 public sealed record BatchResponse([property: JsonPropertyName("items")] ImmutableArray<BatchItemResponse> Items);
 
 /// <summary>R9.8/R8.36's <c>why_ranked</c> breakdown, per result, when requested.</summary>
-public sealed record WhyRankedResponse(
+/// <summary>The lexical channel's contribution: rank, the match counts behind its score, and the score.</summary>
+public sealed record LexicalWhyResponse(
+    [property: JsonPropertyName("rank")] int Rank,
     [property: JsonPropertyName("title_matches")] int TitleMatches,
     [property: JsonPropertyName("body_matches")] int BodyMatches,
     [property: JsonPropertyName("tag_matches")] int TagMatches,
     [property: JsonPropertyName("score")] int Score);
+
+/// <summary>The vector channel's contribution: rank, cosine to the query in basis points, and the model that measured it (R9.5).</summary>
+public sealed record VectorWhyResponse(
+    [property: JsonPropertyName("rank")] int Rank,
+    [property: JsonPropertyName("cosine_bp")] int CosineBp,
+    [property: JsonPropertyName("model")] string Model);
+
+/// <summary>
+/// R9.8 / R8.36's <c>why_ranked</c>, errata G10: every term this build computes, kept apart so
+/// they recombine -- <c>score_micro ≈ (lexical_term_micro + vector_term_micro) × verification_weight_bp / 10000</c>,
+/// within rounding -- and every term R8.36 names that this build does not compute, listed as
+/// absent with its reason rather than as zero or by omission. Integers only (R6.33): fused terms
+/// in millionths, weights and cosines in basis points, the convention <c>predicted_endorsement_bp</c> set.
+/// </summary>
+public sealed record WhyRankedResponse(
+    [property: JsonPropertyName("lexical")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LexicalWhyResponse? Lexical,
+
+    [property: JsonPropertyName("vector")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    VectorWhyResponse? Vector,
+
+    [property: JsonPropertyName("k")] int K,
+    [property: JsonPropertyName("lexical_term_micro")] long LexicalTermMicro,
+    [property: JsonPropertyName("vector_term_micro")] long VectorTermMicro,
+    [property: JsonPropertyName("fused_micro")] long FusedMicro,
+    [property: JsonPropertyName("verification_level")] string VerificationLevel,
+    [property: JsonPropertyName("verification_weight_bp")] int VerificationWeightBp,
+    [property: JsonPropertyName("score_micro")] long ScoreMicro,
+    [property: JsonPropertyName("deferred_by_diversification")] bool Deferred,
+    [property: JsonPropertyName("not_computed")] IReadOnlyDictionary<string, string> NotComputed);
+
+/// <summary>R10.2 as the response states it: the floor in force, where it came from, and which kinds it applied to (errata G10).</summary>
+public sealed record FloorResponse(
+    [property: JsonPropertyName("surface")] string Surface,
+    [property: JsonPropertyName("min_verification")] string MinVerification,
+    [property: JsonPropertyName("source")] string Source,
+    [property: JsonPropertyName("applies_to")] ImmutableArray<string> AppliesTo,
+    [property: JsonPropertyName("not_applicable_to")] ImmutableArray<string> NotApplicableTo);
 
 /// <summary>
 /// One search result: the post in its provenance envelope, plus why it ranked here.
@@ -164,7 +213,9 @@ public sealed record WhyRankedResponse(
 /// </summary>
 public sealed record SearchHitResponse(
     [property: JsonPropertyName("post")] PostResponse Post,
-    [property: JsonPropertyName("score")] int Score,
+
+    /// <summary>The fused, weighted score in millionths: an integer, per R6.33.</summary>
+    [property: JsonPropertyName("score_micro")] long ScoreMicro,
     [property: JsonPropertyName("why_ranked")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     WhyRankedResponse? Why);
@@ -221,7 +272,49 @@ public sealed record SearchResponse(
     [property: JsonPropertyName("results")] ImmutableArray<SearchHitResponse> Results,
     [property: JsonPropertyName("next_cursor")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? NextCursor);
+    string? NextCursor,
+
+    /// <summary>R10.2 / errata G10: the floor applied, stated on every response.</summary>
+    [property: JsonPropertyName("floor")] FloorResponse Floor,
+
+    /// <summary>R9.5: the model the vector channel ran under.</summary>
+    [property: JsonPropertyName("model")] string Model,
+
+    /// <summary>R9.7: the newest event this page's corpus includes; a later page is cut from the same corpus.</summary>
+    [property: JsonPropertyName("corpus_bound")] long CorpusBound,
+
+    /// <summary>§9.2's constants, published: RRF's k, each channel's candidate depth, and the least cosine (basis points) a vector neighbour needs to be a candidate.</summary>
+    [property: JsonPropertyName("k")] int K,
+    [property: JsonPropertyName("candidate_depth")] int CandidateDepth,
+    [property: JsonPropertyName("min_cosine_bp")] int MinimumCosineBp);
+
+/// <summary>
+/// R8.18 / R8.19's 409, errata G10: an RFC 9457 problem carrying the canonical thread, its
+/// answers as the single read serves them, both measured similarities with their thresholds,
+/// the model that measured them, and how to override -- and no span of the matched text.
+/// </summary>
+public sealed record DuplicateProblem(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("detail")] string Detail,
+    [property: JsonPropertyName("canonical")] DuplicateCanonicalResponse Canonical,
+    [property: JsonPropertyName("answers")] ImmutableArray<PostResponse> Answers,
+    [property: JsonPropertyName("similarity")] DuplicateSimilarityResponse Similarity,
+    [property: JsonPropertyName("override")] string Override);
+
+public sealed record DuplicateCanonicalResponse(
+    [property: JsonPropertyName("post_id")] string PostId,
+    [property: JsonPropertyName("digest")] string Digest,
+    [property: JsonPropertyName("board")] string Board);
+
+/// <summary>R8.21's measures and thresholds, in basis points (R6.33: integers only).</summary>
+public sealed record DuplicateSimilarityResponse(
+    [property: JsonPropertyName("cosine_bp")] int CosineBp,
+    [property: JsonPropertyName("lexical_overlap_bp")] int LexicalOverlapBp,
+    [property: JsonPropertyName("refuse_cosine_bp")] int RefuseCosineBp,
+    [property: JsonPropertyName("refuse_lexical_overlap_bp")] int RefuseOverlapBp,
+    [property: JsonPropertyName("annotate_cosine_bp")] int AnnotateCosineBp,
+    [property: JsonPropertyName("model")] string Model);
 
 /// <summary>
 /// The HTTP surface. Table 22's Phase 1 row: "post/answer/read".
@@ -349,6 +442,8 @@ public static class ForumEndpoints
         IIngestPipeline pipeline,
         IPolicyDecisionPoint pdp,
         IEventReader events,
+        EmbeddingIndexer indexer,
+        DuplicateCheck dedupe,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
@@ -440,15 +535,50 @@ public static class ForumEndpoints
         if (PostKinds.RequiresTarget(v.Envelope.Kind) && SignalRefusal(log, v) is { } refused)
             return refused;
 
+        // §8.5 (R8.17, R8.18; errata G10): the near-duplicate check, in the same place and for the
+        // same reasons as the signal refusal. A question near enough to a servable question on its
+        // board is refused with the thread and its answers (R8.19); anything else near enough is
+        // accepted and annotated, never refused (R8.60).
+        PossibleDuplicate? annotation = null;
+        if (PostKinds.IsDiscussion(v.Envelope.Kind))
+        {
+            var assessed = await dedupe.AssessAsync(log, v.Envelope, cancellationToken).ConfigureAwait(false);
+            if (!assessed.TryGetValue(out var assessment, out var dedupeError))
+                return Problem(StatusCodes.Status503ServiceUnavailable, dedupeError!);
+
+            if (assessment!.Verdict == DuplicateVerdict.Refuse)
+                return DuplicateRefusal(assessment, log, http);
+
+            if (assessment.Verdict == DuplicateVerdict.Annotate && assessment.Nearest is { } nearest)
+                annotation = new PossibleDuplicate(nearest.Digest, assessment.Cosine, assessment.Model.Id);
+        }
+
         // SCREEN.
         var screened = await pipeline.ScreenAsync(v, cancellationToken).ConfigureAwait(false);
         if (!screened.TryGetValue(out var s, out var screenError))
             return Problem(StatusCodes.Status422UnprocessableEntity, screenError!);
 
+        if (annotation is not null)
+            s = s! with { Duplicate = annotation };
+
         // PERSIST.
         var accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
         if (!accepted.TryGetValue(out var post, out var persistError))
             return Problem(StatusCodes.Status500InternalServerError, persistError!);
+
+        // The vector channel sees the post in the same request the lexical channel does. The
+        // index and the log are the same database, so a failure here is the database failing
+        // after it just succeeded -- reported, not swallowed; the startup reconcile closes any gap
+        // a crash between the two writes leaves (R11.10).
+        if (PostKinds.IsDiscussion(v.Envelope.Kind))
+        {
+            var indexed = await indexer.IndexAsync(
+                new SearchablePost(post!.PostId, post.Digest, v.Envelope.Board, v.Envelope.Kind, v.Envelope.Title,
+                    v.Envelope.Body, v.Envelope.Tags, v.AuthorAgentId, post.Sequence),
+                cancellationToken).ConfigureAwait(false);
+            if (!indexed.TryGetValue(out _, out var indexError))
+                return Problem(StatusCodes.Status500InternalServerError, indexError!);
+        }
 
         return Results.Created($"/v1/posts/{post!.PostId}", new PostAcceptedResponse(
             post.PostId,
@@ -1109,6 +1239,48 @@ public static class ForumEndpoints
     /// <c>revision_reason</c> that <c>PostEnvelope</c> does not model; that gap is recorded in the
     /// plan rather than closed here.</para>
     /// </summary>
+    /// <summary>
+    /// R8.19: the refusal carries the canonical thread's answers as the single read serves them,
+    /// with their provenance envelopes -- a refusal that hands back content is a serving path, and
+    /// R10.17 admits no result without one. The measured values and the thresholds they were
+    /// compared against are stated with the model that measured them (R8.21), and no span of the
+    /// matched post is echoed: it is another author's content, served to a party who did not ask
+    /// for it.
+    /// </summary>
+    private static IResult DuplicateRefusal(DuplicateAssessment assessment, IReadOnlyList<AppendedEvent> log, HttpRequest http)
+    {
+        var canonical = assessment.Nearest!;
+        var views = PostProjector.Fold(log);
+        var servable = Servable(log);
+        var standings = AgentStandingProjector.Fold(log);
+        var verification = VerificationProjector.Fold(views, standings, servable);
+        var accepted = AcceptanceProjector.Fold(log);
+        var acta = ActaOf(log);
+        var marking = MarkingFrom(http);
+        var contract = ReaderContractUrl(http);
+
+        var answers = views
+            .Where(p => string.Equals(p.Parent, canonical.PostId, StringComparison.Ordinal)
+                && string.Equals(p.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal)
+                && servable(p.PostId))
+            .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, acta))
+            .ToImmutableArray();
+
+        var t = assessment.Thresholds;
+        return Results.Json(
+            new DuplicateProblem(
+                "curia/posts/duplicate-question",
+                "A question this close to an open one on the same board is refused; here is that thread",
+                $"cosine={assessment.Cosine.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"lexical_overlap={assessment.LexicalOverlap.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"model={assessment.Model.Id} answers={answers.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+                new DuplicateCanonicalResponse(canonical.PostId, canonical.Digest, canonical.Board),
+                answers,
+                new DuplicateSimilarityResponse(Bp(assessment.Cosine), Bp(assessment.LexicalOverlap), Bp(t.RefuseCosine), Bp(t.RefuseOverlap), Bp(t.AnnotateCosine), assessment.Model.Id),
+                "R8.20: re-sign the question with not_duplicate: true and a duplicate_rationale; the override is logged and counts against you if later judged wrong"),
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
     private static bool RevisesOwnPost(IReadOnlyList<AppendedEvent> log, string? prev, string author)
     {
         if (string.IsNullOrWhiteSpace(prev)) return false;
@@ -1119,20 +1291,22 @@ public static class ForumEndpoints
     }
 
     /// <summary>
-    /// R9.4's lexical half: <c>GET /v1/search</c>, Table 22's Phase 1 "lexical search".
+    /// §9.2's hybrid retrieval: <c>GET /v1/search</c>, both channels fused (R9.4), the surface's
+    /// floor applied and stated (R10.2, errata G10), diversified (R10.6, R10.7), paged over a
+    /// corpus fixed at the cursor's bound (R9.7).
     ///
     /// <para>Anonymous, because Table 10's <c>thread</c>/<c>search</c> row is <c>✓</c> in every
     /// column — decided by the PDP rather than assumed, per R7.6.</para>
     ///
-    /// <para><b>What this is not.</b> R9.4 asks for lexical <i>and</i> vector retrieval fused with
-    /// Reciprocal Rank Fusion. The vector half needs pgvector and an embedding model, which Table 22
-    /// puts in Phase 3. This is the lexical half alone and says so; the RRF seam is a second ranked
-    /// list to fuse, not a rewrite.</para>
+    /// <para><b>What the response says about itself.</b> The floor in force and where it came from,
+    /// the model the vector channel ran under, the corpus bound, and §9.2's constants. A floor an
+    /// agent cannot read back is one it cannot distinguish from an empty corpus.</para>
     /// </summary>
     private static async Task<IResult> SearchAsync(
         HttpRequest http,
         IEventReader events,
         IPolicyDecisionPoint pdp,
+        HybridSearch search,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -1140,17 +1314,16 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
-        // R9.6 names `verification >= V2` and `environment.version` as filters, and §8's
-        // verification events do not exist -- so neither can be honoured. Refused rather than
-        // ignored: a filter accepted and silently dropped hands back the unfiltered corpus to an
-        // agent that believes it asked for verified answers only, and the agent cannot tell.
-        foreach (var unsupported in (string[])["min_verification", "verification", "environment_version"])
+        // R9.6's environment filter has no carrier yet (context.environment is not read at ingest);
+        // refused rather than ignored, for the reason the old verification refusal gave: a filter
+        // accepted and dropped returns the unfiltered corpus to an agent that believes it filtered.
+        foreach (var unsupported in (string[])["verification", "environment_version"])
         {
             if (http.Query.ContainsKey(unsupported))
                 return Problem(StatusCodes.Status400BadRequest, new Error(
                     "curia/search/unsupported-filter",
                     "That filter cannot be honoured on this build and is refused rather than ignored",
-                    $"parameter={unsupported}; §8's verification events do not exist yet (Table 22 puts V0–V2 in Phase 2 and V3 in Phase 4)"));
+                    $"parameter={unsupported}; use min_verification for the floor (R10.2); environment filters wait on context.environment being read at ingest"));
         }
 
         if (!TryReadLimit(http, out var limit, out var limitError))
@@ -1166,21 +1339,26 @@ public static class ForumEndpoints
             kind = parsedKind;
         }
 
-        var query = new LexicalQuery(
+        VerificationLevel? requestedFloor = null;
+        if (http.Query["min_verification"].ToString() is { Length: > 0 } floorWire)
+        {
+            if (!RetrievalFloorPolicy.ParseFloor(floorWire).TryGetValue(out var parsedFloor, out var floorError))
+                return Problem(StatusCodes.Status400BadRequest, floorError!);
+            requestedFloor = parsedFloor;
+        }
+
+        var query = new SearchQuery(
             Text: Nullable(http.Query["q"].ToString()),
             Board: Nullable(http.Query["board"].ToString()),
             Kind: kind,
             Tags: [.. http.Query["tags"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
             Author: Nullable(http.Query["author"].ToString()),
-            Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()),
+            RequestedFloor: requestedFloor,
+            Cursor: RetrievalCursor.Decode(http.Query["cursor"].ToString()),
             Limit: limit);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-
-        // Two projections over one read: the searchable corpus to rank, and the post read model to
-        // serve. SearchProjector already drops withheld posts, so nothing here has to remember to.
-        var hits = LexicalSearch.Search(SearchProjector.Fold(log), query);
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
@@ -1190,12 +1368,16 @@ public static class ForumEndpoints
         var contract = ReaderContractUrl(http);
         var acceptedByThread = AcceptanceProjector.Fold(log);
 
+        var searched = await search.SearchAsync(log, RetrievalSurface.RestSearch, query, verification, cancellationToken).ConfigureAwait(false);
+        if (!searched.TryGetValue(out var page, out var searchError))
+            return Problem(StatusCodes.Status503ServiceUnavailable, searchError!);
+
         // R9.8: "when requested". Off by default because R8.36's purpose is auditing rather than
         // decoration, and a field on every response is one every client learns to ignore.
         var wantsWhy = http.Query["why"].ToString() is "true" or "1";
 
         var results = ImmutableArray.CreateBuilder<SearchHitResponse>();
-        foreach (var hit in hits)
+        foreach (var hit in page!.Results)
         {
             // A ranked post the serving projection does not have is dropped rather than served
             // half-formed. The two projections read the same events, so this cannot happen today --
@@ -1204,16 +1386,57 @@ public static class ForumEndpoints
 
             results.Add(new SearchHitResponse(
                 ToResponse(view, standings, marking, contract, acceptedByThread, verification, acta),
-                hit.Score,
-                wantsWhy
-                    ? new WhyRankedResponse(hit.Why.TitleMatches, hit.Why.BodyMatches, hit.Why.TagMatches, hit.Why.Score)
-                    : null));
+                Micro(hit.Score),
+                wantsWhy ? WhyRanked(hit, page.Model.Id, page.K) : null));
         }
 
         return Results.Ok(new SearchResponse(
             results.ToImmutable(),
-            LexicalSearch.NextCursor(hits, limit)?.Encode()));
+            page.Next?.Encode(),
+            new FloorResponse(
+                RetrievalSurfaces.Wire(page.Surface),
+                VerificationLevels.Wire(page.Floor),
+                page.FloorSource,
+                [.. RetrievalFloorPolicy.GradableKinds.Select(PostKinds.Wire)],
+                [.. RetrievalFloorPolicy.UngradableKinds.Select(PostKinds.Wire)]),
+            page.Model.Id,
+            page.CorpusBound,
+            page.K,
+            page.CandidateDepth,
+            Bp(page.MinimumCosine)));
     }
+
+    /// <summary>R8.36's terms this build does not compute, named as absent with the reason (errata G10).</summary>
+    private static readonly IReadOnlyDictionary<string, string> NotComputedTerms = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["n_eff"] = "Phase 4: ρ estimation and the n_eff correction (R8.40)",
+        ["surprisingly_popular"] = "Phase 4: recorded since Stage 3 (R15.3), not yet weighted",
+        ["seeded_trust"] = "Phase 4: seeded asymmetric trust (R8.53)",
+        ["citation_weight"] = "Phase 4",
+        ["staleness_penalty"] = "Phase 4: R8.23's decay",
+        ["acceptance"] = "not a ranking term on this build; served as `accepted` on the post",
+        ["flag_penalty"] = "withheld posts are not served at all (R10.37); no partial penalty exists",
+    };
+
+    private static WhyRankedResponse WhyRanked(RankedPost hit, string model, int k) => new(
+        hit.LexicalRank > 0 && hit.Lexical is { } lexical
+            ? new LexicalWhyResponse(hit.LexicalRank, lexical.TitleMatches, lexical.BodyMatches, lexical.TagMatches, lexical.Score)
+            : null,
+        hit.VectorRank > 0 && hit.Cosine is { } cosine ? new VectorWhyResponse(hit.VectorRank, Bp(cosine), model) : null,
+        k,
+        Micro(hit.LexicalTerm),
+        Micro(hit.VectorTerm),
+        Micro(hit.Fused),
+        VerificationLevels.Wire(hit.Level),
+        Bp(hit.Weight),
+        Micro(hit.Score),
+        hit.Deferred,
+        NotComputedTerms);
+
+    /// <summary>R6.33: a unit-interval quantity as basis points, and a fused score in millionths. Integers cross the wire; nothing else does.</summary>
+    private static int Bp(double unitInterval) => (int)Math.Round(unitInterval * 10_000, MidpointRounding.AwayFromZero);
+
+    private static long Micro(double score) => (long)Math.Round(score * 1_000_000, MidpointRounding.AwayFromZero);
 
     /// <summary>
     /// The board's <c>inbox</c>: open questions this agent could usefully answer.
@@ -1590,7 +1813,8 @@ public static class ForumEndpoints
                 && acceptedByThread.TryGetValue(parent, out var accepted)
                 && string.Equals(accepted, p.PostId, StringComparison.Ordinal),
             logIndex,
-            inclusion);
+            inclusion,
+            p.PossibleDuplicateOf);
     }
 
     /// <summary>

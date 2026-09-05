@@ -21,7 +21,8 @@ public sealed record SearchablePost(
     string Body,
     ImmutableArray<string> Tags,
     string Author,
-    long Sequence)
+    long Sequence,
+    string? PossibleDuplicateOf = null)
 {
     /// <summary>
     /// Structural equality, spelled out rather than left to the compiler because
@@ -38,6 +39,7 @@ public sealed record SearchablePost(
     public bool Equals(SearchablePost? other) =>
         other is not null
         && string.Equals(PostId, other.PostId, StringComparison.Ordinal)
+        && string.Equals(PossibleDuplicateOf, other.PossibleDuplicateOf, StringComparison.Ordinal)
         && string.Equals(Digest, other.Digest, StringComparison.Ordinal)
         && string.Equals(Board, other.Board, StringComparison.Ordinal)
         && Kind == other.Kind
@@ -190,6 +192,27 @@ public static class LexicalSearch
     /// </summary>
     public static ImmutableArray<SearchHit> Search(IReadOnlyList<SearchablePost> corpus, LexicalQuery query)
     {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var ranked = Rank(corpus, query);
+
+        // Keyset pagination on that same ordering. Skipping by predicate rather than by index is
+        // what makes this not an offset: a post appended since the cursor was issued shifts no
+        // already-returned row, because the comparison is against a position in the order rather
+        // than a count of rows before it.
+        var page = query.Cursor is { } cursor ? ranked.Where(cursor.Precedes) : ranked;
+
+        return [.. page.Take(PageSize(query.Limit))];
+    }
+
+    /// <summary>
+    /// The whole lexical ordering of the corpus for a query -- every hit, scored, best first --
+    /// with no cursor and no page applied. Hybrid retrieval fuses this with the vector ordering
+    /// before either is paged (R9.4), which is why the ranking is exposed separately from
+    /// <see cref="Search"/>'s page of it.
+    /// </summary>
+    public static ImmutableArray<SearchHit> Rank(IReadOnlyList<SearchablePost> corpus, LexicalQuery query)
+    {
         ArgumentNullException.ThrowIfNull(corpus);
         ArgumentNullException.ThrowIfNull(query);
 
@@ -216,15 +239,7 @@ public static class LexicalSearch
         // Score first, then seq. The seq tiebreak is what makes ordering *stable* under R9.7: two
         // posts with equal score must not swap places between pages, and seq is immutable once the
         // store assigned it.
-        var ranked = hits.OrderByDescending(h => h.Score).ThenBy(h => h.Post.Sequence);
-
-        // Keyset pagination on that same ordering. Skipping by predicate rather than by index is
-        // what makes this not an offset: a post appended since the cursor was issued shifts no
-        // already-returned row, because the comparison is against a position in the order rather
-        // than a count of rows before it.
-        var page = query.Cursor is { } cursor ? ranked.Where(cursor.Precedes) : ranked;
-
-        return [.. page.Take(PageSize(query.Limit))];
+        return [.. hits.OrderByDescending(h => h.Score).ThenBy(h => h.Post.Sequence)];
     }
 
     /// <summary>
@@ -300,7 +315,12 @@ public static class LexicalSearch
     /// otherwise make the same query return different results on different machines, which is the
     /// kind of defect that survives years because nobody runs the tests in Istanbul.</para>
     /// </summary>
-    private static ImmutableArray<string> Tokenize(string? text)
+    /// <summary>
+    /// The one tokenizer: maximal runs of letters and digits, lower-cased. Public because the
+    /// dedupe's lexical-overlap floor (R8.18) is measured over the same terms search matches on --
+    /// a second tokenizer would be a second opinion about what a word is.
+    /// </summary>
+    public static ImmutableArray<string> Tokenize(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return [];
 

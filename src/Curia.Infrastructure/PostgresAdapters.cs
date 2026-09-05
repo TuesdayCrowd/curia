@@ -62,6 +62,8 @@ public sealed class PostgresAdapters : IAsyncDisposable
     /// </summary>
     public PostgresAgentKeyStore AgentKeys => new(_dataSource);
 
+    public IVectorIndex VectorIndex => new PostgresVectorIndex(_dataSource, _clock);
+
     public async ValueTask DisposeAsync()
     {
         await _dataSource.DisposeAsync().ConfigureAwait(false);

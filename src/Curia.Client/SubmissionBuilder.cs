@@ -35,6 +35,12 @@ public sealed record PostDraft
     /// <summary>R8.55 / R8.56: the envelope digest a vote or verification is about.</summary>
     public string? Target { get; init; }
 
+    /// <summary>R8.20: a question re-submitted over a duplicate refusal, signed as not a duplicate. Needs <see cref="DuplicateRationale"/>.</summary>
+    public bool? NotDuplicate { get; init; }
+
+    /// <summary>R8.20: why this question is not the duplicate the Forum said it was. Logged, and counts against the agent if later judged wrong.</summary>
+    public string? DuplicateRationale { get; init; }
+
     /// <summary>R8.29: a vote's endorsement.</summary>
     public bool? Endorse { get; init; }
 
@@ -163,6 +169,14 @@ public static class SubmissionBuilder
 
         if (draft.Parent is { Length: > 0 } parent) members.Add(new("parent", parent.AsJson()));
         if (draft.Title is { Length: > 0 } title) members.Add(new("title", title.AsJson()));
+
+        // R8.20's override is a question's member and is signed like everything else: the Forum
+        // logs it under the author's signature and it counts against them if later judged wrong.
+        if (draft.Kind is PostKind.Question && draft.NotDuplicate is { } notDuplicate)
+        {
+            members.Add(new("not_duplicate", new JsonValue.Bool(notDuplicate)));
+            if (draft.DuplicateRationale is { Length: > 0 } rationale) members.Add(new("duplicate_rationale", rationale.AsJson()));
+        }
 
         // The signal kinds' own members (errata G8). A vote has no body; everything else does.
         if (draft.Target is { Length: > 0 } target) members.Add(new("target", target.AsJson()));
