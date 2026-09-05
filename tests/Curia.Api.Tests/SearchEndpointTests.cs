@@ -295,13 +295,19 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         Assert.Equal(Ids(single), seen.ToArray());
     }
 
-    /// <summary>A term nothing matches is an empty result set, not an error.</summary>
+    /// <summary>
+    /// A term nothing matches is an empty result set, not an error. Letters only, and none of
+    /// them hex: the vector channel matches character trigrams, so a random hex string shares
+    /// trigrams with every hex nonce another fixture wrote into a body, and the result set is
+    /// then nonsense rather than empty -- which is what happened in CI before this read as it does.
+    /// </summary>
     [Fact]
     public async Task ATermNothingMatchesReturnsNoResults()
     {
         var ct = TestContext.Current.CancellationToken;
+        var term = "zqx" + new string([.. Guid.NewGuid().ToString("N").Select(c => (char)('g' + (c % 20)))]);
 
-        using var found = await SearchAsync(forum.Client, "q=" + Guid.NewGuid().ToString("N"), ct);
+        using var found = await SearchAsync(forum.Client, "q=" + term, ct);
 
         Assert.Empty(found.RootElement.GetProperty("results").EnumerateArray());
         Assert.False(

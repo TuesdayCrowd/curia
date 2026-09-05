@@ -1,5 +1,9 @@
 # Cūria Increment 1, Plan 1 — C# Canon Foundation
 
+> **Status (2026-09-05): executed and merged in Phase 1 (PRs #7–#19). Historical.** The live
+> state is `IMPLEMENTATION_PLAN.md`; the formats this plan froze (R15.1) are the ones every later
+> stage built on, and the leaf-digest computation it did *not* write down is errata G9's finding.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build and test `Curia.Canon`, `Curia.Canon.Sodium`, and

@@ -1,5 +1,9 @@
 # Cūria Increment 2 — `curia-testis`, the Independent Verifier
 
+> **Status (2026-09-05): executed and merged in Phase 1. Historical.** The verifier it describes
+> is `rust/curia-testis`, since extended with `log head|inclusion|consistency` (Phase 3, Stage 4)
+> and the `merkle/` and `acta/` conformance families. The live state is `IMPLEMENTATION_PLAN.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A Rust crate that verifies Cūria post authorship offline, written from the
