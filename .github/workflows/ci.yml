@@ -46,7 +46,9 @@ jobs:
     # not a convenience.
     services:
       postgres:
-        image: postgres:18
+        # pgvector's own image, not postgres:18: db/0003 creates the vector extension and the
+        # Infrastructure suite fails at provisioning without it, on purpose (see that migration).
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

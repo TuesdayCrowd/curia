@@ -237,6 +237,36 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
         return schemaName;
     }
 
+    /// <summary>
+    /// A fresh schema holding db/0003's <c>post_embeddings</c>, rendered through the production
+    /// renderer, so each vector-index test has its own rows. <c>public</c> stays on the search
+    /// path because the <c>vector</c> type lives where the extension does; the migration's
+    /// <c>CREATE EXTENSION IF NOT EXISTS</c> is a no-op on the second run.
+    /// </summary>
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "See CreateIsolatedOperationalSchemaAsync: a generated schema name and a checked-in template.")]
+    public async Task<string> CreateIsolatedRetrievalSchemaAsync(CancellationToken cancellationToken = default)
+    {
+        var schemaName = $"vec{Guid.NewGuid():N}";
+        var quotedSchema = QuoteIdentifier(schemaName);
+
+        var sql = $"""
+            CREATE SCHEMA {quotedSchema};
+            GRANT USAGE ON SCHEMA {quotedSchema} TO {QuoteIdentifier(_roleName)};
+            SET search_path TO {quotedSchema}, public;
+            {SchemaMigrations.Render(SchemaMigrations.RetrievalIndexFile, _roleName)}
+            RESET search_path;
+            """;
+
+        await using var connection = await AdminDataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        return schemaName;
+    }
+
     [SuppressMessage(
         "Reliability",
         "CA1031:Do not catch general exception types",

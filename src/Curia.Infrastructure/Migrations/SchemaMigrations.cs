@@ -31,6 +31,9 @@ public static class SchemaMigrations
     /// see Curia.Infrastructure.Tests' per-test schema isolation.</summary>
     public const string OperationalStateFile = "0002_create_operational_state.sql";
 
+    /// <summary>db/0003: pgvector and the post-embedding read model behind hybrid retrieval (§9.2).</summary>
+    public const string RetrievalIndexFile = "0003_create_retrieval_index.sql";
+
     /// <summary>
     /// Every migration file in <c>db/</c>, in the order it must be applied. The names are the
     /// checked-in file names, so a reader comparing this list against a directory listing can
@@ -40,6 +43,7 @@ public static class SchemaMigrations
     [
         EventStoreSchema.FileName,
         OperationalStateFile,
+        RetrievalIndexFile,
     ];
 
     /// <summary>

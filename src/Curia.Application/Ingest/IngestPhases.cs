@@ -61,10 +61,17 @@ public sealed record VerifiedSubmission(
 /// <c>Screen</c> received -- not a copy, not a rebuild -- so there is no point at which the
 /// content could have changed and nothing to compare to detect it.</para>
 /// </summary>
-public sealed record ScreenedSubmission(VerifiedSubmission Inner, RiskAnnotations Annotations)
+public sealed record ScreenedSubmission(VerifiedSubmission Inner, RiskAnnotations Annotations, PossibleDuplicate? Duplicate = null)
 {
     public CanonicalBytes Canonical => Inner.Canonical;
 }
+
+/// <summary>
+/// R8.18's <c>possible_duplicate</c>: a derived analysis artifact (R6.14) PERSIST writes beside
+/// <c>risk_flags</c>, never into the signed content. Carries the canonical post's digest and the
+/// measured cosine under the named model (R8.21), and no span of either text.
+/// </summary>
+public sealed record PossibleDuplicate(string OfDigest, double Cosine, string Model);
 
 /// <summary>PERSIST's output: what the Forum assigned, which the author did not sign.</summary>
 /// <param name="PostId">The Forum-assigned identifier.</param>
@@ -73,4 +80,5 @@ public sealed record ScreenedSubmission(VerifiedSubmission Inner, RiskAnnotation
 /// Ordering, rate limiting, and dispute resolution SHALL use <c>server_ts</c>."
 /// </param>
 /// <param name="Digest">The digest of the canonical bytes, for citation by later posts.</param>
-public sealed record PostAccepted(string PostId, ServerTimestamp ServerTimestamp, string Digest);
+/// <param name="Sequence">The <c>post.accepted</c> event's <c>seq</c>: what the vector index keys its tie-breaks on (R9.7).</param>
+public sealed record PostAccepted(string PostId, ServerTimestamp ServerTimestamp, string Digest, long Sequence);
