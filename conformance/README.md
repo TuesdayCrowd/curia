@@ -181,7 +181,10 @@ get the count up will look like it is converging. It is not.
   `merkle/` is the RFC's half. See below.
 
 `red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
-measurement (Appendix L), and `index.json` records that with a reason.
+measurement (Appendix L), and `index.json` records that with a reason. Neither is
+`retrieval/`: it is the held-out query set behind Phase 3's *dedupe measured on a real query
+set* and R10.5's canaries, run by `Curia.Application.Tests` alone because `curia-testis` has
+no embedding capability; its README says what each file is and what the numbers mean.
 
 These files are the shared conformance contract between independent
 implementations (C#, Rust, ...) of the Cūria canonicalizer. They are
