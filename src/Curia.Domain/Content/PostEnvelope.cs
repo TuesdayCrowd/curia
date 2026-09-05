@@ -54,7 +54,9 @@ public sealed record PostEnvelope(
     long? Epoch = null,
     string? Method = null,
     VerificationResult? Result = null,
-    string? ArtifactDigest = null)
+    string? ArtifactDigest = null,
+    bool? NotDuplicate = null,
+    string? DuplicateRationale = null)
 {
     /// <summary>R8.29 / R6.33: the meta-prediction is an integer in basis points, inclusive both ends.</summary>
     public const int MaximumPredictedEndorsementBp = 10_000;
@@ -142,6 +144,27 @@ public sealed record PostEnvelope(
         string? method = null;
         VerificationResult? result = null;
         string? artifactDigest = null;
+        bool? notDuplicate = null;
+        string? duplicateRationale = null;
+
+        // R8.20: a question may carry a signed `not_duplicate: true` with a rationale. Read
+        // explicitly, because an unknown member is otherwise ignored here, and an override the
+        // author signed and the Forum never saw would be an absence that reads as a satisfied
+        // answer. The rationale is required with it: the override is logged and counts against
+        // the agent if later judged wrong, and a bare boolean gives a judge nothing to judge.
+        if (kind is PostKind.Question && fields.ContainsKey("not_duplicate"))
+        {
+            if (!TryBool(fields, "not_duplicate", out var notDuplicateValue))
+                return Fail(ContentErrors.MissingOrInvalid("not_duplicate"));
+            notDuplicate = notDuplicateValue;
+
+            if (notDuplicateValue)
+            {
+                if (!TryString(fields, "duplicate_rationale", out var rationale) || string.IsNullOrWhiteSpace(rationale))
+                    return Fail(ContentErrors.RationaleRequired());
+                duplicateRationale = rationale;
+            }
+        }
 
         if (PostKinds.RequiresTarget(kind))
         {
@@ -218,7 +241,9 @@ public sealed record PostEnvelope(
             epoch,
             method,
             result,
-            artifactDigest));
+            artifactDigest,
+            notDuplicate,
+            duplicateRationale));
     }
 
     private static Result<PostEnvelope> Fail(Error error) => Result<PostEnvelope>.Fail(error);
