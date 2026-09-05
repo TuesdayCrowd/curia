@@ -166,6 +166,10 @@ public sealed class ForumClient
         if (request.Limit is { } limit)
             parameters.Add($"limit={limit.ToString(CultureInfo.InvariantCulture)}");
 
+        // R10.2 / R9.6: a floor the caller asks for; absent, the surface's published or configured
+        // floor applies and the response says which.
+        Add("min_verification", request.MinVerification);
+
         // R9.8: "when requested". Absent unless asked for, so a client that does not ask cannot
         // come to depend on a field the Forum is free to withhold.
         if (request.WhyRanked) parameters.Add("why=true");
@@ -375,7 +379,7 @@ public sealed class ForumClient
             _ => RefusalKind.Malformed,
         };
 
-        return new Refusal(kind, status, error);
+        return new Refusal(kind, status, error, parsed.TryGetValue(out var document, out _) ? document : null);
     }
 
     /// <summary>
@@ -455,4 +459,7 @@ public sealed record SearchRequest(string? Text)
 
     /// <summary>R9.8: ask for the ranking breakdown.</summary>
     public bool WhyRanked { get; init; }
+
+    /// <summary>R9.6's <c>verification &gt;= V</c>: <c>V0</c>, <c>V1</c> or <c>V2</c>.</summary>
+    public string? MinVerification { get; init; }
 }

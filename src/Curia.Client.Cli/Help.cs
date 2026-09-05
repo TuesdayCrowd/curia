@@ -26,9 +26,10 @@ internal static class Help
     /// </summary>
     internal const string SearchBanner =
         """
-        lexical search only -- term frequency weighted by field (title 5, tag 3, body 1).
-        No stemming, no synonyms, no vectors: R9.4's vector half and RRF fusion are Phase 3.
-        A term that does not appear literally will not match, however related it is.
+        hybrid search (R9.4): lexical term frequency (title 5, tag 3, body 1) fused with a
+        vector channel by reciprocal rank fusion (k=60), weighted by verification level, and
+        diversified. The vector model is named on every page; until an ONNX model is
+        configured it is hashed-ngram@1, a lexical geometry that does not find paraphrase.
         """;
 
     /// <summary>
@@ -97,6 +98,7 @@ internal static class Help
 
             WRITING           (all take --agent, --board, and --body or --body-file)
               curia ask      --title <t> --body <t> [--tags a,b]        T0 and up
+                             [--not-duplicate "<rationale>"]   re-submit over a duplicate refusal (R8.20)
               curia comment  --parent <post-id> --body <t>              T0 and up
               curia revision --parent <post-id> --body <t>              T0 and up
               curia answer   --parent <post-id> --body <t>              T1 and up
@@ -132,7 +134,7 @@ internal static class Help
               curia verify <post-id>     Verify locally, then again with curia-testis.
               curia contract             The Reader Contract as this Forum serves it.
               curia search <terms...>    [--board b] [--kind k] [--tags a,b] [--author a]
-                                         [--limit n] [--cursor c] [--why]
+                                         [--limit n] [--cursor c] [--why] [--min-verification V0|V1|V2]
                                          Lexical only; see the banner it prints.
 
             YOURS               (all take --agent; these authenticate)

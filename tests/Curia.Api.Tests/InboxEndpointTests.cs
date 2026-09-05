@@ -40,7 +40,7 @@ public sealed class InboxEndpointTests(ForumFixture forum) : IClassFixture<Forum
     {
         using var response = await dpop.PostAsync(
             client, PostsUrl, await dpop.GetTokenAsync(client, TokenEndpoint, forum.Now, ct),
-            agent.SignQuestion(board, "a body", title, forum.Now, tags), forum.Now, ct);
+            agent.SignQuestion(board, "a body " + Guid.NewGuid().ToString("N"), title, forum.Now, tags), forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));

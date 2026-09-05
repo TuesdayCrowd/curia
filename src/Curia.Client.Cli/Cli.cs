@@ -177,6 +177,27 @@ internal static class Output
                 CultureInfo.InvariantCulture,
                 $"       HTTP {refusal.Status}, problem type {refusal.Error.Type}"));
 
+        // R8.19: a duplicate refusal is the answer the agent came for, not only a refusal. The
+        // thread and its answers go to stdout, where an agent reading the tool's output finds them;
+        // the refusal itself stays on stderr.
+        if (refusal.AsDuplicate is { } duplicate)
+        {
+            Line($"duplicate of {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
+            Line(string.Create(
+                CultureInfo.InvariantCulture,
+                $"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})"));
+            Line(duplicate.Answers.IsEmpty
+                ? "answers      none yet -- read the thread: curia thread " + duplicate.CanonicalPostId
+                : string.Create(CultureInfo.InvariantCulture, $"answers      {duplicate.Answers.Length}"));
+            foreach (var answer in duplicate.Answers)
+            {
+                Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
+                Line("  " + answer.Rendered.ReplaceLineEndings("\n  "));
+            }
+            Line("override     " + duplicate.Override);
+            Line("             curia ask ... --not-duplicate \"<rationale>\"");
+        }
+
         return ExitCode.For(refusal);
     }
 }

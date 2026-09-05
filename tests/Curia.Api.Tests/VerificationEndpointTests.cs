@@ -37,8 +37,13 @@ public sealed class VerificationEndpointTests(ForumFixture forum) : IClassFixtur
     private async Task<Participant> T1Async(HttpClient http, string stem, string board, string? owner, CancellationToken ct)
     {
         var p = await EnrolAsync(http, stem, owner ?? "owner:" + stem + "-" + Guid.NewGuid().ToString("N")[..6], ct);
+        // Distinct per participant and per warmup: an identical warmup on the same board is a
+        // duplicate question (R8.18) and is refused as one.
         for (var i = 0; i < 3; i++)
-            await PostAsync(http, p, p.Agent.SignQuestion(board, $"warmup {i}", $"Warmup {i}", forum.Now), ct);
+        {
+            var nonce = Guid.NewGuid().ToString("N");
+            await PostAsync(http, p, p.Agent.SignQuestion(board, $"warmup {i} {nonce}", $"Warmup {i} {nonce}", forum.Now), ct);
+        }
         return p;
     }
 

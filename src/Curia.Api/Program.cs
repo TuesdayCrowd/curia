@@ -8,6 +8,8 @@ using Curia.Application.Credentials;
 using Curia.Application.Ingest;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
+using Curia.Application.Retrieval;
+using Curia.Domain.Search;
 using Curia.Application.Projections;
 using Curia.Canon.Jws;
 using Curia.Canon.Sodium;
@@ -118,6 +120,53 @@ public sealed class Program
         // the read endpoints cannot append even by accident -- the compiler enforces that, not a
         // review convention. Registering it is what lets them ask for the narrower type.
         builder.Services.AddSingleton<IEventReader>(sp => sp.GetRequiredService<IEventStore>());
+
+        // The vector half of hybrid retrieval (§9.2). The embedder is the dependency-free hashed
+        // model (see HashedNGramEmbedding for what it is and is not); the index is pgvector through
+        // the same adapters object as every other Postgres port; the reconcile brings the index up
+        // to the log before the first request and refuses to start without pgvector.
+        builder.Services.AddSingleton<ITextEmbedder, HashedNGramEmbedder>();
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().VectorIndex);
+        builder.Services.AddSingleton(sp => new EmbeddingIndexer(
+            sp.GetRequiredService<ITextEmbedder>(),
+            sp.GetRequiredService<IVectorIndex>()));
+        builder.Services.AddHostedService<EmbeddingReconcileService>();
+
+        // R10.2's floors: the published table with configuration laid over it, and R8.21's dedupe
+        // thresholds likewise. A surface or level configuration cannot name stops the host here,
+        // at startup, with the slug -- a floor that fell back to a default would make a missing
+        // decision indistinguishable from a deliberate one (errata G10).
+        builder.Services.AddSingleton(_ =>
+        {
+            var entries = builder.Configuration.GetSection("Curia:Retrieval:Floors").GetChildren()
+                .Select(c => new KeyValuePair<string, string?>(c.Key, c.Value));
+            return RetrievalFloors.Parse(entries).Match(
+                floors => floors,
+                error => throw new InvalidOperationException(
+                    $"Curia:Retrieval:Floors is not usable ({error.Type}: {error.Title}; {error.Detail}). " +
+                    "Each entry names a modelled surface (rest-search, mcp-search) and a floor (V0, V1, V2)."));
+        });
+        builder.Services.AddSingleton(_ =>
+        {
+            var section = builder.Configuration.GetSection("Curia:Retrieval:Dedupe");
+            var published = DuplicateThresholds.Published;
+            var thresholds = new DuplicateThresholds(
+                section.GetValue("RefuseCosine", published.RefuseCosine),
+                section.GetValue("RefuseLexicalOverlap", published.RefuseOverlap),
+                section.GetValue("AnnotateCosine", published.AnnotateCosine));
+            return thresholds.IsValid
+                ? thresholds
+                : throw new InvalidOperationException(
+                    "Curia:Retrieval:Dedupe thresholds must lie in [0, 1] with AnnotateCosine at or below RefuseCosine (R8.21).");
+        });
+        builder.Services.AddSingleton(sp => new HybridSearch(
+            sp.GetRequiredService<ITextEmbedder>(),
+            sp.GetRequiredService<IVectorIndex>(),
+            sp.GetRequiredService<RetrievalFloors>()));
+        builder.Services.AddSingleton(sp => new DuplicateCheck(
+            sp.GetRequiredService<ITextEmbedder>(),
+            sp.GetRequiredService<IVectorIndex>(),
+            sp.GetRequiredService<DuplicateThresholds>()));
 
         builder.Services.AddSingleton<IIngestPipeline>(sp => new IngestPipeline(
             sp.GetRequiredService<IAuthorKeyResolver>(),

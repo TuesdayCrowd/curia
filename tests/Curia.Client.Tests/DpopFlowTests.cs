@@ -248,9 +248,14 @@ public sealed class DpopFlowTests : IDisposable
                     "marking_token":null,"marking_caveat":null,"reader_contract":"http://forum.test/c"},
                     "post_id":"01TESTPOSTID0000000000000A","board":"b","kind":"question","parent":null,
                     "server_ts":"2026-08-16T12:00:00.0000000+00:00","digest":"sha-256:abc",
-                    "canonical":"{}","signature":"sig","rendered":"r"},"score":7,
-                    "why_ranked":{"title_matches":1,"body_matches":2,"tag_matches":0,"score":7}}],
-                    "next_cursor":"Nzox"}
+                    "canonical":"{}","signature":"sig","rendered":"r"},"score_micro":32787,
+                    "why_ranked":{"lexical":{"rank":1,"title_matches":1,"body_matches":2,"tag_matches":0,"score":7},
+                    "vector":{"rank":1,"cosine_bp":9100,"model":"hashed-ngram@1"},"k":60,"lexical_term_micro":16393,
+                    "vector_term_micro":16393,"fused_micro":32787,"verification_level":"V0","verification_weight_bp":10000,
+                    "score_micro":32787,"deferred_by_diversification":false,"not_computed":{"n_eff":"Phase 4"}}}],
+                    "next_cursor":"Nzox","floor":{"surface":"rest-search","min_verification":"V0","source":"published",
+                    "applies_to":["answer","finding"],"not_applicable_to":["question","comment","revision"]},
+                    "model":"hashed-ngram@1","corpus_bound":9,"k":60,"candidate_depth":200,"min_cosine_bp":2000}
                     """.ReplaceLineEndings(string.Empty));
 
             if (path.EndsWith("/accept", StringComparison.Ordinal))
@@ -384,8 +389,16 @@ public sealed class DpopFlowTests : IDisposable
 
         var hit = Assert.Single(page!.Results);
         Assert.Equal("01TESTPOSTID0000000000000A", hit.Post.PostId);
-        Assert.Equal(7, hit.Score);
-        Assert.Equal(1, hit.Why!.TitleMatches);
+        Assert.Equal(32787, hit.ScoreMicro);
+        Assert.Equal(1, hit.Why!.Lexical!.TitleMatches);
+        Assert.Equal(1, hit.Why.Vector!.Rank);
+        Assert.Equal("hashed-ngram@1", hit.Why.Vector.Model);
+        Assert.Equal(60, hit.Why.K);
+        Assert.Equal("Phase 4", hit.Why.NotComputed["n_eff"]);
+        Assert.Equal(("V0", "published", "rest-search"), (page.Floor.MinVerification, page.Floor.Source, page.Floor.Surface));
+        Assert.Equal(["answer", "finding"], page.Floor.AppliesTo);
+        Assert.Equal("hashed-ngram@1", page.Model);
+        Assert.Equal(9, page.CorpusBound);
         Assert.Equal("Nzox", page.NextCursor);
 
         var request = handler.Requests.Last();

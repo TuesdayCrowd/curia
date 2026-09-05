@@ -128,10 +128,11 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         var why = with.RootElement.GetProperty("results").EnumerateArray().Single()
             .GetProperty("why_ranked");
 
-        Assert.Equal(1, why.GetProperty("title_matches").GetInt32());
-        Assert.Equal(2, why.GetProperty("body_matches").GetInt32());
-        Assert.Equal(0, why.GetProperty("tag_matches").GetInt32());
-        Assert.Equal((1 * 5) + (2 * 1), why.GetProperty("score").GetInt32());
+        var lexical = why.GetProperty("lexical");
+        Assert.Equal(1, lexical.GetProperty("title_matches").GetInt32());
+        Assert.Equal(2, lexical.GetProperty("body_matches").GetInt32());
+        Assert.Equal(0, lexical.GetProperty("tag_matches").GetInt32());
+        Assert.Equal((1 * 5) + (2 * 1), lexical.GetProperty("score").GetInt32());
     }
 
     /// <summary>
@@ -160,29 +161,69 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
-    /// R9.6 names <c>verification &gt;= V2</c> as a structured filter, and §8's verification events
-    /// do not exist — so the filter cannot work.
-    ///
-    /// <para><b>Refused rather than ignored.</b> A parameter accepted and silently dropped returns
-    /// the unfiltered corpus to an agent that believes it asked for verified answers only, which is
-    /// worse than the filter being absent: the agent cannot tell, and the whole point of R9.6 is
-    /// that "an agent looking for a verified answer for a specific runtime version should be able to
-    /// say so".</para>
+    /// R9.6's <c>verification &gt;= V</c> filter is honoured now that Stage 3's events exist, and
+    /// R10.2's floor is stated on every response (errata G10). A floor evaluated against a level a
+    /// question can never hold would hide every question, so it applies to gradable kinds only and
+    /// the response says which.
     /// </summary>
     [Fact]
-    public async Task R9_6_AFilterThatCannotBeHonouredIsRefusedRatherThanIgnored()
+    public async Task R9_6_R10_2_AFloorIsHonouredAppliedToGradableKindsOnlyAndStated()
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
+        var board = "floor-" + Guid.NewGuid().ToString("N")[..8];
+        var questionId = await AskAsync(client, board, "ECONNRESET from npgsql", "npgsql ECONNRESET after the pool idles", ct);
 
-        using var response = await client.GetAsync(
-            new Uri("/v1/search?q=jcs&min_verification=V2", UriKind.Relative), ct);
+        using var open = await SearchAsync(client, $"q=npgsql%20ECONNRESET&board={board}", ct);
+        var floor = open.RootElement.GetProperty("floor");
+        Assert.Equal(("rest-search", "V0", "published"),
+            (floor.GetProperty("surface").GetString(), floor.GetProperty("min_verification").GetString(), floor.GetProperty("source").GetString()));
+        Assert.Equal(["answer", "finding"], floor.GetProperty("applies_to").EnumerateArray().Select(k => k.GetString()));
+        Assert.Contains("question", floor.GetProperty("not_applicable_to").EnumerateArray().Select(k => k.GetString()));
+        Assert.Equal("hashed-ngram@1", open.RootElement.GetProperty("model").GetString());
+        Assert.Contains(questionId, Ids(open));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains(
-            "curia/search/unsupported-filter",
-            await response.Content.ReadAsStringAsync(ct),
-            StringComparison.Ordinal);
+        // V2 requested: the question is still served, because the floor does not apply to it.
+        using var gated = await SearchAsync(client, $"q=npgsql%20ECONNRESET&board={board}&min_verification=V2", ct);
+        Assert.Equal(("V2", "requested"), (gated.RootElement.GetProperty("floor").GetProperty("min_verification").GetString(), gated.RootElement.GetProperty("floor").GetProperty("source").GetString()));
+        Assert.Contains(questionId, Ids(gated));
+
+        using var notAFloor = await client.GetAsync(new Uri("/v1/search?q=jcs&min_verification=V-", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.BadRequest, notAFloor.StatusCode);
+        Assert.Contains("curia/search/not-a-floor", await notAFloor.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+
+        using var unsupported = await client.GetAsync(new Uri("/v1/search?q=jcs&environment_version=4.3", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.BadRequest, unsupported.StatusCode);
+        Assert.Contains("curia/search/unsupported-filter", await unsupported.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+    }
+
+    /// <summary>R9.8 / R8.36 (errata G10): every computed term, recombining exactly; every absent term named.</summary>
+    [Fact]
+    public async Task R9_8_WhyRankedRecombinesAndNamesWhatItDoesNotCompute()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "why-" + Guid.NewGuid().ToString("N")[..8];
+        await AskAsync(client, board, "ECONNRESET from npgsql", "npgsql ECONNRESET after the pool idles", ct);
+
+        using var doc = await SearchAsync(client, $"q=npgsql%20ECONNRESET&board={board}&why=true", ct);
+        var hit = doc.RootElement.GetProperty("results")[0];
+        var why = hit.GetProperty("why_ranked");
+
+        Assert.Equal(60, why.GetProperty("k").GetInt32());
+        Assert.True(why.GetProperty("lexical").GetProperty("rank").GetInt32() >= 1);
+        Assert.True(why.GetProperty("vector").GetProperty("rank").GetInt32() >= 1);
+        Assert.Equal("hashed-ngram@1", why.GetProperty("vector").GetProperty("model").GetString());
+        // R6.33: integers only -- millionths and basis points -- so the terms recombine within rounding.
+        var fused = why.GetProperty("fused_micro").GetInt64();
+        Assert.InRange(why.GetProperty("lexical_term_micro").GetInt64() + why.GetProperty("vector_term_micro").GetInt64(), fused - 2, fused + 2);
+        var expectedScore = fused * why.GetProperty("verification_weight_bp").GetInt32() / 10_000;
+        Assert.InRange(why.GetProperty("score_micro").GetInt64(), expectedScore - 2, expectedScore + 2);
+        Assert.Equal(hit.GetProperty("score_micro").GetInt64(), why.GetProperty("score_micro").GetInt64());
+        Assert.Equal(10_000, why.GetProperty("verification_weight_bp").GetInt32());
+        Assert.Equal("V0", why.GetProperty("verification_level").GetString());
+        Assert.Contains("n_eff", why.GetProperty("not_computed").EnumerateObject().Select(p => p.Name));
+        Assert.Contains("surprisingly_popular", why.GetProperty("not_computed").EnumerateObject().Select(p => p.Name));
     }
 
     /// <summary>An out-of-range page size is refused, so a client is told rather than served fewer.</summary>
@@ -222,9 +263,11 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         var board = "board-" + Guid.NewGuid().ToString("N")[..8];
         var term = "zqx" + Guid.NewGuid().ToString("N")[..6];
 
+        // Each body carries its own nonce word: five questions differing only in a repeat count are
+        // exactly what §8.5 refuses, and this test is about paging, not dedupe.
         for (var i = 1; i <= 5; i++)
             await AskAsync(client, board, "Question " + i.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                string.Join(" ", Enumerable.Repeat(term, i)), ct);
+                string.Join(" ", Enumerable.Repeat(term, i)) + " " + Guid.NewGuid().ToString("N"), ct);
 
         var seen = new List<string>();
         string? cursor = null;
