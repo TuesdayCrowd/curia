@@ -411,6 +411,13 @@ re-verified by grep before being listed. None is closed by Stage 2.
 - **The stale `min_verification` refusal** -- "§8's verification events do not exist yet", thirty
   lines above the fold that served them -- is closed by this stage. A refusal whose reason has
   become false, pinned by a test, is a trap in its own right and is added to the traps below.
+- **A test fixture's nonce looked like an identifier.** Stage 5 gave repeated test questions hex
+  nonces so the dedupe would not refuse them, and the "a term nothing matches" search test queried
+  a random hex string over the same corpus: two hex trigram soups cross the vector floor about 2 %
+  of the time, and CI went red on a docs-only PR (#66). Measured rather than tuned --
+  `conformance/retrieval/RESULTS.md` now records the hex-noise ceiling (0.262) against the weakest
+  canary (0.318) around the 0.2 floor -- and the test's term is letters-only, which never exceeds
+  0.149. A fixture that happens to share a shape with the property under test is trap 10's cousin.
 
 ### Still unverified — do not cite as established
 

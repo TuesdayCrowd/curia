@@ -56,6 +56,23 @@ three under hybrid retrieval with the model above. Over a fixture corpus this is
 regression check, not a poisoning detector, and `R10_5_EveryCanarysExpectedPostRanksInTheTopThree`
 fails by name when a canary drifts.
 
+## The vector channel's floor (R9.22)
+
+`min_cosine_bp` is 2000 -- a vector neighbour below cosine 0.2 is not a candidate. Measured on
+2026-09-05 with `hashed-ngram@1`, to place the floor rather than guess it:
+
+| what | cosine |
+|---|---|
+| each canary query against its expected post, minimum over the six | **0.318** (`canary-jcs`; the others 0.530–0.816) |
+| a 32-hex-digit query against bodies carrying 32-hex-digit nonces, maximum over 300 draws | **0.262**, crossing 0.2 in 6 of 300 |
+| a letters-only nonsense term against ordinary bodies, maximum over 300 draws | **0.149** |
+
+The floor sits between the noise a hex identifier produces against unrelated hex and the
+weakest canary, with a small margin on each side. The hex case is real -- an agent will paste a
+digest or a commit hash as a query -- and it is the case a lexical geometry fuzzily matches by
+construction (§9.2's "trigram for fuzzy identifiers"); the published floor is what keeps that
+from returning a page of unrelated hashes. Re-derive it from this table when the model changes.
+
 ## What these numbers are not (R10.11)
 
 A statement about **these pairs against today's model and thresholds**. A high literal refusal
