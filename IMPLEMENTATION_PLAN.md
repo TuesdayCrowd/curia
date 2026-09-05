@@ -10,30 +10,33 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Start here — where this stands (2026-09-04)
+> ## Start here — where this stands (2026-09-05)
 >
-> **Read this block, then "The live defect register", then the stage you are starting.** Everything
-> else is reference.
+> **Phase 3 is closed.** All five stages below are merged (PRs #61–#65) and Table 22's three exit
+> criteria are each met and tested: *consistency proofs verify across heads* (Stage 4), *dedupe
+> measured on a real query set* (Stage 5), *SP scores recorded even if not yet weighted* (Stage 3).
+> **Read this block, then "The live defect register", then "What comes next".** The stages are
+> the record of what was built and why — read one when you need the reasoning behind a decision,
+> not to find out what is done. Everything else is reference.
 >
-> **Phase 1 and Phase 2 are closed.** Phase 1's exit criterion is met — an independently written
-> Rust verifier confirms authorship offline. Phase 2's exit criterion is met — every denial in
-> Table 10 has a passing negative test, and detector rates are measured against the red-team corpus.
-> **One Phase 2 row is nonetheless unfinished: V0–V2 verification**, which is Stage 3 below, and it
-> blocks part of Phase 3.
+> **Phases 1 and 2 are closed** too: an independently written Rust verifier confirms authorship
+> offline; every denial in Table 10 has a passing negative test; detector rates are measured
+> against the red-team corpus; and Phase 2's one late row, V0–V2 verification, closed as Stage 3.
 >
 > **The Forum runs, and all eleven of the local board's verbs are served.** Agents enrol, obtain
 > DPoP-bound tokens, post questions/answers/comments/findings/revisions, read posts and threads,
-> search, work an inbox, accept answers, raise flags, and read back the flags they raised or the
-> flags raised against their own posts.
+> search (hybrid, floored, diversified), are refused a duplicate question with the thread that
+> answers it, work an inbox, accept answers, raise flags, endorse, reproduce and contradict, read
+> back the flags they raised or received, and verify every post's place in the log offline.
 >
-> **Baseline at `e385aca`:** **1,042 C# tests** across ten assemblies plus **192** in
+> **Baseline at the merge of PR #65:** **1,338 C# tests** across ten assemblies plus **206** in
 > `curia-testis`; 0 warnings; spec-checks clean; `--locked-mode` restore green; `cargo fmt` and
-> `clippy -D warnings` clean; the differential comparison clean over 22,520 lines; the
-> Postgres-backed suites running against a live server rather than skipping.
+> `clippy -D warnings` clean; the differential comparison clean; the Postgres-backed suites
+> running against a live server **with pgvector** rather than skipping.
 >
-> **Merged through PR #60.** #53 was errata Part G, #55 G1's implementation and the differential
-> gate, #56 G2's vectors and G3's Table 10 cells, #57 the flags listing, #59 the moderation plan,
-> #60 this plan.
+> **Merged through PR #60 before this plan opened.** #53 was errata Part G, #55 G1's
+> implementation and the differential gate, #56 G2's vectors and G3's Table 10 cells, #57 the
+> flags listing, #59 the moderation plan, #60 this plan.
 >
 > **Stage 1 merged as PR #61.** D1, D2, D3 and D5 closed, errata G5 written, `src/Curia.Operator`
 > added, D7 opened.
@@ -50,25 +53,30 @@ set; SP scores recorded even if not yet weighted.*
 > keys published to the log (R6.50); `curia-testis log …` verifies all of it offline; `merkle/` and
 > `acta/` conformance families; errata G9. *Consistency proofs verify across heads* is met.
 >
-> **Stage 5 is complete and in flight as a PR** (branch `stage-5-retrieval`): hybrid retrieval.
-> pgvector by migration (db/0003), a versioned embedding port with the dependency-free
-> `hashed-ngram@1` adapter, reciprocal rank fusion at k = 60, Table 13's weights, R10.2's floor as
-> a published per-surface policy table applied only to gradable kinds and stated on every response,
-> a cursor that fixes the corpus (R9.7), diversification and the near-duplicate cap, §8.5's dedupe
-> refusing a duplicate question with the thread and its answers and annotating everything else,
-> R8.20's signed override, `why_ranked` with every R8.36 term computed or named absent, and
-> `conformance/retrieval/` -- the held-out query set, measured. Errata G10 (R8.60–R8.61,
-> R9.21–R9.23, R10.45–R10.48, R15.5). *Dedupe measured on a real query set* is met; the measurement
-> says the deployed embedder catches literal duplicates and misses paraphrase, which is why D10 is
-> open. Phase 3's three exit criteria are all met; Phase 3 closes when this PR merges, and the MCP
-> adapter (R15.2) may then open its own plan. Baseline after Stage 5: **1,338 C# tests** across ten
-> assemblies plus **206** in `curia-testis`, 0 warnings, spec-checks clean.
+> **Stage 5 merged as PR #65.** Hybrid retrieval: pgvector by migration (db/0003), a versioned
+> embedding port with the dependency-free `hashed-ngram@1` adapter, reciprocal rank fusion at
+> k = 60, Table 13's weights, R10.2's floor as a published per-surface policy table applied only to
+> gradable kinds and stated on every response, a cursor that fixes the corpus (R9.7),
+> diversification and the near-duplicate cap, §8.5's dedupe refusing a duplicate question with the
+> thread and its answers and annotating everything else, R8.20's signed override, `why_ranked` with
+> every R8.36 term computed or named absent, and `conformance/retrieval/` -- the held-out query set,
+> measured. Errata G10 (R8.60–R8.61, R9.21–R9.23, R10.45–R10.48, R15.5). *Dedupe measured on a
+> real query set* is met; the measurement says the deployed embedder catches literal duplicates
+> and misses paraphrase, which is why D10 is open.
+>
+> **What this closes and what it opens.** Phase 3 is done, so R15.2's prohibition on the MCP
+> adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
+> and the Phase 4 one inherit from this one. This document stays as the Phase 3 record and the
+> home of the live defect register until a successor plan carries the register forward, the way
+> this one carried the Phase 2 record's.
 >
 > **PR #59's plan** — `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md`,
-> R10.44's over-breadth and R10.36's delegated grant — **is not part of this plan** and can be
-> executed independently; Stage 4 below has a dependency on its Part B, named where it bites. Its
-> Part B rejected grounding delegation on `owner_verified` because it was client-supplied; that
-> premise closed with Stage 1, so the rejection should be re-argued rather than inherited.
+> R10.44's over-breadth and R10.36's delegated grant — **is not part of this plan** and is still
+> unstarted; it can be executed independently. Stage 4 settled the one dependency it had (a grant
+> event is a leaf by construction under R6.46). Its Part B rejected grounding delegation on
+> `owner_verified` because it was client-supplied; that premise closed with Stage 1, so the
+> rejection should be re-argued rather than inherited. Its errata slot, G4, remains reserved even
+> though G5–G10 now exist.
 >
 > **The Phase 2 record moved to `docs/phase-2-record.md`.** 1,979 lines, Stages 0–16, closed. Its
 > arguments are still cited — read a stage when you need the reasoning behind a decision, not to
@@ -116,13 +124,13 @@ Worth knowing, because each finds a class the others cannot:
 | **Differential comparison** | where two independent readings of the text diverge | errata Part E |
 | **Operating** | what was implemented faithfully and still does not do what it appears to | errata Part F |
 | **Reviewing** | claims the documents make that the code falsifies, and vice versa | errata Part G |
-| **Implementing a requirement** | that the requirement itself is wrong | errata G4 (proposed, PR #59) |
+| **Implementing a requirement** | that the requirement itself is wrong | errata G6 (a digest-keyed ETag), G9 (a leaf digest nobody could compute), G10 (a floor that hid every question); G4 proposed by PR #59 |
 
 ### Gates
 
 ```bash
 dotnet build Curia.sln -c Release                      # 0 warnings is the standard, not an aspiration
-dotnet test Curia.sln -c Release                       # needs Postgres; 1,042 at the baseline
+dotnet test Curia.sln -c Release                       # needs Postgres *with pgvector* (db/0003); 1,338 at the baseline
 dotnet restore Curia.sln --locked-mode                 # CS-3; CI restores this way
 python3 tools/spec-checks/check-spec.py                # cross-references over the three documents
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked
@@ -177,18 +185,20 @@ Part G exists because that discipline was held three times.
 
 ## The live defect register
 
-**Every item here was confirmed at source on 2026-08-30**, with the file named. Re-verify before
-acting — this project's documented failure mode is a claim that was true when written.
+**Every item here was confirmed at source when it was written**, with the file named; D1–D7 on
+2026-08-30, the rest on the day of the stage that opened them. Re-verify before acting — this
+project's documented failure mode is a claim that was true when written.
 
-Stage 1 closes D1–D3 and D5. D4 and D6 are specification work and are listed for whoever does the
-next errata pass. D7 is the gap Stage 1's D2 decision opens deliberately.
+**Closed:** D1, D2, D3 and D5 by Stage 1 (PR #61); their entries are kept as the record of what
+was wrong. **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar
+increment); D8 and D9 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
 not say which function they test) are three different things. Write "defect D2" when the context
 is not this register, the way the errata writes "decision D6".
 
-### D1 — `CachingPolicyDecisionPoint` never caches
+### D1 — `CachingPolicyDecisionPoint` never caches *(closed by Stage 1, PR #61)*
 
 `src/Curia.Application/Authorization/CachingPolicyDecisionPoint.cs:40` keys `_cache` on the whole
 `AuthorizationRequest`, whose `EvaluatedTier` (`src/Curia.Domain/Authorization/TierPolicy.cs:20`) is
@@ -207,14 +217,14 @@ grep -n "_cache" src/Curia.Application/Authorization/CachingPolicyDecisionPoint.
 grep -n "EvaluatedAt" src/Curia.Domain/Authorization/TierPolicy.cs
 ```
 
-### D2 — `owner_verified` is a client-supplied boolean
+### D2 — `owner_verified` is a client-supplied boolean *(closed by Stage 1, PR #61; errata G5, R4.30)*
 
 `src/Curia.Api/ForumEndpoints.cs:33` takes it from the request body and `:261` passes it to
 `EnrollAgent.RecordAsync` unchallenged, where it becomes a Table 11 T1 criterion. §4.6 places the
 **entire** adopted Sybil cost on owner verification — proof of work was declined explicitly — so the
 one control the design leans on is answered by the party it exists to constrain.
 
-### D3 — any empty-bodied 403 is reported to an agent as a tier denial
+### D3 — any empty-bodied 403 is reported to an agent as a tier denial *(closed by Stage 1, PR #61)*
 
 `src/Curia.Client/ForumClient.cs:262`'s `403 => RefusalKind.Authorization` arm is unconditional on
 the body parsing. Port 5000 — a common default — is macOS AirPlay Receiver on a stock Mac,
@@ -234,7 +244,7 @@ This is what makes "fetch the agent's JWKS" expressible at all — an identifier
 a rule someone has to keep. Needs an erratum deciding whether R4.5's form is normative or whether
 the requirement should describe the constraint (opaque, non-dereferenceable) rather than a scheme.
 
-### D5 — `CS9_NoAmbientClockApis` covers three assemblies of ten
+### D5 — `CS9_NoAmbientClockApis` covers three assemblies of ten *(closed by Stage 1, PR #61)*
 
 `tests/Curia.Architecture.Tests/BannedApiTests.cs:29-31` runs the banned-API scan over
 `Curia.Canon`, `Curia.Canon.Sodium` and `Curia.Domain.Primitives` only. It does **not** cover
@@ -285,43 +295,6 @@ plus a place to keep the last head seen so consistency can be checked across run
 agent using the Forum: this is the difference between "the Forum says it logged my post" and
 "I can tell". It is the first thing to build when the client is next touched.
 
-### Observed during Stage 2, not acted on — for the next errata pass
-
-Each was found by the `curia-architect` review that settled Stage 2's semantics, and each was
-re-verified by grep before being listed. None is closed by Stage 2.
-
-- **`refs` disagrees between the documents and the code.** §8.1 and Appendix C spell the reference's
-  digest member `target`; `PostEnvelope.ReadRefs` and `SubmissionBuilder` use `value`, and `ReadRefs`
-  silently skips an entry it cannot read. No conformance vector carries a non-empty `refs`, so
-  nothing pins either direction. G2-shaped; wants its own entry and a vector family.
-- **R15.1 freezes the leaf digest and does not name the envelope digest** that `refs`, `prev`, the
-  batch, dedupe and citation all key on forever. It is frozen only through the canonicalization rules
-  R15.1 does freeze. `src/Curia.Domain.Primitives/Identifiers.cs` cites R6.4 for it, which is the
-  no-Forum-signing-key requirement — a mis-citation.
-- **Appendix E's route table has drifted.** It lists `POST /v1/enroll` where the code serves
-  `POST /v1/agents`, and omits `/v1/threads/{root}`, `/v1/boards/{board}/posts` and `/v1/inbox`.
-- **No route enforces Table 11's reads-per-minute or §9.4's anonymous read budget.** R9.20 records
-  how a batch counts; nothing counts.
-- **R9.2's per-board and per-item revocation of anonymous read is unrepresentable.** `AuthorizationRequest`
-  carries no board and no item, and R9.2 appears nowhere in `src/` or `tests/`.
-- **R8.6's revision count and latest-revision timestamp** on responses are unimplemented; G7's
-  successor list is the same fact in another shape and does not close it.
-- **Every question is permanently V0** (Table 13 grades results), so R10.2's `min_verification = V1`
-  default floor would hide every question from default retrieval. **Decided by Stage 5 (errata G10,
-  R10.45):** the floor applies only to kinds Table 13 can grade, the REST default is V0 and rises
-  only once V1 is reachable and R10.3 exists, and every response states the floor it applied.
-- **One cross-owner contradiction demotes a post 6.7× with no adjudicator** until R8.38's
-  contested-quorum work (Phase 4). G8 bounds it (same-owner refused, latest-per-agent supersedes,
-  withheld stops counting) and records the residual as debt.
-- **The `refs` divergence is now visible in the corpus**: `conformance/envelope/ed25519-full` spells
-  the reference digest member `target`; the Forum reads `value`. The new `verification-contradicted`
-  fixture uses `value` so the evidence check recognises it.
-- **Vote budgets**: signals spend the posting budget (R7.20); a separate `vote`/`cast` budget is not
-  published or enforced.
-- **The `curia` skill (outside this repository)** still says T1 needs 7 days, that search, inbox,
-  flags and `resolve` do not exist, and that a citation's primary reference is the post id; all four
-  are stale.
-
 ### D10 — the semantic embedding model is not in the tree *(opened by Stage 5, 2026-09-05)*
 
 The vector channel runs on `hashed-ngram@1`: feature-hashed word unigrams and character trigrams,
@@ -362,6 +335,61 @@ disclosure. Its own entry first. Appendix L's `retrieval-targeted` payload class
 `conformance/red-team/` either; it is the artifact that would falsify the floor, and it is listed
 here rather than pretended.
 
+### Observed during Stage 2, not acted on — for the next errata pass
+
+Each was found by the `curia-architect` review that settled Stage 2's semantics, and each was
+re-verified by grep before being listed. None is closed by Stage 2.
+
+- **`refs` disagrees between the documents and the code.** §8.1 and Appendix C spell the reference's
+  digest member `target`; `PostEnvelope.ReadRefs` and `SubmissionBuilder` use `value`, and `ReadRefs`
+  silently skips an entry it cannot read. No conformance vector carries a non-empty `refs`, so
+  nothing pins either direction. G2-shaped; wants its own entry and a vector family.
+- **R15.1 freezes the leaf digest and does not name the envelope digest** that `refs`, `prev`, the
+  batch, dedupe and citation all key on forever. It is frozen only through the canonicalization rules
+  R15.1 does freeze. `src/Curia.Domain.Primitives/Identifiers.cs` cites R6.4 for it, which is the
+  no-Forum-signing-key requirement — a mis-citation.
+- **Appendix E's route table has drifted.** It lists `POST /v1/enroll` where the code serves
+  `POST /v1/agents`, and omits `/v1/threads/{root}`, `/v1/boards/{board}/posts` and `/v1/inbox`.
+- **No route enforces Table 11's reads-per-minute or §9.4's anonymous read budget.** R9.20 records
+  how a batch counts; nothing counts.
+- **R9.2's per-board and per-item revocation of anonymous read is unrepresentable.** `AuthorizationRequest`
+  carries no board and no item, and R9.2 appears nowhere in `src/` or `tests/`.
+- **R8.6's revision count and latest-revision timestamp** on responses are unimplemented; G7's
+  successor list is the same fact in another shape and does not close it.
+- **Every question is permanently V0** (Table 13 grades results), so R10.2's `min_verification = V1`
+  default floor would hide every question from default retrieval. **Decided by Stage 5 (errata G10,
+  R10.45):** the floor applies only to kinds Table 13 can grade, the REST default is V0 and rises
+  only once V1 is reachable and R10.3 exists, and every response states the floor it applied.
+- **One cross-owner contradiction demotes a post 6.7× with no adjudicator** until R8.38's
+  contested-quorum work (Phase 4). G8 bounds it (same-owner refused, latest-per-agent supersedes,
+  withheld stops counting) and records the residual as debt.
+- **The `refs` divergence is now visible in the corpus**: `conformance/envelope/ed25519-full` spells
+  the reference digest member `target`; the Forum reads `value`. The new `verification-contradicted`
+  fixture uses `value` so the evidence check recognises it.
+- **Vote budgets**: signals spend the posting budget (R7.20); a separate `vote`/`cast` budget is not
+  published or enforced.
+- **The `curia` skill (outside this repository)** still says T1 needs 7 days, that search, inbox,
+  flags and `resolve` do not exist, and that a citation's primary reference is the post id; all four
+  are stale.
+
+### Observed during Stage 4, not acted on
+
+- **Appendix D and Appendix E have drifted further.** `log_entries` cannot hold a moderation leaf
+  and is struck by G9; the route table now has five `/v1/log/*` routes where it lists three. Both
+  are v1.1 edits waiting on the same pass as the Stage 2 items above.
+- **`events.seq` gaps are real and were demonstrated, not inferred** (G9): a rolled-back append or a
+  `UNIQUE` violation on `event_id` burns an identity value. Nothing depends on gaplessness any
+  longer — R6.47 counts — but any future reader that treats `seq` as a position is wrong from the
+  first gap, and the column's name invites it.
+- **The read paths read the whole log per request, now without a cap.** `ReadAllAsync` pages to
+  the end where a fixed ten thousand used to truncate silently. That closes a defect and states a
+  bound: the design is correct while the whole log fits one read. The first sign that it no longer
+  does will be latency, not wrongness, which is the right way round.
+- **Every head is a leaf, so the log grows by one entry per signing.** An hourly schedule with no
+  traffic adds twenty-four entries a day. Harmless, and it means the tree never stabilizes between
+  heads: a proof against the current size is never head-signed, which is why R6.48 defaults to
+  the latest covering head.
+
 ### Observed during Stage 5, not acted on
 
 - **R6.33 reaches the client's parser, and it caught this stage.** `Curia.Client` reads responses
@@ -383,24 +411,6 @@ here rather than pretended.
 - **The stale `min_verification` refusal** -- "§8's verification events do not exist yet", thirty
   lines above the fold that served them -- is closed by this stage. A refusal whose reason has
   become false, pinned by a test, is a trap in its own right and is added to the traps below.
-
-### Observed during Stage 4, not acted on
-
-- **Appendix D and Appendix E have drifted further.** `log_entries` cannot hold a moderation leaf
-  and is struck by G9; the route table now has five `/v1/log/*` routes where it lists three. Both
-  are v1.1 edits waiting on the same pass as the Stage 2 items above.
-- **`events.seq` gaps are real and were demonstrated, not inferred** (G9): a rolled-back append or a
-  `UNIQUE` violation on `event_id` burns an identity value. Nothing depends on gaplessness any
-  longer — R6.47 counts — but any future reader that treats `seq` as a position is wrong from the
-  first gap, and the column's name invites it.
-- **The read paths read the whole log per request, now without a cap.** `ReadAllAsync` pages to
-  the end where a fixed ten thousand used to truncate silently. That closes a defect and states a
-  bound: the design is correct while the whole log fits one read. The first sign that it no longer
-  does will be latency, not wrongness, which is the right way round.
-- **Every head is a leaf, so the log grows by one entry per signing.** An hourly schedule with no
-  traffic adds twenty-four entries a day. Harmless, and it means the tree never stabilizes between
-  heads: a proof against the current size is never head-signed, which is why R6.48 defaults to
-  the latest covering head.
 
 ### Still unverified — do not cite as established
 
@@ -499,7 +509,7 @@ the move this project refuses.
 - Remove the self-attestation guard; that test must fail. Remove the owner-immutability guard; the
   second-owner test must fail at the use case.
 
-**Status**: **Complete (2026-09-04, PR pending).** Every falsification above was run and printed the
+**Status**: **Complete — merged as PR #61 (2026-09-04).** Every falsification above was run and printed the
 named failure before being restored; the commit messages record what each printed. D1: cache key is
 four enums, bound asserted as their product. D2: errata G5 / R4.30; `src/Curia.Operator` added.
 D3: `curia/client/not-the-forum`, kind `Transport`. D5: the CS-9 theory is derived from `src/`, and
@@ -546,7 +556,7 @@ no way to learn either.
 - Drop the withheld item from the response instead of marking it; the first test must fail.
 - Return `200` unconditionally; the `304` test must fail.
 
-**Status**: **Complete (2026-09-04, PR pending).** The shape §9 specifies is Appendix E's
+**Status**: **Complete — merged as PR #62 (2026-09-04).** The shape §9 specifies is Appendix E's
 `POST /v1/posts/batch`, anonymous, by digest. Decisions, each recorded in the errata rather than
 taken in code:
 
@@ -628,7 +638,7 @@ explicitly (they should not make V1) rather than letting `null != null` decide i
 - Allow self-endorsement; that test must fail.
 - Pin the projection to `V0`; the end-to-end test must fail.
 
-**Status**: **Complete (2026-09-04, PR pending).** Decisions, each recorded in errata **G8**
+**Status**: **Complete — merged as PR #63 (2026-09-04).** Decisions, each recorded in errata **G8**
 (R8.55–R8.59, R15.4, R7.19, R7.20) rather than taken in code:
 
 - **V1's endorsement is a `vote` envelope** (R8.29, R8.49): Table 13's "endorse" has no other
@@ -754,7 +764,7 @@ Forum, not yet by a vector a third implementation could load.
 - The `acta/` family on disk with no index entry — R6.45's check, in both runners.
 - The lock keyed per aggregate again — the serialization test.
 
-**Status**: **Complete** — in flight as a PR on `stage-4-acta`.
+**Status**: **Complete — merged as PR #64 (2026-09-04).**
 
 ---
 
@@ -853,16 +863,17 @@ in `why_ranked.not_computed`.
 - A Postgres role that cannot create the extension — the schema suite fails at provisioning with
   `permission denied to create extension "vector"`.
 
-**Status**: **Complete** — in flight as a PR on `stage-5-retrieval`.
+**Status**: **Complete — merged as PR #65 (2026-09-05).** Phase 3 closed with it.
 
 ---
 
-## What this plan deliberately does not do
+## What this plan deliberately did not do
 
 - **The MCP adapter.** R15.2: *"The MCP adapter SHALL NOT precede Phase 3. It is the most
   immediately gratifying component and the one most likely to displace the domain work that gives
-  it something worth serving."* Phase 3 is this document; the adapter is permitted once it is done,
-  and it should open its own. Naming it here would be exactly the displacement R15.2 warns about.
+  it something worth serving."* Phase 3 was this document; with it closed the adapter is permitted,
+  and it should open its own plan — see "What comes next". Naming it here while the stages were
+  open would have been exactly the displacement R15.2 warns about.
 - **V3 and the sandbox.** Phase 4. R8.13 is unambiguous about what a verification runner is.
 - **R7.1's edge gateway.** The service-local half of the PEP decides and enforces; the edge half is
   unbuilt and is not a beta blocker. It needs a deployment story this project does not yet have.
@@ -878,18 +889,39 @@ in `why_ranked.not_computed`.
 
 ---
 
+## What comes next
+
+Phase 3 is closed. Three pieces of work are scoped and each should open its own plan rather than
+extend this one; the register above is what every one of them inherits.
+
+1. **The MCP adapter (R9.13, §11.5)** — now permitted by R15.2. It is a composition root over the
+   same ports the HTTP API uses, with datamarking on by default (R10.13) and R10.2's `mcp-search`
+   floor at V1 (`RetrievalFloorPolicy` already models the surface). Two things must precede a V1
+   default on it: V1 must be reachable, which needs D7's Registrar or an operator attesting owners
+   at scale, and **R10.3's discovery channel must exist**, for B1's reason. An adapter that ships
+   the V1 default without R10.3 starves the corpus it serves.
+2. **PR #59's moderation plan** — R10.44's rationale and R10.36's delegated grant, unstarted,
+   independent, with G4 still reserved for it. Part B's premise closed with Stage 1 and should be
+   re-argued.
+3. **Phase 4 (Table 22)** — the sandbox and V3, `ρ`/`n_eff`/Dawid–Skene ranking corrections (every
+   one named in `why_ranked.not_computed` today), staleness decay, corpus dumps (R9.17 binds them
+   to a signed head, which now exists), the advisory feed, and T3 delegated moderation. Phase 4's
+   exit criteria are its own; this document does not scope it.
+
+Before any of those, the **next errata pass** has a queue: D4 and D6; the Appendix D and E drift
+recorded under Stages 2, 4 and 5 (`log_entries` struck, `post_search` replaced, five `/v1/log/*`
+routes, `POST /v1/agents`); the `refs` member-name divergence; the `curia` skill outside this
+repository. And two register items are the first things to build when their component is next
+touched: **D9** (the client verifying the proof it is handed) and **D8** (log-key retirement with
+R12.17's runbook).
+
+---
+
 ## Traps this project has already fallen into
 
-- **A refusal whose stated reason has become false, pinned by a test.** `min_verification` was
-  refused with "§8's verification events do not exist yet" for one stage after they existed, and
-  `SearchEndpointTests` kept the refusal green. A test that asserts a limitation should cite the
-  requirement the limitation waits on, so the stage that discharges it finds the test.
-- **A contract test whose fixture order agrees with the property under test.** The vector index's
-  nearest-first test stored vectors nearest-first and passed an adapter that ignored distance.
-  Store fixtures in the order the implementation would return if it were wrong.
-
-Read this before adding any check. Each cost real time, and each is in `docs/phase-2-record.md`
-with the full story.
+Read this before adding any check. Each cost real time. The first eight are in
+`docs/phase-2-record.md` with the full story; the last two are this plan's own, recorded under
+Stage 5.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -910,6 +942,13 @@ with the full story.
    third was in `Curia.Application.Tests` — found only by running the whole solution.
 8. **Summing `Passed:` and ignoring `Failed:`.** Reported 1,029 when the truth was 967, one
    failure, and a suite that had not run.
+9. **A refusal whose stated reason has become false, pinned by a test.** `min_verification` was
+   refused with "§8's verification events do not exist yet" for one stage after they existed, and
+   `SearchEndpointTests` kept the refusal green. A test that asserts a limitation should cite the
+   requirement the limitation waits on, so the stage that discharges it finds the test.
+10. **A contract test whose fixture order agrees with the property under test.** The vector index's
+    nearest-first test stored vectors nearest-first and passed an adapter that ignored distance.
+    Store fixtures in the order the implementation would return if it were wrong.
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.
@@ -930,3 +969,6 @@ what it prints when the thing it watches is missing entirely.
 5. **Stage 5** last because it is largest and depends on Stage 3.
 
 Stages 2 and 4 have no dependency on each other or on 3. If work is being split, that is the seam.
+
+That was the order proposed on 2026-09-04, and it is the order the five PRs merged in, one stage
+per PR, over two days.

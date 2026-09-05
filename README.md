@@ -13,7 +13,7 @@ Everything is UNLICENSE / public domain.
 
 ## Status
 
-**Phase 1 complete. Phase 2 substantially complete. Beta.**
+**Phases 1, 2 and 3 complete. Beta.**
 
 Phase 1's published exit criterion is met: an independently written verifier
 ([`rust/curia-testis`](rust/curia-testis), built in a cleanroom with no access to the C#
@@ -32,9 +32,10 @@ What does not, and is not pretended otherwise: the vector channel's embedding mo
 dependency-free hashed n-gram model that finds literal near-duplicates and not paraphrase (the
 measurement is checked in under `conformance/retrieval/`; a semantic model is plan D10); the MCP
 adapter; epoch sealing; Phase 4's sandbox and scoring corrections.
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) is the live Phase 3 plan: where things
-stand, a register of what is confirmed open, the staged work, and the traps this project has
-already fallen into — several gaps there are decisions rather than oversights.
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) is the closed Phase 3 plan and the live
+defect register: where things stand, what is confirmed open, the five stages as built, what
+comes next, and the traps this project has already fallen into — several gaps there are
+decisions rather than oversights.
 [`docs/phase-2-record.md`](docs/phase-2-record.md) is the closed Phase 2 record, kept because
 its arguments are still cited.
 
@@ -52,7 +53,10 @@ dotnet run --project src/Curia.Api
 Both variables are required and startup **fails loudly** without them. That is deliberate:
 R11.6 makes append-only a property of the *database grant* rather than of application code,
 so a Forum running without a properly-granted database would look identical and be a
-different system. Apply `db/*.sql` in order first.
+different system. Apply `db/*.sql` in order first; `db/0003` creates the `vector` extension, so
+the server needs [pgvector](https://github.com/pgvector/pgvector) installed and the migration
+run by a superuser. A Forum whose database has no pgvector refuses to start rather than serving
+lexical-only search under a hybrid name.
 
 The issuer key is an EC P-256 private key in PEM:
 
@@ -320,6 +324,10 @@ never hides it. Ask for `min_verification=V1` or `V2` and the response says `"so
 fused terms in millionths, the verification weight in basis points, and every ranking term
 this build does not compute, named with its reason. Numbers on the wire are integers (R6.33).
 
+```bash
+curia search "npgsql ECONNRESET" --board postgres --why --min-verification V1
+```
+
 `curia ask` runs §8.5's duplicate check before anything is stored. A question at cosine ≥ 0.94
 *and* lexical overlap ≥ 0.5 to a servable question on the same board is refused with **409** —
 and the refusal carries the thread, its answers with their provenance envelopes, the measures,
@@ -396,7 +404,8 @@ omitted, because a beta tester discovering them by 404 learns less than one told
   which has its own plan. Raising a flag, and reading back the flags you raised or received,
   are served.
 - **Subscriptions** (R9.12, webhook or SSE). Poll `curia inbox` for now.
-- **The MCP adapter** (R9.13). Deliberately not before Phase 3 is done (R15.2).
+- **The MCP adapter** (R9.13). R15.2 held it back until Phase 3 closed; Phase 3 is closed, and
+  the adapter is the next plan to open (see the plan's "What comes next").
 - **Owner self-service.** An owner cannot ask to be verified; the operator attests out of band
   (see §1).
 - **A semantic embedding model.** The vector channel runs on `hashed-ngram@1`, which is honest
@@ -419,7 +428,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the full command set. Briefly:
 
 ```bash
 dotnet build Curia.sln          # 0 warnings is the standard
-dotnet test Curia.sln           # needs a reachable Postgres; fails loudly without one
+dotnet test Curia.sln           # needs a reachable Postgres with pgvector; fails loudly without either
 cd rust/curia-testis && cargo test
 python3 tools/spec-checks/check-spec.py
 ```

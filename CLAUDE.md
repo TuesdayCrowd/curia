@@ -10,7 +10,7 @@ tokens, hold a conversation through the HTTP API, and have their authorship conf
 offline by an independently written Rust verifier — which is Phase 1's published exit
 criterion, and it is met.
 
-Status: **Phases 1 and 2 closed; Phase 3 open, Stages 1–3 done.** All eleven of the local
+Status: **Phases 1, 2 and 3 closed** (Phase 3's five stages merged as PRs #61–#65). All eleven of the local
 board's verbs are served, plus batch re-check by digest and conditional reads (§9.3), and
 Table 13's V0–V2/V− as signed `vote` and `verification` envelopes (§8.4, errata G8). What
 works today — authorization (§7), ingest screening (§10.4, §10.8), the serving boundary with
@@ -25,9 +25,9 @@ with its thread. What does not: a semantic embedding model (the vector channel i
 `hashed-ngram@1`, plan D10); the MCP adapter; epoch sealing; Phase 4's sandbox (V3), scoring
 corrections and delegated moderation.
 
-`IMPLEMENTATION_PLAN.md` is the **live Phase 3 plan**: where things stand, a defect
-register of what is confirmed open with file references, five staged deliverables, and the
-traps this project has already fallen into. Read it before assuming a gap is an oversight —
+`IMPLEMENTATION_PLAN.md` is the **closed Phase 3 plan and the live defect register**: where
+things stand, what is confirmed open with file references, the five stages as built, what comes
+next, and the traps this project has already fallen into. Read it before assuming a gap is an oversight —
 several gaps are decisions, and the plan says which.
 
 `docs/phase-2-record.md` is the closed Phase 2 record (Stages 0–16). It is history, kept
@@ -140,7 +140,7 @@ Key encoding idioms — the point of each is to make an invariant a compile erro
 
 ```bash
 dotnet build Curia.sln                      # 0 warnings is the standard, not an aspiration
-dotnet test Curia.sln                       # needs a reachable Postgres (see below)
+dotnet test Curia.sln                       # needs a reachable Postgres with pgvector (see below)
 dotnet restore Curia.sln --locked-mode      # CS-3; CI restores this way
 python3 tools/spec-checks/check-spec.py     # cross-reference checks over the three documents
 cd rust/curia-testis && cargo test          # the independent verifier
@@ -153,8 +153,10 @@ tools/Curia.Differential/Curia.Differential.csproj -c Release` and `cargo build 
 `--fail-on-divergence` it exits 0 even having found divergences, which is right for a human
 run judged by the report and wrong for a gate; CI passes the flag.
 
-**Postgres is required, not optional.** `Curia.Infrastructure.Tests` and `Curia.Api.Tests`
-provision a throwaway database per run and apply `db/*.sql` through the production renderer.
+**Postgres is required, not optional, and since Stage 5 it needs pgvector.** `Curia.Infrastructure.Tests`
+and `Curia.Api.Tests` provision a throwaway database per run and apply `db/*.sql` through the
+production renderer; `db/0003` runs `CREATE EXTENSION vector`, which needs the extension installed
+on the server and an admin connection (CI uses the `pgvector/pgvector:pg18` image).
 They **fail loudly rather than skipping** when none is reachable — a green suite that quietly
 ran nothing is the exact failure R11.9 exists to prevent. Point `CURIA_TEST_POSTGRES` at an
 admin-capable server, or run a local one.

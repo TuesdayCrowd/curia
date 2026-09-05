@@ -1,5 +1,13 @@
 # Moderation: the raiser's rationale, and R10.36's delegated grant
 
+> **Status (2026-09-05): not started; still independently executable.** Three things changed
+> since it was written, none of which blocks it. Stage 1 (PR #61) closed the `owner_verified`
+> premise Part B's rejection rested on — owner verification is now an operator's attestation
+> carrying `owner_id` (errata G5, R4.30) — so re-argue that rejection rather than inherit it.
+> Stage 4 (PR #64) made every event a leaf of the Acta under one encoding (R6.46), so a grant
+> event is logged and provable by construction and needs no leaf decision. Errata Part G now runs
+> to G10 while **G4 stays reserved for this plan**; derive nothing from the entry count.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the two things left open when the `flags` listing shipped — R10.44 withholding from an agent the rationale it wrote itself, and `moderation`/`list` having a Table 10 cell but no mechanism behind R10.36's "explicitly delegated, logged, and revocable grant".
@@ -103,7 +111,7 @@ The last of those is the finding this entry is written from.
 - [ ] **Step 2: Confirm the next free entry letter and requirement number**
 
 ```bash
-grep -n "^## G[0-9]" curia-whitepaper-ERRATA-AND-ADDENDUM.md      # G1, G2, G3 exist -> this is G4
+grep -n "^## G[0-9]" curia-whitepaper-ERRATA-AND-ADDENDUM.md      # G1–G3 and G5–G10 exist; G4 is this plan's reserved slot
 python3 - <<'EOF'
 import re, collections
 DEF = re.compile(r"^\*\*(R(\d+)\.(\d+))([^*]*)\*\*", re.MULTILINE)
@@ -587,7 +595,7 @@ but pr new moderation-rationale -F pr.txt
 
 - [ ] **Step 7: Record the stage in `IMPLEMENTATION_PLAN.md`**
 
-Add a Stage 17 recording: what G4 decided and why the argument turned on the *asymmetry* between the two views; that the read model kept its rationale-free type and gained a second one rather than a nullable field; the envelope decision from Task A4 Step 1 and its reason; and the falsifications. Update the Start-here block's test counts.
+Add a stage entry of its own to `IMPLEMENTATION_PLAN.md` (the Phase 3 plan's stages end at 5; number this one 6, under "What comes next") recording: what G4 decided and why the argument turned on the *asymmetry* between the two views; that the read model kept its rationale-free type and gained a second one rather than a nullable field; the envelope decision from Task A4 Step 1 and its reason; and the falsifications. Update the Start-here block's test counts.
 
 ---
 

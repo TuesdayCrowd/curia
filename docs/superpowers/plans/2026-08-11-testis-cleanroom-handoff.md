@@ -1,5 +1,9 @@
 # Handoff — `curia-testis` cleanroom execution
 
+> **Status (2026-09-05): the cleanroom work this hands off is done and merged. Historical.** Kept
+> because the one rule it insists on — the verifier is written from the specification and the
+> vectors, never from the C# — is still the rule, and Stage 4's Rust `merkle.rs` was written under it.
+
 **For the session that picks up Increment 2's cleanroom work. Read this first; it is
 short on purpose, and one rule in it matters more than everything else.**
 
