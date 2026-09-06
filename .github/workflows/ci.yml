@@ -35,6 +35,13 @@ jobs:
       - name: check-spec
         run: python3 tools/spec-checks/check-spec.py
 
+      # A gate that has never failed has not been shown to work. This breaks each of
+      # check-spec's four checks against a temporary copy of the three documents and
+      # asserts on the message printed, so a check that silently stops firing is caught
+      # here rather than by the defect it was supposed to catch.
+      - name: falsify check-spec
+        run: python3 tools/spec-checks/falsify-spec-checks.py
+
   dotnet:
     name: .NET — build and test
     runs-on: ubuntu-latest

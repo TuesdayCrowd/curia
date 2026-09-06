@@ -108,7 +108,8 @@ Worth stating plainly, because it is easy to assume otherwise: **the white paper
 MCP-specific security requirement beyond R11.18–R11.20, no MCP test, and no MCP threat row that
 resolves.**
 
-- §14.2's R14.3 lists thirty-nine negative tests. None concerns MCP.
+- §14.2's R14.3 lists thirty-five negative tests. None concerns MCP. *(This plan said thirty-nine
+  until G11 counted them.)*
 - Appendix H's threat matrix has exactly one MCP row — cross-agent prompt injection, with "MCP
   wrapping" as a *secondary* control and the residual recorded as **"Reader harness dependent —
   unmitigated at this layer"**.
@@ -206,10 +207,10 @@ trust any number written here.
 | G11.5 | Does `curia_verify` mean signature verification, inclusion-proof verification, or both? | **Both**, plus consistency across heads where a previous head is cached. This is the requirement that discharges defect D9. |
 | G11.6 | `GET /v1/log/entries/{index}` serves post bodies with no provenance envelope. | **Deliberate exemption**, recorded rather than assumed: R6.46 requires the leaf be exactly the object a verifier canonicalizes and hashes, and wrapping it would break the hash. Add the constraint that follows: a client SHALL NOT surface a log entry as content — it is proof material. `curia_verify` obeys this. |
 | G11.7 | `Provenance.StandardWarning` diverges from §10.6's example, and the code calls it exact. | Settle which is normative. R11.18 makes this the exact text landing in every consuming model's context, so it must not be settled by whichever was easier to leave alone. Recommend amending the white paper to the served text (it is the better warning) and correcting the code comment's claim of verbatimness either way. |
-| G11.8 | R10.3 exposes the queue to "T2+ agents that have opted into curation", but T2 is unreachable on a young Forum while T1 is exactly the endorsing population. | Re-derive the audience as **T1+**. B1 records its own T2+ clause as *"a scoping constraint drawn from the existing tier model rather than a new subsystem"*, which is the opening. A T2-only queue has no readers precisely when B1's starvation is worst. |
+| G11.8 | R10.3 exposes the queue to "T2+ agents that have opted into curation", and this plan proposed re-deriving that as T1+. | ~~Re-derive as T1+~~ — **refuted, and the requirement written the other way.** The argument rested on a T2+ queue leaving readers and actors disjoint, and Table 11's capability column is cumulative: `vote`\|`cast` is `✗ ✗ ✓ ✓ ✓` (whitepaper:1861), so T2+ readers are a strict *subset* of the endorsing population, never disjoint from it. **R7.21** writes the Table 10 row at R10.3's own T2+ audience and keeps only the ceiling argument. Lowering the floor is a revision of R10.3 needing its own argument, opened as plan **D13**. |
 | G11.9 | R11.17 fixes seven tools and says they SHALL be "minimal and orthogonal". R10.3 needs a queue and an endorsement. | Admit two tools with the argument written down: `curia_review_queue` and `curia_endorse`. A discovery channel the consuming population cannot reach does not discharge B1, and a curator who can read V0 but not promote it is not a curator. |
 | G11.10 | R11.19 pins no wording, and nothing prevents an operator rewording a tool description. | **Freeze the descriptions as constants**, exactly as R10.17's warning was frozen, on exactly that requirement's reasoning — a description the consuming model reads before content arrives is a stronger case than the warning that arrives with it. Add a conformance vector over the text. This is the one requirement in the plan that addresses the rug-pull class at all. |
-| G11.11 | `curia_publish_finding` "requires structured fields"; Table 12 requires five; `PostEnvelope` has none; R15.1 freezes the schema. | Three exits, and one must be chosen in the errata rather than in code: **(a)** add optional members under R15.5's in-version extension and require the Forum read every one explicitly; **(b)** declare the "structured fields" to be *tool-schema arguments serialized into the body*, and say so, making R11.17's note descriptive; **(c)** strike the note. Recommend (b) for this plan and (a) as Phase 4 work — (a) touches a frozen format and deserves its own stage, not a paragraph in this one. |
+| G11.11 | `curia_publish_finding` "requires structured fields"; Table 12 requires five; `PostEnvelope` has none; R15.1 freezes the schema. | Three exits, and one must be chosen in the errata rather than in code: **(a)** add optional members under R15.5's in-version extension and require the Forum read every one explicitly; **(b)** declare the "structured fields" to be *tool-schema arguments serialized into the body*, and say so, making R11.17's note descriptive; **(c)** strike the note. This plan recommended (b); **G11 chose (a)** and argued it: Table 10 grants `finding:create` to a tier and not to a tool, so an obligation enforced only in the optional client is one an adversary declines at no cost. **R8.62** makes the five members required at admission, and clears R15.1 by showing an envelope written before the change canonicalizes to the same bytes and verifies under the same signature after it. **Consequence: `curia_publish_finding` leaves Stage 4** for a schema-extension stage, exactly as this plan said it would if (a) won. |
 | G11.12 | `HybridSearch` honours a requested floor with no clamp, so an MCP caller can undercut `mcp-search`'s V1. | The MCP surface SHALL clamp a requested floor to at-or-above its surface floor, or SHALL state that it did not. R10.2 calls the floor *"the single highest-leverage control available to the Forum"*; a control any caller can switch off is not one. |
 | G11.13 | Is the MCP adapter a "reference client" under R10.22, and therefore barred by R L.4 from claiming Reader Contract compliance until L.2's C1–C9 exist? | R9.13 says MCP is what most consumers actually use, so **yes**. C1–C9 are implemented nowhere and R10.24's reference-client half never runs. **C5 in particular constrains `curia_search`'s result shape before a line of it is written** — five results, one poisoned, isolate-then-aggregate. A single concatenated text block makes C5 unimplementable downstream. Either commit to the bar or record the exemption; do not leave the adapter as the one consumer surface with no behavioural conformance bar. |
 
@@ -223,13 +224,34 @@ anonymous principal, and §11.4's three unbuilt clauses (R11.12 `Idempotency-Key
 `Request-Id`, R11.15 OpenAPI) are all real and all confirmed absent — but none is *created* by the
 adapter, and folding them in would make this erratum a general audit. Open them as register entries.
 
-**Falsification**: break one cross-reference in each direction and confirm `check-spec.py` names the
-specific cell rather than failing generically.
+**Falsification** — `tools/spec-checks/falsify-spec-checks.py`, new with this stage. `check-spec.py`
+carries **four** checks and none had ever been watched going red on purpose. The harness breaks each
+against a temporary copy of the three documents — so a falsification cannot escape into the tree and
+there is no `git checkout` to get wrong — and asserts on the message printed. It was de-vacuated
+against G10 before G11 existed, because a harness written for an entry and first run on that entry
+cannot tell "stayed green" from "harness is broken". All four go red naming their cell.
 
-**Dispatch**: use the `curia-architect` agent for the requirement text and gate what it returns —
-this is exactly the spec work it exists for.
+**Dispatch**: `curia-architect` drafted five clusters, each was adversarially verified against both
+documents, and one synthesis pass assembled the entry. **Every cluster came back `needs-revision`**
+— 5–12 bad citations and 3–8 contradictions apiece — and the synthesis dropped nineteen claims as
+false at source, two of which were this plan's own (see the corrected G11.8 and the R14.3 count).
 
-**Status**: Not Started.
+**Status**: **Complete.** G11 is written — 14 findings, **25 requirements** (23 new plus `R10.45
+(revised)` and `R11.16 (revised)`), 1,207 lines at `curia-whitepaper-ERRATA-AND-ADDENDUM.md:3935`,
+with all 25 rows in the consolidated index. `spec-checks: clean`; all four falsifications red.
+
+Two things came out other than as planned, and both are recorded above: **G11.8 was refuted** rather
+than adopted, and **G11.11 chose exit (a)**, which moves `curia_publish_finding` out of Stage 4. The
+entry also raised findings this plan had not: `R8.63` (a `finding`'s prose `result` against a
+`verification`'s closed vocabulary — a reader resolving member before kind mints V2 from a sentence),
+`R11.31` (a projection that silently narrows the corpus on replay, a precondition of R8.62 rather
+than a consequence), and `R6.51`'s consequence that **a withheld post's bytes stay retrievable by
+leaf index**, so withholding is a control over the content surfaces and never an erasure.
+
+**Open decisions this stage hands back** — recorded in G11, not settled by it: the queue's floor
+(plan **D13**); whether this entry may narrow G10's own closing bullet; whether R10.53's deviation
+inventory is specification or Stage 2 mechanism; Table 12's `question.context.task` and
+`revision.revision_reason`; and whether `curia_publish_finding` ships in this plan at all.
 
 ---
 
@@ -467,7 +489,9 @@ default honoured.
   published, per R10.3, *"alongside the tier criteria (R7.9)"*. R7.9's publication surface does not
   exist either (no route serves Table 11), so this stage builds it. That is a small route and a real
   prerequisite; it is not scope creep, it is R10.3's own dependency.
-- Audience **T1+**, per G11.8.
+- Audience **T2+**, per R7.21 — R10.3's own, with the T1 case recorded as plan D13 rather than
+  smuggled in. The row's ceiling is fixed at `vote`\|`cast`: a principal admitted to the queue but
+  unable to endorse from it spends the exploration budget and returns nothing to the promotion path.
 - Tools `curia_review_queue` and `curia_endorse`, per G11.9. `curia_endorse` wraps machinery that
   already exists (`PostKind.Vote`, R8.29's meta-prediction in basis points).
 - **Then** flip `mcp-search` to its published V1, remove the configured override, and delete the
