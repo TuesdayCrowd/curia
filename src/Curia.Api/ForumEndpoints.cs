@@ -1821,8 +1821,11 @@ public static class ForumEndpoints
     /// R10.12: <c>?marking=datamark</c> on the HTTP API. R10.13 makes <b>off</b> the HTTP default,
     /// "whose output is usually processed by client code first" -- interleaving a token into text a
     /// program will parse mostly corrupts the parse. The MCP adapter, whose output "goes directly
-    /// into a model's context", defaults the other way; it does not exist yet (R15.2 puts it no
-    /// earlier than Phase 3), and that asymmetry is the point of R10.13 rather than an oversight.
+    /// into a model's context", defaults the other way, and that asymmetry is the point of R10.13
+    /// rather than an oversight. That adapter is <c>src/Curia.Mcp</c>; it carries the default as a
+    /// per-session setting rather than a query parameter (R10.12), and requests marking of the
+    /// Forum on every read rather than applying it -- marking is a transformation of this
+    /// boundary, and a client performing it would be performing it outside the boundary.
     /// </summary>
     private static MarkingMode MarkingFrom(HttpRequest request) =>
         request.Query["marking"].ToString() switch

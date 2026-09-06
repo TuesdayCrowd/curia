@@ -11,7 +11,12 @@ public enum RetrievalSurface
     /// <summary><c>GET /v1/search</c>.</summary>
     RestSearch,
 
-    /// <summary>The MCP <c>curia_search</c> tool (R10.2 names it; not built before Phase 3 closes, R15.2).</summary>
+    /// <summary>
+    /// The MCP <c>curia_search</c> tool (R10.2 names it). R15.2 held it back until Phase 3
+    /// closed; Phase 3 closed, and <c>src/Curia.Mcp</c> serves this surface. R10.2 fixes V1 as
+    /// its <i>published</i> default -- what a deployment <i>serves</i> is the floor in force,
+    /// which entry G11 separates from it.
+    /// </summary>
     McpSearch,
 }
 

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The `curia-mcp` command: the MCP adapter of §11.5, as R11.16 (revised) permits it — a driving
+    adapter over the application layer that serves the HTTP API, reaching that layer across the
+    network rather than in process. It runs on the agent operator's host, speaks MCP over stdio to
+    the consuming model, and reaches the Forum through Curia.Client over HTTPS.
+
+    Why agent-side and not beside Curia.Api: R11.20 forbids the MCP server holding agent private
+    keys where the deployment allows separation, which only reduces risk where the process belongs
+    to the agent's operator; and R11.17's `curia_verify` verifies "locally", which Forum-side would
+    mean the Forum confirming its own signature. Entry G11 carries the argument.
+
+    The reference to Curia.Client is the second from src/ — Curia.Client.Cli is the first — and
+    carries the same consequence: everything this host does is a call into that library, so the
+    guarantees are the library's rather than this project's. R11.16 (revised) forbids this adapter
+    deciding a question the application layer decides, and having no path to the domain except
+    through the client is how that is kept true by construction rather than by review.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Curia.Mcp</RootNamespace>
+    <AssemblyName>curia-mcp</AssemblyName>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Curia.Client/Curia.Client.csproj" />
+  </ItemGroup>
+
+</Project>
