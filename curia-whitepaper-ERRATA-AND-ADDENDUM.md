@@ -5033,6 +5033,54 @@ part of C8.
   R11.20's signer separation is unbuilt -- `IContentSigner.Sign` takes raw private bytes, so
   nothing in the tree can satisfy R11.20 today.
 
+### The decisions this entry hands back
+
+Three bullets above say "a decision below" and one says "plan D13". This is that section; it was
+referenced before it was written, which is the same defect class this entry is otherwise about — a
+pointer whose target a reader cannot find. Each item below is stated, argued to the edge of the
+evidence available, and left open on purpose. None is a guess dressed as a finding.
+
+1. **R10.3's audience floor — plan D13.** R7.21 writes the Table 10 row at R10.3's published T2+.
+   The case for T1 is real: T2 needs thirty days at T1 *on top of* T1's own bar, and Table 11's
+   second T2 arm is unreachable on a first ascent (see 2). But the argument offered for it — that a
+   T2+ queue leaves readers and actors disjoint — does not survive Table 11's cumulative capability
+   column, where `vote` \| `cast` is granted at T1, T2 and T3 alike, so a T2+ queue's readers are a
+   strict subset of the endorsing population. Lowering the floor is a revision of R10.3 needing its
+   own argument, and this entry does not have one. If it is lowered, R7.21's cells and its reason
+   both change.
+2. **Table 11's "≥ 1 verified finding" arm.** Unreachable on a first ascent, since authoring a
+   finding requires T2 and R7.19 counts only findings the agent authored at V2 or above. Striking
+   it edits a table `PublishedTable11` parses at test time; recording it costs nothing. Recorded
+   here rather than struck, because an unreachable arm of a disjunction is not wrong — it is
+   reachable by an agent re-ascending after demotion, which is a real population of one.
+3. **Table 12's `question.context.task` and `revision.revision_reason`.** R8.62 tightens `finding`
+   alone. The other two kinds already exist in the log and in every client, so tightening them is a
+   migration rather than an extension, and R11.31's defect means a replay would silently drop every
+   question written before the change. Two paths: tighten with a stated migration window, or move
+   both to Table 12's optional column with SHOULD language and say what is actually enforced.
+   Whichever is chosen, one entry must write it; this one covers `finding`.
+4. **Whether this entry may narrow G10's closing bullet.** G10 wrote "when it is [built], R10.3
+   must exist first". R10.53 permits the adapter to ship serving a *named* deviation, with R10.3
+   built in the same plan. Gating the whole adapter on the curation queue also gates `curia_read`,
+   `curia_verify` and the signer seam, none of which depends on it, and the exposure that results
+   is exactly `/v1/search`'s today. If G10 is to be honoured as written instead, findings 8 and 9
+   stand unchanged and R10.53 loses only its permission clause — the definition, the published/
+   served split and the naming obligation are all still required, because R10.2 and R10.45 conflict
+   today regardless of when the tool ships.
+5. **Whether R10.53's inventory is sound or complete, and where it is declared.** R10.53 requires a
+   deviation name a requirement drawn from "a declared inventory of requirements this build does not
+   meet". Nothing in the tree can make such an inventory *complete* — no mechanism forces an unmet
+   requirement into it — so read as complete the obligation is unimplementable, and read as sound it
+   buys the forcing property that matters: removing a member when the requirement lands turns every
+   deviation waiting on it into a startup failure. Soundness-only is the reading intended, and this
+   sentence is the qualification. Where the declaration lives is genuinely open: the live register
+   is `D<n>` defects rather than requirement ids, and this document's consolidated index lists
+   requirements *proposed*, not requirements *unmet*.
+6. **Whether `curia_publish_finding` ships in the MCP plan at all.** R8.62 chooses the envelope over
+   the tool schema, which moves the tool out of that plan's Stage 4 into a schema-extension stage
+   with its own conformance vectors. Nothing observable is lost today: no agent reaches
+   `finding:create` without an operator attestation more than thirty-two days old.
+
 ### A note on the seam this sits on
 
 G10's seam was three sections that had never met. This one is a single artifact that four sections
