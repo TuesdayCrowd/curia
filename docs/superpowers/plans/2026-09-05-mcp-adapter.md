@@ -180,19 +180,19 @@ that looks like it is working and has silently removed all the results. That is 
 absence that reads as a satisfied answer.
 
 **Therefore:** Stages 2–4 ship with `mcp-search` configured to V0, the deviation stated on every
-response and named in the erratum. Stage 5 builds R10.3 and flips the default to V1, discharging
+response and named in G11. Stage 5 builds R10.3 and flips the default to V1, discharging
 R10.2's SHALL. The plan ends with the published default honoured; it does not begin there.
 
 ---
 
-## Stage 1 — Specification: erratum G11
+## Stage 1 — Specification: Part G entry G11
 
 **Goal**: settle, in the errata, every question this plan would otherwise have to answer by
 inventing specification in code. **No code in this stage.**
 
-`CLAUDE.md` is explicit: *"Never invent specification in code. When a requirement does not decide a
-question, the answer is an erratum entry, not a plausible default."* Part G exists because that
-discipline was held three times. Eight questions qualify.
+`CLAUDE.md` is explicit that specification is never to be invented in code: when a requirement does
+not decide a question, the answer is a recorded entry, not a plausible default. Part G exists
+because that discipline was held three times. Eight questions qualify.
 
 **G4 is reserved for PR #59's moderation plan, so this takes G11.** Derive the next requirement
 number per section with the script in `IMPLEMENTATION_PLAN.md`'s "Specification changes" — do not
@@ -222,7 +222,7 @@ requirement number derived from the tree, not from this table.
 five missing PDP inputs, `risk_score` having no producer anywhere in the system, R9.1's synthetic
 anonymous principal, and §11.4's three unbuilt clauses (R11.12 `Idempotency-Key`, R11.14
 `Request-Id`, R11.15 OpenAPI) are all real and all confirmed absent — but none is *created* by the
-adapter, and folding them in would make this erratum a general audit. Open them as register entries.
+adapter, and folding them in would make this entry a general audit. Open them as register entries.
 
 **Falsification** — `tools/spec-checks/falsify-spec-checks.py`, new with this stage. `check-spec.py`
 carries **four** checks and none had ever been watched going red on purpose. The harness breaks each
@@ -499,7 +499,7 @@ default honoured.
 
 **Explicitly deferred, each named.** R7.20's separate vote budget (today a vote spends the same
 posting budget as an answer, which R7.20 argues starves the promotion path — a second half of B1's
-problem, and its own erratum). R10.4's retrieval-magnet detection (plan D12). R10.5's live canary
+problem, and its own entry). R10.4's retrieval-magnet detection (plan D12). R10.5's live canary
 evaluation, which exists only as a build-time regression over a fixture corpus and is labelled as
 such in `conformance/retrieval/RESULTS.md:52-57`. D7's Registrar. R5.4's scope attenuation.
 

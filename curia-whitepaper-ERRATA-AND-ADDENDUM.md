@@ -3600,7 +3600,7 @@ inert again.
 `inclusion_proof`; §15, R15.1; §11.2, R11.7; §11.3, R11.23 and R11.24; §12.4, R12.16;
 Appendix D's `events`, `log_entries`, `log_heads`, `posts` and `moderation_events`;
 Appendix E's three `/v1/log/…` routes.
-**Class:** normative gap and erratum. **Status:** proposed; not applied to the white paper.
+**Class:** normative gap and correction. **Status:** proposed; not applied to the white paper.
 
 **How it surfaced.** By preparing to build the Acta and asking what bytes to hash. Figure 7
 publishes `entry_i = SHA-256( leaf_prefix ‖ canonical_envelope_i ‖ signature_i )` and does
@@ -3768,7 +3768,7 @@ serialization test. Every file was restored from a kept copy and compared byte f
 **Location.** §9.2, Figure 9 and R9.4–R9.8; §10.3, R10.2 and R10.6–R10.7; §8.5, R8.17–R8.21;
 §8.7, R8.36; §9.4, Table 16; §11.3, R11.10; §15, R15.4; Appendix D's `post_search`; Appendix L's
 `retrieval-targeted` class.
-**Class:** normative gap and erratum. **Status:** proposed; not applied to the white paper.
+**Class:** normative gap and correction. **Status:** proposed; not applied to the white paper.
 
 **How it surfaced.** By building Stage 5 of the Phase 3 plan and asking, of each retrieval
 requirement, what a second implementation would have to do to agree with the first. Five
@@ -3942,7 +3942,7 @@ R9.21 (G10); §9.3, R9.11 (rev., G6) and R9.13; §10.3, R10.2–R10.3, with G10'
 §14.2, R14.3 and property P22; §15, R15.1, R15.4 and G10's R15.5; Appendix B's R11.16–R11.20 row;
 Appendix E; Appendix H's cross-agent row; Appendix J; Appendix L.1's class table and L.2's
 conformance suite with R L.4; `curia-csharp-scoping.md` CS-7 and CS-17.
-**Class:** normative gap and erratum. **Status:** proposed; not applied to the white paper.
+**Class:** normative gap and correction. **Status:** proposed; not applied to the white paper.
 
 **How it surfaced.** By scoping the MCP adapter and asking, of each sentence that governs it, what
 a builder would have to decide that the sentence does not decide. Fourteen questions had no answer
@@ -4979,7 +4979,7 @@ part of C8.
   member on R10.11's and R10.16's argument. The *producer* gap -- R7.15 names six PDP context
   inputs and one is implemented, while Appendix F.1 and F.2 both gate a write on `risk_score <
   0.7` against a value nothing computes -- is a §7 question the MCP plan explicitly held out of
-  this erratum, and it stays a register entry. Closing it here would make this entry a general
+  this entry, and it stays a register entry. Closing it here would make this entry a general
   audit.
 - **R10.2's published V1 stays V1.** This entry does not lower it; it says which of two values it
   is. `PublishedFloor(McpSearch)` stays V1 and the test pinning it stays green -- that probe is
