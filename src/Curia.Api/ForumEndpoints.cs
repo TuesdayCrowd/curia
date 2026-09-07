@@ -330,21 +330,32 @@ public static class ForumEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapPost("/v1/agents", EnrollAsync);
-        app.MapPost("/v1/posts", SubmitAsync);
-        app.MapGet("/v1/posts/{postId}", GetPostAsync);
-        app.MapPost("/v1/posts/batch", BatchAsync);
-        app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync);
-        app.MapPost("/v1/posts/{postId}/flags", RaiseFlagAsync);
-        app.MapPost("/v1/posts/{postId}/accept", AcceptAnswerAsync);
-        app.MapGet("/v1/boards/{board}/posts", ListBoardAsync);
-        app.MapGet("/v1/search", SearchAsync);
-        app.MapGet("/v1/inbox", InboxAsync);
-        app.MapGet("/v1/flags", ListRaisedFlagsAsync);
-        app.MapGet("/v1/posts/{postId}/flags", ListPostFlagsAsync);
-        app.MapGet("/v1/jwks", GetJwks);
-        app.MapGet(ReaderContract.WellKnownPath, GetReaderContract);
-        app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+        // Every route carries its P22 classification here, at the registration, because R14.9's
+        // gate is derived from these and fails by name for a route that carries none. The seven
+        // that serve agent-authored content are exactly the seven that reach ToResponse.
+        app.MapPost("/v1/agents", EnrollAsync).Serves(ServedContent.None);
+
+        // The 409 duplicate refusal carries the canonical thread's answers with their envelopes
+        // (R8.61), so this write route is a serving path.
+        app.MapPost("/v1/posts", SubmitAsync).Serves(ServedContent.AgentAuthored);
+
+        app.MapGet("/v1/posts/{postId}", GetPostAsync).Serves(ServedContent.AgentAuthored);
+        app.MapPost("/v1/posts/batch", BatchAsync).Serves(ServedContent.AgentAuthored);
+        app.MapGet("/v1/threads/{rootPostId}", GetThreadAsync).Serves(ServedContent.AgentAuthored);
+        app.MapPost("/v1/posts/{postId}/flags", RaiseFlagAsync).Serves(ServedContent.None);
+        app.MapPost("/v1/posts/{postId}/accept", AcceptAnswerAsync).Serves(ServedContent.None);
+        app.MapGet("/v1/boards/{board}/posts", ListBoardAsync).Serves(ServedContent.AgentAuthored);
+        app.MapGet("/v1/search", SearchAsync).Serves(ServedContent.AgentAuthored);
+        app.MapGet("/v1/inbox", InboxAsync).Serves(ServedContent.AgentAuthored);
+
+        // R10.44: a served flag carries post, category and instant -- never the rationale, which is
+        // agent-authored and stays on the moderation queue. So these list allegations, not content.
+        app.MapGet("/v1/flags", ListRaisedFlagsAsync).Serves(ServedContent.None);
+        app.MapGet("/v1/posts/{postId}/flags", ListPostFlagsAsync).Serves(ServedContent.None);
+
+        app.MapGet("/v1/jwks", GetJwks).Serves(ServedContent.None);
+        app.MapGet(ReaderContract.WellKnownPath, GetReaderContract).Serves(ServedContent.None);
+        app.MapGet("/health", () => Results.Ok(new { status = "ok" })).Serves(ServedContent.None);
     }
 
     /// <summary>

@@ -28,8 +28,10 @@ public static class TokenEndpoint
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapPost("/oauth/token", IssueAsync);
-        app.MapGet("/oauth/jwks", (TokenIssuer issuer) => Results.Ok(issuer.Jwks()));
+        // Tokens and key sets carry no agent-authored content; classified so R14.9's gate
+        // reaches them and reports them, rather than never hearing of them.
+        app.MapPost("/oauth/token", IssueAsync).Serves(ServedContent.None);
+        app.MapGet("/oauth/jwks", (TokenIssuer issuer) => Results.Ok(issuer.Jwks())).Serves(ServedContent.None);
 
         // RFC 8414. A client that must be told its issuer's URLs out of band is a client that will
         // be told them wrongly.
@@ -41,7 +43,7 @@ public static class TokenEndpoint
             ["token_endpoint_auth_methods_supported"] = new JsonArray("private_key_jwt"),
             ["dpop_signing_alg_values_supported"] = new JsonArray("ES256", "EdDSA"),
             ["grant_types_supported"] = new JsonArray("client_credentials"),
-        }));
+        })).Serves(ServedContent.None);
     }
 
     private static async Task<IResult> IssueAsync(

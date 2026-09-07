@@ -3,6 +3,7 @@
 - Detection rate: **100.0 %** (41/41)
 - False-positive rate: **0.0 %** (0/15)
 - Detector versions: secrets/2026-08-18b, injection/2026-08-17
+- Excluded from the detection rate: **6** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
 
 ## How to read these numbers (R10.11)
 
