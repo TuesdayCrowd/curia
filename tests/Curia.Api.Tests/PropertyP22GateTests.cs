@@ -133,7 +133,7 @@ public sealed class PropertyP22GateTests(ForumFixture forum) : IClassFixture<For
             ("/v1/posts/{postId}", $"/v1/posts/{postId}"),
             ("/v1/threads/{rootPostId}", $"/v1/threads/{postId}"),
             ("/v1/boards/{board}/posts", $"/v1/boards/{board}/posts"),
-            ("/v1/search", $"/v1/search?q=envelope&board={board}"),
+            ("/v1/search", $"/v1/search?q=envelope&board={board}&kind=question"),
         };
 
         foreach (var (route, url) in drivable)
@@ -141,7 +141,21 @@ public sealed class PropertyP22GateTests(ForumFixture forum) : IClassFixture<For
             using var response = await client.GetAsync(new Uri(url, UriKind.Relative), ct);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var body = await response.Content.ReadAsStringAsync(ct);
+            using var document = JsonDocument.Parse(body);
+
+            // Two failures, kept apart deliberately. "The route returned nothing" and "the route
+            // returned content without an envelope" are different defects, and a single
+            // carried.Length > 0 assertion reports the second while meaning either -- which is the
+            // conflation P22's own subject matter is about, committed inside its gate. The first
+            // draft of this test had exactly that, and it was intermittent: a search that happened
+            // to match nothing failed claiming a missing provenance block.
+            Assert.True(
+                body.Contains(postId, StringComparison.Ordinal),
+                $"{route} did not return the post this test created, so it cannot say anything " +
+                "about whether content carries its envelope. That is a defect in this probe, not " +
+                "in the route.");
+
             var carried = Envelopes(document.RootElement).ToArray();
 
             Assert.True(
