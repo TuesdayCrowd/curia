@@ -152,7 +152,10 @@ one failure and a missing suite:
 dotnet test Curia.sln -c Release --nologo 2>&1 | grep -E "Passed!|Failed!" | sed 's/.* - //' | sort
 ```
 
-Ten assemblies must appear.
+Eleven assemblies must appear since the MCP plan's Stage 2 added `Curia.Mcp.Tests`; it was ten
+through Phase 3. **This number is the check** — it is what distinguishes a suite that passed
+from a suite that did not run, so it is updated by the change that adds a project rather than
+by whoever next notices it is wrong.
 
 ### Version control
 

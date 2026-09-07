@@ -29,4 +29,9 @@
     <ProjectReference Include="../Curia.Client/Curia.Client.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- CS-5: the tool catalogue and the criteria record are worth testing and are not public API. -->
+    <InternalsVisibleTo Include="Curia.Mcp.Tests" />
+  </ItemGroup>
+
 </Project>
