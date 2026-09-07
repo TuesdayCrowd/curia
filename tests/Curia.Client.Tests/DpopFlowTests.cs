@@ -424,6 +424,35 @@ public sealed class DpopFlowTests : IDisposable
     }
 
     /// <summary>
+    /// R9.26: the reference client sends the kind criterion as a set. The adapter that will drive
+    /// this library must not hand-roll a query string to reach a member the client cannot express —
+    /// two surfaces building the same URL differently is how they come to disagree about what a
+    /// request means.
+    /// </summary>
+    [Fact]
+    public async Task R9_26_TheKindCriterionIsSentAsASet()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var client = new ForumClient(http, Forum);
+
+        // The set G12's compensation needs: the gradable kinds, in one request.
+        await client.SearchAsync(
+            new SearchRequest("jcs") { Kinds = ["answer", "finding"] }, MarkingMode.None, CancellationToken.None);
+        Assert.Contains("kind=answer%2Cfinding", handler.Requests.Last().Path, StringComparison.Ordinal);
+
+        // One kind is a set of one, not a different member.
+        await client.SearchAsync(
+            new SearchRequest("jcs") { Kinds = ["answer"] }, MarkingMode.None, CancellationToken.None);
+        Assert.Contains("kind=answer", handler.Requests.Last().Path, StringComparison.Ordinal);
+
+        // Absent means absent: an empty set sends no member rather than an empty one, because
+        // `kind=` is a value the Forum would have to interpret and R9.25 forbids it inventing one.
+        await client.SearchAsync(new SearchRequest("jcs"), MarkingMode.None, CancellationToken.None);
+        Assert.DoesNotContain("kind=", handler.Requests.Last().Path, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// R9.8's breakdown is requested explicitly, so a client that does not ask does not receive it
     /// and cannot come to depend on it.
     /// </summary>

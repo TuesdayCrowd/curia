@@ -660,12 +660,12 @@ internal static class Program
         var request = new SearchRequest(terms.Length == 0 ? null : terms)
         {
             Board = args.Value("board"),
-            Kind = args.Value("kind"),
+            Kinds = [.. args.List("kind")],
             Author = args.Value("author"),
             Tags = [.. args.List("tags")],
             Cursor = args.Value("cursor"),
             Limit = limit,
-            WhyRanked = args.Value("why") is not null,
+            WhyRanked = args.Has("why"),
             MinVerification = args.Value("min-verification"),
         };
 

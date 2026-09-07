@@ -86,8 +86,12 @@ internal sealed class Args
     /// the content someone asking about a leaked key needs to send -- and it would fail by
     /// reinterpreting the body as a flag rather than by saying so.</para>
     /// </summary>
+    // A switch takes no value. `why` was absent, so `curia search jcs --why` stored null (and
+    // `Value("why") is not null` therefore read false), while `--why --board b` consumed `--board`
+    // as why's value and pushed `b` into the search terms. Both are the shape R9.25 is about: a
+    // flag the caller supplied and the program did not honour, with nothing said.
     private static readonly ImmutableArray<string> Switches =
-        ["titles", "json"];
+        ["titles", "json", "why"];
 
     internal static Args Parse(IReadOnlyList<string> argv, int from)
     {

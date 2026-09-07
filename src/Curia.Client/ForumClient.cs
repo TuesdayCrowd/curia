@@ -156,9 +156,11 @@ public sealed class ForumClient
 
         Add("q", request.Text);
         Add("board", request.Board);
-        Add("kind", request.Kind);
         Add("author", request.Author);
         Add("cursor", request.Cursor);
+
+        if (!request.Kinds.IsDefaultOrEmpty)
+            Add("kind", string.Join(",", request.Kinds));
 
         if (!request.Tags.IsDefaultOrEmpty)
             Add("tags", string.Join(",", request.Tags));
@@ -442,8 +444,17 @@ public sealed record SearchRequest(string? Text)
     /// <summary>Restrict to one board. Matched exactly, so case matters.</summary>
     public string? Board { get; init; }
 
-    /// <summary>Restrict to one Table 9 post kind, in its wire spelling.</summary>
-    public string? Kind { get; init; }
+    /// <summary>
+    /// Restrict to a set of Table 9 post kinds, in their wire spellings. Disjunctive: naming two
+    /// kinds means either, because a post has exactly one kind and "both" is empty by construction.
+    /// Empty sends no member at all — R9.25 forbids the Forum inventing a reading for one.
+    ///
+    /// <para>A set rather than a scalar because R10.2 (revised) makes the verification floor an
+    /// opt-in criterion whose scope is <c>{answer, finding}</c>, and an agent told to compose
+    /// <c>Kinds</c> with <see cref="MinVerification"/> could otherwise express only half of it
+    /// (R9.26).</para>
+    /// </summary>
+    public ImmutableArray<string> Kinds { get; init; }
 
     /// <summary>Restrict to one author.</summary>
     public string? Author { get; init; }
