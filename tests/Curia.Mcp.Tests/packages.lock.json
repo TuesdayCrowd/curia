@@ -2,12 +2,6 @@
   "version": 2,
   "dependencies": {
     "net10.0": {
-      "CsCheck": {
-        "type": "Direct",
-        "requested": "[4.8.0, )",
-        "resolved": "4.8.0",
-        "contentHash": "4XPnbCyJjm4Y9xymIlqoMe1MyaoIA2EwlJDvhtRsLLzlHkS0pSb2HiGTo3yvKYLeMajngPl82qWtUAPBce/3Ng=="
-      },
       "Microsoft.NET.Test.Sdk": {
         "type": "Direct",
         "requested": "[17.14.1, )",
@@ -16,15 +10,6 @@
         "dependencies": {
           "Microsoft.CodeCoverage": "17.14.1",
           "Microsoft.TestPlatform.TestHost": "17.14.1"
-        }
-      },
-      "NSec.Cryptography": {
-        "type": "Direct",
-        "requested": "[26.4.0, )",
-        "resolved": "26.4.0",
-        "contentHash": "0vsCtY5f+YgQROiWNqzgWp+l2pddfk9FkWoGV/bEo0MuEYPKlJWuoA8aOfO6qp3f+EnObKE3zSJhn1PspJeJVg==",
-        "dependencies": {
-          "libsodium": "[1.0.22, 1.0.23)"
         }
       },
       "xunit.runner.visualstudio": {
@@ -61,6 +46,24 @@
         "type": "Transitive",
         "resolved": "17.14.1",
         "contentHash": "pmTrhfFIoplzFVbhVwUquT+77CbGH+h4/3mBpdmIlYtBi9nAB+kKI6dN3A/nV4DFi3wLLx/BlHIPK+MkbQ6Tpg=="
+      },
+      "Microsoft.Extensions.AI.Abstractions": {
+        "type": "Transitive",
+        "resolved": "10.8.3",
+        "contentHash": "K0B05oApxmviWalNHPMBBcRC7erKiDATz3ENNR/jqTR9JwIwLRefgDhj2jCRwL1aca99pXUe0qyQC73/xIuZig=="
+      },
+      "Microsoft.Extensions.DependencyInjection.Abstractions": {
+        "type": "Transitive",
+        "resolved": "10.0.10",
+        "contentHash": "z/2xXlFw2aLGjHyEm6E0tQ+In6VfzQzTrtArbQ2c0TQE16ZbyDCMGPvaUT9I0s8rgy9sRWlU2P9waW37qV04qA=="
+      },
+      "Microsoft.Extensions.Logging.Abstractions": {
+        "type": "Transitive",
+        "resolved": "10.0.10",
+        "contentHash": "zkFxGYUvdxAvIKTyXHrmW+Sux53D4SezD9dMyZ6hrwwzPQJNuwCRy1f5W7AvYTqacEGhWF2XderRQG1OvbV8og==",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.10"
+        }
       },
       "Microsoft.Testing.Extensions.Telemetry": {
         "type": "Transitive",
@@ -183,11 +186,11 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
-      "curia.authn": {
+      "curia-mcp": {
         "type": "Project",
         "dependencies": {
-          "Curia.Canon": "[1.0.0, )",
-          "Curia.Domain.Primitives": "[1.0.0, )"
+          "Curia.Client": "[1.0.0, )",
+          "ModelContextProtocol.Core": "[2.2.0, )"
         }
       },
       "curia.canon": {
@@ -203,8 +206,43 @@
           "NSec.Cryptography": "[26.4.0, )"
         }
       },
+      "curia.client": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Canon": "[1.0.0, )",
+          "Curia.Canon.Sodium": "[1.0.0, )",
+          "Curia.Domain": "[1.0.0, )",
+          "Curia.Domain.Primitives": "[1.0.0, )"
+        }
+      },
+      "curia.domain": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Canon": "[1.0.0, )",
+          "Curia.Domain.Primitives": "[1.0.0, )"
+        }
+      },
       "curia.domain.primitives": {
         "type": "Project"
+      },
+      "ModelContextProtocol.Core": {
+        "type": "CentralTransitive",
+        "requested": "[2.2.0, )",
+        "resolved": "2.2.0",
+        "contentHash": "FeBfXU6T8k+jw4afg4sfxdEX2rL/e5oKOk9ROOGztu9k47+7Bz08sdaToYt2XvMY1opNbwxYQOFMj6wH9TInhA==",
+        "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "10.8.3",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.10"
+        }
+      },
+      "NSec.Cryptography": {
+        "type": "CentralTransitive",
+        "requested": "[26.4.0, )",
+        "resolved": "26.4.0",
+        "contentHash": "0vsCtY5f+YgQROiWNqzgWp+l2pddfk9FkWoGV/bEo0MuEYPKlJWuoA8aOfO6qp3f+EnObKE3zSJhn1PspJeJVg==",
+        "dependencies": {
+          "libsodium": "[1.0.22, 1.0.23)"
+        }
       }
     }
   }

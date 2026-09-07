@@ -197,6 +197,79 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         Assert.Contains("curia/search/unsupported-filter", await unsupported.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// R9.25's three silently-degrading members. Each was accepted and then quietly not honoured,
+    /// which an agent cannot detect: a correctly filtered page and an unfiltered page it believes
+    /// was filtered are the same document. `/v1/search` already refused `verification`,
+    /// `environment_version` and an out-of-range `limit` on exactly this reasoning; these three were
+    /// the members the local convention had not reached.
+    /// </summary>
+    [Theory]
+    [InlineData("cursor=not-a-cursor", "curia/search/cursor-malformed")]
+    [InlineData("marking=datamarking", "curia/serving/unknown-marking")]
+    [InlineData("why=yes", "curia/search/unknown-why")]
+    public async Task R9_25_AMemberTheForumCannotHonourIsRefusedByName(string parameter, string slug)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        using var response = await forum.Client.GetAsync(
+            new Uri($"/v1/search?q=jcs&{parameter}", UriKind.Relative), ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(slug, await response.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R9.26 over the wire: `kind` takes a comma-separated set, so an agent can ask for the gradable
+    /// kinds — {answer, finding} — in one request. That is the composition R10.2 (revised) tells an
+    /// agent to make when it wants a verification floor, and the scalar could express only half of
+    /// it. One unknown member in the set refuses the whole request by name rather than silently
+    /// dropping that member, which is R9.25 applied inside a member's own value.
+    /// </summary>
+    [Fact]
+    public async Task R9_26_TheKindMemberTakesASetAndRefusesAnUnknownMemberOfIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "kindset-" + Guid.NewGuid().ToString("N")[..8];
+        await AskAsync(client, board, "ECONNRESET from npgsql", "npgsql ECONNRESET after the pool idles", ct);
+
+        using var single = await SearchAsync(client, $"q=npgsql&board={board}&kind=question", ct);
+        using var set = await SearchAsync(client, $"q=npgsql&board={board}&kind=answer,finding,question", ct);
+        Assert.Equal(Ids(single), Ids(set));
+
+        // The same set without `question` excludes it: the member is doing work, not being ignored.
+        using var excluded = await SearchAsync(client, $"q=npgsql&board={board}&kind=answer,finding", ct);
+        Assert.Empty(Ids(excluded));
+
+        using var unknown = await client.GetAsync(
+            new Uri($"/v1/search?q=npgsql&kind=answer,pamphlet", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        var body = await unknown.Content.ReadAsStringAsync(ct);
+        Assert.Contains("curia/search/unknown-kind", body, StringComparison.Ordinal);
+        Assert.Contains("pamphlet", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The spellings that ARE honoured keep working. A refusal rule that also refused the accepted
+    /// forms would pass the test above while breaking every caller, which is the mirror defect.
+    /// </summary>
+    [Theory]
+    [InlineData("marking=datamark")]
+    [InlineData("marking=delimiters")]
+    [InlineData("why=true")]
+    [InlineData("why=1")]
+    [InlineData("")]
+    public async Task R9_25_TheHonouredSpellingsAreUnaffected(string parameter)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        using var response = await forum.Client.GetAsync(
+            new Uri($"/v1/search?q=jcs&{parameter}", UriKind.Relative), ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     /// <summary>R9.8 / R8.36 (errata G10): every computed term, recombining exactly; every absent term named.</summary>
     [Fact]
     public async Task R9_8_WhyRankedRecombinesAndNamesWhatItDoesNotCompute()

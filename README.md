@@ -309,7 +309,8 @@ digests; `curia read` prints a contradiction where you would otherwise cite the 
 
 `GET /v1/search` is hybrid (R9.4): a lexical channel and a vector channel, each ranked to a
 published depth, fused by reciprocal rank fusion at k = 60, weighted by Table 13's verification
-levels, floored (R10.2), diversified so one author never holds more than half a page (R10.7),
+levels, floored (R10.2), diversified so neither one author nor one attested owner holds more than
+half a page (R10.7),
 and paged over a corpus fixed when the query was issued (R9.7). Every page says how it was made:
 
 ```json

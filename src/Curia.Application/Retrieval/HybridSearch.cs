@@ -14,7 +14,7 @@ namespace Curia.Application.Retrieval;
 public sealed record SearchQuery(
     string? Text,
     string? Board,
-    PostKind? Kind,
+    ImmutableArray<PostKind> Kinds,
     ImmutableArray<string> Tags,
     string? Author,
     VerificationLevel? RequestedFloor,
@@ -79,7 +79,7 @@ public sealed class HybridSearch
         var limit = Math.Clamp(query.Limit, 1, LexicalSearch.MaximumLimit);
 
         var corpus = SearchProjector.Fold(log).Where(p => p.Sequence <= bound).ToImmutableArray();
-        var lexicalQuery = new LexicalQuery(query.Text, query.Board, query.Kind, query.Tags, query.Author, Cursor: null, Limit: LexicalSearch.MaximumLimit);
+        var lexicalQuery = new LexicalQuery(query.Text, query.Board, query.Kinds, query.Tags, query.Author, Cursor: null, Limit: LexicalSearch.MaximumLimit);
         var lexical = LexicalSearch.Rank(corpus, lexicalQuery);
 
         var vector = await VectorChannelAsync(corpus, lexicalQuery, cancellationToken).ConfigureAwait(false);

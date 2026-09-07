@@ -133,7 +133,7 @@ internal static class Help
               curia board  <board>       [--marking ...] [--titles]
               curia verify <post-id>     Verify locally, then again with curia-testis.
               curia contract             The Reader Contract as this Forum serves it.
-              curia search <terms...>    [--board b] [--kind k] [--tags a,b] [--author a]
+              curia search <terms...>    [--board b] [--kind a,b] [--tags a,b] [--author a]
                                          [--limit n] [--cursor c] [--why] [--min-verification V0|V1|V2]
                                          Lexical only; see the banner it prints.
 

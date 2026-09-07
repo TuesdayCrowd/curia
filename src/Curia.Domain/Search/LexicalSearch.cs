@@ -12,6 +12,14 @@ namespace Curia.Domain.Search;
 /// a read model looks like. Application maps its view onto this.</para>
 /// </summary>
 /// <param name="Digest">R9.10's batch-retrieval key, carried so a result can be re-fetched by digest.</param>
+/// <param name="Owner">
+/// The author's attested owner (R4.30), where one is known. R10.7 diversifies on "a single author
+/// <i>or owner</i>", and the owner arm is the half that survives an adversary giving each post its
+/// own agent -- <c>attest-owner</c> binds one agent at a time and caps the number of agents an
+/// owner may hold at nothing. Null where the author has no attestation, which
+/// <see cref="HybridRanking.Diversify"/> reads as the author being its own owner: never wider than
+/// the evidence, and never weaker than the author cap.
+/// </param>
 public sealed record SearchablePost(
     string PostId,
     string Digest,
@@ -22,7 +30,8 @@ public sealed record SearchablePost(
     ImmutableArray<string> Tags,
     string Author,
     long Sequence,
-    string? PossibleDuplicateOf = null)
+    string? PossibleDuplicateOf = null,
+    string? Owner = null)
 {
     /// <summary>
     /// Structural equality, spelled out rather than left to the compiler because
@@ -46,6 +55,7 @@ public sealed record SearchablePost(
         && string.Equals(Title, other.Title, StringComparison.Ordinal)
         && string.Equals(Body, other.Body, StringComparison.Ordinal)
         && string.Equals(Author, other.Author, StringComparison.Ordinal)
+        && string.Equals(Owner, other.Owner, StringComparison.Ordinal)
         && Sequence == other.Sequence
         && Tags.SequenceEqual(other.Tags);
 
@@ -59,9 +69,9 @@ public sealed record SearchablePost(
         Body,
         Author,
 
-        // Sequence and the tag count folded together: a hash has only to agree with Equals on the
-        // values that are equal, and Combine takes eight arguments.
-        HashCode.Combine(Sequence, Tags.Length));
+        // Sequence, the owner and the tag count folded together: a hash has only to agree with
+        // Equals on the values that are equal, and Combine takes eight arguments.
+        HashCode.Combine(Sequence, Owner, Tags.Length));
 }
 
 /// <summary>
@@ -80,7 +90,7 @@ public sealed record SearchablePost(
 public sealed record LexicalQuery(
     string? Text = null,
     string? Board = null,
-    PostKind? Kind = null,
+    ImmutableArray<PostKind> Kinds = default,
     ImmutableArray<string> Tags = default,
     string? Author = null,
     SearchCursor? Cursor = null,
@@ -274,7 +284,12 @@ public static class LexicalSearch
         ArgumentNullException.ThrowIfNull(query);
 
         if (query.Board is { } board && !string.Equals(post.Board, board, StringComparison.Ordinal)) return false;
-        if (query.Kind is { } kind && post.Kind != kind) return false;
+        // R9.26: a set, and disjunctive where the tag filter is conjunctive. A post has many tags
+        // and exactly one kind, so "both tags" narrows and "either kind" is the only reading that is
+        // not empty by construction. An empty or defaulted set is no criterion at all, never "no
+        // kinds" -- R9.25 says a request naming no criterion returns everything the corpus matches.
+        var kindFilter = query.Kinds.IsDefault ? [] : query.Kinds;
+        if (!kindFilter.IsEmpty && !kindFilter.Contains(post.Kind)) return false;
         if (query.Author is { } author && !string.Equals(post.Author, author, StringComparison.Ordinal)) return false;
 
         // Tag filter is conjunctive: every named tag must be present. An agent narrowing by two

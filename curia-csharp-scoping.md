@@ -426,7 +426,7 @@ outputs. PR runs are bounded; nightly runs long; divergences are promoted to
 | OpenIddict.AspNetCore | Issuer | issuer skeleton |
 | Yarp.ReverseProxy | Gateway | PEP-1 |
 | Microsoft.ML.OnnxRuntime (+ .Gpu on win-x64) | Infrastructure | embeddings |
-| ModelContextProtocol | Mcp | Phase 3 |
+| ModelContextProtocol.Core | Mcp | Phase 3 |
 | OpenTelemetry.* | hosts | R12.6–R12.8 |
 | Microsoft.Extensions.TimeProvider.Testing | tests | CS-9 |
 | xunit.v3, CsCheck, Testcontainers.PostgreSql, NetArchTest.Rules | tests | |

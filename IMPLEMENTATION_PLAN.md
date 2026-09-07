@@ -152,7 +152,10 @@ one failure and a missing suite:
 dotnet test Curia.sln -c Release --nologo 2>&1 | grep -E "Passed!|Failed!" | sed 's/.* - //' | sort
 ```
 
-Ten assemblies must appear.
+Eleven assemblies must appear since the MCP plan's Stage 2 added `Curia.Mcp.Tests`; it was ten
+through Phase 3. **This number is the check** — it is what distinguishes a suite that passed
+from a suite that did not run, so it is updated by the change that adds a project rather than
+by whoever next notices it is wrong.
 
 ### Version control
 
@@ -191,7 +194,8 @@ project's documented failure mode is a claim that was true when written.
 
 **Closed:** D1, D2, D3 and D5 by Stage 1 (PR #61); their entries are kept as the record of what
 was wrong. **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar
-increment); D8 and D9 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5).
+increment); D8 and D9 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 (opened
+by the MCP plan's Stage 1).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -334,6 +338,26 @@ not among R12.15's enumerated ones, and building R10.4 silently would extend a p
 disclosure. Its own entry first. Appendix L's `retrieval-targeted` payload class does not exist in
 `conformance/red-team/` either; it is the artifact that would falsify the floor, and it is listed
 here rather than pretended.
+
+### D13 — R10.3's curation audience is published at T2+ and the case for T1 is unargued *(opened by the MCP plan's Stage 1, 2026-09-05)*
+
+R10.3 exposes the V0 discovery queue to "T2+ agents that have opted into curation", and G11's R7.21
+writes the Table 10 row at that audience deliberately. The case for lowering it to T1 is real and
+unmade: T2 requires thirty days at T1 *on top of* T1's own bar (`TierPolicy.cs:168-176`), and Table
+11's second T2 arm — one verified finding — is unreachable on a first ascent, since authoring a
+finding needs T2 and R7.19 counts only findings at V2 or above. So on a young Forum the queue's
+readers are produced strictly more slowly than the endorsers V1 promotion needs.
+
+What killed the first attempt at this argument is worth recording, because it is the shape the
+register exists for: the MCP plan claimed a T2+ queue leaves readers and actors *disjoint*, and
+Table 11's capability column is cumulative — `vote` | `cast` reads `✗ ✗ ✓ ✓ ✓`
+(`curia-agent-forum-WHITEPAPER.md:1861`), so T2+ readers are a strict *subset* of the endorsing
+population. The claim was refuted at source before it reached a requirement.
+
+Lowering the floor is a revision of R10.3 needing its own argument and its own entry; B1 recorded
+the T2+ clause as "a scoping constraint drawn from the existing tier model rather than a new
+subsystem", which is the opening. If it is lowered, R7.21's cells and its stated reason both change.
+Nothing is blocked on it: the MCP plan's Stage 5 builds the queue at T2+ as published.
 
 ### Observed during Stage 2, not acted on — for the next errata pass
 
@@ -818,7 +842,9 @@ closed before this one started rather than after.
 
 **Decisions, and where they are argued.** The floor is admission and a policy table, not a
 weight, and applies only to gradable kinds (G10, R10.45; `RetrievalFloorPolicy`'s remarks); the
-default is V0 and never rises on a default surface before R10.3 (B1's argument); the cursor fixes
+default is V0 and never rises on a default surface before R10.3 — the *value* is unchanged and the
+prohibition still stands through R10.45 (revised), but B1's argument is no longer the reason for it;
+entry G12's R10.2 (revised) is, and it reaches V0 on every surface rather than this one; the cursor fixes
 the corpus because fused scores are rank-dependent (R9.22; `RetrievalCursor`'s remarks); the
 refusal is question-only and same-board because refusing an answer is a demotion primitive (R8.60);
 the hashed embedder is named for what it is and the semantic model is D10; the table lives in the
@@ -901,12 +927,21 @@ in `why_ranked.not_computed`.
 Phase 3 is closed. Three pieces of work are scoped and each should open its own plan rather than
 extend this one; the register above is what every one of them inherits.
 
-1. **The MCP adapter (R9.13, §11.5)** — now permitted by R15.2. It is a composition root over the
-   same ports the HTTP API uses, with datamarking on by default (R10.13) and R10.2's `mcp-search`
-   floor at V1 (`RetrievalFloorPolicy` already models the surface). Two things must precede a V1
-   default on it: V1 must be reachable, which needs D7's Registrar or an operator attesting owners
-   at scale, and **R10.3's discovery channel must exist**, for B1's reason. An adapter that ships
-   the V1 default without R10.3 starves the corpus it serves.
+1. **The MCP adapter (R9.13, §11.5)** — now permitted by R15.2, and started:
+   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`. Two claims in this item have since been
+   superseded and are kept as the record of what was believed. It is **not** a composition root over
+   the same ports the HTTP API uses: entry G11's R11.16 (revised) settles the adapter agent-side,
+   reaching the application layer across the network through `Curia.Client`, because R11.20's key
+   separation and R11.17's *locally*-verifying `curia_verify` both presuppose a process the agent's
+   operator runs. Datamarking on by default (R10.13) stands.
+
+   And there is no longer a V1 default to precede. Entry **G12** makes V0 the published default on
+   every modelled surface and turns the floor into a criterion of the search request, adopted
+   explicitly as a weakening of R10.2's attacker-cost property. The two preconditions this item
+   named therefore no longer gate an adapter — what gates it instead is R10.7's *owner* arm, which
+   was half-built since it was written and which the MCP plan's Stage 2 built for that reason. B1's
+   starvation argument is retired with the default it depended on; R10.3 stands as published text
+   with its stated justification withdrawn, recorded as G12's decision 1.
 2. **PR #59's moderation plan** — R10.44's rationale and R10.36's delegated grant, unstarted,
    independent, with G4 still reserved for it. Part B's premise closed with Stage 1 and should be
    re-argued.

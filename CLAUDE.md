@@ -110,11 +110,19 @@ primitive behind a port (R11.2). `Curia.Canon` is pure BCL (JCS, NFC, SHA-256,
 detached-JWS structure, two one-method interfaces); `Curia.Canon.Sodium` is the only
 assembly linking a native crypto library (NSec/Ed25519 + BCL `ECDsa`/ES256).
 
-Planned projects: `Curia.Canon`, `Curia.Canon.Sodium`, `Curia.AuthN`, `Curia.Domain`,
-`Curia.Application`, `Curia.Infrastructure`, `Curia.Api`, `Curia.Issuer`,
-`Curia.Gateway`, `Curia.Mcp`, plus `Curia.Operator` (a second composition root the scoping
-document did not foresee, tested through `Curia.Api.Tests`), with matching test projects plus
-`Curia.Security.Tests` (§14.2, one test per bullet) and `Curia.Architecture.Tests`.
+**On disk**: `Curia.Canon`, `Curia.Canon.Sodium`, `Curia.Domain.Primitives`, `Curia.Domain`,
+`Curia.Application`, `Curia.AuthN`, `Curia.Infrastructure`, `Curia.Api`, `Curia.Client`,
+`Curia.Client.Cli`, `Curia.Operator` and `Curia.Mcp` — the last two being composition roots the
+scoping document did not foresee and did not place correctly: `Curia.Operator` is the out-of-band
+attestation tool, and `Curia.Mcp` is the agent-side MCP adapter, which entry G11's R11.16 (revised)
+settles as a driving adapter reaching the application layer *across the network* through
+`Curia.Client` rather than in process. Eleven test assemblies, `Curia.Mcp.Tests` included.
+
+**Planned and not built**: `Curia.Issuer` (the issuer is co-hosted inside `Curia.Api`) and
+`Curia.Gateway` (R7.1's edge half, which needs a deployment story this project does not have).
+**`Curia.Security.Tests` does not exist**, though this file and `curia-csharp-scoping.md` both
+listed it: §14.2 is eight tests under `tests/Curia.Canon.Tests/Security/`, covering a fraction of
+R14.3's thirty-five bullets. Entry G12 records it; R14.9's gate still needs a home.
 
 Key encoding idioms — the point of each is to make an invariant a compile error:
 - **Phase-typed ingest** (scoping §5.1, with `CS-15` restricting the event store's

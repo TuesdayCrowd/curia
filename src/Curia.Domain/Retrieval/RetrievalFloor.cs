@@ -11,7 +11,12 @@ public enum RetrievalSurface
     /// <summary><c>GET /v1/search</c>.</summary>
     RestSearch,
 
-    /// <summary>The MCP <c>curia_search</c> tool (R10.2 names it; not built before Phase 3 closes, R15.2).</summary>
+    /// <summary>
+    /// The MCP <c>curia_search</c> tool (R10.2 names it). R15.2 held it back until Phase 3
+    /// closed; Phase 3 closed, and <c>src/Curia.Mcp</c> serves this surface. R10.2 fixes V1 as
+    /// its <i>published</i> default -- what a deployment <i>serves</i> is the floor in force,
+    /// which entry G11 separates from it.
+    /// </summary>
     McpSearch,
 }
 
@@ -48,21 +53,36 @@ public static class RetrievalSurfaces
 /// others are subject to the separately stated controls of R10.6 and R10.7, and every response
 /// says which kinds the floor applied to.</para>
 ///
-/// <para><b>Published defaults, raised deliberately.</b> R10.2 fixes a value only for the MCP
-/// tool; for the REST surface it requires the floor to be configurable and leaves the value to be
-/// chosen. It is V0 here, because V1 needs two operator-attested owners (R8.57, R4.30) and a beta
-/// Forum has none -- a V1 default today is not a strict gate but an empty result for every query,
-/// indistinguishable from an empty corpus. The default rises when V1 becomes reachable, and never
-/// above V0 on a default surface before R10.3's discovery channel exists: B1's starvation argument
-/// is the reason the pair was adopted together.</para>
+/// <para><b>Published defaults, and why they are V0.</b> R10.2 as published fixed V1 for the MCP
+/// tool and left the REST value to be chosen. Entry G12 reverses that: the published default is V0
+/// on every modelled surface, and the floor is a criterion of the search request rather than a
+/// level this specification supplies. The reason is the cost profile §4.6 uses to decline proof of
+/// work -- V1 needs two endorsing owners distinct from the author's (R8.57), an adversary holding
+/// three attested owners writes that endorsement graph itself, and an honest author holds none of
+/// the endorsers and cannot buy them. The control was cheap for the party it aimed at and unpayable
+/// by the party it protected.</para>
+///
+/// <para><b>Adopted as a weakening.</b> A poisoned V0 answer that would have needed two distinct
+/// owners' endorsements to be retrieved by default is now retrieved by default. What replaces the
+/// attacker-cost property is R10.7's <i>owner</i> arm in <see cref="Search.HybridRanking"/> --
+/// built as G12's precondition, and the last control forcing an adversary across an owner boundary
+/// once the floor stops removing. Verification still governs <i>order</i> through Table 13's
+/// weights; it stops governing <i>presence</i>. A floor in force still never rises above V0 on a
+/// default surface before R10.3's discovery channel exists (R10.45 revised).</para>
 /// </summary>
 public static class RetrievalFloorPolicy
 {
-    /// <summary>The published default floor per surface. The table errata G10 carries, in code.</summary>
+    /// <summary>
+    /// The published default floor per surface: the table entry G12 carries, in code. V0 on every
+    /// modelled surface, because the floor is a criterion a requester supplies rather than a level
+    /// this specification imposes -- see the remarks above for what that gives up and what replaces
+    /// it. A surface added here without a considered value is the failure R10.46 exists to prevent
+    /// at configuration, one level up.
+    /// </summary>
     public static VerificationLevel PublishedFloor(RetrievalSurface surface) => surface switch
     {
         RetrievalSurface.RestSearch => VerificationLevel.V0,
-        RetrievalSurface.McpSearch => VerificationLevel.V1,
+        RetrievalSurface.McpSearch => VerificationLevel.V0,
         _ => throw new ArgumentOutOfRangeException(nameof(surface), surface, "not a retrieval surface"),
     };
 

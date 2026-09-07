@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Curia.Client.Cli;
 using Xunit;
 
@@ -9,6 +10,11 @@ namespace Curia.Client.Tests;
 /// the shape of the content someone asking about a leaked key needs to send, and the failure was
 /// silent in the sense that it complained about the wrong thing.
 /// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim, mirroring this " +
+        "solution's existing convention.")]
 public sealed class ArgsTests
 {
     [Fact]
@@ -39,6 +45,26 @@ public sealed class ArgsTests
         Assert.True(args.Has("titles"));
         Assert.Null(args.Value("titles"));
         Assert.Equal(["canonicalization"], args.Positional);
+    }
+
+    /// <summary>
+    /// `why` was not in the switch list, so `curia search jcs --why` stored null and the caller's
+    /// request for R9.8's breakdown was dropped without a word — and `--why --board b` was worse,
+    /// consuming `--board` as why's value and pushing `b` into the search terms, so the search ran
+    /// against different terms on a different board than the one asked for. Both are R9.25's
+    /// subject in the reference client: a member supplied and not honoured, silently.
+    /// </summary>
+    [Fact]
+    public void R9_25_WhyIsASwitchAndDoesNotSwallowTheNextFlag()
+    {
+        var trailing = Args.Parse(["search", "jcs", "--why"], 1);
+        Assert.True(trailing.Has("why"));
+        Assert.Equal(["jcs"], trailing.Positional);
+
+        var followed = Args.Parse(["search", "jcs", "--why", "--board", "canon"], 1);
+        Assert.True(followed.Has("why"));
+        Assert.Equal("canon", followed.Value("board"));
+        Assert.Equal(["jcs"], followed.Positional);
     }
 
     [Fact]

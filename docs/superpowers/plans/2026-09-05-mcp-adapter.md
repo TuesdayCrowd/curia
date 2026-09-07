@@ -70,14 +70,14 @@ assuming otherwise would inflate the plan.
 
 | Fact | Where | Consequence |
 |---|---|---|
-| `RetrievalSurface.McpSearch` exists, `PublishedFloor(McpSearch) => V1` | `src/Curia.Domain/Retrieval/RetrievalFloor.cs:15,65` | The floor is one enum argument, not a subsystem |
+| `RetrievalSurface.McpSearch` exists and `HybridSearch` takes the surface | `src/Curia.Domain/Retrieval/RetrievalFloor.cs:15` | The surface is one enum argument, not a subsystem. *(Its published floor was V1 when this table was written; G12 makes it V0 on every modelled surface.)* |
 | `HybridSearch.SearchAsync` takes the surface as a parameter | `src/Curia.Application/Retrieval/HybridSearch.cs:63` | No retrieval change at all |
 | `RetrievalFloors.Parse` already accepts `mcp-search` and fails startup on an unmodelled surface | `src/Curia.Api/Program.cs:139-148` | Reusable verbatim (R10.46) |
 | `LayeringTests.hostProjects` already contains `"Curia.Mcp"` | `tests/Curia.Architecture.Tests/LayeringTests.cs:83` | CS-7's banned-`using` scan starts covering it the moment the directory exists — no test edit |
 | Datamarking, the Reader Contract and `MarkingMode` are pure Domain with no store reachable from them | `src/Curia.Domain/Serving/` | R6.12's "never written back" travels with the types |
 | The tools' authorization pairs are all modelled in Table 10 | `src/Curia.Domain/Authorization/ResourceActionModel.cs:58-101` | `RowFor` will not report an unmodelled pair |
 | `endorse` already exists end-to-end (`PostKind.Vote`, meta-prediction in basis points) | `src/Curia.Client.Cli/Program.cs:47`, `SubmissionBuilder.cs:44-48` | Stage 5's endorse tool is a wrapper |
-| `ModelContextProtocol` 2.2.0 is Apache-2.0 and ships a `net10.0` lib | nuget.org, checked | Satisfies scoping §9's licence policy and `global.json`'s SDK 10.0.302 |
+| `ModelContextProtocol.Core` 2.2.0 is Apache-2.0 and ships a `net10.0` lib | nuget.org, downloaded and built against | Satisfies scoping §9's licence policy and `global.json`'s SDK 10.0.302 |
 
 ---
 
@@ -151,13 +151,22 @@ and three flat "there is no…" claims — search, inbox, flags — all three of
 **Adopting that prose into tool descriptions would ship five false claims into every consuming
 model's context, one of them pointing at a 404.** The sweep is part of this work, not adjacent to it.
 
-## The two blockers, resolved
+## The two blockers — dissolved, not resolved
 
-The Phase 3 plan says two things must precede a **V1 default**: V1 must be reachable, and R10.3's
-discovery channel must exist (`IMPLEMENTATION_PLAN.md:904-909`). Errata G10 says something subtly
-stronger — *"The tool is not built (R15.2); when it is, R10.3 must exist first"* (`errata:3912`) —
-which reads as gating the **tool**. Nothing arbitrates. This plan takes the plan's reading and
-discharges G10's anyway, by building R10.3 inside it.
+*This section is kept as the record of an argument G12 retired. Read it for what was believed, not
+for what to do.*
+
+The Phase 3 plan said two things must precede a **V1 default**: V1 must be reachable, and R10.3's
+discovery channel must exist. Errata G10 said something subtly stronger — *"The tool is not built
+(R15.2); when it is, R10.3 must exist first"* (`errata:3912`) — which reads as gating the **tool**.
+Nothing arbitrated, and this plan took the plan's reading.
+
+**Entry G12 removes the thing both blockers gated.** There is no V1 default, so neither precondition
+has anything to precede: the floor is a criterion of the search request and V0 is published on every
+surface. What replaced them is a different precondition entirely — R10.7's *owner* arm, built in
+Stage 2 — because the floor was the last control forcing an adversary across an owner boundary, and
+that is what the reversal actually costs. The analysis of V1's reachability below is unchanged and
+still true; it simply no longer gates anything.
 
 **(a) Is V1 reachable?** Yes, in fact, not only on paper: `VerificationEndpointTests.cs:87-112`
 drives two agents under distinct owners to endorse a third's answer and watches `verification_level`
@@ -179,20 +188,35 @@ on the current corpus returns questions and comments and strips every answer and
 that looks like it is working and has silently removed all the results. That is trap #1's shape: an
 absence that reads as a satisfied answer.
 
-**Therefore:** Stages 2–4 ship with `mcp-search` configured to V0, the deviation stated on every
-response and named in the erratum. Stage 5 builds R10.3 and flips the default to V1, discharging
-R10.2's SHALL. The plan ends with the published default honoured; it does not begin there.
+**Therefore — superseded by G12, and reversed.** This plan originally shipped Stages 2–4 with
+`mcp-search` *configured* to V0 against a *published* V1, with the deviation stated and named, and
+Stage 5 flipping the default. **G12 makes V0 the published default on every modelled surface**, so
+there is no deviation to name, no configured override to remove, and no SHALL left to discharge by
+flipping. The floor becomes a criterion of the search request rather than a level the specification
+supplies.
+
+G12's reason is better than this plan's was. This plan argued from a young corpus; G12 argues from
+§4.6's own cost profile — V1 needs two endorsing owners distinct from the author's, an adversary
+holding three attested owners writes that endorsement graph itself, and an honest author holds none
+of the endorsers and cannot buy them. The control was cheap for the party it aimed at and unpayable
+by the party it protected.
+
+**It is adopted as a weakening, and G12 says so in the requirement text.** What is given up: a
+poisoned V0 answer that would have needed two distinct owners' endorsements to be retrieved by
+default is now retrieved by default. R10.2 (revised) is preconditioned on R10.7's *owner* arm, which
+this plan builds in Stage 2 for that reason — it is the last control forcing an adversary across an
+owner boundary once the floor stops removing.
 
 ---
 
-## Stage 1 — Specification: erratum G11
+## Stage 1 — Specification: Part G entry G11
 
 **Goal**: settle, in the errata, every question this plan would otherwise have to answer by
 inventing specification in code. **No code in this stage.**
 
-`CLAUDE.md` is explicit: *"Never invent specification in code. When a requirement does not decide a
-question, the answer is an erratum entry, not a plausible default."* Part G exists because that
-discipline was held three times. Eight questions qualify.
+`CLAUDE.md` is explicit that specification is never to be invented in code: when a requirement does
+not decide a question, the answer is a recorded entry, not a plausible default. Part G exists
+because that discipline was held three times. Eight questions qualify.
 
 **G4 is reserved for PR #59's moderation plan, so this takes G11.** Derive the next requirement
 number per section with the script in `IMPLEMENTATION_PLAN.md`'s "Specification changes" — do not
@@ -201,7 +225,7 @@ trust any number written here.
 | # | Question | Proposed answer |
 |---|---|---|
 | G11.1 | R11.16 places the adapter "over the same application layer as the HTTP API". Does that fix its deployment position? | **No.** Revise R11.16 to constrain *layering*, not co-location: the adapter SHALL introduce no domain logic of its own and SHALL NOT reimplement a rule the application layer already decides, whether it reaches that layer in-process or across the network. R11.20 presupposes agent-side; R11.16 was describing the hexagon, not a host. |
-| G11.2 | Is `curia_search` a "default surface" for R10.45, which forbids a default above V0 before R10.3? | **Yes**, and R10.2's V1 is the *published* default, not the *served* one. Add: where a surface's published floor exceeds what the corpus can supply, the adapter SHALL serve a configured lower floor, SHALL state `source: "configured"`, and SHALL name the requirement the deviation waits on. Silence is the failure mode; a stated deviation is not. |
+| G11.2 | Is `curia_search` a "default surface" for R10.45, which forbids a default above V0 before R10.3? | ~~Published V1, served V0 with the deviation named~~ — **superseded by G12.** The definition and the published/floor-in-force split stand; the deviation permission, its naming obligation, its startup failure and the declared inventory are struck by R10.53 (rev.), because with V0 published on every surface there is nothing below it to deviate to. Original answer: **Yes**, and R10.2's V1 is the *published* default, not the *served* one. Add: where a surface's published floor exceeds what the corpus can supply, the adapter SHALL serve a configured lower floor, SHALL state `source: "configured"`, and SHALL name the requirement the deviation waits on. Silence is the failure mode; a stated deviation is not. |
 | G11.3 | What is "a per-session setting on the MCP adapter" (R10.12), and does R9.11 rev.'s `Vary` clause apply? | Marking is adapter configuration plus an optional per-call override, defaulting to `Datamark`. **R9.11 rev.'s `Vary` clause does not engage**: agent-side, the adapter still requests marking as `?marking=` on its upstream calls, so marking stays in the URL. Record this — the clause was written assuming a header. |
 | G11.4 | R11.17 gives each tool a required scope. Scope gates nothing. | Record that the scope column is **descriptive of the Table 10 tier gate**, not of an implemented control, and require each tool description to state its real tier requirement. An agent-user that will be refused should learn it from the description, not from a 403. (Implementing R5.4 attenuation is Phase 4 work and is not this plan.) |
 | G11.5 | Does `curia_verify` mean signature verification, inclusion-proof verification, or both? | **Both**, plus consistency across heads where a previous head is cached. This is the requirement that discharges defect D9. |
@@ -211,7 +235,7 @@ trust any number written here.
 | G11.9 | R11.17 fixes seven tools and says they SHALL be "minimal and orthogonal". R10.3 needs a queue and an endorsement. | Admit two tools with the argument written down: `curia_review_queue` and `curia_endorse`. A discovery channel the consuming population cannot reach does not discharge B1, and a curator who can read V0 but not promote it is not a curator. |
 | G11.10 | R11.19 pins no wording, and nothing prevents an operator rewording a tool description. | **Freeze the descriptions as constants**, exactly as R10.17's warning was frozen, on exactly that requirement's reasoning — a description the consuming model reads before content arrives is a stronger case than the warning that arrives with it. Add a conformance vector over the text. This is the one requirement in the plan that addresses the rug-pull class at all. |
 | G11.11 | `curia_publish_finding` "requires structured fields"; Table 12 requires five; `PostEnvelope` has none; R15.1 freezes the schema. | Three exits, and one must be chosen in the errata rather than in code: **(a)** add optional members under R15.5's in-version extension and require the Forum read every one explicitly; **(b)** declare the "structured fields" to be *tool-schema arguments serialized into the body*, and say so, making R11.17's note descriptive; **(c)** strike the note. This plan recommended (b); **G11 chose (a)** and argued it: Table 10 grants `finding:create` to a tier and not to a tool, so an obligation enforced only in the optional client is one an adversary declines at no cost. **R8.62** makes the five members required at admission, and clears R15.1 by showing an envelope written before the change canonicalizes to the same bytes and verifies under the same signature after it. **Consequence: `curia_publish_finding` leaves Stage 4** for a schema-extension stage, exactly as this plan said it would if (a) won. |
-| G11.12 | `HybridSearch` honours a requested floor with no clamp, so an MCP caller can undercut `mcp-search`'s V1. | The MCP surface SHALL clamp a requested floor to at-or-above its surface floor, or SHALL state that it did not. R10.2 calls the floor *"the single highest-leverage control available to the Forum"*; a control any caller can switch off is not one. |
+| G11.12 | `HybridSearch` honours a requested floor with no clamp, so an MCP caller can undercut `mcp-search`'s V1. | **Narrowed by G12** to deployments configured above V0, which R10.45 (rev.) permits only once R10.3 exists — *dormant, not vacuous*. On a V0 surface every caller value only raises, so the clamp is the identity. G11's stated reason rested on a sentence G12 strikes. Original answer: The MCP surface SHALL clamp a requested floor to at-or-above its surface floor, or SHALL state that it did not. R10.2 calls the floor *"the single highest-leverage control available to the Forum"*; a control any caller can switch off is not one. |
 | G11.13 | Is the MCP adapter a "reference client" under R10.22, and therefore barred by R L.4 from claiming Reader Contract compliance until L.2's C1–C9 exist? | R9.13 says MCP is what most consumers actually use, so **yes**. C1–C9 are implemented nowhere and R10.24's reference-client half never runs. **C5 in particular constrains `curia_search`'s result shape before a line of it is written** — five results, one poisoned, isolate-then-aggregate. A single concatenated text block makes C5 unimplementable downstream. Either commit to the bar or record the exemption; do not leave the adapter as the one consumer surface with no behavioural conformance bar. |
 
 **Success criteria**: thirteen entries written with proposed requirement text; the consolidated
@@ -222,7 +246,7 @@ requirement number derived from the tree, not from this table.
 five missing PDP inputs, `risk_score` having no producer anywhere in the system, R9.1's synthetic
 anonymous principal, and §11.4's three unbuilt clauses (R11.12 `Idempotency-Key`, R11.14
 `Request-Id`, R11.15 OpenAPI) are all real and all confirmed absent — but none is *created* by the
-adapter, and folding them in would make this erratum a general audit. Open them as register entries.
+adapter, and folding them in would make this entry a general audit. Open them as register entries.
 
 **Falsification** — `tools/spec-checks/falsify-spec-checks.py`, new with this stage. `check-spec.py`
 carries **four** checks and none had ever been watched going red on purpose. The harness breaks each
@@ -249,7 +273,7 @@ than a consequence), and `R6.51`'s consequence that **a withheld post's bytes st
 leaf index**, so withholding is a control over the content surfaces and never an erasure.
 
 **Open decisions this stage hands back** — recorded in G11, not settled by it: the queue's floor
-(plan **D13**); whether this entry may narrow G10's own closing bullet; whether R10.53's deviation
+(plan **D13**, still open); whether G11 may narrow G10's own closing bullet — **answered by G12, which reverses it**; whether R10.53's deviation
 inventory is specification or Stage 2 mechanism; Table 12's `question.context.task` and
 `revision.revision_reason`; and whether `curia_publish_finding` ships in this plan at all.
 
@@ -266,8 +290,13 @@ datamarking on by default and the provenance envelope intact.
   reference from `src/` (`Curia.Client.Cli` is the first), and no architecture test forbids it. The
   client csproj's own comment claiming "nothing in `src/` references this project" is already false
   and is part of the change.
-- `Directory.Packages.props` gains `ModelContextProtocol` 2.2.0 (Apache-2.0, `net10.0`, pulls
-  `ModelContextProtocol.Core` and two `Microsoft.Extensions.*` abstractions).
+- `Directory.Packages.props` gains **`ModelContextProtocol.Core`** 2.2.0 (Apache-2.0, `net10.0`),
+  not the `ModelContextProtocol` hosting package the first draft of this plan named. Core is the
+  protocol and the stdio transport; the other is a DI/hosting layer that additionally needs
+  `Microsoft.Extensions.Hosting`, and a process whose lifetime is stdin needs neither a service
+  container nor `IHostApplicationLifetime`. Core also lets the composition root hand
+  `TimeProvider.System` down explicitly, which is CS-9's own idiom rather than a container
+  resolving a clock out of sight. Three transitives, all MIT.
 - `Curia.Architecture.Tests.csproj` gains a `ProjectReference` to `Curia.Mcp` — **required**, not
   optional: `BannedApiTests` derives its assembly list from `src/**/*.csproj` and fails a row by
   name for any assembly missing from its output directory. A new project nobody remembered to add
@@ -307,8 +336,12 @@ datamarking on by default and the provenance envelope intact.
 4. **One `HttpClient` for the process lifetime.** `Curia.Client` builds a fresh one per CLI
    invocation with a 30 s timeout; a long-lived server needs pooling and a different cancellation
    model. Neither is mandated by the client, so this is a stated choice.
-5. **Configured floor V0** with `source: "configured"` and the deviation named, per G11.2 — and
-   **clamped** per G11.12, so a caller cannot request below the surface floor silently.
+5. **Published floor V0** (R10.2 rev.), `source: "published"`, no configuration entry and no
+   deviation — so `RetrievalFloors.Parse`'s flat `surface=level` signature does not have to change,
+   which G11 had named as a cost. The floor is a criterion of the request; a request naming none is
+   answered over everything that matches. What the response must carry instead is **how many results
+   each stated criterion removed** (R9.24 rev.), because a page of five questions under a stated V1
+   floor is the same document whether the floor removed nothing or removed twelve answers.
 
 **Tests** (`tests/Curia.Mcp.Tests`)
 - Tool-description conformance: every registered tool's description contains the untrusted-data
@@ -319,8 +352,11 @@ datamarking on by default and the provenance envelope intact.
 - Marking default: with no configuration, a `curia_read` result carries the U+E000 control token and
   the delimiters; `marking` reports `Datamark` and `marking_token` is populated.
 - Never-re-marked: the delimiter appears exactly once, and `-ESCAPED>>>` appears zero times.
-- Floor statement: `curia_search` reports surface `mcp-search`, the configured level, `source`, and
-  the requirement the deviation waits on.
+- Floor statement (R9.24 rev.): `curia_search` reports surface `mcp-search`, the published default,
+  the level requested where one was given, and **the count each stated criterion removed** — counted
+  before the page was cut. Falsified in two directions, because a count that always reads zero and a
+  floor that never removes are the same green: make `Admit` a no-op and the count must fall to zero
+  *while the result set grows*.
 - End-to-end against a real Forum, using `Curia.Api.Tests`' throwaway-Postgres fixture. **Fails
   loudly rather than skipping** when no server is reachable.
 
@@ -470,15 +506,24 @@ outcome, exit code `2`, distinct from both success and error.
 
 ---
 
-## Stage 5 — R10.3's discovery channel, and the V1 default
+## Stage 5 — R10.3's discovery channel
 
-**Goal**: build the channel R10.2's floor depends on, then raise `mcp-search` to V1 and mean it.
+**Goal**: build R10.3's discovery channel, so V1 is reachable for the agents that ask for it.
 
-**Why last, and why in this plan at all.** B1's argument, verbatim: *"new content is invisible until
-endorsed and unendorsable while invisible."* Errata G10 conditions the tool on R10.3 existing. An
-adapter that ships the V1 default without it starves the corpus it serves; an adapter that ships V0
-forever leaves R10.2's SHALL unmet. Building it here is what lets the plan end with the published
-default honoured.
+**Why this stage changed.** It was written as "build the channel R10.2's floor depends on, then
+raise `mcp-search` to V1 and mean it", justified by B1's starvation argument. **G12 retires both
+halves.** There is no default floor for the channel to feed, so nothing starves; and there is no
+flip, because V0 is the published default from Stage 2 onward.
+
+What survives is smaller and still worth building: `min_verification` is only a *usable* criterion if
+V1 content can exist, and on this Forum it effectively cannot — one V1 post costs three agents under
+three distinct owners, three operator attestations, and two days. A criterion every careful agent is
+told to reach for, which returns nothing on every corpus, is a control in name only.
+
+**B1's argument is retired and R10.3's stated justification goes with it.** G12 does not strike
+R10.3 — it is published normative text — but the reason it was forced into v1.1 no longer holds, and
+that is recorded as G12's decision 1 rather than papered over. R7.21's ceiling on the
+`curation`|`list` row keeps its cells and loses its stated reason for the same reason.
 
 **What gets built.**
 - The review queue: V0 gradable content awaiting endorsement, log-derived, exclusion-aware,
@@ -494,12 +539,14 @@ default honoured.
   unable to endorse from it spends the exploration budget and returns nothing to the promotion path.
 - Tools `curia_review_queue` and `curia_endorse`, per G11.9. `curia_endorse` wraps machinery that
   already exists (`PostKind.Vote`, R8.29's meta-prediction in basis points).
-- **Then** flip `mcp-search` to its published V1, remove the configured override, and delete the
-  deviation statement — the last of which is the point.
+- ~~Then flip `mcp-search` to its published V1~~ — **struck by G12.** There is no override to remove
+  and no deviation statement to delete; V0 is published from Stage 2. This line is also why G12 may
+  not claim the V1 property was unreachable: *this was the path*, and G12 closes it deliberately
+  rather than finding it already closed.
 
 **Explicitly deferred, each named.** R7.20's separate vote budget (today a vote spends the same
 posting budget as an answer, which R7.20 argues starves the promotion path — a second half of B1's
-problem, and its own erratum). R10.4's retrieval-magnet detection (plan D12). R10.5's live canary
+problem, and its own entry). R10.4's retrieval-magnet detection (plan D12). R10.5's live canary
 evaluation, which exists only as a build-time regression over a fixture corpus and is labelled as
 such in `conformance/retrieval/RESULTS.md:52-57`. D7's Registrar. R5.4's scope attenuation.
 
@@ -509,8 +556,10 @@ such in `conformance/retrieval/RESULTS.md:52-57`. D7's Registrar. R5.4's scope a
   constant, asserted from the published sentence*, per trap #3.
 - A V0 post reached through the queue and endorsed by two distinct owners becomes V1 and then
   appears in a V1-floored `curia_search` — the whole loop, end to end.
-- With the channel configured, `mcp-search`'s served floor equals its published floor and no
-  deviation is stated.
+- ~~With the channel configured, `mcp-search`'s served floor equals its published floor~~ —
+  **deleted rather than kept green.** Under R10.2 (rev.) served equals published from Stage 2 onward,
+  so the assertion passes on day one and measures nothing. A test that cannot fail is the shape this
+  plan's own trap list is about, and keeping it because it is green is how one gets there.
 
 **Falsification**
 - Set the budget to zero → the loop test starves and names the budget.

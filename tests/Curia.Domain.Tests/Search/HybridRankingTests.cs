@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Domain.Content;
+using System.Text;
+using Curia.Domain.Primitives;
 using Curia.Domain.Search;
 using Curia.Domain.Verification;
 using Xunit;
@@ -13,8 +15,11 @@ namespace Curia.Domain.Tests.Search;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class HybridRankingTests
 {
-    private static SearchablePost Post(string id, PostKind kind = PostKind.Answer, string author = "agent://a", long seq = 0, string? duplicateOf = null) =>
-        new(id, "sha256:" + id.PadRight(64, '0'), "board", kind, id, "body of " + id, [], author, seq == 0 ? id.GetHashCode(StringComparison.Ordinal) & 0xffff : seq, duplicateOf);
+    private static T Require<T>(Result<T> result) =>
+        result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+
+    private static SearchablePost Post(string id, PostKind kind = PostKind.Answer, string author = "agent://a", long seq = 0, string? duplicateOf = null, string? owner = null) =>
+        new(id, "sha256:" + id.PadRight(64, '0'), "board", kind, id, "body of " + id, [], author, seq == 0 ? id.GetHashCode(StringComparison.Ordinal) & 0xffff : seq, duplicateOf, owner);
 
     private static SearchHit Lex(SearchablePost p, int score) => new(p, score, new RankExplanation(0, score, 0, score));
 
@@ -102,6 +107,51 @@ public sealed class HybridRankingTests
         Assert.All(diversified.Take(4), r => Assert.False(r.Deferred));
     }
 
+    /// <summary>
+    /// R10.7's second arm: "dominated by content from a single author <b>or owner</b>". The author
+    /// arm alone is defeated by giving each post its own agent, and an owner may attest any number
+    /// of agents to itself (<c>attest-owner</c> is per agent, with no cap). G12 makes this the
+    /// precondition for reversing R10.2's default floor, because the floor was the only other
+    /// control on the default read path that forced an adversary across an owner boundary.
+    /// </summary>
+    [Fact]
+    public void R10_7_OneOwnerCannotHoldMoreThanHalfAPageAcrossDistinctAuthors()
+    {
+        // Three distinct authors, one owner -- the shape the author cap cannot see.
+        var a1 = Post("a1", author: "agent://a", owner: "owner://one", seq: 1);
+        var a2 = Post("a2", author: "agent://b", owner: "owner://one", seq: 2);
+        var a3 = Post("a3", author: "agent://c", owner: "owner://one", seq: 3);
+        var b1 = Post("b1", author: "agent://d", owner: "owner://two", seq: 4);
+        var c1 = Post("c1", author: "agent://e", owner: "owner://three", seq: 5);
+        var ranked = Rank([Lex(a1, 9), Lex(a2, 8), Lex(a3, 7), Lex(b1, 6), Lex(c1, 5)], []);
+
+        var diversified = HybridRanking.Diversify(ranked, pageSize: 4);
+
+        // Page of four, cap of two per owner: a3 is deferred behind b1 and c1, never dropped.
+        Assert.Equal(["a1", "a2", "b1", "c1", "a3"], diversified.Select(r => r.Post.PostId));
+        Assert.True(diversified[4].Deferred);
+        Assert.All(diversified.Take(4), r => Assert.False(r.Deferred));
+    }
+
+    /// <summary>
+    /// An unattested author has no owner, and grouping every such post under one null key would
+    /// defer unrelated authors as though they colluded. Falling back to the author makes the owner
+    /// cap never weaker than the author cap and never wider than the evidence.
+    /// </summary>
+    [Fact]
+    public void R10_7_AnUnattestedAuthorIsItsOwnOwner()
+    {
+        var a1 = Post("a1", author: "agent://a", seq: 1);
+        var b1 = Post("b1", author: "agent://b", seq: 2);
+        var c1 = Post("c1", author: "agent://c", seq: 3);
+        var ranked = Rank([Lex(a1, 9), Lex(b1, 8), Lex(c1, 7)], []);
+
+        // Three unattested authors are three owners: nothing is deferred.
+        var diversified = HybridRanking.Diversify(ranked, pageSize: 2);
+        Assert.Equal(["a1", "b1", "c1"], diversified.Select(r => r.Post.PostId));
+        Assert.All(diversified, r => Assert.False(r.Deferred));
+    }
+
     [Fact]
     public void R10_6_APossibleDuplicateOfAPlacedPostIsDeferred()
     {
@@ -121,10 +171,45 @@ public sealed class HybridRankingTests
     public void R9_7_TheCursorCarriesTheCorpusBoundAndRoundTrips()
     {
         var cursor = new RetrievalCursor(184223, 50);
-        Assert.Equal(cursor, RetrievalCursor.Decode(cursor.Encode()));
-        Assert.Null(RetrievalCursor.Decode(null));
-        Assert.Null(RetrievalCursor.Decode("not base64!"));
-        Assert.Null(RetrievalCursor.Decode(Convert.ToBase64String("5:3"u8.ToArray())));
-        Assert.Null(RetrievalCursor.Decode(Convert.ToBase64String("c-1:3"u8.ToArray())));
+        Assert.Equal(cursor, Assert.IsType<RetrievalCursor>(Require(RetrievalCursor.Decode(cursor.Encode()))));
+        Assert.Null(Require(RetrievalCursor.Decode(null)));
+        Assert.Null(Require(RetrievalCursor.Decode("   ")));
+    }
+
+    /// <summary>
+    /// R9.25 reverses this type's written decision that "a malformed cursor reads as start from the
+    /// beginning". Absent and malformed are different requests and were the same value, so a
+    /// continuation silently became a first page. The cost is specific: the cursor carries R9.22's
+    /// corpus bound, so dropping it re-evaluates against a different corpus than R9.22 requires
+    /// while the response reports the new bound as though it had always been the bound. And a caller
+    /// who never mints a cursor cannot produce a malformed one by any route but corruption or
+    /// forgery, so the recoverable-first-page argument protects nobody who exists.
+    /// </summary>
+    [Theory]
+    [InlineData("not base64!")]
+    [InlineData("BQ==")]
+    public void R9_25_AMalformedCursorIsRefusedRatherThanReadAsTheFirstPage(string encoded)
+    {
+        var result = RetrievalCursor.Decode(encoded);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/search/cursor-malformed", error!.Type);
+
+        // The refusal names the member and echoes no cursor value: a cursor a caller did not mint
+        // is evidence of corruption or forgery, and quoting it back is quoting an attacker.
+        Assert.Contains("cursor", error.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(encoded, error.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain(encoded, error.Detail ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("5:3")]      // no 'c' marker
+    [InlineData("c-1:3")]    // negative bound
+    [InlineData("c5")]       // no separator
+    [InlineData("c5:x")]     // offset not a number
+    public void R9_25_AStructurallyWrongCursorIsRefusedToo(string plain)
+    {
+        var result = RetrievalCursor.Decode(Convert.ToBase64String(Encoding.ASCII.GetBytes(plain)));
+        Assert.False(result.TryGetValue(out _, out _));
     }
 }
