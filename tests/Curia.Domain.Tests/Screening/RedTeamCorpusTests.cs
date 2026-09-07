@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Curia.Domain.Screening;
+using Curia.Domain.Serving;
 using Xunit;
 
 namespace Curia.Domain.Tests.Screening;
@@ -24,7 +25,31 @@ namespace Curia.Domain.Tests.Screening;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class RedTeamCorpusTests
 {
-    private sealed record Case(string Id, string Content, ImmutableArray<string> Expect);
+    private sealed record Case(
+        string Id, string Class, string Outcome, string Content, ImmutableArray<string> Expect);
+
+    /// <summary>
+    /// R10.57's outcome kinds: what an Appendix L.1 class actually asserts. They are not all
+    /// "detected", and that is the whole point of naming them.
+    ///
+    /// <para><c>escaped-at-serving</c> is the one that made this necessary. L.1's `structural`
+    /// class asserts "Escaped at serving; delimiter not terminable from content" — a property of
+    /// <see cref="Datamarking"/>, not of the detectors. Added to the corpus without an outcome
+    /// kind, its six payloads carry an empty expectation, every site that reads one treats that as
+    /// detected, and the published detection rate rises while asserting nothing. That was verified
+    /// rather than reasoned about: adding them took the rate from 41/41 to 47/47, all tests green,
+    /// and the baseline silently gained six ids.</para>
+    /// </summary>
+    private static class Outcomes
+    {
+        internal const string Flagged = "flagged";
+        internal const string NotFlagged = "not-flagged";
+        internal const string EscapedAtServing = "escaped-at-serving";
+        internal const string ExpectedToPass = "expected-to-pass";
+
+        internal static readonly ImmutableArray<string> Known =
+            [Flagged, NotFlagged, EscapedAtServing, ExpectedToPass];
+    }
 
     /// <summary>
     /// A known evasion and the reason it is not caught, read from the corpus rather than restated.
@@ -68,7 +93,12 @@ public sealed class RedTeamCorpusTests
     public void R10_24_NoDetectedPayloadRegresses()
     {
         var baselinePath = Path.Combine(CorpusDirectory(), "detected-baseline.txt");
+        // R10.57, again: `Expect.All(...)` over an empty expectation is vacuously true, so a
+        // payload whose class asserts something other than detection would enter this baseline as
+        // "detected" and then be defended against regressing at a property it never had. The
+        // baseline covers the payloads this gate measures and no others.
         var detectedNow = Load("payloads.jsonl")
+            .Where(c => c.Outcome == Outcomes.Flagged)
             .Where(c => c.Expect.All(e => Detect(c.Content).Contains(e, StringComparer.Ordinal)))
             .Select(c => c.Id)
             .OrderBy(id => id, StringComparer.Ordinal)
@@ -102,7 +132,12 @@ public sealed class RedTeamCorpusTests
     [Fact]
     public void R10_24_DetectionRateMeetsItsFloor()
     {
-        var cases = Load("payloads.jsonl");
+        // R10.57: "SHALL exclude from a published rate any entry whose kind that rate does not
+        // measure rather than counting it as a pass." A `structural` payload asserts escaping at
+        // serving, which these detectors are not asked about and would not fire on; counting it
+        // here would move the number in the reassuring direction for the reason that should have
+        // alarmed someone.
+        var cases = Load("payloads.jsonl").Where(c => c.Outcome == Outcomes.Flagged).ToArray();
         Assert.NotEmpty(cases);
 
         var missed = new List<string>();
@@ -166,7 +201,13 @@ public sealed class RedTeamCorpusTests
     [Fact]
     public void R10_24_TheRatesArePublished()
     {
-        var payloads = Load("payloads.jsonl");
+        // R10.57: a published rate excludes entries whose kind it does not measure. The detection
+        // rate is a statement about the detectors, and `structural` payloads assert escaping at
+        // serving -- a property of Datamarking that these detectors are not asked about. Counting
+        // them makes the number rise for the reason that should have alarmed someone.
+        var all = Load("payloads.jsonl");
+        var payloads = all.Where(c => c.Outcome == Outcomes.Flagged).ToArray();
+        var excluded = all.Length - payloads.Length;
         var benign = Load("benign.jsonl");
 
         var detected = payloads.Count(c => c.Expect.All(e => Detect(c.Content).Contains(e, StringComparer.Ordinal)));
@@ -184,6 +225,8 @@ public sealed class RedTeamCorpusTests
                 $"- False-positive rate: **{falsePositiveRate:P1}** ({flagged}/{benign.Length})"))
             .AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"- Detector versions: {SecretScanner.Version}, {InjectionDetector.Version}"))
+            .AppendLine(string.Create(CultureInfo.InvariantCulture,
+                $"- Excluded from the detection rate: **{excluded}** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes"))
             .AppendLine()
             .AppendLine("## How to read these numbers (R10.11)")
             .AppendLine()
@@ -302,6 +345,91 @@ public sealed class RedTeamCorpusTests
             .ToArray();
     }
 
+    /// <summary>
+    /// R10.57: "every runner over the corpus SHALL carry an evaluator for each outcome kind it
+    /// encounters, SHALL fail by name on an entry whose declared kind it has no evaluator for".
+    ///
+    /// <para>This is the row that fails when a class is added whose assertion nothing checks —
+    /// which is how the `structural` class would otherwise have arrived: silently, raising a rate.
+    /// A new outcome kind must bring its evaluator, or say here that it has none.</para>
+    /// </summary>
+    [Fact]
+    public void R10_57_EveryDeclaredOutcomeKindHasAnEvaluator()
+    {
+        var unknown = CorpusFiles
+            .SelectMany(Load)
+            .Where(c => !Outcomes.Known.Contains(c.Outcome, StringComparer.Ordinal))
+            .Select(c => $"{c.Id} (class {c.Class}) declares outcome '{c.Outcome}'")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            unknown.Length == 0,
+            "These corpus entries declare an outcome kind this runner has no evaluator for, so " +
+            "nothing checks what they assert:\n  " + string.Join("\n  ", unknown));
+    }
+
+    /// <summary>
+    /// The evaluator R10.57 requires for L.1's `structural` class: "Escaped at serving; delimiter
+    /// not terminable from content". A forged closing delimiter inside a passage must not end the
+    /// span the Forum wrapped around it, or a reader's boundary is drawn by the attacker.
+    ///
+    /// <para>The class exists because of this adapter: L.1 names <i>fake tool-result framing</i>
+    /// among its contents, and content shaped like a tool result inside a tool result is a shape
+    /// only an MCP surface can carry. It could not be authored before that surface existed, and
+    /// stops being authorable once the surface ships without it.</para>
+    /// </summary>
+    [Fact]
+    public void R10_57_StructuralPayloadsAreEscapedAtServing()
+    {
+        var structural = Load("payloads.jsonl")
+            .Where(c => c.Outcome == Outcomes.EscapedAtServing)
+            .ToArray();
+
+        // A theory over nothing passes. This is the row that fails if the class empties out.
+        Assert.NotEmpty(structural);
+        Assert.Contains(structural, c => c.Id.Contains("tool-result", StringComparison.Ordinal));
+
+        foreach (var c in structural)
+        {
+            var rendered = Datamarking.Render(c.Content, MarkingMode.Datamark);
+
+            var opens = Occurrences(rendered, Datamarking.OpenDelimiter);
+            var closes = Occurrences(rendered, Datamarking.CloseDelimiter);
+
+            Assert.True(
+                opens == 1 && closes == 1,
+                $"{c.Id}: the served span has {opens} opening and {closes} closing delimiters. " +
+                "Content carrying a forged delimiter must not be able to terminate the boundary " +
+                "the Forum drew around it (R10.19, L.1's `structural` class).");
+
+            // The boundary must contain the payload rather than having dropped it: an escape that
+            // deleted the content would also leave one open and one close.
+            Assert.Contains(c.Content[^20..], Datamarking.StripDatamarking(rendered), StringComparison.Ordinal);
+
+            // Where the payload forged a delimiter, the forgery must be visibly neutralised rather
+            // than merely counted away. Not every structural payload carries one -- a fake envelope
+            // block forges a shape, not a boundary -- so this asks only of those that do.
+            if (c.Content.Contains(">>>", StringComparison.Ordinal))
+                Assert.Contains("-ESCAPED>>>", rendered, StringComparison.Ordinal);
+        }
+    }
+
+    private static int Occurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>The files this runner evaluates. Named once so a third cannot be added unnoticed.</summary>
+    private static readonly string[] CorpusFiles = ["payloads.jsonl", "benign.jsonl"];
+
     private static Case[] Load(string file)
     {
         var path = Path.Combine(CorpusDirectory(), file);
@@ -314,6 +442,8 @@ public sealed class RedTeamCorpusTests
                 var root = json.RootElement;
                 return new Case(
                     root.GetProperty("id").GetString()!,
+                    root.GetProperty("class").GetString()!,
+                    root.GetProperty("outcome").GetString()!,
                     root.GetProperty("content").GetString()!,
                     [.. root.GetProperty("expect").EnumerateArray().Select(e => e.GetString()!)]);
             })

@@ -372,9 +372,41 @@ datamarking on by default and the provenance envelope intact.
 **Risk to watch.** `BannedApiTests` reads IL member references. If the MCP SDK's hosting glue emits
 a `DateTimeOffset.UtcNow` call into *our* assembly (attribute-driven registration can generate
 code), CS-9 fails. The fix is `TimeProvider.System` at the composition root — **not** editing the
-verifier, which is this project's stated failure mode.
+verifier, which is this project's stated failure mode. **It did not fire**: `ModelContextProtocol.Core`
+does reference `get_UtcNow`, but `BannedApiTests` derives its list from `src/**/*.csproj`, so a
+package assembly is never scanned and `curia-mcp.dll` is clean on its own account.
 
-**Status**: Not Started.
+**Status**: **Complete** — merged as PR #71 (the read surface, entry G12 and the document sweeps),
+with the host and the two gates on `mcp-stdio-host`.
+
+**What was built, and where it differed from this plan.**
+- `src/Curia.Mcp` (`curia-mcp`), `ModelContextProtocol.Core` 2.2.0 — **not** the hosting package this
+  plan first named; Core is the protocol and the stdio transport, and a process whose lifetime is
+  stdin needs no service container. The plan and scoping §9 were swept.
+- `curia_search` and `curia_read` over `Curia.Client`, `SearchCriteria` (R9.25), per-session marking
+  defaulting to `Datamark` (R10.13), and descriptions with R11.19's frozen notice plus a tier span
+  **composed from Table 10** rather than transcribed (R11.27).
+- The stdio host, verified by driving the built server over real JSON-RPC — `initialize` and
+  `tools/list` answered, stderr silent, and both failure paths exiting 1 with **zero bytes on
+  stdout**, since an error written there would corrupt the transport.
+- **R14.9's P22 gate**, which did not exist: all twenty-three routes classified at their
+  registration, the enumeration derived from `EndpointDataSource`, `R6.51` asserted as the only
+  exemption.
+- **R10.57's `structural` class**, including the fake tool-result framing that could not have been
+  authored before this surface existed.
+
+**Three things this stage had to build that the plan did not foresee**, each because a requirement
+turned out to rest on something absent: **R10.7's owner arm** (G12's precondition, half-built since
+it was written); **R9.25's three degrading members** — `cursor`, `marking` and `why` — because the
+adapter cannot promise not to narrow silently while its upstream does; and **R9.26's kind set**,
+because the floor's scope is `{answer, finding}` and a scalar `kind` could not name it.
+
+**What the falsifications found, beyond confirming the tests.** Two probes that proved nothing on
+their first run — one whose mutation failed to compile, one whose anchor did not match — each
+printing what a pass looks like. One missing test: `SearchablePost.Equals` had none, so a member
+dropped from it went unnoticed. One inert control: the owner cap passed while the fold never
+populated the field. And R10.57's prediction confirmed exactly, by building the naive version first
+and measuring it — green suite, rate 41/41 → 47/47, baseline silently plus six.
 
 ---
 

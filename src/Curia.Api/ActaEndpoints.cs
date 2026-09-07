@@ -80,11 +80,19 @@ public static class ActaEndpoints
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        app.MapGet("/v1/log/head", GetHeadAsync);
-        app.MapGet("/v1/log/proof/{index:long}", GetProofAsync);
-        app.MapGet("/v1/log/consistency", GetConsistencyAsync);
-        app.MapGet("/v1/log/entries/{index:long}", GetEntryAsync);
-        app.MapGet("/v1/log/jwks", GetLogJwksAsync);
+        app.MapGet("/v1/log/head", GetHeadAsync).Serves(ServedContent.None);
+        app.MapGet("/v1/log/proof/{index:long}", GetProofAsync).Serves(ServedContent.None);
+        app.MapGet("/v1/log/consistency", GetConsistencyAsync).Serves(ServedContent.None);
+
+        // The one exemption in the system. R6.51: this serves R6.46's leaf input exactly -- no
+        // envelope, no delimiting, no marking, no moderation filter -- because every transformation
+        // P22 asks for would change the bytes whose hash the read exists to let someone recompute,
+        // and filtering the log would hand the Forum the power to hide an event from the monitors
+        // R6.24 relies on. A client SHALL NOT surface an entry as content; it is proof material.
+        app.MapGet("/v1/log/entries/{index:long}", GetEntryAsync)
+            .Serves(ServedContent.ExemptFromP22, exemptedBy: "R6.51");
+
+        app.MapGet("/v1/log/jwks", GetLogJwksAsync).Serves(ServedContent.None);
     }
 
     private static async Task<IResult> GetHeadAsync(

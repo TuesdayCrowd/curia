@@ -194,8 +194,8 @@ project's documented failure mode is a claim that was true when written.
 
 **Closed:** D1, D2, D3 and D5 by Stage 1 (PR #61); their entries are kept as the record of what
 was wrong. **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar
-increment); D8 and D9 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 (opened
-by the MCP plan's Stage 1).
+increment); D8 and D9 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14
+(opened by the MCP plan's Stages 1 and 2).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -358,6 +358,42 @@ Lowering the floor is a revision of R10.3 needing its own argument and its own e
 the T2+ clause as "a scoping constraint drawn from the existing tier model rather than a new
 subsystem", which is the opening. If it is lowered, R7.21's cells and its stated reason both change.
 Nothing is blocked on it: the MCP plan's Stage 5 builds the queue at T2+ as published.
+
+### D14 — the 0.2 cosine floor does not do what it is published to do *(opened by the MCP plan's Stage 2, 2026-09-06)*
+
+`HybridRanking.MinimumCosine = 0.2` is documented as the constant that stops "a query that matches
+nothing" from fusing "two hundred posts at cosine 0.05 into a page of noise". It is marked
+provisional, and the marking is doing real work: **it was never measured against a query that
+matches nothing.**
+
+Measured, with the real `HashedNGramEmbedding` and a random thirty-five-character term of the shape
+`SearchEndpointTests` generated, over 20,000 trials against a six-post corpus:
+
+```
+trials=20000  over-floor=347  rate=1.7350 %  max-cosine=0.3154  floor=0.2
+```
+
+**1.735 % of terms that match nothing clear the floor**, reaching 0.3154 — half again the floor. The
+mechanism is not subtle once stated: the vector channel is feature-hashed word unigrams *and
+character trigrams* in 256 dimensions, so a thirty-five-character string is ~33 trigrams, most of
+which collide with something in any corpus. The rate rises with corpus size, and the numbers above
+are from a corpus of six.
+
+This was found by CI rather than by measurement. `ATermNothingMatchesReturnsNoResults` asserted that
+a random term returns an empty page, failed intermittently, and — this is the part worth
+recording — **had already failed once before and been patched by narrowing the alphabet**, which
+treated the symptom and left the constant unexamined. Its replacement,
+`R9_22_NoVectorNeighbourIsAdmittedBelowThePublishedMinimumCosine`, asserts what R9.22 actually
+promises: nothing below the *published* floor is admitted, with the floor read from the response so
+the test cannot hold a second copy of it.
+
+**Not fixed here, deliberately.** Raising the floor is a recall change: it trades a smaller noise
+page against neighbours that genuinely match and score modestly, and this build has no query set
+measured against both arms. G10 already records `MinimumCosine` as "the number to measure" alongside
+`MaximumAuthorShare`; this entry says what the measurement found and that 0.2 is the wrong number
+for the stated purpose without yet saying which is the right one. It is also the wrong shape of
+knob: a fixed cosine on a hashed-trigram embedding is measuring lexical accident, and D10's real
+embedding model changes the distribution entirely. Sequence it after D10, not before.
 
 ### Observed during Stage 2, not acted on — for the next errata pass
 

@@ -369,22 +369,81 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
-    /// A term nothing matches is an empty result set, not an error. Letters only, and none of
-    /// them hex: the vector channel matches character trigrams, so a random hex string shares
-    /// trigrams with every hex nonce another fixture wrote into a body, and the result set is
-    /// then nonsense rather than empty -- which is what happened in CI before this read as it does.
+    /// R9.22's floor, which is what the design actually promises: "a nearest-neighbour query always
+    /// answers with <i>something</i>; without a floor, a query that matches nothing would fuse two
+    /// hundred posts at cosine 0.05 into a page of noise and call it a result."
+    ///
+    /// <para><b>This replaces a test that asserted a random term returns nothing, which the design
+    /// does not guarantee.</b> The vector channel is feature-hashed character trigrams in 256
+    /// dimensions, so a random thirty-five-character term produces ~33 trigrams that collide with
+    /// corpus trigrams by construction. Measured against the real embedder over 20,000 such terms:
+    /// <b>1.735 % clear the 0.2 floor, reaching cosine 0.3154</b>. It therefore failed
+    /// intermittently, and CI had seen it before — the comment this replaces recorded an earlier
+    /// occurrence and narrowed the alphabet in response, treating the symptom. Recorded as plan
+    /// defect D14, because a provisional constant that does not achieve its stated purpose is a
+    /// finding about the constant rather than about the test.</para>
+    ///
+    /// <para>The query is a phrase this test seeds, not a random one, for a reason the first attempt
+    /// at this rewrite got wrong: with a random term the floor usually admits nothing, the loop
+    /// below runs zero times, and the test passes <i>vacuously</i> — removing the floor entirely
+    /// left it green. That is `Expect.All` over an empty expectation, which G12 named. The guard
+    /// asserting at least one vector-ranked result is therefore load-bearing, not decoration.</para>
+    ///
+    /// <para>No <c>board</c> filter, deliberately: the index is searched globally and only then
+    /// intersected with the filtered corpus, so a board filter can empty the vector channel and
+    /// restore the vacuity this test exists to avoid.</para>
     /// </summary>
     [Fact]
-    public async Task ATermNothingMatchesReturnsNoResults()
+    public async Task R9_22_NoVectorNeighbourIsAdmittedBelowThePublishedMinimumCosine()
     {
         var ct = TestContext.Current.CancellationToken;
-        var term = "zqx" + new string([.. Guid.NewGuid().ToString("N").Select(c => (char)('g' + (c % 20)))]);
+        var phrase = "chandelier ptarmigan quarrying vestibule";
+        await AskAsync(
+            forum.Client,
+            "floor-" + Guid.NewGuid().ToString("N")[..8],
+            "The " + phrase,
+            "A body about " + phrase + ", sharing no vocabulary with any other fixture here.",
+            ct);
 
-        using var found = await SearchAsync(forum.Client, "q=" + term, ct);
+        // A decoy on unrelated vocabulary. Without it the index could hold a single neighbour, the
+        // floor would have nothing to exclude, and removing the floor would leave this test green --
+        // vacuity one level up from the loop guard below.
+        await AskAsync(
+            forum.Client,
+            "floor-" + Guid.NewGuid().ToString("N")[..8],
+            "Yesterday's harbour timetable",
+            "Ferries, tide tables, and the harbourmaster's revised timetable for yesterday.",
+            ct);
 
-        Assert.Empty(found.RootElement.GetProperty("results").EnumerateArray());
-        Assert.False(
-            found.RootElement.TryGetProperty("next_cursor", out var c) && c.ValueKind == JsonValueKind.String);
+        using var found = await SearchAsync(forum.Client, "q=" + phrase.Replace(" ", "%20", StringComparison.Ordinal) + "&why=true", ct);
+
+        // Read the floor from the response rather than restating it: R9.22 requires it be published,
+        // and a test carrying its own copy is a second place for it to drift.
+        var floorBp = found.RootElement.GetProperty("min_cosine_bp").GetInt32();
+        Assert.True(floorBp > 0, "the response does not publish min_cosine_bp");
+
+        var vectorRanked = 0;
+        foreach (var hit in found.RootElement.GetProperty("results").EnumerateArray())
+        {
+            if (!hit.GetProperty("why_ranked").TryGetProperty("vector", out var vector)
+                || vector.ValueKind is JsonValueKind.Null)
+            {
+                continue;   // fused in on the lexical channel alone; the floor has nothing to say about it
+            }
+
+            vectorRanked++;
+            var cosineBp = vector.GetProperty("cosine_bp").GetInt32();
+            Assert.True(
+                cosineBp >= floorBp,
+                $"a vector neighbour was admitted at cosine {cosineBp} bp, below the published floor "
+                + $"of {floorBp} bp. R9.22's floor is what keeps a query that matches nothing from "
+                + "fusing a page of noise and calling it a result.");
+        }
+
+        Assert.True(
+            vectorRanked > 0,
+            "no result was vector-ranked, so the assertion above ran zero times and proved nothing. "
+            + "That is a defect in this test, not in the floor.");
     }
 
     /// <summary>Appends a withholding action through the host's own store; no route creates one.</summary>
