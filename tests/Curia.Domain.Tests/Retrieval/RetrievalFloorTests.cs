@@ -12,11 +12,19 @@ namespace Curia.Domain.Tests.Retrieval;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class RetrievalFloorTests
 {
+    /// <summary>
+    /// Entry G12 reverses R10.2's V1 for the MCP tool: the published default is V0 on every modelled
+    /// surface, and the floor is a criterion of the search request rather than a level the
+    /// specification supplies. Asserted over every surface the enum models rather than the two named
+    /// here, so a third surface added later cannot arrive with a default nobody chose.
+    /// </summary>
     [Fact]
-    public void R10_2_ThePublishedDefaultsAreV0ForRestAndV1ForTheMcpTool()
+    public void R10_2_ThePublishedDefaultIsV0OnEveryModelledSurface()
     {
-        Assert.Equal(VerificationLevel.V0, RetrievalFloorPolicy.PublishedFloor(RetrievalSurface.RestSearch));
-        Assert.Equal(VerificationLevel.V1, RetrievalFloorPolicy.PublishedFloor(RetrievalSurface.McpSearch));
+        foreach (var surface in Enum.GetValues<RetrievalSurface>())
+        {
+            Assert.Equal(VerificationLevel.V0, RetrievalFloorPolicy.PublishedFloor(surface));
+        }
     }
 
     [Fact]

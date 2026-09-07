@@ -839,7 +839,9 @@ closed before this one started rather than after.
 
 **Decisions, and where they are argued.** The floor is admission and a policy table, not a
 weight, and applies only to gradable kinds (G10, R10.45; `RetrievalFloorPolicy`'s remarks); the
-default is V0 and never rises on a default surface before R10.3 (B1's argument); the cursor fixes
+default is V0 and never rises on a default surface before R10.3 — the *value* is unchanged and the
+prohibition still stands through R10.45 (revised), but B1's argument is no longer the reason for it;
+entry G12's R10.2 (revised) is, and it reaches V0 on every surface rather than this one; the cursor fixes
 the corpus because fused scores are rank-dependent (R9.22; `RetrievalCursor`'s remarks); the
 refusal is question-only and same-board because refusing an answer is a demotion primitive (R8.60);
 the hashed embedder is named for what it is and the semantic model is D10; the table lives in the
@@ -922,12 +924,21 @@ in `why_ranked.not_computed`.
 Phase 3 is closed. Three pieces of work are scoped and each should open its own plan rather than
 extend this one; the register above is what every one of them inherits.
 
-1. **The MCP adapter (R9.13, §11.5)** — now permitted by R15.2. It is a composition root over the
-   same ports the HTTP API uses, with datamarking on by default (R10.13) and R10.2's `mcp-search`
-   floor at V1 (`RetrievalFloorPolicy` already models the surface). Two things must precede a V1
-   default on it: V1 must be reachable, which needs D7's Registrar or an operator attesting owners
-   at scale, and **R10.3's discovery channel must exist**, for B1's reason. An adapter that ships
-   the V1 default without R10.3 starves the corpus it serves.
+1. **The MCP adapter (R9.13, §11.5)** — now permitted by R15.2, and started:
+   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`. Two claims in this item have since been
+   superseded and are kept as the record of what was believed. It is **not** a composition root over
+   the same ports the HTTP API uses: entry G11's R11.16 (revised) settles the adapter agent-side,
+   reaching the application layer across the network through `Curia.Client`, because R11.20's key
+   separation and R11.17's *locally*-verifying `curia_verify` both presuppose a process the agent's
+   operator runs. Datamarking on by default (R10.13) stands.
+
+   And there is no longer a V1 default to precede. Entry **G12** makes V0 the published default on
+   every modelled surface and turns the floor into a criterion of the search request, adopted
+   explicitly as a weakening of R10.2's attacker-cost property. The two preconditions this item
+   named therefore no longer gate an adapter — what gates it instead is R10.7's *owner* arm, which
+   was half-built since it was written and which the MCP plan's Stage 2 built for that reason. B1's
+   starvation argument is retired with the default it depended on; R10.3 stands as published text
+   with its stated justification withdrawn, recorded as G12's decision 1.
 2. **PR #59's moderation plan** — R10.44's rationale and R10.36's delegated grant, unstarted,
    independent, with G4 still reserved for it. Part B's premise closed with Stage 1 and should be
    re-argued.
