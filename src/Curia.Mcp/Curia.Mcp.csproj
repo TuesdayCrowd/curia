@@ -25,6 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.Core" />
     <ProjectReference Include="../Curia.Client/Curia.Client.csproj" />
   </ItemGroup>
 

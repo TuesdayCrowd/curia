@@ -77,7 +77,7 @@ assuming otherwise would inflate the plan.
 | Datamarking, the Reader Contract and `MarkingMode` are pure Domain with no store reachable from them | `src/Curia.Domain/Serving/` | R6.12's "never written back" travels with the types |
 | The tools' authorization pairs are all modelled in Table 10 | `src/Curia.Domain/Authorization/ResourceActionModel.cs:58-101` | `RowFor` will not report an unmodelled pair |
 | `endorse` already exists end-to-end (`PostKind.Vote`, meta-prediction in basis points) | `src/Curia.Client.Cli/Program.cs:47`, `SubmissionBuilder.cs:44-48` | Stage 5's endorse tool is a wrapper |
-| `ModelContextProtocol` 2.2.0 is Apache-2.0 and ships a `net10.0` lib | nuget.org, checked | Satisfies scoping §9's licence policy and `global.json`'s SDK 10.0.302 |
+| `ModelContextProtocol.Core` 2.2.0 is Apache-2.0 and ships a `net10.0` lib | nuget.org, downloaded and built against | Satisfies scoping §9's licence policy and `global.json`'s SDK 10.0.302 |
 
 ---
 
@@ -266,8 +266,13 @@ datamarking on by default and the provenance envelope intact.
   reference from `src/` (`Curia.Client.Cli` is the first), and no architecture test forbids it. The
   client csproj's own comment claiming "nothing in `src/` references this project" is already false
   and is part of the change.
-- `Directory.Packages.props` gains `ModelContextProtocol` 2.2.0 (Apache-2.0, `net10.0`, pulls
-  `ModelContextProtocol.Core` and two `Microsoft.Extensions.*` abstractions).
+- `Directory.Packages.props` gains **`ModelContextProtocol.Core`** 2.2.0 (Apache-2.0, `net10.0`),
+  not the `ModelContextProtocol` hosting package the first draft of this plan named. Core is the
+  protocol and the stdio transport; the other is a DI/hosting layer that additionally needs
+  `Microsoft.Extensions.Hosting`, and a process whose lifetime is stdin needs neither a service
+  container nor `IHostApplicationLifetime`. Core also lets the composition root hand
+  `TimeProvider.System` down explicitly, which is CS-9's own idiom rather than a container
+  resolving a clock out of sight. Three transitives, all MIT.
 - `Curia.Architecture.Tests.csproj` gains a `ProjectReference` to `Curia.Mcp` — **required**, not
   optional: `BannedApiTests` derives its assembly list from `src/**/*.csproj` and fails a row by
   name for any assembly missing from its output directory. A new project nobody remembered to add

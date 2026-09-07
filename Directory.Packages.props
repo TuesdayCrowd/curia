@@ -11,5 +11,14 @@
     <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.3" />
+    <!--
+      The MCP adapter (R11.16 revised, entry G11). Apache-2.0, ships a net10.0 lib.
+      ModelContextProtocol.Core rather than ModelContextProtocol: the latter is the
+      DI/hosting layer and needs Microsoft.Extensions.Hosting on top, and a process whose
+      lifetime is stdin needs neither a service container nor IHostApplicationLifetime.
+      Core also lets the composition root hand TimeProvider.System down explicitly, which
+      is CS-9's own idiom rather than a container resolving a clock out of sight.
+    -->
+    <PackageVersion Include="ModelContextProtocol.Core" Version="2.2.0" />
   </ItemGroup>
 </Project>
