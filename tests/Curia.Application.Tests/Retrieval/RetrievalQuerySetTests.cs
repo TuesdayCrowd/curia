@@ -187,7 +187,7 @@ public sealed class RetrievalQuerySetTests
         var failures = new List<string>();
         foreach (var canary in Lines("canaries.jsonl"))
         {
-            var query = new SearchQuery(canary.GetProperty("query").GetString(), null, null, [], null, null, null, 10);
+            var query = new SearchQuery(canary.GetProperty("query").GetString(), null, [], [], null, null, null, 10);
             var page = Require(await search.SearchAsync(log, RetrievalSurface.RestSearch, query, fold, ct));
             var ids = page.Results.Select(r => r.Post.PostId).ToList();
             var rank = ids.IndexOf(canary.GetProperty("expected").GetString()!) + 1;

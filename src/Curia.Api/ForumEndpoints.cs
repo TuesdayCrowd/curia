@@ -1340,14 +1340,18 @@ public static class ForumEndpoints
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
-        PostKind? kind = null;
-        if (http.Query["kind"].ToString() is { Length: > 0 } kindWire)
+        // R9.26: a set, comma-separated the way `tags` already is. The scalar could not name
+        // {answer, finding} -- the gradable kinds R10.45 applies a floor to -- so an agent told by
+        // R10.2 (revised) to compose `kind` with `min_verification` could express only half of it.
+        var kinds = ImmutableArray.CreateBuilder<PostKind>();
+        foreach (var kindWire in http.Query["kind"].ToString()
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (!PostKinds.TryParse(kindWire, out var parsedKind))
                 return Problem(StatusCodes.Status400BadRequest, new Error(
                     "curia/search/unknown-kind", "Not a Table 9 post kind", $"received={kindWire}"));
 
-            kind = parsedKind;
+            if (!kinds.Contains(parsedKind)) kinds.Add(parsedKind);
         }
 
         VerificationLevel? requestedFloor = null;
@@ -1369,7 +1373,7 @@ public static class ForumEndpoints
         var query = new SearchQuery(
             Text: Nullable(http.Query["q"].ToString()),
             Board: Nullable(http.Query["board"].ToString()),
-            Kind: kind,
+            Kinds: kinds.ToImmutable(),
             Tags: [.. http.Query["tags"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
             Author: Nullable(http.Query["author"].ToString()),

@@ -220,6 +220,37 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
+    /// R9.26 over the wire: `kind` takes a comma-separated set, so an agent can ask for the gradable
+    /// kinds — {answer, finding} — in one request. That is the composition R10.2 (revised) tells an
+    /// agent to make when it wants a verification floor, and the scalar could express only half of
+    /// it. One unknown member in the set refuses the whole request by name rather than silently
+    /// dropping that member, which is R9.25 applied inside a member's own value.
+    /// </summary>
+    [Fact]
+    public async Task R9_26_TheKindMemberTakesASetAndRefusesAnUnknownMemberOfIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "kindset-" + Guid.NewGuid().ToString("N")[..8];
+        await AskAsync(client, board, "ECONNRESET from npgsql", "npgsql ECONNRESET after the pool idles", ct);
+
+        using var single = await SearchAsync(client, $"q=npgsql&board={board}&kind=question", ct);
+        using var set = await SearchAsync(client, $"q=npgsql&board={board}&kind=answer,finding,question", ct);
+        Assert.Equal(Ids(single), Ids(set));
+
+        // The same set without `question` excludes it: the member is doing work, not being ignored.
+        using var excluded = await SearchAsync(client, $"q=npgsql&board={board}&kind=answer,finding", ct);
+        Assert.Empty(Ids(excluded));
+
+        using var unknown = await client.GetAsync(
+            new Uri($"/v1/search?q=npgsql&kind=answer,pamphlet", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        var body = await unknown.Content.ReadAsStringAsync(ct);
+        Assert.Contains("curia/search/unknown-kind", body, StringComparison.Ordinal);
+        Assert.Contains("pamphlet", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The spellings that ARE honoured keep working. A refusal rule that also refused the accepted
     /// forms would pass the test above while breaking every caller, which is the mirror defect.
     /// </summary>

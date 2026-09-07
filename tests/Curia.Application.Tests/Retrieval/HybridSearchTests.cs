@@ -28,7 +28,7 @@ public sealed class HybridSearchTests
     }
 
     private static SearchQuery Query(string? text, int limit = 25, RetrievalCursor? cursor = null, VerificationLevel? floor = null, PostKind? kind = null) =>
-        new(text, null, kind, [], null, floor, cursor, limit);
+        new(text, null, kind is { } k ? [k] : [], [], null, floor, cursor, limit);
 
     private static async Task<SearchPage> SearchAsync(Harness h, SearchQuery query, CancellationToken ct, VerificationFold? verification = null)
     {

@@ -90,7 +90,7 @@ public sealed record SearchablePost(
 public sealed record LexicalQuery(
     string? Text = null,
     string? Board = null,
-    PostKind? Kind = null,
+    ImmutableArray<PostKind> Kinds = default,
     ImmutableArray<string> Tags = default,
     string? Author = null,
     SearchCursor? Cursor = null,
@@ -284,7 +284,12 @@ public static class LexicalSearch
         ArgumentNullException.ThrowIfNull(query);
 
         if (query.Board is { } board && !string.Equals(post.Board, board, StringComparison.Ordinal)) return false;
-        if (query.Kind is { } kind && post.Kind != kind) return false;
+        // R9.26: a set, and disjunctive where the tag filter is conjunctive. A post has many tags
+        // and exactly one kind, so "both tags" narrows and "either kind" is the only reading that is
+        // not empty by construction. An empty or defaulted set is no criterion at all, never "no
+        // kinds" -- R9.25 says a request naming no criterion returns everything the corpus matches.
+        var kindFilter = query.Kinds.IsDefault ? [] : query.Kinds;
+        if (!kindFilter.IsEmpty && !kindFilter.Contains(post.Kind)) return false;
         if (query.Author is { } author && !string.Equals(post.Author, author, StringComparison.Ordinal)) return false;
 
         // Tag filter is conjunctive: every named tag must be present. An agent narrowing by two

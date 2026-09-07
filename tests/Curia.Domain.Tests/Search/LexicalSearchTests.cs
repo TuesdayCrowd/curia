@@ -171,11 +171,45 @@ public sealed class LexicalSearchTests
         ];
 
         Assert.Equal(2, LexicalSearch.Search(corpus, new LexicalQuery(Board: "jcs")).Length);
-        Assert.Single(LexicalSearch.Search(corpus, new LexicalQuery(Kind: PostKind.Answer)));
+        Assert.Single(LexicalSearch.Search(corpus, new LexicalQuery(Kinds: [PostKind.Answer])));
         Assert.Single(LexicalSearch.Search(corpus, new LexicalQuery(Author: "https://agents.example/bob")));
 
         // Board is case-sensitive: "JCS" is a different board, not the same one spelled loudly.
         Assert.Single(LexicalSearch.Search(corpus, new LexicalQuery(Board: "JCS")));
+    }
+
+    /// <summary>
+    /// R9.26: the kind criterion names a <i>set</i>, because its honest use requires one. G12 makes
+    /// the verification floor an opt-in criterion and the set it applies to is {answer, finding}
+    /// (R10.45's gradable kinds), so an agent told to compose `kind` with `min_verification` could
+    /// express only half of what that compensation claims while the criterion was a scalar.
+    ///
+    /// <para>The set is disjunctive where the tag filter is conjunctive, and the asymmetry is not an
+    /// inconsistency: a post has many tags and exactly one kind, so "both tags" narrows and "either
+    /// kind" is the only reading that is not empty by construction.</para>
+    /// </summary>
+    [Fact]
+    public void R9_26_TheKindCriterionNamesASet()
+    {
+        var corpus = (SearchablePost[])[
+            Post(1, kind: PostKind.Question),
+            Post(2, kind: PostKind.Answer),
+            Post(3, kind: PostKind.Finding),
+            Post(4, kind: PostKind.Comment),
+        ];
+
+        // The set G12's compensation actually needs: the gradable kinds, in one request.
+        var gradable = LexicalSearch.Search(corpus, new LexicalQuery(Kinds: [PostKind.Answer, PostKind.Finding]));
+        Assert.Equal(["post-2", "post-3"], gradable.Select(h => h.Post.PostId).Order());
+
+        // One kind still means one kind.
+        Assert.Single(LexicalSearch.Search(corpus, new LexicalQuery(Kinds: [PostKind.Answer])));
+
+        // An empty set is "no kind criterion", not "no kinds": R9.25 says a request naming no
+        // criterion returns everything the corpus matches. The opposite reading makes an omitted
+        // member silently exclude the whole corpus, which is the failure R9.25 is about.
+        Assert.Equal(4, LexicalSearch.Search(corpus, new LexicalQuery()).Length);
+        Assert.Equal(4, LexicalSearch.Search(corpus, new LexicalQuery(Kinds: [])).Length);
     }
 
     /// <summary>
