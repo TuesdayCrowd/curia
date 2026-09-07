@@ -25,6 +25,9 @@ namespace Curia.Mcp;
 /// </summary>
 internal static class ToolCatalogue
 {
+    /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
+    internal const string Version = "0.1.0";
+
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
         ArgumentNullException.ThrowIfNull(tools);
