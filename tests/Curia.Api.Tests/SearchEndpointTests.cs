@@ -197,6 +197,48 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         Assert.Contains("curia/search/unsupported-filter", await unsupported.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// R9.25's three silently-degrading members. Each was accepted and then quietly not honoured,
+    /// which an agent cannot detect: a correctly filtered page and an unfiltered page it believes
+    /// was filtered are the same document. `/v1/search` already refused `verification`,
+    /// `environment_version` and an out-of-range `limit` on exactly this reasoning; these three were
+    /// the members the local convention had not reached.
+    /// </summary>
+    [Theory]
+    [InlineData("cursor=not-a-cursor", "curia/search/cursor-malformed")]
+    [InlineData("marking=datamarking", "curia/serving/unknown-marking")]
+    [InlineData("why=yes", "curia/search/unknown-why")]
+    public async Task R9_25_AMemberTheForumCannotHonourIsRefusedByName(string parameter, string slug)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        using var response = await forum.Client.GetAsync(
+            new Uri($"/v1/search?q=jcs&{parameter}", UriKind.Relative), ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(slug, await response.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The spellings that ARE honoured keep working. A refusal rule that also refused the accepted
+    /// forms would pass the test above while breaking every caller, which is the mirror defect.
+    /// </summary>
+    [Theory]
+    [InlineData("marking=datamark")]
+    [InlineData("marking=delimiters")]
+    [InlineData("why=true")]
+    [InlineData("why=1")]
+    [InlineData("")]
+    public async Task R9_25_TheHonouredSpellingsAreUnaffected(string parameter)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        using var response = await forum.Client.GetAsync(
+            new Uri($"/v1/search?q=jcs&{parameter}", UriKind.Relative), ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     /// <summary>R9.8 / R8.36 (errata G10): every computed term, recombining exactly; every absent term named.</summary>
     [Fact]
     public async Task R9_8_WhyRankedRecombinesAndNamesWhatItDoesNotCompute()

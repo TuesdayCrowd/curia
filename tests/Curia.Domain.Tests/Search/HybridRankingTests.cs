@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Domain.Content;
+using System.Text;
+using Curia.Domain.Primitives;
 using Curia.Domain.Search;
 using Curia.Domain.Verification;
 using Xunit;
@@ -13,6 +15,9 @@ namespace Curia.Domain.Tests.Search;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class HybridRankingTests
 {
+    private static T Require<T>(Result<T> result) =>
+        result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+
     private static SearchablePost Post(string id, PostKind kind = PostKind.Answer, string author = "agent://a", long seq = 0, string? duplicateOf = null, string? owner = null) =>
         new(id, "sha256:" + id.PadRight(64, '0'), "board", kind, id, "body of " + id, [], author, seq == 0 ? id.GetHashCode(StringComparison.Ordinal) & 0xffff : seq, duplicateOf, owner);
 
@@ -166,10 +171,45 @@ public sealed class HybridRankingTests
     public void R9_7_TheCursorCarriesTheCorpusBoundAndRoundTrips()
     {
         var cursor = new RetrievalCursor(184223, 50);
-        Assert.Equal(cursor, RetrievalCursor.Decode(cursor.Encode()));
-        Assert.Null(RetrievalCursor.Decode(null));
-        Assert.Null(RetrievalCursor.Decode("not base64!"));
-        Assert.Null(RetrievalCursor.Decode(Convert.ToBase64String("5:3"u8.ToArray())));
-        Assert.Null(RetrievalCursor.Decode(Convert.ToBase64String("c-1:3"u8.ToArray())));
+        Assert.Equal(cursor, Assert.IsType<RetrievalCursor>(Require(RetrievalCursor.Decode(cursor.Encode()))));
+        Assert.Null(Require(RetrievalCursor.Decode(null)));
+        Assert.Null(Require(RetrievalCursor.Decode("   ")));
+    }
+
+    /// <summary>
+    /// R9.25 reverses this type's written decision that "a malformed cursor reads as start from the
+    /// beginning". Absent and malformed are different requests and were the same value, so a
+    /// continuation silently became a first page. The cost is specific: the cursor carries R9.22's
+    /// corpus bound, so dropping it re-evaluates against a different corpus than R9.22 requires
+    /// while the response reports the new bound as though it had always been the bound. And a caller
+    /// who never mints a cursor cannot produce a malformed one by any route but corruption or
+    /// forgery, so the recoverable-first-page argument protects nobody who exists.
+    /// </summary>
+    [Theory]
+    [InlineData("not base64!")]
+    [InlineData("BQ==")]
+    public void R9_25_AMalformedCursorIsRefusedRatherThanReadAsTheFirstPage(string encoded)
+    {
+        var result = RetrievalCursor.Decode(encoded);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/search/cursor-malformed", error!.Type);
+
+        // The refusal names the member and echoes no cursor value: a cursor a caller did not mint
+        // is evidence of corruption or forgery, and quoting it back is quoting an attacker.
+        Assert.Contains("cursor", error.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(encoded, error.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain(encoded, error.Detail ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("5:3")]      // no 'c' marker
+    [InlineData("c-1:3")]    // negative bound
+    [InlineData("c5")]       // no separator
+    [InlineData("c5:x")]     // offset not a number
+    public void R9_25_AStructurallyWrongCursorIsRefusedToo(string plain)
+    {
+        var result = RetrievalCursor.Decode(Convert.ToBase64String(Encoding.ASCII.GetBytes(plain)));
+        Assert.False(result.TryGetValue(out _, out _));
     }
 }

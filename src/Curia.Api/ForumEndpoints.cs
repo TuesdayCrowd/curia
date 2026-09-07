@@ -896,10 +896,13 @@ public static class ForumEndpoints
         // while the signed bytes do not, and a digest-keyed tag answered "unchanged" to exactly the
         // questions a citing agent asks -- see EntityTags. Serialised here, once, so the tag and the
         // body are computed from the same bytes and cannot disagree.
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
+
         var standings = AgentStandingProjector.Fold(log);
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
-                post, standings, MarkingFrom(http), ReaderContractUrl(http),
+                post, standings, marking, ReaderContractUrl(http),
                 AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable), ActaOf(log)),
             json.Value.SerializerOptions);
 
@@ -978,7 +981,8 @@ public static class ForumEndpoints
         var servable = Servable(log);
         var standings = AgentStandingProjector.Fold(log);
         var accepted = AcceptanceProjector.Fold(log);
-        var marking = MarkingFrom(http);
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
 
         var verification = VerificationProjector.Fold(posts, standings, servable);
@@ -1019,10 +1023,13 @@ public static class ForumEndpoints
         var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
 
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
+
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
             : Results.Ok(thread
-                .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification, acta))
+                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, acta))
                 .ToArray());
     }
 
@@ -1044,9 +1051,12 @@ public static class ForumEndpoints
 
         // Discussion only: a vote is never served (R8.55) and a verification report is read on its
         // result's envelope, not listed beside the conversation (R8.59).
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
+
         return Results.Ok(posts
             .Where(p => p.Board == board && servable(p.PostId) && Discussion(p))
-            .Select(p => ToResponse(p, standings, MarkingFrom(http), ReaderContractUrl(http), accepted, verification, acta))
+            .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, acta))
             .ToArray());
     }
 
@@ -1256,7 +1266,8 @@ public static class ForumEndpoints
         var verification = VerificationProjector.Fold(views, standings, servable);
         var accepted = AcceptanceProjector.Fold(log);
         var acta = ActaOf(log);
-        var marking = MarkingFrom(http);
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
 
         var answers = views
@@ -1347,6 +1358,14 @@ public static class ForumEndpoints
             requestedFloor = parsedFloor;
         }
 
+        // R9.25: absent and malformed are different requests, and were the same value. A cursor
+        // carries R9.22's corpus bound, so reading a malformed one as "start from the beginning"
+        // re-evaluates a continuation against a different corpus while the response reports the new
+        // bound as though it had always been the bound -- which the caller cannot see, because a
+        // continued page and a first page it believes was continued are the same document.
+        if (!RetrievalCursor.Decode(http.Query["cursor"].ToString()).TryGetValue(out var cursor, out var cursorError))
+            return Problem(StatusCodes.Status400BadRequest, cursorError!);
+
         var query = new SearchQuery(
             Text: Nullable(http.Query["q"].ToString()),
             Board: Nullable(http.Query["board"].ToString()),
@@ -1355,7 +1374,7 @@ public static class ForumEndpoints
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
             Author: Nullable(http.Query["author"].ToString()),
             RequestedFloor: requestedFloor,
-            Cursor: RetrievalCursor.Decode(http.Query["cursor"].ToString()),
+            Cursor: cursor,
             Limit: limit);
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
@@ -1364,7 +1383,8 @@ public static class ForumEndpoints
         var standings = AgentStandingProjector.Fold(log);
         var verification = VerificationProjector.Fold(views, standings, Servable(log));
         var acta = ActaOf(log);
-        var marking = MarkingFrom(http);
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
         var acceptedByThread = AcceptanceProjector.Fold(log);
 
@@ -1374,7 +1394,16 @@ public static class ForumEndpoints
 
         // R9.8: "when requested". Off by default because R8.36's purpose is auditing rather than
         // decoration, and a field on every response is one every client learns to ignore.
-        var wantsWhy = http.Query["why"].ToString() is "true" or "1";
+        // R9.25: every other spelling produced a response with no breakdown and no statement that
+        // one had been asked for, so `why=yes` read as `why` absent.
+        var whyWire = http.Query["why"].ToString();
+        if (whyWire is not ("" or "true" or "1" or "false" or "0"))
+            return Problem(StatusCodes.Status400BadRequest, new Error(
+                "curia/search/unknown-why",
+                "why takes true or false and is refused rather than ignored",
+                $"received={whyWire}; omit it, or send why=true to receive the R8.36 breakdown"));
+
+        var wantsWhy = whyWire is "true" or "1";
 
         var results = ImmutableArray.CreateBuilder<SearchHitResponse>();
         foreach (var hit in page!.Results)
@@ -1527,7 +1556,8 @@ public static class ForumEndpoints
         var verification = VerificationProjector.Fold(views, standings, Servable(log));
         var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
-        var marking = MarkingFrom(http);
+        if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
+            return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
 
         var results = ImmutableArray.CreateBuilder<PostResponse>();
@@ -1827,12 +1857,24 @@ public static class ForumEndpoints
     /// Forum on every read rather than applying it -- marking is a transformation of this
     /// boundary, and a client performing it would be performing it outside the boundary.
     /// </summary>
-    private static MarkingMode MarkingFrom(HttpRequest request) =>
+    private static Result<MarkingMode> MarkingFrom(HttpRequest request) =>
         request.Query["marking"].ToString() switch
         {
-            "datamark" => MarkingMode.Datamark,
-            "delimiters" => MarkingMode.DelimitersOnly,
-            _ => MarkingMode.None,
+            "" => Result<MarkingMode>.Ok(MarkingMode.None),
+            "datamark" => Result<MarkingMode>.Ok(MarkingMode.Datamark),
+            "delimiters" => Result<MarkingMode>.Ok(MarkingMode.DelimitersOnly),
+
+            // R10.51 / R9.25: an unmodelled spelling was mapped to MarkingMode.None, so a
+            // mis-typed request was served unmarked under an envelope that truthfully reported
+            // "marking": "None" -- which makes R10.13's default silently off and describes it as a
+            // deliberate choice. It returns a Result rather than a mode so that a seventh read path
+            // cannot be added without handling the refusal; a guard a caller may forget is the same
+            // silent degradation one level up.
+            var unknown => Result<MarkingMode>.Fail(new Error(
+                "curia/serving/unknown-marking",
+                "That is not a marking this Forum serves",
+                $"received={unknown}; the published request vocabulary is datamark, delimiters, or " +
+                "the member omitted for none (R10.12, R10.51)")),
         };
 
     /// <summary>
