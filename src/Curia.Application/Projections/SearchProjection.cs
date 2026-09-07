@@ -41,6 +41,15 @@ public static class SearchProjector
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
 
         var servable = FlagProjector.Fold(eventsInSeqOrder);
+
+        // R10.7's owner arm. The cap lives in HybridRanking.Diversify, but it can only group what
+        // this fold supplies: with the owner unset every post is its own owner and the owner cap
+        // degrades silently to the author cap it exists to reinforce -- which an adversary defeats
+        // by giving each post its own agent, since attest-owner binds one agent at a time and caps
+        // the agents an owner may hold at nothing. Folded here, once, for the same reason `servable`
+        // is: it is a property of the whole log rather than of one event, so TryRead cannot see it.
+        var standings = AgentStandingProjector.Fold(eventsInSeqOrder);
+
         var posts = ImmutableArray.CreateBuilder<SearchablePost>();
         var lastSeq = EventSequence.Zero;
 
@@ -60,7 +69,15 @@ public static class SearchProjector
 
             if (servable.TryGetValue(post.PostId, out var moderation) && !moderation.MayServe) continue;
 
-            posts.Add(post);
+            // OwnerVerified is deliberately not consulted. Only an operator can append an
+            // attestation (R4.30), so an owner id in the log is an operator's record that these
+            // agents share an owner whether or not the proof met R4.24's bar -- and a shared owner
+            // is exactly what diversification groups on. Reading the flag here would let an
+            // adversary avoid the cap by taking the weaker attestation.
+            posts.Add(post with
+            {
+                Owner = standings.TryGetValue(post.Author, out var standing) ? standing.OwnerId : null,
+            });
         }
 
         return posts.ToImmutable();

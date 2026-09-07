@@ -128,8 +128,9 @@ public static class HybridRanking
 
     /// <summary>
     /// R10.7 and R10.6 as one pass over the ranked list. Within each page-sized window, a post is
-    /// deferred -- moved behind the rest, never dropped -- when its author already holds
-    /// <see cref="MaximumAuthorShare"/> of the window, or when it is annotated as a possible
+    /// deferred -- moved behind the rest, never dropped -- when its author or its author's
+    /// attested owner already holds <see cref="MaximumAuthorShare"/> of the window, or when it is
+    /// annotated as a possible
     /// duplicate of a post already placed in the window (or that post of it). A retrieval that
     /// hands k passages from one source to a reader has handed one actor the reader's whole
     /// context, which is the precondition reader-side defenses need not to hold.
@@ -146,6 +147,7 @@ public static class HybridRanking
 
         var inWindow = 0;
         var authorsInWindow = new Dictionary<string, int>(StringComparer.Ordinal);
+        var ownersInWindow = new Dictionary<string, int>(StringComparer.Ordinal);
         var digestsInWindow = new HashSet<string>(StringComparer.Ordinal);
         var duplicatesOfInWindow = new HashSet<string>(StringComparer.Ordinal);
 
@@ -155,15 +157,24 @@ public static class HybridRanking
             {
                 inWindow = 0;
                 authorsInWindow.Clear();
+                ownersInWindow.Clear();
                 digestsInWindow.Clear();
                 duplicatesOfInWindow.Clear();
             }
 
             var author = candidate.Post.Author;
+
+            // An unattested author is its own owner. Grouping every ownerless post under one key
+            // would defer unrelated authors as though they had colluded, which is wider than the
+            // evidence; this way the owner cap is never weaker than the author cap and never
+            // claims a relationship the log does not record.
+            var owner = candidate.Post.Owner ?? author;
             var digest = candidate.Post.Digest;
             var duplicateOf = candidate.Post.PossibleDuplicateOf;
 
-            var overShare = authorsInWindow.TryGetValue(author, out var count) && count >= cap;
+            var overAuthorShare = authorsInWindow.TryGetValue(author, out var count) && count >= cap;
+            var overOwnerShare = ownersInWindow.TryGetValue(owner, out var ownerCount) && ownerCount >= cap;
+            var overShare = overAuthorShare || overOwnerShare;
             var duplicatesPlaced = (duplicateOf is not null && digestsInWindow.Contains(duplicateOf)) || duplicatesOfInWindow.Contains(digest);
 
             if (overShare || duplicatesPlaced)
@@ -175,6 +186,7 @@ public static class HybridRanking
             placed.Add(candidate);
             inWindow++;
             authorsInWindow[author] = count + 1;
+            ownersInWindow[owner] = ownerCount + 1;
             digestsInWindow.Add(digest);
             if (duplicateOf is not null) duplicatesOfInWindow.Add(duplicateOf);
         }

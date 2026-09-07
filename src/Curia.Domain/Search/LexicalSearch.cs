@@ -12,6 +12,14 @@ namespace Curia.Domain.Search;
 /// a read model looks like. Application maps its view onto this.</para>
 /// </summary>
 /// <param name="Digest">R9.10's batch-retrieval key, carried so a result can be re-fetched by digest.</param>
+/// <param name="Owner">
+/// The author's attested owner (R4.30), where one is known. R10.7 diversifies on "a single author
+/// <i>or owner</i>", and the owner arm is the half that survives an adversary giving each post its
+/// own agent -- <c>attest-owner</c> binds one agent at a time and caps the number of agents an
+/// owner may hold at nothing. Null where the author has no attestation, which
+/// <see cref="HybridRanking.Diversify"/> reads as the author being its own owner: never wider than
+/// the evidence, and never weaker than the author cap.
+/// </param>
 public sealed record SearchablePost(
     string PostId,
     string Digest,
@@ -22,7 +30,8 @@ public sealed record SearchablePost(
     ImmutableArray<string> Tags,
     string Author,
     long Sequence,
-    string? PossibleDuplicateOf = null)
+    string? PossibleDuplicateOf = null,
+    string? Owner = null)
 {
     /// <summary>
     /// Structural equality, spelled out rather than left to the compiler because
@@ -46,6 +55,7 @@ public sealed record SearchablePost(
         && string.Equals(Title, other.Title, StringComparison.Ordinal)
         && string.Equals(Body, other.Body, StringComparison.Ordinal)
         && string.Equals(Author, other.Author, StringComparison.Ordinal)
+        && string.Equals(Owner, other.Owner, StringComparison.Ordinal)
         && Sequence == other.Sequence
         && Tags.SequenceEqual(other.Tags);
 
@@ -59,9 +69,9 @@ public sealed record SearchablePost(
         Body,
         Author,
 
-        // Sequence and the tag count folded together: a hash has only to agree with Equals on the
-        // values that are equal, and Combine takes eight arguments.
-        HashCode.Combine(Sequence, Tags.Length));
+        // Sequence, the owner and the tag count folded together: a hash has only to agree with
+        // Equals on the values that are equal, and Combine takes eight arguments.
+        HashCode.Combine(Sequence, Owner, Tags.Length));
 }
 
 /// <summary>

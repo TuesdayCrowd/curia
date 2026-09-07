@@ -1,12 +1,14 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Curia.Application.Credentials;
 using Curia.Application.Projections;
 using Curia.Application.Tests.InMemory;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Content;
+using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
@@ -42,12 +44,12 @@ public sealed class SearchProjectorTests
         Require(await store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct).ConfigureAwait(false));
 
     /// <summary>A Table 9 envelope, canonicalized the way ingest canonicalizes one.</summary>
-    private static string Canonical(string title, string body, string board, string[] tags)
+    private static string Canonical(string title, string body, string board, string[] tags, string author = Author)
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
         members.Add(new("kind", new JsonValue.String(PostKinds.Wire(PostKind.Question))));
-        members.Add(new("author", new JsonValue.String(Author)));
+        members.Add(new("author", new JsonValue.String(author)));
         members.Add(new("board", new JsonValue.String(board)));
         members.Add(new("title", new JsonValue.String(title)));
         members.Add(new("body", new JsonValue.String(body)));
@@ -69,15 +71,16 @@ public sealed class SearchProjectorTests
         string title = "Member ordering in JCS",
         string body = "How does JCS order object members?",
         string board = "canonicalization",
-        string[]? tags = null)
+        string[]? tags = null,
+        string author = Author)
     {
         var payload = new JsonValue.Object(
         [
             new("post_id", new JsonValue.String(postId)),
-            new("canonical", new JsonValue.String(Canonical(title, body, board, tags ?? ["jcs"]))),
+            new("canonical", new JsonValue.String(Canonical(title, body, board, tags ?? ["jcs"], author))),
             new("signature", new JsonValue.String("sig")),
             new("digest", new JsonValue.String($"sha-256:{postId}")),
-            new("author", new JsonValue.String(Author)),
+            new("author", new JsonValue.String(author)),
             new("board", new JsonValue.String(board)),
             new("kind", new JsonValue.String("question")),
         ]);
@@ -88,7 +91,7 @@ public sealed class SearchProjectorTests
             [new DomainEvent(
                 Require(EventId.Create(postId)),
                 Require(EventType.Create(PostProjector.PostAcceptedType)),
-                Require(ActorId.Create(Author)),
+                Require(ActorId.Create(author)),
                 payload)],
             ct).ConfigureAwait(false));
     }
@@ -234,5 +237,56 @@ public sealed class SearchProjectorTests
         // pass for a projection whose equality is vacuously true.
         await AcceptAsync(store, "01JPOST3", ct);
         Assert.NotEqual(SearchProjector.Fold(log), SearchProjector.Fold(await LogAsync(store, ct)));
+    }
+    /// <summary>
+    /// R10.7 diversifies on "a single author <i>or owner</i>", and the owner arm is the half an
+    /// adversary cannot defeat by giving each post its own agent. The cap lives in
+    /// <c>HybridRanking.Diversify</c>, but it can only see what this projection supplies: with the
+    /// owner unset every post is its own owner and the cap silently degrades to the author cap it
+    /// was written to reinforce. G12 makes the owner arm the precondition for reversing R10.2's
+    /// default floor, so an inert one is not a smaller version of the control — it is none of it.
+    /// </summary>
+    [Fact]
+    public async Task R10_7_AnAttestedAuthorsPostCarriesItsOwner()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Author, "alice-1", ct));
+        Require(await new AttestOwner(store, clock).RecordAsync(
+            Author,
+            Require(OwnerId.Create("https://owners.example/acme")),
+            true,
+            OwnerVerificationMethod.Manual,
+            "reviewed by an operator",
+            Require(ActorId.Create("operator:fixture")),
+            ct));
+        await AcceptAsync(store, "post-owned", ct);
+
+        var corpus = SearchProjector.Fold(await LogAsync(store, ct));
+
+        var post = Assert.Single(corpus);
+        Assert.Equal("https://owners.example/acme", post.Owner);
+    }
+
+    /// <summary>
+    /// An author with no attestation has no owner, and the projection says so rather than inventing
+    /// one. <c>Diversify</c> reads null as "its own owner", which keeps the cap from claiming a
+    /// relationship the log does not record.
+    /// </summary>
+    [Fact]
+    public async Task R10_7_AnUnattestedAuthorsPostCarriesNoOwner()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Author, "alice-1", ct));
+        await AcceptAsync(store, "post-unowned", ct);
+
+        var corpus = SearchProjector.Fold(await LogAsync(store, ct));
+
+        Assert.Null(Assert.Single(corpus).Owner);
     }
 }

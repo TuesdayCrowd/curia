@@ -13,8 +13,8 @@ namespace Curia.Domain.Tests.Search;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class HybridRankingTests
 {
-    private static SearchablePost Post(string id, PostKind kind = PostKind.Answer, string author = "agent://a", long seq = 0, string? duplicateOf = null) =>
-        new(id, "sha256:" + id.PadRight(64, '0'), "board", kind, id, "body of " + id, [], author, seq == 0 ? id.GetHashCode(StringComparison.Ordinal) & 0xffff : seq, duplicateOf);
+    private static SearchablePost Post(string id, PostKind kind = PostKind.Answer, string author = "agent://a", long seq = 0, string? duplicateOf = null, string? owner = null) =>
+        new(id, "sha256:" + id.PadRight(64, '0'), "board", kind, id, "body of " + id, [], author, seq == 0 ? id.GetHashCode(StringComparison.Ordinal) & 0xffff : seq, duplicateOf, owner);
 
     private static SearchHit Lex(SearchablePost p, int score) => new(p, score, new RankExplanation(0, score, 0, score));
 
@@ -100,6 +100,51 @@ public sealed class HybridRankingTests
         Assert.Equal(["a1", "a2", "b1", "c1", "a3"], diversified.Select(r => r.Post.PostId));
         Assert.True(diversified[4].Deferred);
         Assert.All(diversified.Take(4), r => Assert.False(r.Deferred));
+    }
+
+    /// <summary>
+    /// R10.7's second arm: "dominated by content from a single author <b>or owner</b>". The author
+    /// arm alone is defeated by giving each post its own agent, and an owner may attest any number
+    /// of agents to itself (<c>attest-owner</c> is per agent, with no cap). G12 makes this the
+    /// precondition for reversing R10.2's default floor, because the floor was the only other
+    /// control on the default read path that forced an adversary across an owner boundary.
+    /// </summary>
+    [Fact]
+    public void R10_7_OneOwnerCannotHoldMoreThanHalfAPageAcrossDistinctAuthors()
+    {
+        // Three distinct authors, one owner -- the shape the author cap cannot see.
+        var a1 = Post("a1", author: "agent://a", owner: "owner://one", seq: 1);
+        var a2 = Post("a2", author: "agent://b", owner: "owner://one", seq: 2);
+        var a3 = Post("a3", author: "agent://c", owner: "owner://one", seq: 3);
+        var b1 = Post("b1", author: "agent://d", owner: "owner://two", seq: 4);
+        var c1 = Post("c1", author: "agent://e", owner: "owner://three", seq: 5);
+        var ranked = Rank([Lex(a1, 9), Lex(a2, 8), Lex(a3, 7), Lex(b1, 6), Lex(c1, 5)], []);
+
+        var diversified = HybridRanking.Diversify(ranked, pageSize: 4);
+
+        // Page of four, cap of two per owner: a3 is deferred behind b1 and c1, never dropped.
+        Assert.Equal(["a1", "a2", "b1", "c1", "a3"], diversified.Select(r => r.Post.PostId));
+        Assert.True(diversified[4].Deferred);
+        Assert.All(diversified.Take(4), r => Assert.False(r.Deferred));
+    }
+
+    /// <summary>
+    /// An unattested author has no owner, and grouping every such post under one null key would
+    /// defer unrelated authors as though they colluded. Falling back to the author makes the owner
+    /// cap never weaker than the author cap and never wider than the evidence.
+    /// </summary>
+    [Fact]
+    public void R10_7_AnUnattestedAuthorIsItsOwnOwner()
+    {
+        var a1 = Post("a1", author: "agent://a", seq: 1);
+        var b1 = Post("b1", author: "agent://b", seq: 2);
+        var c1 = Post("c1", author: "agent://c", seq: 3);
+        var ranked = Rank([Lex(a1, 9), Lex(b1, 8), Lex(c1, 7)], []);
+
+        // Three unattested authors are three owners: nothing is deferred.
+        var diversified = HybridRanking.Diversify(ranked, pageSize: 2);
+        Assert.Equal(["a1", "b1", "c1"], diversified.Select(r => r.Post.PostId));
+        Assert.All(diversified, r => Assert.False(r.Deferred));
     }
 
     [Fact]
