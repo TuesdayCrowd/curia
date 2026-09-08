@@ -86,50 +86,69 @@ public sealed class ToolDescriptionTests
     }
 
     /// <summary>
+    /// The Table 10 pair a tool's name maps to, and the tier sentence composed from it.
+    ///
+    /// <para>The map is the one thing here written by hand, and it is the mapping that genuinely
+    /// lives in <see cref="ToolCatalogue"/>. It is safe from the usual objection because
+    /// <c>TheCatalogueRegistersTheToolsThisStageBuilds</c> fails when the tool set changes, so a
+    /// further tool cannot slip past these theories by being absent from the map — that test names
+    /// it first. One map, used by every assertion below, so a tool cannot satisfy one of them by
+    /// being measured against another tool's span.</para>
+    /// </summary>
+    private static (ResourceKind Resource, ActionKind Action) PairFor(string name) => name switch
+    {
+        "curia_search" => (ResourceKind.Thread, ActionKind.Search),
+        "curia_read" => (ResourceKind.Thread, ActionKind.Read),
+
+        // curia_verify reads the post it is asked about; the Acta's routes are anonymous. There is
+        // no "verify" pair in Table 10 and inventing one would claim an authority boundary the
+        // Forum does not enforce (R11.26).
+        "curia_verify" => (ResourceKind.Thread, ActionKind.Read),
+        _ => throw new InvalidOperationException(
+            $"{name} has no Table 10 pair in this test's map. Add it, rather than letting the " +
+            "row pass without checking what the description claims about authority."),
+    };
+
+    private static string SpanFor(string name)
+    {
+        var (resource, action) = PairFor(name);
+        return TierSpan.For(resource, action);
+    }
+
+    /// <summary>
     /// R11.27: the tier sentence is the one substituted span, and it is <i>composed</i> from
     /// Table 10 rather than written into the description. A transcribed tier goes stale silently —
     /// F1 moved T1's tenure from seven days to forty-eight hours, and the agent-facing prose outside
     /// this repository still says "≥ 7 days".
-    ///
-    /// <para>The pair map below is the one thing here written by hand, and it is the mapping that
-    /// genuinely lives in <see cref="ToolCatalogue"/>. It is safe from the usual objection because
-    /// <c>TheCatalogueRegistersTheToolsThisStageBuilds</c> fails when the tool set changes, so a
-    /// ninth tool cannot slip past this theory by being absent from the map — the other test names
-    /// it first.</para>
     /// </summary>
     [Theory]
     [MemberData(nameof(Tools))]
-    public void R11_27_TheDescriptionEndsWithTheComposedTierSpan(string name, string description)
-    {
-        var (resource, action) = name switch
-        {
-            "curia_search" => (ResourceKind.Thread, ActionKind.Search),
-            "curia_read" => (ResourceKind.Thread, ActionKind.Read),
-
-            // curia_verify reads the post it is asked about; the Acta's routes are anonymous. There
-            // is no "verify" pair in Table 10 and inventing one would claim an authority boundary
-            // the Forum does not enforce (R11.26).
-            "curia_verify" => (ResourceKind.Thread, ActionKind.Read),
-            _ => throw new InvalidOperationException(
-                $"{name} has no Table 10 pair in this test's map. Add it, rather than letting the " +
-                "row pass without checking what the description claims about authority."),
-        };
-
-        Assert.EndsWith(TierSpan.For(resource, action), description, StringComparison.Ordinal);
-    }
+    public void R11_27_TheDescriptionEndsWithTheComposedTierSpan(string name, string description) =>
+        Assert.EndsWith(SpanFor(name), description, StringComparison.Ordinal);
 
     /// <summary>
-    /// R11.19's notice sits outside the substituted span, so a tier sentence that changes cannot
-    /// carry the notice away with it. Asserted by position: the notice appears before the span.
+    /// The notice sits outside the substituted span, so a tier sentence that changes cannot carry
+    /// the notice away with it.
+    ///
+    /// <para><b>Sliced by each tool's OWN span, which it was not.</b> This measured every
+    /// description against the length of the <i>read</i> tier sentence. That sentence is short
+    /// ("Requires no credential…"); a tool whose pair is not anonymous composes one roughly three
+    /// times longer. For such a tool the slice took an arbitrary suffix of the tier sentence, found
+    /// no notice in it, and passed — for a reason unrelated to what the test is named for. It was
+    /// invisible while all three registered tools happened to share the anonymous span.</para>
     /// </summary>
     [Theory]
     [MemberData(nameof(Tools))]
     public void R11_27_TheNoticeIsOutsideTheSubstitutedSpan(string name, string description)
     {
-        var span = description[^TierSpan.For(ResourceKind.Thread, ActionKind.Read).Length..];
+        var span = SpanFor(name);
+
+        // Non-vacuity: the description really does end with this tool's own composed span, so the
+        // slice below is the span rather than some suffix of the prose above it.
+        Assert.EndsWith(span, description, StringComparison.Ordinal);
+
         Assert.DoesNotContain(ToolText.UntrustedDataNotice, span, StringComparison.Ordinal);
         Assert.Contains(ToolText.UntrustedDataNotice, description, StringComparison.Ordinal);
-        Assert.False(string.IsNullOrWhiteSpace(name));
     }
 
     /// <summary>
