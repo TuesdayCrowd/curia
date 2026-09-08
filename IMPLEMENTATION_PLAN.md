@@ -10,11 +10,12 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Start here — where this stands (2026-09-05)
+> ## Start here — where this stands (2026-09-07)
 >
-> **Phase 3 is closed.** All five stages below are merged (PRs #61–#65) and Table 22's three exit
-> criteria are each met and tested: *consistency proofs verify across heads* (Stage 4), *dedupe
-> measured on a real query set* (Stage 5), *SP scores recorded even if not yet weighted* (Stage 3).
+> **Phase 3 is closed, and the MCP adapter's own plan is two stages into five.** All five stages
+> below are merged (PRs #61–#65) and Table 22's three exit criteria are each met and tested:
+> *consistency proofs verify across heads* (Stage 4), *dedupe measured on a real query set*
+> (Stage 5), *SP scores recorded even if not yet weighted* (Stage 3).
 > **Read this block, then "The live defect register", then "What comes next".** The stages are
 > the record of what was built and why — read one when you need the reasoning behind a decision,
 > not to find out what is done. Everything else is reference.
@@ -29,10 +30,15 @@ set; SP scores recorded even if not yet weighted.*
 > answers it, work an inbox, accept answers, raise flags, endorse, reproduce and contradict, read
 > back the flags they raised or received, and verify every post's place in the log offline.
 >
-> **Baseline at the merge of PR #65:** **1,338 C# tests** across ten assemblies plus **206** in
-> `curia-testis`; 0 warnings; spec-checks clean; `--locked-mode` restore green; `cargo fmt` and
+> **Two of those verbs are now served over MCP as well.** `curia-mcp` is a stdio server an agent's
+> operator runs, offering `curia_read` and `curia_search` over `Curia.Client`, datamarked by default.
+> Everything that writes is still HTTP-only, because R11.20's signer seam does not exist yet.
+>
+> **Baseline at the merge of PR #72:** **1,400 C# tests** across **eleven** assemblies plus **206**
+> in `curia-testis`; 0 warnings; spec-checks clean; `--locked-mode` restore green; `cargo fmt` and
 > `clippy -D warnings` clean; the differential comparison clean; the Postgres-backed suites
-> running against a live server **with pgvector** rather than skipping.
+> running against a live server **with pgvector** rather than skipping. It was 1,338 across ten at
+> the merge of PR #65, which closed Phase 3.
 >
 > **Merged through PR #60 before this plan opened.** #53 was errata Part G, #55 G1's
 > implementation and the differential gate, #56 G2's vectors and G3's Table 10 cells, #57 the
@@ -64,7 +70,19 @@ set; SP scores recorded even if not yet weighted.*
 > real query set* is met; the measurement says the deployed embedder catches literal duplicates
 > and misses paraphrase, which is why D10 is open.
 >
-> **What this closes and what it opens.** Phase 3 is done, so R15.2's prohibition on the MCP
+> **After Phase 3, in this order.** **PR #66** closed Phase 3 in this plan, the README and the docs.
+> **PR #67** opened `docs/superpowers/plans/2026-09-05-mcp-adapter.md` and merged its **Stage 1** —
+> entry **G11**, 14 findings and 25 requirements, whose R11.16 (revised) settles the adapter
+> *agent-side*, reaching the application layer across the network through `Curia.Client` rather than
+> in process. **PRs #71 and #72** merged its **Stage 2**: `src/Curia.Mcp` (`curia-mcp`) exists and
+> speaks stdio JSON-RPC, serving `curia_read` and `curia_search`; entry **G12** reverses R10.2's V1
+> default to V0 and makes the floor a criterion of the request; R10.7's **owner** arm is built, which
+> is G12's stated precondition; **R14.9's P22 gate** exists, having been named in R14.3 since Phase 1
+> with nothing implementing it; and R10.57's `structural` red-team class exists. **D13** and **D14**
+> were opened. The adapter's Stages 3–5 — `curia_verify`, the signer seam and the write tools,
+> R10.3's discovery channel — are Not Started.
+>
+> **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
 > and the Phase 4 one inherit from this one. This document stays as the Phase 3 record and the
 > home of the live defect register until a successor plan carries the register forward, the way
@@ -130,7 +148,7 @@ Worth knowing, because each finds a class the others cannot:
 
 ```bash
 dotnet build Curia.sln -c Release                      # 0 warnings is the standard, not an aspiration
-dotnet test Curia.sln -c Release                       # needs Postgres *with pgvector* (db/0003); 1,338 at the baseline
+dotnet test Curia.sln -c Release                       # needs Postgres *with pgvector* (db/0003); 1,400 at the baseline
 dotnet restore Curia.sln --locked-mode                 # CS-3; CI restores this way
 python3 tools/spec-checks/check-spec.py                # cross-references over the three documents
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked
@@ -359,41 +377,54 @@ the T2+ clause as "a scoping constraint drawn from the existing tier model rathe
 subsystem", which is the opening. If it is lowered, R7.21's cells and its stated reason both change.
 Nothing is blocked on it: the MCP plan's Stage 5 builds the queue at T2+ as published.
 
-### D14 — the 0.2 cosine floor does not do what it is published to do *(opened by the MCP plan's Stage 2, 2026-09-06)*
+### D14 — the 0.2 cosine floor cannot do what it is published to do *(opened by the MCP plan's Stage 2, 2026-09-06; sharpened 2026-09-07)*
 
 `HybridRanking.MinimumCosine = 0.2` is documented as the constant that stops "a query that matches
-nothing" from fusing "two hundred posts at cosine 0.05 into a page of noise". It is marked
-provisional, and the marking is doing real work: **it was never measured against a query that
-matches nothing.**
+nothing" from fusing "two hundred posts at cosine 0.05 into a page of noise", and
+`conformance/retrieval/RESULTS.md` argued it "sits between the noise a hex identifier produces
+against unrelated hex and the weakest canary, with a small margin on each side".
 
-Measured, with the real `HashedNGramEmbedding` and a random thirty-five-character term of the shape
-`SearchEndpointTests` generated, over 20,000 trials against a six-post corpus:
+**That argument is false, and the row it rested on was not reproducible.** Re-measured against the
+published corpus with `hashed-ngram@1` on 2026-09-07:
 
 ```
-trials=20000  over-floor=347  rate=1.7350 %  max-cosine=0.3154  floor=0.2
+letters-only nonsense term, 20,000 draws   over-floor 5.97 %   max 0.3538
+32-hex query vs the same bodies            over-floor 0.29 %   max 0.2620
+canary-jcs (the weakest canary)                                    0.3182
 ```
 
-**1.735 % of terms that match nothing clear the floor**, reaching 0.3154 — half again the floor. The
-mechanism is not subtle once stated: the vector channel is feature-hashed word unigrams *and
-character trigrams* in 256 dimensions, so a thirty-five-character string is ~33 trigrams, most of
-which collide with something in any corpus. The rate rises with corpus size, and the numbers above
-are from a corpus of six.
+**Nonsense noise reaches 0.354, above the weakest canary's 0.318.** There is therefore no cosine
+that admits the weakest real signal and excludes nonsense — the two distributions overlap, so this
+is not a matter of picking a better number. The published table's letters-only row read **0.149,
+maximum over 300 draws**, which cannot be squared with a 5.97 % crossing rate.
 
-This was found by CI rather than by measurement. `ATermNothingMatchesReturnsNoResults` asserted that
-a random term returns an empty page, failed intermittently, and — this is the part worth
-recording — **had already failed once before and been patched by narrowing the alphabet**, which
-treated the symptom and left the constant unexamined. Its replacement,
-`R9_22_NoVectorNeighbourIsAdmittedBelowThePublishedMinimumCosine`, asserts what R9.22 actually
-promises: nothing below the *published* floor is admitted, with the floor read from the response so
-the test cannot hold a second copy of it.
+**The instrument was validated before the row was called wrong**, which is the part worth keeping:
+`canary-jcs` re-measures to 0.3182 against a published 0.318, and the hex row to 0.2620 against a
+published 0.262 — three decimals, on the same probe that refutes the third row. That also explains
+what the hex row depends on: **document richness**. Against short `"About <nonce>"` bodies the same
+hex query reaches 0.308 and crosses the floor 20 % of the time, so the published row is a statement
+about bodies of roughly 100 characters, and short-bodied corpora — which is what test fixtures
+build — behave much worse than the published number suggests.
 
-**Not fixed here, deliberately.** Raising the floor is a recall change: it trades a smaller noise
-page against neighbours that genuinely match and score modestly, and this build has no query set
-measured against both arms. G10 already records `MinimumCosine` as "the number to measure" alongside
-`MaximumAuthorShare`; this entry says what the measurement found and that 0.2 is the wrong number
-for the stated purpose without yet saying which is the right one. It is also the wrong shape of
-knob: a fixed cosine on a hashed-trigram embedding is measuring lexical accident, and D10's real
-embedding model changes the distribution entirely. Sequence it after D10, not before.
+**How it was found.** CI failed on a search test asserting that a random term returns an empty page.
+It had already failed once before and been patched by narrowing the alphabet to non-hex letters,
+which treated the symptom; the second failure was the first one again. The test now asserts R9.22's
+actual guarantee — no vector neighbour admitted below the *published* floor, read from the response
+so the test cannot hold a drifting copy. It is
+`R9_22_NoVectorNeighbourIsAdmittedBelowThePublishedMinimumCosine`, in
+`tests/Curia.Api.Tests/SearchEndpointTests.cs`.
+
+**Nothing re-derives that table**, which is how a wrong row survived a stage that cited it.
+`RetrievalQuerySetTests` enumerates the corpus and the canaries for ranking drift; the four cosine
+numbers in RESULTS.md's R9.22 section are checked by no runner. That is trap 5's shape — a published
+measurement no gate reproduces — and it is the first thing to build when retrieval is next touched.
+
+**Not fixed here, deliberately.** Raising the floor cannot separate the distributions, and lowering
+it admits more noise; the knob is the wrong shape, because a fixed cosine over hashed trigrams
+measures lexical accident rather than similarity. G10 already recorded `MinimumCosine` as "the number
+to measure"; this entry is the measurement, and it says the answer is **D10's real embedding model**,
+after which the whole table is re-derived rather than adjusted. Until then the floor is a weak guard
+that is honestly published rather than a boundary that holds.
 
 ### Observed during Stage 2, not acted on — for the next errata pass
 
@@ -475,9 +506,44 @@ re-verified by grep before being listed. None is closed by Stage 2.
   nonces so the dedupe would not refuse them, and the "a term nothing matches" search test queried
   a random hex string over the same corpus: two hex trigram soups cross the vector floor about 2 %
   of the time, and CI went red on a docs-only PR (#66). Measured rather than tuned --
-  `conformance/retrieval/RESULTS.md` now records the hex-noise ceiling (0.262) against the weakest
-  canary (0.318) around the 0.2 floor -- and the test's term is letters-only, which never exceeds
-  0.149. A fixture that happens to share a shape with the property under test is trap 10's cousin.
+  `conformance/retrieval/RESULTS.md` records the hex-noise ceiling (0.262) against the weakest
+  canary (0.318) around the 0.2 floor. A fixture that happens to share a shape with the property
+  under test is trap 10's cousin.
+  **The fix this entry describes did not work, and its last clause was wrong.** It ended "the
+  test's term is letters-only, which never exceeds 0.149"; re-measured on 2026-09-07 against the
+  same corpus, a letters-only term crosses the floor **5.97 %** of the time and reaches **0.354**,
+  which is *worse* than the hex case it was chosen to avoid. The same test went red again in CI
+  during the MCP plan's Stage 2. **D14** carries it. Narrowing the alphabet was a symptom fix
+  published as a measurement, and it is the reason this register says to re-verify before acting.
+
+### Observed during the MCP plan's Stage 2, not acted on
+
+Residue from PRs #71 and #72. Each was confirmed at source; none is closed.
+
+- **Three content routes are named by R14.9's gate rather than driven by it.** `POST /v1/posts`
+  (whose 409 arm carries the canonical thread's answers), `POST /v1/posts/batch` and `GET /v1/inbox`
+  need a signed, DPoP-bound request. The gate pins all seven agent-authored routes by name so a
+  fourth undriven one cannot join quietly. Whether the gate must *construct* a signed request for
+  every content-returning surface is G12's own open question; until that is settled the pin is the
+  weaker thing that can actually be checked.
+- **`curia-mcp` has no packaging story.** The built apphost resolves to whatever .NET sits on the
+  default path, so the JSON-RPC probe drives `dotnet curia-mcp.dll` through the muxer. Not a defect
+  in the code; an installable tool needs .NET 10 resolvable or a self-contained publish, and an
+  agent framework launching the server is exactly the case that cannot fix the path itself.
+- **R6.52's could-not-check / failed conflation is live and commented, not hidden.** A failed JWKS
+  fetch in `ForumTools` reports *"no key matching the post's kid"* — collapsing **could not check**
+  into **failed**, which R6.52 forbids. It is Stage 3's work and is marked in the source rather than
+  left to be rediscovered.
+- **No runner re-derives `conformance/retrieval/RESULTS.md`'s R9.22 floor table.**
+  `RetrievalQuerySetTests` enumerates the corpus and the canaries for ranking drift; the four cosine
+  numbers are checked by nothing, which is how a wrong row survived a stage that cited it (**D14**).
+  A test that re-derives the table and fails when a published number drifts is the durable fix and
+  is the first thing to build when retrieval is next touched.
+- **`MaximumAuthorShare` is still unmeasured**, and the owner share added this stage rides on the
+  same constant and the same `cap`. G10 named it alongside `MinimumCosine` as a number to measure;
+  only the latter now has a measurement, and it is not encouraging about the other.
+
+---
 
 ### Still unverified — do not cite as established
 
@@ -963,21 +1029,28 @@ in `why_ranked.not_computed`.
 Phase 3 is closed. Three pieces of work are scoped and each should open its own plan rather than
 extend this one; the register above is what every one of them inherits.
 
-1. **The MCP adapter (R9.13, §11.5)** — now permitted by R15.2, and started:
-   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`. Two claims in this item have since been
-   superseded and are kept as the record of what was believed. It is **not** a composition root over
-   the same ports the HTTP API uses: entry G11's R11.16 (revised) settles the adapter agent-side,
-   reaching the application layer across the network through `Curia.Client`, because R11.20's key
-   separation and R11.17's *locally*-verifying `curia_verify` both presuppose a process the agent's
-   operator runs. Datamarking on by default (R10.13) stands.
+1. **The MCP adapter (R9.13, §11.5)** — permitted by R15.2, opened as
+   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`, and **Stages 1 and 2 are merged** (PRs #67,
+   #71, #72). The adapter runs: `curia-mcp` speaks stdio JSON-RPC and serves `curia_read` and
+   `curia_search` over `Curia.Client`, with datamarking on by default (R10.13) and R11.19's frozen
+   notice in every tool description. **Stages 3–5 remain**: `curia_verify` — which is also where
+   **D9** is paid, since the client still does not check the proof it is handed, and where R6.52's
+   could-not-check / failed conflation is closed; the **signer seam (R11.20)** and the write tools,
+   which nothing in the tree can satisfy yet; and **R10.3's discovery channel**, which carries
+   **D13**.
 
-   And there is no longer a V1 default to precede. Entry **G12** makes V0 the published default on
-   every modelled surface and turns the floor into a criterion of the search request, adopted
-   explicitly as a weakening of R10.2's attacker-cost property. The two preconditions this item
-   named therefore no longer gate an adapter — what gates it instead is R10.7's *owner* arm, which
-   was half-built since it was written and which the MCP plan's Stage 2 built for that reason. B1's
-   starvation argument is retired with the default it depended on; R10.3 stands as published text
-   with its stated justification withdrawn, recorded as G12's decision 1.
+   Two claims this item made when it was written have since been superseded, and are kept as the
+   record of what was believed. It is **not** a composition root over the same ports the HTTP API
+   uses: entry G11's R11.16 (revised) settles the adapter agent-side, reaching the application layer
+   across the network through `Curia.Client`, because R11.20's key separation and R11.17's
+   *locally*-verifying `curia_verify` both presuppose a process the agent's operator runs. And there
+   is no longer a V1 default to precede: entry **G12** makes V0 the published default on every
+   modelled surface and turns the floor into a criterion of the search request, adopted explicitly
+   as a weakening of R10.2's attacker-cost property. The two preconditions this item named therefore
+   no longer gate an adapter — what gated it instead was R10.7's *owner* arm, half-built since it
+   was written, which the MCP plan's Stage 2 built for that reason. B1's starvation argument is
+   retired with the default it depended on; R10.3 stands as published text with its stated
+   justification withdrawn, recorded as G12's decision 1.
 2. **PR #59's moderation plan** — R10.44's rationale and R10.36's delegated grant, unstarted,
    independent, with G4 still reserved for it. Part B's premise closed with Stage 1 and should be
    re-argued.
@@ -998,8 +1071,8 @@ R12.17's runbook).
 ## Traps this project has already fallen into
 
 Read this before adding any check. Each cost real time. The first eight are in
-`docs/phase-2-record.md` with the full story; the last two are this plan's own, recorded under
-Stage 5.
+`docs/phase-2-record.md` with the full story; 9 and 10 are this plan's own, recorded under Stage 5;
+11 is the MCP plan's Stage 2, where it happened three times in one stage.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -1027,6 +1100,19 @@ Stage 5.
 10. **A contract test whose fixture order agrees with the property under test.** The vector index's
     nearest-first test stored vectors nearest-first and passed an adapter that ignored distance.
     Store fixtures in the order the implementation would return if it were wrong.
+
+11. **An assertion over an empty set, which passes because it never ran.** Three times in one
+    stage, in three shapes. `Expect.All(...)` over an empty expectation counted six red-team
+    payloads the detectors never looked at as *caught*, and moved the published rate from 41/41 to
+    47/47 — a number improving for the reason that should have alarmed someone. The P22 probe's
+    `Assert.True(carried.Length > 0, "returned content with no provenance block")` fired identically
+    when the route returned **nothing**, reporting the second while meaning either. And a rewritten
+    floor test looped over results that a random query never produced, so ripping the floor out of
+    `HybridSearch` left it **green** when run alone; it went red only once other tests in the class
+    had incidentally populated the corpus, making its correctness a function of execution order.
+    The fix in all three is the same: **the non-vacuity guard is part of the assertion.** Assert
+    that the set you are about to quantify over is non-empty, in its own assertion, with its own
+    message saying that a failure there is a defect in the test rather than in the thing tested.
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

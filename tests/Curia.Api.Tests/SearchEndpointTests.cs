@@ -375,13 +375,13 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     ///
     /// <para><b>This replaces a test that asserted a random term returns nothing, which the design
     /// does not guarantee.</b> The vector channel is feature-hashed character trigrams in 256
-    /// dimensions, so a random thirty-five-character term produces ~33 trigrams that collide with
-    /// corpus trigrams by construction. Measured against the real embedder over 20,000 such terms:
-    /// <b>1.735 % clear the 0.2 floor, reaching cosine 0.3154</b>. It therefore failed
-    /// intermittently, and CI had seen it before — the comment this replaces recorded an earlier
-    /// occurrence and narrowed the alphabet in response, treating the symptom. Recorded as plan
-    /// defect D14, because a provisional constant that does not achieve its stated purpose is a
-    /// finding about the constant rather than about the test.</para>
+    /// dimensions, so a nonsense term collides with corpus trigrams by construction. Re-measured
+    /// against the published corpus over 20,000 draws: a letters-only term <b>clears the 0.2 floor
+    /// 5.97 % of the time and reaches cosine 0.354</b> — above `canary-jcs`, the weakest real
+    /// signal in the query set, at 0.318. It therefore failed intermittently, and CI had seen it
+    /// before: the comment this replaces recorded an earlier occurrence and narrowed the alphabet
+    /// in response, on the strength of a published number (0.149) that does not reproduce.
+    /// Recorded as plan defect D14, with `conformance/retrieval/RESULTS.md` corrected.</para>
     ///
     /// <para>The query is a phrase this test seeds, not a random one, for a reason the first attempt
     /// at this rewrite got wrong: with a random term the floor usually admits nothing, the loop
