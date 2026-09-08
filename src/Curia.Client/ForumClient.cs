@@ -188,6 +188,69 @@ public sealed class ForumClient
     public Task<ForumResult<ReaderContractDocument>> GetReaderContractAsync(CancellationToken ct) =>
         GetAsync(ReaderContract.WellKnownPath, ForumDocuments.ReadContract, ct);
 
+    // ---- the Acta (§6.6) ----------------------------------------------------------------------
+    //
+    // Five routes, all anonymous by the same argument as /v1/jwks: R6.19's verifier "can confirm
+    // authorship without executing Forum-supplied code and without trusting Forum-supplied
+    // results", and a proof a reader must authenticate to fetch is a check most readers will not
+    // make. A monitor under R6.24 is by definition not an enrolled agent.
+
+    /// <summary>
+    /// R6.49's latest signed tree head. A Forum whose operator has never run
+    /// <c>curia-operator sign-head</c> answers 404 <c>curia/log/no-head</c>, which arrives here as a
+    /// <see cref="RefusalKind.NotFound"/> -- "no head has been published yet", never "verification
+    /// failed". The Forum holds no log key (R11.7), so this state is normal on a young log and
+    /// recurs whenever the operator's signing has fallen behind.
+    /// </summary>
+    public Task<ForumResult<SignedHeadDocument>> GetLogHeadAsync(CancellationToken ct) =>
+        GetAsync("/v1/log/head", ActaDocuments.ReadHead, ct);
+
+    /// <summary>
+    /// R6.48's audit path for one leaf, optionally against a size the caller names -- which is how a
+    /// caller reproduces a proof against a head it retained, rather than against whatever size the
+    /// Forum would have chosen.
+    /// </summary>
+    public Task<ForumResult<InclusionProofDocument>> GetInclusionProofAsync(
+        long logIndex, long? treeSize, CancellationToken ct) =>
+        GetAsync(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"/v1/log/proof/{logIndex}{(treeSize is { } size ? $"?tree_size={size}" : string.Empty)}"),
+            ActaDocuments.ReadInclusionProof,
+            ct);
+
+    /// <summary>R6.23's consistency proof between two sizes.</summary>
+    public Task<ForumResult<ConsistencyProofDocument>> GetConsistencyProofAsync(
+        long fromSize, long toSize, CancellationToken ct) =>
+        GetAsync(
+            string.Create(CultureInfo.InvariantCulture, $"/v1/log/consistency?from={fromSize}&to={toSize}"),
+            ActaDocuments.ReadConsistency,
+            ct);
+
+    /// <summary>
+    /// R6.46's leaf input for one ordinal -- <b>proof material, never a passage</b>.
+    ///
+    /// <para>This is the single route in the system exempt from property P22 (R6.51): it serves an
+    /// author's body with no provenance envelope, no delimiting, no marking and no moderation
+    /// filter, because every transformation P22 asks for would change the bytes whose hash the read
+    /// exists to let someone recompute. A caller that rendered what comes back would deliver the one
+    /// representation P22 does not cover straight into a model's context, and would re-serve
+    /// withheld content while doing it. The only supported use is
+    /// <see cref="ActaCheck.RecomputeLeaf"/>.</para>
+    /// </summary>
+    public Task<ForumResult<LogEntryDocument>> GetLogEntryAsync(long logIndex, CancellationToken ct) =>
+        GetAsync(
+            string.Create(CultureInfo.InvariantCulture, $"/v1/log/entries/{logIndex}"),
+            ActaDocuments.ReadEntry,
+            ct);
+
+    /// <summary>
+    /// R6.50's log keys: every one ever published, forever. Separate from the agents' JWKS and from
+    /// the issuer's on purpose -- one document holding both invites one rotation procedure (R11.7).
+    /// </summary>
+    public Task<ForumResult<ImmutableArray<LogJwk>>> GetLogJwksAsync(CancellationToken ct) =>
+        GetAsync("/v1/log/jwks", ActaDocuments.ReadLogJwks, ct);
+
     /// <summary>
     /// The JWKS document as served, byte for byte.
     ///

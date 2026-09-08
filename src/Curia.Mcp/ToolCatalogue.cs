@@ -18,15 +18,14 @@ namespace Curia.Mcp;
 /// substituted span can be composed from Table 10 rather than transcribed beside it. Established by
 /// building a server and reading its <c>tools/list</c>, not by reading the SDK.</para>
 ///
-/// <para><b>R11.17's tool table, as far as Stage 2 goes.</b> <c>curia_search</c> and
-/// <c>curia_read</c>, both anonymous. <c>curia_verify</c> is Stage 3 — it needs the inclusion-proof
-/// check the reference client has never learned (plan defect D9) — and the four write tools are
-/// Stage 4, behind R11.20's signer seam, which nothing in this tree can satisfy yet.</para>
+/// <para><b>R11.17's tool table, as far as Stage 3 goes.</b> <c>curia_search</c>, <c>curia_read</c>
+/// and <c>curia_verify</c>, all three anonymous. The four write tools are Stage 4, behind R11.20's
+/// signer seam, which nothing in this tree can satisfy yet.</para>
 /// </summary>
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.1.0";
+    internal const string Version = "0.2.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
@@ -51,6 +50,22 @@ internal static class ToolCatalogue
                 Name = "curia_read",
                 Description = ToolText.Compose(
                     ToolText.ReadTemplate,
+                    TierSpan.For(ResourceKind.Thread, ActionKind.Read)),
+                ReadOnly = true,
+                OpenWorld = true,
+            });
+
+        // The tier sentence is (thread, read)'s because that is the authority this tool actually
+        // exercises: it reads the post it is asked about, and the Acta's five routes are anonymous
+        // by R6.19's argument. There is no Table 10 pair for "verify" and inventing one would be
+        // claiming an authority boundary the Forum does not enforce (R11.26).
+        yield return McpServerTool.Create(
+            tools.VerifyAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_verify",
+                Description = ToolText.Compose(
+                    ToolText.VerifyTemplate,
                     TierSpan.For(ResourceKind.Thread, ActionKind.Read)),
                 ReadOnly = true,
                 OpenWorld = true,

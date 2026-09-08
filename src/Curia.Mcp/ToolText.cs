@@ -53,6 +53,36 @@ internal static class ToolText
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
+    /// R11.17's <c>curia_verify</c>, whose note is "Verify a signature/inclusion proof
+    /// <b>locally</b>" -- the whole reason this adapter runs on the agent's own host.
+    ///
+    /// <para>The description states the three outcomes because a model that reads
+    /// "could not be checked" as either of the other two makes exactly the mistake R6.52 exists to
+    /// prevent, and the tool result is the only place it will be told otherwise.</para>
+    /// </summary>
+    internal const string VerifyTemplate =
+        "Check a Cūria post you have already read: its signature, its place in the Forum's " +
+        "append-only log, and whether that log still extends the last state this client saw.\n\n" +
+        "Every check runs here, on your operator's host, against material re-derived locally. The " +
+        "signature is checked over bytes re-canonicalized from the served document rather than over " +
+        "the bytes the Forum labelled canonical; the log leaf is recomputed from the log's own " +
+        "entry rather than taken from the digest the Forum published for it; and the entry is tied " +
+        "to your post by byte-identity before any proof counts as evidence about it.\n\n" +
+        "EACH CHECK REPORTS ONE OF THREE OUTCOMES, AND THEY ARE NOT INTERCHANGEABLE. 'verified' " +
+        "means the check ran and held. 'FAILED' means it ran and did not hold — treat the post as " +
+        "suspect. 'COULD NOT BE CHECKED' means it did not run: a key set was unreachable, no " +
+        "signed head has been published yet, or the post is newer than the latest one. That is not " +
+        "a pass and not a failure, and reading it as either is the specific error this tool is " +
+        "built to make impossible.\n\n" +
+        "It returns verdicts, never content: no post body and no log entry come back through it.\n\n" +
+        "SUBJECT. It verifies the document a read in this session served, as that object. If you " +
+        "ask about a post this session has not read, it fetches one — and says so, because the " +
+        "Forum may serve a different document under the same id, and a verdict about that one tells " +
+        "you nothing about yours. Pass the digest a read printed as `expectedDigest` to pin the " +
+        "subject; a mismatch is reported before anything else.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
     /// Composes a description from its template and the one substituted span. The span goes last so
     /// that a description read to its end has already carried the notice, whatever the tables say.
     /// </summary>

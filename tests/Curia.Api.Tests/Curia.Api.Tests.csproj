@@ -26,6 +26,12 @@
     <ProjectReference Include="../../src/Curia.Api/Curia.Api.csproj" />
     <!-- The operator tool is driven end to end against the database this suite provisions (R4.30). -->
     <ProjectReference Include="../../src/Curia.Operator/Curia.Operator.csproj" />
+    <!--
+      The reference client, driven against the Forum this suite provisions. R6.52's three checks
+      are a client obligation, so the only place they can be exercised against a real Acta with a
+      real operator-signed head is here.
+    -->
+    <ProjectReference Include="../../src/Curia.Client/Curia.Client.csproj" />
   </ItemGroup>
 
 </Project>

@@ -356,10 +356,19 @@ internal static class Program
             Output.Line($"kind      {PostKinds.Wire(kind)}   board {board}");
             // The locally computed digest is the one worth printing: it is the SHA-256 over the
             // canonical bytes this client signed, so it is a fact about what was sent rather than
-            // a claim about what was received.
-            Output.Line($"digest    {submission.Digest}   (computed here)");
+            // a claim about what was received. In the wire's spelling, because this is the value a
+            // caller pastes into `curia endorse`,
+            // `curia reproduce`, `curia recheck` and an envelope's `refs` -- every one of which
+            // gates on EnvelopeDigest.IsPrefixedForm and rejects bare hex on the length check
+            // alone. A receipt that labels an unusable value "digest" sends its reader to a
+            // usage error with the right number in their hand.
+            Output.Line($"digest    {submission.PrefixedDigest}   (computed here)");
 
-            if (!string.Equals(receipt.Digest, submission.Digest, StringComparison.OrdinalIgnoreCase))
+            // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
+            // "sha256:" + hex and the local value is bare hex, so comparing them directly never came
+            // out equal and this line printed under every post this client ever made -- a warning
+            // that always fires, which is a warning nobody reads.
+            if (!string.Equals(receipt.Digest, submission.PrefixedDigest, StringComparison.Ordinal))
                 Output.Line($"          the Forum reported a different value for digest: {receipt.Digest}");
             Output.Line($"server_ts {receipt.ServerTs}");
 
@@ -773,21 +782,29 @@ internal static class Program
         ForumClient client, ImmutableArray<ProvenancePost> posts, Uri forum, CancellationToken ct)
     {
         var jwks = new Dictionary<string, ImmutableArray<ForumJwk>>(StringComparer.Ordinal);
+
+        // The refusal is kept rather than flattened into an empty key array. R6.52: an unreachable
+        // key set and a forged signature are a network fault and an attack, and they exit
+        // differently below -- 8 names the Forum, 6 names the post.
+        var unreachable = new Dictionary<string, Refusal>(StringComparer.Ordinal);
         var passages = ImmutableArray.CreateBuilder<Passage>(posts.Length);
-        var anyUnverified = false;
+        var worst = new List<CheckOutcome>(posts.Length);
 
         foreach (var post in posts)
         {
             var author = post.Provenance.Author;
-            if (!jwks.TryGetValue(author, out var keys))
+            if (!jwks.ContainsKey(author) && !unreachable.ContainsKey(author))
             {
                 var fetched = await client.GetJwksAsync(author, ct).ConfigureAwait(false);
-                keys = fetched.TryGetValue(out var value, out _) ? value : [];
-                jwks[author] = keys;
+                if (fetched.TryGetValue(out var value, out var refusal)) jwks[author] = value;
+                else unreachable[author] = refusal!;
             }
 
-            var verdict = SignatureCheck.Verify(post, keys);
-            anyUnverified |= !verdict.Verified;
+            var verdict = unreachable.TryGetValue(author, out var fault)
+                ? SignatureCheck.Unreachable(post, fault)
+                : SignatureCheck.Verify(post, jwks[author]);
+
+            worst.Add(verdict.Outcome);
             passages.Add(new Passage(post, verdict));
         }
 
@@ -798,7 +815,7 @@ internal static class Program
 
         Output.Line(new Reading(passages.MoveToImmutable(), contract).Render());
 
-        return anyUnverified ? ExitCode.Unverified : ExitCode.Ok;
+        return ExitCode.ForOutcomes([.. worst]);
     }
 
     private static async Task<int> ContractAsync(Args args, CancellationToken ct)
@@ -856,11 +873,18 @@ internal static class Program
         var independent = await Testis.RunAsync(value, jwksBytes, ct).ConfigureAwait(false);
         Output.Line($"testis    {independent.Description}");
 
-        if (!local.Verified || independent.Outcome == TestisOutcome.Failed) return ExitCode.Unverified;
+        // R6.52's other two checks: the leaf recomputed from the log's own entry, and the log's
+        // growth since the head this client retains. Run against the post already read rather than
+        // one fetched again, so the verdict is about the document above rather than about whatever
+        // the Forum would serve on a second request.
+        Output.Blank();
+        var acta = await new PostVerifier(client, HeadStore.Default())
+            .VerifyAsync(value, ct).ConfigureAwait(false);
 
-        // An unavailable second verifier is not a verification failure, and reporting it as one
-        // would train a caller to ignore exit code 6.
-        return ExitCode.Ok;
+        Output.Line($"inclusion   {acta.Inclusion.Describe}");
+        Output.Line($"consistency {acta.Consistency.Describe}");
+
+        return ExitCode.ForOutcomes(local.Outcome, independent.Outcome, acta.Overall);
     }
 
     /// <summary>

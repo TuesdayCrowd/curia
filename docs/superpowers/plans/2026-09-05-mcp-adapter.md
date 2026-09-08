@@ -1,6 +1,7 @@
 # The MCP adapter
 
-**Status: scoped, not started.** Written 2026-09-05, against the tree at PR #65.
+**Status: Stages 1, 2 and 3 merged; Stages 4 and 5 Not Started.** Written 2026-09-05 against the
+tree at PR #65; Stage 3 closed 2026-09-07.
 
 **Table 22's Phase 3 row named it** — *"MCP adapter with datamarking on by default"* — and Phase 3
 shipped without it, deliberately. R15.2: *"The MCP adapter SHALL NOT precede Phase 3. It is the most
@@ -435,10 +436,34 @@ model consuming them, so it should exist before any write tool asks an agent to 
 canonicalizes and hashes (R6.46's leaf) is `GET /v1/log/entries/{index}` — and that is the one
 content-returning path with no provenance envelope, no marking and no `Servable` filter. Wrapping it
 to satisfy R11.18 would break the very hash being checked; not wrapping it means a tool returning
-bare post bodies straight into a model's context. **So `curia_verify` must not fetch content from
-the log at all.** It verifies material `curia_read` already served — which is why it needs the
+bare post bodies straight into a model's context. ~~**So `curia_verify` must not fetch content from
+the log at all.**~~ It verifies material `curia_read` already served — which is why it needs the
 inclusion-proof check the client has never learned (D9) rather than a new fetch path. G11.6 records
 the log exemption; this stage is what makes the exemption safe to rely on.
+
+> **Corrected when the stage was built.** The struck sentence was written before entry G11 landed,
+> and the errata — authoritative over this plan and over the white paper — settles it the other way.
+> **R11.29:** `curia_verify` *"MAY fetch R6.46's log entry, R6.49's signed head and R6.23's
+> consistency proof as proof material, subject to R6.51's rule that a log entry is never surfaced as
+> content, and it SHALL bind a fetched entry to the post under verification by byte-identity of the
+> canonical form the read served."* **R6.51** forbids *surfacing* an entry, not fetching one.
+>
+> It could not have been built the other way, and the reason is a fact about the leaf rather than a
+> preference. R6.46's leaf is the whole **event** — `actor_id`, `aggregate_id`, `event_id`,
+> `event_type`, `payload`, `server_ts` — and a served post carries none of the first four. The
+> payload's `risk_flags` are objects with category, offset, length and detector version while the
+> envelope carries category strings only, and the payload's `server_ts` is a second, independent
+> clock read that never reaches the wire. So a leaf **cannot** be rebuilt from a read, and refusing
+> to fetch the entry leaves exactly one option: trust the `leaf_hash` the Forum served. R6.52 says
+> in terms what that is worth — *"substituting it for a recomputation does not shorten the check, it
+> skips it"* — and the independently written Rust verifier makes the same choice, taking the entry
+> and refusing a digest.
+>
+> The plan's instinct was still right about the hazard, and it is what the built stage guards: the
+> entry is fetched, hashed, compared, and **never returned**. `PropertyP22ToolResultTests` runs
+> `curia_verify` against a Forum whose entry carries a marker string and fails if the marker appears
+> in the result, which is R14.9's MCP row of the P22 gate — absent for the whole of Phases 1–3 on
+> the tool surface, and built here.
 
 **What gets built.**
 - Widen `Curia.Client` to parse `log_index` and `inclusion_proof` — both served on every
@@ -469,7 +494,81 @@ the log exemption; this stage is what makes the exemption safe to rely on.
   *(De-vacuate this one first: a consistency test with nothing to compare against passes trivially,
   which is trap #1 exactly.)*
 
-**Status**: Not Started.
+**Status**: **Complete.** D9 closed. `Curia.Client` gained `ActaDocuments` (the five log shapes),
+`ActaCheck` (R6.52's predicates, pure and I/O-free), `HeadStore` (R6.53's retained head), and
+`PostVerifier` (the orchestration, where "could not be checked" is decided); `curia-mcp` gained
+`curia_verify`. 151 tests in `Curia.Client.Tests`, 35 in `Curia.Mcp.Tests`, four end-to-end in
+`Curia.Api.Tests` — one of which hands the same four served documents to `curia-testis` and requires
+both verifiers to climb to the same root.
+
+**What the falsification run found, which is the part worth keeping.** Every check above was broken
+deliberately and the suite re-run. Six went red first time. **Five did not**, and each was a real
+gap rather than a bad patch:
+
+1. *The leaf substitution stayed green* — because a second comparison (against the entry route's own
+   `leaf_hash`) caught it. The patch was incomplete; with both comparisons removed and the served
+   leaf fed to `VerifyInclusion`, the test goes red. Recorded because the first result looked like
+   success.
+2. *Collapsing could-not-check onto failed stayed green* — because `PostVerifier` builds its own
+   `Check` and never reads `SignatureVerdict.Outcome`. **There are two paths on which a reader
+   learns about a signature**, and only one goes through the verifier: `curia_read` and the CLI
+   render a `SignatureVerdict` directly. `UnreachableKeySetTests` is the second path's suite, and it
+   exists only because the falsification found it.
+3. *Canonicalizing the leaf with NFC instead of pure RFC 8785 stayed green* — because every fixture
+   in the end-to-end path is ASCII. `ActaLeafRecomputationTests` now holds `ActaCheck.RecomputeLeaf`
+   to `conformance/acta/`, where `nfd-payload-stays-nfd` is the one vector that tells them apart,
+   with the non-vacuity guard asserting that vector is still in the family.
+4. *Deleting the head-root comparison stayed green* — because no case had a validly signed head over
+   a root that was not the tree's. Nothing an intact Forum can produce, so it had to be constructed:
+   `StubLog.HeadCommitsToTheWrongRoot`.
+5. *Deleting the head-size comparison stayed green* — and this one is a branch `PostVerifier` cannot
+   reach, because it re-requests the proof at the head's own size. `ActaCheck` is public API, so the
+   choice was to test the branch or delete it; `ActaCheckTests` tests it.
+
+**Two defects found beside the work, both live, both fixed here.** The client compared a digest it
+computed as bare hex against the wire's `sha256:`-prefixed form, in `Passage.Render` and again on
+the CLI's submit path — so *"the Forum reported a different value for digest"* printed under **every
+genuine post and every successful submission**. An alarm that always fires is an alarm nobody reads.
+Its covering test pinned `Digest` to `"whatever-the-forum-said"`, a value that is not a digest at
+all, so the fixture agreed with the defect and the assertion could not fail. `SubmissionBuilder`'s
+own documentation asserted its bare-hex `Digest` was *"the same digest the Forum returns"*, which is
+how the confusion propagated.
+
+**The stage was then reviewed adversarially, and the review is most of why it is worth trusting.**
+Five reviewers over five dimensions raised 22 findings; each was handed to an independent verifier
+told to refute it by default and to settle it by running something. **16 survived**, and the tree
+had to change for every one. Seven were defects in code — including two the stage introduced
+(a *failed* head signature relabelled as *could not be checked*, which is R6.52's collapse running
+in the direction that hides an attack; and `curia_verify` re-fetching its subject, so a Forum could
+show one document to `curia_read` and another, also validly signed, to the verification) — and two
+that predate it: an unparseable `server_ts` skipped the key-validity window entirely, so a key
+retired in 2021 verified a post today, on a field the Forum chooses; and a JWS whose header named a
+different algorithm from its key **threw** out of the verifier, because nothing compared
+`header.alg` to the key's. Both were demonstrated by execution, not argued.
+
+Nine more were gates that could not fail: six branches of the verifier no test reached, and — worst
+of the set, because it was this stage's own — **the P22 tool-result classification gated nothing**.
+Flipping `curia_read` to content-free and `curia_verify` to a content-returner left the suite green,
+so the map was a list of names. The boolean now chooses the assertion and all three tools fail when
+mislabelled.
+
+**And the review found something no reviewer was looking for.** One of the new branch tests failed
+on its first run, on a line reading `string.Equals(recomputed, recomputed, …)` — a comparison of a
+value with itself, left behind when a falsification patch was restored imperfectly. The check had
+been silently disabled in the working tree. Nothing else would have caught it: the suite was green,
+the build was clean, and the comparison it replaced had been falsified successfully an hour earlier.
+The lesson is narrow and worth keeping: **a restore is not a no-op, and the only proof a check is
+still there is a test that fails without it.** A scan for self-comparisons and mutation residue now
+runs over `src/` before a commit.
+
+**And a red gate on `main`, unrelated to this stage.** `LayeringTests.CS7_DomainOnlyDependsOn…` was
+failing before any of this work — confirmed by building a pristine `git archive HEAD` tree and
+running it there. `PostKinds.TryParse` switches over seven string cases, and Roslyn lowers seven or
+more to a hash probe, giving `Curia.Domain` a `<PrivateImplementationDetails>` dependency. The
+count reached seven with errata G8's `vote` and `verification`. `LayeringTests`' own comment
+predicts this failure by name, says `Curia.Domain.Moderation` already hit it at seven flag kinds,
+and prescribes the fix — a lookup table, which is what the map always was. Applied here, because a
+stage cannot be reported green over a red gate.
 
 ---
 

@@ -84,6 +84,7 @@ public sealed class DetachedJws
     public Result<VerifiedContent> Verify(CanonicalBytes canonical, JwsSignature sig, PublicKeyMaterial key)
     {
         ArgumentNullException.ThrowIfNull(sig);
+        ArgumentNullException.ThrowIfNull(key);
 
         if (!TrySplit(sig.Compact, out var parts, out var splitError))
             return Result<VerifiedContent>.Fail(splitError!);
@@ -98,6 +99,17 @@ public sealed class DetachedJws
             return Result<VerifiedContent>.Fail(JwsErrors.CritUnsupported());
         if (!_verifiers.TryGetValue(header.Alg, out var verifier))
             return Result<VerifiedContent>.Fail(JwsErrors.AlgNotAllowed(header.Alg));
+
+        // Algorithm confusion, refused before any adapter sees a byte. The header is the attacker's
+        // and the key is the key set's, so without this the attacker chooses which primitive
+        // interprets somebody else's key material -- an ES256 header over an OKP key hands 32 raw
+        // bytes to ImportSubjectPublicKeyInfo, and an EdDSA header over an EC key hands an SPKI
+        // blob to Ed25519. Both THROW (`ASN1 corrupted data`, `The key BLOB is not in the correct
+        // format`), out through a method whose whole contract is that a bad signature is a value
+        // rather than an exception (CS-10). A verifier that crashes on a chosen input is a verifier
+        // an untrusted Forum can turn off.
+        if (!string.Equals(header.Alg, key.Alg, StringComparison.Ordinal))
+            return Result<VerifiedContent>.Fail(JwsErrors.AlgMismatch(header.Alg, key.Alg));
 
         if (parts[1].Length != 0)
             return Result<VerifiedContent>.Fail(JwsErrors.Malformed("detached JWS must have an empty payload segment"));
@@ -221,6 +233,17 @@ internal static class JwsErrors
 {
     public static Error AlgNotAllowed(string alg) => new("curia/jws/alg-not-allowed", "Algorithm not in the allow-list", alg);
     public static Error TypMismatch(string typ) => new("curia/jws/typ-mismatch", "Unexpected typ header", typ);
+
+    /// <summary>
+    /// The header names one algorithm and the key another. Its own slug rather than
+    /// <see cref="AlgNotAllowed"/>'s, because the two say different things to whoever reads the
+    /// output: that algorithm is not one this verifier accepts at all, versus that algorithm is
+    /// accepted and is not this key's.
+    /// </summary>
+    public static Error AlgMismatch(string headerAlg, string keyAlg) => new(
+        "curia/jws/alg-mismatch",
+        "The signature's alg is not the key's alg",
+        $"header={headerAlg} key={keyAlg}");
     public static Error B64MustBeFalse() => new("curia/jws/b64-must-be-false", "RFC 7797 requires b64:false here");
     public static Error CritUnsupported() => new("curia/jws/crit-unsupported", "crit must be exactly [\"b64\"]");
     public static Error SignatureInvalid() => new("curia/jws/signature-invalid", "Signature does not verify");

@@ -90,11 +90,6 @@ public sealed class ProfileStore
     private const string DpopKeyFile = "dpop-key.pem";
     private const string TokenFile = "token.json";
 
-    private const UnixFileMode PrivateFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-
-    private const UnixFileMode PrivateDirectoryMode =
-        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-
     public ProfileStore(string root) => Root = root;
 
     public string Root { get; }
@@ -318,49 +313,23 @@ public sealed class ProfileStore
 
     /// <summary>
     /// The reason this key file is not safely private, or <see langword="null"/> when it is.
-    /// Returns a reason rather than a bool so the refusal can say what to run to fix it.
+    /// Returns a reason rather than a bool so the refusal can say what to run to fix it -- the
+    /// remedy is part of the message because a reader hitting this has no other way to learn it.
     /// </summary>
-    private static string? ExposedToOthers(string path)
-    {
-        if (OperatingSystem.IsWindows()) return null;
+    private static string? ExposedToOthers(string path) =>
+        PrivateFiles.ReadableBeyondOwner(path) is { } exposure
+            ? exposure + ". A private key readable by anyone else authors posts as this agent, "
+              + "permanently and unrevocably. Run: chmod 600 " + path
+            : null;
 
-        var mode = File.GetUnixFileMode(path);
-        const UnixFileMode Others =
-            UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
-            UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
-
-        return (mode & Others) == 0
-            ? null
-            : $"{path} is readable beyond its owner ({mode}). A private key readable by anyone " +
-              "else authors posts as this agent, permanently and unrevocably. Run: chmod 600 " + path;
-    }
-
-    private static void CreatePrivateDirectory(string path)
-    {
-        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(path);
-        else Directory.CreateDirectory(path, PrivateDirectoryMode);
-    }
+    private static void CreatePrivateDirectory(string path) => PrivateFiles.CreateDirectory(path);
 
     /// <summary>
     /// Writes with the private mode applied <i>before</i> any content reaches the file. Creating
     /// the file and chmod-ing it afterwards leaves a window in which the secret exists at the
     /// prevailing umask, which on a shared machine is the whole of the exposure.
     /// </summary>
-    private static void WritePrivate(string path, string content)
-    {
-        var options = new FileStreamOptions
-        {
-            Mode = FileMode.Create,
-            Access = FileAccess.Write,
-            Share = FileShare.None,
-        };
-
-        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = PrivateFileMode;
-
-        using var stream = new FileStream(path, options);
-        using var writer = new StreamWriter(stream);
-        writer.Write(content);
-    }
+    private static void WritePrivate(string path, string content) => PrivateFiles.Write(path, content);
 }
 
 /// <summary>

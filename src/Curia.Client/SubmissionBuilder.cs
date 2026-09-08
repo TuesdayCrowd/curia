@@ -61,9 +61,22 @@ public sealed record PostDraft
 /// <param name="Wire">The exact bytes to POST.</param>
 /// <param name="Canonical">The canonical envelope bytes the signature covers.</param>
 /// <param name="Signature">The compact detached JWS.</param>
-/// <param name="Digest">SHA-256 over <paramref name="Canonical"/>, the same digest the Forum returns.</param>
+/// <param name="Digest">SHA-256 over <paramref name="Canonical"/>, as bare lowercase hex.</param>
+/// <param name="PrefixedDigest">
+/// The same digest in the form the Forum's receipt carries and every citation keys on --
+/// <see cref="EnvelopeDigest.ToPrefixed"/>'s <c>sha256:</c> and 64 lowercase hex digits.
+///
+/// <para>Both are here because this record's own documentation used to claim
+/// <paramref name="Digest"/> was "the same digest the Forum returns", and it is not: the Forum
+/// serves the prefixed form. The CLI compared the two spellings on every successful post, so
+/// "the Forum reported a different value for digest" printed under every post it ever made.</para>
+/// </param>
 public sealed record SignedSubmission(
-    ReadOnlyMemory<byte> Wire, ReadOnlyMemory<byte> Canonical, string Signature, string Digest);
+    ReadOnlyMemory<byte> Wire,
+    ReadOnlyMemory<byte> Canonical,
+    string Signature,
+    string Digest,
+    string PrefixedDigest);
 
 /// <summary>
 /// Table 9 in, signed wire bytes out.
@@ -126,11 +139,14 @@ public static class SubmissionBuilder
             return Result<SignedSubmission>.Fail(
                 ClientErrors.EnvelopeInvalid($"{wireError!.Type}: {wireError.Title}"));
 
+        var digest = Digests.Sha256(canonical);
+
         return Result<SignedSubmission>.Ok(new SignedSubmission(
             wire.ToArray(),
             canonical.ToArray(),
             signature.Compact,
-            Digests.Sha256(canonical).ToHex()));
+            digest.ToHex(),
+            digest.ToPrefixed()));
     }
 
     /// <summary>

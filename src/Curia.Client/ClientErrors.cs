@@ -63,6 +63,21 @@ public static class ClientErrors
         "The served post's signature does not verify against the author's published keys",
         detail);
 
+    /// <summary>
+    /// R6.31/R6.52: key validity is evaluated <i>at the post's <c>server_ts</c></i>, so a document
+    /// that does not carry a usable one cannot be checked against a key that declares a window.
+    ///
+    /// <para>Its own slug because it is R6.52's third outcome rather than a failure: the signature
+    /// may well be good, and this client cannot say. The Forum chooses <c>server_ts</c>, so a
+    /// verifier that treated an unparseable one as "no window to check" would let the Forum retire
+    /// that check by serving a malformed field — which is how a key revoked five years ago comes to
+    /// verify a post today.</para>
+    /// </summary>
+    public static Error ValidityNotEvaluable(string detail) => new(
+        "curia/client/validity-not-evaluable",
+        "The key declares a validity window and the post carries no usable server_ts, so validity at that instant could not be evaluated",
+        detail);
+
     public static Error NoKeyForPost(string detail) => new(
         "curia/client/no-key-for-post",
         "The author's JWKS carries no key matching the post's kid",
