@@ -376,8 +376,8 @@ verifier, which is this project's stated failure mode. **It did not fire**: `Mod
 does reference `get_UtcNow`, but `BannedApiTests` derives its list from `src/**/*.csproj`, so a
 package assembly is never scanned and `curia-mcp.dll` is clean on its own account.
 
-**Status**: **Complete** — merged as PR #71 (the read surface, entry G12 and the document sweeps),
-with the host and the two gates on `mcp-stdio-host`.
+**Status**: **Complete** — merged as **PR #71** (the read surface, entry G12 and the document
+sweeps) and **PR #72** (the stdio host, R14.9's P22 gate, R10.57's `structural` class).
 
 **What was built, and where it differed from this plan.**
 - `src/Curia.Mcp` (`curia-mcp`), `ModelContextProtocol.Core` 2.2.0 — **not** the hosting package this
@@ -407,6 +407,18 @@ printing what a pass looks like. One missing test: `SearchablePost.Equals` had n
 dropped from it went unnoticed. One inert control: the owner cap passed while the fold never
 populated the field. And R10.57's prediction confirmed exactly, by building the naive version first
 and measuring it — green suite, rate 41/41 → 47/47, baseline silently plus six.
+
+**And one measurement the stage did not set out to make.** CI failed on a search test asserting that
+a random term returns an empty page, which the design does not promise. Measured rather than patched
+again — it had already been patched once, by narrowing the alphabet, on the strength of a published
+number that turns out not to reproduce. Against the published corpus, a letters-only nonsense term
+clears the 0.2 floor **5.97 %** of the time and reaches **0.354**, which is *above* `canary-jcs`, the
+weakest real signal in the query set, at 0.318. So no cosine separates noise from signal here and the
+constant cannot be fixed by choosing a better one. The probe was validated on the neighbouring rows
+first — 0.3182 against a published 0.318, 0.2620 against a published 0.262 — before the third was
+called wrong. The test now asserts R9.22's actual guarantee, reading the floor from the response;
+`conformance/retrieval/RESULTS.md` is corrected and its conclusion withdrawn; **defect D14** carries
+the rest, and the answer is D10's real embedding model, not a new number.
 
 ---
 

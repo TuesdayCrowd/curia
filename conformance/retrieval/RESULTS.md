@@ -59,19 +59,35 @@ fails by name when a canary drifts.
 ## The vector channel's floor (R9.22)
 
 `min_cosine_bp` is 2000 -- a vector neighbour below cosine 0.2 is not a candidate. Measured on
-2026-09-05 with `hashed-ngram@1`, to place the floor rather than guess it:
+2026-09-05 with `hashed-ngram@1`, to place the floor rather than guess it, and **re-measured on
+2026-09-07**, which corrected one row and withdrew the conclusion the table was drawn to support:
 
 | what | cosine |
 |---|---|
-| each canary query against its expected post, minimum over the six | **0.318** (`canary-jcs`; the others 0.530–0.816) |
-| a 32-hex-digit query against bodies carrying 32-hex-digit nonces, maximum over 300 draws | **0.262**, crossing 0.2 in 6 of 300 |
-| a letters-only nonsense term against ordinary bodies, maximum over 300 draws | **0.149** |
+| each canary query against its expected post, minimum over the six | **0.318** (`canary-jcs`; the others 0.530–0.809, a range that read 0.530–0.816 before the re-measurement below and is not what the floor turns on) |
+| a 32-hex-digit query against bodies carrying 32-hex-digit nonces, maximum over 20,000 draws | **0.262**, crossing 0.2 in 0.29 % |
+| a letters-only nonsense term against these bodies, maximum over 20,000 draws | **0.354**, crossing 0.2 in **5.97 %** |
 
-The floor sits between the noise a hex identifier produces against unrelated hex and the
-weakest canary, with a small margin on each side. The hex case is real -- an agent will paste a
-digest or a commit hash as a query -- and it is the case a lexical geometry fuzzily matches by
-construction (§9.2's "trigram for fuzzy identifiers"); the published floor is what keeps that
-from returning a page of unrelated hashes. Re-derive it from this table when the model changes.
+**The last row was corrected on 2026-09-07 and previously read `0.149`, maximum over 300 draws.**
+That number is not reproducible: re-measured against this corpus with `hashed-ngram@1`, a letters-only
+term of any length from 5 to 35 characters, whether one token or three words, clears the floor
+between 5.6 % and 10.4 % of the time and reaches 0.33–0.40. The instrument was validated on the rows
+either side of it before the row was called wrong — `canary-jcs` re-measures to **0.3182** against a
+published 0.318, and the hex row to **0.2620** against a published 0.262, which also identifies what
+the hex row depends on: document richness. Against short `"About <nonce>"` bodies the same hex query
+reaches 0.308 and crosses the floor 20 % of the time, so that row is a statement about bodies of
+roughly 100 characters, which is what this corpus holds.
+
+**What the correction costs is the floor's stated justification.** The claim this section used to
+make — that the floor sits between the noise and the weakest canary with a margin on each side — is
+false as stated. It holds for the hex case (0.262 < 0.318) and fails for the letters-only case, where
+noise reaches **0.354, above `canary-jcs`'s 0.318**. There is no cosine that admits the weakest
+canary and excludes nonsense, so no choice of this constant separates them; the floor is doing less
+than the sentence claimed. The hex case remains real — an agent will paste a digest or a commit hash
+as a query, and it is the case a lexical geometry fuzzily matches by construction (§9.2's "trigram
+for fuzzy identifiers") — and 0.2 still keeps that from returning a page of unrelated hashes.
+Recorded as plan defect **D14**. Re-derive this table when the model changes; **nothing re-derives it
+automatically**, which is how the wrong row survived.
 
 ## What these numbers are not (R10.11)
 
