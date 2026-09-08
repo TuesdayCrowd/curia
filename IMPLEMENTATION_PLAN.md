@@ -489,11 +489,29 @@ hit it at seven flag kinds, and prescribes the fix: a lookup table, not an allow
 admitting a global-namespace name would weaken the one rule that catches an unvetted package. That
 is what was applied, with `FlagKinds.ByWire`'s shape.
 
-**The open question this leaves.** CI ran green on PR #73 with this gate red locally, so either CI
-does not reach this assertion or its Roslyn lowers at a different threshold. Nobody has established
-which, and until somebody does, a green CI run is not evidence that CS-7 holds. That is worth more
-attention than the fix was: it is trap 6's shape — a gate reporting success over a red state — one
-level up, in the gate runner rather than in a tool.
+**Why CI was green, measured rather than guessed.** The same assertion, the same commit
+(`3cc4e42`), the same machine:
+
+| configuration | `CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives` |
+|---|---|
+| `-c Debug` | **fails** — `Offenders: Curia.Domain.Content.PostKinds` |
+| `-c Release` | **passes** |
+
+Roslyn's switch lowering differs by configuration, so the `<PrivateImplementationDetails>` reference
+the rule catches exists in one build and not the other. CI runs
+`dotnet test Curia.sln --no-build --configuration Release` (`.github/workflows/ci.yml:108`); the
+command `CLAUDE.md` gives a developer is `dotnet test Curia.sln`, which is Debug. **The two never
+saw the same tree**, and the gate had been red for every developer and green in CI since errata G8
+added `vote` and `verification`.
+
+**The part that is not fixed.** `PostKinds` no longer trips it, but nothing stops the next one:
+every `NetArchTest` rule reads IL, IL differs by configuration, and CI checks one of the two. That
+is trap 6 — a tool reporting success over a red state — one level up, in the runner rather than in
+the tool, and it is worth more attention than the one-line fix was. The options are to run the
+architecture project in both configurations, to pin the configuration `CLAUDE.md` documents to the
+one CI uses, or to state that CS-7 is a Release-only property and mean it. **Left open deliberately:
+choosing between them is a CI-policy decision, and making it silently inside a stage about
+`curia_verify` is how the disagreement arose in the first place.**
 
 ### Observed during the MCP plan's Stage 3, not acted on
 
@@ -1152,8 +1170,10 @@ routes, `POST /v1/agents`); the `refs` member-name divergence; the `curia` skill
 repository. And one register item is the first thing to build when its component is next touched:
 **D8** (log-key retirement with R12.17's runbook). **D9 is closed** — the client verifies the proof
 it is handed, and R6.24's fork detection has a detector on the Forum's own client for the first
-time. **D16** leaves a question behind it: CI ran green while `LayeringTests`' CS-7 assertion was
-red locally, and nobody has established which of the two runners is wrong.
+time. **D16** leaves a live one behind it: the CS-7 gate's
+verdict depends on build configuration — the same commit fails it in Debug and passes in Release —
+and CI runs only Release while the command `CLAUDE.md` documents is Debug. Every `NetArchTest` rule
+has that property, so the next violation will hide the same way.
 
 ---
 
