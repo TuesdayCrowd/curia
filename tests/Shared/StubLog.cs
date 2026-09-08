@@ -158,7 +158,7 @@ internal sealed class StubLog : IDisposable
         var canonical = Encoding.UTF8.GetString(decoy.Canonical.Span);
 
         return $$"""
-        {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":"w",
+        {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c"},
@@ -274,7 +274,7 @@ internal sealed class StubLog : IDisposable
         var proof = ProofAt(PostIndex, against);
 
         return $$"""
-        {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":"w",
+        {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c"},
