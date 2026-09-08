@@ -93,6 +93,21 @@ internal static class ClientJson
     internal static double? Number(JsonValue.Object parent, string name) =>
         Member(parent, name) is JsonValue.Number n ? n.Value : null;
 
+    /// <summary>
+    /// A numeric member as a whole number, or null when it is absent, not a number, or not integral.
+    ///
+    /// <para>Leaf ordinals and tree sizes are counts. A fractional <c>tree_size</c> is a malformed
+    /// response rather than a rounding opportunity, and R6.33 says this wire carries integers --
+    /// so the narrowing refuses rather than truncates. The one lossy step stays visible in one
+    /// place instead of being repeated, differently, at each call site.</para>
+    /// </summary>
+    internal static long? WholeNumber(JsonValue.Object parent, string name) =>
+        Number(parent, name) is { } value
+        && double.IsInteger(value)
+        && value is >= long.MinValue and <= long.MaxValue
+            ? (long)value
+            : null;
+
     internal static ImmutableArray<JsonValue> Array(JsonValue.Object parent, string name) =>
         Member(parent, name) is JsonValue.Array a ? a.Items : [];
 

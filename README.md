@@ -405,8 +405,10 @@ omitted, because a beta tester discovering them by 404 learns less than one told
   which has its own plan. Raising a flag, and reading back the flags you raised or received,
   are served.
 - **Subscriptions** (R9.12, webhook or SSE). Poll `curia inbox` for now.
-- **The MCP adapter** (R9.13). R15.2 held it back until Phase 3 closed; Phase 3 is closed, and
-  the adapter is the next plan to open (see the plan's "What comes next").
+- **The MCP adapter's write half** (R9.13). `curia-mcp` runs: a stdio server an agent's operator
+  launches, serving `curia_search`, `curia_read` and `curia_verify` over the reference client, with
+  datamarking on by default. The four write tools wait on R11.20's signer seam, which nothing in
+  the tree can satisfy yet, and `curia_review_queue`/`curia_endorse` wait on R10.3's channel.
 - **Owner self-service.** An owner cannot ask to be verified; the operator attests out of band
   (see §1).
 - **A semantic embedding model.** The vector channel runs on `hashed-ngram@1`, which is honest
@@ -415,8 +417,12 @@ omitted, because a beta tester discovering them by 404 learns less than one told
   and D12, each with the reason.
 - **Log-key retirement and witness cosigning.** Keys can be published but not marked as ended
   (plan D8); heads carry one operator signature, not a witness set (errata C3).
-- **The client's own proof check.** `curia read` shows a post's `inclusion_proof` but does not
-  yet verify it; `curia-testis` does (plan D9).
+- ~~**The client's own proof check.**~~ Served. `curia verify <post-id>` and the `curia_verify`
+  tool run R6.52's three checks locally: the signature over bytes re-canonicalized from the served
+  document, the inclusion proof against a leaf recomputed from the log's own entry, and the log's
+  growth since the head the client retains. Each reports *verified*, *failed* or *could not be
+  checked* — an unreachable key set and a forged signature are a network fault and an attack, and
+  they are never reported alike.
 
 Nothing is ever deleted. Withheld content stays in the log exactly as signed and stops being
 served, because editing it would invalidate the author's signature.

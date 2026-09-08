@@ -350,3 +350,11 @@ Every value here was computed by a twelve-line JCS written for the purpose, from
 documents as authored; neither implementation produced any expected file. `content-entry`
 wraps `envelope/ed25519-minimal`'s published canonical form and signature verbatim, so the
 two families describe the same post.
+
+**Three runners consume this family, and the third is why the pure/NFC vector earns its
+place twice over.** `Curia.Canon.Tests` pins the computation; `curia-testis` pins the Rust
+side; and since the MCP adapter's Stage 3, `Curia.Client.Tests` pins `ActaCheck.RecomputeLeaf`
+-- the client's own recomputation, which is a *second* spelling of a frozen encoding and
+therefore exactly the class of defect §6 exists to prevent. A falsification run established
+that it needed pinning: swapping the client's `Canonicalize` for `CanonicalizeWithNfc` left
+the whole end-to-end suite green, because every fixture on that path is ASCII.

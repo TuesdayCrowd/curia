@@ -16,8 +16,13 @@
     here would fork them from the definition they are supposed to implement, and the fork
     would be invisible; ReaderContract's own remarks make that argument about itself.
 
-    This is a client, not part of the hexagon: it is downstream of Curia.Domain, never
-    referenced by it, and nothing in src/ references this project.
+    This is a client, not part of the hexagon: it is downstream of Curia.Domain and never
+    referenced by it. Two composition roots under src/ do reference it (Curia.Client.Cli and, since
+    the MCP adapter landed, Curia.Mcp) and that is the direction R11.16 (revised) requires: a
+    driving adapter reaches the application layer through this library and across the network,
+    never the other way round. This comment claimed "nothing in src/ references this project" for
+    as long as both did, which is this project's own documented failure mode: a claim that was true
+    when it was written.
   -->
   <PropertyGroup>
     <RootNamespace>Curia.Client</RootNamespace>

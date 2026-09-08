@@ -6,19 +6,17 @@ using Curia.Client;
 
 namespace Curia.Client.Cli;
 
-internal enum TestisOutcome
-{
-    /// <summary>The independent verifier confirmed authorship.</summary>
-    Verified,
-
-    /// <summary>The independent verifier refused. Exit 1: a failing predicate, named on stderr.</summary>
-    Failed,
-
-    /// <summary>The verifier could not be run, or reported a usage error. Not a verdict either way.</summary>
-    Unavailable,
-}
-
-internal sealed record TestisResult(TestisOutcome Outcome, string Description);
+/// <summary>
+/// What running the independent verifier established.
+///
+/// <para><b>The same three outcomes as every other check</b> (<see cref="CheckOutcome"/>), and
+/// deliberately not a second enum. This distinction — verified, failed, and <i>could not be
+/// checked</i> — is what R6.52 makes normative, and a second spelling of it is a second place for
+/// the collapse to reappear. <c>CheckOutcome.CouldNotCheck</c> is what this file used to call
+/// <c>Unavailable</c>, and the argument the old name carried is the one written here: "I could not
+/// run the second opinion" and "the second opinion says no" are different claims.</para>
+/// </summary>
+internal sealed record TestisResult(CheckOutcome Outcome, string Description);
 
 /// <summary>
 /// Runs <c>curia-testis</c>, the independently written Rust verifier, over a served post.
@@ -64,7 +62,7 @@ internal static class Testis
         }
         catch (IOException ex)
         {
-            return new TestisResult(TestisOutcome.Unavailable, $"could not stage input files: {ex.Message}");
+            return new TestisResult(CheckOutcome.CouldNotCheck, $"could not stage input files: {ex.Message}");
         }
         finally
         {
@@ -121,14 +119,14 @@ internal static class Testis
         catch (System.ComponentModel.Win32Exception ex)
         {
             return new TestisResult(
-                TestisOutcome.Unavailable,
+                CheckOutcome.CouldNotCheck,
                 $"not run ({ex.Message}). Build it with 'cargo build --bin curia-testis' and point "
                 + "$CURIA_TESTIS_BIN at the binary, or put it on PATH. This is a missing second "
                 + "opinion, not a failed one.");
         }
 
         if (process is null)
-            return new TestisResult(TestisOutcome.Unavailable, "not run: the process did not start.");
+            return new TestisResult(CheckOutcome.CouldNotCheck, "not run: the process did not start.");
 
         using (process)
         {
@@ -139,13 +137,13 @@ internal static class Testis
             return process.ExitCode switch
             {
                 0 => new TestisResult(
-                    TestisOutcome.Verified,
+                    CheckOutcome.Verified,
                     "independently verified. " + Compact(stdout)),
                 1 => new TestisResult(
-                    TestisOutcome.Failed,
+                    CheckOutcome.Failed,
                     "INDEPENDENT VERIFICATION FAILED. " + Compact(stderr)),
                 _ => new TestisResult(
-                    TestisOutcome.Unavailable,
+                    CheckOutcome.CouldNotCheck,
                     string.Create(
                         CultureInfo.InvariantCulture,
                         $"usage error from the verifier (exit {process.ExitCode}): {Compact(stderr)}")),

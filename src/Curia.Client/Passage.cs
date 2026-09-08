@@ -61,12 +61,21 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (Post.Provenance.Owner is { Length: > 0 } owner) builder.Append(culture, $"owner     {owner}\n");
         builder.Append(culture, $"server_ts {Post.ServerTs}\n");
         // The digest this client computed from the canonical bytes, not the one the response
-        // carried: a digest served alongside the content it digests establishes nothing, and this
-        // Forum currently serves a value that is not a digest at all (see below).
-        builder.Append(culture, $"digest    {Verdict.Digest ?? "(not computed)"}   (computed here)\n");
+        // carried: a digest served alongside the content it digests establishes nothing.
+        // In the wire's spelling, which is the one every citation keys on -- `refs`, `prev`, a
+        // vote's `target`, R9.10's batch -- and the one curia_verify prints. A reader comparing two
+        // of this client's outputs, or pasting a digest into a citation, must not have to convert
+        // between two forms of the same value; printing the bare hex here made every such
+        // comparison a manual step and made the disagreement warning below fire on every post.
+        builder.Append(culture, $"digest    {Verdict.PrefixedDigest ?? "(not computed)"}   (computed here)\n");
 
-        if (Verdict.Digest is { } computed
-            && !string.Equals(Post.Digest, computed, StringComparison.OrdinalIgnoreCase))
+        // Compared in the wire's own spelling. The computed value is bare hex and the served one is
+        // EnvelopeDigest.ToPrefixed's "sha256:" + hex, so comparing them directly never came out
+        // equal and this warning printed under every genuine post -- an alarm that always fires,
+        // which is an alarm nobody reads. Its test pinned Digest to "whatever-the-forum-said", so
+        // the fixture agreed with the defect and the assertion could not fail.
+        if (Verdict.PrefixedDigest is { } computed
+            && !string.Equals(Post.Digest, computed, StringComparison.Ordinal))
             builder.Append(culture, $"          the Forum reported a different value for digest: {Post.Digest}\n");
         builder.Append(culture, $"signature {Verdict.Describe}\n");
         builder.Append(culture, $"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}\n");

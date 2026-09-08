@@ -1,7 +1,10 @@
+using System.Collections.Frozen;
+
 namespace Curia.Domain.Content;
 
 /// <summary>
-/// Table 9's <c>kind</c> enum: <c>question | answer | finding | comment | revision</c>.
+/// Table 9's <c>kind</c> enum: <c>question | answer | finding | comment | revision</c>, plus
+/// errata G8's <c>vote</c> and <c>verification</c>.
 ///
 /// <para>CS-11 wants closed hierarchies with an explicit <c>Match</c> so a seventh kind breaks
 /// every call site. This is an enum rather than a hierarchy because Table 9 makes <c>kind</c> a
@@ -48,20 +51,43 @@ public static class PostKinds
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not a Table 9 kind"),
     };
 
+    /// <summary>
+    /// The wire spellings, as a map rather than as a <c>switch</c>.
+    ///
+    /// <para><b>Why a map.</b> Roslyn lowers a <c>switch</c> over seven or more string cases to a
+    /// hash probe, which makes the switching type depend on
+    /// <c>&lt;PrivateImplementationDetails&gt;::ComputeStringHash</c> -- a global-namespace
+    /// dependency that CS-7's rule then reports, on a dependency nobody took.
+    /// <c>Curia.Domain.Moderation</c>'s <c>FlagKinds</c> hit exactly this at its seventh flag kind
+    /// and was fixed the same way; <c>LayeringTests</c> writes the diagnosis down and says the fix
+    /// belongs in the code rather than in its allow-list, because admitting a global-namespace name
+    /// there would weaken the one rule that catches an unvetted package.</para>
+    ///
+    /// <para>This kind reached seven with errata G8's <c>vote</c> and <c>verification</c>, and the
+    /// gate has been red since. A map is what this always was, and it does not change behaviour.</para>
+    /// </summary>
+    private static readonly FrozenDictionary<string, PostKind> ByWire =
+        new Dictionary<string, PostKind>(StringComparer.Ordinal)
+        {
+            ["question"] = PostKind.Question,
+            ["answer"] = PostKind.Answer,
+            ["finding"] = PostKind.Finding,
+            ["comment"] = PostKind.Comment,
+            ["revision"] = PostKind.Revision,
+            ["vote"] = PostKind.Vote,
+            ["verification"] = PostKind.Verification,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// A wire spelling to its kind. A null or unknown spelling is <see langword="false"/> rather
+    /// than an exception, which is what the <c>switch</c> this replaced did: parsing is a
+    /// reject-or-pass decision (R6.13) and a caller handing over whatever arrived on the wire is
+    /// the normal case, not a contract violation.
+    /// </summary>
     public static bool TryParse(string wire, out PostKind kind)
     {
-        (var ok, kind) = wire switch
-        {
-            "question" => (true, PostKind.Question),
-            "answer" => (true, PostKind.Answer),
-            "finding" => (true, PostKind.Finding),
-            "comment" => (true, PostKind.Comment),
-            "revision" => (true, PostKind.Revision),
-            "vote" => (true, PostKind.Vote),
-            "verification" => (true, PostKind.Verification),
-            _ => (false, default),
-        };
-        return ok;
+        kind = default;
+        return wire is not null && ByWire.TryGetValue(wire, out kind);
     }
 
     /// <summary>

@@ -41,6 +41,29 @@ internal static class ExitCode
     /// <summary>The Forum could not be reached, refused authentication, or answered with a fault.</summary>
     internal const int ForumFault = 8;
 
+    /// <summary>
+    /// R6.52 as an exit code, for the two verbs that report what this client established about a
+    /// post rather than what the Forum answered.
+    ///
+    /// <para><b>A failure is about the post; an unrunnable check is about the Forum.</b> 6 says
+    /// authorship or inclusion did not hold and the post's standing is the problem. 8 says a key set
+    /// was unreachable, or no head has been signed yet, or the second verifier is not installed —
+    /// the remedy is the Forum, the network or the operator's signing schedule, and nothing was
+    /// refuted. Collapsing the second into the first would return 6 every time an operator's cron
+    /// had not run, which teaches a caller to ignore the one code that matters. R6.52 forbids the
+    /// collapse in prose; this is where a CLI obeys it.</para>
+    ///
+    /// <para>One function because the decision is made on two paths — <c>read</c>'s rendering and
+    /// <c>verify</c> — and a rule stated twice is a rule that will hold in one place.</para>
+    /// </summary>
+    internal static int ForOutcomes(params CheckOutcome[] outcomes)
+    {
+        ArgumentNullException.ThrowIfNull(outcomes);
+
+        if (Array.IndexOf(outcomes, CheckOutcome.Failed) >= 0) return Unverified;
+        return Array.IndexOf(outcomes, CheckOutcome.CouldNotCheck) >= 0 ? ForumFault : Ok;
+    }
+
     internal static int For(Refusal refusal) => refusal.Kind switch
     {
         RefusalKind.Local => Local,

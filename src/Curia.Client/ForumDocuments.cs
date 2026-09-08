@@ -177,7 +177,19 @@ public sealed record ProvenancePost(
     /// for a post that arrived inside a listing, which carries no per-item tag. Opaque and stored as
     /// given: reconstructing it from the digest is the defect errata G6 records.
     /// </summary>
-    string? EntityTag = null)
+    string? EntityTag = null,
+
+    /// <summary>
+    /// R6.18's per-item leaf ordinal, or <see langword="null"/> from a Forum that serves none.
+    /// </summary>
+    long? LogIndex = null,
+
+    /// <summary>
+    /// R6.48's audit path as served with this post, or <see langword="null"/> when the log will not
+    /// fold. Parsed here rather than dropped: served on every <c>PostResponse</c> since the Acta
+    /// landed and read by nothing, it was plan defect D9 for exactly as long.
+    /// </summary>
+    InclusionProofDocument? InclusionProof = null)
 {
     /// <summary>
     /// The Forum's own claim about the signature, kept nominally distinct from
@@ -432,6 +444,17 @@ internal static class ForumDocuments
             return Result<ProvenancePost>.Fail(
                 ClientErrors.ResponseMalformed("post is missing post_id, canonical or signature"));
 
+        // R6.48's proof, when the Forum served one. A malformed proof is a malformed response
+        // rather than an absent proof: "the Forum served no proof" and "the Forum served one this
+        // client could not read" are different states, and reading the second as the first would
+        // report a verifiable post as unverifiable and hide the disagreement that caused it.
+        InclusionProofDocument? proof = null;
+        if (ClientJson.Member(o, "inclusion_proof") is { } member and not JsonValue.Null)
+        {
+            if (!ActaDocuments.ReadInclusionProof(member).TryGetValue(out proof, out var proofError))
+                return Result<ProvenancePost>.Fail(proofError!);
+        }
+
         return Result<ProvenancePost>.Ok(new ProvenancePost(
             provenance,
             postId,
@@ -443,7 +466,10 @@ internal static class ForumDocuments
             canonical,
             signature,
             ClientJson.String(o, "rendered") ?? string.Empty,
-            Bool(o, "accepted")));
+            Bool(o, "accepted"),
+            EntityTag: null,
+            LogIndex: ClientJson.WholeNumber(o, "log_index"),
+            InclusionProof: proof));
     }
 
     // EntityTag is set by the transport from the response header, never parsed from the body.
@@ -508,19 +534,29 @@ internal static class ForumDocuments
         {
             if (item is not JsonValue.Object k) continue;
 
-            if (ClientJson.String(k, "kty") is not { } kty
-                || ClientJson.String(k, "alg") is not { } alg
-                || ClientJson.String(k, "kid") is not { } kid
-                || ClientJson.String(k, "x") is not { } x)
+            if (ReadJwk(k) is not { } key)
                 return Result<ImmutableArray<ForumJwk>>.Fail(ClientErrors.ResponseMalformed("jwk"));
 
-            keys.Add(new ForumJwk(
-                kty, ClientJson.String(k, "crv"), alg, kid, x, ClientJson.String(k, "y"),
-                ClientJson.String(k, "curia_not_before"), ClientJson.String(k, "curia_not_after")));
+            keys.Add(key);
         }
 
         return Result<ImmutableArray<ForumJwk>>.Ok(keys.ToImmutable());
     }
+
+    /// <summary>
+    /// One JWK, or null when it lacks a member every key needs. Shared with the Acta's own key set
+    /// (R6.50), which carries the same key material under two extra members: a second reader here
+    /// would be a second place for errata D4's <c>EC</c>/<c>OKP</c> distinction to be got wrong.
+    /// </summary>
+    internal static ForumJwk? ReadJwk(JsonValue.Object k) =>
+        ClientJson.String(k, "kty") is { } kty
+        && ClientJson.String(k, "alg") is { } alg
+        && ClientJson.String(k, "kid") is { } kid
+        && ClientJson.String(k, "x") is { } x
+            ? new ForumJwk(
+                kty, ClientJson.String(k, "crv"), alg, kid, x, ClientJson.String(k, "y"),
+                ClientJson.String(k, "curia_not_before"), ClientJson.String(k, "curia_not_after"))
+            : null;
 
     internal static Result<ReaderContractDocument> ReadContract(JsonValue value)
     {

@@ -1,4 +1,5 @@
 using System.Buffers.Text;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,6 +8,7 @@ using Curia.Canon.Envelope;
 using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives;
 using Curia.Domain.Serving;
 using Xunit;
 
@@ -16,6 +18,10 @@ namespace Curia.Client.Tests;
 /// R10.22: the five clauses a reference client must implement <i>by default</i>, checked as
 /// behaviour rather than acknowledged as prose.
 /// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class ReaderContractTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("curia-contract-tests-").FullName;
@@ -157,6 +163,58 @@ public sealed class ReaderContractTests : IDisposable
         Assert.Contains("not yet valid", verdict.Detail, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// R6.31 and R6.52: a key that declares a validity window cannot be evaluated against a post
+    /// whose <c>server_ts</c> will not parse, and this client says so rather than proceeding.
+    ///
+    /// <para><b>Why this is not a small point.</b> The Forum chooses <c>server_ts</c>, and
+    /// <c>ReadPost</c> defaults an absent one to the empty string. Before this, an unparseable
+    /// timestamp short-circuited the window check entirely and the key was accepted — so a key
+    /// retired in 2021 verified a post today, and the client printed "verified locally against
+    /// kid=…". A check the Forum can switch off by serving a malformed field is not a check.</para>
+    ///
+    /// <para>The outcome is <i>could not be checked</i> rather than <i>failed</i>: the signature may
+    /// well be good and this client cannot say. That is R6.52's third outcome doing exactly the work
+    /// it exists for.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("not a date")]
+    [InlineData("2026-13-45T99:99:99Z")]
+    public void R6_31_AWindowedKeyAgainstAnUnusableServerTimestampCannotBeEvaluated(string serverTs)
+    {
+        var post = Serve("body", MarkingMode.None) with { ServerTs = serverTs };
+        var retired = Jwks()[0] with
+        {
+            NotBefore = "2020-01-01T00:00:00.0000000+00:00",
+            NotAfter = "2021-01-01T00:00:00.0000000+00:00",
+        };
+
+        var verdict = SignatureCheck.Verify(post, [retired]);
+
+        Assert.Equal(CheckOutcome.CouldNotCheck, verdict.Outcome);
+        Assert.Contains("validity-not-evaluable", verdict.Detail, StringComparison.Ordinal);
+
+        // Non-vacuity: the same key against a usable timestamp inside its window verifies, so the
+        // outcome above is about the timestamp rather than about the key being unusable anyway.
+        var inWindow = post with { ServerTs = "2020-06-01T00:00:00.0000000+00:00" };
+        Assert.Equal(CheckOutcome.Verified, SignatureCheck.Verify(inWindow, [retired]).Outcome);
+    }
+
+    /// <summary>
+    /// And a key with no window at all is unaffected: there is nothing R6.31 would evaluate, so an
+    /// unusable <c>server_ts</c> is irrelevant rather than disqualifying. Without this the fix above
+    /// would refuse every post from a Forum that publishes unbounded keys.
+    /// </summary>
+    [Fact]
+    public void R6_31_AnUnboundedKeyIsUnaffectedByAnUnusableServerTimestamp()
+    {
+        var post = Serve("body", MarkingMode.None) with { ServerTs = "not a date" };
+        var unbounded = Jwks()[0] with { NotBefore = null, NotAfter = null };
+
+        Assert.Equal(CheckOutcome.Verified, SignatureCheck.Verify(post, [unbounded]).Outcome);
+    }
+
     [Fact]
     public void TheDigestIsComputedLocallyRatherThanTakenFromTheResponse()
     {
@@ -170,6 +228,51 @@ public sealed class ReaderContractTests : IDisposable
 
         var rendered = new Passage(post, verdict).Render();
         Assert.Contains(expected, rendered, StringComparison.Ordinal);
+        Assert.Contains("the Forum reported a different value", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other half, and the half that was missing: a post whose <c>digest</c> is what the Forum
+    /// actually serves must <b>not</b> raise the disagreement.
+    ///
+    /// <para><b>Why this test exists.</b> The wire carries
+    /// <see cref="EnvelopeDigest.ToPrefixed"/>'s <c>sha256:</c> + hex and this client computes bare
+    /// hex, so the comparison could never come out equal and the warning printed under every genuine
+    /// post -- an alarm that always fires. The test above could not catch it: its fixture pinned
+    /// <c>Digest</c> to a string that is not a digest at all, so it agreed with the defect. The
+    /// expected value here is derived from <see cref="EnvelopeDigest"/> itself rather than written
+    /// out, so changing the wire's spelling moves this assertion with it instead of past it.</para>
+    /// </summary>
+    [Fact]
+    public void TheDigestTheForumActuallyServesIsNotReportedAsADisagreement()
+    {
+        var post = Serve("body", MarkingMode.None);
+        var served = new EnvelopeDigest(SHA256.HashData(Encoding.UTF8.GetBytes(post.Canonical))).ToPrefixed();
+
+        // Non-vacuity: the fixture really is carrying the wire's own spelling, so the absence
+        // asserted below is a fact about the comparison rather than about an empty field.
+        Assert.Equal(served, post.Digest);
+        Assert.StartsWith("sha256:", post.Digest, StringComparison.Ordinal);
+
+        var rendered = new Passage(post, SignatureCheck.Verify(post, Jwks())).Render();
+
+        Assert.DoesNotContain("the Forum reported a different value", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// And a Forum that genuinely serves a different digest is still reported. Without this the
+    /// test above would be satisfied by deleting the comparison entirely.
+    /// </summary>
+    [Fact]
+    public void ADigestThatGenuinelyDiffersIsStillReported()
+    {
+        var post = Serve("body", MarkingMode.None) with
+        {
+            Digest = new EnvelopeDigest(SHA256.HashData("some other document"u8)).ToPrefixed(),
+        };
+
+        var rendered = new Passage(post, SignatureCheck.Verify(post, Jwks())).Render();
+
         Assert.Contains("the Forum reported a different value", rendered, StringComparison.Ordinal);
     }
 
@@ -225,7 +328,10 @@ public sealed class ReaderContractTests : IDisposable
             "question",
             null,
             "2026-08-16T12:00:00.0000000+00:00",
-            signed.Digest,
+            // The wire's own spelling, which is what the Forum serves (EnvelopeDigest.ToPrefixed).
+            // A fixture carrying the bare hex would be a document the Forum never produces, and a
+            // comparison tested against it would be tested against nothing.
+            signed.PrefixedDigest,
             canonical,
             signed.Signature,
             Datamarking.Render(canonical, marking));

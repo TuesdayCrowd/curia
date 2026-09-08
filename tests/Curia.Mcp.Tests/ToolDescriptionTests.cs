@@ -37,7 +37,11 @@ public sealed class ToolDescriptionTests
     {
         using var http = new HttpClient();
         var forum = new Uri("https://forum.invalid/", UriKind.Absolute);
-        var tools = new ForumTools(new ForumClient(http, forum), MarkingMode.Datamark);
+
+        // A head store under a path that is never written to: a description is composed at
+        // registration and touches neither the Forum nor the filesystem.
+        var heads = new HeadStore(Path.Combine(Path.GetTempPath(), "curia-tool-descriptions-never-written"));
+        var tools = new ForumTools(new ForumClient(http, forum), MarkingMode.Datamark, heads);
 
         foreach (var tool in ToolCatalogue.Build(tools))
             yield return (tool.ProtocolTool.Name, tool.ProtocolTool.Description ?? string.Empty);
@@ -101,6 +105,11 @@ public sealed class ToolDescriptionTests
         {
             "curia_search" => (ResourceKind.Thread, ActionKind.Search),
             "curia_read" => (ResourceKind.Thread, ActionKind.Read),
+
+            // curia_verify reads the post it is asked about; the Acta's routes are anonymous. There
+            // is no "verify" pair in Table 10 and inventing one would claim an authority boundary
+            // the Forum does not enforce (R11.26).
+            "curia_verify" => (ResourceKind.Thread, ActionKind.Read),
             _ => throw new InvalidOperationException(
                 $"{name} has no Table 10 pair in this test's map. Add it, rather than letting the " +
                 "row pass without checking what the description claims about authority."),
@@ -131,6 +140,8 @@ public sealed class ToolDescriptionTests
     [Fact]
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
-        Assert.Equal(["curia_read", "curia_search"], Registered().Select(t => t.Name).Order());
+        Assert.Equal(
+            ["curia_read", "curia_search", "curia_verify"],
+            Registered().Select(t => t.Name).Order());
     }
 }

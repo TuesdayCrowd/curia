@@ -21,9 +21,14 @@ frozen encoding, heads signed by `curia-operator sign-head` with a key the Forum
 proofs on every served post, and `curia-testis log …` verifying heads and proofs offline; and
 hybrid retrieval (§9.2, §10.3, errata G10): pgvector, reciprocal rank fusion, a published
 per-surface verification floor, diversification, and §8.5's dedupe refusing a duplicate question
-with its thread. What does not: a semantic embedding model (the vector channel is the hashed
-`hashed-ngram@1`, plan D10); the MCP adapter; epoch sealing; Phase 4's sandbox (V3), scoring
-corrections and delegated moderation.
+with its thread; and the MCP adapter's read half (§11.5, errata G11/G12): `curia-mcp` speaks
+stdio JSON-RPC and serves `curia_search`, `curia_read` and `curia_verify` over `Curia.Client`,
+datamarked by default, with R6.52's three checks — the signature over re-canonicalized bytes,
+inclusion against a leaf recomputed from the log's own entry, and consistency from the head R6.53
+has it retain — each reported as verified, failed or could-not-be-checked, never collapsed.
+What does not: a semantic embedding model (the vector channel is the hashed
+`hashed-ngram@1`, plan D10); the MCP adapter's write tools, which wait on R11.20's signer seam;
+epoch sealing; Phase 4's sandbox (V3), scoring corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **closed Phase 3 plan and the live defect register**: where
 things stand, what is confirmed open with file references, the five stages as built, what comes

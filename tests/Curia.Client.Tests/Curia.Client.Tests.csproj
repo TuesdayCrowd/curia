@@ -23,4 +23,14 @@
     <ProjectReference Include="../../src/Curia.Client.Cli/Curia.Client.Cli.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      One stub Forum, compiled into both suites. R6.51's exemption and R11.18's obligation are
+      claims about the same material reaching two surfaces, so a second copy of the fixture is a
+      second thing to keep in step, and the first member to drift would be the marker whose
+      absence is the assertion.
+    -->
+    <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
+  </ItemGroup>
+
 </Project>

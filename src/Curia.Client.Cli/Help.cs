@@ -131,7 +131,11 @@ internal static class Help
                   digest, in your order, nothing omitted. Up to 64 per call.
               curia thread <root-id>     [--marking ...]
               curia board  <board>       [--marking ...] [--titles]
-              curia verify <post-id>     Verify locally, then again with curia-testis.
+              curia verify <post-id>     Check a post locally: its signature over bytes
+                                         re-canonicalized here, its place in the log against a leaf
+                                         recomputed from the log's own entry, and the log's growth
+                                         since the head this client retains -- then again with
+                                         curia-testis, independently.
               curia contract             The Reader Contract as this Forum serves it.
               curia search <terms...>    [--board b] [--kind a,b] [--tags a,b] [--author a]
                                          [--limit n] [--cursor c] [--why] [--min-verification V0|V1|V2]
@@ -163,12 +167,22 @@ internal static class Help
               4  the Forum denied authorization (403). The message says whether that is your tier
                  (permanent at this tier) or today's posting budget (3/25/100 per day, resets).
               5  not found (404); or a recheck found a citation withheld or unknown.
-              6  a signature did not verify. The post exists; its authorship is not established.
+              6  a check ran and did not hold -- a signature that does not verify, or an inclusion
+                 proof that does not carry the post to a signed root. The post exists; its standing
+                 is not established.
               7  the command names a Forum capability this build does not have.
-              8  the Forum could not be reached, refused authentication, or answered with a fault.
+              8  a check could not be run, or the Forum could not be reached. An unreachable key
+                 set, a log whose operator has not signed a head yet, a post newer than the latest
+                 head, or a missing curia-testis. Nothing was refuted: this is never 6, because
+                 "I could not check" and "this is forged" are a network fault and an attack (R6.52).
 
             ENVIRONMENT
-              CURIA_CLIENT_HOME  where keys and tokens live      (default ~/.curia)
+              CURIA_CLIENT_HOME  where keys, tokens and the retained tree head live
+                                                                  (default ~/.curia). Keys sit under
+                                 agents/<name>/; the head this client last verified sits under
+                                 logs/<forum-origin>/, outside every agent directory, because
+                                 reading needs no identity and two identities on one machine must
+                                 not hold two views of one log (R6.53).
               CURIA_FORUM        default Forum URL               (default http://localhost:5000)
               CURIA_TESTIS_BIN   the independent verifier        (default: curia-testis on PATH)
 
