@@ -1,6 +1,7 @@
 using System.Buffers.Text;
 using System.Collections.Immutable;
 using System.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Curia.Canon.Canonical;
 using Curia.Canon.Envelope;
@@ -63,13 +64,40 @@ public sealed class DetachedJws
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        if (!_signers.TryGetValue(key.Alg, out var signer))
-            return Result<JwsSignature>.Fail(JwsErrors.AlgNotAllowed(key.Alg));
+        return _signers.TryGetValue(key.Alg, out var signer)
+            ? Sign(canonical, new KeyBearingSigner(signer, key))
+            : Result<JwsSignature>.Fail(JwsErrors.AlgNotAllowed(key.Alg));
+    }
+
+    /// <summary>
+    /// R11.20's signing path: the same JWS, produced by something that holds the key instead of by
+    /// the caller holding it.
+    ///
+    /// <para><b>One path, not two.</b> The <see cref="SigningKey"/> overload above delegates here
+    /// through a private adapter, so the header composition and the signing input are computed in
+    /// exactly one place. Two independent renderings of a protected header is the class of defect
+    /// §6 exists to prevent: they agree on every document anybody tests, and disagree on the one an
+    /// attacker constructs.</para>
+    ///
+    /// <para><b>The allow-list still applies, and that is not incidental.</b>
+    /// <c>signersByAlg</c> is the only sign-side algorithm check in the system, and it stays a check
+    /// here even though no adapter from it is invoked — a handle carrying its own <c>Alg</c> makes
+    /// the lookup look like dead code, and it is not. Five call sites derive their meaning from
+    /// passing an <b>empty</b> signer dictionary, most importantly <c>IngestPipeline</c>: that is
+    /// why the Forum is structurally unable to sign a post envelope. Accepting a handle without
+    /// consulting the list would hand the Forum a signing path it has never had.</para>
+    /// </summary>
+    public Result<JwsSignature> Sign(CanonicalBytes canonical, IAgentSigner signer)
+    {
+        ArgumentNullException.ThrowIfNull(signer);
+
+        if (!_signers.ContainsKey(signer.Alg))
+            return Result<JwsSignature>.Fail(JwsErrors.AlgNotAllowed(signer.Alg));
 
         var headerJson = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object>
         {
-            ["alg"] = key.Alg,
-            ["kid"] = key.Kid,
+            ["alg"] = signer.Alg,
+            ["kid"] = signer.Kid,
             ["typ"] = _typ,
             ["b64"] = false,
             ["crit"] = CritHeaderValue,
@@ -77,8 +105,42 @@ public sealed class DetachedJws
 
         var header = Base64Url.EncodeToString(headerJson);
         var input = SigningInput(header, canonical.Span);
-        var signature = signer.Sign(input, key);
+
+        byte[] signature;
+        try
+        {
+            signature = signer.Sign(input);
+        }
+        catch (CryptographicException ex)
+        {
+            // A delegated signer is another process or a keystore, and either can refuse. CS-10
+            // makes a failed signature a value here rather than an exception, and the Verify path
+            // already closed this crash class for algorithm confusion.
+            return Result<JwsSignature>.Fail(JwsErrors.SignerRefused(signer.Kid, ex.Message));
+        }
+        catch (IOException ex)
+        {
+            return Result<JwsSignature>.Fail(JwsErrors.SignerRefused(signer.Kid, ex.Message));
+        }
+
         return Result<JwsSignature>.Ok(new JwsSignature($"{header}..{Base64Url.EncodeToString(signature)}"));
+    }
+
+    /// <summary>
+    /// The in-process adapter behind the <see cref="SigningKey"/> overload: it holds the key it was
+    /// handed and calls the algorithm adapter. Private, because it is the one implementation of
+    /// <see cref="IAgentSigner"/> that <i>does</i> hold key material, and nothing outside should be
+    /// able to reach for it by accident when R11.20 is the point.
+    /// </summary>
+    private sealed class KeyBearingSigner(IContentSigner signer, SigningKey key) : IAgentSigner
+    {
+        public string Alg => key.Alg;
+
+        public string Kid => key.Kid;
+
+        public ReadOnlyMemory<byte> PublicKey => ReadOnlyMemory<byte>.Empty;
+
+        public byte[] Sign(ReadOnlySpan<byte> signingInput) => signer.Sign(signingInput, key);
     }
 
     public Result<VerifiedContent> Verify(CanonicalBytes canonical, JwsSignature sig, PublicKeyMaterial key)
@@ -233,6 +295,16 @@ internal static class JwsErrors
 {
     public static Error AlgNotAllowed(string alg) => new("curia/jws/alg-not-allowed", "Algorithm not in the allow-list", alg);
     public static Error TypMismatch(string typ) => new("curia/jws/typ-mismatch", "Unexpected typ header", typ);
+
+    /// <summary>
+    /// A signer declined or could not be reached. Its own slug because a delegated signer is another
+    /// process or a keystore: "the key would not sign this" is an operational fact about the signer,
+    /// not a statement about the content or the algorithm.
+    /// </summary>
+    public static Error SignerRefused(string kid, string detail) => new(
+        "curia/jws/signer-refused",
+        "The signer did not produce a signature",
+        $"kid={kid}: {detail}");
 
     /// <summary>
     /// The header names one algorithm and the key another. Its own slug rather than
