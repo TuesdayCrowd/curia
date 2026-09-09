@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
 
 namespace Curia.Client;
@@ -37,26 +38,89 @@ public sealed record AgentProfile(
 public sealed class EnrolledAgent : IDisposable
 {
     internal EnrolledAgent(AgentProfile profile, ECDsa signingKey, ECDsa dpopKey)
+        : this(profile, new InProcessSigner(signingKey, profile.Kid), dpopKey)
+    {
+    }
+
+    private EnrolledAgent(AgentProfile profile, IAgentSigner signer, ECDsa dpopKey)
     {
         Profile = profile;
-        SigningKey = signingKey;
+        Signer = signer;
         DpopKey = dpopKey;
     }
 
     public AgentProfile Profile { get; }
 
-    /// <summary>The registered key. Signs post envelopes and client assertions.</summary>
-    public ECDsa SigningKey { get; }
+    /// <summary>
+    /// The registered key, as a capability rather than as key material (R11.20). Signs post
+    /// envelopes <b>and</b> <c>private_key_jwt</c> client assertions — both, which is why delegating
+    /// only the first would leave this process able to authenticate as the agent.
+    ///
+    /// <para>An <see cref="IAgentSigner"/> rather than an <c>ECDsa</c> so that "this process cannot
+    /// extract the registered key" is a fact about the type. It was a public <c>ECDsa</c> until this
+    /// stage, which made the property unstatable: every holder of an <see cref="EnrolledAgent"/>
+    /// could export the private half.</para>
+    /// </summary>
+    public IAgentSigner Signer { get; }
 
-    /// <summary>The unregistered key. Signs DPoP proofs and nothing else.</summary>
+    /// <summary>
+    /// The unregistered key. Signs DPoP proofs and nothing else, and is deliberately <b>not</b>
+    /// behind the port.
+    ///
+    /// <para><b>The split is stated rather than allowed to fall out.</b> R11.20 says "agent private
+    /// keys" without distinguishing, and the two are not comparable: theft of the registered key
+    /// buys authoring posts as this agent permanently and non-repudiably, while theft of this one is
+    /// bounded by a 300-second token and the key is freely rotatable because nobody registered it.
+    /// Delegating it would also put a signer round-trip on every HTTP call including the nonce
+    /// retry. What that leaves uncovered is worth naming: a flag and an answer-acceptance are
+    /// attributed by the DPoP-bound token and carry no signature at all, so this key plus a live
+    /// token is enough to raise a flag in the agent's name.</para>
+    /// </summary>
     public ECDsa DpopKey { get; }
 
     /// <summary>The registered public key, base64 SubjectPublicKeyInfo, as <c>POST /v1/agents</c> wants it.</summary>
-    public string PublicKeyBase64 => Convert.ToBase64String(SigningKey.ExportSubjectPublicKeyInfo());
+    public string PublicKeyBase64 => Convert.ToBase64String(Signer.PublicKey.Span);
+
+    /// <summary>
+    /// The registered public key as an <see cref="ECDsa"/>, for a caller that must verify something
+    /// against it. Caller-owned, and public-only: there is no path from here back to the private
+    /// half, which is the point of holding the signer rather than the key.
+    /// </summary>
+    public ECDsa ExportPublicKey()
+    {
+        var key = ECDsa.Create();
+        try
+        {
+            key.ImportSubjectPublicKeyInfo(Signer.PublicKey.Span, out _);
+            return key;
+        }
+        catch
+        {
+            key.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// An identity whose registered key this process does not hold — R11.20's case.
+    ///
+    /// <para>Public because <c>Curia.Mcp</c> must be able to build one, and because the alternative
+    /// it had was <see cref="ProfileStore.Load"/>, which returns an agent holding both private keys.
+    /// An <c>InternalsVisibleTo</c> would have made the internal constructor reachable and R11.20
+    /// strictly worse: it hands the MCP process the key-bearing path directly.</para>
+    /// </summary>
+    public static EnrolledAgent WithSigner(AgentProfile profile, IAgentSigner signer, ECDsa dpopKey)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(signer);
+        ArgumentNullException.ThrowIfNull(dpopKey);
+
+        return new EnrolledAgent(profile, signer, dpopKey);
+    }
 
     public void Dispose()
     {
-        SigningKey.Dispose();
+        if (Signer is IDisposable disposable) disposable.Dispose();
         DpopKey.Dispose();
     }
 }

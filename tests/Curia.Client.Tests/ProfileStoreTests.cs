@@ -80,7 +80,7 @@ public sealed class ProfileStoreTests : IDisposable
         using (agent)
         {
             Assert.NotEqual(
-                Convert.ToBase64String(agent!.SigningKey.ExportSubjectPublicKeyInfo()),
+                agent!.PublicKeyBase64,
                 Convert.ToBase64String(agent.DpopKey.ExportSubjectPublicKeyInfo()));
         }
     }
