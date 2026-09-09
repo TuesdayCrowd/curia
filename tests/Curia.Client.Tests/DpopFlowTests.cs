@@ -98,14 +98,15 @@ public sealed class DpopFlowTests : IDisposable
         var jwk = Header(request.Dpop!).GetProperty("jwk");
 
         var dpopParameters = _agent.DpopKey.ExportParameters(includePrivateParameters: false);
-        var signingParameters = _agent.SigningKey.ExportParameters(includePrivateParameters: false);
+        var signingParameters = PublicSigningParameters();
 
         Assert.Equal(Base64Url.EncodeToString(dpopParameters.Q.X!), jwk.GetProperty("x").GetString());
         Assert.NotEqual(Base64Url.EncodeToString(signingParameters.Q.X!), jwk.GetProperty("x").GetString());
 
         // And the assertion really is signed by the registered key: verify it as the Forum would.
         var form = ParseForm(request.Body);
-        Assert.True(VerifyJwt(form["client_assertion"], _agent.SigningKey));
+        using (var registered = _agent.ExportPublicKey())
+            Assert.True(VerifyJwt(form["client_assertion"], registered));
         Assert.True(VerifyJwt(request.Dpop!, _agent.DpopKey));
     }
 
@@ -559,4 +560,15 @@ public sealed class DpopFlowTests : IDisposable
         Assert.Equal("http://forum.test/v1/inbox", claims.GetProperty("htu").GetString());
         Assert.Equal("GET", claims.GetProperty("htm").GetString());
     }
+
+    /// <summary>
+    /// The registered key's public parameters. Reached through <c>ExportPublicKey()</c> because
+    /// <c>EnrolledAgent</c> no longer exposes the private half at all (R11.20).
+    /// </summary>
+    private ECParameters PublicSigningParameters()
+    {
+        using var key = _agent.ExportPublicKey();
+        return key.ExportParameters(includePrivateParameters: false);
+    }
+
 }

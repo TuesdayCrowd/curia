@@ -172,6 +172,74 @@ internal sealed class StubLog : IDisposable
     /// <summary>Serve a <c>leaf_hash</c> on the proof that is not the leaf's hash.</summary>
     internal bool ProofCarriesAWrongLeafHash { get; set; }
 
+    // ---- the write surface --------------------------------------------------------------------
+
+    internal const string NonceValue = "stub-nonce-0001";
+
+    internal const string AcceptedPostId = "01TESTPOSTID0000000000000B";
+
+    /// <summary>
+    /// R8.18's duplicate refusal instead of an acceptance. §8.5 refuses a duplicate <i>question</i>
+    /// with the thread that already answers it — the case that makes <c>curia_ask</c>'s result a
+    /// third outcome rather than an error.
+    /// </summary>
+    internal bool RefusesAsDuplicate { get; set; }
+
+    /// <summary>
+    /// RFC 9449 §8's challenge: the first token request is answered <c>401</c> with a
+    /// <c>DPoP-Nonce</c>, and the retry carrying it succeeds. The normal flow, not an error path —
+    /// so a client that never retried would look correct against a stub that never challenged.
+    /// </summary>
+    internal bool PendingNonceChallenge { get; set; }
+
+    /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
+    internal List<string> Requests { get; } = [];
+
+    /// <summary>The bodies of the writes it received, for asserting on what was actually sent.</summary>
+    internal List<string> WrittenBodies { get; } = [];
+
+    internal void Record(HttpMethod method, string path, HttpRequestMessage request)
+    {
+        Requests.Add($"{method} {path}");
+
+        if (method == HttpMethod.Post && request.Content is { } content)
+            WrittenBodies.Add(content.ReadAsStringAsync(CancellationToken.None).GetAwaiter().GetResult());
+    }
+
+    internal static string TokenJson() => $$"""
+    {"access_token":"stub-access-token","token_type":"DPoP","expires_in":300,
+    "scope":"question:create answer:create"}
+    """.ReplaceLineEndings(string.Empty);
+
+    internal string ReceiptJson() => $$"""
+    {"post_id":"{{PostId}}","digest":"{{Submission.PrefixedDigest}}",
+    "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[]}
+    """.ReplaceLineEndings(string.Empty);
+
+    internal static string FlagReceiptJson() => $$"""
+    {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"}
+    """.ReplaceLineEndings(string.Empty);
+
+    internal static string AcceptanceJson() => $$"""
+    {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
+    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"}
+    """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>
+    /// R8.18/R8.19's 409 as the Forum serves it, carrying the canonical thread's answers with their
+    /// provenance envelopes, both measures, both thresholds and the model — and, per R8.61, no span
+    /// of the matched question's own text.
+    /// </summary>
+    internal string DuplicateRefusalJson() => $$"""
+    {"type":"curia/posts/duplicate-question","title":"A question this close already exists on this board",
+    "detail":"Read the canonical thread instead",
+    "canonical_post_id":"{{PostId}}","canonical_digest":"{{Submission.PrefixedDigest}}","board":"b",
+    "answers":[{{PostJson()}}],
+    "similarity":{"cosine_bp":9200,"lexical_overlap_bp":7400,
+    "refuse_cosine_bp":9000,"refuse_lexical_overlap_bp":7000,"annotate_cosine_bp":6000},
+    "model":"hashed-ngram@1","override":"not_duplicate"}
+    """.ReplaceLineEndings(string.Empty);
+
     /// <summary>
     /// Serve a wrong <c>leaf_hash</c> on the <b>log-entry</b> route alone, leaving the proof honest.
     ///
@@ -303,7 +371,7 @@ internal sealed class StubLog : IDisposable
     {
         if (JwksIsEmpty) return """{"keys":[]}""";
 
-        var p = _agent.SigningKey.ExportParameters(includePrivateParameters: false);
+        var p = PublicSigningParameters();
         return $$"""
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
         "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}"}]}
@@ -407,6 +475,16 @@ internal sealed class StubLog : IDisposable
     /// anything else is a 404 naming the path, so a route added to the verifier and forgotten here
     /// shows up as an unrouted path rather than as a mysterious refusal.
     /// </summary>
+    /// <summary>
+    /// The raw <see cref="HttpClient"/> over this stub, for tests that assert on status codes and
+    /// headers rather than on what <see cref="ForumClient"/> made of them. Caller-owned.
+    /// </summary>
+    internal HttpClient RawClient()
+    {
+        _handler ??= new StubHandler(this);
+        return new HttpClient(_handler, disposeHandler: false) { BaseAddress = Forum };
+    }
+
     internal ForumClient Client()
     {
         // One client for the stub's lifetime. Called more than once per test, and a fresh
@@ -475,21 +553,73 @@ internal sealed class StubLog : IDisposable
         {
             var path = request.RequestUri!.AbsolutePath;
             var query = request.RequestUri.Query;
+            var method = request.Method;
 
             if (path.StartsWith("/v1/jwks", StringComparison.Ordinal) && log.JwksUnreachable)
                 throw new HttpRequestException("the key set host is unreachable");
 
-            var (status, body) = Answer(log, path, query);
+            log.Record(method, path, request);
+
+            var (status, body) = method == HttpMethod.Post
+                ? Written(log, path, request)
+                : Answer(log, path, query);
 
             var response = new HttpResponseMessage(status)
             {
                 Content = new StringContent(
                     body,
                     Encoding.UTF8,
-                    status == HttpStatusCode.OK ? "application/json" : "application/problem+json"),
+                    status == HttpStatusCode.OK || status == HttpStatusCode.Created
+                        ? "application/json"
+                        : "application/problem+json"),
             };
 
+            // RFC 9449 §8: the nonce challenge is the normal flow, not an error path. A 401 without
+            // a DPoP-Nonce header is a different thing entirely, so the header goes on only here.
+            if (status == HttpStatusCode.Unauthorized && log.PendingNonceChallenge)
+            {
+                response.Headers.TryAddWithoutValidation("DPoP-Nonce", NonceValue);
+                log.PendingNonceChallenge = false;
+            }
+
             return Task.FromResult(response);
+        }
+
+        /// <summary>
+        /// The write surface. Separated from <see cref="Answer"/> by <b>method</b>, which the
+        /// handler used not to read at all — so a <c>POST /v1/posts/{id}/flags</c> matched the
+        /// <c>StartsWith("/v1/posts/")</c> read branch and came back as a <i>post document</i> with
+        /// 200. A write test on that fixture could pass having exercised the read path, which is
+        /// trap 12: a fixture that agrees with the defect.
+        /// </summary>
+        private static (HttpStatusCode Status, string Body) Written(
+            StubLog log, string path, HttpRequestMessage request)
+        {
+            if (path == "/oauth/token")
+            {
+                return log.PendingNonceChallenge
+                    ? (HttpStatusCode.Unauthorized,
+                        """{"type":"curia/authn/nonce-required","title":"A DPoP nonce is required"}""")
+                    : (HttpStatusCode.OK, StubLog.TokenJson());
+            }
+
+            if (path == "/v1/posts")
+            {
+                return log.RefusesAsDuplicate
+                    ? (HttpStatusCode.Conflict, log.DuplicateRefusalJson())
+                    : (HttpStatusCode.Created, log.ReceiptJson());
+            }
+
+            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
+                && path.EndsWith("/flags", StringComparison.Ordinal))
+                return (HttpStatusCode.Created, StubLog.FlagReceiptJson());
+
+            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
+                && path.EndsWith("/accept", StringComparison.Ordinal))
+                return (HttpStatusCode.OK, StubLog.AcceptanceJson());
+
+            return (HttpStatusCode.NotFound,
+                $$"""{"type":"curia/stub/unrouted","title":"The stub serves no POST {{path}}"}""");
         }
 
         private static (HttpStatusCode Status, string Body) Answer(StubLog log, string path, string query)
@@ -550,4 +680,15 @@ internal sealed class StubLog : IDisposable
             return end < 0 ? query[start..] : query[start..end];
         }
     }
+
+    /// <summary>
+    /// The registered key's public parameters. Reached through <c>ExportPublicKey()</c> because
+    /// <c>EnrolledAgent</c> no longer exposes the private half at all (R11.20).
+    /// </summary>
+    private ECParameters PublicSigningParameters()
+    {
+        using var key = _agent.ExportPublicKey();
+        return key.ExportParameters(includePrivateParameters: false);
+    }
+
 }

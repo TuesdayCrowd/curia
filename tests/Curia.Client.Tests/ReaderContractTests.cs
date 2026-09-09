@@ -280,7 +280,7 @@ public sealed class ReaderContractTests : IDisposable
 
     private ImmutableArray<ForumJwk> Jwks()
     {
-        var p = _agent.SigningKey.ExportParameters(includePrivateParameters: false);
+        var p = PublicSigningParameters();
         return
         [
             new ForumJwk(
@@ -349,4 +349,15 @@ public sealed class ReaderContractTests : IDisposable
 
         return count;
     }
+
+    /// <summary>
+    /// The registered key's public parameters. Reached through <c>ExportPublicKey()</c> because
+    /// <c>EnrolledAgent</c> no longer exposes the private half at all (R11.20).
+    /// </summary>
+    private ECParameters PublicSigningParameters()
+    {
+        using var key = _agent.ExportPublicKey();
+        return key.ExportParameters(includePrivateParameters: false);
+    }
+
 }

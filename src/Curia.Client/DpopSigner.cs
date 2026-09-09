@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
 
 namespace Curia.Client;
 
@@ -47,7 +48,10 @@ internal sealed class DpopSigner
             new("jti", new JsonValue.String(Jti())),
         };
 
-        return Sign(_agent.SigningKey, header, payload);
+        // Through the port, not with an ECDsa. This is the OTHER thing the registered key signs,
+        // and a seam that covered only SubmissionBuilder would leave this process able to
+        // authenticate as the agent -- which is most of what R11.20 protects.
+        return Sign(_agent.Signer, header, payload);
     }
 
     /// <summary>
@@ -109,24 +113,45 @@ internal sealed class DpopSigner
 
     private static string Jti() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
+    /// <summary>
+    /// A compact JWS over a header and payload, signed by whatever holds the key.
+    ///
+    /// <para>Two overloads because the two keys are held differently on purpose: the registered key
+    /// is behind <see cref="IAgentSigner"/> so this process need not hold it, and the DPoP key is an
+    /// <see cref="ECDsa"/> here because delegating it would put a signer round-trip on every request
+    /// including the nonce retry, for a key whose theft is bounded by a 300-second token.</para>
+    /// </summary>
+    private static string Sign(
+        IAgentSigner signer,
+        IEnumerable<KeyValuePair<string, JsonValue>> header,
+        IEnumerable<KeyValuePair<string, JsonValue>> payload)
+    {
+        var input = SigningInput(header, payload);
+        return Compact(input, signer.Sign(Encoding.ASCII.GetBytes(input)));
+    }
+
     private static string Sign(
         ECDsa key,
         IEnumerable<KeyValuePair<string, JsonValue>> header,
         IEnumerable<KeyValuePair<string, JsonValue>> payload)
     {
-        var input =
-            Base64Url.EncodeToString(Encoding.UTF8.GetBytes(ClientJson.Render(header))) + "." +
-            Base64Url.EncodeToString(Encoding.UTF8.GetBytes(ClientJson.Render(payload)));
+        var input = SigningInput(header, payload);
 
-        var signature = key.SignData(
+        return Compact(input, key.SignData(
             Encoding.ASCII.GetBytes(input),
             HashAlgorithmName.SHA256,
-            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
-
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{input}.{Base64Url.EncodeToString(signature)}");
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
     }
+
+    private static string SigningInput(
+        IEnumerable<KeyValuePair<string, JsonValue>> header,
+        IEnumerable<KeyValuePair<string, JsonValue>> payload) =>
+        Base64Url.EncodeToString(Encoding.UTF8.GetBytes(ClientJson.Render(header))) + "." +
+        Base64Url.EncodeToString(Encoding.UTF8.GetBytes(ClientJson.Render(payload)));
+
+    private static string Compact(string input, byte[] signature) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{input}.{Base64Url.EncodeToString(signature)}");
 }
 
 internal static class JsonValueExtensions

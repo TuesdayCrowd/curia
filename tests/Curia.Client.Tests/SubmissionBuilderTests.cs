@@ -113,7 +113,7 @@ public sealed class SubmissionBuilderTests : IDisposable
             new Dictionary<string, IContentSigner>(StringComparer.Ordinal),
             new Dictionary<string, IContentVerifier>(StringComparer.Ordinal) { ["ES256"] = new Es256Adapter() });
 
-        var key = new PublicKeyMaterial("ES256", "alice-1", _agent.SigningKey.ExportSubjectPublicKeyInfo());
+        var key = new PublicKeyMaterial("ES256", "alice-1", _agent.Signer.PublicKey.ToArray());
         Assert.True(jws.Verify(canonical, document.Signature, key).TryGetValue(out _, out var error), error?.Type);
     }
 

@@ -83,6 +83,19 @@ public static class ClientErrors
         "The author's JWKS carries no key matching the post's kid",
         detail);
 
+    /// <summary>
+    /// A delegated signer could not be run, or answered in a way this client cannot use.
+    ///
+    /// <para>Distinct from a signature that did not verify, and the distinction is R6.52's in a new
+    /// place: "the signer is not there" and "the signer produced something wrong" are an
+    /// operational fault and a cryptographic one, and a caller told the second when the first
+    /// happened goes looking for an attacker.</para>
+    /// </summary>
+    public static Error SignerUnusable(string command, string detail) => new(
+        "curia/client/signer-unusable",
+        "The configured external signer could not be used",
+        $"{command}: {detail}");
+
     public static Error Transport(string detail) => new(
         "curia/client/transport",
         "The Forum could not be reached",
