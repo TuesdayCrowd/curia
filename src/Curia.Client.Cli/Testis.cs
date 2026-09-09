@@ -31,7 +31,9 @@ internal sealed record TestisResult(CheckOutcome Outcome, string Description);
 /// <para><b>An unavailable verifier is not a verification failure.</b> "I could not run the second
 /// opinion" and "the second opinion says no" are different claims, and collapsing them would
 /// train a caller to ignore the one that matters -- the same distinction <c>curia-testis</c>'s own
-/// CLI draws between its exit codes 1 and 2.</para>
+/// CLI draws between exit 1, a verdict, and exits 2 and 3, which are not one. (3 is the Acta verbs'
+/// "could not be checked"; <c>verify</c> does not currently produce it, which is why the arm below
+/// reports the code rather than naming a condition it would be guessing at.)</para>
 /// </summary>
 internal static class Testis
 {
@@ -146,7 +148,7 @@ internal static class Testis
                     CheckOutcome.CouldNotCheck,
                     string.Create(
                         CultureInfo.InvariantCulture,
-                        $"usage error from the verifier (exit {process.ExitCode}): {Compact(stderr)}")),
+                        $"no verdict from the verifier (exit {process.ExitCode}): {Compact(stderr)}")),
             };
         }
     }

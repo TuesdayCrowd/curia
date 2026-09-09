@@ -63,3 +63,9 @@ nunit-*.xml
 # output. Git does not descend into an excluded directory, so the directory
 # itself must be re-included, not the files inside it.
 !/rust/**/src/bin/
+
+# The differential harness writes its report to tools/differential-oracle/DIVERGENCES.md by
+# default. That is a generated measurement, not source: a tracked copy goes stale in silence
+# and ends up contradicting the gate that produced it. Archived runs live in
+# docs/differential/, dated and labelled as history. See docs/differential/README.md.
+tools/differential-oracle/DIVERGENCES*.md

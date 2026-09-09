@@ -39,6 +39,9 @@ several gaps are decisions, and the plan says which.
 because its arguments are still cited by the errata and by the live plan; read a stage
 when you need the reasoning behind a decision, not to find out what is done.
 `docs/superpowers/plans/` holds plans for work that is scoped but not started.
+`docs/differential/` holds archived differential-comparison runs — dated, frozen, and none of
+them the current state. The live answer is the gate's exit code; see that directory's README
+before adding a report anywhere.
 
 Everything here is UNLICENSE / public domain. Organization: TuesdayCrowd.
 

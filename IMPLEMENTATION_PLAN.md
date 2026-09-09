@@ -98,9 +98,15 @@ set; SP scores recorded even if not yet weighted.*
 > **Stage 3 is merged.** `curia_verify`, R6.52's three outcomes, R6.53's retained head, and R14.9's
 > P22 gate extended from the Forum's route registrations to the adapter's **tool results** — the
 > half of that requirement nothing enumerated. **D9** closed; **D15** and **D16** opened and closed
-> in the same stage, both found by falsifying checks that had just gone green. The adapter's
-> Stages 4 and 5 — the signer seam and the write tools, R10.3's discovery channel — are Not
-> Started.
+> in the same stage, both found by falsifying checks that had just gone green.
+>
+> **Stage 3's two carried items are now closed** (see the register below): the published verifier
+> gained exit code **3**, *could not be checked*, so R6.52's third outcome is no longer collapsed
+> into *verified* by a caller reading only the status; and the tracked differential report that
+> contradicted its own gate is archived as dated history under `docs/differential/`, with
+> `compare.mjs`'s default output path git-ignored so the tool can no longer overwrite tracked
+> history as a side effect of running a check. **D16's CI-configuration question stays open** — it
+> is a CI-policy decision, unchanged by either.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -513,23 +519,65 @@ one CI uses, or to state that CS-7 is a Release-only property and mean it. **Lef
 choosing between them is a CI-policy decision, and making it silently inside a stage about
 `curia_verify` is how the disagreement arose in the first place.**
 
-### Observed during the MCP plan's Stage 3, not acted on
+### Observed during the MCP plan's Stage 3 — both now closed
 
-- **`tools/differential-oracle/DIVERGENCES.md` contradicts the gate that CI runs.** The tracked
-  report is dated **2026-08-13** and says *"Found 15 divergence classes across 22515 compared
-  lines"*, while `compare.mjs --fail-on-divergence` now passes clean over 22,520. The file is a
-  generated artifact of a run that predates the fixes, and running the gate rewrites it — so the
-  regeneration was **reverted here deliberately**, because destroying 573 lines of divergence
-  history as a side effect of running a check is not a decision a stage should make silently. Either
-  the report is regenerated on purpose, with the history moved somewhere that keeps it, or it is
-  untracked and the gate's exit code is the record. Leaving a tracked document that disagrees with
-  its own gate is the third option, and it is the one this project's failure mode is named after.
-- **`curia-testis log inclusion` exits 0 with no `--head`,** printing
-  `head: not checked (pass --head and --log-jwks to tie the root to a signed head)`. A caller reading
-  only the exit code sees "verified" for a proof anchored to nothing. Nothing in this repository
-  reads it that way — the C# side reports *could not be checked* and `ActaEndpointTests` passes
-  `--head` — but the Rust CLI is the published independent verifier, and its exit code is what an
-  outside monitor will read. R6.52's three outcomes are a client obligation the CLI does not model.
+Both were recorded here rather than fixed inside a stage about `curia_verify`. Closing them
+was the whole of the work that finished Stage 3.
+
+- **`tools/differential-oracle/DIVERGENCES.md` contradicted the gate that CI runs.** The tracked
+  report was dated **2026-08-13** and said *"Found 15 divergence classes across 22515 compared
+  lines"*, while the gate passed clean beside it. Re-measured before acting rather than inherited:
+  `compare.mjs --fail-on-divergence` on **2026-09-09** found **0 divergence classes across 22,520
+  compared lines** (20 supplemental cases now, not 15), exit 0.
+
+  **Closed as history plus a closed mechanism, which is both of the two acceptable options applied
+  to the half each fits.** The three run records — the report, its rerun, and `FINDINGS.md`'s
+  analysis — moved to `docs/differential/`, dated in their filenames, each opening with a line
+  saying which run it records and that it is not the current state. The gate's exit code is the
+  record of *now*; CI already wrote its report to `$RUNNER_TEMP` and uploaded it only on failure,
+  so nothing tracked ever was the gate's record.
+
+  **The mechanism mattered more than the stale text, and the register's original framing missed
+  it.** `compare.mjs`'s default `--report` path *is* `tools/differential-oracle/DIVERGENCES.md`
+  (`compare.mjs:102`), so a tracked document sat at the default output path of the tool that
+  generates it: the documented local command in `CLAUDE.md` overwrites a month of history as a side
+  effect of running a check. That path is now git-ignored, so the default output is a local scratch
+  file that cannot become tracked history again. Regenerating the report and committing it would
+  have left this armed.
+
+  **A specimen worth keeping, found while archiving.** `DIVERGENCES-rerun.md` found **14** classes
+  under a section heading reading *"three stories behind fifteen classes"* — a fixed narrative
+  printed unconditionally, so the report asserted a count its own measurement did not support.
+  `compare.mjs` has since derived that section from the run and says so in a comment at
+  `writeReport` citing errata E14. The archived file is the evidence behind that change, which is
+  the only reason to keep a superseded report at all. It is also the same defect as the tracked
+  document itself, one level down: **an artifact claiming more than its measurement supports.**
+
+- **`curia-testis log inclusion` exited 0 with no `--head`,** printing `head: not checked` while a
+  caller reading only the exit code saw "verified" for a proof anchored to nothing. R6.52's three
+  outcomes were a client obligation the published verifier did not model — it had two exit codes
+  where R6.52 names three, and the third had collapsed into *verified*, the worst of the three
+  directions.
+
+  **Closed by adding exit code 3, "could not be checked", to the published contract.** `CliError`
+  gained `NotAnchored`; `log inclusion` returns it when no `--head` is supplied and `log
+  consistency` when either `--from-head` or `--to-head` is missing, naming which. `--help` publishes
+  all four codes. `rust/curia-testis/tests/log_outcomes.rs` holds five tests that spawn the compiled
+  binary — exit codes exist only there, since the library underneath returns a `Result` and has no
+  opinion about status. Each asserts non-vacuity: the unanchored cases check the proof arithmetic
+  *verified first*, so exit 3 is about the missing anchor and not a failed proof. The published-codes
+  test reads the four strings out of `--help`'s own text, so a renumbering moves contract and
+  assertion together. **Falsified**: restoring the `Ok(())` return turned exactly one of the five
+  red, and the restore turned it green again.
+
+  **No C# caller regressed, checked rather than assumed.** Every C# invocation of a `log` verb
+  passes its anchors; the one that omits `--head`
+  (`tests/Curia.Api.Tests/ActaEndpointTests.cs:148`) feeds a tampered entry and still exits 1,
+  because leaf-mismatch fires before the anchor check. `Testis.ExecuteAsync` already mapped every
+  non-0/1 code to `CouldNotCheck`, so exit 3 lands correctly there — but its message *asserted*
+  "usage error from the verifier" for any such code, which a four-valued contract makes false; it
+  now reports the code and lets the verifier's stderr say what happened. `TestisBinary`'s doc
+  comment enumerated three codes and now enumerates four.
 
 ### Observed during Stage 2, not acted on — for the next errata pass
 
