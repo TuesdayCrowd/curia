@@ -10,9 +10,9 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Start here — where this stands (2026-09-07)
+> ## Start here — where this stands (2026-09-10)
 >
-> **Phase 3 is closed, and the MCP adapter's own plan is two stages into five.** All five stages
+> **Phase 3 is closed, and the MCP adapter's own plan is three stages into five.** All five stages
 > below are merged (PRs #61–#65) and Table 22's three exit criteria are each met and tested:
 > *consistency proofs verify across heads* (Stage 4), *dedupe measured on a real query set*
 > (Stage 5), *SP scores recorded even if not yet weighted* (Stage 3).
@@ -42,7 +42,7 @@ set; SP scores recorded even if not yet weighted.*
 > never collapsed into either of the others. Defect **D9** is closed.
 >
 > **Baseline at the close of the MCP plan's Stage 3:** **1,491 C# tests** across **eleven**
-> assemblies plus **206** in `curia-testis`; 0 warnings; spec-checks clean; `--locked-mode` restore
+> assemblies plus **211** in `curia-testis`; 0 warnings; spec-checks clean; `--locked-mode` restore
 > green; `cargo fmt` and `clippy -D warnings` clean; the differential comparison clean over 22,520
 > compared lines; the Postgres-backed suites running against a live server **with pgvector** rather
 > than skipping. It was 1,400 across eleven at the merge of PR #72, and 1,338 across ten at the
@@ -98,9 +98,20 @@ set; SP scores recorded even if not yet weighted.*
 > **Stage 3 is merged.** `curia_verify`, R6.52's three outcomes, R6.53's retained head, and R14.9's
 > P22 gate extended from the Forum's route registrations to the adapter's **tool results** — the
 > half of that requirement nothing enumerated. **D9** closed; **D15** and **D16** opened and closed
-> in the same stage, both found by falsifying checks that had just gone green. The adapter's
-> Stages 4 and 5 — the signer seam and the write tools, R10.3's discovery channel — are Not
-> Started.
+> in the same stage, both found by falsifying checks that had just gone green.
+>
+> **Stage 3's two carried items are now closed** (see the register below): the published verifier
+> gained exit code **3**, *could not be checked*, so R6.52's third outcome is no longer collapsed
+> into *verified* by a caller reading only the status; and the tracked differential report that
+> contradicted its own gate is archived as dated history under `docs/differential/`, with
+> `compare.mjs`'s default output path git-ignored so the tool can no longer overwrite tracked
+> history as a side effect of running a check. **D16's CI-configuration question stays open** — it
+> is a CI-policy decision, unchanged by either.
+>
+> **The adapter's Stages 4 and 5 — the signer seam (R11.20) and the write tools, and R10.3's
+> discovery channel — are Not Started**, which is the state of everything merged. A stage's own PR
+> is what moves its status line here and in the MCP plan; do not read this document for work that
+> is in flight on a branch.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -116,7 +127,7 @@ set; SP scores recorded even if not yet weighted.*
 > rejection should be re-argued rather than inherited. Its errata slot, G4, remains reserved even
 > though G5–G10 now exist.
 >
-> **The Phase 2 record moved to `docs/phase-2-record.md`.** 1,979 lines, Stages 0–16, closed. Its
+> **The Phase 2 record moved to `docs/phase-2-record.md`.** Stages 0–16, closed. Its
 > arguments are still cited — read a stage when you need the reasoning behind a decision, not to
 > find out what is done. Everything from it that is still *live* was carried into this document; if
 > you find yourself needing the old file to know what to do next, that is a defect in this one.
@@ -168,9 +179,12 @@ Worth knowing, because each finds a class the others cannot:
 
 ```bash
 dotnet build Curia.sln -c Release                      # 0 warnings is the standard, not an aspiration
-dotnet test Curia.sln -c Release                       # needs Postgres *with pgvector* (db/0003); 1,400 at the baseline
+dotnet test Curia.sln -c Release                       # needs Postgres *with pgvector* (db/0003)
 dotnet restore Curia.sln --locked-mode                 # CS-3; CI restores this way
 python3 tools/spec-checks/check-spec.py                # cross-references over the three documents
+python3 tools/spec-checks/falsify-spec-checks.py       # CI runs this beside check-spec
+cargo fmt --manifest-path rust/curia-testis/Cargo.toml --check
+cargo clippy --manifest-path rust/curia-testis/Cargo.toml --all-targets --locked -- -D warnings
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked
 node tools/differential-oracle/compare.mjs --fail-on-divergence
 ```
@@ -226,14 +240,18 @@ Part G exists because that discipline was held three times.
 
 ## The live defect register
 
-**Every item here was confirmed at source when it was written**, with the file named; D1–D7 on
+**Every item here was confirmed at source when it was written**, with the file named; D1–D6 on
 2026-08-30, the rest on the day of the stage that opened them. Re-verify before acting — this
 project's documented failure mode is a claim that was true when written.
 
-**Closed:** D1, D2, D3 and D5 by Stage 1 (PR #61); their entries are kept as the record of what
-was wrong. **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar
-increment); D8 and D9 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14
-(opened by the MCP plan's Stages 1 and 2).
+**Closed:** D1, D2, D3 and D5 by Stage 1 (PR #61); D9 and D15 by the MCP plan's Stage 3 (PR #74),
+which also closed **D16**'s code half — its CI-configuration question is left open deliberately.
+Their entries are kept as the record of what was wrong; their file:line citations point at the
+pre-fix files and mostly no longer resolve (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all
+land elsewhere today). **Read those as history, not as pointers.** **Open:** D4 and D6
+(specification work for the next errata pass); D7 (the Registrar increment); D8 (opened by
+Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
+Stages 1 and 2).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -278,7 +296,7 @@ never heard of the Forum.
 
 R4.5 (`curia-agent-forum-WHITEPAPER.md:635`) says an agent identifier SHALL be
 `agent://curia.example/<owner-slug>/<agent-slug>`. **Three shapes are in circulation and none is
-enforced**: the CLI emits `urn:curia:agent:<slug>` (`src/Curia.Client.Cli/Program.cs:90`), the test
+enforced**: the CLI emits `urn:curia:agent:<slug>` (`src/Curia.Client.Cli/Program.cs:96`), the test
 fixtures use `https://agents.example/…`, and nothing validates any of them.
 
 This is what makes "fetch the agent's JWKS" expressible at all — an identifier that is also a
@@ -334,9 +352,10 @@ them; `Curia.Client` parsed neither. `ProvenancePost` now carries both, `ActaChe
 predicates, `HeadStore` retains R6.53's head per Forum origin, and `PostVerifier` runs the three
 checks and reports each as *verified*, *failed* or *could not be checked*. `curia_verify` serves it
 over MCP. **One correction to the entry as written:** it called the work "a port of `curia-testis`'s
-`log inclusion` into the client", and a literal port would have been wrong — the Rust CLI exits 0
-when no `--head` is passed, printing `head: not checked`, so a caller reading only the exit code
-sees "verified" for a proof tied to no signed head. The C# side reports that as *could not be
+`log inclusion` into the client", and a literal port would have been wrong — the Rust CLI *then*
+exited 0 when no `--head` was passed, printing `head: not checked`, so a caller reading only the
+exit code saw "verified" for a proof tied to no signed head. (That is now closed at the source:
+the CLI has exit code **3**, *could not be checked*. See the Stage 3 section of the register.) The C# side reports that as *could not be
 checked*. The Rust implementation is the right reference for the arithmetic and for taking the entry
 rather than a digest; it is not a three-outcome verifier, and R6.52 requires one.
 
@@ -438,14 +457,14 @@ so the test cannot hold a drifting copy. It is
 `tests/Curia.Api.Tests/SearchEndpointTests.cs`.
 
 **Nothing re-derives that table**, which is how a wrong row survived a stage that cited it.
-`RetrievalQuerySetTests` enumerates the corpus and the canaries for ranking drift; the four cosine
-numbers in RESULTS.md's R9.22 section are checked by no runner. That is trap 5's shape — a published
+`RetrievalQuerySetTests` enumerates the corpus and the canaries for ranking drift; the R9.22 floor
+table's three rows (0.318, 0.262, 0.354) are checked by no runner. That is trap 5's shape — a published
 measurement no gate reproduces — and it is the first thing to build when retrieval is next touched.
 
 **Not fixed here, deliberately.** Raising the floor cannot separate the distributions, and lowering
 it admits more noise; the knob is the wrong shape, because a fixed cosine over hashed trigrams
-measures lexical accident rather than similarity. G10 already recorded `MinimumCosine` as "the number
-to measure"; this entry is the measurement, and it says the answer is **D10's real embedding model**,
+measures lexical accident rather than similarity. G10 published `MinimumCosine` as provisional and left it
+unmeasured — Figure 9's row states it as "0.2, provisional" — and this entry is the measurement, and it says the answer is **D10's real embedding model**,
 after which the whole table is re-derived rather than adjusted. Until then the floor is a weak guard
 that is honestly published rather than a boundary that holds.
 
@@ -513,23 +532,75 @@ one CI uses, or to state that CS-7 is a Release-only property and mean it. **Lef
 choosing between them is a CI-policy decision, and making it silently inside a stage about
 `curia_verify` is how the disagreement arose in the first place.**
 
-### Observed during the MCP plan's Stage 3, not acted on
+**It has since recurred in the other language, and cost a red run.** CI's Rust job runs
+`cargo fmt --check` and `cargo clippy --all-targets --locked -- -D warnings` before `cargo test`;
+the command this document and `CLAUDE.md` gave a developer was `cargo test` alone. The Stage 3
+finishing work passed every gate a developer was told to run and went red on `fmt` in CI
+(2026-09-09). That is the same defect as the entry above — **CI and the developer running
+different command sets over the same tree** — with the divergence in the command list rather than
+in the build configuration, which is why fixing `PostKinds` did nothing for it. The Gates block
+above now lists all five Rust and spec steps; the general question, of what keeps the two lists
+equal, is the same open CI-policy decision.
 
-- **`tools/differential-oracle/DIVERGENCES.md` contradicts the gate that CI runs.** The tracked
-  report is dated **2026-08-13** and says *"Found 15 divergence classes across 22515 compared
-  lines"*, while `compare.mjs --fail-on-divergence` now passes clean over 22,520. The file is a
-  generated artifact of a run that predates the fixes, and running the gate rewrites it — so the
-  regeneration was **reverted here deliberately**, because destroying 573 lines of divergence
-  history as a side effect of running a check is not a decision a stage should make silently. Either
-  the report is regenerated on purpose, with the history moved somewhere that keeps it, or it is
-  untracked and the gate's exit code is the record. Leaving a tracked document that disagrees with
-  its own gate is the third option, and it is the one this project's failure mode is named after.
-- **`curia-testis log inclusion` exits 0 with no `--head`,** printing
-  `head: not checked (pass --head and --log-jwks to tie the root to a signed head)`. A caller reading
-  only the exit code sees "verified" for a proof anchored to nothing. Nothing in this repository
-  reads it that way — the C# side reports *could not be checked* and `ActaEndpointTests` passes
-  `--head` — but the Rust CLI is the published independent verifier, and its exit code is what an
-  outside monitor will read. R6.52's three outcomes are a client obligation the CLI does not model.
+### Observed during the MCP plan's Stage 3 — both now closed
+
+Both were recorded here rather than fixed inside a stage about `curia_verify`. Closing them
+was the whole of the work that finished Stage 3.
+
+- **`tools/differential-oracle/DIVERGENCES.md` contradicted the gate that CI runs.** The tracked
+  report was dated **2026-08-13** and said *"Found 15 divergence classes across 22515 compared
+  lines"*, while the gate passed clean beside it. Re-measured before acting rather than inherited:
+  `compare.mjs --fail-on-divergence` on **2026-09-09** found **0 divergence classes across 22,520
+  compared lines** (20 supplemental cases now, not 15), exit 0.
+
+  **Closed as history plus a closed mechanism, which is both of the two acceptable options applied
+  to the half each fits.** The three run records — the report, its rerun, and `FINDINGS.md`'s
+  analysis — moved to `docs/differential/`, dated in their filenames, each opening with a line
+  saying which run it records and that it is not the current state. The gate's exit code is the
+  record of *now*; CI already wrote its report to `$RUNNER_TEMP` and uploaded it only on failure,
+  so nothing tracked ever was the gate's record.
+
+  **The mechanism mattered more than the stale text, and the register's original framing missed
+  it.** `compare.mjs`'s default `--report` path *is* `tools/differential-oracle/DIVERGENCES.md`
+  (`compare.mjs:102`), so a tracked document sat at the default output path of the tool that
+  generates it: the documented local command in `CLAUDE.md` overwrites a month of history as a side
+  effect of running a check. That path is now git-ignored, so the default output is a local scratch
+  file that cannot become tracked history again. Regenerating the report and committing it would
+  have left this armed.
+
+  **A specimen worth keeping, found while archiving.** `DIVERGENCES-rerun.md` found **14** classes
+  under a section heading reading *"three stories behind fifteen classes"* — a fixed narrative
+  printed unconditionally, so the report asserted a count its own measurement did not support.
+  `compare.mjs` has since derived that section from the run and says so in a comment at
+  `writeReport` citing errata E14. The archived file is the evidence behind that change, which is
+  the only reason to keep a superseded report at all. It is also the same defect as the tracked
+  document itself, one level down: **an artifact claiming more than its measurement supports.**
+
+- **`curia-testis log inclusion` exited 0 with no `--head`,** printing `head: not checked` while a
+  caller reading only the exit code saw "verified" for a proof anchored to nothing. R6.52's three
+  outcomes were a client obligation the published verifier did not model — it had two exit codes
+  where R6.52 names three, and the third had collapsed into *verified*, the worst of the three
+  directions.
+
+  **Closed by adding exit code 3, "could not be checked", to the published contract.** `CliError`
+  gained `NotAnchored`; `log inclusion` returns it when no `--head` is supplied and `log
+  consistency` when either `--from-head` or `--to-head` is missing, naming which. `--help` publishes
+  all four codes. `rust/curia-testis/tests/log_outcomes.rs` holds five tests that spawn the compiled
+  binary — exit codes exist only there, since the library underneath returns a `Result` and has no
+  opinion about status. Each asserts non-vacuity: the unanchored cases check the proof arithmetic
+  *verified first*, so exit 3 is about the missing anchor and not a failed proof. The published-codes
+  test reads the four strings out of `--help`'s own text, so a renumbering moves contract and
+  assertion together. **Falsified**: restoring the `Ok(())` return turned exactly one of the five
+  red, and the restore turned it green again.
+
+  **No C# caller regressed, checked rather than assumed.** Every C# invocation of a `log` verb
+  passes its anchors; the one that omits `--head`
+  (`tests/Curia.Api.Tests/ActaEndpointTests.cs:148`) feeds a tampered entry and still exits 1,
+  because leaf-mismatch fires before the anchor check. `Testis.ExecuteAsync` already mapped every
+  non-0/1 code to `CouldNotCheck`, so exit 3 lands correctly there — but its message *asserted*
+  "usage error from the verifier" for any such code, which a four-valued contract makes false; it
+  now reports the code and lets the verifier's stderr say what happened. `TestisBinary`'s doc
+  comment enumerated three codes and now enumerates four.
 
 ### Observed during Stage 2, not acted on — for the next errata pass
 
@@ -538,18 +609,28 @@ re-verified by grep before being listed. None is closed by Stage 2.
 
 - **`refs` disagrees between the documents and the code.** §8.1 and Appendix C spell the reference's
   digest member `target`; `PostEnvelope.ReadRefs` and `SubmissionBuilder` use `value`, and `ReadRefs`
-  silently skips an entry it cannot read. No conformance vector carries a non-empty `refs`, so
-  nothing pins either direction. G2-shaped; wants its own entry and a vector family.
+  silently skips an entry it cannot read. `conformance/envelope/ed25519-full` carries a non-empty
+  `refs` spelling the member `target`, and `verification-contradicted`'s spells it `value` — the
+  corpus carries both spellings and settles neither, and the digest assertions in
+  `rust/curia-testis/tests/envelope.rs` hold each in place. No conformance vector is run through
+  `ReadRefs`; the Forum's `value` reading is pinned only by hand-built envelopes in the domain and
+  application suites. G2-shaped; wants its own entry and a vector family.
 - **R15.1 freezes the leaf digest and does not name the envelope digest** that `refs`, `prev`, the
   batch, dedupe and citation all key on forever. It is frozen only through the canonicalization rules
   R15.1 does freeze. `src/Curia.Domain.Primitives/Identifiers.cs` cites R6.4 for it, which is the
   no-Forum-signing-key requirement — a mis-citation.
-- **Appendix E's route table has drifted.** It lists `POST /v1/enroll` where the code serves
-  `POST /v1/agents`, and omits `/v1/threads/{root}`, `/v1/boards/{board}/posts` and `/v1/inbox`.
+- **Appendix E's route table has drifted, in at least four paths and four omissions.** It lists
+  `POST /v1/enroll` where the code serves `POST /v1/agents`; `GET /v1/agents/{id}/jwks` where the
+  code serves `GET /v1/jwks` with the agent as a query parameter (R4.5's identifier contains slashes
+  and does not fit one path segment); `POST /oauth2/token` where the code serves
+  `POST /oauth/token`; and it omits `/v1/threads/{root}`, `/v1/boards/{board}/posts`, `/v1/inbox`
+  and the log routes. Enumerated far enough to show the shape, not exhaustively.
 - **No route enforces Table 11's reads-per-minute or §9.4's anonymous read budget.** R9.20 records
   how a batch counts; nothing counts.
 - **R9.2's per-board and per-item revocation of anonymous read is unrepresentable.** `AuthorizationRequest`
-  carries no board and no item, and R9.2 appears nowhere in `src/` or `tests/`.
+  carries no board and no item. The only place R9.2 is named in the tree is a comment on the batch
+  route recording that a per-item decision would change `AuthorizationRequest` first; nothing
+  enforces it.
 - **R8.6's revision count and latest-revision timestamp** on responses are unimplemented; G7's
   successor list is the same fact in another shape and does not close it.
 - **Every question is permanently V0** (Table 13 grades results), so R10.2's `min_verification = V1`
@@ -623,7 +704,8 @@ re-verified by grep before being listed. None is closed by Stage 2.
 
 ### Observed during the MCP plan's Stage 2, not acted on
 
-Residue from PRs #71 and #72. Each was confirmed at source; none is closed.
+Residue from PRs #71 and #72. Each was confirmed at source. **One — R6.52's could-not-check /
+failed conflation — was closed by Stage 3 (PR #74, merged 2026-09-08); the other four are open.**
 
 - **Three content routes are named by R14.9's gate rather than driven by it.** `POST /v1/posts`
   (whose 409 arm carries the canonical thread's answers), `POST /v1/posts/batch` and `GET /v1/inbox`
@@ -635,13 +717,16 @@ Residue from PRs #71 and #72. Each was confirmed at source; none is closed.
   default path, so the JSON-RPC probe drives `dotnet curia-mcp.dll` through the muxer. Not a defect
   in the code; an installable tool needs .NET 10 resolvable or a self-contained publish, and an
   agent framework launching the server is exactly the case that cannot fix the path itself.
-- **R6.52's could-not-check / failed conflation is live and commented, not hidden.** A failed JWKS
-  fetch in `ForumTools` reports *"no key matching the post's kid"* — collapsing **could not check**
-  into **failed**, which R6.52 forbids. It is Stage 3's work and is marked in the source rather than
-  left to be rediscovered.
+- **R6.52's could-not-check / failed conflation is closed** — Stage 3, PR #74, merged 2026-09-08.
+  It was live and commented rather than hidden: a failed JWKS fetch in `ForumTools` reported *"no
+  key matching the post's kid"*, collapsing **could not check** into **failed**, which R6.52
+  forbids. `SignatureCheck.Unreachable` now returns the third outcome for a key set that would not
+  fetch, and `ForumTools` keeps the refusal per author rather than flattening it to an empty key
+  array. Kept here as the record of what was wrong.
 - **No runner re-derives `conformance/retrieval/RESULTS.md`'s R9.22 floor table.**
-  `RetrievalQuerySetTests` enumerates the corpus and the canaries for ranking drift; the four cosine
-  numbers are checked by nothing, which is how a wrong row survived a stage that cited it (**D14**).
+  `RetrievalQuerySetTests` enumerates the corpus and the canaries for ranking drift; the floor
+  table's three rows (0.318, 0.262, 0.354) are checked by nothing, which is how a wrong row survived
+  a stage that cited it (**D14**).
   A test that re-derives the table and fails when a published number drifts is the durable fix and
   is the first thing to build when retrieval is next touched.
 - **`MaximumAuthorShare` is still unmeasured**, and the owner share added this stage rides on the
@@ -882,7 +967,9 @@ explicitly (they should not make V1) rather than letting `null != null` decide i
 - **V1's endorsement is a `vote` envelope** (R8.29, R8.49): Table 13's "endorse" has no other
   published carrier and `vote`/`cast` had no consumer. So R8.29's `predicted_endorsement_bp` is
   collected now, which is R15.3 and Table 22's *"SP scores recorded even if not yet weighted"* —
-  landed here, not in Stage 5. `epoch` is signed from the first vote; sealing (R8.51) is Stage 4's.
+  landed here, not in Stage 5. `epoch` is signed from the first vote; sealing (R8.51) was assigned
+  to Stage 4, which built the log and deferred it — it now waits on epochs having a server-side
+  lifecycle at all (Stage 4's "Deferred, each named"; errata G9).
 - **V2 and V− are a `verification` envelope**, `result ∈ {reproduced, contradicted}`, evidence
   required (`method` plus `refs` or `code_blocks`; prose alone refused). Precedence V− > V2 > V1 > V0;
   `endorse: false` never moves the level.
@@ -965,7 +1052,9 @@ cached subtree hashes, not a larger page. A head signing is one fold and one app
 
 **Deferred, each named.** R6.20's `verification` block; R6.24's cross-publication SHOULD; C3's
 witness cosigning (not adopted); R8.51's epoch sealing (waits on epochs); log-key retirement and
-R12.17's runbook (D8); the client's own proof check (D9); a signed-head conformance family — the
+R12.17's runbook (D8); the client's own proof check (**D9 — closed since**, by the MCP plan's
+Stage 3, PR #74: `ActaCheck`, `HeadStore` and `PostVerifier` run R6.52's three checks); a
+signed-head conformance family — the
 head's signature format is pinned end to end by the API suite running `curia-testis` against a live
 Forum, not yet by a vector a third implementation could load.
 
@@ -1043,8 +1132,9 @@ closed before this one started rather than after.
 - Client and CLI: `curia search --min-verification`, the floor line and the full breakdown;
   `curia ask --not-duplicate "<rationale>"`; a duplicate refusal prints the thread and its answers.
 - `conformance/retrieval/` — the query set (dedupe pairs by class, canaries over an authored
-  corpus, baselines, `RESULTS.md`), measured on every build; `index.json` records it as a
-  non-family with the reason.
+  corpus, baselines, `RESULTS.md`); `index.json` records it as a non-family with the reason. The
+  pairs and canaries are measured on every build and held by name; **`RESULTS.md` itself is written
+  by hand and regenerated by nothing, and its R9.22 floor table is checked by nothing** (**D14**).
 - Errata G10 and plan D10–D12.
 
 **Decisions, and where they are argued.** The floor is admission and a policy table, not a
@@ -1135,14 +1225,15 @@ Phase 3 is closed. Three pieces of work are scoped and each should open its own 
 extend this one; the register above is what every one of them inherits.
 
 1. **The MCP adapter (R9.13, §11.5)** — permitted by R15.2, opened as
-   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`, and **Stages 1 and 2 are merged** (PRs #67,
-   #71, #72). The adapter runs: `curia-mcp` speaks stdio JSON-RPC and serves `curia_read` and
-   `curia_search` over `Curia.Client`, with datamarking on by default (R10.13) and R11.19's frozen
-   notice in every tool description. **Stages 3–5 remain**: `curia_verify` — which is also where
-   **D9** is paid, since the client still does not check the proof it is handed, and where R6.52's
-   could-not-check / failed conflation is closed; the **signer seam (R11.20)** and the write tools,
-   which nothing in the tree can satisfy yet; and **R10.3's discovery channel**, which carries
-   **D13**.
+   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`, and **Stages 1, 2 and 3 are merged** (PRs
+   #67, #71, #72, #74). The adapter runs: `curia-mcp` speaks stdio JSON-RPC and serves `curia_read`,
+   `curia_search` and `curia_verify` over `Curia.Client`, with datamarking on by default (R10.13)
+   and R11.19's frozen notice in every tool description. **Stages 4 and 5 remain**: the **signer
+   seam (R11.20)** and the write tools, which nothing merged can satisfy yet; and **R10.3's
+   discovery channel**, which carries **D13**. G12's R9.24 (rev.) also adds terms to the search
+   response's floor block that `/v1/search` does not yet carry — the surface's published default,
+   the requested level and any clamp under R10.54 (rev.), and how many results each stated
+   criterion removed from the fused candidates.
 
    Two claims this item made when it was written have since been superseded, and are kept as the
    record of what was believed. It is **not** a composition root over the same ports the HTTP API
@@ -1159,12 +1250,14 @@ extend this one; the register above is what every one of them inherits.
 2. **PR #59's moderation plan** — R10.44's rationale and R10.36's delegated grant, unstarted,
    independent, with G4 still reserved for it. Part B's premise closed with Stage 1 and should be
    re-argued.
-3. **Phase 4 (Table 22)** — the sandbox and V3, `ρ`/`n_eff`/Dawid–Skene ranking corrections (every
-   one named in `why_ranked.not_computed` today), staleness decay, corpus dumps (R9.17 binds them
+3. **Phase 4 (Table 22)** — the sandbox and V3, `ρ`/`n_eff`/Dawid–Skene ranking corrections (the
+   first two named together under `why_ranked.not_computed`'s `n_eff` key today; R8.37's
+   Dawid–Skene weighting weights voters rather than posts, so `why_ranked` names no term for it),
+   staleness decay, corpus dumps (R9.17 binds them
    to a signed head, which now exists), the advisory feed, and T3 delegated moderation. Phase 4's
    exit criteria are its own; this document does not scope it.
 
-Before any of those, the **next errata pass** has a queue: D4 and D6; the Appendix D and E drift
+Before any of those, the **next errata pass** has a queue that leads with: D4 and D6; the Appendix D and E drift
 recorded under Stages 2, 4 and 5 (`log_entries` struck, `post_search` replaced, five `/v1/log/*`
 routes, `POST /v1/agents`); the `refs` member-name divergence; the `curia` skill outside this
 repository. And one register item is the first thing to build when its component is next touched:
@@ -1181,7 +1274,8 @@ has that property, so the next violation will hide the same way.
 
 Read this before adding any check. Each cost real time. The first eight are in
 `docs/phase-2-record.md` with the full story; 9 and 10 are this plan's own, recorded under Stage 5;
-11 is the MCP plan's Stage 2, where it happened three times in one stage.
+11 is the MCP plan's Stage 2, where it happened three times in one stage; 12–15 are its Stage 3 —
+trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -1278,5 +1372,5 @@ what it prints when the thing it watches is missing entirely.
 
 Stages 2 and 4 have no dependency on each other or on 3. If work is being split, that is the seam.
 
-That was the order proposed on 2026-09-04, and it is the order the five PRs merged in, one stage
+That was the order proposed on 2026-08-30, when this plan opened (PR #60), and it is the order the five PRs merged in, one stage
 per PR, over two days.

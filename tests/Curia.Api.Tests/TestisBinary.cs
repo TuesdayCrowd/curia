@@ -68,8 +68,10 @@ internal static class TestisBinary
 
     /// <summary>
     /// Runs <c>curia-testis verify</c>. Exit codes are its published contract: 0 verified,
-    /// 1 verification failed, 2 usage error. The caller distinguishes 1 from 2 -- a usage error
-    /// dressed as a rejection would make the negative control pass for the wrong reason.
+    /// 1 verification failed, 2 usage error, 3 could not be checked. The caller distinguishes 1
+    /// from the rest -- a usage error dressed as a rejection would make the negative control pass
+    /// for the wrong reason, and so would an unanchored proof reported as a pass, which is what
+    /// exit 3 exists to prevent on the <c>log</c> verbs the other overload runs.
     /// </summary>
     internal static (int ExitCode, string StdOut, string StdErr) Run(
         string binary, string envelopePath, string jwksPath) =>

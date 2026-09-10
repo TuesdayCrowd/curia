@@ -51,9 +51,12 @@ USAGE:
     size and root the proof verifies against.
 
 EXIT CODES:
-    0  verification succeeded
-    1  verification failed (see stderr for the failing predicate)
+    0  verified: every check ran and held
+    1  failed: a check ran and did not hold (see stderr for the predicate)
     2  usage error (bad arguments, or a path that could not be read)
+    3  could not be checked: the arithmetic held but nothing anchors it to a
+       signed head. Pass --head/--log-jwks (inclusion) or --from-head/--to-head
+       (consistency) to anchor it. This is not a pass and not a failure.
 ";
 
 /// Deliberate, documented bound on `--jwks`, per the Task 6 brief's ruling
@@ -113,6 +116,16 @@ enum CliError {
     Usage(String),
     Verification(VerifyEnvelopeError),
     Acta(ActaError),
+    /// R6.52's third outcome: the check did not run, and that is neither a pass
+    /// nor a failure.
+    ///
+    /// Added because `log inclusion` used to exit 0 with `head: not checked`
+    /// printed to stdout, so a caller reading only the status -- which is what a
+    /// monitor does -- saw "verified" for a proof anchored to nothing. R6.52
+    /// requires verified, failed and could-not-be-checked be reported distinctly
+    /// and forbids collapsing the third into either of the others; a CLI whose
+    /// third outcome exists only in prose has collapsed it into the first.
+    NotAnchored(String),
 }
 
 fn main() -> ExitCode {
@@ -143,6 +156,10 @@ fn main() -> ExitCode {
         Err(CliError::Acta(err)) => {
             eprintln!("error: {err}");
             ExitCode::from(1)
+        }
+        Err(CliError::NotAnchored(message)) => {
+            eprintln!("not checked: {message}");
+            ExitCode::from(3)
         }
     }
 }
@@ -206,10 +223,19 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
             println!("root: {}", acta::format_digest(&verified.root));
             match optional_head(&flags, "--head")? {
                 Some(head) => {
-                    acta::head_covers(&head, verified.tree_size, &verified.root).map_err(CliError::Acta)?;
+                    acta::head_covers(&head, verified.tree_size, &verified.root)
+                        .map_err(CliError::Acta)?;
                     print_head("head", &head);
                 }
-                None => println!("head: not checked (pass --head and --log-jwks to tie the root to a signed head)"),
+                None => {
+                    println!("head: not checked");
+                    return Err(CliError::NotAnchored(
+                        "the audit path verifies, and no signed head was given to tie its root to. \
+                         Pass --head and --log-jwks. A root nobody signed is a root the Forum can \
+                         have invented."
+                            .to_string(),
+                    ));
+                }
             }
             Ok(())
         }
@@ -220,13 +246,18 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
             println!("to_size: {}", verified.to_size);
             println!("from_root: {}", acta::format_digest(&verified.from_root));
             println!("to_root: {}", acta::format_digest(&verified.to_root));
+            let mut unanchored: Vec<&str> = Vec::new();
+
             match optional_head(&flags, "--from-head")? {
                 Some(head) => {
                     acta::head_covers(&head, verified.from_size, &verified.from_root)
                         .map_err(CliError::Acta)?;
                     print_head("from_head", &head);
                 }
-                None => println!("from_head: not checked"),
+                None => {
+                    println!("from_head: not checked");
+                    unanchored.push("--from-head");
+                }
             }
             match optional_head(&flags, "--to-head")? {
                 Some(head) => {
@@ -234,8 +265,23 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
                         .map_err(CliError::Acta)?;
                     print_head("to_head", &head);
                 }
-                None => println!("to_head: not checked"),
+                None => {
+                    println!("to_head: not checked");
+                    unanchored.push("--to-head");
+                }
             }
+
+            // Either end unanchored leaves the proof about two roots the proof
+            // itself supplied. A consistency proof between two trees the Forum
+            // invented verifies perfectly and says nothing.
+            if !unanchored.is_empty() {
+                return Err(CliError::NotAnchored(format!(
+                    "the path verifies, and {} was not given, so at least one end is tied to no \
+                     signed head. Pass --from-head, --to-head and --log-jwks.",
+                    unanchored.join(" and ")
+                )));
+            }
+
             Ok(())
         }
         other => Err(CliError::Usage(format!("unknown log subcommand `{other}`"))),
