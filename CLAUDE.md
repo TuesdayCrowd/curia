@@ -159,9 +159,21 @@ dotnet build Curia.sln                      # 0 warnings is the standard, not an
 dotnet test Curia.sln                       # needs a reachable Postgres with pgvector (see below)
 dotnet restore Curia.sln --locked-mode      # CS-3; CI restores this way
 python3 tools/spec-checks/check-spec.py     # cross-reference checks over the three documents
-cd rust/curia-testis && cargo test          # the independent verifier
+python3 tools/spec-checks/falsify-spec-checks.py   # CI runs this beside check-spec
+cd rust/curia-testis && cargo fmt --check          # CI's Rust job runs all three, in this order
+cd rust/curia-testis && cargo clippy --all-targets --locked -- -D warnings
+cd rust/curia-testis && cargo test --locked        # the independent verifier
 node tools/differential-oracle/compare.mjs --fail-on-divergence   # R14.6; needs both endpoints built
 ```
+
+**This list is the one CI runs, and keeping it that way is load-bearing.** It previously stopped
+at `cargo test`, so a branch could pass every gate a developer was told to run and still go red in
+CI on `cargo fmt` — which is what happened on 2026-09-09. That is defect **D16**'s shape (CI and
+the developer over the same tree, different command sets); D16's other half, that `dotnet test`
+here is Debug while CI runs `-c Release` and `NetArchTest` rules read IL that differs between them,
+is **still open on purpose** and is recorded in `IMPLEMENTATION_PLAN.md`. Do not close it by
+quietly adding `-c Release` to this block: choosing among the three options there is a CI-policy
+decision, not an edit.
 
 The differential run needs its two endpoints built first — `dotnet build
 tools/Curia.Differential/Curia.Differential.csproj -c Release` and `cargo build --release
