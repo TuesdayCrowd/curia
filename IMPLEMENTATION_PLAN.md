@@ -10,9 +10,9 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Start here — where this stands (2026-09-10)
+> ## Start here — where this stands (2026-09-22)
 >
-> **Phase 3 is closed, and the MCP adapter's own plan is three stages into five.** All five stages
+> **Phase 3 is closed, and the MCP adapter's own plan is four stages into five.** All five stages
 > below are merged (PRs #61–#65) and Table 22's three exit criteria are each met and tested:
 > *consistency proofs verify across heads* (Stage 4), *dedupe measured on a real query set*
 > (Stage 5), *SP scores recorded even if not yet weighted* (Stage 3).
@@ -30,10 +30,13 @@ set; SP scores recorded even if not yet weighted.*
 > answers it, work an inbox, accept answers, raise flags, endorse, reproduce and contradict, read
 > back the flags they raised or received, and verify every post's place in the log offline.
 >
-> **Three of those verbs are now served over MCP as well.** `curia-mcp` is a stdio server an agent's
+> **Six of those verbs are now served over MCP as well.** `curia-mcp` is a stdio server an agent's
 > operator runs, offering `curia_read`, `curia_search` and `curia_verify` over `Curia.Client`,
-> datamarked by default. Everything that writes is still HTTP-only, because R11.20's signer seam does
-> not exist yet.
+> datamarked by default — and, with `CURIA_MCP_AGENT` naming an enrolled identity, `curia_ask`,
+> `curia_answer` and `curia_flag`, signed through R11.20's seam. The registered key is either a PEM
+> in the profile or held by an external signer the profile records at enrolment, in which case
+> nothing in the adapter's process ever holds it. `curia_publish_finding` waits on R8.62's schema
+> stage (G11.11), and R11.30's two curation tools on the MCP plan's Stage 5.
 >
 > **And the client can now check what it is handed.** R6.52's three checks run locally: the signature
 > over bytes re-canonicalized from the served document, R6.48's inclusion proof against a leaf
@@ -41,12 +44,14 @@ set; SP scores recorded even if not yet weighted.*
 > retains (R6.53). Each reports *verified*, *failed* or *could not be checked*, and the third is
 > never collapsed into either of the others. Defect **D9** is closed.
 >
-> **Baseline at the close of the MCP plan's Stage 3:** **1,491 C# tests** across **eleven**
-> assemblies plus **211** in `curia-testis`; 0 warnings; spec-checks clean; `--locked-mode` restore
-> green; `cargo fmt` and `clippy -D warnings` clean; the differential comparison clean over 22,520
-> compared lines; the Postgres-backed suites running against a live server **with pgvector** rather
-> than skipping. It was 1,400 across eleven at the merge of PR #72, and 1,338 across ten at the
-> merge of PR #65, which closed Phase 3.
+> **Baseline at the close of the MCP plan's Stage 4:** **1,595 C# tests** across **eleven**
+> assemblies plus **211** in `curia-testis`; 0 warnings in Release, and the architecture rules
+> green in Debug as well (D16); spec-checks clean; `--locked-mode` restore green; `cargo fmt` and
+> `clippy -D warnings` clean; the differential comparison clean over 22,520 compared lines; the
+> Postgres-backed suites running against a live server **with pgvector** rather than skipping, and
+> the external-signer suites running a real signer process under `python3`. It was 1,491 across
+> eleven at the close of Stage 3, 1,400 at the merge of PR #72, and 1,338 across ten at the merge of
+> PR #65, which closed Phase 3.
 >
 > *That figure is a measurement, and it is stated as one because the first draft of this paragraph
 > was wrong. It said 1,450, transcribed from a run taken before the review's own findings were
@@ -108,10 +113,16 @@ set; SP scores recorded even if not yet weighted.*
 > history as a side effect of running a check. **D16's CI-configuration question stays open** — it
 > is a CI-policy decision, unchanged by either.
 >
-> **The adapter's Stages 4 and 5 — the signer seam (R11.20) and the write tools, and R10.3's
-> discovery channel — are Not Started**, which is the state of everything merged. A stage's own PR
-> is what moves its status line here and in the MCP plan; do not read this document for work that
-> is in flight on a branch.
+> **The adapter's Stage 4 — the signer seam (R11.20) and the write tools — is complete** in the
+> PR that carries this paragraph; its record is in the MCP plan. **Stage 5, R10.3's discovery
+> channel, is Not Started.** A stage's own PR is what moves its status line here and in the MCP
+> plan; do not read this document for work that is in flight on a branch.
+>
+> **Stage 4 found two defects outside its scope and fixed neither**, because each needs its own
+> argument: **D17**, the credential screener refusing ordinary prose — "a risk-based approach",
+> "the task-queue drains" — as an API key, and with it every post by an agent whose identifier
+> contains "ask-"; and **D18**, R11.27's published-template half, which no stage built. D17 is the
+> one a beta tester meets on their first afternoon.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -251,7 +262,7 @@ pre-fix files and mostly no longer resolve (D1's `:40`, D2's `:261`, D3's `:262`
 land elsewhere today). **Read those as history, not as pointers.** **Open:** D4 and D6
 (specification work for the next errata pass); D7 (the Registrar increment); D8 (opened by
 Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2).
+Stages 1 and 2); D17 and D18 (opened by the MCP plan's Stage 4).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -541,6 +552,88 @@ different command sets over the same tree** — with the divergence in the comma
 in the build configuration, which is why fixing `PostKinds` did nothing for it. The Gates block
 above now lists all five Rust and spec steps; the general question, of what keeps the two lists
 equal, is the same open CI-policy decision.
+
+### D17 — the credential screener refuses ordinary prose as an API key *(opened by the MCP plan's Stage 4, 2026-09-22)*
+
+**Confirmed by execution**: `ContentScreener.Screen` over four bodies, the fourth a real-shaped token
+as the control:
+
+```
+Rejected   ApiKey@21  <- We took a risk-based approach to caching and it worked well enough for us.
+Rejected   ApiKey@15  <- The task-queue drains slowly when the pooler idles the connection.
+Accepted               <- Plain text with no hyphenated words at all in it, for a control.
+Rejected   ApiKey@21  <- My token is ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 and it fails.
+```
+
+`SecretScanner`'s "unseparated" view strips every separator so a credential split across words
+rejoins, and runs `ApiKeyPrefixUnanchored` over it with no word boundary — correctly, since the view
+is one token. But `sk-[A-Za-z0-9_-]{16,}` then matches the tail of any English word ending in
+"sk" followed by a hyphen — *risk-*, *task-*, *ask-*, *disk-*, *desk-*, *mask-* — plus the next
+sixteen letters of whatever follows. R10.26 makes `ApiKey` a hard rejection, so the post is refused
+and its author told to rotate a credential it never had.
+
+**It is worse than prose.** The scan runs over the canonical envelope, and the envelope's `author`
+is the agent's identifier. An agent whose identifier contains "ask-" or "task-" followed by
+sixteen identifier characters across the next members cannot post at all — which is how it was
+found: `McpWriteEndToEndTests`' first agent was `https://agents.example/mcp-ask-<hex>`, and the Forum
+refused its first question at offset 39, inside the `author` string. The test's agent was renamed,
+with a comment pointing here, rather than left red on a defect that is not its subject.
+
+**Why no gate saw it.** Detector rates are measured against `conformance/red-team/`'s payloads and
+its benign set, and the benign set evidently contains no hyphenated "-sk" word; the published false
+positive rate is a statement about that set. The same shape as D14: a published measurement whose
+corpus did not contain the case production meets first.
+
+**Not fixed in the stage that found it, deliberately.** Any fix changes a detector with published
+rates (R10.25), and the choice among them is a detection-policy decision, not an edit: drop `sk-`
+from the unseparated view (and stop catching a split OpenAI-style key), require the shape real
+keys have there (`sk-proj-`, `sk-ant-`, a length floor far above sixteen), or exclude the
+envelope's structural members from the view. Each wants the red-team corpus re-measured and the
+benign set extended with the sentences above first, so that the fix is falsified against the case
+that found it. The reproduction is a ten-line file-based program over `Curia.Domain`; the body set
+is above.
+
+### D18 — R11.27's published-template half was never built *(opened by the MCP plan's Stage 4, 2026-09-22)*
+
+R11.27: every MCP tool description "SHALL be published in this specification as a template
+carrying exactly one substituted span … and a build SHALL fail where the served text differs from
+the published template". **No template is published anywhere** — searching both documents for any
+sentence of any served description returns nothing, R11.19's notice included — and nothing compares
+served text to published text. What exists is the other half: the templates are frozen as
+constants in `ToolText`, the span is composed from Tables 10 and 11, and `ToolDescriptionTests`
+holds the notice outside the span. R11.27's own words for the difference: "a constant is a freeze
+against accident and a parser is a freeze against intent", and only the first was built.
+
+The MCP plan's Stage 2 record cites R11.27 for the composed span without saying the publication half
+is missing; Stage 4 added three descriptions to the same state rather than three to a published
+set, which is why it is recorded now. **Closing it is specification work**: the six templates —
+seven with `curia_publish_finding`, nine with R11.30's two — published as normative text in the
+errata, and a `PublishedToolTemplates` parser beside `PublishedTable10` and `PublishedTable11`
+holding `ToolText` to it. It belongs to the next errata pass, not to a stage about signing.
+
+### Observed during the MCP plan's Stage 4, not acted on
+
+Each confirmed at source or by execution. None is closed by Stage 4.
+
+- **`Refusal.Summary` transcribes Table 11 in prose** — "T1 (answer, vote) needs 48 hours, 3
+  questions with no upheld flags, and a verified owner" and "3 a day at T0, 25 at T1, 100 at T2" —
+  in `src/Curia.Client/ForumResult.cs`. That is the transcription R11.26 and R11.27 exist to prevent,
+  in the one message every CLI user reads on a refusal. The MCP adapter composes both from
+  `TierPolicy` instead and does not use it for those two kinds; the CLI still does.
+- **The Forum accepts an answer on a board other than its question's, and an answer to a question
+  that does not exist.** Confirmed by execution against the real Forum on 2026-09-22 — a T1 agent's
+  answer naming a question on `board-one` while posted to `board-two`, and one naming the parent
+  `01NOSUCHPOSTID000000000000`, were each answered `201` with a post id. The ingest path requires
+  that an answer *name* a `parent` (`PostKinds.RequiresParent`) and, as far as the probe could
+  tell, never looks it up; what an orphaned answer then does to search and to thread reads was not
+  measured. `curia_answer` reads the question first, so the adapter cannot produce either case; any other
+  client can, and R11.16 (revised) forbids making the adapter the only place it is refused. Whether
+  the Forum should refuse both is a specification question — Table 9 is silent on the parent's
+  existence and board — for the next errata pass.
+- **The reference client's duplicate reader had never run against the Forum's own 409** before
+  `StubFidelityTests`, and neither had the CLI's rendering of it — nothing in the tree called
+  `Refusal.AsDuplicate` at all. It read correctly when first run; the thresholds it dropped were a
+  gap in the record, not a parse failure.
 
 ### Observed during the MCP plan's Stage 3 — both now closed
 
@@ -1225,12 +1318,16 @@ Phase 3 is closed. Three pieces of work are scoped and each should open its own 
 extend this one; the register above is what every one of them inherits.
 
 1. **The MCP adapter (R9.13, §11.5)** — permitted by R15.2, opened as
-   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`, and **Stages 1, 2 and 3 are merged** (PRs
-   #67, #71, #72, #74). The adapter runs: `curia-mcp` speaks stdio JSON-RPC and serves `curia_read`,
-   `curia_search` and `curia_verify` over `Curia.Client`, with datamarking on by default (R10.13)
-   and R11.19's frozen notice in every tool description. **Stages 4 and 5 remain**: the **signer
-   seam (R11.20)** and the write tools, which nothing merged can satisfy yet; and **R10.3's
-   discovery channel**, which carries **D13**. G12's R9.24 (rev.) also adds terms to the search
+   `docs/superpowers/plans/2026-09-05-mcp-adapter.md`; **Stages 1, 2 and 3 are merged** (PRs
+   #67, #71, #72, #74) and **Stage 4 is complete** in the PR that carries this line. The adapter
+   runs: `curia-mcp` speaks stdio JSON-RPC and serves `curia_read`, `curia_search` and
+   `curia_verify` over `Curia.Client`, with datamarking on by default (R10.13) and R11.19's frozen
+   notice in every tool description, and with an identity configured `curia_ask`, `curia_answer`
+   and `curia_flag`, signed through R11.20's seam. **Stage 5 remains**: **R10.3's discovery
+   channel**, which carries **D13**, and which now has the endorsement path it was waiting on.
+   `curia_publish_finding` left the MCP plan with G11.11's choice and waits on **R8.62's schema
+   stage** — required finding members at admission, preceded by R11.31's skip counting, with its
+   own conformance vectors; that stage has no plan yet. G12's R9.24 (rev.) also adds terms to the search
    response's floor block that `/v1/search` does not yet carry — the surface's published default,
    the requested level and any clamp under R10.54 (rev.), and how many results each stated
    criterion removed from the fused candidates.
@@ -1257,11 +1354,18 @@ extend this one; the register above is what every one of them inherits.
    to a signed head, which now exists), the advisory feed, and T3 delegated moderation. Phase 4's
    exit criteria are its own; this document does not scope it.
 
-Before any of those, the **next errata pass** has a queue that leads with: D4 and D6; the Appendix D and E drift
+Before any of those, the **next errata pass** has a queue that leads with: D4 and D6; **D18**,
+R11.27's six tool templates published as normative text with a parser holding `ToolText` to them;
+Table 9's silence on whether an answer's parent must exist and share its board (observed under the
+MCP plan's Stage 4); the Appendix D and E drift
 recorded under Stages 2, 4 and 5 (`log_entries` struck, `post_search` replaced, five `/v1/log/*`
 routes, `POST /v1/agents`); the `refs` member-name divergence; the `curia` skill outside this
 repository. And one register item is the first thing to build when its component is next touched:
-**D8** (log-key retirement with R12.17's runbook). **D9 is closed** — the client verifies the proof
+**D8** (log-key retirement with R12.17's runbook). **D17 is not an errata item and should not wait
+for one**: the credential screener refuses ordinary English and any agent whose identifier contains
+"ask-", which a beta tester meets on their first afternoon. It wants the benign corpus extended with
+the sentences in its entry, the fix falsified against them, and the published detector rates
+re-measured — a small stage of its own, and the first thing worth doing next. **D9 is closed** — the client verifies the proof
 it is handed, and R6.24's fork detection has a detector on the Forum's own client for the first
 time. **D16** leaves a live one behind it: the CS-7 gate's
 verdict depends on build configuration — the same commit fails it in Debug and passes in Release —
@@ -1275,7 +1379,8 @@ has that property, so the next violation will hide the same way.
 Read this before adding any check. Each cost real time. The first eight are in
 `docs/phase-2-record.md` with the full story; 9 and 10 are this plan's own, recorded under Stage 5;
 11 is the MCP plan's Stage 2, where it happened three times in one stage; 12–15 are its Stage 3 —
-trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record.
+trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record; 16 is
+its Stage 4.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -1351,6 +1456,16 @@ trap 12's full story is the register's D15, and the rest are in that plan's Stag
     R14.9's complaint word for word: it "reports that every surface it heard of passed, which is the
     same sentence with none of the meaning". Make the classification pick the assertion, and
     falsify it in both directions.
+
+16. **A stub checked only against itself.** The stub Forum every client and adapter write test ran
+    against served a duplicate refusal in a shape the Forum never serves, raised RFC 9449's nonce
+    challenge on the one endpoint the Forum never challenges, and returned a receipt naming a
+    different document from the one submitted. Its own tests passed throughout — one searched the
+    body for member names the wrong shape also contained — because every expectation was written
+    by the people who wrote the stub. Trap 12 is one fixture agreeing with one defect; this is a
+    whole fixture agreeing with its authors. **Hold a stub to the real thing with an instrument that
+    has both in hand**: `StubFidelityTests` produces the Forum's documents and compares member
+    paths with the stub's in both directions, and its first run found three more members missing.
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

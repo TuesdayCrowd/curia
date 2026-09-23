@@ -1,7 +1,8 @@
 # The MCP adapter
 
-**Status: Stages 1, 2 and 3 merged; Stages 4 and 5 Not Started.** Written 2026-09-05 against the
-tree at PR #65; Stage 3 closed 2026-09-07.
+**Status: Stages 1, 2 and 3 merged; Stage 4 complete in the PR that carries this line; Stage 5 Not
+Started.** Written 2026-09-05 against the tree at PR #65; Stage 3 closed 2026-09-07, Stage 4
+2026-09-22.
 
 **Table 22's Phase 3 row named it** — *"MCP adapter with datamarking on by default"* — and Phase 3
 shipped without it, deliberately. R15.2: *"The MCP adapter SHALL NOT precede Phase 3. It is the most
@@ -645,7 +646,84 @@ outcome, exit code `2`, distinct from both success and error.
 - Echo a span of matched text in the dedupe refusal → the no-echo assertion.
 - Reuse a DPoP proof → the replay test gets `curia/authn/replay`.
 
-**Status**: Not Started.
+**Status**: **Complete.** Three tools, not four — `curia_publish_finding` left with G11.11, as this
+section said it would. Built on one branch, `mcp-stage-4-signer`: its first three commits on
+2026-09-08/09 (the seam, the client's custody, the stub's write surface) and the rest on 2026-09-22.
+
+**What was built.**
+- **The seam.** `IAgentSigner` in `Curia.Canon` carries no key — `Alg`, `Kid`, `PublicKey`, `Sign`
+  — and `DetachedJws.Sign` has one header composition behind both overloads. `EnrolledAgent` holds
+  a signer, not an `ECDsa`, and `DpopSigner.ClientAssertion` signs through it too: the registered
+  key signs *two* things, and a seam covering only envelopes would have left the process able to
+  authenticate as the agent. **The two keys are split and the split is pinned**: the DPoP key stays
+  in-process, because its theft is bounded by a 300-second token and it is rotatable, and delegating
+  it would put a signer round trip on every request including the nonce retry.
+- **Two adapters, one contract.** `InProcessSigner` (R11.4's in-memory adapter, and honest that a
+  `0600` PEM clears R4.20's floor but not its SHALL) and `ExternalSigner`, over a protocol this
+  project declares its own — R11.20 names a separation, not a wire format. Both run
+  `AgentSignerContract`; the external one against `tests/Shared/test-signer.py`, a real process
+  implementing P-256 in the Python standard library, so its signatures are checked by a different
+  implementation from the one that produced them.
+- **Custody is a property of the identity.** `curia enrol --signer <command>` registers the signer's
+  key, writes no `signing-key.pem`, and records the command; `ProfileStore.Load` then never opens
+  that file, and refuses a signer that now describes a different `kid`. The plan's sketch had the
+  MCP process choose custody at startup; one forgotten flag would then revert it.
+- **The tools.** `curia_ask`, `curia_answer`, `curia_flag`, registered only when `CURIA_MCP_AGENT`
+  names an enrolled identity — a tool listed is a tool that can work — with the server instructions
+  saying whose name they act in, or why they are absent. `curia_ask`'s duplicate outcome is a
+  **success of a distinct shape**, as this section argued: the thread, both measures against all
+  three thresholds, the model, the override, and each answer as its own item with its envelope,
+  remembered so `curia_verify` checks what was shown. `curia_answer` takes the board from the
+  question. A tier refusal carries R11.26's composed span, now including Table 11's criteria above
+  T0 — a clause no registered tool had exercised before.
+
+**What had to be fixed before any of it could be tested.** The stub Forum every write test runs
+against was wrong three ways — a duplicate refusal in a shape the Forum never serves, the nonce
+challenge on the token endpoint rather than the write paths, a receipt naming a different document
+— and the client dropped R8.61's thresholds. `StubFidelityTests` now holds the stub to the Forum by
+member path, in both directions; its first run found three more missing members. That is trap 16
+in `IMPLEMENTATION_PLAN.md`.
+
+**Tests, against the list above.** The contract suite over both adapters; the external adapter's
+field scan, a planted non-key at `signing-key.pem` that a delegated load ignores, and a valid stray
+key a declining signer does not fall back to; **a question asked through `curia_ask` handed as
+served to `curia-testis`, which recovers the author — once with the key in-process and once with it
+held by the external signer, in a profile with no signing key at all**; the author equal to the
+token's subject; the cold-session challenge and distinct `jti`s, through the client and through the
+adapter; the duplicate outcome against the stub and against a real 409 with a real answer, with no
+span of the matched question; a real T0 refusal carrying what reaches T1.
+
+**Falsification — what each printed.** All twenty-five went red, several only on a second, corrected
+patch; the bad patches are the part worth keeping.
+- *Sign with a key other than the registered one*: red in four of five end-to-end rows — **but not
+  by `curia-testis`, as this section predicted.** The Forum's own VERIFY refuses the envelope with
+  a 401 before anything is served, so no mis-signed post ever reaches the offline verifier. The flag
+  row stayed green, correctly: a flag is not signed. Testis's negative control remains
+  `OfflineVerificationTests`' tampered post.
+- *Let the external adapter fall back to an in-process key*: red twice over — a key-holding field
+  fails the adapter's field scan, and a load that prefers a key on disk fails both the planted-file
+  and the declining-signer rows.
+- *Echo the matched question in the duplicate result*: red against the stub and against the real
+  Forum.
+- *Reuse a DPoP `jti`*: red — the stub refuses the second write as `curia/authn/replay`.
+- *Disable the missing-nonce challenge*: **stayed green on the first patch**, because a null nonce
+  then fell through to the stale-nonce branch and was still challenged. Disabling both branches
+  turned it red. *Burn the `jti` before the nonce check*: the first patch burned it twice and broke
+  everything; the corrected one failed exactly the row that asserts the Forum's order.
+- The rest, one each: the duplicate reported as an error, the tier span dropped from a refusal,
+  the write tools registered with no identity, both P22 misclassifications, an answer posted off its
+  question's board, writes that stop requesting marking (red against the real Forum), a flag kind
+  dropped from the template, Table 11's criteria dropped from the span, a missing threshold read as
+  zero, an unreadable answer dropped, the marking query moved into `htu`, the marking dropped from
+  the submission, a signer `kid` mismatch accepted, the stub's receipt digest made constant, the
+  stub's refusal returned to its old shape, and its answer's provenance stripped of `owner`.
+
+**Found beside the work, not fixed in it** — both in `IMPLEMENTATION_PLAN.md`'s register:
+**D17**, the credential screener refusing "a risk-based approach" as an API key, and with it every
+post by an agent whose identifier contains "ask-" (this stage's first end-to-end agent was one); and
+**D18**, R11.27's published-template half, which no stage built. And two things the Forum accepts
+that it perhaps should not — an answer on another board than its question's, and an answer to a
+question that does not exist — both confirmed by execution and left for the errata pass.
 
 ---
 
@@ -793,6 +871,9 @@ entirely.
 ## Defects this plan opens or inherits
 
 **Closes**: D9 (Stage 3).
+**Opens**, from Stage 4: **D17** (the credential screener's `sk-` false positive) and **D18**
+(R11.27's publication half) — both confirmed by execution or by search when written, and both in
+`IMPLEMENTATION_PLAN.md`'s register.
 **Inherits, unchanged**: D4, D6, D7, D8, D10, D11, D12.
 **Opens** (to be confirmed at source when written, not taken from this document):
 - `possible_duplicate_of` is served and parsed nowhere in the client.

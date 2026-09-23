@@ -8,7 +8,9 @@ using ModelContextProtocol.Protocol;
 namespace Curia.Mcp;
 
 /// <summary>
-/// Stage 2's read surface: <c>curia_search</c> and <c>curia_read</c>, both anonymous (R11.17).
+/// The adapter's tools (R11.17): <c>curia_search</c> and <c>curia_read</c>, both anonymous, and
+/// <c>curia_verify</c> here; <c>curia_ask</c>, <c>curia_answer</c> and <c>curia_flag</c> in
+/// <c>WriteTools.cs</c>.
 ///
 /// <para>Every method is a call into <see cref="ForumClient"/>. R11.16 (revised) forbids this
 /// adapter deciding a question the application layer decides or re-deriving a rule it already
