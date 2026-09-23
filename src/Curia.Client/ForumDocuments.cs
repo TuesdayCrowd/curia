@@ -89,14 +89,32 @@ public sealed record SearchPage(
     string Model,
     long CorpusBound);
 
-/// <summary>R8.18 / R8.19's refusal, read from the 409's extension members: the thread to read instead, its answers, and the measures.</summary>
+/// <summary>
+/// R8.18 / R8.19's refusal, read from the 409's extension members: the thread to read instead, its
+/// answers, both measures, both thresholds they were compared against, and the model that measured
+/// them (R8.61).
+///
+/// <para><b>The thresholds were dropped until the MCP adapter's Stage 4.</b> This record carried the
+/// two measures and neither threshold, so every rendering of the refusal told an agent "cosine 9200
+/// bp" with nothing to compare it to — R8.61 requires both because a measure without the line it
+/// crossed is not a reason.</para>
+/// </summary>
+/// <param name="UnreadableAnswers">
+/// Answers the Forum served that this client could not read as a post. Counted rather than silently
+/// skipped, which is what the reader used to do: an agent shown two answers when the Forum sent three
+/// concludes the thread has two, and nothing about the refusal would tell it otherwise.
+/// </param>
 public sealed record DuplicateRefusalDocument(
     string CanonicalPostId,
     string CanonicalDigest,
     string Board,
     ImmutableArray<ProvenancePost> Answers,
+    int UnreadableAnswers,
     int CosineBp,
     int LexicalOverlapBp,
+    int RefuseCosineBp,
+    int RefuseLexicalOverlapBp,
+    int AnnotateCosineBp,
     string Model,
     string Override);
 
@@ -342,30 +360,65 @@ internal static class ForumDocuments
             notComputed.ToImmutable());
     }
 
-    /// <summary>R8.19: the duplicate refusal's extension members, or null when the problem is not that refusal.</summary>
+    /// <summary>
+    /// R8.19: the duplicate refusal's extension members, or null when the problem is not that
+    /// refusal <b>or does not carry all of it</b>.
+    ///
+    /// <para><b>Every member is required, and a missing one is not read as zero.</b> This reader
+    /// used to default each absent number to <c>0</c> and each absent string to empty, so a refusal
+    /// that had lost its thresholds rendered as "refused at 0 bp" — a measurement nobody made,
+    /// presented as the Forum's. Null sends the caller to the plain refusal, whose title and detail
+    /// the Forum wrote, which is less than the whole document and true.</para>
+    /// </summary>
     public static DuplicateRefusalDocument? ReadDuplicateRefusal(JsonValue? problem)
     {
         if (problem is not JsonValue.Object o
             || ClientJson.String(o, "type") != "curia/posts/duplicate-question"
             || ClientJson.Object(o, "canonical") is not { } canonical
-            || ClientJson.Object(o, "similarity") is not { } similarity)
+            || ClientJson.Object(o, "similarity") is not { } similarity
+            || ClientJson.Member(o, "answers") is not JsonValue.Array array)
             return null;
 
-        var answers = ImmutableArray.CreateBuilder<ProvenancePost>();
-        if (ClientJson.Member(o, "answers") is JsonValue.Array array)
-            foreach (var element in array.Items.OfType<JsonValue.Object>())
-                if (ReadPost(element).TryGetValue(out var answer, out _)) answers.Add(answer!);
+        if (ClientJson.String(canonical, "post_id") is not { Length: > 0 } postId
+            || ClientJson.String(canonical, "digest") is not { Length: > 0 } digest
+            || ClientJson.String(canonical, "board") is not { Length: > 0 } board
+            || BasisPoints(similarity, "cosine_bp") is not { } cosine
+            || BasisPoints(similarity, "lexical_overlap_bp") is not { } overlap
+            || BasisPoints(similarity, "refuse_cosine_bp") is not { } refuseCosine
+            || BasisPoints(similarity, "refuse_lexical_overlap_bp") is not { } refuseOverlap
+            || BasisPoints(similarity, "annotate_cosine_bp") is not { } annotateCosine
+            || ClientJson.String(similarity, "model") is not { Length: > 0 } model
+            || ClientJson.String(o, "override") is not { Length: > 0 } remedy)
+            return null;
+
+        var answers = ImmutableArray.CreateBuilder<ProvenancePost>(array.Items.Length);
+        var unreadable = 0;
+        foreach (var element in array.Items)
+        {
+            if (element is JsonValue.Object answer && ReadPost(answer).TryGetValue(out var read, out _))
+                answers.Add(read!);
+            else
+                unreadable++;
+        }
 
         return new DuplicateRefusalDocument(
-            ClientJson.String(canonical, "post_id") ?? string.Empty,
-            ClientJson.String(canonical, "digest") ?? string.Empty,
-            ClientJson.String(canonical, "board") ?? string.Empty,
+            postId,
+            digest,
+            board,
             answers.ToImmutable(),
-            (int)(ClientJson.Number(similarity, "cosine_bp") ?? 0),
-            (int)(ClientJson.Number(similarity, "lexical_overlap_bp") ?? 0),
-            ClientJson.String(similarity, "model") ?? string.Empty,
-            ClientJson.String(o, "override") ?? string.Empty);
+            unreadable,
+            cosine,
+            overlap,
+            refuseCosine,
+            refuseOverlap,
+            annotateCosine,
+            model,
+            remedy);
     }
+
+    /// <summary>A basis-point member: an integer in 0..10000 (R6.33), or null when it is anything else.</summary>
+    private static int? BasisPoints(JsonValue.Object parent, string name) =>
+        ClientJson.WholeNumber(parent, name) is { } value and >= 0 and <= 10_000 ? (int)value : null;
 
     internal static Result<FlagReceipt> ReadFlagReceipt(JsonValue.Object o) =>
         ClientJson.String(o, "post_id") is { } id

@@ -34,4 +34,13 @@
     <ProjectReference Include="../../src/Curia.Client/Curia.Client.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The stub Forum the client and adapter suites are proved against, compiled here as well so
+      StubFidelityTests can hold what it serves against what this Forum serves. A fixture checked
+      only against itself agrees with whatever its authors believed, which is trap 12.
+    -->
+    <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
+  </ItemGroup>
+
 </Project>

@@ -88,8 +88,38 @@ internal sealed class StubLog : IDisposable
             : throw new InvalidOperationException("the stub could not sign a post");
 
         Canonical = Encoding.UTF8.GetString(Submission.Canonical.Span);
+
+        // The canonical thread's one answer, for R8.19's refusal: a real answer, by the same agent,
+        // under the question above. It used to be the QUESTION itself served in the answers array,
+        // which made "no span of the matched question is echoed" (R8.61) impossible to assert --
+        // the matched question was the only thing the refusal carried.
+        Answer = SubmissionBuilder.Build(
+                _agent,
+                new PostDraft
+                {
+                    Kind = PostKind.Answer,
+                    Board = "b",
+                    Parent = PostId,
+                    Body = "An answer whose body carries " + AnswerMarker + ", served under the canonical question.",
+                },
+                DateTimeOffset.UnixEpoch)
+            .TryGetValue(out var answer, out _)
+            ? answer!
+            : throw new InvalidOperationException("the stub could not sign the answer");
+
         PostIndex = postIndex;
-        Entry = BuildEntry(Canonical, Submission.Signature, Submission.PrefixedDigest);
+        Entry = BuildEntry(PostId, "question", null, Canonical, Submission.Signature, Submission.PrefixedDigest);
+
+        // The answer has a leaf of its own, so the proof R8.19's refusal serves with it is a real
+        // proof: the Forum serves `log_index` and `inclusion_proof` on every post it returns, the
+        // answers in a 409 included, and a fixture without them has nothing to lose (the MCP plan's
+        // trap 4).
+        if (treeSize <= postIndex + 1)
+            throw new ArgumentOutOfRangeException(nameof(treeSize), "the stub needs a leaf after the post's for the canonical thread's answer");
+
+        AnswerIndex = postIndex + 1;
+        AnswerEntry = BuildEntry(
+            AnswerPostId, "answer", PostId, Encoding.UTF8.GetString(Answer.Canonical.Span), Answer.Signature, Answer.PrefixedDigest);
 
         // The post's leaf is real; the rest are filler, distinct and in no particular relation to
         // it. A verifier only ever fetches the entry it is proving, so the others need only exist.
@@ -98,7 +128,9 @@ internal sealed class StubLog : IDisposable
         {
             leaves.Add(i == postIndex
                 ? LeafOf(Entry)
-                : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
+                : i == AnswerIndex
+                    ? LeafOf(AnswerEntry)
+                    : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
         }
 
         Leaves = leaves.MoveToImmutable();
@@ -109,7 +141,28 @@ internal sealed class StubLog : IDisposable
 
     internal string Canonical { get; }
 
+    /// <summary>The canonical question's one answer, served in R8.19's duplicate refusal.</summary>
+    internal SignedSubmission Answer { get; }
+
+    /// <summary>A string that appears only in <see cref="Answer"/>'s body.</summary>
+    internal const string AnswerMarker = "MARKER-THIS-BODY-IS-THE-CANONICAL-THREADS-ANSWER";
+
+    internal const string AnswerPostId = "01TESTPOSTID0000000000000C";
+
+    /// <summary>
+    /// The profile directory holding the stub's own enrolled agent, <c>alice</c>. A write test loads
+    /// its own <see cref="EnrolledAgent"/> from here, so the posts it signs verify under the JWKS the
+    /// stub serves.
+    /// </summary>
+    internal ProfileStore Store => new(_root);
+
     internal int PostIndex { get; }
+
+    /// <summary>The answer's leaf index: the one after the post's.</summary>
+    internal int AnswerIndex { get; }
+
+    /// <summary>R6.46's six members for the answer's <c>post.accepted</c>.</summary>
+    internal JsonValue.Object AnswerEntry { get; }
 
     internal JsonValue.Object Entry { get; private set; }
 
@@ -161,7 +214,8 @@ internal sealed class StubLog : IDisposable
         {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
-        "marking_caveat":null,"reader_contract":"http://forum.test/c"},
+        "marking_caveat":null,"reader_contract":"http://forum.test/c",
+        "owner":null,"reproductions":[],"contradictions":[]},
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{decoy.PrefixedDigest}}",
         "canonical":{{JsonString(canonical)}},"signature":"{{decoy.Signature}}",
@@ -174,9 +228,13 @@ internal sealed class StubLog : IDisposable
 
     // ---- the write surface --------------------------------------------------------------------
 
+    /// <summary>The nonce a fresh stub issues. <see cref="RotateNonce"/> replaces it.</summary>
     internal const string NonceValue = "stub-nonce-0001";
 
     internal const string AcceptedPostId = "01TESTPOSTID0000000000000B";
+
+    /// <summary>The id a submission the stub accepts is given.</summary>
+    internal const string SubmittedPostId = "01TESTPOSTID0000000000000D";
 
     /// <summary>
     /// R8.18's duplicate refusal instead of an acceptance. §8.5 refuses a duplicate <i>question</i>
@@ -186,21 +244,56 @@ internal sealed class StubLog : IDisposable
     internal bool RefusesAsDuplicate { get; set; }
 
     /// <summary>
-    /// RFC 9449 §8's challenge: the first token request is answered <c>401</c> with a
-    /// <c>DPoP-Nonce</c>, and the retry carrying it succeeds. The normal flow, not an error path —
-    /// so a client that never retried would look correct against a stub that never challenged.
+    /// Refuse every submission as the Forum refuses a Table 10 denial: <c>403</c>,
+    /// <c>curia/authz/denied</c>, the reason and the tier the request was evaluated at, and no
+    /// criterion by which that tier could change — which is exactly what R11.26 says an MCP tool must
+    /// make up for.
     /// </summary>
-    internal bool PendingNonceChallenge { get; set; }
+    internal string? DeniesSubmissionsAtTier { get; set; }
+
+    /// <summary>
+    /// The nonce this stub currently accepts on a write. A write path requires one, as the Forum's
+    /// does (R5.19): a proof without it, or with any other, is answered with RFC 9449 §8's challenge.
+    ///
+    /// <para><b>The challenge used to be on the token endpoint</b>, where the Forum never issues one
+    /// — its token endpoint takes no nonce at all. A client tested against that shape was tested
+    /// against a server that does not exist, and the retry it needed on every write path was the one
+    /// thing never exercised. Trap 12, a fixture that agrees with nothing production does.</para>
+    /// </summary>
+    internal string CurrentNonce { get; private set; } = NonceValue;
+
+    /// <summary>Replace the accepted nonce, as the Forum's rotation does. A client holding the old one is challenged again.</summary>
+    internal void RotateNonce() =>
+        CurrentNonce = "stub-nonce-" + (++_nonceGeneration).ToString("D4", CultureInfo.InvariantCulture);
+
+    private int _nonceGeneration = 1;
+
+    /// <summary>
+    /// Every <c>jti</c> a write has spent. Burned only once the nonce has passed, in the Forum's own
+    /// order (<c>AccessTokenValidator</c>): a proof refused for its nonce never reached the replay
+    /// cache, so the proof that answers a challenge is not a replay of the one that met it.
+    /// </summary>
+    private readonly HashSet<string> _burnedJtis = new(StringComparer.Ordinal);
+
+    /// <summary>The <c>client_id</c> the last token was issued to: the principal a write is then attributed to.</summary>
+    internal string? TokenSubject { get; private set; }
+
+    /// <summary>The DPoP proof claims of every write, in order, including the ones the stub refused.</summary>
+    internal List<(string? Jti, string? Nonce)> WriteProofs { get; } = [];
 
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
 
+    /// <summary>Every request's query string, in order, so a test can see what a write asked the serving boundary for.</summary>
+    internal List<string> Queries { get; } = [];
+
     /// <summary>The bodies of the writes it received, for asserting on what was actually sent.</summary>
     internal List<string> WrittenBodies { get; } = [];
 
-    internal void Record(HttpMethod method, string path, HttpRequestMessage request)
+    internal void Record(HttpMethod method, string path, string query, HttpRequestMessage request)
     {
         Requests.Add($"{method} {path}");
+        Queries.Add(query);
 
         if (method == HttpMethod.Post && request.Content is { } content)
             WrittenBodies.Add(content.ReadAsStringAsync(CancellationToken.None).GetAwaiter().GetResult());
@@ -211,8 +304,17 @@ internal sealed class StubLog : IDisposable
     "scope":"question:create answer:create"}
     """.ReplaceLineEndings(string.Empty);
 
-    internal string ReceiptJson() => $$"""
-    {"post_id":"{{PostId}}","digest":"{{Submission.PrefixedDigest}}",
+    /// <summary>
+    /// The receipt for what was actually submitted: its digest computed from the envelope the client
+    /// sent, as the Forum computes it.
+    ///
+    /// <para>It used to carry the stub's own post's digest whatever arrived, so every submission
+    /// came back with a digest belonging to a different document — and a client comparing the two,
+    /// as the reference client does, would have raised its disagreement warning under every write
+    /// the stub accepted.</para>
+    /// </summary>
+    internal static string ReceiptJson(string digest) => $$"""
+    {"post_id":"{{SubmittedPostId}}","digest":"{{digest}}",
     "server_ts":"1970-01-01T00:00:00.0000000+00:00","risk_flags":[]}
     """.ReplaceLineEndings(string.Empty);
 
@@ -226,19 +328,56 @@ internal sealed class StubLog : IDisposable
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
-    /// R8.18/R8.19's 409 as the Forum serves it, carrying the canonical thread's answers with their
-    /// provenance envelopes, both measures, both thresholds and the model — and, per R8.61, no span
-    /// of the matched question's own text.
+    /// R8.18/R8.19's 409 in the shape <c>Curia.Api</c>'s <c>DuplicateProblem</c> serializes: the
+    /// canonical thread as an object, its answers with their provenance envelopes, both measures and
+    /// all three thresholds with the model inside <c>similarity</c> — and, per R8.61, no span of the
+    /// matched question's own text.
+    ///
+    /// <para><b>This used to be a shape the Forum never serves</b> — <c>canonical_post_id</c>,
+    /// <c>canonical_digest</c> and <c>board</c> at the top level and <c>model</c> beside
+    /// <c>similarity</c> rather than inside it — and the client's reader returned null for it, so
+    /// every rendering of a duplicate refusal built on this fixture would have fallen through to the
+    /// plain one. Its only test searched the body for member names, which the wrong shape contained.
+    /// <c>StubFidelityTests</c> in <c>Curia.Api.Tests</c> now holds this document's member set
+    /// against the one the Forum produces, so the two cannot drift apart silently again.</para>
     /// </summary>
     internal string DuplicateRefusalJson() => $$"""
-    {"type":"curia/posts/duplicate-question","title":"A question this close already exists on this board",
-    "detail":"Read the canonical thread instead",
-    "canonical_post_id":"{{PostId}}","canonical_digest":"{{Submission.PrefixedDigest}}","board":"b",
-    "answers":[{{PostJson()}}],
+    {"type":"curia/posts/duplicate-question",
+    "title":"A question this close to an open one on the same board is refused; here is that thread",
+    "detail":"cosine=0.920 lexical_overlap=0.740 model=hashed-ngram@1 answers=1",
+    "canonical":{"post_id":"{{PostId}}","digest":"{{Submission.PrefixedDigest}}","board":"b"},
+    "answers":[{{AnswerJson()}}],
     "similarity":{"cosine_bp":9200,"lexical_overlap_bp":7400,
-    "refuse_cosine_bp":9000,"refuse_lexical_overlap_bp":7000,"annotate_cosine_bp":6000},
-    "model":"hashed-ngram@1","override":"not_duplicate"}
+    "refuse_cosine_bp":9400,"refuse_lexical_overlap_bp":6000,"annotate_cosine_bp":8500,
+    "model":"hashed-ngram@1"},
+    "override":"R8.20: re-sign the question with not_duplicate: true and a duplicate_rationale; the override is logged and counts against you if later judged wrong"}
     """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>
+    /// The digest of a report the answer's provenance names as reproducing it. Present so the
+    /// answer's envelope is the richest the Forum can serve — an owner, a reproduction, a proof —
+    /// and a rendering that dropped any of them has something to lose.
+    /// </summary>
+    internal const string AnswerReproducedBy = "sha256:5eed000000000000000000000000000000000000000000000000000000000001";
+
+    /// <summary>The canonical thread's answer as the single-post read serves it.</summary>
+    internal string AnswerJson()
+    {
+        var canonical = Encoding.UTF8.GetString(Answer.Canonical.Span);
+
+        return $$"""
+        {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
+        "author":"{{Author}}","owner_verified":true,"signature_valid":true,
+        "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
+        "marking_caveat":null,"reader_contract":"http://forum.test/c",
+        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[]},
+        "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
+        "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
+        "canonical":{{JsonString(canonical)}},"signature":"{{Answer.Signature}}",
+        "rendered":{{JsonString(Datamarking.Render(canonical, MarkingMode.None))}},"accepted":false,
+        "log_index":{{AnswerIndex}},"inclusion_proof":{{ProofAt(AnswerIndex, AnswerIndex < HeadTreeSize ? HeadTreeSize : Leaves.Length)}}}
+        """.ReplaceLineEndings(string.Empty);
+    }
 
     /// <summary>
     /// Serve a wrong <c>leaf_hash</c> on the <b>log-entry</b> route alone, leaving the proof honest.
@@ -345,7 +484,8 @@ internal sealed class StubLog : IDisposable
         {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
-        "marking_caveat":null,"reader_contract":"http://forum.test/c"},
+        "marking_caveat":null,"reader_contract":"http://forum.test/c",
+        "owner":null,"reproductions":[],"contradictions":[]},
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Submission.PrefixedDigest}}",
         "canonical":{{JsonString(Canonical)}},"signature":"{{Submission.Signature}}",
@@ -428,7 +568,7 @@ internal sealed class StubLog : IDisposable
 
     internal string EntryJson(int index)
     {
-        var entry = index == PostIndex ? Entry : null;
+        var entry = index == PostIndex ? Entry : index == AnswerIndex ? AnswerEntry : null;
         var body = entry is null
             ? "{\"actor_id\":null,\"aggregate_id\":\"x\",\"event_id\":\"x\",\"event_type\":\"filler\",\"payload\":{},\"server_ts\":\"1970-01-01T00:00:00.000000Z\"}"
             : Render(entry);
@@ -521,11 +661,12 @@ internal sealed class StubLog : IDisposable
             : throw new InvalidOperationException("the entry has no canonical form");
 
     /// <summary>R6.46's six members, as the Forum's event store holds one <c>post.accepted</c>.</summary>
-    private static JsonValue.Object BuildEntry(string canonical, string signature, string digest) => new(
+    private static JsonValue.Object BuildEntry(
+        string postId, string kind, string? parent, string canonical, string signature, string digest) => new(
     [
         new(LogLeaf.ActorIdMember, new JsonValue.String(Author)),
-        new(LogLeaf.AggregateIdMember, new JsonValue.String(PostId)),
-        new(LogLeaf.EventIdMember, new JsonValue.String(PostId)),
+        new(LogLeaf.AggregateIdMember, new JsonValue.String(postId)),
+        new(LogLeaf.EventIdMember, new JsonValue.String(postId)),
         new(LogLeaf.EventTypeMember, new JsonValue.String("post.accepted")),
         new(LogLeaf.PayloadMember, new JsonValue.Object(
         [
@@ -533,9 +674,9 @@ internal sealed class StubLog : IDisposable
             new("board", new JsonValue.String("b")),
             new("canonical", new JsonValue.String(canonical)),
             new("digest", new JsonValue.String(digest)),
-            new("kind", new JsonValue.String("question")),
-            new("parent", JsonValue.Null.Instance),
-            new("post_id", new JsonValue.String(PostId)),
+            new("kind", new JsonValue.String(kind)),
+            new("parent", parent is null ? JsonValue.Null.Instance : new JsonValue.String(parent)),
+            new("post_id", new JsonValue.String(postId)),
             new("risk_flags", new JsonValue.Array([])),
             new("server_ts", new JsonValue.String("1970-01-01T00:00:00.000000Z")),
             new("signature", new JsonValue.String(signature)),
@@ -558,11 +699,11 @@ internal sealed class StubLog : IDisposable
             if (path.StartsWith("/v1/jwks", StringComparison.Ordinal) && log.JwksUnreachable)
                 throw new HttpRequestException("the key set host is unreachable");
 
-            log.Record(method, path, request);
+            log.Record(method, path, query, request);
 
-            var (status, body) = method == HttpMethod.Post
+            var (status, body, challenge) = method == HttpMethod.Post
                 ? Written(log, path, request)
-                : Answer(log, path, query);
+                : Answered(Answer(log, path, query));
 
             var response = new HttpResponseMessage(status)
             {
@@ -574,16 +715,21 @@ internal sealed class StubLog : IDisposable
                         : "application/problem+json"),
             };
 
-            // RFC 9449 §8: the nonce challenge is the normal flow, not an error path. A 401 without
-            // a DPoP-Nonce header is a different thing entirely, so the header goes on only here.
-            if (status == HttpStatusCode.Unauthorized && log.PendingNonceChallenge)
+            // RFC 9449 §8: the nonce challenge is the normal flow, not an error path, and it carries
+            // the nonce to use. A 401 without a DPoP-Nonce header is a different thing entirely -- a
+            // replay, a bad signature -- so the header goes on only when the nonce was the problem,
+            // exactly as the Forum's NonceChallengeOrProblemAsync does.
+            if (challenge is not null)
             {
-                response.Headers.TryAddWithoutValidation("DPoP-Nonce", NonceValue);
-                log.PendingNonceChallenge = false;
+                response.Headers.TryAddWithoutValidation("DPoP-Nonce", challenge);
+                response.Headers.TryAddWithoutValidation("WWW-Authenticate", "DPoP error=\"use_dpop_nonce\"");
             }
 
             return Task.FromResult(response);
         }
+
+        private static (HttpStatusCode Status, string Body, string? Challenge) Answered(
+            (HttpStatusCode Status, string Body) answer) => (answer.Status, answer.Body, null);
 
         /// <summary>
         /// The write surface. Separated from <see cref="Answer"/> by <b>method</b>, which the
@@ -591,36 +737,125 @@ internal sealed class StubLog : IDisposable
         /// <c>StartsWith("/v1/posts/")</c> read branch and came back as a <i>post document</i> with
         /// 200. A write test on that fixture could pass having exercised the read path, which is
         /// trap 12: a fixture that agrees with the defect.
+        ///
+        /// <para><b>Every write path requires a DPoP proof carrying the current nonce</b>, as the
+        /// Forum's does (R5.19, errata A17), and burns its <c>jti</c> only once the nonce has passed
+        /// -- the Forum's own order. The token endpoint takes no nonce, again as the Forum's does.</para>
         /// </summary>
-        private static (HttpStatusCode Status, string Body) Written(
+        private static (HttpStatusCode Status, string Body, string? Challenge) Written(
             StubLog log, string path, HttpRequestMessage request)
         {
+            var body = log.WrittenBodies.Count > 0 ? log.WrittenBodies[^1] : string.Empty;
+
             if (path == "/oauth/token")
             {
-                return log.PendingNonceChallenge
-                    ? (HttpStatusCode.Unauthorized,
-                        """{"type":"curia/authn/nonce-required","title":"A DPoP nonce is required"}""")
-                    : (HttpStatusCode.OK, StubLog.TokenJson());
+                log.TokenSubject = FormValue(body, "client_id");
+                return (HttpStatusCode.OK, StubLog.TokenJson(), null);
             }
+
+            var routed = path == "/v1/posts"
+                || (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
+                    && (path.EndsWith("/flags", StringComparison.Ordinal) || path.EndsWith("/accept", StringComparison.Ordinal)));
+
+            if (!routed)
+            {
+                return (HttpStatusCode.NotFound,
+                    $$"""{"type":"curia/stub/unrouted","title":"The stub serves no POST {{path}}"}""", null);
+            }
+
+            if (Proof(request) is not { } proof)
+                return (HttpStatusCode.Unauthorized, Problem("curia/authn/missing-dpop-proof", "A DPoP proof is required"), null);
+
+            var (jti, nonce) = ProofClaims(proof);
+            log.WriteProofs.Add((jti, nonce));
+
+            if (nonce is null)
+                return (HttpStatusCode.Unauthorized, Problem("curia/authn/nonce-missing", "A DPoP nonce is required"), log.CurrentNonce);
+
+            if (!string.Equals(nonce, log.CurrentNonce, StringComparison.Ordinal))
+                return (HttpStatusCode.Unauthorized, Problem("curia/authn/nonce-stale", "The DPoP nonce is not current"), log.CurrentNonce);
+
+            if (jti is null || !log._burnedJtis.Add(jti))
+                return (HttpStatusCode.Unauthorized, Problem("curia/authn/replay", "This DPoP proof has already been used"), null);
 
             if (path == "/v1/posts")
             {
-                return log.RefusesAsDuplicate
-                    ? (HttpStatusCode.Conflict, log.DuplicateRefusalJson())
-                    : (HttpStatusCode.Created, log.ReceiptJson());
+                if (log.DeniesSubmissionsAtTier is { } tier)
+                {
+                    return (HttpStatusCode.Forbidden, $$"""
+                        {"type":"curia/authz/denied","title":"Not permitted at this trust tier","detail":"table-10/denied tier={{tier}}"}
+                        """, null);
+                }
+
+                if (log.RefusesAsDuplicate) return (HttpStatusCode.Conflict, log.DuplicateRefusalJson(), null);
+
+                // The Forum verifies against the token's subject, not the envelope's claim about
+                // itself (ForumEndpoints.SubmitAsync, VERIFY). Modelled so a client that signed as one
+                // agent while holding another's token is refused here as it would be there.
+                var (author, digest) = Submitted(body);
+                if (!string.Equals(author, log.TokenSubject, StringComparison.Ordinal))
+                {
+                    return (HttpStatusCode.Unauthorized, Problem(
+                        "curia/content/author-principal-mismatch",
+                        "The envelope's author does not match the authenticated principal"), null);
+                }
+
+                return (HttpStatusCode.Created, StubLog.ReceiptJson(digest), null);
             }
 
-            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
-                && path.EndsWith("/flags", StringComparison.Ordinal))
-                return (HttpStatusCode.Created, StubLog.FlagReceiptJson());
-
-            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
-                && path.EndsWith("/accept", StringComparison.Ordinal))
-                return (HttpStatusCode.OK, StubLog.AcceptanceJson());
-
-            return (HttpStatusCode.NotFound,
-                $$"""{"type":"curia/stub/unrouted","title":"The stub serves no POST {{path}}"}""");
+            return path.EndsWith("/flags", StringComparison.Ordinal)
+                ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
+                : (HttpStatusCode.OK, StubLog.AcceptanceJson(), null);
         }
+
+        private static string? Proof(HttpRequestMessage request) =>
+            request.Headers.TryGetValues("DPoP", out var values) ? values.FirstOrDefault() : null;
+
+        /// <summary>A proof's <c>jti</c> and <c>nonce</c>, read from its payload. The signature is not checked: the stub is not the thing under test.</summary>
+        private static (string? Jti, string? Nonce) ProofClaims(string proof)
+        {
+            var parts = proof.Split('.');
+            if (parts.Length != 3) return (null, null);
+
+            using var payload = System.Text.Json.JsonDocument.Parse(Base64Url.DecodeFromChars(parts[1]));
+            var root = payload.RootElement;
+
+            return (
+                root.TryGetProperty("jti", out var jti) ? jti.GetString() : null,
+                root.TryGetProperty("nonce", out var nonce) ? nonce.GetString() : null);
+        }
+
+        /// <summary>The submitted envelope's author, and its digest computed the way the Forum computes it.</summary>
+        private static (string? Author, string Digest) Submitted(string wire)
+        {
+            var parsed = JsonReader.Parse(Encoding.UTF8.GetBytes(wire), AdmitLimits.Default);
+            if (!parsed.TryGetValue(out var value, out _)
+                || value is not JsonValue.Object submission
+                || submission.Members.FirstOrDefault(m => m.Key == "envelope").Value is not JsonValue.Object envelope)
+            {
+                return (null, string.Empty);
+            }
+
+            var author = envelope.Members.FirstOrDefault(m => m.Key == "author").Value is JsonValue.String s ? s.Value : null;
+            var digest = CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out _)
+                ? Digests.Sha256(canonical).ToPrefixed()
+                : string.Empty;
+
+            return (author, digest);
+        }
+
+        private static string FormValue(string form, string name)
+        {
+            foreach (var pair in form.Split('&'))
+            {
+                var at = pair.IndexOf('=', StringComparison.Ordinal);
+                if (at > 0 && pair[..at] == name) return Uri.UnescapeDataString(pair[(at + 1)..].Replace('+', ' '));
+            }
+
+            return string.Empty;
+        }
+
+        private static string Problem(string type, string title) => $$"""{"type":"{{type}}","title":"{{title}}"}""";
 
         private static (HttpStatusCode Status, string Body) Answer(StubLog log, string path, string query)
         {
