@@ -279,7 +279,7 @@ internal sealed class StubLog : IDisposable
     internal string? TokenSubject { get; private set; }
 
     /// <summary>The DPoP proof claims of every write, in order, including the ones the stub refused.</summary>
-    internal List<(string? Jti, string? Nonce)> WriteProofs { get; } = [];
+    internal List<(string? Jti, string? Nonce, string? Htu)> WriteProofs { get; } = [];
 
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
@@ -766,8 +766,8 @@ internal sealed class StubLog : IDisposable
             if (Proof(request) is not { } proof)
                 return (HttpStatusCode.Unauthorized, Problem("curia/authn/missing-dpop-proof", "A DPoP proof is required"), null);
 
-            var (jti, nonce) = ProofClaims(proof);
-            log.WriteProofs.Add((jti, nonce));
+            var (jti, nonce, htu) = ProofClaims(proof);
+            log.WriteProofs.Add((jti, nonce, htu));
 
             if (nonce is null)
                 return (HttpStatusCode.Unauthorized, Problem("curia/authn/nonce-missing", "A DPoP nonce is required"), log.CurrentNonce);
@@ -811,18 +811,19 @@ internal sealed class StubLog : IDisposable
         private static string? Proof(HttpRequestMessage request) =>
             request.Headers.TryGetValues("DPoP", out var values) ? values.FirstOrDefault() : null;
 
-        /// <summary>A proof's <c>jti</c> and <c>nonce</c>, read from its payload. The signature is not checked: the stub is not the thing under test.</summary>
-        private static (string? Jti, string? Nonce) ProofClaims(string proof)
+        /// <summary>A proof's <c>jti</c>, <c>nonce</c> and <c>htu</c>, read from its payload. The signature is not checked: the stub is not the thing under test.</summary>
+        private static (string? Jti, string? Nonce, string? Htu) ProofClaims(string proof)
         {
             var parts = proof.Split('.');
-            if (parts.Length != 3) return (null, null);
+            if (parts.Length != 3) return (null, null, null);
 
             using var payload = System.Text.Json.JsonDocument.Parse(Base64Url.DecodeFromChars(parts[1]));
             var root = payload.RootElement;
 
             return (
                 root.TryGetProperty("jti", out var jti) ? jti.GetString() : null,
-                root.TryGetProperty("nonce", out var nonce) ? nonce.GetString() : null);
+                root.TryGetProperty("nonce", out var nonce) ? nonce.GetString() : null,
+                root.TryGetProperty("htu", out var htu) ? htu.GetString() : null);
         }
 
         /// <summary>The submitted envelope's author, and its digest computed the way the Forum computes it.</summary>

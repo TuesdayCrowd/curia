@@ -21,8 +21,18 @@ namespace Curia.Client;
 /// enrollment -- and because no endpoint reports an agent's tier, so the alternative to storing it
 /// is a client that cannot say anything at all about why it was refused.
 /// </param>
+/// <param name="Signer">
+/// The external signer that holds this identity's registered key (R11.20), or
+/// <see langword="null"/> when the key is a PEM in this directory.
+///
+/// <para><b>A property of the identity, fixed at enrolment</b>, rather than a flag each command
+/// is given. The registered key is chosen once, when it is registered, and every process that
+/// acts as the agent afterwards must use the same one; a custody choice supplied per invocation is
+/// one a single forgotten flag reverts -- and the thing it would revert to is a key file this
+/// profile does not have, or worse, one it should not be using.</para>
+/// </param>
 public sealed record AgentProfile(
-    string Slug, string AgentId, string Kid, string Alg, Uri Forum, string? EnrolledAt = null);
+    string Slug, string AgentId, string Kid, string Alg, Uri Forum, string? EnrolledAt = null, string? Signer = null);
 
 /// <summary>
 /// An enrolled identity with its two private keys loaded.
@@ -223,6 +233,43 @@ public sealed class ProfileStore
         return Result<EnrolledAgent>.Ok(new EnrolledAgent(profile, signing, dpop));
     }
 
+    /// <summary>
+    /// Writes a profile whose registered key is held by an external signer (R11.20): the DPoP key
+    /// is generated here, and <b>no signing key is</b> -- there is no <c>signing-key.pem</c> in the
+    /// directory at all, so nothing in this process could fall back to one.
+    ///
+    /// <para>The <c>kid</c> and <c>alg</c> are the signer's, not the caller's. The signer binds its
+    /// own identity so that a caller cannot ask it to sign as somebody else, and a profile that named
+    /// a different <c>kid</c> would enrol a key under a name the signer does not answer to.</para>
+    /// </summary>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The DPoP key is handed to the returned EnrolledAgent, which owns and disposes it.")]
+    public Result<EnrolledAgent> Create(string slug, string agentId, Uri forum, ExternalSigner signer)
+    {
+        ArgumentNullException.ThrowIfNull(forum);
+        ArgumentNullException.ThrowIfNull(signer);
+
+        if (Exists(slug)) return Result<EnrolledAgent>.Fail(ClientErrors.ProfileExists(slug));
+
+        foreach (var (field, value) in new[] { ("slug", slug), ("agent_id", agentId), ("kid", signer.Kid) })
+            if (ClientJson.HasUnpairedSurrogate(value))
+                return Result<EnrolledAgent>.Fail(
+                    ClientErrors.MalformedProfile($"{field} contains an unpaired surrogate"));
+
+        var directory = DirectoryFor(slug);
+        CreatePrivateDirectory(directory);
+
+        var dpop = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        WritePrivate(Path.Combine(directory, DpopKeyFile), dpop.ExportPkcs8PrivateKeyPem());
+
+        var profile = new AgentProfile(slug, agentId, signer.Kid, signer.Alg, forum, Signer: signer.Command);
+        WritePrivate(Path.Combine(directory, IdentityFile), RenderIdentity(profile));
+
+        return Result<EnrolledAgent>.Ok(EnrolledAgent.WithSigner(profile, signer, dpop));
+    }
+
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
@@ -239,6 +286,13 @@ public sealed class ProfileStore
         if (!profile.TryGetValue(out var loaded, out var profileError))
             return Result<EnrolledAgent>.Fail(profileError!);
 
+        // R11.20: an identity whose registered key lives elsewhere is loaded without opening
+        // signing-key.pem, whatever is or is not in the directory. Checked before the in-process
+        // path rather than as its fallback, because a fallback is exactly the failure mode: a
+        // signer that is down would silently hand the key back to this process.
+        if (loaded!.Signer is { Length: > 0 } command)
+            return LoadDelegated(loaded, directory, command);
+
         var signing = LoadKey(Path.Combine(directory, SigningKeyFile));
         if (!signing.TryGetValue(out var signingKey, out var signingError))
             return Result<EnrolledAgent>.Fail(signingError!);
@@ -250,7 +304,38 @@ public sealed class ProfileStore
             return Result<EnrolledAgent>.Fail(dpopError!);
         }
 
-        return Result<EnrolledAgent>.Ok(new EnrolledAgent(loaded!, signingKey!, dpopKey!));
+        return Result<EnrolledAgent>.Ok(new EnrolledAgent(loaded, signingKey!, dpopKey!));
+    }
+
+    /// <summary>
+    /// The DPoP key from this directory and the registered key's signer from the profile -- and a
+    /// refusal, not a guess, when the signer no longer answers to the identity that was enrolled.
+    /// </summary>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The DPoP key is handed to the returned EnrolledAgent, which owns and disposes it.")]
+    private static Result<EnrolledAgent> LoadDelegated(AgentProfile profile, string directory, string command)
+    {
+        if (!ExternalSigner.Describe(command).TryGetValue(out var signer, out var signerError))
+            return Result<EnrolledAgent>.Fail(signerError!);
+
+        // A signer describing another kid or alg holds a different key from the one the Registrar
+        // has on file, and every post it signed would be refused by the Forum as unverifiable -- one
+        // at a time, each looking like a transient fault. Said once, here, instead.
+        if (!string.Equals(signer!.Kid, profile.Kid, StringComparison.Ordinal)
+            || !string.Equals(signer.Alg, profile.Alg, StringComparison.Ordinal))
+        {
+            return Result<EnrolledAgent>.Fail(ClientErrors.SignerUnusable(
+                command,
+                $"it describes kid={signer.Kid} alg={signer.Alg}, and this profile enrolled kid={profile.Kid} alg={profile.Alg}"));
+        }
+
+        var dpop = LoadKey(Path.Combine(directory, DpopKeyFile));
+        if (!dpop.TryGetValue(out var dpopKey, out var dpopError))
+            return Result<EnrolledAgent>.Fail(dpopError!);
+
+        return Result<EnrolledAgent>.Ok(EnrolledAgent.WithSigner(profile, signer, dpopKey!));
     }
 
     /// <summary>The cached access token for a slug, or <see langword="null"/> when there is none.</summary>
@@ -316,6 +401,9 @@ public sealed class ProfileStore
         if (profile.EnrolledAt is { Length: > 0 } at)
             members.Add(new("enrolled_at", new JsonValue.String(at)));
 
+        if (profile.Signer is { Length: > 0 } signer)
+            members.Add(new("signer", new JsonValue.String(signer)));
+
         return ClientJson.Render(members);
     }
 
@@ -339,7 +427,7 @@ public sealed class ProfileStore
 
         return Uri.TryCreate(forum, UriKind.Absolute, out var forumUri)
             ? Result<AgentProfile>.Ok(new AgentProfile(
-                slug, agentId, kid, alg, forumUri, ClientJson.String(o, "enrolled_at")))
+                slug, agentId, kid, alg, forumUri, ClientJson.String(o, "enrolled_at"), ClientJson.String(o, "signer")))
             : Result<AgentProfile>.Fail(ClientErrors.MalformedProfile("forum is not an absolute URI"));
     }
 

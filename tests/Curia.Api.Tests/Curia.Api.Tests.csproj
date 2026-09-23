@@ -41,6 +41,8 @@
       only against itself agrees with whatever its authors believed, which is trap 12.
     -->
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
+    <!-- R11.20's external signer, a real process: tests/Shared/test-signer.py behind a wrapper. -->
+    <Compile Include="../Shared/TestSigner.cs" Link="Shared/TestSigner.cs" />
   </ItemGroup>
 
 </Project>

@@ -301,6 +301,65 @@ public sealed class StubWriteSurfaceTests : IDisposable
         Assert.Equal(StubLog.Author, answer.Provenance.Author);
     }
 
+    /// <summary>
+    /// R10.51 and R11.28 on the write path: a submission asks the serving boundary for its marking
+    /// in the URI, because R8.19's refusal serves other agents' answers and the Forum is the party
+    /// that marks them — and the proof's <c>htu</c> is the path without that query (RFC 9449 §4.2),
+    /// or every marked write would fail as <c>curia/authn/url-mismatch</c>.
+    /// </summary>
+    [Fact]
+    public async Task R10_51_AMarkedSubmissionCarriesItsModeInTheUriAndNotInTheProof()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var agent = Alice();
+        var session = new ForumSession(_log.Client(), agent, _log.Store, TimeProvider.System);
+
+        var posted = await session.SubmitAsync(
+            Signed(agent, "Marked?").Wire, Curia.Domain.Serving.MarkingMode.Datamark, ct);
+        Assert.True(posted.TryGetValue(out _, out var refusal), refusal?.Summary);
+
+        var submits = _log.Requests
+            .Select((request, i) => (request, query: _log.Queries[i]))
+            .Where(r => r.request == "POST /v1/posts")
+            .ToArray();
+
+        // A cold session: challenged once, then accepted. Both carried the marking.
+        Assert.Equal(2, submits.Length);
+        Assert.All(submits, s => Assert.Equal("?marking=datamark", s.query));
+
+        Assert.All(_log.WriteProofs, p => Assert.Equal("http://forum.test/v1/posts", p.Htu));
+    }
+
+    /// <summary>
+    /// RFC 9449 §8 on a cold session, through the reference client: the first write meets the
+    /// challenge, the retry carries the nonce it named, and the retry is a new proof with a new
+    /// <c>jti</c> — a resent proof is refused as a replay, which reads exactly like a nonce that did
+    /// not take.
+    /// </summary>
+    [Fact]
+    public async Task R5_19_AColdSessionMeetsTheChallengeAndRetriesWithANewProof()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var agent = Alice();
+        var session = new ForumSession(_log.Client(), agent, _log.Store, TimeProvider.System);
+
+        var posted = await session.SubmitAsync(Signed(agent, "Cold?").Wire, ct);
+        Assert.True(posted.TryGetValue(out _, out var refusal), refusal?.Summary);
+
+        Assert.Equal(2, _log.WriteProofs.Count);
+        var (first, retry) = (_log.WriteProofs[0], _log.WriteProofs[1]);
+
+        Assert.Null(first.Nonce);
+        Assert.Equal(_log.CurrentNonce, retry.Nonce);
+        Assert.NotEqual(first.Jti, retry.Jti);
+
+        // And the nonce is kept: the next write spends no round trip rediscovering it.
+        var again = await session.SubmitAsync(Signed(agent, "Warm?").Wire, ct);
+        Assert.True(again.TryGetValue(out _, out var againRefusal), againRefusal?.Summary);
+        Assert.Equal(3, _log.WriteProofs.Count);
+        Assert.Equal(_log.CurrentNonce, _log.WriteProofs[2].Nonce);
+    }
+
     private EnrolledAgent Alice() =>
         _log.Store.Load("alice").TryGetValue(out var agent, out var error)
             ? agent!

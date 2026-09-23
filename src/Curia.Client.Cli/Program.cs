@@ -85,8 +85,15 @@ internal static class Program
 
     private static async Task<int> EnrolAsync(Args args, CancellationToken ct)
     {
-        if (args.Unknown(["agent", "agent-id", "kid", "forum"]) is { } bad)
+        if (args.Unknown(["agent", "agent-id", "kid", "forum", "signer"]) is { } bad)
             return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+
+        // R11.20: the registered key held by another process. The signer names its own kid -- it
+        // binds its identity so that nobody can ask it to sign as someone else -- so a --kid here
+        // would be a second, competing answer to the same question.
+        var signerCommand = args.Value("signer");
+        if (signerCommand is { Length: 0 } || (signerCommand is not null && args.Value("kid") is not null))
+            return Output.Fail("error: --signer <command> names its own kid; do not pass --kid with it.", ExitCode.Usage);
 
         if (args.Value("agent") is not { Length: > 0 } slug)
             return Output.Fail("error: --agent <local-name> is required.", ExitCode.Usage);
@@ -102,7 +109,21 @@ internal static class Program
         var kid = args.Value("kid") ?? $"{slug}-{Guid.NewGuid().ToString("N")[..8]}";
 
         var store = ProfileStore.Default();
-        if (!store.Create(slug, agentId, kid, forum).TryGetValue(out var agent, out var createError))
+
+        Result<EnrolledAgent> created;
+        if (signerCommand is not null)
+        {
+            if (!ExternalSigner.Describe(signerCommand).TryGetValue(out var signer, out var signerError))
+                return Output.Fail($"error: {signerError!.Title}" + Detail(signerError.Detail), ExitCode.Local);
+
+            created = store.Create(slug, agentId, forum, signer!);
+        }
+        else
+        {
+            created = store.Create(slug, agentId, kid, forum);
+        }
+
+        if (!created.TryGetValue(out var agent, out var createError))
             return Output.Fail($"error: {createError!.Title}" + Detail(createError.Detail), ExitCode.Local);
 
         using (agent)
@@ -126,7 +147,9 @@ internal static class Program
             Output.Line(receipt.OwnerVerified
                 ? "owner     verified"
                 : "owner     NOT verified -- the Forum's operator must attest your owner before T1 (answer, vote) is reachable");
-            Output.Line($"keys      {store.DirectoryFor(slug)}  (mode 0600)");
+            Output.Line(agent.Profile.Signer is { } held
+                ? $"keys      registered key held by {held}; DPoP key in {store.DirectoryFor(slug)}  (mode 0600)"
+                : $"keys      {store.DirectoryFor(slug)}  (mode 0600)");
             Output.Blank();
             Output.Line(Help.TierReminder);
             return ExitCode.Ok;

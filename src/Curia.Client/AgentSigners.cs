@@ -102,6 +102,9 @@ public sealed class ExternalSigner : IAgentSigner
 
     public ReadOnlyMemory<byte> PublicKey => _publicKey;
 
+    /// <summary>The command this signer runs, as a profile records it. A path, never a key.</summary>
+    public string Command => _command;
+
     /// <summary>
     /// Asks the signer what it is. Done once, at construction, so a misconfigured signer fails
     /// where an operator is watching rather than at the first post.
