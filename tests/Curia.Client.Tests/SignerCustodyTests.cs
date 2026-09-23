@@ -71,7 +71,12 @@ public sealed class SignerCustodyTests : IDisposable
         using var agent = Enrolled();
         using var exported = agent.ExportPublicKey();
 
-        Assert.Throws<CryptographicException>(() => exported.SignData(
+        // ThrowsAny, not Throws: the platform decides the concrete type. macOS throws
+        // CryptographicException itself; Linux throws its OpenSslCryptographicException subclass
+        // ("missing private key"), which Throws<T>'s exact-type match rejects. The property is that
+        // signing fails as a cryptographic refusal, whichever subclass the provider picks -- found
+        // when this row first ran on CI's Ubuntu runner after passing on every macOS run.
+        Assert.ThrowsAny<CryptographicException>(() => exported.SignData(
             "anything"u8, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
 
         // Non-vacuity: the same bytes verify what the agent's own signer produced, so the key is

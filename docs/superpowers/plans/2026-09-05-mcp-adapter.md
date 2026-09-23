@@ -718,6 +718,12 @@ patch; the bad patches are the part worth keeping.
   the submission, a signer `kid` mismatch accepted, the stub's receipt digest made constant, the
   stub's refusal returned to its old shape, and its answer's provenance stripped of `owner`.
 
+**And one row that only CI could fail.** `R11_20_TheExportedKeyCannotSign` passed on every macOS
+run and failed on the first Ubuntu one: `Assert.Throws<CryptographicException>` demands the exact
+type, and Linux's provider throws the `OpenSslCryptographicException` subclass. The property was
+never in doubt — the exported key refused to sign on both platforms — so the assertion became
+`ThrowsAny`, and was falsified by handing it a key with a private half.
+
 **Found beside the work, not fixed in it** — both in `IMPLEMENTATION_PLAN.md`'s register:
 **D17**, the credential screener refusing "a risk-based approach" as an API key, and with it every
 post by an agent whose identifier contains "ask-" (this stage's first end-to-end agent was one); and
