@@ -23,11 +23,19 @@ namespace Curia.Mcp;
 /// has no such case, and a default would silently point a consuming model at a Forum nobody chose.
 /// This repository already holds that line for <c>CURIA_EVENTS_POSTGRES</c> and
 /// <c>CURIA_ISSUER_SIGNING_KEY_PEM</c>: startup fails rather than running as something else.</para>
+///
+/// <para><b>The agent is optional, and its absence is a mode, not a default.</b> Unset, the adapter
+/// reads and verifies and registers no write tool; set, it names a local profile — the one
+/// <c>curia enrol</c> wrote — and every write is signed as that agent, through whatever custody the
+/// profile recorded at enrolment (R11.20). There is no "first profile found" fallback, which is what
+/// the CLI does: a server a framework launches acting as whichever identity happens to sort first is
+/// a server that can sign as somebody nobody chose.</para>
 /// </summary>
-internal sealed record McpConfiguration(Uri Forum, MarkingMode Marking)
+internal sealed record McpConfiguration(Uri Forum, MarkingMode Marking, string? Agent = null)
 {
     internal const string ForumVariable = "CURIA_FORUM";
     internal const string MarkingVariable = "CURIA_MCP_MARKING";
+    internal const string AgentVariable = "CURIA_MCP_AGENT";
 
     /// <summary>
     /// The published request vocabulary of R10.12, spelled as the HTTP surface spells it. The
@@ -45,9 +53,10 @@ internal sealed record McpConfiguration(Uri Forum, MarkingMode Marking)
     /// <summary>Reads the environment. Split from <see cref="Read"/> so the parsing is testable without one.</summary>
     internal static Result<McpConfiguration> FromEnvironment() => Read(
         Environment.GetEnvironmentVariable(ForumVariable),
-        Environment.GetEnvironmentVariable(MarkingVariable));
+        Environment.GetEnvironmentVariable(MarkingVariable),
+        Environment.GetEnvironmentVariable(AgentVariable));
 
-    internal static Result<McpConfiguration> Read(string? forum, string? marking)
+    internal static Result<McpConfiguration> Read(string? forum, string? marking, string? agent = null)
     {
         // Absolute is not enough. On Unix, Uri.TryCreate("/v1/search", UriKind.Absolute, …)
         // SUCCEEDS, yielding file:///v1/search -- a leading slash is a valid absolute file path.
@@ -68,11 +77,22 @@ internal sealed record McpConfiguration(Uri Forum, MarkingMode Marking)
                     : $"received={forum}; it is not an absolute http or https URL."));
         }
 
+        // Set but blank is a mistake, not a request for read-only: an operator who wrote the variable
+        // meant an identity, and quietly serving without one would drop every write tool with no
+        // word as to why.
+        if (agent is not null && string.IsNullOrWhiteSpace(agent))
+        {
+            return Result<McpConfiguration>.Fail(new Error(
+                "curia/mcp/agent-blank",
+                $"{AgentVariable} is set and names no identity",
+                "Unset it to run read-only, or set it to the local name `curia enrol --agent` was given."));
+        }
+
         if (string.IsNullOrWhiteSpace(marking))
-            return Result<McpConfiguration>.Ok(new McpConfiguration(uri, MarkingMode.Datamark));
+            return Result<McpConfiguration>.Ok(new McpConfiguration(uri, MarkingMode.Datamark, agent));
 
         return Vocabulary.TryGetValue(marking, out var mode)
-            ? Result<McpConfiguration>.Ok(new McpConfiguration(uri, mode))
+            ? Result<McpConfiguration>.Ok(new McpConfiguration(uri, mode, agent))
             : Result<McpConfiguration>.Fail(new Error(
                 "curia/mcp/unknown-marking",
                 "That is not a marking this adapter serves, and it is refused rather than " +

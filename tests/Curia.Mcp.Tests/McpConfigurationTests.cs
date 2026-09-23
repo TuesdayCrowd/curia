@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.Domain.Serving;
 using Curia.Mcp;
+using Curia.Tests.Shared;
 using Xunit;
 
 namespace Curia.Mcp.Tests;
@@ -93,5 +94,70 @@ public sealed class McpConfigurationTests
 
         Assert.True(configured.TryGetValue(out var config, out var error), error?.Title);
         Assert.Equal(new Uri("https://forum.example/base/"), config!.Forum);
+    }
+
+    /// <summary>
+    /// No identity configured is a mode — read-only — and not an error; the agent is optional.
+    /// </summary>
+    [Fact]
+    public void R11_20_WithNoAgentConfiguredTheAdapterIsReadOnly()
+    {
+        var configured = McpConfiguration.Read("https://forum.example/", Missing, Missing);
+
+        Assert.True(configured.TryGetValue(out var config, out var error), error?.Title);
+        Assert.Null(config!.Agent);
+    }
+
+    [Fact]
+    public void R11_20_TheConfiguredAgentIsCarriedThrough()
+    {
+        var configured = McpConfiguration.Read("https://forum.example/", Missing, "alice");
+
+        Assert.True(configured.TryGetValue(out var config, out var error), error?.Title);
+        Assert.Equal("alice", config!.Agent);
+    }
+
+    /// <summary>
+    /// Set but blank is a mistake rather than a request for read-only: an operator who wrote the
+    /// variable meant an identity, and serving without one would drop every write tool silently.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void R11_20_ABlankAgentIsRefusedRatherThanReadAsReadOnly(string blank)
+    {
+        var configured = McpConfiguration.Read("https://forum.example/", Missing, blank);
+
+        Assert.False(configured.TryGetValue(out _, out var error));
+        Assert.Equal("curia/mcp/agent-blank", error!.Type);
+    }
+
+    /// <summary>
+    /// An identity enrolled at another Forum is refused at startup: its key is registered there, and
+    /// every write here would be refused one call at a time, each looking like a Forum fault.
+    /// </summary>
+    [Fact]
+    public void R11_20_AnIdentityEnrolledAtAnotherForumIsRefused()
+    {
+        using var log = new StubLog();
+
+        var elsewhere = ForumWriter.Load(log.Store, "alice", new Uri("https://another-forum.example/"));
+        Assert.False(elsewhere.TryGetValue(out _, out var error));
+        Assert.Equal("curia/mcp/agent-enrolled-elsewhere", error!.Type);
+
+        // Non-vacuity: the same identity loads for the Forum it enrolled at.
+        var here = ForumWriter.Load(log.Store, "alice", StubLog.Forum);
+        Assert.True(here.TryGetValue(out var agent, out var hereError), hereError?.Detail);
+        agent!.Dispose();
+    }
+
+    [Fact]
+    public void R11_20_AnIdentityThatDoesNotExistIsNamedAsSuch()
+    {
+        using var log = new StubLog();
+
+        var missing = ForumWriter.Load(log.Store, "nobody", StubLog.Forum);
+        Assert.False(missing.TryGetValue(out _, out var error));
+        Assert.Contains("nobody", error!.Title + error.Detail, StringComparison.Ordinal);
     }
 }

@@ -37,10 +37,35 @@ using var http = new HttpClient(handler)
     Timeout = Timeout.InfiniteTimeSpan,
 };
 
+var client = new ForumClient(http, config.Forum);
+
+// The identity the write tools act as, when one is configured. Loaded through the profile store, so
+// the custody recorded at enrolment decides where the registered key is: a PEM this process reads,
+// or an external signer this process never sees the key of (R11.20). Refused at startup, where an
+// operator is watching, rather than at the first write, where only a model is.
+ForumWriter? writer = null;
+EnrolledAgent? identity = null;
+if (config.Agent is { } slug)
+{
+    var store = ProfileStore.Default();
+    if (!ForumWriter.Load(store, slug, config.Forum).TryGetValue(out identity, out var identityError))
+    {
+        await Console.Error.WriteLineAsync($"{identityError!.Type}: {identityError.Title}").ConfigureAwait(false);
+        if (identityError.Detail is { Length: > 0 } detail)
+            await Console.Error.WriteLineAsync(detail).ConfigureAwait(false);
+
+        return 1;
+    }
+
+    writer = new ForumWriter(identity!, new ForumSession(client, identity!, store, TimeProvider.System), TimeProvider.System);
+}
+
+using var owned = identity;
+
 // R6.53's retained head lives under the client's own root and outside any agent directory:
 // reading needs no identity, so a head under agents/<slug>/ would be unreachable by the reader who
 // needs it most, and two identities on one machine would hold two views of one log.
-var tools = new ForumTools(new ForumClient(http, config.Forum), config.Marking, HeadStore.Default());
+var tools = new ForumTools(client, config.Marking, HeadStore.Default(), writer);
 
 var options = new McpServerOptions
 {
@@ -48,8 +73,9 @@ var options = new McpServerOptions
 
     // Delivered once at initialize, before any tool schema arrives. R11.19 requires the notice in
     // every description and says nothing about server instructions; it is here as well because this
-    // is the only text guaranteed to reach the model before anything else does.
-    ServerInstructions = ToolText.UntrustedDataNotice,
+    // is the only text guaranteed to reach the model before anything else does -- and so is whose
+    // name the write tools act in, or why there are none.
+    ServerInstructions = writer is null ? ToolText.ReadOnly : ToolText.WritesAs(writer.Agent.Profile.AgentId),
 
     ToolCollection = [.. ToolCatalogue.Build(tools)],
 };

@@ -32,6 +32,12 @@
       real operator-signed head is here.
     -->
     <ProjectReference Include="../../src/Curia.Client/Curia.Client.csproj" />
+    <!--
+      The MCP adapter, whose write tools are driven end to end against this Forum: the MCP plan's
+      Stage 4 names "a write through MCP produces an envelope that curia-testis verifies offline" as
+      the strongest single assertion available, and only this suite has a Forum to write to.
+    -->
+    <ProjectReference Include="../../src/Curia.Mcp/Curia.Mcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>
