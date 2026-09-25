@@ -32,6 +32,11 @@
   <ItemGroup>
     <!-- CS-5: the tool catalogue and the criteria record are worth testing and are not public API. -->
     <InternalsVisibleTo Include="Curia.Mcp.Tests" />
+    <!--
+      The write tools against a real Forum: an envelope written through this adapter, verified by
+      curia-testis. Only Curia.Api.Tests provisions a Forum, so the end-to-end rows live there.
+    -->
+    <InternalsVisibleTo Include="Curia.Api.Tests" />
   </ItemGroup>
 
 </Project>

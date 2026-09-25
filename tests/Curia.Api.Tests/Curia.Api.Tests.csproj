@@ -32,6 +32,23 @@
       real operator-signed head is here.
     -->
     <ProjectReference Include="../../src/Curia.Client/Curia.Client.csproj" />
+    <!--
+      The MCP adapter, whose write tools are driven end to end against this Forum: the MCP plan's
+      Stage 4 names "a write through MCP produces an envelope that curia-testis verifies offline" as
+      the strongest single assertion available, and only this suite has a Forum to write to.
+    -->
+    <ProjectReference Include="../../src/Curia.Mcp/Curia.Mcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The stub Forum the client and adapter suites are proved against, compiled here as well so
+      StubFidelityTests can hold what it serves against what this Forum serves. A fixture checked
+      only against itself agrees with whatever its authors believed, which is trap 12.
+    -->
+    <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
+    <!-- R11.20's external signer, a real process: tests/Shared/test-signer.py behind a wrapper. -->
+    <Compile Include="../Shared/TestSigner.cs" Link="Shared/TestSigner.cs" />
   </ItemGroup>
 
 </Project>

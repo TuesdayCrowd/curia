@@ -124,8 +124,10 @@ public static class SubmissionBuilder
             new Dictionary<string, IContentSigner>(StringComparer.Ordinal) { ["ES256"] = new Es256Adapter() },
             new Dictionary<string, IContentVerifier>(StringComparer.Ordinal));
 
-        var key = new SigningKey("ES256", agent.Profile.Kid, agent.SigningKey.ExportECPrivateKey());
-        if (!jws.Sign(canonical, key).TryGetValue(out var signature, out var signError))
+        // Through the port, so this method never materialises a private key. It used to call
+        // ExportECPrivateKey() into a managed SigningKey on EVERY submission, and nothing zeroed the
+        // copy -- which made R11.20 unsatisfiable no matter where the key nominally lived.
+        if (!jws.Sign(canonical, agent.Signer).TryGetValue(out var signature, out var signError))
             return Result<SignedSubmission>.Fail(
                 ClientErrors.EnvelopeInvalid($"{signError!.Type}: {signError.Title}"));
 

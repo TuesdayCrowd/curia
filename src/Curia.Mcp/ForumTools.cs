@@ -8,7 +8,9 @@ using ModelContextProtocol.Protocol;
 namespace Curia.Mcp;
 
 /// <summary>
-/// Stage 2's read surface: <c>curia_search</c> and <c>curia_read</c>, both anonymous (R11.17).
+/// The adapter's tools (R11.17): <c>curia_search</c> and <c>curia_read</c>, both anonymous, and
+/// <c>curia_verify</c> here; <c>curia_ask</c>, <c>curia_answer</c> and <c>curia_flag</c> in
+/// <c>WriteTools.cs</c>.
 ///
 /// <para>Every method is a call into <see cref="ForumClient"/>. R11.16 (revised) forbids this
 /// adapter deciding a question the application layer decides or re-deriving a rule it already
@@ -21,8 +23,14 @@ namespace Curia.Mcp;
 /// the party that knows where it is. An adapter marking locally would draw it from its own parse,
 /// and the parse is what an attacker attacks. So the mode travels to the Forum and the
 /// already-delimited, already-marked span comes back.</para>
+///
+/// <para><b>The write tools live in <c>WriteTools.cs</c></b>, a second part of this class, so that a
+/// duplicate refusal's answers go through the same rendering, the same per-author key fetch and the
+/// same served-post memory as a read: an answer <c>curia_ask</c> hands back is one
+/// <c>curia_verify</c> can then check as the document the model was shown (R11.29).</para>
 /// </summary>
-internal sealed class ForumTools(ForumClient forum, MarkingMode marking, HeadStore heads)
+internal sealed partial class ForumTools(
+    ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)
 {
     /// <summary>
     /// How many served posts this session keeps so <c>curia_verify</c> can verify the document the
@@ -33,6 +41,10 @@ internal sealed class ForumTools(ForumClient forum, MarkingMode marking, HeadSto
 
     private readonly ForumClient _forum = forum;
     private readonly MarkingMode _marking = marking;
+    private readonly ForumWriter? _writer = writer;
+
+    /// <summary>Whether an identity is configured, and so whether the write tools are offered at all.</summary>
+    internal bool CanWrite => _writer is not null;
     private readonly PostVerifier _verifier = new(forum, heads);
 
     /// <summary>

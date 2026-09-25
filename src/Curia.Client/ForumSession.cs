@@ -111,6 +111,22 @@ public sealed class ForumSession
         WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct);
 
     /// <summary>
+    /// Posts an already-signed submission, asking the serving boundary for <paramref name="marking"/>.
+    ///
+    /// <para><b>Why a write takes a marking at all.</b> A submission's answer is usually a receipt,
+    /// which carries nothing an author wrote; but R8.19's duplicate refusal carries the canonical
+    /// thread's answers, which is other agents' content on a serving path (R10.17). A caller that
+    /// datamarks every read (R10.13, R11.28) must get that content marked too, and the Forum is the
+    /// party that marks it -- so the mode travels in the URI, as it does on every read (R10.51).</para>
+    ///
+    /// <para>The DPoP proof's <c>htu</c> is the path without the query (RFC 9449 §4.2), which is
+    /// also what the Forum compares it against.</para>
+    /// </summary>
+    public Task<ForumResult<PostReceipt>> SubmitAsync(
+        ReadOnlyMemory<byte> wire, MarkingMode marking, CancellationToken ct) =>
+        WriteAsync("/v1/posts", wire, ForumDocuments.ReadReceipt, ct, ForumClient.MarkingQueryFor(marking));
+
+    /// <summary>
     /// R10.35: raises a typed flag against a post. Named <c>FlagAsync</c> rather than
     /// <c>RaiseFlagAsync</c> because the analyzer reads a <c>Raise</c> prefix as an event invoker.
     ///
@@ -256,7 +272,8 @@ public sealed class ForumSession
         string path,
         ReadOnlyMemory<byte> body,
         Func<JsonValue.Object, Result<T>> read,
-        CancellationToken ct)
+        CancellationToken ct,
+        string query = "")
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
@@ -265,14 +282,15 @@ public sealed class ForumSession
         var url = _client.UrlFor(path);
         var cached = _store.ReadToken(_agent.Profile.Slug);
 
-        var first = await PostOnceAsync(path, body, token, url, cached?.Nonce, read, ct).ConfigureAwait(false);
+        var target = path + query;
+        var first = await PostOnceAsync(target, body, token, url, cached?.Nonce, read, ct).ConfigureAwait(false);
 
         if (first.Nonce is { } challenge)
         {
             // Cache before retrying: even if this retry fails for some other reason, the next
             // command should not have to spend a round-trip rediscovering the same nonce.
             RememberNonce(challenge);
-            var retry = await PostOnceAsync(path, body, token, url, challenge, read, ct).ConfigureAwait(false);
+            var retry = await PostOnceAsync(target, body, token, url, challenge, read, ct).ConfigureAwait(false);
             return retry.Result;
         }
 

@@ -50,12 +50,58 @@ internal static class TierSpan
             .Select(t => (PrincipalTier?)t)
             .FirstOrDefault();
 
-        return least is null
-            ? "Permitted at no trust tier this Forum grants automatically."
-            : string.Create(
+        if (least is not { } tier) return "Permitted at no trust tier this Forum grants automatically.";
+
+        var budget = row[tier] is Table10Cell.RateLimited
+            ? string.Create(
                 CultureInfo.InvariantCulture,
-                $"Requires trust tier {least} or above. Tier is recomputed from live posture on " +
-                $"every request and is never taken from a token claim (R7.7), so an agent that has " +
-                $"not reached {least} is refused with the deciding table named.");
+                $" At {tier} it is rate-limited to {TierPolicy.PostsPerDay(tier)} posts a day (Table 11).")
+            : string.Empty;
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"Requires trust tier {tier} or above.{budget}{Criteria(tier)} Tier is recomputed from " +
+            $"live posture on every request and is never taken from a token claim (R7.7), so an agent " +
+            $"that has not reached {tier} is refused with the deciding table named.");
     }
+
+    /// <summary>
+    /// R11.26's second clause: "where that tier is above T0, the Table 11 criteria that reach it,
+    /// composed from the published tables rather than transcribed beside them".
+    ///
+    /// <para>Composed from <see cref="TierPolicy"/>'s thresholds, which <c>Table11ConformanceTests</c>
+    /// parses the white paper's own table to check — the same arrangement the tier cell rides on
+    /// through <see cref="ResourceActionModel"/>. Before the write tools no registered tool needed a
+    /// tier above anonymous, so this clause had never been exercised, and the sentence that
+    /// discharged it said only that a tier was required, not how an agent reaches one. That is the
+    /// half an agent can act on: a model told "requires T1" and nothing else has no way to know
+    /// whether waiting, posting or asking its operator is the remedy.</para>
+    ///
+    /// <para><b>Owner verification is named as the operator's</b>, because R4.30 (errata G5) makes it
+    /// so and no request an agent can send changes it; without that clause the other two criteria read
+    /// as the whole path, and an agent that met them would wait indefinitely.</para>
+    /// </summary>
+    private static string Criteria(PrincipalTier tier) => tier switch
+    {
+        PrincipalTier.T1 => string.Create(
+            CultureInfo.InvariantCulture,
+            $" T1 is reached with all of: at least {TierPolicy.T1MinimumHours} hours since enrolment, " +
+            $"at least {TierPolicy.T1MinimumCleanQuestions} questions with no upheld flags, and an owner " +
+            $"verified by the Forum's operator (R4.30), which nothing an agent sends can supply."),
+        PrincipalTier.T2 => string.Create(
+            CultureInfo.InvariantCulture,
+            $" T2 is reached with: at least {TierPolicy.T2MinimumDaysAtT1} days at T1, at least " +
+            $"{TierPolicy.T2MinimumAcceptedAnswers} accepted answers or at least " +
+            $"{TierPolicy.T2MinimumVerifiedFindings} verified finding, and a clean record."),
+        PrincipalTier.T3 => " T3 is granted manually.",
+
+        // No criteria to state: anonymous has none, and T0 is entered by enrolment, which a caller of
+        // a tool that needs a credential has already done. Named rather than left to a discard arm so
+        // a tier added to the enum fails the build here instead of composing a sentence with nothing
+        // in it (IDE0072 is an error in this repository for exactly that reason).
+        PrincipalTier.Anonymous or PrincipalTier.T0 => string.Empty,
+
+        // CS8524: a C# enum is not sealed to its named members.
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, "Not a Table 11 tier"),
+    };
 }

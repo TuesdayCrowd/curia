@@ -213,9 +213,19 @@ internal static class Output
             Line(string.Create(
                 CultureInfo.InvariantCulture,
                 $"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})"));
-            Line(duplicate.Answers.IsEmpty
+
+            // R8.61: a measure is a reason only beside the line it crossed.
+            Line(string.Create(
+                CultureInfo.InvariantCulture,
+                $"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp"
+                + $"   (annotated from cosine {duplicate.AnnotateCosineBp} bp)"));
+            Line(duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0
                 ? "answers      none yet -- read the thread: curia thread " + duplicate.CanonicalPostId
                 : string.Create(CultureInfo.InvariantCulture, $"answers      {duplicate.Answers.Length}"));
+            if (duplicate.UnreadableAnswers > 0)
+                Line(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: curia thread {duplicate.CanonicalPostId}"));
             foreach (var answer in duplicate.Answers)
             {
                 Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
