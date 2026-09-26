@@ -113,4 +113,49 @@ public sealed class KeyEnrollmentTests
         Assert.True(KeyEnrollment.SameMaterial(Key("k", 3), Key("k", 3)));
         Assert.False(KeyEnrollment.SameMaterial(Key("k", 3), Key("k", 4)));
     }
+
+    /// <summary>
+    /// The held key's own bytes and algorithm, presented under a new kid, are a second kid and not a
+    /// re-announcement: a held key is found by its kid, and material is compared only under it. A rule
+    /// that held a request unchanged when either its kid or its material matched would answer this one
+    /// with the held key, and the client would believe enrolled a kid the store never registered.
+    /// </summary>
+    [Fact]
+    public void R4_31_AHeldKeysMaterialUnderANewKidIsRefused()
+    {
+        var refusal = Refusal(KeyEnrollment.Decide(Agent, Key("alice-2", 1), [Held("alice-1", 1)]));
+
+        Assert.Equal("curia/enroll/already-enrolled", refusal.Type);
+    }
+
+    /// <summary>
+    /// Kids and algorithm names compare ordinally, case included: "ALICE-1" is not the held "alice-1",
+    /// and "es256" is not the held "ES256". A case-insensitive comparison would take either request,
+    /// carrying the held key's bytes, for a re-announcement and accept it.
+    /// </summary>
+    [Fact]
+    public void R4_31_KidsAndAlgorithmsAreComparedWithTheirCase()
+    {
+        var otherCaseKid = Refusal(KeyEnrollment.Decide(Agent, Key("ALICE-1", 1), [Held("alice-1", 1)]));
+        var otherCaseAlg = Refusal(KeyEnrollment.Decide(Agent, Key("alice-1", 1, alg: "es256"), [Held("alice-1", 1)]));
+
+        Assert.Equal("curia/enroll/already-enrolled", otherCaseKid.Type);
+        Assert.Equal("curia/keys/material-immutable", otherCaseAlg.Type);
+    }
+
+    /// <summary>
+    /// A key whose window has closed is still held: R4.19 retains a revoked kid with its valid
+    /// interval, and the identity it belonged to is still enrolled. A rule that counted only live keys
+    /// would read a retired identity as fresh and register any key sent under it -- errata G14's
+    /// attack, reopened the day revocation writes <c>NotAfter</c>.
+    /// </summary>
+    [Fact]
+    public void R4_31_AKeyWhoseWindowHasClosedIsStillHeld()
+    {
+        var retired = new RegisteredKey(Key("alice-1", 1), LastMonth, LastMonth.AddDays(14));
+
+        var refusal = Refusal(KeyEnrollment.Decide(Agent, Key("mallory-1", 7), [retired]));
+
+        Assert.Equal("curia/enroll/already-enrolled", refusal.Type);
+    }
 }

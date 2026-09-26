@@ -42,6 +42,7 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     private const string SelectColumns = "alg, kid, public_key, valid_from, valid_until";
 
     private readonly NpgsqlDataSource _dataSource;
+    private readonly string _schema;
     private readonly string _table;
 
     public PostgresAgentKeyStore(NpgsqlDataSource dataSource, string schema = "public")
@@ -50,7 +51,115 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         ArgumentException.ThrowIfNullOrWhiteSpace(schema);
 
         _dataSource = dataSource;
+        _schema = schema;
         _table = SqlIdentifier.Quote(schema) + ".agent_keys";
+    }
+
+    /// <summary>
+    /// The advisory-lock key an enrollment of <paramref name="agentId"/> takes (R4.31), exposed so a
+    /// test can hold it and observe that an enrollment waits. One key per identifier per schema:
+    /// enrollments of different identifiers never wait for each other, and two isolated test schemas
+    /// are two stores.
+    /// </summary>
+    public static string EnrollmentLockKey(string schema, string agentId) => schema + ":agent_keys:" + agentId;
+
+    /// <summary>
+    /// R4.31 and R4.32 as one transaction: take the identifier's lock, read every key it holds,
+    /// apply <see cref="KeyEnrollment.Decide"/>, and insert only when it says so.
+    ///
+    /// <para><b>The lock is what makes the decision true when it is acted on.</b> Without it, two
+    /// enrollments of one fresh identifier under two <c>kid</c>s each read "no key", each insert, and
+    /// the identifier ends with two keys and two holders -- the defect errata G14 records, reached by
+    /// a race instead of a request. A <c>WHERE NOT EXISTS</c> in the insert would not help: under
+    /// READ COMMITTED both statements can see the absence. The advisory lock is taken before the read
+    /// and held to commit, which is the idiom <see cref="PostgresEventStore"/> uses for R6.47.</para>
+    ///
+    /// <para><b>No UPDATE anywhere in this path.</b> A held key is returned as it is, window and all;
+    /// the insert is <c>ON CONFLICT (kid) DO NOTHING</c>, and a conflict there -- the identifier held
+    /// no key, so the <c>kid</c> is someone else's -- is the one refusal the rule cannot see from this
+    /// identifier's rows.</para>
+    /// </summary>
+    [SuppressMessage(
+        "Reliability",
+        "CA2007:Consider calling ConfigureAwait on the awaited task",
+        Justification = "See RegisterAsync's identical suppression.")]
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "See RegisterAsync's identical suppression: the only interpolated text is " +
+            "_table and the SelectColumns constant, both fixed before any call.")]
+    public async Task<Result<RegisteredKey>> EnrollAsync(
+        string agentId,
+        PublicKeyMaterial key,
+        DateTimeOffset notBefore,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(key);
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (var lockCommand = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock(hashtextextended(@lockkey, 0));", connection, transaction))
+        {
+            lockCommand.Parameters.Add(new NpgsqlParameter("lockkey", NpgsqlDbType.Text) { Value = EnrollmentLockKey(_schema, agentId) });
+            await lockCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var held = new List<RegisteredKey>();
+        await using (var select = new NpgsqlCommand(
+            $"SELECT {SelectColumns} FROM {_table} WHERE agent_id = @agent;", connection, transaction))
+        {
+            select.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
+            await using var reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                held.Add(MapRow(reader));
+        }
+
+        var decided = KeyEnrollment.Decide(agentId, key, held);
+        if (!decided.TryGetValue(out var existing, out var refusal))
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return Result<RegisteredKey>.Fail(refusal!);
+        }
+
+        if (existing is not null)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return Result<RegisteredKey>.Ok(existing);
+        }
+
+        RegisteredKey? registered = null;
+        await using (var insert = new NpgsqlCommand(
+            $"""
+             INSERT INTO {_table} (kid, agent_id, alg, public_key, valid_from, valid_until)
+             VALUES (@kid, @agent, @alg, @public, @from, NULL)
+             ON CONFLICT (kid) DO NOTHING
+             RETURNING {SelectColumns};
+             """,
+            connection,
+            transaction))
+        {
+            insert.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = key.Kid });
+            insert.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
+            insert.Parameters.Add(new NpgsqlParameter("alg", NpgsqlDbType.Text) { Value = key.Alg });
+            insert.Parameters.Add(new NpgsqlParameter("public", NpgsqlDbType.Bytea) { Value = key.Public.ToArray() });
+            insert.Parameters.Add(new NpgsqlParameter("from", NpgsqlDbType.TimestampTz) { Value = notBefore });
+
+            await using var reader = await insert.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                registered = MapRow(reader);
+        }
+
+        if (registered is null)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return Result<RegisteredKey>.Fail(AuthorKeyErrors.KidRegisteredToAnotherAgent(agentId, key.Kid));
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return Result<RegisteredKey>.Ok(registered);
     }
 
     /// <summary>

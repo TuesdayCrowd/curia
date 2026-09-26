@@ -42,32 +42,46 @@ public sealed record RegisteredKey(
 public interface IAuthorKeyRegistry
 {
     /// <summary>
-    /// Registers <paramref name="key"/> to <paramref name="agentId"/>, valid from
-    /// <paramref name="notBefore"/> until <paramref name="notAfter"/> (null: still valid).
+    /// Enrollment's one write (R4.31, R4.32): registers <paramref name="key"/> as
+    /// <paramref name="agentId"/>'s key, valid from <paramref name="notBefore"/>, when and only when
+    /// the identifier holds no key yet.
     ///
-    /// <para><b>Fails when the <c>kid</c> is already registered to a <i>different</i> agent.</b>
-    /// This store is asked for keys two ways: by (agent, kid) on the ingest path, and by
-    /// <c>kid</c> alone by <c>Curia.AuthN.Ports.IAgentKeyResolver</c> -- correctly, because a
-    /// client assertion names its key and the subject is established by <i>which key verified</i>,
-    /// not by a claim. That second question only has an answer if a <c>kid</c> identifies one
-    /// key. Two agents sharing one makes assertion resolution ambiguous, and an ambiguity
-    /// resolved by iteration order is the kind of defect that authenticates the wrong agent
-    /// intermittently. So the collision is refused at enrollment, where it is a clear error with
-    /// a name, rather than left to surface later as an authentication that succeeded for the
-    /// wrong subject.</para>
+    /// <para><b>Four outcomes, decided by <see cref="KeyEnrollment.Decide"/> and made atomic by the
+    /// adapter</b> against a concurrent enrollment of the same identifier:</para>
+    /// <list type="bullet">
+    /// <item>The identifier holds no key: the key is registered and returned.</item>
+    /// <item>The identifier already holds exactly this key -- the same <c>kid</c>, algorithm and
+    /// bytes: nothing is written, and the registered key is returned with its original window. A
+    /// client re-announcing its enrollment is not an error, and it must not move
+    /// <c>NotBefore</c>: R6.31 evaluates validity at each post's <c>server_ts</c>, so a later
+    /// <c>NotBefore</c> would declare last week's posts signed by a key that did not yet
+    /// exist.</item>
+    /// <item>The identifier holds this <c>kid</c> with different material: refused,
+    /// <see cref="AuthorKeyErrors.MaterialImmutable"/>. A kid whose bytes could be replaced is a
+    /// kid whose past signatures stop verifying and whose future ones someone else makes.</item>
+    /// <item>The identifier holds any other key: refused, <see cref="AuthorKeyErrors.AlreadyEnrolled"/>.
+    /// An enrolled identity gains a key only through R4.18: by rotation, signed by a key it already
+    /// holds, or by recovery on its owner's re-authorization. An enrollment that added one with
+    /// neither would be a rotation that proved nothing.</item>
+    /// </list>
     ///
-    /// <para>Re-registering the same (agent, <c>kid</c>) is permitted -- a repeat enrollment, not
-    /// a collision -- and SHALL NOT move <paramref name="notBefore"/> later than the instant
-    /// already recorded. Moving it forward would retroactively invalidate every signature the key
-    /// made in between, because R6.31 evaluates validity at each post's <c>server_ts</c>; the day
-    /// a key first became valid is a fact about the archive, not a field the latest enrollment
-    /// gets to overwrite.</para>
+    /// <para><b>And, as before, a <c>kid</c> registered to a different agent is refused</b>
+    /// (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>). This store is asked for keys two
+    /// ways: by (agent, kid) on the ingest path, and by <c>kid</c> alone by
+    /// <c>Curia.AuthN.Ports.IAgentKeyResolver</c> -- correctly, because a client assertion names its
+    /// key and the subject is established by <i>which key verified</i>, not by a claim. That second
+    /// question only has an answer if a <c>kid</c> identifies one key.</para>
+    ///
+    /// <para><b>Why the port has no general "register".</b> It had one, and the enrollment endpoint
+    /// called it for every request, so any caller could add a key to any identity or replace the
+    /// bytes behind one (errata G14). A port offering that write to the application layer is an
+    /// invitation to call it; rotation and revocation arrive as writes of their own, each proving
+    /// what it must.</para>
     /// </summary>
-    Task<Result<RegisteredKey>> RegisterAsync(
+    Task<Result<RegisteredKey>> EnrollAsync(
         string agentId,
         PublicKeyMaterial key,
         DateTimeOffset notBefore,
-        DateTimeOffset? notAfter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -169,7 +183,7 @@ public static class AuthorKeyErrors
         $"kid={kid} server_ts={at}");
 
     /// <summary>
-    /// The enrollment refusal <see cref="IAuthorKeyRegistry.RegisterAsync"/> describes. Its own
+    /// The enrollment refusal <see cref="IAuthorKeyRegistry.EnrollAsync"/> describes. Its own
     /// slug rather than a reuse of <see cref="NotRegisteredToAgent"/>: one is "you asked for a
     /// key that is not yours", the other is "you tried to claim an identifier that is someone
     /// else's", and only the second is an enrollment-time event an operator can act on.

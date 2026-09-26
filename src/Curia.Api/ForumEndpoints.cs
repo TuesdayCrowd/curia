@@ -398,16 +398,15 @@ public static class ForumEndpoints
 
         var now = clock.GetUtcNow();
 
+        // R4.31 and R4.32 (errata G14): the store registers a key only for an identifier that holds
+        // none, re-announces one it already holds unchanged, and refuses everything else -- a second
+        // kid for an enrolled identity, other bytes under its kid, a kid another identity holds.
         var registration = await keys
-            .RegisterAsync(
-                request.AgentId,
-                new PublicKeyMaterial(request.Alg, request.Kid, publicKey),
-                now,
-                cancellationToken: cancellationToken)
+            .EnrollAsync(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), now, cancellationToken)
             .ConfigureAwait(false);
 
         if (!registration.TryGetValue(out _, out var registrationError))
-            return Results.Conflict(new Problem(registrationError!.Type, registrationError.Title, request.Kid));
+            return Results.Conflict(new Problem(registrationError!.Type, registrationError.Title, registrationError.Detail));
 
         // Standing goes into the event log, never into process memory. R4.21 already says what
         // these facts are -- "state transitions SHALL be append-only events carrying actor, reason,
