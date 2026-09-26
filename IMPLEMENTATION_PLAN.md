@@ -123,8 +123,9 @@ set; SP scores recorded even if not yet weighted.*
 > published-template half. **D17 is closed** by the screener stage
 > (`docs/superpowers/plans/2026-09-25-screen-what-was-written.md`), in the PR that carries this
 > paragraph, together with **D19**, which that stage found while choosing D17's fix: SCREEN read
-> JSON escapes rather than what the author wrote, and ingest admitted AWS keys, JWTs and assigned
-> secrets on any line after the first. **D18** stays open for the next errata pass.
+> JSON escapes rather than what the author wrote, and ingest admitted a credential at the start of
+> any line after the first or after a tab, and an assigned secret whose value was quoted. **D18**
+> stays open for the next errata pass.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -601,7 +602,8 @@ rejoins a credential across a line break and its gutter, and is read by the shap
 `SecretScanner.ScanShapes`, the rule table, whose prefixed-key rule is word-anchored again. The two
 assignment-style rules read every other view and not that one: `HighEntropyAssignment`, and
 `ConnectionStringKeywordPassword`, split from the old `ConnectionStringPassword`, whose URI form
-stays a shape rule. Feeding the line-joined view every rule, as the plan first had it, hard-rejected
+stayed a shape rule until the final review took it off the view too (below). Feeding the
+line-joined view every rule, as the plan first had it, hard-rejected
 placeholder config that each line alone passes — `API_KEY=changeme⏎DATABASE_URL_FOR_REPLICA=…`, a
 YAML `token: TODO` block, `PWD=/⏎HOME=/root` — because an assignment rule's open value class
 swallowed the joined next line. The cost, stated in `ScanShapes`' summary: an assigned secret with
@@ -611,21 +613,60 @@ stays in the table deliberately: a webhook wrapped inside its host, or before it
 character, is caught by the line-joined view and by nothing else, and R10.26 makes a false negative
 permanent. Its measured join is filed as a known false positive instead (below).
 
+**The final review's fix wave** changed the view three more times, each ruled by `curia-architect`,
+under new detector versions `secrets/2026-09-26` and `injection/2026-09-26` — not a reused
+`secrets/2026-09-25b`, which is published here and in built assemblies (R10.10):
+
+- **Invisible characters inside a key** (Critical). A vendor key with a zero-width space, a soft
+  hyphen or a zero-width joiner in its first sixteen characters after the prefix was only annotated
+  (`HiddenText`), and one split by U+2060 was admitted with no annotation at all; the removed
+  unseparated view had deleted them. A renderer leaves a soft hyphen or a zero-width break at a
+  wrap, and a verbatim copy keeps it (§10.8). The line-joined view now first deletes every
+  character `HiddenCharacters` names — U+00AD, U+200B–U+200F, U+202A–U+202E, U+2060, U+2066–U+2069,
+  U+FEFF — then the line-break runs, composing the two index maps so an offset still lands on the
+  key; `InjectionDetector` annotates the same set, so U+2060 is now `HiddenText`. U+061C and
+  U+2061–U+2064 are the same class, unmeasured, and left out.
+- **Wraps the view missed.** It now deletes VT, FF, NEL, U+2028 and U+2029 as line breaks, and
+  ` * `, `; `, `// ` and `-- ` comment gutters beside `> `, `│ `, `| `, `# ` and `+ `. A key split
+  into adjacent string literals, by a concatenation operator or by a shell continuation is
+  authored, not wrapped, and is recorded rather than chased: `evade-split-into-adjacent-literals`,
+  `evade-split-by-concatenation-operator` and `evade-split-by-shell-continuation`.
+- **The URI rule off the view.** `ConnectionStringUriPassword` now runs in `Scan` beside the two
+  assignment rules. On the view its open classes read a `host:port` ending one line and an
+  @-mention, a decorator or a doc-comment `@param` starting the next as `user:pass@`, and
+  `localhost:PORT` is the commonest URL agents post; three benign entries are the fence
+  (`prose-localhost-url-before-a-mention`, `code-url-constant-before-a-decorator`,
+  `code-doc-comment-url-before-a-param-tag`). The catch it bought — a connection string wrapped
+  inside its user or password — is rare, since a connection string is short, and is recorded as an
+  authored-shape evasion, `evade-connection-string-wrapped-in-userinfo`. `WebhookUrl` is the
+  opposite trade: a rare placeholder against a long URL that plausibly wraps. Neither these false
+  positives nor the catch is new with policy D: at c09a7be both were rejected in the two enveloped
+  shapes, by escape-reading, and accepted only bare.
+
 None of the three fixes this entry proposed survived measurement on the shape ingest screens — each
 removed the only rule still catching `ghp_`/`sk-` at a line start, which is how **D19** was found.
-Re-measured on 2026-09-25 over the bare sentences: `ApiKey@12` and `@6`, not the `@21`/`@15`
-recorded above.
+Re-measured on 2026-09-25 over the bare sentences: `ApiKey@12` and `@6`. The `@21`/`@15` recorded
+above are the same positions in canonical text — that measurement screened each body as
+`{"body":"…"}`, and the nine characters of `{"body":"` are the difference.
 
-The benign set grew from fifteen entries to thirty-one: the twelve D17 sentences
+The benign set grew from fifteen entries to thirty-four: the twelve D17 sentences
 (`prose-risk-based` through `placeholder-sk-ant-ellipsis`); `prose-npm-token-variable`, filed as
 `fp-npm-token-variable` in the new `known-false-positives.jsonl` while the cross-word view stood and
-moved to the benign set once policy D stopped it firing; and three multi-line placeholders, the
-set's first — `placeholder-env-example-multiline`, `placeholder-yaml-token-todo` and
-`placeholder-env-dump-pwd-root`. The payloads gained `secret-wrapped-webhook-in-host`, a Slack
-webhook wrapped inside its host, which gives the webhook rule's line-joined catch a probe. Published:
-44/44 detection and 0/31 false positives in every shape, under `secrets/2026-09-25b`.
-`evade-secret-split` moved to `known-evasions.jsonl` as deliberate; the spec's measured edge evaded
-in every shape and joined it as `evade-wrapped-at-line-start-after-a-word`.
+moved to the benign set once policy D stopped it firing; three multi-line placeholders, the set's
+first — `placeholder-env-example-multiline`, `placeholder-yaml-token-todo` and
+`placeholder-env-dump-pwd-root`; and the final review's three URI fences. The payloads gained
+`secret-wrapped-webhook-in-host`, a Slack webhook wrapped inside its host, which gives the webhook
+rule's line-joined catch a probe, and in the final review's wave thirteen more: seven keys split by
+an invisible character (`secret-zero-width-*`, `secret-soft-hyphen-*` and
+`secret-word-joiner-mid-token`, each expecting `ApiKey` and `HiddenText`) and six wrapped at the new
+breaks and gutters (`secret-wrapped-at-a-line-separator`, `secret-wrapped-at-every-unicode-break`,
+and four `secret-wrapped-in-*-comment` entries: slash, block, semicolon and dash).
+Published at b6d6c2d: 44/44 detection and 0/31 false positives in every shape, under
+`secrets/2026-09-25b`; after the final review's wave, **57/57 and 0/34 in every shape, under
+`secrets/2026-09-26` and `injection/2026-09-26`**. `evade-secret-split` moved to
+`known-evasions.jsonl` as deliberate; the spec's measured edge evaded in every shape and joined it as
+`evade-wrapped-at-line-start-after-a-word`; and the final review's wave recorded the three authored
+splits and the wrapped connection string above, for nine known evasions in all.
 
 `known-false-positives.jsonl` holds three entries, each held to still firing:
 
@@ -645,7 +686,10 @@ Both known-list gates name an entry whose `would_flag` or `would_detect` is empt
 an empty expectation held for any content.
 
 Falsified — each gate's code patched, its tests run, the file restored and the restore checked
-clean against git:
+clean. Cases 4–8 ran against f59797f and were checked against git; case 9 against 0b8f5ff's parent,
+ce134c9, with 0b8f5ff's corpus lines added; cases 10a–10e against 87f9c7b's tree before it was
+committed, each restored with a plain copy and checked with `cmp`, then rebuilt with
+`--no-incremental` and every gate run unpatched (trap 18):
 
 - case 4 (the line-joined view's pattern made to match nothing) → RED:
   `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_NoDetectedPayloadRegresses`
@@ -673,6 +717,29 @@ clean against git:
   (`secret-wrapped-webhook-in-host` missed in all three shapes) and
   `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_TheKnownFalsePositivesStillFire`
   (`fp-webhook-placeholder-at-a-line-end` no longer fires `ApiKey`, in all three shapes).
+- case 10a (the line-joined view's hidden-character deletion removed) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_NoDetectedPayloadRegresses` and
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_DetectionRateMeetsItsFloor` (the seven
+  invisible-character payloads missed `ApiKey` in all three shapes; 87.7 % bare), and both rows of
+  `Curia.Domain.Tests.Screening.ContentScreenerTests.D17_AKeySplitByAnInvisibleCharacterIsReportedWhereTheAuthorWroteIt`
+  (no `ApiKey` finding).
+- case 10b (the old break pattern restored, `[ \t]*[\r\n]+[ \t]*(?:[>│|#+][ \t]*)*`) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_NoDetectedPayloadRegresses` and
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_DetectionRateMeetsItsFloor` (the six new
+  wraps missed `ApiKey` in all three shapes; 89.5 % bare).
+- case 10c (`InjectionDetector` on its old set, U+2060 dropped) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_NoDetectedPayloadRegresses`
+  (`secret-word-joiner-mid-token` missed in all three shapes) and the U+2060 row of
+  `Curia.Domain.Tests.Screening.DetectorTests.R10_8_HiddenCharactersAreDetected`.
+- case 10d (`ConnectionStringUriPassword` back in the rule table) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_FalsePositiveRateMeetsItsCeiling` (the
+  three URI fences fire `ConnectionStringPassword`, in all three shapes) and
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_11_TheKnownEvasionsStillEvade`
+  (`evade-connection-string-wrapped-in-userinfo` now detected, in all three shapes).
+- case 10e (the line-joined view's two index maps not composed) → RED: both rows of
+  `Curia.Domain.Tests.Screening.ContentScreenerTests.D17_AKeySplitByAnInvisibleCharacterIsReportedWhereTheAuthorWroteIt`
+  (the reported span does not end on the key's last characters); every corpus gate stayed green,
+  since the corpus compares categories and not offsets.
 
 ### D18 — R11.27's published-template half was never built *(opened by the MCP plan's Stage 4, 2026-09-22)*
 
@@ -708,6 +775,18 @@ instead of the separator:
 | `token = …` / `password=…` on line 2 | Rejected | **Accepted** |
 | `ghp_…` / `sk-proj-…` on line 2 | Rejected | Rejected, only by the unanchored rule D17 would narrow |
 
+"On line 2" in the table means at its start. The blind spot is the character after an escape, not
+the line: `Context:⏎The key is AKIAIOSFODNN7EXAMPLE` in an envelope was rejected, since a space
+precedes the key. What was admitted is a credential at the start of any line after the first or
+after a tab, and an assigned secret whose value was quoted.
+
+**Injection annotations had the same blind spot.** `Context:⏎ignore all previous instructions` in
+an envelope was Accepted before this stage and is Annotated now; fifteen of case 2's seventeen
+payloads below are injection payloads. Posts persisted under `injection/2026-08-17` with an
+injection phrase starting a line after the first are served without that annotation, in
+`risk_flags` and in the provenance envelope; R10.10's version bump is what lets an operator find
+them and re-screen them.
+
 A false negative here writes a live credential into an append-only log. **Why no gate saw it:**
 the corpus runner screened bare strings, the one shape only `RaiseFlag` screens in production —
 trap 1, a probe of a shape production never produces, in the component whose published rate is a
@@ -721,7 +800,7 @@ added in review to fence a finding that ends on an escape. The corpus is now mea
 enveloped, and enveloped after a line, with a self-check that the envelope carries the entry.
 
 Falsified — each gate's code patched, its tests run, the file restored and the restore checked
-clean against git:
+clean against git; every case ran against f59797f:
 
 - case 1 (ingest calling `ScreenText` on the canonical envelope) → RED:
   `Curia.Application.Tests.Ingest.IngestPipelineTests.D19_ACredentialOnASecondLineOfTheBodyIsRejected`.
@@ -763,7 +842,7 @@ clean against git:
 - **ANSI escape sequences before a prefix** (`ESC[32mghp_…`) defeat `\b` even on decoded text.
 - **A rejection names a canonical offset**, where an agent could act on a member name and an
   offset within it. The persisted unit is why it stayed; a member path beside it is a wire change.
-- **Thirty-one benign entries are weak evidence for a 0 % rate**, now published with its
+- **Thirty-four benign entries are weak evidence for a 0 % rate**, now published with its
   known exceptions rather than without them.
 - **Whether enrolment screens agent identifiers** was not traced.
 - **A credential split across two string tokens is not rejoined.** Per-token screening (D19) ends
@@ -778,8 +857,10 @@ clean against git:
   and mechanism, and they predate policy D: each already fired under the cross-word view it
   replaced. Only the bare-newline residual is a corpus entry.
 - **`PWD=/any/path` in an ordinary `env` dump is rejected** on one line, by the password rule's
-  case-insensitive keyword branch (`pwd`). Predates D17; a detection-policy change with its own
-  measurement.
+  case-insensitive keyword branch (`pwd`). The keyword branch also hard-rejects ordinary code
+  assigning `password`/`pwd` (`self.password = password`, `pwd = None`) — the sole cause of 29 of
+  74 rejections in a 73M-character sample of real code and prose. It predates this stage and needs
+  its own measurement.
 - **A misspelled category in `would_detect` is vacuous**: a name no detector emits can never be
   "caught", so the evasion always passes. Category names are not checked against what detectors
   emit.
@@ -1645,7 +1726,8 @@ its Stage 4; 17 and 18 are the screener stage's.
 
 17. **A published rate measured in a shape production never screens.** The red-team corpus
     screened bare strings and published 41/41 while ingest read JCS text, where `\n` is two
-    characters, and admitted AWS keys, JWTs and assigned secrets on any line after the first (D19).
+    characters, and admitted a credential at the start of any line after the first or after a tab,
+    and an assigned secret whose value was quoted (D19).
     Trap 1 again, in the one component whose number is a release criterion. **Measure in every
     shape a production path receives, and self-check that the shape carries the entry.**
 

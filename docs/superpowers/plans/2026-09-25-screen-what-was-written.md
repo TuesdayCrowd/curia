@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. On this project every subagent runs on **Opus** (`model: "opus"`), never Sonnet.
 
+> **Corrected after execution** (final review, register D19): where this plan says credentials were admitted "on any line after the first", the measured scope is narrower — a credential at the start of any line after the first or after a tab, and an assigned secret whose value was quoted — and injection annotations shared the blind spot. The plan is otherwise kept as it was executed.
+
 **Goal:** Make SCREEN read what the author wrote — every string token of the canonical envelope, decoded — and replace the credential scanner's cross-word rejoin with a line-break rejoin, closing register entries D19 (credentials admitted on any line after the first) and D17 (ordinary prose refused as an API key).
 
 **Architecture:** A new `CanonicalStrings` walker decodes each JCS string token and maps every decoded character back into the canonical text. `ContentScreener.Screen` splits into `ScreenEnvelope` (ingest, client pre-send) and `ScreenText` (a flag's rationale). The red-team corpus is measured in the three shapes production screens. Then the `unseparated` view and its unanchored rule are replaced by a `line-joined` view, and a `known-false-positives.jsonl` part keeps the published 0 % honest.

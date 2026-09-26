@@ -90,7 +90,7 @@ same reason a pattern change would.
   `ApiKeyPrefixUnanchored`. No rule runs without its leading anchor any more.
 - **Added:** a `line-joined` view. It deletes each run matching
   `[ \t]*[\r\n]+[ \t]*(?:[>│|#+][ \t]*)*` — a line break together with the next line's indentation
-  and any quote or border gutter — and is scanned by the anchored secret rules only (not the
+  and any quote or border gutter — and is scanned by the shape rules only (not the
   injection detector, for the reason the unseparated view was not: joined lines are not a sentence).
 - **The threat model this encodes.** §10.8 is about accidental disclosure (white paper, the paragraph
   before R10.25). Accidents split a credential with a line wrap; a split with words between the
@@ -108,7 +108,17 @@ same reason a pattern change would.
 and the keyword connection-string password — because their open value classes swallowed the joined
 next line and hard-rejected placeholder config that each line alone passes
 (`API_KEY=changeme⏎DATABASE_URL_FOR_REPLICA=…`, `PWD=/⏎HOME=/root`). The measurement and the cost
-are recorded under D17 in `IMPLEMENTATION_PLAN.md`.
+are recorded under D17 in `IMPLEMENTATION_PLAN.md`. The final review amended it three times more,
+under `secrets/2026-09-26` and `injection/2026-09-26`. The view first deletes the invisible
+characters `HiddenCharacters` names — the set the injection detector annotates, now with U+2060 —
+because a renderer leaves a soft hyphen or a zero-width break at a wrap, and it composes that map
+with the line-break map so an offset still lands on the key. Its pattern became
+`[ \t]*[\r\n\u000B\u000C\u0085\u2028\u2029]+[ \t]*(?:(?:[>│|#+*;]|/{2,}|--)[ \t]*)*`, adding the
+Unicode line breaks and the ` * `, `; `, `// ` and `-- ` comment gutters, with a key split into
+literals, by a concatenation operator or by a shell continuation recorded as authored rather than
+wrapped. And the URI connection-string rule left the view as well, because its open classes read a
+`host:port` line end and an @-mention, decorator or `@param` on the next line as `user:pass@`; a
+connection string wrapped inside its userinfo is a recorded evasion.
 
 ## 4. Corpus changes
 

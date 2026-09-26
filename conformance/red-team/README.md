@@ -36,8 +36,9 @@ it as more than that, and the scoring harness prints the caveat with the numbers
 the `body` of a canonical post envelope, as ingest and the client's pre-send check screen it; and
 the same after one line of text. A rate is a statement about a shape. Until register D19 closed,
 the published rates were measured over bare strings while ingest read JCS text — where a line
-break is the two characters `\n` — and admitted AWS keys, JWTs and assigned secrets on any line
-after the first, including this corpus's own `secret-assigned-entropy`.
+break is the two characters `\n` — and admitted a credential at the start of any line after the
+first or after a tab, and an assigned secret whose value was quoted, this corpus's own
+`secret-assigned-entropy` among them. An injection phrase starting such a line went unannotated.
 
 ## Payloads must be shape-preserving non-credentials
 
