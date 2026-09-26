@@ -30,8 +30,9 @@ public static partial class SecretScanner
     /// 2026-09-25: no pattern changed; SCREEN began reading decoded tokens rather than canonical
     /// text (register D19), which changes the verdict for identical content, and attribution is
     /// what the version is for.
+    /// 2026-09-25b: the unanchored prefix rule went with the cross-word view it served (register D17).
     /// </summary>
-    public const string Version = "secrets/2026-09-25";
+    public const string Version = "secrets/2026-09-25b";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -74,30 +75,13 @@ public static partial class SecretScanner
     /// Scans a derived copy of the content. The caller owns that copy and discards it (R6.13);
     /// nothing returned from here references it.
     /// </summary>
-    /// <param name="relaxWordBoundaries">
-    /// Drops the leading word-boundary anchor on the prefixed-key rule.
-    ///
-    /// <para><b>Set only for the "unseparated" view</b>, where every separator has been removed and
-    /// the whole content is one token. A credential split across words -- "Concatenate ghp_A7bQ2xLm
-    /// and 9RtVz..." -- rejoins in that view, but <c>\b</c> then finds no boundary before the prefix
-    /// because the preceding character is a letter too. The anchor exists to stop the rule matching
-    /// inside a longer identifier in ordinary text; in a view that is *entirely* one identifier, it
-    /// only prevents the detection the view was built for.</para>
-    ///
-    /// <para>Found by adding a split-credential payload to the red-team corpus and watching the rule
-    /// miss it -- the pattern was right and the anchor was wrong for that one reading.</para>
-    /// </param>
-    public static IEnumerable<RiskFlag> Scan(string derivedCopy, bool relaxWordBoundaries = false)
+    public static IEnumerable<RiskFlag> Scan(string derivedCopy)
     {
         ArgumentNullException.ThrowIfNull(derivedCopy);
 
         foreach (var (pattern, category) in Rules)
             foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
                 yield return new RiskFlag(category, match.Index, match.Length, Version);
-
-        if (relaxWordBoundaries)
-            foreach (var match in ApiKeyPrefixUnanchored().Matches(derivedCopy).Cast<Match>())
-                yield return new RiskFlag(RiskCategory.ApiKey, match.Index, match.Length, Version);
 
         // "high-entropy strings in assignment position" is the one rule with a second condition,
         // so it runs outside the table rather than being forced into it. The regex finds the
@@ -145,12 +129,6 @@ public static partial class SecretScanner
         @"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|SG\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{16,}|AIza[A-Za-z0-9_-]{20,})",
         RegexOptions.CultureInvariant)]
     private static partial Regex ApiKeyPrefix();
-
-    // The same vendor prefixes without the leading boundary anchor, for the unseparated view only.
-    [GeneratedRegex(
-        @"(?:gh[pousr]_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,}|SG\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{16,}|AIza[A-Za-z0-9_-]{20,})",
-        RegexOptions.CultureInvariant)]
-    private static partial Regex ApiKeyPrefixUnanchored();
 
     [GeneratedRegex(@"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", RegexOptions.CultureInvariant)]
     private static partial Regex CloudCredential();

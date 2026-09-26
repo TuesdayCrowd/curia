@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Curia.Domain.Screening;
 
@@ -51,7 +52,7 @@ public sealed record DerivedView(string Name, string Text, ImmutableArray<int> O
 /// prose look like an attack would cost authors their submissions. Every view added here was checked
 /// against `conformance/red-team/benign.jsonl` at a zero-tolerance ceiling.</para>
 /// </summary>
-public static class DerivedViews
+public static partial class DerivedViews
 {
     /// <summary>
     /// Confusable code points folded to their Latin lookalike.
@@ -104,10 +105,17 @@ public static class DerivedViews
         // Homoglyph substitution: R10.8 names it, and it was unimplemented until now.
         views.Add(Map(content, "unconfused", c => Confusables.TryGetValue(c, out var latin) ? latin : c));
 
-        // A credential split across words: "ghp_A7bQ2xLm and 9RtVz...". Removing separators entirely
-        // makes a concatenation visible. Aggressive, and scoped to secret scanning only for that
-        // reason -- see ContentScreener.
-        views.Add(Map(content, "unseparated", c => char.IsLetterOrDigit(c) || c == '_' || c == '-' ? c : '\0'));
+        // A credential wrapped across lines: "token: ghp_A7bQ2xLm9R" / "tVzP4k...". Deleting each line
+        // break -- with the next line's indentation and any quote or border gutter (`> `, `│ `, `| `,
+        // `# `, `+ `) -- rejoins what a terminal, an editor or an email client wrapped. Scoped to secret
+        // scanning only, see ContentScreener.
+        //
+        // It replaced the "unseparated" view, which deleted *every* separator and so let a vendor prefix
+        // swallow the prose after it: "a risk-based approach" read as `sk-basedapproach…`, and an agent
+        // whose identifier contained "ask-" could not post at all (register D17). Accidents split a
+        // credential at a line break; a split with words between the pieces on one line is deliberate,
+        // and is recorded in known-evasions.jsonl rather than chased.
+        views.Add(WithRunsRemoved(content, "line-joined", LineBreakWithGutter()));
 
         views.AddRange(DecodedSegments(content));
 
@@ -147,6 +155,36 @@ public static class DerivedViews
             if (mapped == '\0') continue;
 
             text.Append(mapped);
+            indexes.Add(i);
+        }
+
+        return new DerivedView(name, text.ToString(), indexes.ToImmutable());
+    }
+
+    [GeneratedRegex(@"[ \t]*[\r\n]+[ \t]*(?:[>│|#+][ \t]*)*", RegexOptions.CultureInvariant)]
+    private static partial Regex LineBreakWithGutter();
+
+    /// <summary>Drops every run <paramref name="runs"/> matches, keeping the index map.</summary>
+    private static DerivedView WithRunsRemoved(string content, string name, Regex runs)
+    {
+        var text = new StringBuilder(content.Length);
+        var indexes = ImmutableArray.CreateBuilder<int>(content.Length);
+        var next = 0;
+
+        foreach (var run in runs.Matches(content).Cast<Match>())
+        {
+            for (var i = next; i < run.Index; i++)
+            {
+                text.Append(content[i]);
+                indexes.Add(i);
+            }
+
+            next = run.Index + run.Length;
+        }
+
+        for (var i = next; i < content.Length; i++)
+        {
+            text.Append(content[i]);
             indexes.Add(i);
         }
 

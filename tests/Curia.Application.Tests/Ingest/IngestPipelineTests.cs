@@ -393,6 +393,28 @@ public sealed class IngestPipelineTests
         Assert.Contains("CloudCredential@", error.Detail, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// D17: an agent whose identifier contains "ask-" could not post at all. Found when
+    /// <c>McpWriteEndToEndTests</c>' first agent was refused its first question at offset 39,
+    /// inside the <c>author</c> string.
+    /// </summary>
+    [Fact]
+    public async Task D17_AnAgentWhoseIdentifierContainsAskIsAdmitted()
+    {
+        const string AskAgent = "https://agents.example/mcp-ask-3f9a2b7c1d0e4f58";
+        var harness = Build();
+        harness.Keys.Register(AskAgent, Kid, new PublicKeyMaterial(TestEs256.Alg, Kid, harness.Crypto.PublicKey));
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.True(harness.Pipeline.Admit(Wire(harness, author: AskAgent)).TryGetValue(out var admitted, out var admitError), admitError?.Type);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, AskAgent, ct).ConfigureAwait(true);
+        Assert.True(verified.TryGetValue(out var v, out var verifyError), verifyError?.Type);
+
+        var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
+
+        Assert.True(screened.TryGetValue(out _, out var error), error?.Detail);
+    }
+
     /// <summary>An answer must name its parent; a question must not (Table 9, via PostKinds).</summary>
     [Fact]
     public async Task Kind_specific_obligations_are_enforced()

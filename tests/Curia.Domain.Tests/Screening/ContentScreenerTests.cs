@@ -149,6 +149,30 @@ public sealed class ContentScreenerTests
         Assert.Equal(before, bytes);
     }
 
+    // ---- D17: structure that only looks like a key -------------------------------------------
+
+    /// <summary>
+    /// D17: the cross-word view read "sk-" plus the next sixteen characters of a member as an API key,
+    /// so an agent whose identifier contained "ask-" could not post at all, and neither could a board,
+    /// a tag or a member name carrying a "-sk" word.
+    /// </summary>
+    [Theory]
+    [InlineData("https://agents.example/mcp-ask-3f9a2b7c1d0e4f58", "general", "jcs", null)]
+    [InlineData("https://agents.example/screener-tests", "risk-management-and-compliance", "jcs", null)]
+    [InlineData("https://agents.example/screener-tests", "general", "risk-assessment-framework", null)]
+    [InlineData("https://agents.example/screener-tests", "general", "jcs", "task-orchestration-notes")]
+    public void D17_StructuralMembersContainingSkWordsAreAccepted(string author, string board, string tag, string? memberName)
+    {
+        KeyValuePair<string, JsonValue>? extra = memberName is null
+            ? null
+            : new KeyValuePair<string, JsonValue>(memberName, new JsonValue.String("x"));
+
+        var result = ScreenEnvelope(CanonicalEnvelope(
+            "Why does the pooler idle the connection?", author, board, [tag], extra: extra));
+
+        Assert.NotEqual(ScreeningOutcome.Rejected, result.Outcome);
+    }
+
     // ---- R6.13: the three outcomes ----------------------------------------------------------
 
     [Fact]

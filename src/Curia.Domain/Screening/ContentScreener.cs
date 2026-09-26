@@ -136,12 +136,12 @@ public static class ContentScreener
 
         foreach (var view in DerivedViews.Of(text))
         {
-            // The unseparated view strips punctuation and whitespace entirely, which recovers a
-            // credential split across words. It is deliberately *not* fed to the injection detector:
-            // running prose with every space removed is one long token, and phrase patterns over it
-            // would match across sentence boundaries that were never adjacent.
-            var scoped = view.Name is "unseparated"
-                ? SecretScanner.Scan(view.Text, relaxWordBoundaries: true)
+            // The line-joined view deletes line breaks, so a phrase pattern over it would match across
+            // lines that were never adjacent as prose. It is for credentials, and only the secret rules
+            // read it -- every one of them anchored, since no rule has run without its leading anchor
+            // since the cross-word view went (register D17).
+            var scoped = view.Name is "line-joined"
+                ? SecretScanner.Scan(view.Text)
                 : SecretScanner.Scan(view.Text).Concat(InjectionDetector.Scan(view.Text));
 
             foreach (var flag in scoped)

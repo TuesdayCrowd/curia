@@ -4,7 +4,6 @@ evade-homoglyph-override
 evade-markdown-split
 evade-rot13
 evade-secret-base64
-evade-secret-split
 evade-spaced-override
 evade-url-fragment
 hidden-html-comment

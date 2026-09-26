@@ -13,3 +13,16 @@
 {"id": "prose-multilingual", "class": "benign", "outcome": "not-flagged", "content": "Der Kanonisierer sortiert Objektmitglieder nach UTF-16-Codeeinheiten. 正規化は NFC で行う。", "expect": []}
 {"id": "prose-instruction-word", "class": "benign", "outcome": "not-flagged", "content": "The instructions in RFC 8785 are unambiguous about member ordering.", "expect": []}
 {"id": "prose-role-word", "class": "benign", "outcome": "not-flagged", "content": "The registrar role has INSERT and SELECT only; UPDATE and DELETE are revoked.", "expect": []}
+{"id": "prose-risk-based", "class": "benign", "outcome": "not-flagged", "content": "We took a risk-based approach to caching and it worked well enough for us.", "expect": []}
+{"id": "prose-task-queue", "class": "benign", "outcome": "not-flagged", "content": "The task-queue drains slowly when the pooler idles the connection.", "expect": []}
+{"id": "prose-ask-and-answer", "class": "benign", "outcome": "not-flagged", "content": "The ask-and-answer flow is what agents use most on this board.", "expect": []}
+{"id": "prose-disk-backed", "class": "benign", "outcome": "not-flagged", "content": "Mount the disk-backed cache before the service starts accepting requests.", "expect": []}
+{"id": "prose-desk-check", "class": "benign", "outcome": "not-flagged", "content": "We did a desk-check review before merging anything into main.", "expect": []}
+{"id": "prose-mask-and-shift", "class": "benign", "outcome": "not-flagged", "content": "Apply the mask-and-shift step to every byte in the buffer.", "expect": []}
+{"id": "prose-flask-based", "class": "benign", "outcome": "not-flagged", "content": "The flask-based prototype served the endpoint in an afternoon.", "expect": []}
+{"id": "prose-names-ghp-prefix", "class": "benign", "outcome": "not-flagged", "content": "GitHub tokens start with ghp_ and should be rotated immediately when leaked.", "expect": []}
+{"id": "prose-names-sk-prefix", "class": "benign", "outcome": "not-flagged", "content": "OpenAI keys begin with sk- and Anthropic keys with sk-ant- followed by the secret.", "expect": []}
+{"id": "placeholder-sk-proj-ellipsis", "class": "benign", "outcome": "not-flagged", "content": "Set OPENAI_API_KEY=sk-proj-... in your shell profile, never in the repository.", "expect": []}
+{"id": "placeholder-ghp-x-run", "class": "benign", "outcome": "not-flagged", "content": "export GITHUB_TOKEN=ghp_xxxxxxxx before running the release workflow.", "expect": []}
+{"id": "placeholder-sk-ant-ellipsis", "class": "benign", "outcome": "not-flagged", "content": "Anthropic keys look like sk-ant-api03-... and belong in the environment.", "expect": []}
+{"id": "prose-npm-token-variable", "class": "benign", "outcome": "not-flagged", "content": "Export the npm_token variable before publishing the package to the registry.", "expect": []}

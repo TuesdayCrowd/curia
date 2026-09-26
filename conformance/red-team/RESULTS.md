@@ -2,11 +2,11 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (44/44) | **0.0 %** (0/15) |
-| enveloped | **100.0 %** (44/44) | **0.0 %** (0/15) |
-| enveloped after a line | **100.0 %** (44/44) | **0.0 %** (0/15) |
+| bare | **100.0 %** (43/43) | **0.0 %** (0/28) |
+| enveloped | **100.0 %** (43/43) | **0.0 %** (0/28) |
+| enveloped after a line | **100.0 %** (43/43) | **0.0 %** (0/28) |
 
-- Detector versions: secrets/2026-09-25, injection/2026-09-25
+- Detector versions: secrets/2026-09-25b, injection/2026-09-25
 - Excluded from the detection rate: **6** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
 
 ## The shapes (register D19)
@@ -30,7 +30,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**3 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**5 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody
@@ -41,6 +41,8 @@ Each one, with the reason recorded in the corpus:
 - **`evade-synonym-override`** -- would be InstructionOverride. Semantic paraphrase with no lexical overlap. Catching this needs a classifier, not a pattern -- and R10.11 is explicit that optimized triggers survive perplexity examination, so a classifier moves the boundary rather than closing it.
 - **`evade-question-form`** -- would be InstructionOverride. Hypothetical framing, no imperative. Indistinguishable by pattern from a legitimate question about prompt injection -- which R10.9 names as an obviously valuable Forum topic.
 - **`evade-role-indirect`** -- would be RoleAssumption. Role assumption without any of the named phrasings. Same class as the synonym case.
+- **`evade-secret-split`** -- would be ApiKey. A credential split with words between its pieces on one line. Accidents split a credential at a line break, which the line-joined view rejoins; words interleaved on one line are deliberate, and a deliberate author has encodings no view undoes. The cross-word view that caught this also refused ordinary English -- risk-based, task-queue -- and every agent whose identifier contained ask- (register D17).
+- **`evade-wrapped-at-line-start-after-a-word`** -- would be ApiKey. A key whose line starts with its prefix, after a line ending in a letter, wrapped within its first sixteen characters. The line-joined view puts that letter before the prefix, so the anchored rule finds no word boundary. At any real wrap width the first line carries more than sixteen key characters and the identity view catches it; this shape needs a line narrower than the prefix plus sixteen.
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.
@@ -51,6 +53,6 @@ silently go stale.
 each with the reason recorded. The false-positive rate above is computed over `benign.jsonl`
 only, so it reads "0 % of that set, with these known exceptions" -- never a claim about all prose.
 
-- **`fp-npm-token-variable`** -- fires ApiKey. The cross-word view joins the identifier to the prose after it: npm_ plus sixteen letters. Filed while that view stands; policy D (register D17) removes it, and this entry moves to benign.jsonl then.
+- **`fp-prefixed-identifier-at-a-wrapped-line-end`** -- fires ApiKey. The line-joined view rejoins a hard-wrapped line, so a prefixed identifier ending one line reads as one token with the next line's first word: npm_ plus sixteen letters. Accepted as the price of catching a credential that a terminal or an email client wrapped, which is how accidental splits happen (policy D, register D17).
 
 An entry that stops firing fails the build, so this list cannot silently go stale.
