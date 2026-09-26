@@ -98,6 +98,49 @@ public sealed class OperatorAttestationTests(ForumFixture forum) : IClassFixture
         Assert.False(await ServedOwnerVerifiedAsync(agent, http, "board-" + Guid.NewGuid().ToString("N")[..8], ct));
     }
 
+    /// <summary>How many entries the log serves, counted the way any reader counts them.</summary>
+    private static async Task<long> LogSizeAsync(HttpClient client, CancellationToken ct)
+    {
+        for (long i = 0; i < 100_000; i++)
+        {
+            using var entry = await client.GetAsync(new Uri($"/v1/log/entries/{i}", UriKind.Relative), ct);
+            if (entry.StatusCode == HttpStatusCode.NotFound) return i;
+        }
+
+        throw new InvalidOperationException("the log did not end within 100,000 entries");
+    }
+
+    /// <summary>
+    /// A blank value is refused as usage before anything is written, as <c>moderate</c> refuses one.
+    /// Without that, <c>--agent " "</c> reached the use case's argument guard and threw; <c>--by " "</c>
+    /// was recorded as <c>operator: </c>, a permanent public leaf naming no one; and <c>--reason " "</c>
+    /// was refused by the use case instead of the verb. The agent is enrolled, so a verb that let the
+    /// blank through would have grown the log.
+    /// </summary>
+    [Theory]
+    [InlineData("agent")]
+    [InlineData("by")]
+    [InlineData("reason")]
+    public async Task R4_30_ABlankValueIsAUsageErrorAndWritesNothing(string blank)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var agent = NewAgent();
+        using (var enrolled = await agent.EnrollAsync(http, ct))
+            Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+        var before = await LogSizeAsync(http, ct);
+
+        string[] args =
+            ["attest-owner", "--agent", agent.AgentId, "--owner", "owner:example", "--by", "reviewer", "--reason", "reviewed by hand"];
+        args[Array.IndexOf(args, "--" + blank) + 1] = " ";
+        var (exit, stdout, stderr) = await RunAsync(args, ct);
+
+        Assert.Equal(ExitCode.Usage, exit);
+        Assert.Contains($"--{blank}", stderr, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, stdout);
+        Assert.Equal(before, await LogSizeAsync(http, ct));
+    }
+
     [Theory]
     [InlineData("attest-owner", "--owner", "owner:example", "--by", "reviewer")]
     [InlineData("attest-owner", "--agent", "https://agents.example/x", "--by", "reviewer")]

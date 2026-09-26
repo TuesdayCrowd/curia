@@ -105,14 +105,18 @@ public static class OperatorCommands
               Records R10.36's human moderator acting on <post-id> (R10.59): <effect> is one of
               withhold, quarantine, restore, dismiss; <kind> is one of R10.35's seven. The record
               names every flag of that kind raised against the post (R10.60) and is refused if it
-              would change nothing. The reason lands in a public leaf and is screened like a
-              flag's: credential material is refused.
+              would change nothing. It acts only on the category it cites (R10.61): a restore in a
+              category that holds nothing is refused, as is a dismissal in one that holds the post.
+              The reason lands in a public leaf and is screened like a flag's: credential
+              material is refused. A reason repeating a flag's raiser or rationale is refused;
+              neither is ever published (R10.62).
 
-          curia-operator flags [--post <post-id>] [--open]
+          curia-operator flags [--post <post-id>] [--open] [--raisers]
 
-              Lists flags with who raised them and why -- the review queue, out of band. Each
+              Lists flags and why they were raised -- the review queue, out of band. Each
               rationale is delimited and datamarked (R10.44), and control characters are escaped.
-              --open lists only flags no record has adjudicated.
+              --open lists only flags no record has adjudicated. --raisers adds who raised each;
+              judging content needs no identity, so the listing leaves it out by default.
 
         ENVIRONMENT
           CURIA_EVENTS_POSTGRES      the Forum's events database (required)
@@ -424,10 +428,11 @@ public static class OperatorCommands
     }
 
     /// <summary>
-    /// The review queue, out of band: every flag with its raiser and rationale, which only an
-    /// operator ever sees (R10.44's <c>moderation</c>|<c>list</c> view for the human arm). Rationales
-    /// are delimited and datamarked, because the reader may be a model, and every agent-written
-    /// string is made terminal-safe first.
+    /// The review queue, out of band: every flag with its rationale, which only an operator ever sees
+    /// (R10.44's <c>moderation</c>|<c>list</c> view for the human arm). Rationales are delimited and
+    /// datamarked, because the reader may be a model, and every agent-written string is made
+    /// terminal-safe first. The raiser is listed only under <c>--raisers</c>: judging content needs
+    /// no identity, and a reviewer shown none cannot repeat one into a public reason (R10.62).
     /// </summary>
     private static async Task<int> FlagsAsync(
         string[] argv,
@@ -439,11 +444,13 @@ public static class OperatorCommands
     {
         string? post = null;
         var openOnly = false;
+        var raisers = false;
         for (var i = 0; i < argv.Length; i++)
         {
             if (argv[i] == "--open") { openOnly = true; continue; }
+            if (argv[i] == "--raisers") { raisers = true; continue; }
             if (argv[i] == "--post" && i + 1 < argv.Length) { post = argv[++i]; continue; }
-            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[i]}'. flags takes [--post <post-id>] [--open].").ConfigureAwait(false);
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[i]}'. flags takes [--post <post-id>] [--open] [--raisers].").ConfigureAwait(false);
         }
 
         IReadOnlyList<AppendedEvent> log;
@@ -465,7 +472,7 @@ public static class OperatorCommands
 
         var directory = FlagDirectory.Join(log, details);
         var moderation = FlagProjector.Fold(log);
-        var rationales = RationalesByFlag(log, details);
+        var rationales = FlagDirectory.RationalesByFlag(log, details);
 
         var listed = 0;
         foreach (var flag in directory.Flags.Where(f => post is null || string.Equals(f.PostId, post, StringComparison.Ordinal)))
@@ -481,7 +488,8 @@ public static class OperatorCommands
             await stdout.WriteLineAsync($"flag       {flag.FlagId}").ConfigureAwait(false);
             await stdout.WriteLineAsync($"post       {TerminalText.Line(flag.PostId)}").ConfigureAwait(false);
             await stdout.WriteLineAsync($"kind       {FlagKinds.Wire(flag.Kind)}").ConfigureAwait(false);
-            await stdout.WriteLineAsync($"raised_by  {TerminalText.Line(flag.RaisedBy)}").ConfigureAwait(false);
+            if (raisers)
+                await stdout.WriteLineAsync($"raised_by  {TerminalText.Line(flag.RaisedBy)}").ConfigureAwait(false);
             await stdout.WriteLineAsync($"raised_at  {flag.At.Value.ToString("O", CultureInfo.InvariantCulture)}").ConfigureAwait(false);
             await stdout.WriteLineAsync($"state      {status}").ConfigureAwait(false);
             await stdout.WriteLineAsync("rationale").ConfigureAwait(false);
@@ -500,21 +508,6 @@ public static class OperatorCommands
 
         await stdout.WriteLineAsync($"{listed.ToString(CultureInfo.InvariantCulture)} flag(s)").ConfigureAwait(false);
         return ExitCode.Ok;
-    }
-
-    /// <summary>A flag's rationale: the private row for a committed flag, the event itself for a legacy one.</summary>
-    private static Dictionary<string, string> RationalesByFlag(IReadOnlyList<AppendedEvent> log, IReadOnlyList<FlagDetail> details)
-    {
-        var rationales = details.ToDictionary(d => d.EventId, d => d.Rationale, StringComparer.Ordinal);
-
-        foreach (var appended in log.Where(e => e.Event.Type.Value == FlagProjector.FlagRaisedType))
-        {
-            if (appended.Event.Payload is JsonValue.Object payload
-                && payload.Members.FirstOrDefault(m => m.Key == FlagProjector.RationaleField).Value is JsonValue.String legacy)
-                rationales.TryAdd(appended.Event.Id.Value, legacy.Value);
-        }
-
-        return rationales;
     }
 
     private static async Task<int> UsageErrorAsync(TextWriter stderr, string message)
@@ -620,14 +613,17 @@ public static class OperatorCommands
             values[name] = argv[++i];
         }
 
-        if (!values.TryGetValue("agent", out var agent) || agent.Length == 0)
+        // A blank value is a missing one, as moderate treats it: " " would otherwise reach the use
+        // case's argument guard (--agent), a public leaf naming no one (--by), or the use case's
+        // refusal rather than the verb's (--reason).
+        if (!values.TryGetValue("agent", out var agent) || string.IsNullOrWhiteSpace(agent))
             return Parsed.Fail("--agent <agent-id> is required.");
 
         if (!values.TryGetValue("owner", out var ownerValue)
             || !OwnerId.Create(ownerValue).TryGetValue(out var owner, out _))
             return Parsed.Fail("--owner <owner-id> is required.");
 
-        if (!values.TryGetValue("by", out var byValue) || byValue.Length == 0)
+        if (!values.TryGetValue("by", out var byValue) || string.IsNullOrWhiteSpace(byValue))
             return Parsed.Fail("--by <operator-name> is required.");
 
         // The operator namespace is a convention, not a rule the domain can hold (plan D4). Applied
@@ -643,8 +639,13 @@ public static class OperatorCommands
                 return Parsed.Fail($"{methodError!.Title}: '{methodValue}'.");
         }
 
-        var reason = values.TryGetValue("reason", out var reasonValue) && reasonValue.Length > 0
-            ? reasonValue
+        // --reason is optional, and omitting it records the default; given, it may not be blank.
+        var hasReason = values.TryGetValue("reason", out var reasonValue);
+        if (hasReason && string.IsNullOrWhiteSpace(reasonValue))
+            return Parsed.Fail("--reason <text> may not be blank; omit it for the default.");
+
+        var reason = hasReason
+            ? reasonValue!
             : $"Owner attested by {actorValue} via {OwnerVerificationMethods.Wire(method)}";
 
         return new Parsed(agent, owner, by, !unverified, method, reason, null);

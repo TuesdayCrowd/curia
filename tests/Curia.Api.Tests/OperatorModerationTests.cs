@@ -154,8 +154,14 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var (listExit, before, listErr) = await RunAsync(["flags", "--post", postId], ct);
         Assert.True(listExit == ExitCode.Ok, listErr);
         Assert.Contains("state      open", before, StringComparison.Ordinal);
-        Assert.Contains($"raised_by  {raiser.Agent.AgentId}", before, StringComparison.Ordinal);
         Assert.Contains("1 flag(s)", before, StringComparison.Ordinal);
+
+        // Judging content needs no identity: the raiser is listed only under --raisers (R10.62).
+        Assert.DoesNotContain("raised_by", before, StringComparison.Ordinal);
+        Assert.DoesNotContain(raiser.Agent.AgentId, before, StringComparison.Ordinal);
+        var (raisersExit, withRaisers, raisersErr) = await RunAsync(["flags", "--post", postId, "--raisers"], ct);
+        Assert.True(raisersExit == ExitCode.Ok, raisersErr);
+        Assert.Contains($"raised_by  {raiser.Agent.AgentId}", withRaisers, StringComparison.Ordinal);
 
         var flagId = before.Split('\n').Single(l => l.StartsWith("flag       ", StringComparison.Ordinal))["flag       ".Length..].Trim();
 
