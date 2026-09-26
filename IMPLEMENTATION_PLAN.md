@@ -870,8 +870,21 @@ one layer up.
 production only by `curia-operator moderate`, writes a record carrying the post's digest and the
 flags it adjudicates; *upheld* is decided per flag by the reviewing record that names it,
 automated records change no flag's state, and forbidden records are ignored by every fold (PR
-#59's Task B1, confirmed by execution first — see "Still unverified" below). `ModerationLoopTests`
-drives an author from T1 to T0 by upholding one flag and back by restoring it.
+#59's Task B1, confirmed by execution first — below). `ModerationLoopTests` drives an author from
+T1 to T0 by upholding one flag and back by restoring it.
+
+**Both halves of PR #59's Task B1 were confirmed by execution before they were fixed.** Carried
+here from "Still unverified", where they sat until then. Read while writing that plan; run by the
+moderation stage (its Task 2, Step 2) against the code as it stood, before anything changed.
+Exactly the two tests that ask the question failed —
+`Curia.Domain.Tests.Moderation.ModerationTests.An_automated_quarantine_is_not_an_upheld_flag`
+(`Assert.False() Failure`, expected `False`, actual `True`: `ModerationPolicy.IsUpheld` counted an
+automated quarantine as upheld) and
+`Curia.Domain.Tests.Moderation.ModerationTests.An_automated_withholding_does_not_stop_a_post_being_served`
+(`Assert.True() Failure`: `MayServe` honoured an automated withholding, which R10.36 forbids) —
+printing `Failed!  - Failed:     2, Passed:    27, Skipped:     0, Total:    29` for
+`Curia.Domain.Tests.dll`. `IsUpheld` is gone: `ModerationPolicy.UpheldFlags` folds reviewing
+records only, and every fold ignores a record R10.61's table refuses.
 
 Falsified by the stage's own runner (its Task 11) — each gate's code patched, its tests run, the
 file restored with a plain copy and the restore checked clean against git; every case ran against
@@ -934,8 +947,11 @@ print are quoted from a hand re-run of the same patch and marked *hand-run*:
   Both would have stayed green had `ForumFixture` still hand-built its withholdings (trap 16); it
   now withholds through the writer.
 
-**Gates added in the review rounds carry their own evidence, not a Task 11 case.** Each was
-falsified by hand in the round that added it, restored with a plain copy and checked with `cmp`:
+**Gates added in the review rounds carry their own evidence, not a Task 11 case.** Each was shown
+red by hand in the round that added it. Most were red under a mutation of the code they guard,
+restored with a plain copy and checked with `cmp`. Three were red against the code as it stood
+before their fix, and green after it, with nothing to restore: the `init` accessor, the overtaken
+record and the writer's blank operator name.
 
 - `Curia.Domain.Tests.Moderation.ModerationTests.A_with_expression_cannot_make_what_a_record_adjudicates_default`
   was red until `Adjudicates` was normalized in its `init` accessor as well as its initializer
@@ -975,6 +991,92 @@ falsified by hand in the round that added it, restored with a plain copy and che
   the private side's rule reverted to the first record naming the flag, red again. With the two
   out-of-rule automated records also removed, the deleted guard stays green — which is why the
   test appends them.
+
+**The final review's wave** changed what this entry closes. The code now reads as follows:
+
+- **A record acts only on the category it cites** (R10.61, amended in place).
+  `ModerationPolicy.ServingEffect` folds each category's latest permitted quarantine or withholding
+  until a permitted restore citing that category, and `MayServe` is `ServingEffect(h).IsEmpty`: a
+  post is served only while no category holds it, and a dismissal holds and releases nothing. Read
+  as one servable bit, a restore in `spam` served a post a human had withheld for a credential leak,
+  the flag behind that withholding still upheld — the final review's probe, confirmed by execution.
+- **Two refusals**, content-free and after the no-op check: `curia/moderation/restore-of-unheld-category`
+  and `curia/moderation/dismissal-of-held-category`.
+- **The escalation is a record.** The no-op check compares the two maps element by element, so a
+  human withholding after a human quarantine in the same category is a record, as is a hold in a
+  second category. It had been refused as a no-op, leaving restore-then-withhold as the only way to
+  escalate: the post served in between, and a permanent restore nobody meant.
+- **The reason guard** (R10.60, R10.62). After NFKC, invariant lower-casing and whitespace collapse,
+  a reason containing any raiser of a flag on the post, with or without its `scheme://`, or any 32
+  consecutive characters of a rationale at least that long, is refused before anything is appended,
+  as `curia/moderation/rationale-discloses-flag` with only `field=raised_by` or `field=rationale`.
+  Every flag on the post is checked, whatever its category or state. `FlagDirectory.RationalesByFlag`
+  is the one source the guard and the listing read, and `curia-operator flags` prints `raised_by`
+  only under `--raisers`.
+- **`attest-owner`'s blank values**, in `moderate`'s shape: a blank `--agent`, `--by` or `--reason`
+  is a usage error, and `AttestOwner` refuses an `operator:` actor with a blank name
+  (`curia/attest/blank-operator-name`).
+
+Task 11's record above stands for 50e3955, the tree it ran against. Against this wave's tree, 21 of
+its runner's 22 edits still match exactly once. Case 11's does not: `var noOp =
+ModerationPolicy.MayServe(before)` is gone, since the no-op check now compares `ServingEffect` maps.
+Case 2's now lands in `ServingEffect`, which `MayServe` reads.
+
+Falsified in the final-review wave, against this wave's tree (950a8e5 with the wave's changes, before
+they were committed): each fence's code patched, its tests run, the file restored with a plain `cp`
+and checked with `cmp`; after the last, one `--no-incremental` Release build and every gate green
+unpatched. Messages are as the runner printed them:
+
+- F1 (the fold keyed to one fixed category) and F2 (a restore clearing every hold) → RED, each:
+  `Curia.Domain.Tests.Moderation.ModerationTests.R10_61_ARestoreInAnotherCategoryDoesNotServe`,
+  `Curia.Domain.Tests.Moderation.ModerationTests.R10_61_TwoHoldsNeedTwoRestores` (`Assert.False() Failure` twice) and
+  `Curia.Domain.Tests.Moderation.ModerationTests.R10_61_AServedPostHasNoUpheldFlag`, the CsCheck property finding its own counterexample
+  (`CsCheck.CsCheckException : Set seed: …`, 3 shrinks under F1, 1 under F2).
+- F3 (the restore guard deleted) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_61_TheProbeSequenceIsRefused` alone (`Assert.False() Failure`).
+- F4 (the dismissal guard deleted) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_61_ADismissalInAHeldCategoryIsRefused` alone (`Assert.False() Failure`).
+- F5 (the map collapsed to the set of effects held, category dropped) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_61_AHoldInASecondCategoryIsNotANoOp` alone (`curia/moderation/no-op`).
+- F6 (the map collapsed to servability, the comparison before this wave) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_61_AHoldInASecondCategoryIsNotANoOp` and
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_61_AHumanWithholdingAfterAHumanQuarantineIsARecord` (`curia/moderation/no-op` twice).
+- F7 (the maps compared by category alone, the effect dropped) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_61_AHumanWithholdingAfterAHumanQuarantineIsARecord` alone (`curia/moderation/no-op`).
+- G1 (the raiser check deleted) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserInTheReasonIsRefusedAndNothingAppended`,
+  all four rows of `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserMatchesCaseFoldedAndSchemeless`,
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AFlagOfAnotherCategoryIsChecked` and `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_TheRefusalNamesNoFlagOrText`
+  (`Assert.False() Failure` seven times).
+- G2 (the raiser compared ordinally, unnormalized) → RED: the three rows of
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserMatchesCaseFoldedAndSchemeless` whose case or form differs; the lower-case
+  schemeless row stayed green, as it should.
+- G3 (the raiser matched only with its scheme) → RED: the three schemeless rows of the same theory;
+  the row with the scheme stayed green.
+- G4a (the quote length raised to 33) and G4b (lowered to 31) → RED, each:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ThirtyTwoCharactersOfARationaleAreRefusedThirtyOneAreNot` alone (`Assert.False() Failure`;
+  `curia/moderation/rationale-discloses-flag field=rationale`).
+- G5 (full containment instead of windows) → RED: both rows of `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_APartialQuoteIsRefused`,
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ThirtyTwoCharactersOfARationaleAreRefusedThirtyOneAreNot` and
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_TheRefusalNamesNoFlagOrText` (`Assert.False() Failure` four times).
+- G6 (the check narrowed to the flags the record adjudicates) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AFlagOfAnotherCategoryIsChecked` alone (`Assert.False() Failure`).
+- G7a (the refusal echoing the flag's id) → RED: every test that reads the detail, seven, among them
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_TheRefusalNamesNoFlagOrText`
+  (`Expected: "field=raised_by"`, `Actual:   "field=raised_by flag=01M3…"`); G7b (echoing the
+  matched text) → RED: four, the same test among them (`Actual:   "field=rationale matched=is an advert for a storefr"···`).
+- H1 (`attest-owner` checking length, not white space, on all three values) → RED: all three rows of
+  `Curia.Api.Tests.OperatorAttestationTests.R4_30_ABlankValueIsAUsageErrorAndWritesNothing` —
+  `agent` on `System.ArgumentException : The value cannot be an empty string or composed entirely of whitespace. (Parameter 'agentId')`,
+  `by` and `reason` exiting 2 rather than 1.
+- H2 (`AttestOwner`'s guard checking emptiness, not white space) → RED:
+  `Curia.Application.Tests.Projections.AgentStandingProjectorTests.R4_30_ABlankOperatorNameIsRefusedAndNothingIsAppended`
+  alone (`Assert.False() Failure`).
+- K1 (the in-memory flag-detail adapter normalizing the rationale to NFC on write) → GREEN against
+  the verbatim test as it stood, which held precomposed text only; RED once it carries `e` followed by
+  U+0301: `Curia.Application.Tests.InMemoryFlagDetailStoreContractTests.R11_32_AnAppendedDetailReadsBackVerbatim`
+  (`Assert.Equal() Failure: Values differ`).
+- K2 (`RaiseFlag`'s aggregate made `flag:` plus the event id less its first character) → GREEN
+  against the prefix assertion as it stood; RED against the equality:
+  `Curia.Application.Tests.Moderation.RaiseFlagTests.R10_62_AFlagEntersTheLogAsItsKindAndACommitmentAlone`
+  (`Expected: "flag:01M3ESC9G0YZB9E8240F9YEP25"`, `Actual:   "flag:1M3ESC9G0YZB9E8240F9YEP25"`).
 
 ### D21 — the log served every flag's raiser and rationale to anyone *(opened and closed by the moderation stage, 2026-09-26)*
 
@@ -1113,7 +1215,7 @@ Falsified by the same runner, recorded the same way:
   no task.
 - **A flag committed between `ApplyModeration`'s read and its append goes unnamed.** The post's
   stream version refuses a concurrent *record*, but a flag lives on its own `flag:` aggregate, so a
-  record decided before the flag was committed omits it (`ApplyModeration.cs:136-139`). It is an
+  record decided before the flag was committed omits it (`ApplyModeration.cs:164-167`). It is an
   omission, never an over-attribution: the flag stays open, and a later record naming it is not a
   no-op, so it is recoverable. It is visible only through the private join, since a flag's public
   leaf names no post. Three ways to close it: a log-wide expected sequence on the append, a
@@ -1150,12 +1252,27 @@ Falsified by the same runner, recorded the same way:
   (`FlagPrivacyGateTests.cs:335`), so a `GET /v1/flags/{id}` or a queue route would escape that rule.
 - **`curia_flag`'s description never tells a raiser that the post's author sees the flag's kind
   and instant immediately** (R7.18).
-- **Zero-width and other format-only operator names pass both whitespace guards**
-  (`src/Curia.Operator/Program.cs:380`, `ApplyModeration.cs:81`): U+200B, U+2060 and U+FEFF are
-  not white space to .NET, so `--by` can still name no one visibly.
-- **After a human quarantine, a human withholding in the same category is refused as a no-op**,
-  since both fold to the same servability and the same upheld flags. Escalating takes
-  restore-then-withhold, and the post is servable in between.
+- **Zero-width and other format-only operator names pass every whitespace guard**
+  (`src/Curia.Operator/Program.cs:384` and `:626`, `ApplyModeration.cs:85`, `AttestOwner.cs:92`):
+  U+200B, U+2060 and U+FEFF are not white space to .NET, so `--by` on `moderate` or `attest-owner`
+  can still name no one visibly.
+- **The folds do not check that a named id is a flag of the record's category on its post.**
+  `UpheldFlags` and `AdjudicatedFlags` believe any `adjudicates`; Decision 16 is enforced by the writer alone.
+- **A residual timing channel.** A flag's instant is public to the microsecond and its post's author
+  sees it at once (R7.18), so a raiser's public activity near that instant narrows who raised it.
+- **The privacy gate cannot see a flag-to-post link served outside a flag's leaf or a `flags` array**
+  — a count, a field, an ETag — and never sweeps as the flagged post's author.
+- **A human quarantine confirming an automated one, with no flags in its category, is a no-op**
+  (measured in the final-review wave; a human withholding there is a record, since it changes how the
+  category holds the post). The automated arm must settle how a human confirms its quarantine first.
+- **Under R10.61 a human quarantine upholds the flags it names**, so an "unsure" quarantine, meant as
+  pending a closer look, already demotes the author (Table 11).
+- **`ApplyModeration` is registered in the production container, for the test fixture.** "No HTTP
+  route" rests on no endpoint injecting it; no test guards that.
+- **The reason guard over-refuses for a very short raiser identifier** (found in the final-review
+  wave, measured by a throwaway probe). It matches a raiser as a substring, and R4.5's identifier form
+  is enforced nowhere (D4): a flag raised by `https://e`, or by `e`, makes "Reviewed: advertising."
+  unrecordable on that post, so a raiser can make its post hard to moderate. For the architect.
 
 ### Observed during the screener stage, not acted on
 
@@ -1416,20 +1533,11 @@ failed conflation — was closed by Stage 3 (PR #74, merged 2026-09-08); the oth
 
 ### Still unverified — do not cite as established
 
-Carried from the Phase 2 record. Each is minutes of work by its own means, and **the differential
-harness is the wrong tool for both** — neither is a cross-implementation claim.
+Carried from the Phase 2 record. It is minutes of work by its own means, and **the differential
+harness is the wrong tool for it** — it is not a cross-implementation claim. This list held one
+other item, PR #59's Task B1; it has since been confirmed by execution and fixed, and its evidence
+is under D20.
 
-- **Confirmed by execution and fixed (D20): both halves of PR #59's Task B1.** Read while writing
-  that plan; run by the moderation stage (its Task 2, Step 2) against the code as it stood, before
-  anything changed. Exactly the two tests that ask the question failed —
-  `Curia.Domain.Tests.Moderation.ModerationTests.An_automated_quarantine_is_not_an_upheld_flag`
-  (`Assert.False() Failure`, expected `False`, actual `True`: `ModerationPolicy.IsUpheld` counted
-  an automated quarantine as upheld) and
-  `Curia.Domain.Tests.Moderation.ModerationTests.An_automated_withholding_does_not_stop_a_post_being_served`
-  (`Assert.True() Failure`: `MayServe` honoured an automated withholding, which R10.36 forbids) —
-  printing `Failed!  - Failed:     2, Passed:    27, Skipped:     0, Total:    29` for
-  `Curia.Domain.Tests.dll`. `IsUpheld` is gone: `ModerationPolicy.UpheldFlags` folds reviewing
-  records only, and every fold ignores a record R10.61's table refuses.
 - **The quarantine property is asserted as a ceiling where the risk is a floor.**
   `Quarantine_never_grants_more_than_the_tier_would` asserts quarantined ⟹ tier. The
   anti-identity-shedding argument in `AccessPolicy`'s comment is anonymous ⟹ quarantined, which

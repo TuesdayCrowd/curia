@@ -83,9 +83,10 @@ The first run publishes the key to the log; every run appends a signed head. `GE
 shows the latest head and how far the log has grown past it.
 
 The same tool is R10.36's **human moderator**, out of band, with no HTTP route (R10.59, errata
-G13). `curia-operator flags` is the review queue: it lists flags with who raised them and why,
-each rationale delimited and datamarked and its control characters escaped, and `--open` narrows it
-to flags no record has adjudicated. `curia-operator moderate` records the decision:
+G13). `curia-operator flags` is the review queue: it lists flags and why they were raised, each
+rationale delimited and datamarked and its control characters escaped; `--open` narrows it to flags
+no record has adjudicated, and `--raisers` adds who raised each, which judging content does not
+need. `curia-operator moderate` records the decision:
 
 ```bash
 CURIA_EVENTS_POSTGRES=... curia-operator moderate --post <post-id> --category spam \
@@ -94,8 +95,11 @@ CURIA_EVENTS_POSTGRES=... curia-operator moderate --post <post-id> --category sp
 
 The effect is one of `withhold`, `quarantine`, `restore` and `dismiss`. The record is a public
 log entry naming the post, its digest and every flag of that category raised against it, and one
-that would change nothing is refused. Its reason is screened like a flag's rationale, because it
-is published. A flag's raiser and rationale are never published: its log entry carries only its
+that would change nothing is refused. A record acts only on the category it cites, and a post is
+served only while no category holds it, so a restore in a category that holds nothing is refused,
+as is a dismissal in one that holds the post (R10.61). Its reason is screened like a flag's rationale, because it
+is published. A reason repeating a flag's raiser or rationale is refused; neither is ever published
+(R10.62). A flag's raiser and rationale are never published: its log entry carries only its
 kind and a salted commitment, and the rest is held in a private, append-only store (db/0004).
 Which post a flag concerns becomes public once a moderator reviews it, upheld or dismissed. Flags
 raised before errata G13 remain in the log as they were written, raiser and rationale included.

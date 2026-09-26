@@ -6140,13 +6140,14 @@ the same reason.
 post's envelope (`digest`), which R6.25's "a `moderation` record referencing a digest" names; the
 moderator kind (`moderator`); the actor (`actor_id`); the effect (`effect`); the category
 (`category`, R10.35); a rationale (`rationale`) screened as a flag's rationale is and refused on a
-hard rejection (R10.26), since it lands in a leaf R6.51 serves verbatim; and the flags it names
-(`adjudicates`), each by the `event_id` of that flag's own log entry — never by aggregate id, which
-a flag raised before R10.62 shares with its post — derived by the writer and never supplied by the
-moderator. A reviewing record (R10.61) SHALL name every flag of its category raised against the
-post before it, whether the flag entered the log as `flag.committed` (R10.62) or, earlier, as
-`flag.raised`. A record written by automated moderation SHALL name no flag: R10.61 lets no
-automated record decide one, and a flag it named would publish which post that flag concerns
+hard rejection (R10.26) or when it repeats any raiser, or 32 consecutive characters of any
+rationale, of a flag on the post (R10.62), since it lands in a leaf R6.51 serves verbatim; and the
+flags it names (`adjudicates`), each by the `event_id` of that flag's own log entry — never by
+aggregate id, which a flag raised before R10.62 shares with its post — derived by the writer and
+never supplied by the moderator. A reviewing record (R10.61) SHALL name every flag of its category
+raised against the post before it, whether the flag entered the log as `flag.committed` (R10.62) or,
+earlier, as `flag.raised`. A record written by automated moderation SHALL name no flag: R10.61 lets
+no automated record decide one, and a flag it named would publish which post that flag concerns
 (R10.62) on a quarantine nobody has reviewed. For the human arm, R10.37's "signed" is discharged by
 the record being a leaf (R6.46) under a head signed with the log key (R6.49): a human moderator
 holds no key, and a per-entry signature would add nothing against the party R6.25 exists to hold to
@@ -6163,7 +6164,10 @@ the table permits and whose moderator kind is not `automated`; a flag is *adjudi
 reviewing record names it. A flag SHALL be upheld when, and only while, the most recent reviewing
 record naming it quarantines or withholds its post. A record that is not reviewing SHALL NOT change
 whether any flag is adjudicated or upheld, in either direction, whatever it names, and a record
-carrying no `adjudicates` names no flag.
+carrying no `adjudicates` names no flag. A permitted quarantine or withholding SHALL hold its post
+in the category it cites until a permitted restore citing that category; a post SHALL be served
+only while nothing holds it; a dismissal holds and releases nothing. A writer SHALL refuse a
+restore in a category not holding the post, and a dismissal in one that does.
 
 | `moderator` | `quarantine` | `withhold` | `restore` | `dismiss` |
 |---|---|---|---|---|

@@ -178,9 +178,9 @@ at `cargo test`, so a branch could pass every gate a developer was told to run a
 CI on `cargo fmt` — which is what happened on 2026-09-09. That is defect **D16**'s shape (CI and
 the developer over the same tree, different command sets); D16's other half, that `dotnet test`
 here is Debug while CI runs `-c Release` and `NetArchTest` rules read IL that differs between them,
-is **still open on purpose** and is recorded in `IMPLEMENTATION_PLAN.md`. Do not close it by
-quietly adding `-c Release` to this block: choosing among the three options there is a CI-policy
-decision, not an edit. It has since been chosen — option 1, `Curia.Architecture.Tests` in both
+was **left open on purpose** and is recorded in `IMPLEMENTATION_PLAN.md`: choosing among the three
+options there is a CI-policy decision, not an edit, so it was not to be closed by quietly adding
+`-c Release` to this block. It has since been chosen — option 1, `Curia.Architecture.Tests` in both
 configurations in CI (the moderation stage's spec, Decision 23) — and waits on that one-line CI
 change. Until it lands, also run the architecture project in Debug, after a Debug build of the
 solution, before trusting a green CI.
