@@ -86,6 +86,57 @@ public interface IAuthorKeyRegistry
 }
 
 /// <summary>
+/// R4.31's decision, written once and applied by both adapters inside their own atomicity -- the
+/// shape <c>FlagDetailRules</c> set: the rule lives in the application layer, and an adapter
+/// contributes only the guarantee that nothing else touches the identifier while it applies it.
+/// </summary>
+public static class KeyEnrollment
+{
+    /// <summary>
+    /// What an enrollment of <paramref name="key"/> for <paramref name="agentId"/> does, given every
+    /// key the identifier already holds.
+    /// </summary>
+    /// <returns>
+    /// <c>Ok(null)</c>: register it -- the identifier holds no key. <c>Ok(existing)</c>: the
+    /// identifier already holds exactly this key; write nothing and return it, window unmoved. A
+    /// failure: refuse, and write nothing.
+    /// </returns>
+    public static Result<RegisteredKey?> Decide(string agentId, PublicKeyMaterial key, IReadOnlyList<RegisteredKey> held)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(held);
+
+        if (held.Count == 0) return Result<RegisteredKey?>.Ok(null);
+
+        foreach (var existing in held)
+        {
+            if (!string.Equals(existing.Key.Kid, key.Kid, StringComparison.Ordinal)) continue;
+
+            return SameMaterial(existing.Key, key)
+                ? Result<RegisteredKey?>.Ok(existing)
+                : Result<RegisteredKey?>.Fail(AuthorKeyErrors.MaterialImmutable(key.Kid));
+        }
+
+        return Result<RegisteredKey?>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+    }
+
+    /// <summary>
+    /// Same algorithm and same bytes. Compared by content: <see cref="PublicKeyMaterial"/> is a
+    /// record over a <see cref="ReadOnlyMemory{T}"/>, and a record's generated equality compares
+    /// that member by reference, which would call two identical keys read from two places different.
+    /// </summary>
+    public static bool SameMaterial(PublicKeyMaterial left, PublicKeyMaterial right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        return string.Equals(left.Alg, right.Alg, StringComparison.Ordinal)
+            && left.Public.Span.SequenceEqual(right.Public.Span);
+    }
+}
+
+/// <summary>
 /// Three distinct reasons a key does not resolve. Distinct because they mean different things to
 /// an operator: a <c>kid</c> that is not the agent's is a possible impersonation attempt; a key
 /// outside its window is ordinary lifecycle. Collapsing them would make the first invisible
@@ -93,6 +144,15 @@ public interface IAuthorKeyRegistry
 /// </summary>
 public static class AuthorKeyErrors
 {
+    /// <summary>The slug of <see cref="KidRegisteredToAnotherAgent"/>, for callers that match on it.</summary>
+    public const string KidRegisteredToAnotherAgentType = "curia/enroll/kid-already-registered";
+
+    /// <summary>The slug of <see cref="AlreadyEnrolled"/>, for callers that match on it.</summary>
+    public const string AlreadyEnrolledType = "curia/enroll/already-enrolled";
+
+    /// <summary>The slug of <see cref="MaterialImmutable"/>, for callers that match on it.</summary>
+    public const string MaterialImmutableType = "curia/keys/material-immutable";
+
     public static Error NotRegisteredToAgent(string agentId, string kid) => new(
         "curia/keys/not-registered-to-agent",
         "No key with that identifier is registered to that agent",
@@ -115,7 +175,29 @@ public static class AuthorKeyErrors
     /// else's", and only the second is an enrollment-time event an operator can act on.
     /// </summary>
     public static Error KidRegisteredToAnotherAgent(string agentId, string kid) => new(
-        "curia/enroll/kid-already-registered",
+        KidRegisteredToAnotherAgentType,
         "That key identifier is already registered to a different agent",
         $"agent={agentId} kid={kid}");
+
+    /// <summary>
+    /// R4.31: the identifier is enrolled, and not with this key. The detail says what to do,
+    /// because the commonest way to meet it is honest -- two agents that chose the same identifier --
+    /// and an agent told only "conflict" retries.
+    /// </summary>
+    public static Error AlreadyEnrolled(string agentId) => new(
+        AlreadyEnrolledType,
+        "That agent identifier is already enrolled with a different key",
+        $"agent={agentId}: nothing was registered. An enrolled identity gains a key only through " +
+        "R4.18, by rotation signed by a key it already holds or by recovery on its owner's " +
+        "re-authorization; a new identity needs an agent identifier of its own.");
+
+    /// <summary>
+    /// R4.32: this <c>kid</c> is registered with other bytes, and a registered key never changes.
+    /// Names the kid and never the material, as every refusal here names identifiers and nothing
+    /// the request carried beyond them.
+    /// </summary>
+    public static Error MaterialImmutable(string kid) => new(
+        MaterialImmutableType,
+        "That key identifier is already registered with different key material",
+        $"kid={kid}: nothing was registered. The key registered under a kid never changes (R4.32).");
 }
