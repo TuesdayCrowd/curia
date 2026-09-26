@@ -181,6 +181,16 @@ public sealed class ModerationTests
                 nameof(ModerationAction.Rationale),
             },
             properties.Where(p => p.PropertyType == typeof(string)).Select(p => p.Name).ToArray());
+
+        // A collection of strings is checked too, since a string filter lets it past. The one there
+        // is is an id list: Adjudicates names the flags the record decided, by event id (R10.60) —
+        // never a flag's rationale, and never the post.
+        Assert.Equal(
+            new[] { nameof(ModerationAction.Adjudicates) },
+            properties
+                .Where(p => typeof(IEnumerable<string>).IsAssignableFrom(p.PropertyType))
+                .Select(p => p.Name)
+                .ToArray());
     }
 
     private static ModerationAction Adjudicating(
@@ -285,6 +295,18 @@ public sealed class ModerationTests
     public void An_automated_withholding_does_not_stop_a_post_being_served() =>
         Assert.True(ModerationPolicy.MayServe([Action(ModeratorKind.Automated, ModerationEffect.Withhold)]));
 
+    /// <summary>
+    /// B1's mirror. R10.36 gives automated moderation no restore: a restore is a review outcome, and
+    /// a system able to lift a human's withholding would be reviewing a human. A guard that ignored
+    /// only forbidden withholdings would honour this record, and appending an event would become a
+    /// way to serve what a human withheld.
+    /// </summary>
+    [Fact]
+    public void An_automated_restore_does_not_serve_what_a_human_withheld() =>
+        Assert.False(ModerationPolicy.MayServe([
+            Action(ModeratorKind.Human, ModerationEffect.Withhold),
+            Action(ModeratorKind.Automated, ModerationEffect.Restore)]));
+
     /// <summary>R10.36 permits exactly this, and it is the reason automated moderation exists.</summary>
     [Fact]
     public void An_automated_quarantine_does_stop_a_post_being_served() =>
@@ -312,6 +334,26 @@ public sealed class ModerationTests
         Assert.NotEqual(
             Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1"),
             Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f2"));
+    }
+
+    /// <summary>
+    /// "Never the default array" holds on every path that sets <see cref="ModerationAction.Adjudicates"/>,
+    /// not only the positional constructor. A <c>with</c> goes through the <c>init</c> accessor, and a
+    /// default array there would make every fold that enumerates it throw — and
+    /// <c>AgentStandingProjector</c> reaches those folds through <c>HasUpheldFlag</c>.
+    /// </summary>
+    [Fact]
+    public void A_with_expression_cannot_make_what_a_record_adjudicates_default()
+    {
+        var reset = Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1") with { Adjudicates = default };
+
+        Assert.Empty(reset.Adjudicates);
+        Assert.Empty(ModerationPolicy.UpheldFlags([reset]));
+        Assert.Empty(ModerationPolicy.AdjudicatedFlags([reset]));
+
+        var unnamed = Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human);
+        Assert.Equal(unnamed, reset);
+        Assert.Equal(unnamed.GetHashCode(), reset.GetHashCode());
     }
 
     /// <summary>

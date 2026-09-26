@@ -211,8 +211,12 @@ public sealed record ModerationAction(
     ServerTimestamp At,
     ImmutableArray<string> Adjudicates)
 {
-    /// <summary>The flags this action adjudicates. Never the default array, so a fold can always enumerate it.</summary>
-    public ImmutableArray<string> Adjudicates { get; init; } = Adjudicates.IsDefault ? [] : Adjudicates;
+    /// <summary>
+    /// The flags this action adjudicates. Never the default array, so a fold can always enumerate it
+    /// — normalised in the accessor as well as the initializer, because a <c>with</c> or an object
+    /// initializer sets the property without passing through the positional constructor.
+    /// </summary>
+    public ImmutableArray<string> Adjudicates { get; init => field = value.IsDefault ? [] : value; } = Adjudicates.IsDefault ? [] : Adjudicates;
 
     /// <summary>
     /// Structural equality, spelled out for the reason <c>PostModeration</c> records: generated
