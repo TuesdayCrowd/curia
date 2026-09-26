@@ -165,7 +165,14 @@ public sealed class FlagDirectoryTests
         Assert.Equal([nameof(RaisedFlag.FlagId), nameof(RaisedFlag.PostId), nameof(RaisedFlag.RaisedBy)], strings);
     }
 
-    /// <summary>R11.9 (addendum): the directory rebuilds from both stores to the identical state, and a different log gives a different one.</summary>
+    /// <summary>
+    /// R11.9 (addendum): the directory rebuilds from both stores to the identical state, and a
+    /// different log gives a different one.
+    ///
+    /// <para>The rebuild is a fresh read of both stores, with the private rows handed over in reverse,
+    /// so a join that depended on row order or on anything but its inputs would diverge. One committed
+    /// entry has no row, so the skip count R11.31 asks the drill to assert on is not empty.</para>
+    /// </summary>
     [Fact]
     public async Task R11_9_TheDirectoryRebuildsFromBothStores()
     {
@@ -174,19 +181,22 @@ public sealed class FlagDirectoryTests
         var details = new InMemoryFlagDetailStore();
 
         await CommitAsync(store, details, "01JFLAG000000000000000001", FlagKind.Spam, ct);
+        await CommitAsync(store, details, "01JFLAG000000000000000002", FlagKind.Injection, ct, rationale: "a second reason");
+        await CommitAsync(store, details, "01JFLAG000000000000000003", FlagKind.Spam, ct, storeDetail: false);
         await RaiseLegacyAsync(store, "01JLEGACY00000000000000001", FlagKind.Injection, ct);
 
-        var log = await LogAsync(store, ct);
-        var rows = await DetailsAsync(details, ct);
-        var first = FlagDirectory.Join(log, rows);
-        var second = FlagDirectory.Join(log, rows);
+        var first = FlagDirectory.Join(await LogAsync(store, ct), await DetailsAsync(details, ct));
 
-        Assert.Equal(2, first.Flags.Length);
+        var reread = await DetailsAsync(details, ct);
+        var second = FlagDirectory.Join(await LogAsync(store, ct), [.. reread.Reverse()]);
+
+        Assert.Equal(3, first.Flags.Length);
+        Assert.Equal(1, first.Skipped[FlagDirectory.SkippedNoDetail]);
         Assert.True(first.Flags.SequenceEqual(second.Flags));
         Assert.True(first.Skipped.SequenceEqual(second.Skipped));
 
         // The negative control: a longer log must not rebuild to the same directory.
-        await CommitAsync(store, details, "01JFLAG000000000000000002", FlagKind.Duplicate, ct, rationale: "a repeat");
+        await CommitAsync(store, details, "01JFLAG000000000000000004", FlagKind.Duplicate, ct, rationale: "a repeat");
         Assert.False(first.Flags.SequenceEqual(FlagDirectory.Join(await LogAsync(store, ct), await DetailsAsync(details, ct)).Flags));
     }
 }

@@ -154,22 +154,43 @@ public sealed class FlagProjectorTests
     /// category, was reviewed by nobody. Keyed to the category, that flag was upheld the instant it was
     /// raised. Keyed to the record that names it, it is not upheld until a record does. The first half
     /// is also Decision 16: a proactive withholding moves no one's standing.
+    ///
+    /// <para>The fold reads records only, so lateness is observed where the flag is: in
+    /// <see cref="FlagDirectory"/>, joined over the same log. The directory must list the flag, on this
+    /// post, in the withholding's category, raised after it. Without that, the test would pass for a
+    /// flag never raised, or raised first.</para>
     /// </summary>
     [Fact]
     public async Task R10_61_AFlagRaisedAfterAWithholdingIsNotUpheldUntilARecordNamesIt()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct);
+        clock.Advance(TimeSpan.FromMinutes(1));
         await RaiseLegacyAsync(store, Flag, FlagKind.Spam, ct);
 
-        var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
+        var log = await LogAsync(store, ct);
+        var post = FlagProjector.Fold(log)[Post];
+        var withholding = Assert.Single(post.History);
+        var late = Assert.Single(FlagDirectory.Join(log, []).Flags);
+
+        Assert.Equal((Flag, Post, withholding.Category), (late.FlagId, late.PostId, late.Kind));
+        Assert.True(late.At.Value > withholding.At.Value, "the flag must be raised after the withholding");
+
         Assert.False(post.MayServe);
         Assert.False(post.HasUpheldFlag);
+        Assert.DoesNotContain(late.FlagId, post.UpheldFlags);
+        Assert.DoesNotContain(late.FlagId, ModerationPolicy.AdjudicatedFlags(post.History));
 
         await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Spam, ModerationEffect.Withhold, ct, ModeratorKind.Human, true, Flag);
-        Assert.Equal([Flag], FlagProjector.Fold(await LogAsync(store, ct))[Post].UpheldFlags);
+
+        log = await LogAsync(store, ct);
+        post = FlagProjector.Fold(log)[Post];
+        Assert.Equal(late, Assert.Single(FlagDirectory.Join(log, []).Flags));
+        Assert.Equal([late.FlagId], post.UpheldFlags);
+        Assert.Equal([late.FlagId], ModerationPolicy.AdjudicatedFlags(post.History));
     }
 
     /// <summary>

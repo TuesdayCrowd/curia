@@ -1895,7 +1895,14 @@ public sealed class FlagDirectoryTests
         Assert.Equal([nameof(RaisedFlag.FlagId), nameof(RaisedFlag.PostId), nameof(RaisedFlag.RaisedBy)], strings);
     }
 
-    /// <summary>R11.9 (addendum): the directory rebuilds from both stores to the identical state, and a different log gives a different one.</summary>
+    /// <summary>
+    /// R11.9 (addendum): the directory rebuilds from both stores to the identical state, and a
+    /// different log gives a different one.
+    ///
+    /// <para>The rebuild is a fresh read of both stores, with the private rows handed over in reverse,
+    /// so a join that depended on row order or on anything but its inputs would diverge. One committed
+    /// entry has no row, so the skip count R11.31 asks the drill to assert on is not empty.</para>
+    /// </summary>
     [Fact]
     public async Task R11_9_TheDirectoryRebuildsFromBothStores()
     {
@@ -1904,19 +1911,22 @@ public sealed class FlagDirectoryTests
         var details = new InMemoryFlagDetailStore();
 
         await CommitAsync(store, details, "01JFLAG000000000000000001", FlagKind.Spam, ct);
+        await CommitAsync(store, details, "01JFLAG000000000000000002", FlagKind.Injection, ct, rationale: "a second reason");
+        await CommitAsync(store, details, "01JFLAG000000000000000003", FlagKind.Spam, ct, storeDetail: false);
         await RaiseLegacyAsync(store, "01JLEGACY00000000000000001", FlagKind.Injection, ct);
 
-        var log = await LogAsync(store, ct);
-        var rows = await DetailsAsync(details, ct);
-        var first = FlagDirectory.Join(log, rows);
-        var second = FlagDirectory.Join(log, rows);
+        var first = FlagDirectory.Join(await LogAsync(store, ct), await DetailsAsync(details, ct));
 
-        Assert.Equal(2, first.Flags.Length);
+        var reread = await DetailsAsync(details, ct);
+        var second = FlagDirectory.Join(await LogAsync(store, ct), [.. reread.Reverse()]);
+
+        Assert.Equal(3, first.Flags.Length);
+        Assert.Equal(1, first.Skipped[FlagDirectory.SkippedNoDetail]);
         Assert.True(first.Flags.SequenceEqual(second.Flags));
         Assert.True(first.Skipped.SequenceEqual(second.Skipped));
 
         // The negative control: a longer log must not rebuild to the same directory.
-        await CommitAsync(store, details, "01JFLAG000000000000000002", FlagKind.Duplicate, ct, rationale: "a repeat");
+        await CommitAsync(store, details, "01JFLAG000000000000000004", FlagKind.Duplicate, ct, rationale: "a repeat");
         Assert.False(first.Flags.SequenceEqual(FlagDirectory.Join(await LogAsync(store, ct), await DetailsAsync(details, ct)).Flags));
     }
 }
@@ -2406,22 +2416,43 @@ public sealed class FlagProjectorTests
     /// category, was reviewed by nobody. Keyed to the category, that flag was upheld the instant it was
     /// raised. Keyed to the record that names it, it is not upheld until a record does. The first half
     /// is also Decision 16: a proactive withholding moves no one's standing.
+    ///
+    /// <para>The fold reads records only, so lateness is observed where the flag is: in
+    /// <see cref="FlagDirectory"/>, joined over the same log. The directory must list the flag, on this
+    /// post, in the withholding's category, raised after it. Without that, the test would pass for a
+    /// flag never raised, or raised first.</para>
     /// </summary>
     [Fact]
     public async Task R10_61_AFlagRaisedAfterAWithholdingIsNotUpheldUntilARecordNamesIt()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct);
+        clock.Advance(TimeSpan.FromMinutes(1));
         await RaiseLegacyAsync(store, Flag, FlagKind.Spam, ct);
 
-        var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
+        var log = await LogAsync(store, ct);
+        var post = FlagProjector.Fold(log)[Post];
+        var withholding = Assert.Single(post.History);
+        var late = Assert.Single(FlagDirectory.Join(log, []).Flags);
+
+        Assert.Equal((Flag, Post, withholding.Category), (late.FlagId, late.PostId, late.Kind));
+        Assert.True(late.At.Value > withholding.At.Value, "the flag must be raised after the withholding");
+
         Assert.False(post.MayServe);
         Assert.False(post.HasUpheldFlag);
+        Assert.DoesNotContain(late.FlagId, post.UpheldFlags);
+        Assert.DoesNotContain(late.FlagId, ModerationPolicy.AdjudicatedFlags(post.History));
 
         await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Spam, ModerationEffect.Withhold, ct, ModeratorKind.Human, true, Flag);
-        Assert.Equal([Flag], FlagProjector.Fold(await LogAsync(store, ct))[Post].UpheldFlags);
+
+        log = await LogAsync(store, ct);
+        post = FlagProjector.Fold(log)[Post];
+        Assert.Equal(late, Assert.Single(FlagDirectory.Join(log, []).Flags));
+        Assert.Equal([late.FlagId], post.UpheldFlags);
+        Assert.Equal([late.FlagId], ModerationPolicy.AdjudicatedFlags(post.History));
     }
 
     /// <summary>
