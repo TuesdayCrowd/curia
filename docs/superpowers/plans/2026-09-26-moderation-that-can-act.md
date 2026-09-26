@@ -2604,6 +2604,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Curia.Application.Ports;
+using Curia.Application.Projections;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -2612,7 +2614,7 @@ namespace Curia.Api.Tests;
 
 /// <summary>
 /// R10.62, R10.44 and errata G3's holding, as a gate: no surface the Forum serves hands a third
-/// party a flag's rationale, its raiser, or — before a moderator adjudicates it — the post it concerns.
+/// party a flag's rationale, its raiser, its salt, or — before a moderator adjudicates it — the post it concerns.
 ///
 /// <para><b>The scope is the registrations, never a list beside the test.</b> The two flag-listing
 /// routes were held to R10.44 by name, and the log route served every flag in full the whole time
@@ -2620,6 +2622,10 @@ namespace Curia.Api.Tests;
 /// Every route comes from the host's <see cref="EndpointDataSource"/>; a route this gate cannot drive
 /// is a failure naming it (R14.9's discipline); and a route it deliberately does not drive is named in
 /// <see cref="WriteRoutes"/>, where a reviewer can see it.</para>
+///
+/// <para><b>The rules are per leaf, never per route or per response.</b> Every JSON object with an
+/// <c>event_type</c> is a leaf, on whichever route serves it, and each is judged alone: a page of
+/// events holding the raiser's enrolment exempts that one leaf and nothing beside it.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -2631,6 +2637,7 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
     private const string TokenEndpoint = "http://localhost/oauth/token";
     private const string PostsUrl = "http://localhost/v1/posts";
     private const string EntriesRoute = "/v1/log/entries/{index:long}";
+    private const string RaisedFlagsRoute = "/v1/flags";
 
     /// <summary>Routes that write rather than read. A new route is placed here or given a driver, never neither.</summary>
     private static readonly HashSet<string> WriteRoutes = new(StringComparer.Ordinal)
@@ -2696,12 +2703,13 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
     }
 
     /// <summary>One request, anonymously or as <paramref name="who"/>; DPoP's <c>htu</c> excludes the query (RFC 9449 §4.2).</summary>
-    private async Task<string> FetchAsync(HttpClient client, string url, object? body, Party? who, CancellationToken ct)
+    private async Task<(HttpStatusCode Status, string Body)> FetchAsync(
+        HttpClient client, string url, object? body, Party? who, CancellationToken ct)
     {
         if (body is not null)
         {
             using var posted = await client.PostAsJsonAsync(new Uri(url, UriKind.Relative), body, ct);
-            return await posted.Content.ReadAsStringAsync(ct);
+            return (posted.StatusCode, await posted.Content.ReadAsStringAsync(ct));
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(url, UriKind.Relative));
@@ -2712,7 +2720,7 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
         }
 
         using var response = await client.SendAsync(request, ct);
-        return await response.Content.ReadAsStringAsync(ct);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
     }
 
     private static async Task<long> TreeSizeAsync(HttpClient client, CancellationToken ct)
@@ -2726,8 +2734,12 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
         throw new InvalidOperationException("the log did not end within 100,000 entries; this gate would not finish");
     }
 
-    /// <summary>A question, and a flag against it from an agent that authors nothing, carrying a nonce rationale.</summary>
-    private sealed record Flagged(Party Author, Party Raiser, Party Bystander, string Board, string PostId, string Digest, string Nonce);
+    /// <summary>
+    /// A question, and a flag against it from an agent that authors nothing, carrying a nonce rationale.
+    /// <paramref name="Salt"/> is read back from the private store; null when no row holds the flag.
+    /// </summary>
+    private sealed record Flagged(
+        Party Author, Party Raiser, Party Bystander, string Board, string PostId, string Digest, string Nonce, string? Salt);
 
     private async Task<Flagged> FlagAQuestionAsync(HttpClient client, CancellationToken ct)
     {
@@ -2758,16 +2770,141 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
             forum.Now, ct, contentType: "application/json");
         Assert.Equal(HttpStatusCode.Created, raised.StatusCode);
 
-        return new Flagged(author, raiser, bystander, board, postId, digest, nonce);
+        // The salt is as private as the rationale (R10.62), and only the store it was written to knows it.
+        var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        var salt = rows.SingleOrDefault(r =>
+            string.Equals(r.RaisedBy, raiser.Agent.AgentId, StringComparison.Ordinal)
+            && string.Equals(r.Rationale, nonce, StringComparison.Ordinal))?.Salt;
+
+        return new Flagged(author, raiser, bystander, board, postId, digest, nonce, salt);
+    }
+
+    /// <summary>
+    /// One leaf of a response: a JSON object carrying an <c>event_type</c>, with every name and value
+    /// under it that no nested leaf claims. The entry with a null type holds everything outside every
+    /// leaf, and a body that is not JSON is that entry whole.
+    /// </summary>
+    private sealed record Leaf(string? EventType, string? AggregateId, List<string> Text)
+    {
+        public bool Mentions(string value) => Text.Exists(t => t.Contains(value, StringComparison.Ordinal));
+    }
+
+    private static List<Leaf> Leaves(string served)
+    {
+        var outside = new Leaf(null, null, []);
+        var leaves = new List<Leaf> { outside };
+
+        try
+        {
+            using var document = JsonDocument.Parse(served);
+            Walk(document.RootElement, outside, leaves);
+        }
+        catch (JsonException)
+        {
+            outside.Text.Add(served);
+        }
+
+        return leaves;
+    }
+
+    private static void Walk(JsonElement element, Leaf within, List<Leaf> leaves)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (element.TryGetProperty("event_type", out var type) && type.ValueKind == JsonValueKind.String)
+                {
+                    var aggregate = element.TryGetProperty("aggregate_id", out var id) && id.ValueKind == JsonValueKind.String
+                        ? id.GetString()
+                        : null;
+
+                    within = new Leaf(type.GetString(), aggregate, []);
+                    leaves.Add(within);
+                }
+
+                foreach (var member in element.EnumerateObject())
+                {
+                    within.Text.Add(member.Name);
+                    Walk(member.Value, within, leaves);
+                }
+
+                break;
+
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                    Walk(item, within, leaves);
+
+                break;
+
+            case JsonValueKind.String:
+                within.Text.Add(element.GetString()!);
+                break;
+
+            default:
+                within.Text.Add(element.GetRawText());
+                break;
+        }
+    }
+
+    /// <summary>
+    /// What one response discloses, judged leaf by leaf whichever route served it: the rationale or the
+    /// salt anywhere; the raiser anywhere but its own <c>agent.enrolled</c> leaf; and the post inside
+    /// any flag's own leaf.
+    /// </summary>
+    private static IEnumerable<string> Disclosures(List<Leaf> leaves, Flagged flagged)
+    {
+        var raiser = flagged.Raiser.Agent.AgentId;
+
+        foreach (var leaf in leaves)
+        {
+            if (leaf.Mentions(flagged.Nonce))
+                yield return "served the flag's rationale";
+
+            if (flagged.Salt is not null && leaf.Mentions(flagged.Salt))
+                yield return "served the flag's salt";
+
+            var ownEnrolment = string.Equals(leaf.EventType, AgentStandingProjector.EnrolledType, StringComparison.Ordinal)
+                && string.Equals(leaf.AggregateId, raiser, StringComparison.Ordinal);
+            if (leaf.Mentions(raiser) && !ownEnrolment)
+                yield return "served the raiser's identity";
+
+            // R10.62: the post stays out of the flag's own leaf, whatever else becomes public later --
+            // flag.committed, and any flag type after it.
+            if (leaf.EventType is { } eventType && eventType.StartsWith("flag.", StringComparison.Ordinal) && leaf.Mentions(flagged.PostId))
+                yield return "served the flagged post's id in the flag's own leaf";
+        }
+    }
+
+    /// <summary>The entries a flag listing holds, or null when the body is not one.</summary>
+    private static int? ListedFlags(string served)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(served);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("flags", out var flags)
+                && flags.ValueKind == JsonValueKind.Array
+                    ? flags.GetArrayLength()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>What one sweep of every registered surface met.</summary>
+    /// <param name="Leaks">Each disclosure, and a private fact no surface could be checked for.</param>
+    /// <param name="BystanderListed">Whether the uninvolved agent was answered <c>200</c> by <c>GET /v1/flags</c>: its credential worked.</param>
     private sealed record Sweep(
-        List<string> Undriven, List<string> Leaks, int Fetched, long TreeSize, bool SawPostLeaf, List<string> FlagLeaves, string? RecordLeaf);
+        List<string> Undriven, List<string> Leaks, int Fetched, long TreeSize, bool SawPostLeaf, List<string> FlagLeaves, string? RecordLeaf,
+        bool BystanderListed);
 
     /// <summary>
     /// Drives every registered read surface, anonymously and as the bystander, and records each
-    /// response that serves the flag's rationale, its raiser, or, in the flag's own leaf, its post.
+    /// disclosure <see cref="Disclosures"/> finds, and each flag listing that shows either caller any
+    /// entry: neither raised a flag nor wrote a flagged post, so R7.18's <c>(own)</c> leaves them none.
     /// </summary>
     private async Task<Sweep> SweepAsync(HttpClient client, Flagged flagged, CancellationToken ct)
     {
@@ -2778,6 +2915,10 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
         var sawPostLeaf = false;
         var flagLeaves = new List<string>();
         string? recordLeaf = null;
+        var bystanderListed = false;
+
+        if (flagged.Salt is null)
+            leaks.Add("no private row holds the flag (R10.62, R11.32), so no surface could be checked for its salt");
 
         foreach (var (method, route) in Registered())
         {
@@ -2791,47 +2932,54 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
                 continue;
             }
 
+            var listing = method == "GET" && route.EndsWith("/flags", StringComparison.Ordinal);
+
             foreach (var (url, body) in requests)
             {
                 foreach (var who in (Party?[])[null, flagged.Bystander])
                 {
                     if (body is not null && who is not null) continue; // the batch is an anonymous read
 
-                    var served = await FetchAsync(client, url, body, who, ct);
+                    var (status, served) = await FetchAsync(client, url, body, who, ct);
                     fetched++;
                     var reader = who is null ? "an anonymous caller" : "an uninvolved agent";
+                    var leaves = Leaves(served);
 
-                    if (served.Contains(flagged.Nonce, StringComparison.Ordinal))
-                        leaks.Add($"{key} served the flag's rationale to {reader} ({url})");
+                    foreach (var disclosure in Disclosures(leaves, flagged).Distinct(StringComparer.Ordinal))
+                        leaks.Add($"{key} {disclosure} to {reader} ({url})");
 
-                    var ownEnrolment = served.Contains("\"event_type\":\"agent.", StringComparison.Ordinal);
-                    if (served.Contains(flagged.Raiser.Agent.AgentId, StringComparison.Ordinal) && !ownEnrolment)
-                        leaks.Add($"{key} served the raiser's identity to {reader} ({url})");
+                    if (listing)
+                    {
+                        var listed = ListedFlags(served);
+                        if (listed > 0)
+                            leaks.Add($"{key} served the flag listing to {reader} holding entries ({listed}), where a caller that raised no flag and wrote no flagged post is owed none ({url})");
 
+                        if (status == HttpStatusCode.OK && listed is null)
+                            undriven.Add($"{key} (answered 200 with a body this gate cannot read as a flag listing)");
+
+                        if (route == RaisedFlagsRoute && who is not null && status == HttpStatusCode.OK)
+                            bystanderListed = true;
+                    }
+
+                    // The log walk's own bookkeeping: what it met, kept as the whole entry served.
                     if (route == EntriesRoute)
                     {
-                        if (served.Contains("\"post.accepted\"", StringComparison.Ordinal)
-                            && served.Contains(flagged.PostId, StringComparison.Ordinal))
+                        if (leaves.Exists(l => string.Equals(l.EventType, PostProjector.PostAcceptedType, StringComparison.Ordinal)
+                            && l.Mentions(flagged.PostId)))
                             sawPostLeaf = true;
 
-                        if (served.Contains("\"event_type\":\"flag.", StringComparison.Ordinal))
-                        {
+                        if (leaves.Exists(l => l.EventType is { } t && t.StartsWith("flag.", StringComparison.Ordinal)))
                             flagLeaves.Add(served);
 
-                            // R10.62: the post stays out of the flag's own leaf, whatever else becomes public later.
-                            if (served.Contains(flagged.PostId, StringComparison.Ordinal))
-                                leaks.Add($"{key} served the flagged post's id in the flag's own leaf to {reader} ({url})");
-                        }
-
-                        if (served.Contains("\"event_type\":\"moderation.applied\"", StringComparison.Ordinal)
-                            && served.Contains(flagged.PostId, StringComparison.Ordinal))
+                        if (leaves.Exists(l => string.Equals(l.EventType, FlagProjector.ModerationAppliedType, StringComparison.Ordinal)
+                            && l.Mentions(flagged.PostId)))
                             recordLeaf = served;
                     }
                 }
             }
         }
 
-        return new Sweep(undriven, leaks, fetched, treeSize, sawPostLeaf, flagLeaves, recordLeaf);
+        return new Sweep(undriven, leaks, fetched, treeSize, sawPostLeaf, flagLeaves, recordLeaf, bystanderListed);
     }
 
     /// <summary>Non-vacuity, each in its own assertion: a failure here is a defect in this gate, not in the Forum.</summary>
@@ -2843,6 +2991,9 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
         Assert.True(sweep.Fetched >= 2 * sweep.TreeSize, $"the gate fetched {sweep.Fetched} responses over a log of {sweep.TreeSize}; it cannot have walked it");
         Assert.True(sweep.SawPostLeaf, "the log walk never met the question's own leaf -- a defect in this gate, not in the Forum");
         Assert.True(sweep.FlagLeaves.Count > 0, "the log walk never met a flag's leaf -- a defect in this gate, not in the Forum");
+        Assert.True(sweep.BystanderListed,
+            "GET /v1/flags never answered the uninvolved agent 200 -- its credential failed, so every read made " +
+            "as it met a refusal, and half this gate proved nothing");
     }
 
     [Fact]
@@ -2869,7 +3020,8 @@ dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedNa
 
 Expected: FAIL.
 - The message names `GET /v1/log/entries/{index:long} served the flag's rationale to an anonymous caller`, `… served the raiser's identity …` and `… served the flagged post's id in the flag's own leaf …`. Every leak line names the route, so each of Task 11's cases 4a–4c is named by it too (spec §4.4).
-- The four non-vacuity assertions pass. If `undriven` is non-empty, a route exists that this plan did not see: add a driver for it or a `WriteRoutes` entry, whichever it is, and say which in the commit.
+- It also names `no private row holds the flag (R10.62, R11.32), so no surface could be checked for its salt`: until Step 5 no private row exists, and the gate says so rather than skip the salt.
+- The five non-vacuity assertions pass. If `undriven` is non-empty, a route exists that this plan did not see: add a driver for it or a `WriteRoutes` entry, whichever it is, and say which in the commit.
 
 - [ ] **Step 3: Write the writer's failing tests**
 
@@ -3342,7 +3494,8 @@ with
 
 ```csharp
             $"The rationale and who raised the flag are never published: the Forum's log records only " +
-            $"that a flag of this kind was raised and when (R10.62). The flag removes nothing by itself; " +
+            $"that a flag of this kind was raised and when, and which post it concerns once a moderator " +
+            $"reviews it, whether upheld or dismissed (R10.62). The flag removes nothing by itself; " +
             $"a moderator decides."));
 ```
 

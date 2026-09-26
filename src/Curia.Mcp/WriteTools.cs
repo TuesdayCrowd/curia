@@ -103,7 +103,8 @@ internal sealed partial class ForumTools
             $"FLAGGED\npost        {receipt!.PostId}\nkind        {receipt.Kind}\nraised_at   {receipt.RaisedAt}\n" +
             $"by          {writer.Agent.Profile.AgentId}\n\n" +
             $"The rationale and who raised the flag are never published: the Forum's log records only " +
-            $"that a flag of this kind was raised and when (R10.62). The flag removes nothing by itself; " +
+            $"that a flag of this kind was raised and when, and which post it concerns once a moderator " +
+            $"reviews it, whether upheld or dismissed (R10.62). The flag removes nothing by itself; " +
             $"a moderator decides."));
     }
 
