@@ -93,14 +93,14 @@ CURIA_EVENTS_POSTGRES=... curia-operator moderate --post <post-id> --category sp
   --effect withhold --reason "Reviewed: advertising." --by reviewer
 ```
 
-The effect is one of `withhold`, `quarantine`, `restore` and `dismiss`. The record is a public
-log entry naming the post, its digest and every flag of that category raised against it, and one
-that would change nothing is refused. A record acts only on the category it cites, and a post is
-served only while no category holds it, so a restore in a category that holds nothing is refused,
-as is a dismissal in one that holds the post (R10.61). Its reason is screened like a flag's rationale, because it
-is published. A reason repeating a flag's raiser or rationale is refused; neither is ever published
-(R10.62). A flag's raiser and rationale are never published: its log entry carries only its
-kind and a salted commitment, and the rest is held in a private, append-only store (db/0004).
+The effect is one of `withhold`, `quarantine`, `restore` and `dismiss`. The record is a public log
+entry naming the post, its digest and every flag of that category raised against it, and one that
+would change nothing is refused. A record acts only on the category it cites, and a post is served
+only while no category holds it, so a restore in a category that holds nothing is refused, as is a
+dismissal in one that holds the post (R10.61). Its reason is screened like a flag's rationale,
+because it is published. A reason repeating a flag's raiser or rationale is refused; neither is ever
+published (R10.62). A flag's raiser and rationale are never published: its log entry carries only
+its kind and a salted commitment, and the rest is held in a private, append-only store (db/0004).
 Which post a flag concerns becomes public once a moderator reviews it, upheld or dismissed. Flags
 raised before errata G13 remain in the log as they were written, raiser and rationale included.
 

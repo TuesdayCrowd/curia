@@ -781,6 +781,122 @@ public sealed class ApplyModerationTests
     }
 
     /// <summary>
+    /// U+FFFE, a noncharacter .NET's ICU-backed NFKC throws on, in a flag's rationale. Flags are bound
+    /// without ADMIT, so one can reach the private store, which is append-only: the guard's derived copy
+    /// maps it to U+FFFD instead of throwing, so the post can still be moderated, and a genuine repeat of
+    /// the rationale is still refused.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ANoncharacterInARationaleDoesNotStopTheRecord()
+    {
+        const string rationale = "Advertising \uFFFE: this post is an advert for a storefront, with coupon codes.";
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, Reporter, rationale, ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var repeat = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld: \"an advert for a storefront, with coupon codes\".", Operator, ct);
+
+        Assert.False(repeat.TryGetValue(out _, out var error));
+        Assert.Equal("field=rationale", error!.Detail);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+
+        var recorded = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct);
+
+        Assert.True(recorded.TryGetValue(out _, out var recordError), recordError?.Type + " " + recordError?.Detail);
+        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// U+FFFE in a raiser, which enrolment and the flag route both accept. The record is appended, and
+    /// a reason repeating that raiser, noncharacter and all, is still refused.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ANoncharacterInARaiserDoesNotStopTheRecord()
+    {
+        const string raiser = "https://agents.example/rep\uFFFEorter";
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, raiser, "Advertising, not a question.", ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var repeat = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + raiser + " reported.", Operator, ct);
+
+        Assert.False(repeat.TryGetValue(out _, out var error));
+        Assert.Equal("field=raised_by", error!.Detail);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+
+        var recorded = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct);
+
+        Assert.True(recorded.TryGetValue(out _, out var recordError), recordError?.Type + " " + recordError?.Detail);
+        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// A whole token's boundary is any character that cannot continue an id. A CJK character written
+    /// against the raiser, as Chinese prose writes it, is not one: a reason that runs U+7531, the raiser,
+    /// then U+4E3E U+62A5 U+3002 still names the raiser.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ACjkNeighbourDoesNotHideARaiser()
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(
+            Reporter, "\u7531" + Reporter + "\u4E3E\u62A5\u3002", TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("field=raised_by", error!.Detail);
+        Assert.Equal(before, after);
+    }
+
+    /// <summary>An accented letter written against the raiser does not continue it either.</summary>
+    [Fact]
+    public async Task R10_62_AnAccentedNeighbourDoesNotHideARaiser()
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(
+            Reporter, "Upheld, as " + Reporter + "\u00E9 reported.", TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("field=raised_by", error!.Detail);
+        Assert.Equal(before, after);
+    }
+
+    /// <summary>
+    /// The URI unreserved characters <c>-._~</c> continue an id when an ASCII letter or digit follows
+    /// them: <c>agents.example/rep-2</c> is another id, not a repeat of <c>https://agents.example/rep</c>.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ARaiserContinuedByAnIdCharacterIsNotARepeat()
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(
+            "https://agents.example/rep",
+            "Reviewed: the pattern agents.example/rep-2 described elsewhere applies here too.",
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
+        Assert.Equal(before + 1, after);
+    }
+
+    /// <summary>
+    /// A hidden character — a zero-width space or a soft hyphen — inside a raiser, in the reason or in
+    /// the raiser's own id, does not hide it: both derived copies drop what
+    /// <c>HiddenCharacters</c> names before they are compared.
+    /// </summary>
+    [Theory]
+    [InlineData("https://agents.example/reporter", "Upheld, as https://agents.exa\u200Bmple/reporter reported.")]
+    [InlineData("https://agents.example/reporter", "Upheld, as agents.example/rep\u00ADorter reported.")]
+    [InlineData("https://agents.exa\u00ADmple/reporter", "Upheld, as https://agents.example/reporter reported.")]
+    public async Task R10_62_AHiddenCharacterInsideARaiserDoesNotHideIt(string raiser, string reason)
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(raiser, reason, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("field=raised_by", error!.Detail);
+        Assert.Equal(before, after);
+    }
+
+    /// <summary>
     /// R10.39 counts records, so a record decided on a view another record has since overtaken is
     /// refused by the store, not appended: the expected version comes from the read the decision was
     /// made on. Two operators withholding the same flag at once leave one record, not two.

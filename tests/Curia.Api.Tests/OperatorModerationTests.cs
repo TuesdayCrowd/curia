@@ -203,6 +203,31 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         Assert.DoesNotContain("\u202e", stdout, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The final re-review's Critical, end to end. A flag's body is bound without ADMIT, so a rationale
+    /// carrying U+FFFE — a noncharacter .NET's ICU-backed NFKC throws on — reaches the private store,
+    /// which is append-only. The operator's reason guard reads every flag on the post, so before its
+    /// derived copy mapped that character, every <c>moderate</c> on the post threw. Now the record lands.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ANoncharacterInAFlagDoesNotStopItsPostBeingModerated()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var author = await PartyAsync(client, "op-author", ct);
+        var raiser = await PartyAsync(client, "op-raiser", ct);
+        var (postId, _) = await AskAsync(client, author, ct);
+        await FlagAsync(client, raiser, postId, "spam", "Advertising \uFFFE here.", ct);
+
+        var (exit, stdout, stderr) = await RunAsync(Moderate(postId, "withhold"), ct);
+
+        Assert.True(exit == ExitCode.Ok, stderr);
+        Assert.Contains("adjudicates  1: ", stdout, StringComparison.Ordinal);
+
+        using var read = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
+    }
+
     /// <summary>R10.39 counts records: the same record twice is refused by name, and the post stays as the first left it.</summary>
     [Fact]
     public async Task R10_39_ARepeatedRecordIsRefusedByName()
@@ -395,7 +420,9 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
             }
         }
 
-        var (exit, stdout, stderr) = await RunAsync(["flags", "--post", postId], ct);
+        // Under --raisers, so the raiser assertion below can fail: a listing that showed a flag whose row
+        // no longer opens its commitment would print that flag's raiser here.
+        var (exit, stdout, stderr) = await RunAsync(["flags", "--post", postId, "--raisers"], ct);
 
         Assert.True(exit == ExitCode.Ok, stderr);
         Assert.Contains("note       the skipped counts below cover every post, not only --post", stdout, StringComparison.Ordinal);

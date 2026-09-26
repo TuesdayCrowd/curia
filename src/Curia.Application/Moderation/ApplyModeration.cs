@@ -270,15 +270,22 @@ public static class ModerationRecordErrors
 ///
 /// <para><b>Compared on derived copies, which are discarded.</b> The reason is refused, never
 /// repaired (R10.26); nothing here is written anywhere. Each text is normalized the same way before
-/// comparing — NFKC, lower-cased invariantly, each run of white space collapsed to one space — so a
-/// change of case, of spacing or of compatibility form does not get a repeat through.</para>
+/// comparing: every hidden character (<see cref="HiddenCharacters"/>) dropped, every character NFKC
+/// cannot take made U+FFFD, then NFKC, lower-cased invariantly, each run of white space collapsed to
+/// one space. So a change of case, of spacing or of compatibility form, or a zero-width character
+/// inside a raiser, does not get a repeat through; and a noncharacter in a flag, which reaches the
+/// append-only private store because a flag's body never passes ADMIT, cannot make every record on
+/// its post throw.</para>
 ///
 /// <para><b>A raiser is matched as a whole token, in a form of at least <see cref="RaiserFloor"/>
 /// characters without white space</b> — the raiser, and the raiser without its <c>scheme://</c>, each
-/// judged on its own. Enrolment accepts any non-blank id (D4), so without the floor a one-character
-/// id, matched inside ordinary words, would make its post unmoderatable; every honest id shape is
-/// longer, and a raiser below the floor leaves only itself unprotected. A form with a letter or digit
-/// directly beside it in the reason is part of a longer word or id, not a repeat.</para>
+/// judged on its own. A whole token is an occurrence no character on either side continues as an id:
+/// an ASCII letter or digit continues one, and so does a run of the URI unreserved characters
+/// <c>-._~</c> that an ASCII letter or digit follows, reading away from the match; anything else,
+/// a CJK or accented letter included, is a boundary. Enrolment accepts any non-blank id (D4), and a
+/// short id that is itself a word — <c>e</c>, <c>spam</c> — would otherwise refuse every reason using
+/// the word and make its post unmoderatable. A raiser below the floor leaves only itself
+/// unprotected.</para>
 ///
 /// <para><b>A rationale shorter than <see cref="QuoteLength"/> is not checked</b>, so a one-word
 /// rationale such as "spam" never blocks a reason; one at least that long is checked in every window
@@ -327,16 +334,26 @@ internal static class FlagDisclosure
     }
 
     /// <summary>
-    /// NFKC, lower-cased invariantly, each run of white space collapsed to one space. An unpaired
-    /// surrogate, which NFKC cannot take, becomes U+FFFD first, as it does in the UTF-8 SCREEN reads.
+    /// The derived copy every comparison reads. First, every hidden character is dropped and every
+    /// character NFKC cannot take becomes U+FFFD: an unpaired surrogate, and every Unicode noncharacter.
+    /// Measured on .NET 10's ICU-backed normalization, only U+FFFE among scalar values throws, as
+    /// <c>CanonicalJson</c> and <c>JsonReader</c> record; all 66 noncharacters are mapped, since the set
+    /// that throws is the platform's and a superset costs nothing on a copy that is discarded. Then NFKC,
+    /// lower-cased invariantly, each run of white space collapsed to one space.
     /// </summary>
     internal static string Normalize(string text)
     {
-        var wellFormed = Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(text));
-        var collapsed = new StringBuilder(wellFormed.Length);
+        var total = new StringBuilder(text.Length);
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (rune.IsBmp && HiddenCharacters.Contains((char)rune.Value)) continue;
+            total.Append(IsNoncharacter(rune.Value) ? Rune.ReplacementChar.ToString() : rune.ToString());
+        }
+
+        var collapsed = new StringBuilder(total.Length);
         var inWhiteSpace = false;
 
-        foreach (var rune in wellFormed.Normalize(NormalizationForm.FormKC).EnumerateRunes())
+        foreach (var rune in total.ToString().Normalize(NormalizationForm.FormKC).EnumerateRunes())
         {
             if (Rune.IsWhiteSpace(rune))
             {
@@ -352,9 +369,13 @@ internal static class FlagDisclosure
         return collapsed.ToString();
     }
 
+    /// <summary>A Unicode noncharacter: U+FDD0 to U+FDEF, and the last two code points of every plane (the rule <c>JsonReader.IsNoncharacter</c> applies at ADMIT).</summary>
+    private static bool IsNoncharacter(int codePoint) =>
+        codePoint is >= 0xFDD0 and <= 0xFDEF || (codePoint & 0xFFFE) == 0xFFFE;
+
     /// <summary>
-    /// Whether <paramref name="said"/> contains <paramref name="form"/> as a whole token: with no letter
-    /// or digit directly before or after it. A form shorter than <see cref="RaiserFloor"/>, or holding
+    /// Whether <paramref name="said"/> contains <paramref name="form"/> as a whole token: with nothing on
+    /// either side that continues it as an id. A form shorter than <see cref="RaiserFloor"/>, or holding
     /// white space, is not checked.
     /// </summary>
     private static bool NamesAsToken(string said, string form)
@@ -363,23 +384,29 @@ internal static class FlagDisclosure
 
         for (var at = said.IndexOf(form, StringComparison.Ordinal); at >= 0; at = said.IndexOf(form, at + 1, StringComparison.Ordinal))
         {
-            if (!WordCharacter(said.AsSpan(0, at), last: true) && !WordCharacter(said.AsSpan(at + form.Length), last: false))
+            if (!ContinuesAnId(said.AsSpan(0, at), outwardIsLeft: true) && !ContinuesAnId(said.AsSpan(at + form.Length), outwardIsLeft: false))
                 return true;
         }
 
         return false;
     }
 
-    /// <summary>Whether the rune at the end (<paramref name="last"/>) or start of <paramref name="text"/> is a letter or a digit.</summary>
-    private static bool WordCharacter(ReadOnlySpan<char> text, bool last)
+    /// <summary>
+    /// Whether <paramref name="beside"/>, the text on one side of a match, continues it as an id: reading
+    /// away from the match past any of the URI unreserved characters <c>-._~</c>, the next character is
+    /// an ASCII letter or digit. A sentence's full stop, a CJK or accented letter and a space are all
+    /// boundaries.
+    /// </summary>
+    private static bool ContinuesAnId(ReadOnlySpan<char> beside, bool outwardIsLeft)
     {
-        if (text.IsEmpty) return false;
+        for (var i = 0; i < beside.Length; i++)
+        {
+            var c = outwardIsLeft ? beside[beside.Length - 1 - i] : beside[i];
+            if (char.IsAsciiLetterOrDigit(c)) return true;
+            if (c is not ('-' or '.' or '_' or '~')) return false;
+        }
 
-        var status = last
-            ? Rune.DecodeLastFromUtf16(text, out var rune, out _)
-            : Rune.DecodeFromUtf16(text, out rune, out _);
-
-        return status == System.Buffers.OperationStatus.Done && Rune.IsLetterOrDigit(rune);
+        return false;
     }
 
     /// <summary>

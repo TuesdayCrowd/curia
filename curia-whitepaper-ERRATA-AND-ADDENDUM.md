@@ -6145,9 +6145,13 @@ hard rejection (R10.26) or when it repeats, as a whole token, any raiser, with o
 of any rationale, of a flag on the post (R10.62), since it lands in a leaf R6.51 serves verbatim;
 and the flags it names (`adjudicates`), each by the `event_id` of that flag's own log entry — never
 by aggregate id, which a flag raised before R10.62 shares with its post — derived by the writer and
-never supplied by the moderator. A shorter form goes unchecked: matched inside ordinary words, it
-would let a raiser make its post unmoderatable. A reviewing record (R10.61) SHALL name every flag of
-its category raised against the post before it, whether the flag entered the log as
+never supplied by the moderator. A shorter form goes unchecked: a short id that is itself a word,
+such as `e` or `spam`, would otherwise refuse every reason using that word and let a raiser make its
+post unmoderatable. A whole token is an occurrence that nothing on either side continues as an id:
+an ASCII letter or digit continues one, and so does a run of the URI unreserved characters `-`, `.`,
+`_` and `~` that an ASCII letter or digit follows, reading away from the occurrence; any other
+character, a CJK or accented letter included, is a boundary. A reviewing record (R10.61) SHALL name
+every flag of its category raised against the post before it, whether the flag entered the log as
 `flag.committed` (R10.62) or, earlier, as `flag.raised`. A record written by automated moderation
 SHALL name no flag: R10.61 lets no automated record decide one, and a flag it named would publish
 which post that flag concerns (R10.62) on a quarantine nobody has reviewed. For the human

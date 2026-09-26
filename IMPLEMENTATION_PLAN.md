@@ -1006,16 +1006,21 @@ record and the writer's blank operator name.
   human withholding after a human quarantine in the same category is a record, as is a hold in a
   second category. It had been refused as a no-op, leaving restore-then-withhold as the only way to
   escalate: the post served in between, and a permanent restore nobody meant.
-- **The reason guard** (R10.60, R10.62). After NFKC, invariant lower-casing and whitespace collapse,
-  a reason is refused before anything is appended, as `curia/moderation/rationale-discloses-flag`
-  with only `field=raised_by` or `field=rationale`, when it repeats either of two things for a flag
-  on the post. The first is the flag's raiser, with or without its `scheme://`, as a whole token
-  (no letter or digit directly beside it), in a form of at least 16 characters without white space.
-  The second is any 32 consecutive characters of a rationale at least that long. The raiser floor is
-  the architect's ruling on the wave's own finding: enrolment accepts any non-blank id
-  (`ForumEndpoints.cs:384`, D4), and matched as a substring a one-character raiser made "Reviewed:
-  advertising." unrecordable on its post. Every honest id shape is 17 characters or more, and a
-  raiser below the floor leaves only itself unprotected.
+- **The reason guard** (R10.60, R10.62). Every text is compared as a derived copy: hidden characters
+  (`HiddenCharacters`, now public) dropped, unpaired surrogates and all 66 noncharacters made
+  U+FFFD, then NFKC, invariant lower-casing and whitespace collapse. A reason is refused before
+  anything is appended, as `curia/moderation/rationale-discloses-flag` with only `field=raised_by`
+  or `field=rationale`, when it repeats either of two things for a flag on the post. The first is
+  the flag's raiser, with or without its `scheme://`, in a form of at least 16 characters without
+  white space, as a whole token: nothing on either side continues it as an id. An ASCII letter or
+  digit continues one, and so does a run of `-._~` that an ASCII letter or digit follows; a full
+  stop, a space, a CJK or accented letter is a boundary. The second is any 32 consecutive characters
+  of a rationale at least that long. The raiser floor is the architect's ruling on the wave's own
+  finding: enrolment accepts any non-blank id (`ForumEndpoints.cs:384`, D4), and a short id that is
+  itself a word, `e` or `spam`, would otherwise refuse every reason using it. A raiser below the
+  floor leaves only itself unprotected. The noncharacter mapping closes the re-review's Critical:
+  U+FFFE in any flag's rationale or raiser made every `RecordAsync` on its post throw, since .NET's
+  ICU-backed NFKC throws on it, and the private store that holds it is append-only.
   Every flag on the post is checked, whatever its category or state. `FlagDirectory.RationalesByFlag`
   is the one source the guard and the listing read, and `curia-operator flags` prints `raised_by`
   only under `--raisers`.
@@ -1107,6 +1112,28 @@ G7a were re-run there too and went red on the rows above:
   `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AShortHostIsCaughtByItsFullForm` alone (`Assert.False() Failure`).
 - L6 (a form holding white space checked) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ASpacedRaiserCannotRefuseAPhrase` alone
   (`curia/moderation/rationale-discloses-flag field=raised_by`).
+
+The re-review's round — the noncharacter Critical, the id-based boundary, hidden characters — falsified
+the same way against its own tree:
+
+- A1 (noncharacters not mapped: the throwing `Normalize`) → RED in two suites:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ANoncharacterInARationaleDoesNotStopTheRecord`,
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ANoncharacterInARaiserDoesNotStopTheRecord` and
+  `Curia.Api.Tests.OperatorModerationTests.R10_62_ANoncharacterInAFlagDoesNotStopItsPostBeingModerated`,
+  each `System.ArgumentException : String contains invalid Unicode code points. (Parameter 'strInput')`.
+- B1 (the boundary from Unicode letters and digits again) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ACjkNeighbourDoesNotHideARaiser` and `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AnAccentedNeighbourDoesNotHideARaiser`.
+- B2 (`-._~` never continuing an id) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserContinuedByAnIdCharacterIsNotARepeat`
+  alone (`curia/moderation/rationale-discloses-flag field=raised_by`).
+- B3 (`-._~` continuing an id whatever follows them, the ruling read literally) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AnEchoBeforeAFullStopIsRefused` alone. This is why a run of `-._~` continues an id only
+  when an ASCII letter or digit follows it: read literally, a raiser echoed before a sentence's full
+  stop is published.
+- C1 (hidden characters not stripped) → RED: all three rows of `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AHiddenCharacterInsideARaiserDoesNotHideIt`.
+- K3 (the directory made to believe a rewritten row, the listing test's earlier assertions removed so
+  the raiser assertion is reached) → GREEN with the listing run without `--raisers`, where the
+  assertion could not fail; RED with it: `Curia.Api.Tests.OperatorModerationTests.R10_62_ARewrittenOrLostPrivateRowIsCountedInTheListing`
+  (`Assert.DoesNotContain() Failure: Sub-string found`).
 
 ### D21 — the log served every flag's raiser and rationale to anyone *(opened and closed by the moderation stage, 2026-09-26)*
 
@@ -1302,8 +1329,19 @@ Falsified by the same runner, recorded the same way:
 - **A raiser whose every form is under 16 characters, or holds white space, can be named in a public
   reason.** It is the price of the raiser floor, which the architect ruled on after the final-review
   wave measured a one-character raiser making "Reviewed: advertising." unrecordable on its post
-  (D20). Enrolment accepts any non-blank id (D4), and every honest id shape is 17 characters or more,
-  so the only raiser left unprotected is one that chose a short id.
+  (D20). Enrolment accepts any non-blank id (D4), so the raiser left unprotected is one whose id is
+  that short or holds white space.
+- **Noncharacters reach `flag_details`, because a flag's body is bound without ADMIT**
+  (`ForumEndpoints.cs:618`). The reason guard's derived copy now maps them, so they no longer stop a
+  post being moderated; whether a flag should be refused at raise time, in parity with R6.15, is a
+  question for later.
+- **A flag raised in a category that already holds the post cannot be dismissed while the hold
+  stands**, so it stays open indefinitely. Its only outcomes are a re-hold, which demotes the author
+  further, or a restore.
+- **A combining mark after or inside a raiser evades the reason guard** (measured in the final-review
+  wave's third round by a throwaway probe). NFKC composes `reporter` followed by U+0301 into
+  `reporteŕ`, so the raiser, published with one accent added, is not a repeat, and the record is
+  appended. Closing it means comparing without combining marks, which is a ruling, not an edit.
 
 ### Observed during the screener stage, not acted on
 
