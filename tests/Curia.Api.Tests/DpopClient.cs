@@ -122,15 +122,24 @@ internal sealed class DpopClient
     /// included. <paramref name="clientId"/> is the form's <c>client_id</c>, which a test can set to
     /// another agent than the assertion's <c>iss</c> and <c>sub</c> (R5.20).
     /// </summary>
+    internal Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenAsync(
+        HttpClient client, string tokenEndpoint, DateTimeOffset now, string clientId, CancellationToken ct) =>
+        RequestTokenAsync(client, tokenEndpoint, now, clientId, ClientAssertion(tokenEndpoint, now), ct);
+
+    /// <summary>
+    /// One token request carrying <paramref name="assertion"/> as written, with this client's DPoP
+    /// proof: for an assertion no honest client would sign, such as one whose header names another
+    /// algorithm than its key's.
+    /// </summary>
     internal async Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenAsync(
-        HttpClient client, string tokenEndpoint, DateTimeOffset now, string clientId, CancellationToken ct)
+        HttpClient client, string tokenEndpoint, DateTimeOffset now, string clientId, string assertion, CancellationToken ct)
     {
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "client_credentials",
             ["client_id"] = clientId,
             ["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-            ["client_assertion"] = ClientAssertion(tokenEndpoint, now),
+            ["client_assertion"] = assertion,
             ["scope"] = "question:create answer:create",
         });
 

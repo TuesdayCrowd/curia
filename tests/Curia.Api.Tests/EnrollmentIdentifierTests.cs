@@ -1,21 +1,28 @@
+using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Curia.Tests.Shared;
 using Npgsql;
+using NSec.Cryptography;
 using Xunit;
 
 namespace Curia.Api.Tests;
 
 /// <summary>
 /// What an anonymous enrollment may write, at the surface an agent uses (errata G15). An agent's
-/// identifier is also the aggregate its credential events are appended under, and its identifier and
-/// <c>kid</c> are carried into a public leaf. Before these refusals the route wrote whatever it was
+/// identifier is also the aggregate its credential events are appended under; its identifier and
+/// <c>kid</c> are carried into a public leaf; and its key is the one every verifier of its posts
+/// will use. The route now checks each of them before anything is written: the identifiers' text
+/// and length, the algorithm, and the key's bytes. Until these refusals it wrote whatever it was
 /// sent. An identifier naming a post registered a key the log could then never record, and answered
-/// 500. A noncharacter wrote a leaf the reference client refuses to read. And a U+0000, which
-/// Postgres <c>text</c> cannot hold, or an algorithm the Forum does not verify, reached the database
-/// and answered 500, which tells an agent to retry what can never succeed.
+/// 500. A noncharacter wrote a leaf the reference client refuses to read. A U+0000, which Postgres
+/// <c>text</c> cannot hold, an identifier too long for the store's index, an algorithm the Forum
+/// does not verify, and a missing key each answered 500, which tells an agent to retry what can
+/// never succeed. And bytes that were not a key of their algorithm were registered, for good: junk
+/// the key set could not render, or a P-384 key published as P-256.
 ///
 /// <para>Each refusal is asserted by status, slug and detail together, and beside it that nothing
 /// naming the request was written: no key row and no event. So a regression's first red line says
@@ -42,19 +49,28 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
     /// <c>POST /v1/agents</c> with each field spliced into the body as JSON source text, so an escape
     /// reaches the Forum's binder exactly as written. A null <paramref name="alg"/> leaves the member out.
     /// </summary>
-    private static async Task<string> EnrollRawAsync(
-        HttpClient client, string agentId, string kid, string? alg, string publicKey, CancellationToken ct)
-    {
-        static string Literal(string source) => "\"" + source + "\"";
+    private static Task<string> EnrollRawAsync(
+        HttpClient client, string agentId, string kid, string? alg, string publicKey, CancellationToken ct) =>
+        EnrollWithKeySourceAsync(client, agentId, kid, alg, Literal(publicKey), ct);
 
+    /// <summary>
+    /// The same, with <c>public_key</c> given as JSON source text: <c>null</c> sends JSON null, and a
+    /// null <paramref name="publicKeySource"/> leaves the member out.
+    /// </summary>
+    private static async Task<string> EnrollWithKeySourceAsync(
+        HttpClient client, string agentId, string kid, string? alg, string? publicKeySource, CancellationToken ct)
+    {
         var body = "{\"agent_id\":" + Literal(agentId)
             + ",\"kid\":" + Literal(kid)
             + (alg is null ? "" : ",\"alg\":" + Literal(alg))
-            + ",\"public_key\":" + Literal(publicKey) + "}";
+            + (publicKeySource is null ? "" : ",\"public_key\":" + publicKeySource) + "}";
         using var content = new StringContent(body, Encoding.UTF8, "application/json");
         using var response = await client.PostAsync(new Uri("/v1/agents", UriKind.Relative), content, ct);
         return await AnswerAsync(response, ct);
     }
+
+    /// <summary><paramref name="source"/> as a JSON string literal, spliced verbatim.</summary>
+    private static string Literal(string source) => "\"" + source + "\"";
 
     /// <summary>
     /// The status, then a problem's <c>type</c> and <c>detail</c>; <c>enrolled</c> for a success; or
@@ -261,5 +277,133 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
 
         Assert.Equal($"404 curia/keys/unknown-agent nowhere-{suffix}", await AnswerAsync(unknown, ct));
         Assert.Equal($"404 curia/keys/unknown-agent nul\0{suffix}", await AnswerAsync(nul, ct));
+    }
+
+    /// <summary>
+    /// R4.15 against R4.28's stored forms: a key is registered only as a key of its algorithm. For
+    /// <c>ES256</c>, the DER SubjectPublicKeyInfo of a key on the curve named P-256, with nothing after
+    /// it; for <c>EdDSA</c>, the raw 32-byte key. Every other material is refused 400 by name, never
+    /// echoing the bytes, before anything is written. The rows are the ones the verifiers are asked
+    /// about (<see cref="KeyMaterials"/>). Each answered 201, and the row it left could make its key
+    /// set and its token requests answer 500 for good, or, for a P-384 key, be issued a token.
+    /// </summary>
+    [Theory]
+    [InlineData("ES256", "empty")]
+    [InlineData("ES256", "three-zero-bytes")]
+    [InlineData("ES256", "32-raw-bytes")]
+    [InlineData("ES256", "rsa-2048-spki")]
+    [InlineData("ES256", "p384-spki")]
+    [InlineData("ES256", "p256-spki-and-a-trailing-byte")]
+    [InlineData("ES256", "brainpoolP256r1-spki")]
+    [InlineData("EdDSA", "p256-spki")]
+    [InlineData("EdDSA", "31-bytes")]
+    [InlineData("EdDSA", "33-bytes")]
+    public async Task R4_15_AnEnrollmentWhoseKeyIsNotAKeyOfItsAlgorithmIsRefusedBeforeAnythingIsWritten(string alg, string material)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Suffix();
+        var publicKey = Convert.ToBase64String(KeyMaterials.Build(material, Encoding.UTF8.GetBytes("unused")).Material);
+
+        var answer = await EnrollRawAsync(forum.Client, $"https://agents.example/key-{suffix}", $"key-{suffix}", alg, publicKey, ct);
+
+        var form = alg == "ES256"
+            ? "alg=ES256: public_key is not an ES256 key, which is the base64 of a P-256 key's DER SubjectPublicKeyInfo with nothing after it (R4.15, R4.28)"
+            : "alg=EdDSA: public_key is not an EdDSA key, which is the base64 of the raw 32-byte Ed25519 public key (R4.15, R4.28)";
+        Assert.Equal(
+            $"400 curia/enroll/invalid-key {form}; key rows 0, events 0",
+            $"{answer}; {await WrittenAsync(suffix, ct)}");
+    }
+
+    /// <summary>
+    /// R4.28's EdDSA form, end to end, and the positive control for the theory above: an honest
+    /// Ed25519 key, sent as the base64 of its raw 32 bytes, is enrolled, and the key set publishes it
+    /// as RFC 8037's octet key pair, <c>x</c> being those same 32 bytes. It is the one honest EdDSA
+    /// enrollment in the suite; a check that refused every EdDSA key would pass the theory.
+    /// </summary>
+    [Fact]
+    public async Task R4_28_AnEd25519KeyIsRegisteredAndPublishedAsTheOctetKeyPairItIs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Suffix();
+        var agentId = $"https://agents.example/ed25519-{suffix}";
+        var kid = $"ed25519-{suffix}";
+        using var key = Key.Create(SignatureAlgorithm.Ed25519);
+        var raw = key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+
+        var answer = await EnrollRawAsync(client, agentId, kid, "EdDSA", Convert.ToBase64String(raw), ct);
+
+        using var served = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", UriKind.Relative), ct);
+        var body = await served.Content.ReadAsStringAsync(ct);
+        var published = served.StatusCode == HttpStatusCode.OK
+            ? string.Join(
+                " | ",
+                JsonNode.Parse(body)!["keys"]!.AsArray().Select(jwk =>
+                    $"{jwk!["kty"]} {jwk["crv"]} {jwk["alg"]} {jwk["kid"]} x={jwk["x"]}"))
+            : $"{(int)served.StatusCode} {body[..Math.Min(body.Length, 160)]}";
+
+        Assert.Equal(
+            $"201 enrolled; OKP Ed25519 EdDSA {kid} x={Base64Url.EncodeToString(raw)}",
+            $"{answer}; {published}");
+    }
+
+    /// <summary>
+    /// A <c>public_key</c> left out, or sent as JSON null, is refused 400 by name before anything is
+    /// written. Both answered 500: the route decoded a null string.
+    /// </summary>
+    [Theory]
+    [InlineData("omitted")]
+    [InlineData("null")]
+    public async Task AnEnrollmentWithoutAPublicKeyIsRefusedByName(string publicKey)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Suffix();
+
+        var answer = await EnrollWithKeySourceAsync(
+            forum.Client, $"https://agents.example/keyless-{suffix}", $"keyless-{suffix}", "ES256",
+            publicKey == "null" ? "null" : null, ct);
+
+        Assert.Equal(
+            "400 curia/enroll/invalid-key public_key is missing; key rows 0, events 0",
+            $"{answer}; {await WrittenAsync(suffix, ct)}");
+    }
+
+    /// <summary>
+    /// <c>agent_id</c> and <c>kid</c> are each at most 1,024 UTF-8 bytes, which keeps them well under
+    /// the 2,704-byte index row Postgres can store, and keeps a key set's URL fetchable. Both sides of
+    /// the bound are rows, as R6.39 asks of its own caps. The multi-byte row is at most 1,024 UTF-16
+    /// code units and more than 1,024 bytes, so a cap that counted code units would admit it; its byte
+    /// count is computed by hand, never by the encoder under test. Past about 2,684 bytes the route
+    /// answered 500 (Postgres 54000).
+    /// </summary>
+    [Theory]
+    [InlineData("agent_id", 1024, 0, "201")]
+    [InlineData("agent_id", 1025, 0, "400")]
+    [InlineData("agent_id", 2685, 0, "400")]
+    [InlineData("agent_id", 40, 600, "400")]
+    [InlineData("kid", 1024, 0, "201")]
+    [InlineData("kid", 1025, 0, "400")]
+    public async Task AnIdentifierLongerThanTheForumStoresIsRefusedByName(string field, int asciiBytes, int multiByteChars, string expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Suffix();
+
+        // ASCII padded to asciiBytes, then multiByteChars of U+00E9, which UTF-8 spells in two bytes.
+        // The padding is random hex, not one repeated letter: Postgres compresses an index entry it
+        // can, and a compressible identifier fits under the index limit that an ordinary one exceeds.
+        string Long(string prefix) =>
+            (prefix + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(asciiBytes)))[..asciiBytes]
+            + new string((char)0xE9, multiByteChars);
+        var agentId = field == "agent_id" ? Long($"https://agents.example/long-{suffix}-") : $"https://agents.example/long-{suffix}";
+        var kid = field == "kid" ? Long($"long-{suffix}-") : $"long-{suffix}";
+        var bytes = asciiBytes + (2 * multiByteChars);
+
+        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", ForumAgent.Create(agentId, kid).PublicKeyBase64, ct);
+
+        Assert.Equal(
+            expected == "201"
+                ? "201 enrolled; key rows 1, events 1"
+                : $"400 curia/enroll/identifier-too-long field={field} bytes={bytes}: at most 1024 UTF-8 bytes; key rows 0, events 0",
+            $"{answer}; {await WrittenAsync(suffix, ct)}");
     }
 }

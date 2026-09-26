@@ -6640,6 +6640,7 @@ holds under whatever form the implementation plan's register D4 settles on.
 | `src/Curia.AuthN/Ports/IAgentKeyResolver.cs` and `src/Curia.Infrastructure/PostgresAgentKeyStore.cs` | The port asks by agent and `kid`, as `IAuthorKeyResolver` does. The store's lookup by `kid` alone, and the remark defending it, are removed. |
 | The remarks of `IAuthorKeyResolver`, `IAuthorKeyRegistry` and `ClientAssertionValidationContext` | Each said a lookup by `kid` alone was safe, or that a caller scoped it. A lookup by `kid` alone is safe only where the identity comes from the key; at both resolvers it comes from a claim. |
 | `src/Curia.Application/Credentials/EnrollIdentity.cs`, "Why the store before the log" | Registered-and-not-recorded is left by any failure of the log's append after the store's, not only by a crash. It recovers only when the append can succeed, and R4.33 refuses, before the store, the identifiers for which it never could. |
+| §4.4, R4.15 and R4.28 | Annotated. R4.15 is enforced where a key enters the store, against R4.28's forms: the enrollment route refuses by name, before anything is written, material that is not a key of its algorithm — for `ES256` the DER SubjectPublicKeyInfo of a key on the curve named P-256, with nothing after it; for `EdDSA` the raw 32-byte key. The verifiers verify under nothing else, and the served key set omits a stored key that is not one. Until this entry the route checked the algorithm's name alone, the `ES256` verifier verified a P-384 key's P-384 signatures, and the key set published that key as `crv: "P-256"` with 48-byte coordinates, a shape `curia-testis` refuses: the Forum accepted a post under a key no independent verifier could use. |
 
 ### What this costs
 
@@ -6653,7 +6654,8 @@ holds under whatever form the implementation plan's register D4 settles on.
    needs a key registered to its subject and that subject's enrollment in the log, and its identifier
    has none. A Forum on which `log:keys` or `log:heads` was enrolled before its first key or head
    cannot sign a head while that event stands, which is forever; its operator needs a new database.
-   No deployment is hosted.
+   A key stored before this entry that is not a key of its algorithm stays too: it authenticates
+   nothing, and its key set omits it. No deployment is hosted.
 
 ### What this deliberately does not change
 

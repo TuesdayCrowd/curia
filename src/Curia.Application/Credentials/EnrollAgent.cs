@@ -216,6 +216,24 @@ public static class EnrollmentErrors
     /// <summary>The slug of <see cref="NulCharacter"/>.</summary>
     public const string NulCharacterType = "curia/enroll/nul-character";
 
+    /// <summary>The slug of <see cref="PublicKeyMissing"/>, <see cref="PublicKeyNotBase64"/> and <see cref="PublicKeyNotOfItsAlgorithm"/>.</summary>
+    public const string InvalidKeyType = "curia/enroll/invalid-key";
+
+    /// <summary>The slug of <see cref="IdentifierTooLong"/>.</summary>
+    public const string IdentifierTooLongType = "curia/enroll/identifier-too-long";
+
+    /// <summary>
+    /// The most UTF-8 bytes an <c>agent_id</c> or a <c>kid</c> may hold. An implementation limit, not
+    /// R4.5's form (plan D4 stays open): it sits well under the 2,704-byte index row Postgres stores
+    /// for <c>agent_keys</c>' primary key, its per-agent index, and <c>events (aggregate_id, seq)</c>,
+    /// past which an enrollment answered 500; and it keeps <c>/v1/jwks?agent=</c> for any identifier
+    /// under a request line's usual limit once percent-encoded, so every agent's keys stay fetchable.
+    /// </summary>
+    public const int MaxIdentifierBytes = 1024;
+
+    /// <summary>One title for every reason a <c>public_key</c> is refused; the detail says which, and never echoes the key.</summary>
+    private const string InvalidKeyTitle = "That public key cannot be registered";
+
     /// <summary>
     /// R4.33 (errata G15): the identifier begins with a prefix the Forum's own writers mint aggregates
     /// under (<see cref="ReservedIdentifiers"/>), or names an aggregate holding events and no enrollment
@@ -250,6 +268,35 @@ public static class EnrollmentErrors
         NulCharacterType,
         "That identifier holds U+0000, which the Forum cannot store",
         $"field={field}");
+
+    /// <summary>The enrollment carries no <c>public_key</c>, or JSON null for it.</summary>
+    public static Error PublicKeyMissing() => new(InvalidKeyType, InvalidKeyTitle, "public_key is missing");
+
+    /// <summary>The enrollment's <c>public_key</c> is not base64.</summary>
+    public static Error PublicKeyNotBase64() => new(InvalidKeyType, InvalidKeyTitle, "public_key is not base64");
+
+    /// <summary>
+    /// R4.15 against R4.28's stored forms: the decoded <c>public_key</c> is not a key of
+    /// <paramref name="alg"/>. The detail names the form the algorithm takes, so an agent can see what
+    /// to send.
+    /// </summary>
+    public static Error PublicKeyNotOfItsAlgorithm(string alg) => new(
+        InvalidKeyType,
+        InvalidKeyTitle,
+        alg switch
+        {
+            "ES256" => "alg=ES256: public_key is not an ES256 key, which is the base64 of a P-256 key's DER SubjectPublicKeyInfo with nothing after it (R4.15, R4.28)",
+            "EdDSA" => "alg=EdDSA: public_key is not an EdDSA key, which is the base64 of the raw 32-byte Ed25519 public key (R4.15, R4.28)",
+            _ => $"alg={alg}: public_key is not a key the Forum can publish for that algorithm (R4.28)",
+        });
+
+    /// <summary>The enrollment's <paramref name="field"/> holds <paramref name="bytes"/> UTF-8 bytes, over <see cref="MaxIdentifierBytes"/>.</summary>
+    public static Error IdentifierTooLong(string field, int bytes) => new(
+        IdentifierTooLongType,
+        "That identifier is longer than the Forum stores",
+        string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"field={field} bytes={bytes}: at most {MaxIdentifierBytes} UTF-8 bytes"));
 
     /// <summary>
     /// The enrollment lost its optimistic-concurrency race on every attempt. Distinct from

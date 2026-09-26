@@ -49,6 +49,8 @@
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
     <!-- R11.20's external signer, a real process: tests/Shared/test-signer.py behind a wrapper. -->
     <Compile Include="../Shared/TestSigner.cs" Link="Shared/TestSigner.cs" />
+    <!-- R4.15's rows, named once: the adapter suite asks the verifiers about the same materials. -->
+    <Compile Include="../Shared/KeyMaterials.cs" Link="Shared/KeyMaterials.cs" />
   </ItemGroup>
 
 </Project>

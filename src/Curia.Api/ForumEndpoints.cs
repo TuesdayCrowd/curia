@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Curia.Api.Adapters;
@@ -385,12 +386,18 @@ public static class ForumEndpoints
     /// log keeps it for its own records. And a lost key row is bound again on its <c>kid</c> alone, by
     /// whoever presents it first, unless another identity took it (R4.31).</para>
     ///
-    /// <para><b>What the request may carry into the log,</b> checked in this order, before anything
-    /// is read or written: the two identifiers' text (R6.15's condition, and U+0000), then the
-    /// algorithm (R4.15), then the key's encoding. The first two were refused by the database, or
-    /// not at all: a noncharacter wrote a public leaf the reference client refuses to read, and
-    /// U+0000 or an algorithm the Forum does not verify answered 500, which tells an agent to
-    /// retry.</para>
+    /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
+    /// before anything is read or written, each refused 400 by name: the two identifiers' text
+    /// (R6.15's condition, and U+0000); their length, at most
+    /// <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8 bytes each; the algorithm, against the
+    /// allow-list the Forum verifies with (R4.15); and then the key, which must be present, base64,
+    /// and a key of that algorithm in R4.28's stored form (<see cref="Jwks.CanPublish"/>, the rule
+    /// that algorithm's verifier owns). Until these checks the route wrote whatever it was sent. A
+    /// noncharacter wrote a public leaf the reference client refuses to read. U+0000, an identifier
+    /// too long for the store's index, an algorithm the Forum does not verify and a missing key each
+    /// answered 500, which tells an agent to retry. And bytes that were not a key of their algorithm
+    /// were registered for good: junk the key set could not render, or a P-384 key the verifier
+    /// accepted as <c>ES256</c> and the key set published as P-256.</para>
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
@@ -405,10 +412,17 @@ public static class ForumEndpoints
         if ((RefusedText(request.AgentId, "agent_id") ?? RefusedText(request.Kid, "kid")) is { } textError)
             return Problem(StatusCodes.Status400BadRequest, textError);
 
-        // R4.15, against the allow-list DetachedJws verifies with, so the Forum never registers a key
-        // it could not check a signature against. The database's CHECK agrees, and answered 500.
+        if ((TooLong(request.AgentId, "agent_id") ?? TooLong(request.Kid, "kid")) is { } lengthError)
+            return Problem(StatusCodes.Status400BadRequest, lengthError);
+
+        // R4.15's algorithms: the allow-list DetachedJws verifies with, so no key is registered under
+        // an algorithm the Forum has no verifier for. The database's CHECK agrees, and answered 500.
+        // The key's own bytes are judged below, once decoded.
         if (request.Alg is null || !verifiers.ContainsKey(request.Alg))
             return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.UnsupportedAlgorithm(request.Alg, verifiers.Keys));
+
+        if (request.PublicKeyBase64 is null)
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.PublicKeyMissing());
 
         byte[] publicKey;
         try
@@ -417,9 +431,14 @@ public static class ForumEndpoints
         }
         catch (FormatException)
         {
-            return Results.BadRequest(new Problem(
-                "curia/enroll/invalid-key", "public_key must be base64", null));
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.PublicKeyNotBase64());
         }
+
+        // R4.15 against R4.28's stored forms: a key of the algorithm it names, judged by the rule that
+        // algorithm's verifier owns, which the key set publishes by too. A key the verifier cannot use
+        // and the key set cannot render would stay in the store for good (R4.19, R4.32).
+        if (!Jwks.CanPublish(request.Alg, publicKey))
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.PublicKeyNotOfItsAlgorithm(request.Alg));
 
         // R4.31 and R4.32 (errata G14), in EnrollIdentity: the log's binding, then the key store's,
         // then the log's record. Standing goes into the event log, never into process memory -- a
@@ -471,6 +490,16 @@ public static class ForumEndpoints
             return textError! with { Detail = "field=" + field };
 
         return value.Contains('\0', StringComparison.Ordinal) ? EnrollmentErrors.NulCharacter(field) : null;
+    }
+
+    /// <summary>
+    /// The refusal for an identifier over <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8
+    /// bytes, or null. Asked after <see cref="RefusedText"/>, so the count never meets a lone surrogate.
+    /// </summary>
+    private static Error? TooLong(string value, string field)
+    {
+        var bytes = Encoding.UTF8.GetByteCount(value);
+        return bytes > EnrollmentErrors.MaxIdentifierBytes ? EnrollmentErrors.IdentifierTooLong(field, bytes) : null;
     }
 
     /// <summary>

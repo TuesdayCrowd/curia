@@ -1,7 +1,9 @@
 using System.Buffers.Text;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Curia.Application.Ports;
+using Curia.Canon.Sodium;
 
 namespace Curia.Api;
 
@@ -23,7 +25,19 @@ namespace Curia.Api;
 /// </summary>
 public static class Jwks
 {
-    /// <summary>Renders one agent's registered keys as an RFC 7517 <c>{"keys": [...]}</c> document.</summary>
+    /// <summary>
+    /// Renders one agent's registered keys as an RFC 7517 <c>{"keys": [...]}</c> document, omitting
+    /// any stored key it cannot publish (<see cref="CanPublish"/>).
+    ///
+    /// <para><b>Omitted, not failed.</b> Key rows written before the enrollment route checked a key's
+    /// bytes stay in the store for good (R4.19 forbids the delete, R4.32 the repair). Rendering one
+    /// threw, so the agent's key set answered 500 forever. Publishing one in a form it is not would
+    /// be worse: <c>curia-testis</c> refuses a whole key set over one bad entry, so once an identity
+    /// holds two keys (R4.17), one malformed entry would take the good key down with it. A malformed
+    /// key in a JWKS is worse than an absent one: absent fails to resolve, malformed fails to verify,
+    /// and the second looks like a signature problem. An agent whose only key is omitted gets an
+    /// empty set, not a 404, which still means that the store holds no row.</para>
+    /// </summary>
     public static JsonObject ForAgent(IReadOnlyList<RegisteredKey> keys)
     {
         ArgumentNullException.ThrowIfNull(keys);
@@ -31,22 +45,33 @@ public static class Jwks
         var array = new JsonArray();
         foreach (var registered in keys)
         {
-            var jwk = registered.Key.Alg switch
+            // The one guard: neither renderer below checks the material again.
+            if (!CanPublish(registered.Key.Alg, registered.Key.Public.Span)) continue;
+
+            array.Add(registered.Key.Alg switch
             {
                 "EdDSA" => OkpEd25519(registered),
                 "ES256" => EcP256(registered),
-
-                // An algorithm with no published JWK shape here is omitted rather than guessed at.
-                // A malformed key in a JWKS is worse than an absent one: absent fails to resolve,
-                // malformed fails to verify, and the second looks like a signature problem.
-                _ => null,
-            };
-
-            if (jwk is not null) array.Add(jwk);
+                _ => throw new UnreachableException($"CanPublish admitted alg={registered.Key.Alg}, which has no JWK shape here"),
+            });
         }
 
         return new JsonObject { ["keys"] = array };
     }
+
+    /// <summary>
+    /// R4.15 and R4.28: whether <paramref name="material"/> is a key of <paramref name="alg"/> in the
+    /// form this key set publishes. The single switch from an algorithm to the rule its verifier owns
+    /// (<see cref="Ed25519Adapter.IsPublicKey"/>, <see cref="Es256Adapter.IsPublicKey"/>), so a key is
+    /// registered, published and verified under one predicate. An algorithm with no published shape
+    /// here is not publishable.
+    /// </summary>
+    public static bool CanPublish(string alg, ReadOnlySpan<byte> material) => alg switch
+    {
+        "EdDSA" => Ed25519Adapter.IsPublicKey(material),
+        "ES256" => Es256Adapter.IsPublicKey(material),
+        _ => false,
+    };
 
     /// <summary>RFC 8037 §2: <c>kty: "OKP"</c>, <c>crv: "Ed25519"</c>, <c>x</c> = the raw 32-byte key.</summary>
     private static JsonObject OkpEd25519(RegisteredKey registered) => Annotate(

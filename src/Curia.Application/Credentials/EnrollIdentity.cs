@@ -9,7 +9,7 @@ namespace Curia.Application.Credentials;
 /// CS-16's <c>Enroll</c>: the one path by which a key enters the Registrar for an identity (R4.16,
 /// R4.31, R4.32, R4.33; errata G14, G15). A refusal, then three steps, in an order that matters:
 /// <list type="number">
-/// <item><b>Step 0: the identifier is the agent's own (R4.33).</b> An identifier beginning with a
+/// <item><b>The identifier is the agent's own (R4.33).</b> An identifier beginning with a
 /// prefix the Forum's own writers mint aggregates under (<see cref="ReservedIdentifiers"/>) is refused
 /// first, with no read. After the read, so is one whose aggregate holds events and none of them this
 /// identifier's enrollment: a post's, for instance. An agent's stream always begins with its own

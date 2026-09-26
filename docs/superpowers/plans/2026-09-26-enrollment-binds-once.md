@@ -3914,6 +3914,9 @@ VALIDATOR = "src/Curia.AuthN/ClientAssertionValidator.cs"
 AUTHN_RESOLVER = "tests/Curia.AuthN.Tests/InMemory/InMemoryAgentKeyResolver.cs"
 RESERVED = "src/Curia.Application/Credentials/ReservedIdentifiers.cs"
 CANON_READER = "src/Curia.Canon/Json/JsonReader.cs"
+ES256_ADAPTER = "src/Curia.Canon.Sodium/Es256Adapter.cs"
+ED25519_ADAPTER = "src/Curia.Canon.Sodium/Ed25519Adapter.cs"
+JWKS = "src/Curia.Api/Jwks.cs"
 
 DOMAIN = "tests/Curia.Domain.Tests"
 APP = "tests/Curia.Application.Tests"
@@ -3921,6 +3924,7 @@ INFRA = "tests/Curia.Infrastructure.Tests"
 API = "tests/Curia.Api.Tests"
 AUTHN = "tests/Curia.AuthN.Tests"
 CANON = "tests/Curia.Canon.Tests"
+SODIUM = "tests/Curia.Canon.Sodium.Tests"
 
 GRANT = ("REVOKE UPDATE ON agent_keys FROM __CURIA_APP_ROLE__;\n"
          "GRANT UPDATE (valid_from, valid_until) ON agent_keys TO __CURIA_APP_ROLE__;   -- R4.19's window; R4.32 forbids the rest\n")
@@ -4074,6 +4078,52 @@ CASES = [
     dict(id="26", what="the route's algorithm check never refuses",
          cmds=[dotnet(API, "FullyQualifiedName~R4_15_AnEnrollmentWithoutAnAlgorithm")],
          edits=[(ENDPOINT, "if (request.Alg is null || !verifiers.ContainsKey(request.Alg))", "if (request.Alg == \"no-such-algorithm\")")]),
+    dict(id="28", what="the ES256 form is whatever the platform imports",
+         cmds=[dotnet(SODIUM, "FullyQualifiedName~R4_15_Es256"),
+               dotnet(API, "FullyQualifiedName~R4_15_AnEnrollmentWhoseKey"),
+               dotnet(API, "FullyQualifiedName~StoredKeyFormTests")],
+         edits=[(ES256_ADAPTER, "            return read == material.Length\n"
+                                "                && ecdsa.ExportParameters(includePrivateParameters: false).Curve is { IsNamed: true } curve\n"
+                                "                && curve.Oid.Value == ECCurve.NamedCurves.nistP256.Oid.Value;\n",
+                                "            return read > 0;\n")]),
+    dict(id="29", what="the ES256 form throws",
+         cmds=[dotnet(SODIUM, "FullyQualifiedName~R4_15_Es256"),
+               dotnet(API, "FullyQualifiedName~R4_15_AnEnrollmentWhoseKey"),
+               dotnet(API, "FullyQualifiedName~StoredKeyFormTests")],
+         edits=[(ES256_ADAPTER, "        catch (CryptographicException)\n",
+                                "        catch (CryptographicException thrown) when (thrown.Message == \"no-such-message\")\n"),
+                (ES256_ADAPTER, "        catch (PlatformNotSupportedException)\n",
+                                "        catch (PlatformNotSupportedException thrown) when (thrown.Message == \"no-such-message\")\n")]),
+    dict(id="30", what="the EdDSA form accepts anything",
+         cmds=[dotnet(SODIUM, "FullyQualifiedName~R4_15_EdDsa"),
+               dotnet(API, "FullyQualifiedName~R4_15_AnEnrollmentWhoseKey"),
+               dotnet(API, "FullyQualifiedName~StoredKeyFormTests")],
+         edits=[(ED25519_ADAPTER, "IsPublicKey(ReadOnlySpan<byte> material) => Read(material, out _);",
+                                  "IsPublicKey(ReadOnlySpan<byte> material) => material.Length != -1 || Read(material, out _);")]),
+    dict(id="31", what="the EdDSA form refuses every key",
+         cmds=[dotnet(SODIUM, "FullyQualifiedName~R4_15_AnHonestKey"),
+               dotnet(API, "FullyQualifiedName~R4_28_AnEd25519Key")],
+         edits=[(ED25519_ADAPTER, "        return PublicKey.TryImport(Algorithm, material, KeyBlobFormat.RawPublicKey, out key);\n",
+                                  "        key = null;\n        return material.Length == -1;\n")]),
+    dict(id="32", what="the EdDSA read throws",
+         cmds=[dotnet(SODIUM, "FullyQualifiedName~R4_15_EdDsa"),
+               dotnet(API, "FullyQualifiedName~R4_15_AnEnrollmentWhoseKey"),
+               dotnet(API, "FullyQualifiedName~StoredKeyFormTests")],
+         edits=[(ED25519_ADAPTER, "        return PublicKey.TryImport(Algorithm, material, KeyBlobFormat.RawPublicKey, out key);\n",
+                                  "        key = PublicKey.Import(Algorithm, material, KeyBlobFormat.RawPublicKey);\n        return key is not null;\n")]),
+    dict(id="33", what="the key set stops omitting",
+         cmds=[dotnet(API, "FullyQualifiedName~StoredKeyFormTests")],
+         edits=[(JWKS, "            if (!CanPublish(registered.Key.Alg, registered.Key.Public.Span)) continue;",
+                       "            if (registered.Key.Alg == \"no-such-algorithm\") continue;")]),
+    dict(id="34", what="a missing public_key reaches base64",
+         cmds=[dotnet(API, "FullyQualifiedName~AnEnrollmentWithoutAPublicKey")],
+         edits=[(ENDPOINT, "        if (request.PublicKeyBase64 is null)", "        if (request.PublicKeyBase64 == \"no-such-key\")")]),
+    dict(id="35", what="the cap never refuses",
+         cmds=[dotnet(API, "FullyQualifiedName~AnIdentifierLongerThanTheForumStores")],
+         edits=[(ENDPOINT, "bytes > EnrollmentErrors.MaxIdentifierBytes ?", "bytes > EnrollmentErrors.MaxIdentifierBytes * 1000 ?")]),
+    dict(id="36", what="the cap counts UTF-16 code units",
+         cmds=[dotnet(API, "FullyQualifiedName~AnIdentifierLongerThanTheForumStores")],
+         edits=[(ENDPOINT, "var bytes = Encoding.UTF8.GetByteCount(value);", "var bytes = value.Length;")]),
 ]
 
 # What a failing xUnit test prints about itself, and nothing else: its name, then its message
@@ -4181,7 +4231,7 @@ echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipesta
 
 A pipeline's own status is `tee`'s, so the last line reads the runner's: `${PIPESTATUS[0]}` in bash, `$pipestatus[1]` in fish. That `echo` is the wrapper's and is not logged; the log's last line is the runner's own `runner exit: N`.
 
-Each case must print `RED` for every command it runs, followed by `restore clean`, and the runner's last line must be `runner exit: 0`. `RED` means the run printed a `Failed!` line: a test ran and failed. The runner exits non-zero whenever any command is not `RED` (`BUILD FAILED`, `GREEN`, or `DID NOT RUN`: a non-zero exit with no `Failed!` line, which falsifies nothing), and whenever a patch mismatches or a restore is dirty. Cases 1, 2, 3, 8, 13, 17, 20, 21, 22, 23, 24 and 25 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
+Each case must print `RED` for every command it runs, followed by `restore clean`, and the runner's last line must be `runner exit: 0`. `RED` means the run printed a `Failed!` line: a test ran and failed. The runner exits non-zero whenever any command is not `RED` (`BUILD FAILED`, `GREEN`, or `DID NOT RUN`: a non-zero exit with no `Failed!` line, which falsifies nothing), and whenever a patch mismatches or a restore is dirty. Cases 1, 2, 3, 8, 13, 17, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31 and 32 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
 
 | Case | Must fail, by name |
 |---|---|
@@ -4213,6 +4263,15 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 | 25 | `JsonReaderCheckStringTests.CheckStringRefusesANoncharacterAndAnUnpairedSurrogateByName`, at its noncharacter half (`Expected: "curia/admit/noncharacter"`, `Actual: "ok"`), and `CheckStringAgreesWithAdmitOnEveryString` (`CsCheck.CsCheckException`, shrunk to `U+FDD2`; the seed and the example differ from run to run); both rows of `EnrollmentIdentifierTests.R6_15_AnEnrollmentHoldingANoncharacterIsRefusedBeforeAnythingIsWritten` (`Expected: "400 curia/admit/noncharacter field=…"`, `Actual: "201 enrolled; key rows 1, events 1"`). One edit, three layers |
 | 25b | both rows of `EnrollmentIdentifierTests.AnEnrollmentHoldingUPlus0000IsRefusedByNameBeforeAnythingIsWritten` (`Expected: "400 curia/enroll/nul-character field=…"`, `Actual: "500 Npgsql.PostgresException (0x80004005): 22021: "`: the database's own refusal). A case of its own, not a second edit in case 25: case 25 is one edit that shows three layers carry information, and `CheckString` accepts U+0000 by design, as ADMIT does |
 | 26 | all five rows of `EnrollmentIdentifierTests.R4_15_AnEnrollmentWithoutAnAlgorithmTheForumVerifiesIsRefusedByName` (`Expected: "400 curia/enroll/unsupported-algorithm alg=…"`; `Actual: "500 Npgsql.PostgresException (0x80004005): 23514: "` for `""`, `RS256`, `HS256` and `es256`, the CHECK, and `Actual: "500 System.InvalidOperationException: Parameter 'a"` for a missing `alg`, Npgsql's null parameter) |
+| 28 | `AdapterTests.R4_15_Es256VerifiesUnderAP256SubjectPublicKeyInfoAndNothingElse`, rows `p384-spki` and `p256-spki-and-a-trailing-byte` (`Actual: "IsPublicKey=True; Verify=True"`, each under a genuine signature); `EnrollmentIdentifierTests.R4_15_AnEnrollmentWhoseKeyIsNotAKeyOfItsAlgorithmIsRefusedBeforeAnythingIsWritten`, the same two rows (`Actual: "201 enrolled; key rows 1, events 1"`); `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` (`Actual: ···"0 kids=[stored-x-…,x-p384-…] x=32,48"···`: the P-384 key served, with 48-byte coordinates) and `StoredKeyFormTests.R4_15_AStoredKeyThatIsNotAKeyOfItsAlgorithmMintsNoTokenAndIsAnsweredAsABadSignatureIs`, row `es256-p384-spki` (`Actual: "200 {"access_token":…`: a token issued). Each row can go red only through its own clause: the P-384 key is consumed whole, and the trailing-byte key is on P-256. The brainpool rows stay green on this machine, where macOS cannot import the curve at all; on Linux they are expected to go red here too |
+| 29 | `AdapterTests.R4_15_Es256VerifiesUnderAP256SubjectPublicKeyInfoAndNothingElse`, rows `empty`, `three-zero-bytes`, `32-raw-bytes` and `rsa-2048-spki` (`Actual: "IsPublicKey=THROWS CryptographicException; Verify="···`), and on this machine `brainpoolP256r1-spki` (`Actual: "IsPublicKey=THROWS PlatformNotSupportedException; "···`); `EnrollmentIdentifierTests.R4_15_AnEnrollmentWhoseKeyIsNotAKeyOfItsAlgorithmIsRefusedBeforeAnythingIsWritten`, the same five rows (`Actual: "500 System.Security.Cryptography.CryptographicExce"···`, and `"500 System.PlatformNotSupportedException: The spec"···` for brainpool); `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` (`Actual: "X: 500 System.Security.Cryptography.CryptographicE"···`) and `StoredKeyFormTests.R4_15_AStoredKeyThatIsNotAKeyOfItsAlgorithmMintsNoTokenAndIsAnsweredAsABadSignatureIs`, row `es256-32-raw-bytes` (`Actual: "500 System.Security.Cryptography.CryptographicExce"···`). The P-384 and trailing-byte rows stay green, and they should: nothing throws for them |
+| 30 | `AdapterTests.R4_15_EdDsaVerifiesUnderA32ByteKeyAndNothingElse`, every row (`Actual: "IsPublicKey=True; Verify=False"`); `EnrollmentIdentifierTests.R4_15_AnEnrollmentWhoseKeyIsNotAKeyOfItsAlgorithmIsRefusedBeforeAnythingIsWritten`, the three EdDSA rows (`Actual: "201 enrolled; key rows 1, events 1"`); `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` (`Actual: ···"0 kids=[stored-x-…,x-spki-as-eddsa-…"···`: the P-256 key served as an octet key pair). `Verify` stays false, because `Read` is unchanged |
+| 31 | `AdapterTests.R4_15_AnHonestKeyOfEachAlgorithmIsAPublicKeyAndVerifies`, at its EdDSA half (`Actual: ···"erify=True. EdDSA: IsPublicKey=False; Verify=False"`); `EnrollmentIdentifierTests.R4_28_AnEd25519KeyIsRegisteredAndPublishedAsTheOctetKeyPairItIs` (`Actual: "400 curia/enroll/invalid-key alg=EdDSA: public_key"···`). The positive controls: a predicate that refused every EdDSA key would pass both theories |
+| 32 | `AdapterTests.R4_15_EdDsaVerifiesUnderA32ByteKeyAndNothingElse`, every row (`Actual: "IsPublicKey=THROWS FormatException; Verify=THROWS "···`); `EnrollmentIdentifierTests.R4_15_AnEnrollmentWhoseKeyIsNotAKeyOfItsAlgorithmIsRefusedBeforeAnythingIsWritten`, the three EdDSA rows (`Actual: "500 System.FormatException: The key BLOB is not in"···`); `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` (`Actual: "X: 500 System.FormatException: The key BLOB is not"···`) and `StoredKeyFormTests.R4_15_AStoredKeyThatIsNotAKeyOfItsAlgorithmMintsNoTokenAndIsAnsweredAsABadSignatureIs`, row `eddsa-header-over-an-es256-key` (`Actual: "500 System.FormatException: The key BLOB is not in"···`). It is the one case that shows that row carries information: any caller could send it, naming any honest agent |
+| 33 | `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` alone (`Actual: "X: 500 System.Security.Cryptography.CryptographicE"···`). The token rows stay green, and they should: the key set's guard is not theirs |
+| 34 | both rows of `EnrollmentIdentifierTests.AnEnrollmentWithoutAPublicKeyIsRefusedByName` (`Actual: "500 System.ArgumentNullException: Value cannot be "···`) |
+| 35 | the four 400 rows of `EnrollmentIdentifierTests.AnIdentifierLongerThanTheForumStoresIsRefusedByName`: `agent_id` at 1,025 bytes, the multi-byte row and `kid` at 1,025 bytes (`Actual: "201 enrolled; key rows 1, events 1"`), and `agent_id` at 2,685 bytes (`Actual: "500 Npgsql.PostgresException (0x80004005): 54000: "···`). The two 1,024-byte rows stay green. The long identifiers are padded with random hex: Postgres compresses an index entry it can, and one repeated letter fitted under the limit at 2,685 bytes and answered 201 |
+| 36 | the multi-byte row of `EnrollmentIdentifierTests.AnIdentifierLongerThanTheForumStoresIsRefusedByName` alone (`field: "agent_id", asciiBytes: 40, multiByteChars: 600`; `Actual: "201 enrolled; key rows 1, events 1"`): 640 code units and 1,240 bytes. Every ASCII row stays green, and they should: for ASCII the two counts agree |
 
 Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).
