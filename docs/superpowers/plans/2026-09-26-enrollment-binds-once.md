@@ -3874,10 +3874,11 @@ but commit -b enrollment-binds-once -m "$(printf 'D24: features that cancel have
 
 **Preconditions:**
 - Tasks 1–6 are committed, and `git status --porcelain` is empty.
-- The runner restores from a kept copy with a **plain copy**: `shutil.copyfile`, which gives the file a fresh mtime. It never uses `copy2` and never `git checkout`. `copy2` restores the old mtime, and MSBuild then keeps the patched assembly (trap 18).
+- The runner restores from a kept copy with a **plain copy**: `shutil.copyfile`, which gives the file a fresh mtime. It never uses `copy2` and never `git checkout`. `copy2` restores the old mtime, and MSBuild then keeps the patched assembly (trap 18). The restore runs in a `finally`, so an exception or an interrupt mid-case never leaves a file patched.
 - It proves each restore twice: the restored bytes equal the kept copy's, and `git diff --quiet` sees no change.
 - It counts any MSBuild `: error ` line as BUILD FAILED, so an analyzer error can never read as RED.
-- It counts a command RED only when its output holds a `Failed!` line. A non-zero exit with neither a `Failed!` line nor an `: error ` line prints DID NOT RUN, and the runner then exits non-zero: an SDK or host that never started a test must never read as RED.
+- It counts a command RED only when its output holds a `Failed!` line. A non-zero exit with neither a `Failed!` line nor an `: error ` line prints DID NOT RUN: an SDK or host that never started a test must never read as RED.
+- It exits non-zero whenever anything is not RED: a patch that mismatches, a build that fails, a suite that stays green, a suite that did not run, or a restore that is dirty. Its last line is its own: `runner exit: 0` or `runner exit: 1`.
 - For each failing test it prints the name, and then the whole `Error Message:` block down to the stack trace. That block carries the `Expected:` and `Actual:` lines and the exception lines, so the record needs no hand re-runs.
 - No case is quoted until the unpatched gates have been rebuilt with `--no-incremental` and run green (Step 3).
 
@@ -3970,6 +3971,7 @@ CASES = [
                        "            && left.Public.Length == right.Public.Length;")]),
     dict(id="3", what="material compared by reference, as the record's generated equality would",
          cmds=[dotnet(APP, "FullyQualifiedName~KeyEnrollmentTests|FullyQualifiedName~AuthorKeyRegistry"),
+               dotnet(INFRA, "FullyQualifiedName~PostgresAuthorKeyRegistryContractTests"),
                dotnet(API, "FullyQualifiedName~EnrollmentBindingTests")],
          edits=[(PORT, "            && left.Public.Span.SequenceEqual(right.Public.Span);",
                        "            && left.Public.Equals(right.Public);")]),
@@ -4053,67 +4055,80 @@ def failures(out):
             lines.append("      " + line.strip()[:240])
     return lines
 
-not_run = []
+# Every outcome that is not RED -- a patch that mismatched, a build that failed, a suite that stayed
+# green, a host that never ran a test, a restore that is dirty -- falsified nothing, and fails the run.
+not_red = []
 for case in CASES:
     if ONLY and case["id"] not in ONLY:
         continue
     files = sorted({f for f, _, _ in case["edits"]})
     for f in files:
         shutil.copyfile(ROOT / f, KEEP / f.replace("/", "__"))
-    ok = True
-    for f, old, new in case["edits"]:
-        p = ROOT / f
-        s = p.read_text(encoding="utf-8")
-        n = s.count(old)
-        if n != 1:
-            print(f"[{case['id']}] PATCH MISMATCH in {f}: {n} matches -- fix the patch, not the code")
-            ok = False
-            break
-        p.write_text(s.replace(old, new), encoding="utf-8")
-    if ok:
-        print(f"[{case['id']}] {case['what']}")
-        for cmd in case["cmds"]:
-            r = subprocess.run(cmd, capture_output=True, text=True)
-            out = r.stdout + r.stderr
-            # Any MSBuild error line -- CS, CA, IDE or MSB -- means the patched code did not build,
-            # and must never read as RED. RED needs the test run's own `Failed!` line: a non-zero
-            # exit without one is a host or SDK that never ran a test, not a gate that fell.
-            if ": error " in out:
-                status = "BUILD FAILED"
-            elif any("Failed!" in l for l in out.splitlines()):
-                status = "RED"
-            elif r.returncode != 0:
-                status = "DID NOT RUN"
-                not_run.append(f"[{case['id']}] {cmd[2]}")
-            else:
-                status = "GREEN -- bad patch or a gap"
-            print(f"[{case['id']}] {cmd[2]} {status}")
-            summary = [l.strip() for l in out.splitlines() if "Passed!" in l or "Failed!" in l]
-            for line in summary:
-                print("    " + line)
-            for line in failures(out):
-                print(line)
-            if status == "BUILD FAILED":
-                for line in out.splitlines():
-                    if ": error " in line:
+    try:
+        ok = True
+        for f, old, new in case["edits"]:
+            p = ROOT / f
+            s = p.read_text(encoding="utf-8")
+            n = s.count(old)
+            if n != 1:
+                print(f"[{case['id']}] PATCH MISMATCH in {f}: {n} matches -- fix the patch, not the code")
+                not_red.append(f"[{case['id']}] PATCH MISMATCH")
+                ok = False
+                break
+            p.write_text(s.replace(old, new), encoding="utf-8")
+        if ok:
+            print(f"[{case['id']}] {case['what']}")
+            for cmd in case["cmds"]:
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                out = r.stdout + r.stderr
+                # Any MSBuild error line -- CS, CA, IDE or MSB -- means the patched code did not build,
+                # and must never read as RED. RED needs the test run's own `Failed!` line: a non-zero
+                # exit without one is a host or SDK that never ran a test, not a gate that fell.
+                if ": error " in out:
+                    status = "BUILD FAILED"
+                elif any("Failed!" in l for l in out.splitlines()):
+                    status = "RED"
+                elif r.returncode != 0:
+                    status = "DID NOT RUN"
+                else:
+                    status = "GREEN -- bad patch or a gap"
+                if status != "RED":
+                    not_red.append(f"[{case['id']}] {cmd[2]} {status}")
+                print(f"[{case['id']}] {cmd[2]} {status}")
+                summary = [l.strip() for l in out.splitlines() if "Passed!" in l or "Failed!" in l]
+                for line in summary:
+                    print("    " + line)
+                for line in failures(out):
+                    print(line)
+                if status == "BUILD FAILED":
+                    for line in out.splitlines():
+                        if ": error " in line:
+                            print("    " + line.strip()[:240])
+                if status == "DID NOT RUN":
+                    for line in out.splitlines()[-20:]:
                         print("    " + line.strip()[:240])
-            if status == "DID NOT RUN":
-                for line in out.splitlines()[-20:]:
-                    print("    " + line.strip()[:240])
-    for f in files:
-        shutil.copyfile(KEEP / f.replace("/", "__"), ROOT / f)   # plain copy: a fresh mtime (trap 18)
-    # Two proofs: the bytes equal the kept copy's, and git sees no change against the index.
-    same = [f for f in files if filecmp.cmp(KEEP / f.replace("/", "__"), ROOT / f, shallow=False)]
-    quiet = subprocess.run(["git", "diff", "--quiet", "--", *files]).returncode == 0
-    clean = len(same) == len(files) and quiet
-    print(f"[{case['id']}] restore {'clean' if clean else 'DIRTY -- STOP'}"
-          f" (bytes equal to the kept copy: {len(same)}/{len(files)}; git diff --quiet: {'yes' if quiet else 'NO'})")
+    finally:
+        # Restored even when the run is interrupted or throws: no file is ever left patched.
+        for f in files:
+            shutil.copyfile(KEEP / f.replace("/", "__"), ROOT / f)   # plain copy: a fresh mtime (trap 18)
+        # Two proofs: the bytes equal the kept copy's, and git sees no change against the index.
+        same = [f for f in files if filecmp.cmp(KEEP / f.replace("/", "__"), ROOT / f, shallow=False)]
+        quiet = subprocess.run(["git", "diff", "--quiet", "--", *files]).returncode == 0
+        clean = len(same) == len(files) and quiet
+        print(f"[{case['id']}] restore {'clean' if clean else 'DIRTY -- STOP'}"
+              f" (bytes equal to the kept copy: {len(same)}/{len(files)}; git diff --quiet: {'yes' if quiet else 'NO'})")
     if not clean:
-        sys.exit(1)
+        not_red.append(f"[{case['id']}] restore DIRTY")
+        break
 
+not_run = [n for n in not_red if n.endswith("DID NOT RUN")]
 if not_run:
     print("DID NOT RUN: " + ", ".join(not_run) + " -- no test ran there, so nothing was falsified")
+if not_red:
+    print("NOT RED: " + ", ".join(not_red) + " -- nothing was falsified there")
+    print("runner exit: 1")
     sys.exit(1)
+print("runner exit: 0")
 ```
 
 - [ ] **Step 2: Run it**
@@ -4121,17 +4136,21 @@ if not_run:
 From the repository root, with `CURIA_TEST_POSTGRES` exported and `curia-testis` built:
 
 ```bash
+set -o pipefail
 python3 <scratchpad>/falsify.py <scratchpad>/falsify-keep 2>&1 | tee <scratchpad>/falsify.log
+echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipestatus[1]"
 ```
 
-Each case must print `RED` for every command it runs, followed by `restore clean`. `RED` means the run printed a `Failed!` line: a test ran and failed. A non-zero exit without one prints `DID NOT RUN`, which falsifies nothing, and the runner exits non-zero. Cases 1, 2, 3, 8, 13, 17 and 20 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
+A pipeline's own status is `tee`'s, so the last line reads the runner's: `${PIPESTATUS[0]}` in bash, `$pipestatus[1]` in fish. That `echo` is the wrapper's and is not logged; the log's last line is the runner's own `runner exit: N`.
+
+Each case must print `RED` for every command it runs, followed by `restore clean`, and the runner's last line must be `runner exit: 0`. `RED` means the run printed a `Failed!` line: a test ran and failed. The runner exits non-zero whenever any command is not `RED` (`BUILD FAILED`, `GREEN`, or `DID NOT RUN`: a non-zero exit with no `Failed!` line, which falsifies nothing), and whenever a patch mismatches or a restore is dirty. Cases 1, 2, 3, 8, 13, 17 and 20 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
 
 | Case | Must fail, by name |
 |---|---|
 | 1 | `KeyEnrollmentTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefused`, `R4_31_AHeldKeysMaterialUnderANewKidIsRefused`, `R4_31_KidsAndAlgorithmsAreComparedWithTheirCase` and `R4_31_AKeyWhoseWindowHasClosedIsStillHeld` (`expected a refusal, got register`, each); the in-memory and the Postgres `…ContractTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefusedAndRegistersNothing` (`expected a refusal, got RegisteredKey { … Kid = mallory-1 … }`); `EnrollIdentityTests.R4_31_RacingEnrollmentsOfOneFreshIdentityLeaveOneKeyAndOneRecord` (`Assert.Single() Failure: The collection contained 8 items`). The HTTP suite is not run: its attack fact would stay green by design, since the log's half refuses the second `kid` before the store is asked, and cases 8–10 fence that half |
 | 2 | `KeyEnrollmentTests.R4_32_TheSameKidWithOtherBytesIsRefused` and `R4_32_MaterialIsComparedByContent`; both contract runs' `R4_32_ReEnrollingAKidWithOtherBytesIsRefusedAndTheOriginalStands`; `EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing` (`Expected: Conflict`, `Actual: Created`) |
-| 3 | `KeyEnrollmentTests.R4_31_TheSameKeyAgainIsHeldNotRegistered`, `R4_31_AHeldKeyIsFoundByItsKidNotItsPosition` and `R4_32_MaterialIsComparedByContent`; the in-memory `R4_31_ReEnrollingTheSameKeyWritesNothingAndKeepsItsWindow` (`curia/keys/material-immutable`); `EnrollmentBindingTests.R4_31_ReEnrollingTheEnrolledKeyIsAcceptedAndChangesNothing` (`Expected: Created`, `Actual: Conflict`) |
-| 4 | both `PostgresEnrollmentSerializationTests` facts: `an enrollment decided while its identifier's lock was held by another transaction` |
+| 3 | `KeyEnrollmentTests.R4_31_TheSameKeyAgainIsHeldNotRegistered`, `R4_31_AHeldKeyIsFoundByItsKidNotItsPosition` and `R4_32_MaterialIsComparedByContent`; both contract runs' `R4_31_ReEnrollingTheSameKeyWritesNothingAndKeepsItsWindow` (`curia/keys/material-immutable`); `EnrollmentBindingTests.R4_31_ReEnrollingTheEnrolledKeyIsAcceptedAndChangesNothing` (`Expected: Created`, `Actual: Conflict`) |
+| 4 | both `PostgresEnrollmentSerializationTests` facts, `R4_31_TwoEnrollmentsRacingForOneFreshIdentifierLeaveOneKey` and `R4_31_AnEnrollmentWaitsWhileItsIdentifiersLockIsHeld`: `an enrollment decided while its identifier's lock was held by another transaction` |
 | 4b | `PostgresEnrollmentSerializationTests.R4_31_TwoEnrollmentsRacingForOneFreshIdentifierLeaveOneKey` alone (`Assert.Single() Failure: The collection contained 2 matching items`). The waiting fact stays green, and it should: the lock is still taken, just too late |
 | 5 | the four rows of `AgentKeyMaterialGrantTests.R4_32_TheAppRoleCannotRewriteAKeysIdentityOrMaterial`, and `R4_32_TheIsolatedKeyStoreSchemasCarryTheSameGrant` (`Assert.Throws() Failure: No exception was thrown`) |
 | 6 | `R4_32_TheIsolatedKeyStoreSchemasCarryTheSameGrant` alone: the public schema's grant is right, and the per-test schemas are the ones the fixture forgot |
@@ -4152,7 +4171,7 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 
 Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).
-- **Case 7 needs two edits.** With db/0005 in place, the old statement is refused by Postgres (`42501 permission denied for table agent_keys`) on every call, so the code's own refusal is fenced only once the grant goes too. That the grant alone turns the old statement into a loud failure is the point of R4.32, not a gap.
+- **Case 7 needs two edits.** With db/0005 in place, the old statement is refused by Postgres (`42501 permission denied for table agent_keys`) on every call, so the code's own refusal is fenced only once the grant goes too. When this task ran, the store edit alone (a one-off case, not in `CASES`) printed `Failed!  - Failed:    15, Passed:     1, Skipped:     0, Total:    16` for `PostgresAgentKeyStoreTests`, every failure `Npgsql.PostgresException : 42501: permission denied for table agent_keys`: both refusal facts, and registrations that meet no row, such as `ARegisteredKeyResolvesForItsAgentAtAnInstantInsideItsWindow`. The one green fact, `AnAgentWithNoRegisteredKeysHasAnEmptyKeySet`, never registers. That the grant alone turns the old statement into a loud failure is the point of R4.32, not a gap.
 - **Case 12 patches a test, not the product.** It shows the verifier's negative control can fail, so the verifier's pass above it carries information.
 - **Case 16 needs one edit, where case 7 needs two.** The grant cannot fence the algorithm clause: the statement sets only the window, which the grant allows, so the `WHERE` clause alone decides whether the relabelled key is refused.
 
