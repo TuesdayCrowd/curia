@@ -37,5 +37,8 @@ secret-pem
 secret-pem-ec
 secret-slack-webhook
 secret-underscore-token
+secret-wrapped-at-prefix-hyphen
+secret-wrapped-in-quote-gutter
+secret-wrapped-mid-token
 url-access-token
 url-api-key

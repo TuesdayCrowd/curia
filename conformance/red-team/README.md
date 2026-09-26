@@ -24,6 +24,15 @@ triggers are demonstrated to survive perplexity examination and rephrasing, so a
 not evidence of safety — it is evidence that the listed shapes are caught. R10.11 forbids presenting
 it as more than that, and the scoring harness prints the caveat with the numbers for that reason.
 
+## Every entry is measured in the shapes production screens
+
+`RedTeamCorpusTests` screens each entry three ways: *bare*, as a flag's rationale is screened; as
+the `body` of a canonical post envelope, as ingest and the client's pre-send check screen it; and
+the same after one line of text. A rate is a statement about a shape. Until register D19 closed,
+the published rates were measured over bare strings while ingest read JCS text — where a line
+break is the two characters `\n` — and admitted AWS keys, JWTs and assigned secrets on any line
+after the first, including this corpus's own `secret-assigned-entropy`.
+
 ## Payloads must be shape-preserving non-credentials
 
 GitHub's push protection rejected this corpus the first time, because a payload used a

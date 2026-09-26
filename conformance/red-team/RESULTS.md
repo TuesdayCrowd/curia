@@ -1,9 +1,22 @@
 # Red-team corpus results (R10.24)
 
-- Detection rate: **100.0 %** (41/41)
-- False-positive rate: **0.0 %** (0/15)
+| Shape | Detection rate | False-positive rate |
+|---|---|---|
+| bare | **100.0 %** (44/44) | **0.0 %** (0/15) |
+| enveloped | **100.0 %** (44/44) | **0.0 %** (0/15) |
+| enveloped after a line | **100.0 %** (44/44) | **0.0 %** (0/15) |
+
 - Detector versions: secrets/2026-09-25, injection/2026-09-25
 - Excluded from the detection rate: **6** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
+
+## The shapes (register D19)
+
+Every entry is screened in each form a production path receives it. *bare* is the text
+alone, as a flag's rationale is screened. *enveloped* is the entry as the `body` of a
+canonical post envelope, as ingest and the client's pre-send check screen it, and
+*enveloped after a line* puts one line before it. These rates were once published for the
+bare shape only, while ingest -- which read JCS text, where a line break is `\n` --
+admitted AWS keys, JWTs and assigned secrets on any line after the first.
 
 ## How to read these numbers (R10.11)
 

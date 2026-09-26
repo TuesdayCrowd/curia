@@ -3,6 +3,10 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Curia.Canon.Canonical;
+using Curia.Canon.Json;
+using Curia.Domain.Content;
+using Curia.Domain.Primitives;
 using Curia.Domain.Screening;
 using Curia.Domain.Serving;
 using Xunit;
@@ -97,9 +101,10 @@ public sealed class RedTeamCorpusTests
         // payload whose class asserts something other than detection would enter this baseline as
         // "detected" and then be defended against regressing at a property it never had. The
         // baseline covers the payloads this gate measures and no others.
-        var detectedNow = Load("payloads.jsonl")
-            .Where(c => c.Outcome == Outcomes.Flagged)
-            .Where(c => c.Expect.All(e => Detect(c.Content).Contains(e, StringComparer.Ordinal)))
+        var payloads = Load("payloads.jsonl").Where(c => c.Outcome == Outcomes.Flagged).ToArray();
+        var missedIn = payloads.ToDictionary(c => c.Id, MissedShapes, StringComparer.Ordinal);
+        var detectedNow = payloads
+            .Where(c => missedIn[c.Id].Length == 0)
             .Select(c => c.Id)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToArray();
@@ -113,7 +118,12 @@ public sealed class RedTeamCorpusTests
         }
 
         var baseline = File.ReadAllLines(baselinePath).Where(l => l.Trim().Length > 0).ToArray();
-        var regressed = baseline.Except(detectedNow, StringComparer.Ordinal).ToArray();
+        var regressed = baseline
+            .Except(detectedNow, StringComparer.Ordinal)
+            .Select(id => missedIn.TryGetValue(id, out var shapes)
+                ? $"{id} (missed in: {string.Join(", ", shapes)})"
+                : $"{id} (no longer in payloads.jsonl)")
+            .ToArray();
 
         Assert.True(
             regressed.Length == 0,
@@ -140,26 +150,29 @@ public sealed class RedTeamCorpusTests
         var cases = Load("payloads.jsonl").Where(c => c.Outcome == Outcomes.Flagged).ToArray();
         Assert.NotEmpty(cases);
 
-        var missed = new List<string>();
-
-        foreach (var c in cases)
+        foreach (var shape in Shapes)
         {
-            var fired = Detect(c.Content);
+            var missed = new List<string>();
 
-            // A payload counts as detected when every category it names fires. Partial credit would
-            // let a payload that names two shapes pass on one, and the second shape is usually the
-            // one that carries the attack.
-            var undetected = c.Expect.Where(e => !fired.Contains(e, StringComparer.Ordinal)).ToArray();
-            if (undetected.Length > 0)
-                missed.Add($"{c.Id}: missed {string.Join(", ", undetected)} (fired: {string.Join(", ", fired)})");
+            foreach (var c in cases)
+            {
+                var fired = shape.Detect(c.Content);
+
+                // A payload counts as detected when every category it names fires. Partial credit would
+                // let a payload that names two shapes pass on one, and the second shape is usually the
+                // one that carries the attack.
+                var undetected = c.Expect.Where(e => !fired.Contains(e, StringComparer.Ordinal)).ToArray();
+                if (undetected.Length > 0)
+                    missed.Add($"{c.Id}: missed {string.Join(", ", undetected)} (fired: {string.Join(", ", fired)})");
+            }
+
+            var rate = 1.0 - ((double)missed.Count / cases.Length);
+
+            Assert.True(
+                rate >= MinimumDetectionRate,
+                $"Detection rate {rate:P1} in the {shape.Name} shape is below the {MinimumDetectionRate:P0} floor.\n" +
+                string.Join("\n", missed));
         }
-
-        var rate = 1.0 - ((double)missed.Count / cases.Length);
-
-        Assert.True(
-            rate >= MinimumDetectionRate,
-            $"Detection rate {rate:P1} is below the {MinimumDetectionRate:P0} floor.\n" +
-            string.Join("\n", missed));
     }
 
     /// <summary>
@@ -175,14 +188,17 @@ public sealed class RedTeamCorpusTests
 
         var falsePositives = new List<string>();
 
-        foreach (var c in cases)
+        foreach (var shape in Shapes)
         {
-            var fired = Detect(c.Content);
-            if (fired.Length > 0)
-                falsePositives.Add($"{c.Id}: fired {string.Join(", ", fired)} on benign content");
+            foreach (var c in cases)
+            {
+                var fired = shape.Detect(c.Content);
+                if (fired.Length > 0)
+                    falsePositives.Add($"{c.Id} ({shape.Name}): fired {string.Join(", ", fired)} on benign content");
+            }
         }
 
-        var rate = (double)falsePositives.Count / cases.Length;
+        var rate = (double)falsePositives.Count / (cases.Length * Shapes.Length);
 
         Assert.True(
             rate <= MaximumFalsePositiveRate,
@@ -210,23 +226,36 @@ public sealed class RedTeamCorpusTests
         var excluded = all.Length - payloads.Length;
         var benign = Load("benign.jsonl");
 
-        var detected = payloads.Count(c => c.Expect.All(e => Detect(c.Content).Contains(e, StringComparer.Ordinal)));
-        var flagged = benign.Count(c => Detect(c.Content).Length > 0);
-
-        var detectionRate = (double)detected / payloads.Length;
-        var falsePositiveRate = (double)flagged / benign.Length;
-
         var report = new StringBuilder()
             .AppendLine("# Red-team corpus results (R10.24)")
             .AppendLine()
-            .AppendLine(string.Create(CultureInfo.InvariantCulture,
-                $"- Detection rate: **{detectionRate:P1}** ({detected}/{payloads.Length})"))
-            .AppendLine(string.Create(CultureInfo.InvariantCulture,
-                $"- False-positive rate: **{falsePositiveRate:P1}** ({flagged}/{benign.Length})"))
+            .AppendLine("| Shape | Detection rate | False-positive rate |")
+            .AppendLine("|---|---|---|");
+
+        foreach (var shape in Shapes)
+        {
+            var detected = payloads.Count(c => c.Expect.All(e => shape.Detect(c.Content).Contains(e, StringComparer.Ordinal)));
+            var flagged = benign.Count(c => shape.Detect(c.Content).Length > 0);
+
+            report.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                $"| {shape.Name} | **{(double)detected / payloads.Length:P1}** ({detected}/{payloads.Length}) | **{(double)flagged / benign.Length:P1}** ({flagged}/{benign.Length}) |"));
+        }
+
+        report
+            .AppendLine()
             .AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"- Detector versions: {SecretScanner.Version}, {InjectionDetector.Version}"))
             .AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"- Excluded from the detection rate: **{excluded}** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes"))
+            .AppendLine()
+            .AppendLine("## The shapes (register D19)")
+            .AppendLine()
+            .AppendLine("Every entry is screened in each form a production path receives it. *bare* is the text")
+            .AppendLine("alone, as a flag's rationale is screened. *enveloped* is the entry as the `body` of a")
+            .AppendLine("canonical post envelope, as ingest and the client's pre-send check screen it, and")
+            .AppendLine("*enveloped after a line* puts one line before it. These rates were once published for the")
+            .AppendLine("bare shape only, while ingest -- which read JCS text, where a line break is `\\n` --")
+            .AppendLine("admitted AWS keys, JWTs and assigned secrets on any line after the first.")
             .AppendLine()
             .AppendLine("## How to read these numbers (R10.11)")
             .AppendLine()
@@ -254,11 +283,10 @@ public sealed class RedTeamCorpusTests
                 $"- **`{e.Id}`** -- would be {string.Join(", ", e.WouldDetect)}. {e.Why}\n"))))
             .AppendLine()
             .AppendLine("A recorded evasion that starts being detected fails the build, so this list cannot")
-            .AppendLine("silently go stale.")
-            .ToString();
+            .AppendLine("silently go stale.");
 
         var path = Path.Combine(CorpusDirectory(), "RESULTS.md");
-        File.WriteAllText(path, report);
+        File.WriteAllText(path, report.ToString());
 
         Assert.True(File.Exists(path));
         Assert.Contains("Detection rate", File.ReadAllText(path), StringComparison.Ordinal);
@@ -301,11 +329,14 @@ public sealed class RedTeamCorpusTests
 
         foreach (var evasion in KnownEvasions())
         {
-            var fired = Detect(evasion.Content);
-            var nowCaught = evasion.WouldDetect.Where(e => fired.Contains(e, StringComparer.Ordinal)).ToArray();
+            foreach (var shape in Shapes)
+            {
+                var fired = shape.Detect(evasion.Content);
+                var nowCaught = evasion.WouldDetect.Where(e => fired.Contains(e, StringComparer.Ordinal)).ToArray();
 
-            if (nowCaught.Length > 0)
-                stale.Add($"{evasion.Id}: now detected as {string.Join(", ", nowCaught)} -- move it to payloads.jsonl");
+                if (nowCaught.Length > 0)
+                    stale.Add($"{evasion.Id} ({shape.Name}): now detected as {string.Join(", ", nowCaught)} -- move it to payloads.jsonl");
+            }
         }
 
         Assert.True(
@@ -334,15 +365,80 @@ public sealed class RedTeamCorpusTests
             .ToArray();
     }
 
-    private static string[] Detect(string content)
+    /// <summary>
+    /// The forms a corpus entry is screened in (R10.24, register D19). <b>bare</b> is what
+    /// <c>RaiseFlag</c> screens. The two enveloped shapes are what ingest and the client's pre-send
+    /// check screen: the entry as the <c>body</c> of a canonical envelope, alone and after one line.
+    /// The rates were once published for the bare shape only, while ingest admitted AWS keys, JWTs
+    /// and assigned secrets on any line after the first -- a rate is a statement about a shape.
+    /// </summary>
+    private sealed record Shape(string Name, Func<string, string[]> Detect);
+
+    private static readonly Shape[] Shapes =
+    [
+        new("bare", content => Categories(ContentScreener.ScreenText(Encoding.UTF8.GetBytes(content)))),
+        new("enveloped", content => Categories(ContentScreener.ScreenEnvelope(Envelope(content).Span))),
+        new("enveloped after a line", content => Categories(ContentScreener.ScreenEnvelope(Envelope("Context:\n" + content).Span))),
+    ];
+
+    private static string[] Categories(Result<ScreeningResult> screened)
     {
-        var bytes = Encoding.UTF8.GetBytes(content);
-        Assert.True(ContentScreener.ScreenText(bytes).TryGetValue(out var result, out _));
+        Assert.True(screened.TryGetValue(out var result, out var error), error?.Type);
 
         return result!.Annotations.Flags
             .Select(f => f.Category.ToString())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+    }
+
+    /// <summary>A post envelope around <paramref name="body"/>, canonicalized as production does it.</summary>
+    private static CanonicalBytes Envelope(string body)
+    {
+        var envelope = new JsonValue.Object(
+        [
+            new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)),
+            new("kind", new JsonValue.String("question")),
+            new("author", new JsonValue.String("https://agents.example/corpus-runner")),
+            new("board", new JsonValue.String("general")),
+            new("title", new JsonValue.String("Red-team corpus entry")),
+            new("body", new JsonValue.String(body)),
+            new("code_blocks", new JsonValue.Array([])),
+            new("refs", new JsonValue.Array([])),
+            new("tags", new JsonValue.Array([])),
+            new("content_type", new JsonValue.String(PostEnvelope.RequiredContentType)),
+            new("created_at", new JsonValue.String("2026-09-25T00:00:00.0000000+00:00")),
+            new("nonce", new JsonValue.String("00000000000000000000000000000000")),
+        ]);
+
+        Assert.True(CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out var error), error?.Type);
+        return canonical;
+    }
+
+    /// <summary>The shapes in which <paramref name="c"/> does not fire every category it names.</summary>
+    private static string[] MissedShapes(Case c) =>
+        Shapes
+            .Where(s => !c.Expect.All(e => s.Detect(c.Content).Contains(e, StringComparer.Ordinal)))
+            .Select(s => s.Name)
+            .ToArray();
+
+    /// <summary>
+    /// The enveloped shapes must carry the entry, or the rates measured over them measure an
+    /// envelope. D19 hid behind a probe of a shape production never screens (trap 1); this checks
+    /// the probe is at least the shape it claims to be.
+    /// </summary>
+    [Fact]
+    public void Every_enveloped_entry_carries_its_content_as_the_body_token()
+    {
+        foreach (var c in CorpusFiles.SelectMany(Load))
+        {
+            var tokens = CanonicalStrings.Of(Encoding.UTF8.GetString(Envelope(c.Content).Span)).Select(t => t.Text).ToArray();
+            var body = tokens[Array.IndexOf(tokens, "body") + 1];
+
+            // NFC because production canonicalizes with NFC; the body token is what SCREEN reads.
+            Assert.True(
+                c.Content.Normalize(NormalizationForm.FormC) == body,
+                $"{c.Id}: the enveloped shape does not carry the entry as its body token");
+        }
     }
 
     /// <summary>
