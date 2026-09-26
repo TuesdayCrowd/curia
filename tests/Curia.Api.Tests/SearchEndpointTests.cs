@@ -362,6 +362,31 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
+    /// Register D23: U+FFFE in a query made the vector channel throw, so an anonymous search answered
+    /// 500. It is answered now. Alone it is a query with no features; between two words it separates
+    /// them, and the question holding both is ranked by the vector channel -- not by the lexical
+    /// channel alone, which is all a route that caught the throw would have left.
+    /// </summary>
+    [Fact]
+    public async Task ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var word = "quokka" + Guid.NewGuid().ToString("N")[..6];
+
+        var asked = await AskAsync(client, board, $"The {word} marzipan", $"A body about the {word} marzipan.", ct);
+
+        using var alone = await SearchAsync(client, "q=%EF%BF%BE", ct);
+        Assert.Equal(JsonValueKind.Array, alone.RootElement.GetProperty("results").ValueKind);
+
+        using var between = await SearchAsync(client, $"q={word}%EF%BF%BEmarzipan&board={board}&why=true", ct);
+        var hit = Assert.Single(between.RootElement.GetProperty("results").EnumerateArray());
+        Assert.Equal(asked, hit.GetProperty("post").GetProperty("post_id").GetString());
+        Assert.Equal(JsonValueKind.Object, hit.GetProperty("why_ranked").GetProperty("vector").ValueKind);
+    }
+
+    /// <summary>
     /// R9.22's floor, which is what the design actually promises: "a nearest-neighbour query always
     /// answers with <i>something</i>; without a floor, a query that matches nothing would fuse two
     /// hundred posts at cosine 0.05 into a page of noise and call it a result."

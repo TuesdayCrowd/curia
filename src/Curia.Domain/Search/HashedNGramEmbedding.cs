@@ -84,12 +84,24 @@ public static class HashedNGramEmbedding
     /// <summary>
     /// Words: maximal runs of letters and digits after NFKC folding and lower-casing. Folding is
     /// analysis on a derived copy (R6.13); nothing here touches stored content.
+    ///
+    /// <para><b>Total over every string.</b> .NET's normalizer refuses U+FFFE and an unpaired
+    /// surrogate outright, and a search query reaches this without passing ADMIT, so
+    /// <c>GET /v1/search?q=%EF%BF%BE</c> answered 500 (register D23). The derived copy therefore reads
+    /// an ill-formed sequence, and every noncharacter, as U+FFFD first. None of them is a letter or a
+    /// digit, so each separates words as U+FFFD does, and a noncharacter the normalizer accepted
+    /// already did: no feature of any text it accepted moves, no stored vector changes, and the model
+    /// keeps its version (R9.5, R11.10).</para>
     /// </summary>
     private static IEnumerable<string> Words(string text)
     {
+        var total = new StringBuilder(text.Length);
+        foreach (var rune in text.EnumerateRunes())
+            total.Append(IsNoncharacter(rune.Value) ? Rune.ReplacementChar.ToString() : rune.ToString());
+
         // Upper-cased rather than lower-cased only because the analyzer's casing rule prefers the
         // round-trippable direction; the feature strings are never shown, only hashed.
-        var folded = text.Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+        var folded = total.ToString().Normalize(NormalizationForm.FormKC).ToUpperInvariant();
         var word = new StringBuilder();
         foreach (var rune in folded.EnumerateRunes())
         {
@@ -106,6 +118,15 @@ public static class HashedNGramEmbedding
 
         if (word.Length > 0) yield return word.ToString();
     }
+
+    /// <summary>
+    /// A Unicode noncharacter: U+FDD0 to U+FDEF, and the last two code points of every plane. The rule
+    /// <c>JsonReader.IsNoncharacter</c> applies at ADMIT and the moderation writer's reason guard applies
+    /// to its copies; a third copy, because the first is internal to <c>Curia.Canon</c> and the second
+    /// to <c>Curia.Application</c>, which the domain may not reference (CS-7).
+    /// </summary>
+    private static bool IsNoncharacter(int codePoint) =>
+        codePoint is >= 0xFDD0 and <= 0xFDEF || (codePoint & 0xFFFE) == 0xFFFE;
 
     private static void Count(Dictionary<string, int> counts, string feature) =>
         counts[feature] = counts.TryGetValue(feature, out var n) ? n + 1 : 1;
