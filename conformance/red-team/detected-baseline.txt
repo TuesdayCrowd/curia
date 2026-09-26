@@ -39,5 +39,6 @@ secret-underscore-token
 secret-wrapped-at-prefix-hyphen
 secret-wrapped-in-quote-gutter
 secret-wrapped-mid-token
+secret-wrapped-webhook-in-host
 url-access-token
 url-api-key

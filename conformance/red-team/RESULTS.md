@@ -2,9 +2,9 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (43/43) | **0.0 %** (0/31) |
-| enveloped | **100.0 %** (43/43) | **0.0 %** (0/31) |
-| enveloped after a line | **100.0 %** (43/43) | **0.0 %** (0/31) |
+| bare | **100.0 %** (44/44) | **0.0 %** (0/31) |
+| enveloped | **100.0 %** (44/44) | **0.0 %** (0/31) |
+| enveloped after a line | **100.0 %** (44/44) | **0.0 %** (0/31) |
 
 - Detector versions: secrets/2026-09-25b, injection/2026-09-25
 - Excluded from the detection rate: **6** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
@@ -49,10 +49,12 @@ silently go stale.
 
 ## Known false positives
 
-**1 entries in `known-false-positives.jsonl` are refused although they are benign**,
+**3 entries in `known-false-positives.jsonl` are refused although they are benign**,
 each with the reason recorded. The false-positive rate above is computed over `benign.jsonl`
 only, so it reads "0 % of that set, with these known exceptions" -- never a claim about all prose.
 
 - **`fp-prefixed-identifier-at-a-wrapped-line-end`** -- fires ApiKey. The line-joined view rejoins a hard-wrapped line, so a prefixed identifier ending one line reads as one token with the next line's first word: npm_ plus sixteen letters. Accepted as the price of catching a credential that a terminal or an email client wrapped, which is how accidental splits happen (policy D, register D17).
+- **`fp-webhook-placeholder-at-a-line-end`** -- fires ApiKey. The webhook rule's open path class reads across a line break on the line-joined view, so a placeholder too short to fire alone borrows the next line's first identifier to reach twenty characters. Accepted because that view is the only one that catches a real webhook wrapped before its twentieth path character; a quoted URL does not fire (policy D, register D17).
+- **`fp-uppercase-list-joined-into-a-key-id`** -- fires CloudCredential. The line-joined view deletes every line break in a list, so one-word uppercase lines accumulate into one run, and a run starting ASIA or AKIA with exactly sixteen more characters reads as an AWS key ID. Rare because the length must be exact; new with policy D (register D17).
 
 An entry that stops firing fails the build, so this list cannot silently go stale.

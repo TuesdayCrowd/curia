@@ -47,3 +47,4 @@
 {"id": "secret-wrapped-mid-token", "class": "credential", "outcome": "flagged", "content": "token: ghp_A7bQ2xLm9R\ntVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}
 {"id": "secret-wrapped-at-prefix-hyphen", "class": "credential", "outcome": "flagged", "content": "key: sk-\nproj-A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3", "expect": ["ApiKey"]}
 {"id": "secret-wrapped-in-quote-gutter", "class": "credential", "outcome": "flagged", "content": "> token: ghp_A7bQ2xLm9R\n> tVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}
+{"id": "secret-wrapped-webhook-in-host", "class": "credential", "outcome": "flagged", "content": "export SLACK_WEBHOOK_URL=https://hooks.sla\nck.com/services/T-EXAMPLE-0/B-EXAMPLE-0/EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ApiKey"]}
