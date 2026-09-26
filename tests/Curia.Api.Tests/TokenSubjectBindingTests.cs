@@ -61,6 +61,32 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
         DpopClient.For(ForumAgent.Create(subject, keyHolder.Kid), keyHolder.AssertionKey);
 
     /// <summary>
+    /// A token request sent as <c>multipart/form-data</c>, whose fields can carry a U+0000 that the
+    /// URL-encoded form reader refuses before any of the Forum's own code runs.
+    /// </summary>
+    private static async Task<(HttpStatusCode Status, string Body)> RequestTokenAsMultipartAsync(
+        HttpClient client, DpopClient dpop, string clientId, DateTimeOffset now, CancellationToken ct)
+    {
+        using var grantTypeField = new StringContent("client_credentials");
+        using var clientIdField = new StringContent(clientId);
+        using var assertionTypeField = new StringContent("urn:ietf:params:oauth:client-assertion-type:jwt-bearer");
+        using var assertionField = new StringContent(dpop.ClientAssertion(TokenEndpoint, now));
+        using var form = new MultipartFormDataContent
+        {
+            { grantTypeField, "grant_type" },
+            { clientIdField, "client_id" },
+            { assertionTypeField, "client_assertion_type" },
+            { assertionField, "client_assertion" },
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
+        request.Headers.Add("DPoP", dpop.Proof("POST", TokenEndpoint, now));
+
+        using var response = await client.SendAsync(request, ct);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    /// <summary>
     /// What a token issued in the victim's name does, asserted before the refusal: a flag raised with
     /// it on the victim's question, and the private store's record of who raised it, read as the
     /// provisioning role. The victim itself never flags anything, so any row naming it is the attack's.
@@ -207,5 +233,48 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
         Assert.True(answer["access_token"] is null, $"a token was issued for sub={victim.Agent.AgentId} to a client that named {attacker.AgentId}: {body}");
         Assert.Equal(HttpStatusCode.Unauthorized, status);
         Assert.Equal("curia/authn/subject-mismatch", answer["detail"]?.GetValue<string>());
+    }
+
+    /// <summary>
+    /// R5.20's refusal holds for text no registered key can carry. Postgres <c>text</c> cannot hold
+    /// U+0000, so no agent and no <c>kid</c> in the store contains one. A <c>client_id</c> (with
+    /// <c>iss</c> and <c>sub</c>) carrying one, sent as multipart, and separately an assertion
+    /// header's <c>kid</c> carrying one, each meet the refusal a <c>kid</c> registered nowhere meets,
+    /// byte for byte. Neither may reach the store as a parameter it refuses, which answered 500 and
+    /// told an unauthenticated caller it had reached the database. The key holder's own token is the
+    /// positive control.
+    /// </summary>
+    [Fact]
+    public async Task R5_20_AnAssertionNamingANulIdentifierOrKidIsRefusedAsAnUnregisteredKeyIs()
+    {
+        const string Nul = "\0";
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var holder = ForumAgent.Create($"https://agents.example/nul-holder-{suffix}", $"nul-holder-{suffix}");
+        using (var enrolled = await holder.EnrollAsync(client, ct))
+            Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+
+        var (controlStatus, controlBody) = await DpopClient.For(ForumAgent.Create(holder.AgentId, $"nowhere-{suffix}"), holder.AssertionKey)
+            .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, controlStatus);
+        Assert.Equal(NotRegisteredToThatAgent, controlBody);
+
+        var nulSubject = $"https://agents.example/nul{Nul}{suffix}";
+        var (subjectStatus, subjectBody) = await RequestTokenAsMultipartAsync(
+            client, Asserting(nulSubject, holder), nulSubject, forum.Now, ct);
+        var (kidStatus, kidBody) = await DpopClient.For(ForumAgent.Create(holder.AgentId, $"nul{Nul}{suffix}"), holder.AssertionKey)
+            .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);
+
+        Assert.True(
+            subjectStatus == HttpStatusCode.Unauthorized && kidStatus == HttpStatusCode.Unauthorized,
+            $"a client_id holding U+0000 was answered {(int)subjectStatus}: {subjectBody[..Math.Min(120, subjectBody.Length)]} -- " +
+            $"a kid holding U+0000 was answered {(int)kidStatus}: {kidBody[..Math.Min(120, kidBody.Length)]}");
+        Assert.Equal(controlBody, subjectBody);
+        Assert.Equal(controlBody, kidBody);
+
+        var (ownStatus, ownBody) = await DpopClient.For(holder, holder.AssertionKey)
+            .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);
+        Assert.True(ownStatus == HttpStatusCode.OK, $"the holder's key obtains no token of its own, so the refusals above prove nothing: {(int)ownStatus} {ownBody}");
     }
 }

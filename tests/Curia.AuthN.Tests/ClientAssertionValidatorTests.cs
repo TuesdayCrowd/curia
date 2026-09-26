@@ -116,7 +116,8 @@ public sealed class ClientAssertionValidatorTests
     public async Task SubjectNotMatchingTheResolverScopeIsRejected()
     {
         // The signature verifies fine (still signed by the agent's own key) but claims a
-        // different subject than the one the caller resolved AgentKeyResolver against.
+        // different subject than the client the context names, the agent the key was resolved
+        // for (R5.20).
         var scenario = new ClientAssertionScenario();
         var payload = scenario.ValidPayload()
             .WithClaim("iss", "agent://curia.example/someone/else")

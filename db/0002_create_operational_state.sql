@@ -131,14 +131,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON authn_dpop_nonces TO __CURIA_APP_ROLE__;
 --     nothing in this solution models yet. A column no code writes is a schema promise
 --     nothing keeps; it lands with the revocation path that gives it meaning.
 --
--- `kid` is the PRIMARY KEY, which is Appendix D's own choice and is also the constraint
--- Curia.Api's enrollment path depends on. Curia.AuthN.Ports.IAgentKeyResolver resolves by
--- `kid` alone -- correctly, because a client assertion names its key and the subject is
--- established by which key verified, not by a claim -- and that is only sound if a `kid`
--- identifies exactly one key. Two agents sharing one makes assertion resolution ambiguous,
--- and an ambiguity resolved by iteration order authenticates the wrong agent
--- intermittently. The uniqueness is enforced here, by the index, rather than by a scan the
--- application performs and a concurrent enrollment can slip past.
+-- `kid` is the PRIMARY KEY, which is Appendix D's own choice, so a `kid` identifies one key
+-- across every identifier. Both resolvers ask by agent and `kid` together: ingest for a post's
+-- author (R6.2), and the token endpoint for the agent a request names as its client (R5.20).
+-- The uniqueness still matters: enrollment's `kid-already-registered` refusal rests on it, and
+-- it is what holds a `kid` to one identifier (R4.31, R4.32). It is enforced here, by the index,
+-- rather than by a scan the application performs and a concurrent enrollment can slip past.
+-- The token endpoint once asked by `kid` alone, on the premise that the subject is established
+-- by which key verified. A signature shows possession of some registered key and not whose, so
+-- one enrolled key minted every enrolled identity's token (errata G15, D26).
 CREATE TABLE agent_keys (
   kid          TEXT PRIMARY KEY,
   agent_id     TEXT NOT NULL,

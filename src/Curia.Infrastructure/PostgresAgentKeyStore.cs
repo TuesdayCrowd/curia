@@ -323,6 +323,13 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(kid);
 
+        // Postgres `text` cannot hold U+0000, so no stored row can match an agent or a kid carrying
+        // one; sent as a parameter, it is refused (22021), and the token endpoint answered an
+        // unauthenticated caller 500. Such a question gets the answer a query with no row gets,
+        // before a connection is opened, so R5.20's refusal stays byte-identical whatever the text.
+        if (agentId.Contains('\0', StringComparison.Ordinal) || kid.Contains('\0', StringComparison.Ordinal))
+            return ValidateAt(null, agentId, kid, at);
+
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(
             $"SELECT {SelectColumns} FROM {_table} WHERE kid = @kid AND agent_id = @agent;", connection);
