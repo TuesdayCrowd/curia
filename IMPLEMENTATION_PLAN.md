@@ -617,15 +617,19 @@ permanent. Its measured join is filed as a known false positive instead (below).
 under new detector versions `secrets/2026-09-26` and `injection/2026-09-26` — not a reused
 `secrets/2026-09-25b`, which is published here and in built assemblies (R10.10):
 
-- **Invisible characters inside a key** (Critical). A vendor key with a zero-width space, a soft
-  hyphen or a zero-width joiner in its first sixteen characters after the prefix was only annotated
-  (`HiddenText`), and one split by U+2060 was admitted with no annotation at all; the removed
-  unseparated view had deleted them. A renderer leaves a soft hyphen or a zero-width break at a
-  wrap, and a verbatim copy keeps it (§10.8). The line-joined view now first deletes every
-  character `HiddenCharacters` names — U+00AD, U+200B–U+200F, U+202A–U+202E, U+2060, U+2066–U+2069,
-  U+FEFF — then the line-break runs, composing the two index maps so an offset still lands on the
-  key; `InjectionDetector` annotates the same set, so U+2060 is now `HiddenText`. U+061C and
-  U+2061–U+2064 are the same class, unmeasured, and left out.
+- **Invisible characters inside a key** (Critical). A vendor key with a zero-width space or a soft
+  hyphen in its first sixteen characters after the prefix, or a zero-width joiner just before the
+  prefix, was only annotated (`HiddenText`), and one split by U+2060 was admitted with no
+  annotation at all; the removed unseparated view had deleted them. A renderer leaves a soft
+  hyphen or a zero-width break at a wrap, and a verbatim copy keeps it (§10.8). The line-joined
+  view now first deletes every character `HiddenCharacters` names — U+00AD, U+200B–U+200F,
+  U+202A–U+202E, U+2060, U+2066–U+2069, U+FEFF — then the line-break runs, composing the two index
+  maps so an offset still lands on the key; `InjectionDetector` annotates the same set, so U+2060
+  is now `HiddenText`. Deleting an invisible character can also remove the word boundary it
+  supplied: `AKIAIOSF⏎ODNN7EXAMPLE` followed by a zero-width space and `NEXT`, and
+  `The token is below` followed by a zero-width space and `⏎ghp_A7bQ2x⏎Lm9R…`, are now annotated
+  only, because the visible form reads the key joined to the word. U+061C and U+2061–U+2064 are
+  the same class, unmeasured, and left out.
 - **Wraps the view missed.** It now deletes VT, FF, NEL, U+2028 and U+2029 as line breaks, and
   ` * `, `; `, `// ` and `-- ` comment gutters beside `> `, `│ `, `| `, `# ` and `+ `. A key split
   into adjacent string literals, by a concatenation operator or by a shell continuation is
@@ -639,9 +643,11 @@ under new detector versions `secrets/2026-09-26` and `injection/2026-09-26` — 
   `code-doc-comment-url-before-a-param-tag`). The catch it bought — a connection string wrapped
   inside its user or password — is rare, since a connection string is short, and is recorded as an
   authored-shape evasion, `evade-connection-string-wrapped-in-userinfo`. `WebhookUrl` is the
-  opposite trade: a rare placeholder against a long URL that plausibly wraps. Neither these false
-  positives nor the catch is new with policy D: at c09a7be both were rejected in the two enveloped
-  shapes, by escape-reading, and accepted only bare.
+  opposite trade: a rare placeholder against a long URL that plausibly wraps. Neither the first two
+  false positives nor the catch is new with policy D: at c09a7be each was rejected in the two
+  enveloped shapes, by escape-reading, and accepted only bare. The third is: c09a7be accepted
+  `code-doc-comment-url-before-a-param-tag` in all three shapes, and that false positive needs this
+  wave's ` * ` gutter.
 
 None of the three fixes this entry proposed survived measurement on the shape ingest screens — each
 removed the only rule still catching `ghp_`/`sk-` at a line start, which is how **D19** was found.
@@ -855,7 +861,11 @@ clean against git; every case ran against f59797f:
   `export NPM_TOKEN=$npm_token⏎# configuration-management notes` and
   `| var | npm_token⏎| environmentSpecific | yes` (`ApiKey`). They use the recorded residual's rule
   and mechanism, and they predate policy D: each already fired under the cross-word view it
-  replaced. Only the bare-newline residual is a corpus entry.
+  replaced. The final review's ` * ` and `//` gutters widen the same residual:
+  `Variables:⏎* npm_token⏎* authentication settings…` and
+  `Steps:⏎// Set npm_token⏎// environment-specific values…` are rejected (`ApiKey`), and c09a7be
+  rejected both too, so neither is a regression against main. Only the bare-newline residual is a
+  corpus entry.
 - **`PWD=/any/path` in an ordinary `env` dump is rejected** on one line, by the password rule's
   case-insensitive keyword branch (`pwd`). The keyword branch also hard-rejects ordinary code
   assigning `password`/`pwd` (`self.password = password`, `pwd = None`) — the sole cause of 29 of
