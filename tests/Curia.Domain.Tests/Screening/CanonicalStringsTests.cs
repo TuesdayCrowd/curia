@@ -63,6 +63,28 @@ public sealed class CanonicalStringsTests
     }
 
     [Fact]
+    public void A_finding_that_ends_on_a_short_escape_covers_both_characters()
+    {
+        var canonical = Canonical(ObjectOf(("v", new JsonValue.String("a\nb"))));
+        var token = CanonicalStrings.Of(canonical).Last();
+
+        var (offset, length) = token.ToCanonical(0, 2);
+
+        Assert.Equal("a\\n", canonical.Substring(offset, length));
+    }
+
+    [Fact]
+    public void A_finding_that_ends_on_a_unicode_escape_covers_all_six_characters()
+    {
+        var canonical = Canonical(ObjectOf(("v", new JsonValue.String("x\u001f"))));
+        var token = CanonicalStrings.Of(canonical).Last();
+
+        var (offset, length) = token.ToCanonical(0, 2);
+
+        Assert.Equal("x\\u001f", canonical.Substring(offset, length));
+    }
+
+    [Fact]
     public void Surrogate_pairs_map_one_to_one()
     {
         var canonical = Canonical(ObjectOf(("v", new JsonValue.String("😀ghp_"))));

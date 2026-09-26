@@ -345,7 +345,7 @@ public static class CanonicalStrings
     private static InvalidOperationException NotCanonical(int at, string what) => new(string.Create(
         CultureInfo.InvariantCulture,
         $"SCREEN was given text that is not canonical JSON at offset {at}: {what}. ScreenEnvelope takes " +
-        "the bytes VERIFY consumed, which JCS wrote, so reaching this means a caller passed something else."));
+        $"the bytes VERIFY consumed, which JCS wrote, so reaching this means a caller passed something else."));
 }
 ```
 
