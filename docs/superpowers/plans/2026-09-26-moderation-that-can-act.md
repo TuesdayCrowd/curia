@@ -5313,6 +5313,8 @@ using System.Text;
 using System.Text.Json;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
+using Curia.Canon.Json;
+using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
@@ -5417,6 +5419,48 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
     private static T Require<T>(Result<T> result) =>
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
 
+    /// <summary>
+    /// Appends an automated dismissal naming <paramref name="post"/>'s flag, straight to the event store.
+    ///
+    /// <para><b>R10.61's anticipated out-of-rule input, not a stand-in for the writer</b> (trap 16).
+    /// R10.60 has an automated record name no flag, and R10.59's writer writes only human records, so
+    /// nothing in this Forum writes one. But the log is append-only and can hold it, and R10.61 binds
+    /// every fold that reads the log, R10.39's alike, to let a record that is not reviewing change
+    /// nothing, "whatever it names". An auditor cannot assume the rule was kept, so this test puts the
+    /// breach in the log and holds both derivations to ignoring it.</para>
+    /// </summary>
+    private async Task AppendAnAutomatedDismissalAsync((string PostId, string Digest) post, CancellationToken ct)
+    {
+        var store = forum.Services.GetRequiredService<IEventStore>();
+        var events = Require(await store.ReadAllAsync(ct));
+        var details = Require(await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct));
+        var flag = FlagDirectory.Join(events, details).Flags.Single(f => f.PostId == post.PostId);
+
+        var aggregate = Require(AggregateId.Create(post.PostId));
+        var actor = Require(ActorId.Create("automated:detector"));
+        var payload = new JsonValue.Object(
+        [
+            new(FlagProjector.PostIdField, new JsonValue.String(post.PostId)),
+            new(FlagProjector.DigestField, new JsonValue.String(post.Digest)),
+            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(ModeratorKind.Automated))),
+            new(FlagProjector.ActorIdField, new JsonValue.String(actor.Value)),
+            new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(ModerationEffect.Dismiss))),
+            new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(flag.Kind))),
+            new(FlagProjector.RationaleField, new JsonValue.String("Detector score below threshold.")),
+            new(FlagProjector.AdjudicatesField, new JsonValue.Array([new JsonValue.String(flag.FlagId)])),
+        ]);
+
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(events.Count(e => e.AggregateId == aggregate))),
+            [new DomainEvent(
+                Require(EventId.Create(Require(new UlidGenerator(forum.Clock).Next()).ToString())),
+                Require(EventType.Create(FlagProjector.ModerationAppliedType)),
+                actor,
+                payload)],
+            ct));
+    }
+
     /// <summary>Every read path agrees, in both directions — the second direction is what stops the first passing on an empty page.</summary>
     private async Task AssertServedAsync(HttpClient client, Party reader, string board, string postId, string digest, bool served, CancellationToken ct)
     {
@@ -5513,7 +5557,9 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
     /// digest ties it to the envelope the log accepted for its post (R6.25), so an auditor counts no
     /// record for content the log never held. The figures must equal the same figures computed through
     /// the private join, which knows each flag's post without any record (spec Increment 4). The test's
-    /// own clock is kept only as the non-vacuity guard: two flags, 90 and 120 minutes, one upheld.
+    /// own clock is kept only as the non-vacuity guard: two flags, 90 and 120 minutes, one upheld. Two
+    /// automated records naming those flags sit in the log beside the reviews, as R10.61's out-of-rule
+    /// input, and both derivations must ignore them.
     /// </summary>
     [Fact]
     public async Task R10_39_TimeToActionAndTheUpheldRateAreComputableFromThePublicLogAlone()
@@ -5533,8 +5579,19 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         var reporterB = await PartyAsync(client, NewAgent("r1039-b"), ct);
         await FlagAsync(client, reporterB, second.PostId, "incorrect", "The premise is wrong.", ct);
 
-        forum.Clock.Advance(TimeSpan.FromMinutes(90));
+        // R10.61's anticipated out-of-rule input, not a stand-in for the writer (trap 16): an automated
+        // record naming B before anyone reviewed it. A fold that counted it would time B's action at
+        // 30 minutes, not 90.
+        forum.Clock.Advance(TimeSpan.FromMinutes(30));
+        await AppendAnAutomatedDismissalAsync(second, ct);
+
+        forum.Clock.Advance(TimeSpan.FromMinutes(60));
         await OperatorAsync(ct, "moderate", "--post", first.PostId, "--category", "spam", "--effect", "withhold", "--reason", "Reviewed: advertising.", "--by", "reviewer");
+
+        // R10.61's anticipated out-of-rule input again, not a stand-in for the writer (trap 16): an
+        // automated dismissal naming A after a human upheld it. A fold that honoured it would release
+        // A and count no flag upheld.
+        await AppendAnAutomatedDismissalAsync(first, ct);
         await OperatorAsync(ct, "moderate", "--post", second.PostId, "--category", "incorrect", "--effect", "dismiss", "--reason", "Reviewed: the premise holds.", "--by", "reviewer");
 
         // Only what an anonymous reader can fetch.
@@ -5559,6 +5616,10 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
             // R6.25: the record names the bytes it acted on, and they are the bytes the log accepted.
             Assert.Equal(AcceptedDigest(postId), payload.GetProperty("digest").GetString());
 
+            // R10.61: only a reviewing record adjudicates; any other changes nothing, whatever it names. The
+            // table permits every cell of these two rows, so the moderator kind alone decides it here.
+            if (payload.GetProperty("moderator").GetString() is not ("human" or "delegated_agent")) continue;
+
             var upholds = payload.GetProperty("effect").GetString() is "withhold" or "quarantine";
             foreach (var flag in payload.GetProperty("adjudicates").EnumerateArray().Select(f => f.GetString()!))
             {
@@ -5578,7 +5639,12 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         foreach (var flag in FlagDirectory.Join(events, details).Flags.Where(f => f.PostId == first.PostId || f.PostId == second.PostId))
         {
             var history = moderation[flag.PostId].History;
-            privateTimeToAction[flag.FlagId] = history.First(a => a.Adjudicates.Contains(flag.FlagId)).At.Value - flag.At.Value;
+
+            // R10.61: a flag is acted on by the first record after which it is adjudicated -- the first
+            // reviewing record that names it, never an automated one that names it sooner.
+            var actedOn = history.Where((_, i) => ModerationPolicy.AdjudicatedFlags(history[..(i + 1)]).Contains(flag.FlagId)).First();
+            privateTimeToAction[flag.FlagId] = actedOn.At.Value - flag.At.Value;
+
             if (ModerationPolicy.UpheldFlags(history).Contains(flag.FlagId)) privateUpheld.Add(flag.FlagId);
         }
 

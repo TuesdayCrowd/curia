@@ -408,4 +408,36 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
         AssertTheSweepReachedEverything(sweep);
         Assert.True(sweep.Leaks.Count == 0, string.Join("\n", sweep.Leaks));
     }
+
+    /// <summary>
+    /// The same gate over a moderated fixture (spec Increment 4). Once a moderator adjudicates the
+    /// flag, the record is public and names the post, its envelope digest, the category and the flag
+    /// it adjudicates (R10.60, R6.25). Still no surface serves the raiser or the rationale, the record
+    /// included, and the flag's own leaf still names no post. The record is written by R10.59's
+    /// writer, as every withholding in this suite is (trap 16).
+    /// </summary>
+    [Fact]
+    public async Task R10_60_AfterModerationTheRecordIsPublicAndStillNamesNoRaiser()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var flagged = await FlagAQuestionAsync(client, ct);
+
+        await forum.WithholdAsync(flagged.PostId, ct);
+        var sweep = await SweepAsync(client, flagged, ct);
+
+        AssertTheSweepReachedEverything(sweep);
+        Assert.True(sweep.RecordLeaf is not null, "the log walk never met the moderation record -- the withholding wrote nothing");
+        Assert.True(sweep.Leaks.Count == 0, string.Join("\n", sweep.Leaks));
+
+        using var record = JsonDocument.Parse(sweep.RecordLeaf!);
+        var payload = record.RootElement.GetProperty("entry").GetProperty("payload");
+        Assert.Equal(flagged.PostId, payload.GetProperty("post_id").GetString());
+        Assert.Equal(flagged.Digest, payload.GetProperty("digest").GetString());
+        Assert.Equal("spam", payload.GetProperty("category").GetString());
+
+        // The record names the flag by the event id its public entry carries, so the two can be joined from the log alone.
+        var adjudicated = Assert.Single(payload.GetProperty("adjudicates").EnumerateArray()).GetString()!;
+        Assert.Contains(sweep.FlagLeaves, leaf => leaf.Contains($"\"event_id\":\"{adjudicated}\"", StringComparison.Ordinal));
+    }
 }
