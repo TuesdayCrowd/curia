@@ -3875,7 +3875,9 @@ but commit -b enrollment-binds-once -m "$(printf 'D24: features that cancel have
 **Preconditions:**
 - Tasks 1–6 are committed, and `git status --porcelain` is empty.
 - The runner restores from a kept copy with a **plain copy**: `shutil.copyfile`, which gives the file a fresh mtime. It never uses `copy2` and never `git checkout`. `copy2` restores the old mtime, and MSBuild then keeps the patched assembly (trap 18).
+- It proves each restore twice: the restored bytes equal the kept copy's, and `git diff --quiet` sees no change.
 - It counts any MSBuild `: error ` line as BUILD FAILED, so an analyzer error can never read as RED.
+- It counts a command RED only when its output holds a `Failed!` line. A non-zero exit with neither a `Failed!` line nor an `: error ` line prints DID NOT RUN, and the runner then exits non-zero: an SDK or host that never started a test must never read as RED.
 - For each failing test it prints the name, and then the whole `Error Message:` block down to the stack trace. That block carries the `Expected:` and `Actual:` lines and the exception lines, so the record needs no hand re-runs.
 - No case is quoted until the unpatched gates have been rebuilt with `--no-incremental` and run green (Step 3).
 
@@ -3888,7 +3890,7 @@ but commit -b enrollment-binds-once -m "$(printf 'D24: features that cancel have
 Usage, from the repository root:  python3 falsify.py <keep-dir> [case-id ...]
 Scratch only: this file is never committed.
 """
-import pathlib, re, shutil, subprocess, sys
+import filecmp, pathlib, re, shutil, subprocess, sys
 
 ROOT = pathlib.Path.cwd()
 KEEP = pathlib.Path(sys.argv[1]); KEEP.mkdir(parents=True, exist_ok=True)
@@ -4051,6 +4053,7 @@ def failures(out):
             lines.append("      " + line.strip()[:240])
     return lines
 
+not_run = []
 for case in CASES:
     if ONLY and case["id"] not in ONLY:
         continue
@@ -4073,8 +4076,17 @@ for case in CASES:
             r = subprocess.run(cmd, capture_output=True, text=True)
             out = r.stdout + r.stderr
             # Any MSBuild error line -- CS, CA, IDE or MSB -- means the patched code did not build,
-            # and must never read as RED.
-            status = "BUILD FAILED" if ": error " in out else ("RED" if r.returncode != 0 else "GREEN -- bad patch or a gap")
+            # and must never read as RED. RED needs the test run's own `Failed!` line: a non-zero
+            # exit without one is a host or SDK that never ran a test, not a gate that fell.
+            if ": error " in out:
+                status = "BUILD FAILED"
+            elif any("Failed!" in l for l in out.splitlines()):
+                status = "RED"
+            elif r.returncode != 0:
+                status = "DID NOT RUN"
+                not_run.append(f"[{case['id']}] {cmd[2]}")
+            else:
+                status = "GREEN -- bad patch or a gap"
             print(f"[{case['id']}] {cmd[2]} {status}")
             summary = [l.strip() for l in out.splitlines() if "Passed!" in l or "Failed!" in l]
             for line in summary:
@@ -4085,12 +4097,23 @@ for case in CASES:
                 for line in out.splitlines():
                     if ": error " in line:
                         print("    " + line.strip()[:240])
+            if status == "DID NOT RUN":
+                for line in out.splitlines()[-20:]:
+                    print("    " + line.strip()[:240])
     for f in files:
         shutil.copyfile(KEEP / f.replace("/", "__"), ROOT / f)   # plain copy: a fresh mtime (trap 18)
-    clean = subprocess.run(["git", "diff", "--quiet", "--", *files]).returncode == 0
-    print(f"[{case['id']}] restore {'clean' if clean else 'DIRTY -- STOP'}")
+    # Two proofs: the bytes equal the kept copy's, and git sees no change against the index.
+    same = [f for f in files if filecmp.cmp(KEEP / f.replace("/", "__"), ROOT / f, shallow=False)]
+    quiet = subprocess.run(["git", "diff", "--quiet", "--", *files]).returncode == 0
+    clean = len(same) == len(files) and quiet
+    print(f"[{case['id']}] restore {'clean' if clean else 'DIRTY -- STOP'}"
+          f" (bytes equal to the kept copy: {len(same)}/{len(files)}; git diff --quiet: {'yes' if quiet else 'NO'})")
     if not clean:
         sys.exit(1)
+
+if not_run:
+    print("DID NOT RUN: " + ", ".join(not_run) + " -- no test ran there, so nothing was falsified")
+    sys.exit(1)
 ```
 
 - [ ] **Step 2: Run it**
@@ -4101,11 +4124,11 @@ From the repository root, with `CURIA_TEST_POSTGRES` exported and `curia-testis`
 python3 <scratchpad>/falsify.py <scratchpad>/falsify-keep 2>&1 | tee <scratchpad>/falsify.log
 ```
 
-Each case must print `RED` for every command it runs, followed by `restore clean`. Cases 1, 2, 3, 8, 13, 17 and 20 run more than one suite, and each suite must print `RED`. When this plan was build-checked, every case printed what the table says, and nothing else failed:
+Each case must print `RED` for every command it runs, followed by `restore clean`. `RED` means the run printed a `Failed!` line: a test ran and failed. A non-zero exit without one prints `DID NOT RUN`, which falsifies nothing, and the runner exits non-zero. Cases 1, 2, 3, 8, 13, 17 and 20 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
 
 | Case | Must fail, by name |
 |---|---|
-| 1 | `KeyEnrollmentTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefused` (`expected a refusal, got register`); the in-memory and the Postgres `…ContractTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefusedAndRegistersNothing`; `EnrollIdentityTests.R4_31_RacingEnrollmentsOfOneFreshIdentityLeaveOneKeyAndOneRecord` (`Assert.Single() Failure: The collection contained 8 items`). The HTTP suite is not run: its attack fact would stay green by design, since the log's half refuses the second `kid` before the store is asked, and cases 8–10 fence that half |
+| 1 | `KeyEnrollmentTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefused`, `R4_31_AHeldKeysMaterialUnderANewKidIsRefused`, `R4_31_KidsAndAlgorithmsAreComparedWithTheirCase` and `R4_31_AKeyWhoseWindowHasClosedIsStillHeld` (`expected a refusal, got register`, each); the in-memory and the Postgres `…ContractTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefusedAndRegistersNothing` (`expected a refusal, got RegisteredKey { … Kid = mallory-1 … }`); `EnrollIdentityTests.R4_31_RacingEnrollmentsOfOneFreshIdentityLeaveOneKeyAndOneRecord` (`Assert.Single() Failure: The collection contained 8 items`). The HTTP suite is not run: its attack fact would stay green by design, since the log's half refuses the second `kid` before the store is asked, and cases 8–10 fence that half |
 | 2 | `KeyEnrollmentTests.R4_32_TheSameKidWithOtherBytesIsRefused` and `R4_32_MaterialIsComparedByContent`; both contract runs' `R4_32_ReEnrollingAKidWithOtherBytesIsRefusedAndTheOriginalStands`; `EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing` (`Expected: Conflict`, `Actual: Created`) |
 | 3 | `KeyEnrollmentTests.R4_31_TheSameKeyAgainIsHeldNotRegistered`, `R4_31_AHeldKeyIsFoundByItsKidNotItsPosition` and `R4_32_MaterialIsComparedByContent`; the in-memory `R4_31_ReEnrollingTheSameKeyWritesNothingAndKeepsItsWindow` (`curia/keys/material-immutable`); `EnrollmentBindingTests.R4_31_ReEnrollingTheEnrolledKeyIsAcceptedAndChangesNothing` (`Expected: Created`, `Actual: Conflict`) |
 | 4 | both `PostgresEnrollmentSerializationTests` facts: `an enrollment decided while its identifier's lock was held by another transaction` |
