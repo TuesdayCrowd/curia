@@ -139,9 +139,10 @@ public static class ContentScreener
             // The line-joined view deletes line breaks, so a phrase pattern over it would match across
             // lines that were never adjacent as prose; the injection detector never reads it. It is for
             // credentials, and only the secret shape rules read it (register D17). The prefixed-key
-            // rule is word-anchored, so a vendor prefix inside a word does not start a match. The
-            // high-entropy assignment rule is left out: its value class would swallow the joined next
-            // line and turn a placeholder into an assigned secret.
+            // rule is word-anchored, so a vendor prefix inside a word does not start a match. The two
+            // assignment rules -- the keyword connection-string password and the high-entropy
+            // assignment -- are left out: their open value classes would swallow the joined next line
+            // and turn a placeholder into a secret.
             var scoped = view.Name is "line-joined"
                 ? SecretScanner.ScanShapes(view.Text)
                 : SecretScanner.Scan(view.Text).Concat(InjectionDetector.Scan(view.Text));

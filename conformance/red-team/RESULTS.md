@@ -2,9 +2,9 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (43/43) | **0.0 %** (0/30) |
-| enveloped | **100.0 %** (43/43) | **0.0 %** (0/30) |
-| enveloped after a line | **100.0 %** (43/43) | **0.0 %** (0/30) |
+| bare | **100.0 %** (43/43) | **0.0 %** (0/31) |
+| enveloped | **100.0 %** (43/43) | **0.0 %** (0/31) |
+| enveloped after a line | **100.0 %** (43/43) | **0.0 %** (0/31) |
 
 - Detector versions: secrets/2026-09-25b, injection/2026-09-25
 - Excluded from the detection rate: **6** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
