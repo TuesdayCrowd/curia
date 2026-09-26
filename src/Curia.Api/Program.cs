@@ -190,7 +190,7 @@ public sealed class Program
 
         // The enrollment use case the endpoint calls (R4.31, R4.32; errata G14): the log's binding,
         // then the key store's, then the log's record. The endpoint holds this and nothing that
-        // writes keys, so no request reaches the key store except through enrollment's rule.
+        // writes keys, so no request writes to the key store except through enrollment's rule.
         builder.Services.AddSingleton(sp => new EnrollIdentity(
             sp.GetRequiredService<IEventReader>(),
             sp.GetRequiredService<IAuthorKeyRegistry>(),

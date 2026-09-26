@@ -15,8 +15,9 @@ namespace Curia.Application.Tests.Credentials;
 /// <summary>
 /// R4.31 at the use case (errata G14): enrollment binds an identity to one key, the log records
 /// which, and neither a second key, nor a lost key row, nor a race, nor a <c>kid</c> another identity
-/// holds can change that. Every refusal is followed by a read of both stores, because a refusal that
-/// had already written something is the defect.
+/// holds can change that. Every refusal is followed by a look at each store the fact holds -- a read,
+/// or, for a store that never writes, whether it was asked -- because a refusal that had already
+/// written something is the defect.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -213,30 +214,6 @@ public sealed class EnrollIdentityTests
         var lost = new InMemoryAuthorKeyRegistry();
         Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, lost, clock).EnrollAsync(Alice, NewKey("mallory-1"), ct)).Type);
         Assert.Empty(await lost.KeysForAsync(Alice, ct));
-    }
-
-    /// <summary>
-    /// R4.31's "even one the store holds": the store holds, beside the key Alice's enrollment bound,
-    /// a second key no enrollment bound, as a store written before errata G14 can. Re-presenting that
-    /// second key, byte for byte, is refused by name -- and refused by the log's binding before the
-    /// store is asked, which would call the key held and leave the refusal to the log's record alone.
-    /// The log gains nothing, and the store, which never writes, is not asked to.
-    /// </summary>
-    [Fact]
-    public async Task R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
-        var bound = NewKey("alice-1");
-        var unbound = NewKey("mallory-1");
-
-        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, bound.Kid, ct));
-        var keys = new PreG14KeyStore(Alice, [new RegisteredKey(bound, Start, null), new RegisteredKey(unbound, Start.AddHours(1), null)]);
-
-        var again = new PublicKeyMaterial(unbound.Alg, unbound.Kid, unbound.Public.ToArray());
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, again, ct)).Type);
-        Assert.Equal(0, keys.Enrollments);
         Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
@@ -266,6 +243,31 @@ public sealed class EnrollIdentityTests
         Assert.Equal("alice-1", rebound.Key.Kid);
         Assert.Equal(Start, rebound.NotBefore);
         Assert.Single(await StreamAsync(events, Alice, ct));
+    }
+
+    /// <summary>
+    /// R4.31's "even one the store holds": the store holds, beside the key Alice's enrollment bound,
+    /// a second key no enrollment bound, as a store written before errata G14 can. Re-presenting that
+    /// second key, byte for byte, is refused by name -- and refused by the log's binding before the
+    /// store is asked, which would call the key held and leave the refusal to the log's record alone.
+    /// The log gains nothing, and the store, which never writes, is not asked to.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var bound = NewKey("alice-1");
+        var unbound = NewKey("mallory-1");
+
+        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, bound.Kid, ct));
+        var keys = new PreG14KeyStore(Alice, [new RegisteredKey(bound, Start, null), new RegisteredKey(unbound, Start.AddHours(1), null)]);
+
+        var again = new PublicKeyMaterial(unbound.Alg, unbound.Kid, unbound.Public.ToArray());
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, again, ct)).Type);
+        Assert.Equal(0, keys.Enrollments);
+        Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>The log's record on its own: it will not report success for a kid it did not bind.</summary>
@@ -315,6 +317,7 @@ public sealed class EnrollIdentityTests
         Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
         Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, clock).RecordAsync(Alice, "alice-1", ct)).Type);
         Assert.Empty(await keys.KeysForAsync(Alice, ct));
+        Assert.Single(await StreamAsync(events, Alice, ct));
     }
 
     /// <summary>
