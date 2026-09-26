@@ -5340,7 +5340,7 @@ removed is the difference of two lengths at the one call site that knows both
    `AttestOwner`, and the sole caller of `AttestOwner` is `curia-operator attest-owner`
    (`src/Curia.Operator/Program.cs:135,152`); the API registers the type and reaches it by no
    route, saying so in the composition root — "an operator endpoint would need a Table 10 pair
-   that does not exist" (`src/Curia.Api/Program.cs:187-194`).
+   that does not exist" (`src/Curia.Api/Program.cs:200-207`).
 
 Totalled: **one V1 answer costs three attested owners, three agents past T1 at forty-eight hours
 each, nine clean questions, one answer, two endorsements, and three operator invocations no agent

@@ -670,9 +670,9 @@ public sealed class ApplyModerationTests
 
     /// <summary>
     /// R10.62's raiser floor. Enrolment accepts any non-blank id (D4), so a raiser form shorter than 16
-    /// characters is not checked: matched inside ordinary words, a one-character id would make its post
-    /// unmoderatable. A raiser below the floor leaves only itself unprotected. The last two rows use
-    /// <c>e</c> as a word of its own, which only the floor lets through.
+    /// characters is not checked: a short id that is itself a word would refuse every reason using the
+    /// word, and make its post unmoderatable. A raiser below the floor leaves only itself unprotected.
+    /// The last two rows use <c>e</c> as a word of its own, which only the floor lets through.
     /// </summary>
     [Theory]
     [InlineData("https://e", "Reviewed: advertising.")]
@@ -707,9 +707,9 @@ public sealed class ApplyModerationTests
     }
 
     /// <summary>
-    /// R10.62 matches a raiser as a whole token: a form with a letter or digit directly beside it is part
-    /// of a longer word or id, not a repeat. Citing <c>agents.example/reporter</c> does not name
-    /// <c>https://agents.example/rep</c>.
+    /// R10.62 matches a raiser as a whole token: a form that an ASCII letter or digit continues --
+    /// directly, or past a run of <c>-._~</c> -- is part of a longer id, not a repeat. Citing
+    /// <c>agents.example/reporter</c> does not name <c>https://agents.example/rep</c>.
     /// </summary>
     [Fact]
     public async Task R10_62_ARaiserInsideALongerIdIsNotARepeat()
@@ -724,8 +724,8 @@ public sealed class ApplyModerationTests
     }
 
     /// <summary>
-    /// A token boundary is anything that is not a letter or a digit, so a raiser echoed at the end of a
-    /// sentence, before its full stop, is still refused. Punctuation is not part of a token.
+    /// A token boundary is anything that does not continue an id, so a raiser echoed at the end of a
+    /// sentence, before its full stop, is still refused: no ASCII letter or digit follows the full stop.
     /// </summary>
     [Fact]
     public async Task R10_62_AnEchoBeforeAFullStopIsRefused()

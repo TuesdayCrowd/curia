@@ -1,8 +1,9 @@
 # Enrollment binds an identity once (§4.3, §4.4)
 
-**Date:** 2026-09-26. **Status:** proposed. It is implemented by
-`docs/superpowers/plans/2026-09-26-enrollment-binds-once.md`, and drafted here as
-`<scratchpad>/stage-3/plan.md`.
+**Date:** 2026-09-26. **Status:** implemented by
+`docs/superpowers/plans/2026-09-26-enrollment-binds-once.md`. The stage also closed **D24**, which a
+review found during it (features that cancel embedded as NaN), and opened **D25** (the vector index
+serves Postgres's own error text to an anonymous caller); the register holds both.
 
 **Register:** this stage opens and closes two entries, numbered when they are written. On this reading
 the highest entry is D21, so the new ones would be **D22**: *an enrollment could add a key to any
@@ -410,10 +411,13 @@ private noncharacter predicate.
 ## 4. What gets falsified
 
 Each check below must go red naming its test. Restore by plain copy, never `copy2`, then rebuild
-with `--no-incremental` and run the gates unpatched before quoting any case (trap 18). All eighteen
-cases were run against a fresh archive of ccf200e with the plan applied, after the pre-flight
-amendments: all eighteen went red, nothing outside the table went red, and every restore was clean.
-The plan's Task 7 carries the exact patches and what each printed.
+with `--no-incremental` and run the gates unpatched before quoting any case (trap 18). There are
+twenty-one cases. The first eighteen were run against a fresh archive of ccf200e with the plan
+applied, after the pre-flight amendments: all eighteen went red, nothing outside the table went red,
+and every restore was clean. Case 18 was added by Task 4's review round, 19 by Task 5, and 20 with
+D24 in Task 6's fix round. The plan's Task 7 ran all twenty-one on 30a1527: every case went red in
+every suite it ran, and every restore was clean. It carries the exact patches, and the register's
+D22, D23 and D24 quote what each printed.
 
 | # | Break | Must go red |
 |---|---|---|
@@ -435,6 +439,9 @@ The plan's Task 7 carries the exact patches and what each printed.
 | 15 | The endpoint serves the bare `kid` as a refusal's detail | The three HTTP refusal facts, at their details |
 | 16 | The history primitive ignores the algorithm | The algorithm fact alone |
 | 17 | A lost row's key dated from now | The use-case lost-row re-registration fact; the HTTP lost-row fact, at the served key set |
+| 18 | The history primitive ignores the owner | The exact-copy fact alone: another agent is handed the victim's row, its window closed. The fresh-bytes fact stays green, since the material clauses refuse it |
+| 19 | The use case exempts a `kid` the store holds from the log's binding | `R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt` alone. The lost-row fact stays green: an empty store holds nothing to exempt |
+| 20 | The embedding divides a zero vector by its zero norm (D24 undone) | The Domain cancelling-features fact; the HTTP search (503), question (500) and restart facts. Both digest pins stay green |
 
 **Cases 8 and 9 each leave the HTTP attack facts green, by design.** Each half of the log's binding
 backs the other, which is why each half has a test of its own and why case 10 breaks both.
