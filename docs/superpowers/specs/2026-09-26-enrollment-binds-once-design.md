@@ -4,9 +4,10 @@
 `docs/superpowers/plans/2026-09-26-enrollment-binds-once.md`, and drafted here as
 `<scratchpad>/stage-3/plan.md`.
 
-**Register:** this stage opens and closes one entry, numbered when it is written. On this reading the
-highest entry is D21, so the new one would be **D22**: *an enrollment could add a key to any identity,
-or replace the key behind any `kid`.*
+**Register:** this stage opens and closes two entries, numbered when they are written. On this reading
+the highest entry is D21, so the new ones would be **D22**: *an enrollment could add a key to any
+identity, or replace the key behind any `kid`*; and **D23**: *an anonymous search holding U+FFFE
+answered 500*, carried from the moderation stage and folded in after the pre-flight scan (Decision 15).
 
 **Errata:** one entry, **G14**, carrying **R4.31** and **R4.32**. On this reading the highest entry is
 G13 (G4 stays reserved) and the highest §4 requirement is R4.30. The plan's Task 1 re-derives every
@@ -43,8 +44,9 @@ safe". No proof of possession was ever built: the request body is `agent_id`, `k
 
 ### 1.2 Confirmed by execution
 
-The probe ran on 2026-09-26 against a pristine `git archive` of the workspace HEAD (`19c8f92`), through
-the real Forum over Postgres, as an xUnit fact in `Curia.Api.Tests`. It did the following:
+The probe ran on 2026-09-26 against a pristine `git archive` of `main` at 9829a04 (the moderation
+stage, PR #78), through the real Forum over Postgres, as an xUnit fact in `Curia.Api.Tests` that was
+never committed. It did the following:
 1. It enrolled a victim and posted one question as the victim.
 2. It sent two enrollment requests naming the victim's identifier.
 3. It read the victim's JWKS before and after.
@@ -52,14 +54,14 @@ the real Forum over Postgres, as an xUnit fact in `Curia.Api.Tests`. It did the 
 Output, abridged:
 
 ```
-victim question: 201 {"post_id":"01M0572TG061DF2SDPVH8JFR28", …}
-jwks before: {"keys":[{…"kid":"victim-2d14b7a1","x":"S_I7UJ5q…"}]}
-attacker enrol (new kid, victim id): 201 {"agent_id":"https://agents.example/victim-2d14b7a1",
-  "kid":"attacker-2d14b7a1","enrolled_at":"2026-08-16T12:00:00+00:00","owner_verified":false}
+victim question: 201 {"post_id":"01M0572TG0R4YJJNHM5KWP4SWV", …}
+jwks before: {"keys":[{…"kid":"victim-6e2dda3a","x":"n5hqcVmx…"}]}
+attacker enrol (new kid, victim id): 201 {"agent_id":"https://agents.example/victim-6e2dda3a",
+  "kid":"attacker-6e2dda3a","enrolled_at":"2026-08-16T12:00:00+00:00","owner_verified":false}
 attacker token: obtained
-attacker question as victim: 201 {"post_id":"01M0572TG061DF2SDPVH8JFR29", …}
-overwrite enrol (victim kid, other bytes): 201 {…,"kid":"victim-2d14b7a1",…}
-jwks after: {"keys":[{…"kid":"attacker-2d14b7a1",…},{…"kid":"victim-2d14b7a1","x":"4PkGK-0t…"}]}
+attacker question as victim: 201 {"post_id":"01M0572TG0R4YJJNHM5KWP4SWW", …}
+overwrite enrol (victim kid, other bytes): 201 {…,"kid":"victim-6e2dda3a",…}
+jwks after: {"keys":[{…"kid":"attacker-6e2dda3a",…},{…"kid":"victim-6e2dda3a","x":"mQZl37r2…"}]}
 overwriter token: obtained
 victim token after overwrite: Token request failed (401): … "Signature does not verify"
 ```
@@ -98,7 +100,9 @@ it false, because no test exercised the one input that breaks it.
 
 1. **One stage, errata first, and no rotation.**
    - Close the defect and nothing wider: enrollment registers a key only for an identity that holds
-     none (R4.31), and a registered key never changes (R4.32).
+     none (R4.31), and a registered key never changes (R4.32). The one key an enrollment registers
+     for an identity the log already enrolled is the bound `kid`, after the store lost its row
+     (Decision 6).
    - R4.17–R4.19's rotation and revocation, R6.26's compromise declaration, and binding keys in the
      Acta are the *next* stage (§6).
    - *Reason:* the defect is live and small. Building rotation first would mean designing a signed
@@ -158,6 +162,20 @@ it false, because no test exercised the one input that breaks it.
      append-only under R11.6 and signed into heads.
    - *Two halves, each fenced by its own test* (trap 13): the use case's pre-check by a test in which
      the store has lost the victim's row, and the record's check by a test on `EnrollAgent` alone.
+   - **The lost row, R4.31's one exception.** When the store holds no key for an identity the log
+     enrolled, a request presenting the bound `kid` is registered, valid from the instant the log
+     records the enrollment, and appends nothing. It is dated from the enrollment because a key
+     dated from its re-registration would put every post signed before the loss outside its key's
+     window (R6.31), so the recovery would restore posting and not the archive.
+     `EnrollmentBinding` carries the instant, and `EnrollIdentity` passes it to the store.
+   - *What the exception cannot check:* the bytes. The log binds the `kid`, not the key, so
+     whoever first presents the bound `kid` after a loss registers the bytes they send. Refusing
+     instead would leave the honest agent no path back until rotation exists. A key binding in the
+     Acta closes it (§6). R4.31's text names the exception and its reason, so the requirement and
+     the tests that exercise it agree.
+   - *Fenced* by a use-case test that re-registers a day later and reads the original instant back,
+     and by an HTTP test that recovers an hour later and reads back the key set served before the
+     loss, byte for byte.
 
 7. **The store before the log.**
    - `EnrollIdentity` asks the key store before it appends `agent.enrolled`.
@@ -181,6 +199,8 @@ it false, because no test exercised the one input that breaks it.
      - `curia/enroll/kid-already-registered`, whose `detail` changes from the bare `kid` to
        `agent=… kid=…`, the form the error already carried.
    - The CLI prints `title: detail` for any 409 (`Refusal.Summary`), so no client code changes.
+   - *Fenced* over HTTP: each of the three refusal facts holds its slug's detail, so serving the
+     bare `kid` again turns three facts red.
    - *Reason:* the commonest way to meet the refusal is honest (§1.3), and an agent told only
      "conflict" retries.
 
@@ -203,9 +223,9 @@ it false, because no test exercised the one input that breaks it.
       says why.
     - Changing the default decides R4.5's form, which is D4's.
 
-13. **Numbering.** G14, R4.31, R4.32 and D22 are derived on this reading. The plan's Task 1
-    re-derives the three errata numbers and stops if the tree disagrees; Task 7 does the same for
-    D22.
+13. **Numbering.** G14, R4.31, R4.32, D22 and D23 are derived on this reading. The plan's Task 1
+    re-derives the three errata numbers and stops if the tree disagrees; Task 8 does the same for
+    D22 and D23.
 
 14. **Recorded, not changed: the API fixture's Forum runs as the provisioning role.**
     - `ForumFixture` hands the host the admin connection string (`ForumFixture.cs:187`), so no HTTP
@@ -213,6 +233,38 @@ it false, because no test exercised the one input that breaks it.
     - The grant is proved where it is proved today: `Curia.Infrastructure.Tests`, on a connection
       opened as the app role.
     - Switching the fixture's role touches every API test, and it is its own change.
+
+15. **D23 is folded in: the embedding becomes total.** *Ruled by the controller after the pre-flight
+    scan; its place and its shape are `curia-architect`'s.*
+    - An anonymous `GET /v1/search?q=%EF%BF%BE` answers 500. `HashedNGramEmbedding.Words` calls
+      `string.Normalize(FormKC)`, which .NET refuses for U+FFFE and for an unpaired surrogate, and a
+      query reaches the vector channel without passing ADMIT. Confirmed at ccf200e by the scan.
+    - The fix is in the embedding, not the route. Its derived copy reads an ill-formed sequence and
+      every noncharacter as U+FFFD before NFKC. None of them is a letter or a digit, so each
+      separates words as U+FFFD does, and a noncharacter the normalizer accepted already did: no
+      feature of any text it accepted moves, and `hashed-ngram@1` keeps its version (R9.5, R11.10).
+    - *Rejected:* a 400 at the route, in parity with R6.15. It is as small, and it leaves `Embed`
+      non-total for its other callers. *Rejected:* reusing `FlagDisclosure.Normalize`. It is internal
+      to `Curia.Application`, which the domain may not reference (CS-7), and it drops hidden
+      characters, lower-cases and collapses white space, each of which would change ordinary
+      vectors.
+    - *Fenced* by three Domain facts that throw before the fix, a Domain pin whose digest was taken
+      before the mapping existed, and an HTTP fact that requires the vector channel to rank, which a
+      route that caught the throw would not give.
+    - Its own task, the sixth, after the enrollment work and before falsification, so the runner
+      covers it.
+
+16. **The moderation stage's parked residuals are registered, and its two stale comments fixed.**
+    - Registered, not fixed: other default-ignorable characters inside a raiser; an ASCII neighbour
+      NFKC folds (U+00B9, fullwidth digits); an operator's reason carrying a noncharacter into a
+      public leaf. Each needs a ruling of its own.
+    - The third was probed at 9829a04 with a scratch test. The record was appended, the log served
+      the reason as `\ufffe`, `curia-testis log inclusion` verified the leaf's audit path (exit 3,
+      no head given), and `ForumClient.GetLogEntryAsync` refused the entry with
+      `curia/admit/noncharacter`. The two verifiers disagree about a leaf the Forum wrote.
+    - Fixed, because a doc edit needs no ruling: the reason guard's class comment, which claimed a
+      zero-width character could not get a repeat through, and three test summaries in
+      `ApplyModerationTests` that describe the guard before the final review's third round.
 
 ### 2.1 Left for the owner
 
@@ -274,11 +326,14 @@ by reference, which `PublicKeyMaterial`'s generated record equality performs ove
 
 **Red first:** `EnrollmentBindingTests` in `Curia.Api.Tests`, run against the tree as it stands. It
 is the probe turned into assertions:
-- **The attack.** A second `kid` is refused 409, the attacker obtains no token, the JWKS serves only
-  the victim's key, and `curia-testis` still verifies the victim's earlier question.
-- **The overwrite.** Other bytes under the victim's `kid` are refused 409, and the same checks
-  follow. The negative control is the served JWKS with only its coordinates changed to the
-  overwriter's, which `curia-testis` must refuse with exit 1.
+- **The attack.** A second `kid` is refused 409 with Decision 9's detail, the attacker obtains no
+  token while the victim still does, the JWKS serves only the victim's key, and `curia-testis` still
+  verifies the victim's earlier question.
+- **The overwrite.** Other bytes under the victim's `kid` are refused 409 with Decision 9's detail,
+  and the same checks follow. The negative control is the served JWKS with only its coordinates
+  changed to the overwriter's, which `curia-testis` must refuse with exit 1.
+- **A `kid` another identity holds.** Refused 409, as before this stage, now with the detail
+  `agent=… kid=…`; the fresh identifier holds no key afterwards. Red before the stage at its detail.
 - **The re-announcement.** Accepted, with the instant unmoved.
 
 **Build:**
@@ -298,7 +353,9 @@ is the probe turned into assertions:
 - TRUNCATE refused;
 - the per-test key-store schemas carry the same grant.
 
-`PostgresAgentKeyStoreTests` gains a fact for the history primitive refusing other bytes.
+`PostgresAgentKeyStoreTests` gains two facts: the history primitive refuses other bytes, and the
+same bytes under another algorithm. The second is the only fence on the statement's algorithm
+clause, since the grant cannot see a column the statement no longer sets.
 
 **Build:**
 - db/0005;
@@ -312,46 +369,73 @@ is the probe turned into assertions:
 - `EnrollIdentityTests`, nine facts. They cover:
   - the lost-row case;
   - the `kid`-less enrollment (fail closed);
-  - a race of eight, with every racer held at the store until all eight have read the log, so that
+  - the lost row's re-registration, a day later, dated from the enrollment (Decision 6);
+  - a race of eight, with every racer held at the store until all eight are accounted for, so that
     only the store's rule stands between the race and eight keys (without the hold, the fact was
-    red under a broken rule only when the scheduler interleaved it that way);
-  - a `kid` held by another identity, which must leave that identity's stream empty.
-- A fourth HTTP fact: the victim's key row is deleted by the provisioning role; the attacker's new
-  `kid` is still refused; the victim re-registers its own key.
+    red under a broken rule only when the scheduler interleaved it that way). A racer is accounted
+    for when it arrives at the store or when it finishes: before the release, one that finishes was
+    refused on the way and is never coming. Counting arrivals alone turned a use case that wrote the
+    log first into a ten-second timeout, which the pre-flight scan measured;
+  - a `kid` held by another identity, which must leave that identity's stream empty. This, not the
+    race, is the fact that fences the order of store and log.
+- A fifth HTTP fact: the victim's key row is deleted by the provisioning role; an hour later the
+  attacker's new `kid` is still refused, and the victim re-registers its own key and is served the
+  key set it was served before the loss.
 
 **Build:**
-- `EnrollmentBinding`;
-- `EnrollIdentity`;
+- `EnrollmentBinding`, with the enrollment's instant;
+- `EnrollIdentity`, which dates a lost row's key from it;
 - `EnrollAgent`'s refusal;
 - the endpoint calling `EnrollIdentity`;
 - `Program.cs`;
 - the `KeyIdField` remark.
 
+### Increment 5: D23, the embedding made total
+
+**Red first:** `HashedNGramEmbeddingTests` gains four facts. A noncharacter alone has no features and
+does not throw; a noncharacter separates words as U+FFFD does; an unpaired surrogate is read as U+FFFD;
+and a text holding what the mapping sits beside embeds to a digest taken before the mapping existed.
+The first three throw before the fix, and the pin passes before and after. `SearchEndpointTests`
+gains the anonymous query end to end: 500 before the fix, and after it an answer in which the vector
+channel ranks the question the query's two words name.
+
+**Build:** `Words` reads an ill-formed sequence, and every noncharacter, as U+FFFD before NFKC, with a
+private noncharacter predicate.
+
 ## 4. What gets falsified
 
 Each check below must go red naming its test. Restore by plain copy, never `copy2`, then rebuild
-with `--no-incremental` and run the gates unpatched before quoting any case (trap 18). All thirteen
-cases were run against the scratch tree while this spec was written: all thirteen went red, and every
-restore was clean. The plan's Task 6 carries the exact patches and what each printed.
+with `--no-incremental` and run the gates unpatched before quoting any case (trap 18). All eighteen
+cases were run against a fresh archive of ccf200e with the plan applied, after the pre-flight
+amendments: all eighteen went red, nothing outside the table went red, and every restore was clean.
+The plan's Task 7 carries the exact patches and what each printed.
 
 | # | Break | Must go red |
 |---|---|---|
-| 1 | The rule registers a second `kid` | `KeyEnrollmentTests`; both contract runs; the race of eight |
+| 1 | The rule registers a second `kid` | `KeyEnrollmentTests`; both contract runs; the race of eight. The HTTP suite is not run: the log's half would refuse first |
 | 2 | Material compared by length only | `R4_32` rule facts; both contract runs; the HTTP overwrite fact (201 for 409) |
 | 3 | Material compared by reference | The rule's re-announcement facts; the in-memory contract; the HTTP re-announcement (409 for 201) |
 | 4 | The Postgres lock removed | Both serialization facts |
 | 4b | The lock taken after the read, not before it | The two-racer fact alone; the waiting fact stays green, since the lock is still taken |
 | 5 | db/0005 narrows nothing | Four column rows, and the isolated-schema fact |
 | 6 | The fixture renders 0002 without 0005 | The isolated-schema fact alone |
-| 7 | The history primitive writes material back, grant removed | The history-primitive fact |
-| 8 | The use case's pre-check off | Lost-row fact; `kid`-less fact; the HTTP lost-row fact (attacker obtains a token) |
+| 7 | The history primitive writes material back, grant removed | Both history-primitive facts |
+| 8 | The use case's pre-check off | Lost-row refusal fact; `kid`-less fact; the HTTP lost-row fact (attacker obtains a token) |
 | 9 | `EnrollAgent`'s check off | `R4_31_TheLogsRecordRefusesAKidItDidNotBind`; the `kid`-less fact |
 | 10 | Both log halves off | The HTTP lost-row fact (201 for 409) |
-| 11 | The log's record written before the store | `R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded` |
+| 11 | The log's record written before the store | `R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded` alone. The race of eight stays green: its barrier accounts for racers the log refuses |
 | 12 | The verifier's negative control substitutes nothing | The HTTP overwrite fact, at its control |
+| 13 | The embedding normalizes the text as given (D23 undone) | Three Domain facts (`ArgumentException`); the HTTP search fact (500). The pin stays green |
+| 14 | The embedding drops a noncharacter instead of reading it as U+FFFD | The separation fact and the pin |
+| 15 | The endpoint serves the bare `kid` as a refusal's detail | The three HTTP refusal facts, at their details |
+| 16 | The history primitive ignores the algorithm | The algorithm fact alone |
+| 17 | A lost row's key dated from now | The use-case lost-row re-registration fact; the HTTP lost-row fact, at the served key set |
 
 **Cases 8 and 9 each leave the HTTP attack facts green, by design.** Each half of the log's binding
 backs the other, which is why each half has a test of its own and why case 10 breaks both.
+
+**Case 16 needs one edit where case 7 needs two.** The statement sets only the window, which the grant
+allows, so the grant cannot fence the algorithm clause and the `WHERE` alone decides.
 
 **Case 5's grant is also what makes case 7 need two edits.** With the grant in place, the old
 statement is refused by Postgres (`42501`) on every call. The code's own refusal is therefore fenced
@@ -376,6 +460,10 @@ run the architecture project in Debug too (D16, option 1).
   answers; the slug is then taken locally, and the agent must remove the directory or choose another
   name. It is recorded.
 - **R10.39's publication.** It is still waiting, and nothing is lost by the wait.
+- **The moderation stage's parked residuals, beyond their comments** (Decision 16): default-ignorable
+  characters inside a raiser, NFKC-folded neighbours, and a noncharacter in an operator's reason.
+  Each needs a ruling, and a refusal of noncharacters at the moderation writer would also want
+  `AttestOwner` probed.
 
 ## 6. What comes next
 
@@ -398,14 +486,20 @@ R10.39's statistics route stays a small stage that can run beside it.
 ## 7. Register and documents
 
 **`IMPLEMENTATION_PLAN.md`:**
-- Open and close D22 with §1's evidence and the falsification record.
-- Add the observations: §2.1's audit query, Decision 14, the leftover local profile, db/0002's header
-  claim that losing `agent_keys` rows costs only availability, and Table 6's unreachable states.
+- Open and close D22 with §1's evidence and the falsification record, and D23 with the scan's.
+- Add the observations: §2.1's audit query, R4.31's exception and the bytes it cannot check,
+  Decision 14, the leftover local profile, db/0002's header claim that losing `agent_keys` rows
+  costs only availability, and Table 6's unreachable states.
+- Add the moderation stage's three parked residuals to that stage's observations (Decision 16), and
+  move its two live `ForumEndpoints.cs` citations to the lines this stage leaves them on.
 - Update "Start here" and "What comes next" (§6).
 - Add trap 21: *a rule each of two components assumed the other held*.
 
+**`ApplyModeration.cs` and `ApplyModerationTests.cs`:** the four doc comments Decision 16 names.
+
 **`CLAUDE.md`:** "What works today" gains the sentence that an enrolled identity's key is bound once.
 
-**`README.md`, "1. Enrol":** a paragraph on R4.31 and R4.32, and the two refusals.
+**`README.md`, "1. Enrol":** a paragraph on R4.31 and R4.32, the two refusals, and the recovery from a
+lost row.
 
 **The spec's status line:** set to "implemented by" once the stage merges.

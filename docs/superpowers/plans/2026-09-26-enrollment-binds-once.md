@@ -5,21 +5,25 @@
 **Goal:** Close register D22. `POST /v1/agents` registered any key it was sent, under any identifier it named. So anyone could post as any agent, or replace the key behind any `kid` and make everything that agent had signed stop verifying. After this stage:
 - an enrollment registers a key only for an identity that holds none;
 - re-sending the key an identity already holds is accepted and changes nothing;
+- when the key store has lost an enrolled identity's row, re-sending the `kid` its enrollment bound registers it again, valid from the enrollment's own instant;
 - every other enrollment of an enrolled identity is refused by name;
 - a registered key's material never changes, and the database grant enforces that.
+
+It also closes register **D23**, carried from the moderation stage: an anonymous `GET /v1/search?q=%EF%BF%BE` answered 500.
 
 **Architecture:**
 - **Errata G14 comes first.** It adds R4.31, enrollment binds an identity once, and R4.32, a registered key never changes.
 - **One rule, applied in two places.** `KeyEnrollment.Decide` lives in the application layer. Each key-store adapter applies it inside its own atomicity: a `Lock` in memory, a per-identifier advisory lock in Postgres.
 - **The key-store port loses its general "register".** `EnrollAsync` becomes enrollment's only write. The Postgres adapter's `RegisterAsync` becomes `internal` and never rewrites material.
 - **db/0005 narrows the grant.** The application role keeps UPDATE on `agent_keys` for the validity window only.
-- **`EnrollIdentity` puts the log first.** It reads the log's binding (the `kid` named by `agent.enrolled`), then asks the key store, then records. `EnrollAgent` refuses any `kid` it did not bind.
+- **`EnrollIdentity` puts the log first.** It reads the log's binding (the `kid` named by `agent.enrolled`, and when), then asks the key store, then records. `EnrollAgent` refuses any `kid` it did not bind.
+- **The embedding is total (D23).** `HashedNGramEmbedding` reads a noncharacter or an unpaired surrogate as U+FFFD before NFKC. Every vector that could be computed before is unchanged, so `hashed-ngram@1` keeps its version.
 
 **Tech Stack:** .NET 10, C# 14, xUnit v3, Npgsql + Postgres 18, `curia-testis` (Rust, used unchanged), GitButler (`but`).
 
-**Spec:** `docs/superpowers/specs/2026-09-26-enrollment-binds-once-design.md`, drafted as `<scratchpad>/stage-3/spec.md`. Read it first; this plan argues from it. Before Task 1, commit the spec and this plan to the branch as `Spec: enrollment binds an identity once` and `Plan: enrollment binds an identity once — eight tasks, errata first`.
+**Spec:** `docs/superpowers/specs/2026-09-26-enrollment-binds-once-design.md`. Read it first; this plan argues from it. The spec and the first version of this plan are committed on the branch as `Spec: enrollment binds an identity once` and `Plan: enrollment binds an identity once — eight tasks, errata first`; this version follows the pre-flight scan and has nine tasks.
 
-**Branch:** `enrollment-binds-once`. Open it from `main` after the moderation stage (errata G13, register D20 and D21) has merged. This plan was written and build-checked against 7837f14. That is the workspace commit holding that stage's branch at 4969cb9, final-review wave included.
+**Branch:** `enrollment-binds-once`, opened from `main` at 9829a04 (the moderation stage, PR #78). This plan was first written against 7837f14, the workspace commit holding that stage's branch. After the pre-flight scan it was amended, and every task was re-applied in order to a fresh `git archive ccf200e` and built. ccf200e is 9829a04 plus the spec and the first plan, and nothing else.
 
 ## Global Constraints
 
@@ -38,7 +42,7 @@
 - Register D16 is decided as option 1. This stage's gates run `Curia.Architecture.Tests` in **both** Debug and Release, and they build `Curia.sln -c Debug` before the Debug run. Without that build, CS-15 fails naming a missing assembly, or passes over stale ones.
 - Count test assemblies, never totals. **Eleven** must appear. This plan adds no test project.
 - A gate's output is read as `grep -E "Passed!|Failed!"` prints it. Never pipe it through anything that strips the status word, and never `head` it.
-- Every count quoted below is from 7837f14 with this plan applied. A later base changes the counts, and it changes nothing else: what must hold is the status word on every line and the number of assemblies. The moderation branch's 9d14814, committed after the build-check, adds tests to `Curia.Application.Tests` and touches none of this plan's anchors; the plan's operations were re-applied to cc3226b and matched once each, and the spec checks stayed clean.
+- Every count quoted below is from ccf200e with this plan applied up to that step. A later base changes the counts, and it changes nothing else: what must hold is the status word on every line and the number of assemblies.
 
 **Invariants this stage must not break**
 - **Append-only (R11.6).** `events` is untouched. `agent_keys` keeps DELETE revoked (db/0002), and TRUNCATE is never granted.
@@ -48,11 +52,11 @@
 - **Refusals name identifiers, never key material.** A refusal's detail carries the agent and the `kid`, never bytes.
 
 **Numbering and test data**
-- On this reading the entry is **G14**, the requirements are **R4.31** and **R4.32**, and the register entry is **D22**. Task 1 re-derives the first three and **stops** if the tree disagrees; Task 7 does the same for D22.
+- On this reading the entry is **G14**, the requirements are **R4.31** and **R4.32**, and the register entries are **D22** and **D23**. Task 1 re-derives the first three and **stops** if the tree disagrees; Task 8 does the same for D22 and D23.
 - Test identifiers use `https://agents.example/…`. Key bytes are real P-256 SubjectPublicKeyInfo from `ECDsa`, except in `KeyEnrollmentTests`, whose byte arrays are synthetic by design.
 
 **Characters**
-- No file this plan writes may contain a character in U+00AD, U+200B–U+200F, U+202A–U+202E, U+2028–U+2029, U+2060–U+2069 or U+FEFF. The code blocks below hold none, and Task 7 scans for them. If you script an edit that needs a backslash, build it with `chr(92)`.
+- No file this plan writes may contain a character in U+00AD, U+200B–U+200F, U+202A–U+202E, U+2028–U+2029, U+2060–U+2069, U+FEFF or U+FFFE. The code blocks below hold none: every test character is a C# `\u` escape. Task 8 scans for them. If you script an edit that needs a backslash, build it with `chr(92)`.
 
 **Version control and privacy**
 - Use `but` only, on branch `enrollment-binds-once`. Never `git commit`, `checkout`, `rebase` or `stash`.
@@ -63,12 +67,13 @@
 ## Review Focus
 
 1. **Two enrollments of one fresh identity, under two `kid`s, at the same instant.** The result must be one key, one enrollment record and one refusal by name, with no second key registered for a winner nobody chose. Tests: Task 3's `PostgresEnrollmentSerializationTests.R4_31_TwoEnrollmentsRacingForOneFreshIdentifierLeaveOneKey` and Task 5's `EnrollIdentityTests.R4_31_RacingEnrollmentsOfOneFreshIdentityLeaveOneKeyAndOneRecord`.
-2. **The victim's key row lost from the store.** An attacker then enrolls a new `kid` under the victim's identifier. The log's binding must refuse it, and the victim, re-sending its own key, must be registered again. Tests: Task 5's `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment` and `EnrollIdentityTests.R4_31_AnIdentityTheLogBoundIsRefusedAnotherKidEvenWhenTheStoreHoldsNothing`.
+2. **The victim's key row lost from the store.** An attacker then enrolls a new `kid` under the victim's identifier. The log's binding must refuse it. The victim, re-sending its own key an hour later, must be registered again with the window it had, so the Forum serves the key set it served before the loss and every earlier post is still inside its key's window (R6.31). This is R4.31's one exception, and it cannot check bytes: the log binds the `kid`, not the key. Tests: Task 5's `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment`, `EnrollIdentityTests.R4_31_AnIdentityTheLogBoundIsRefusedAnotherKidEvenWhenTheStoreHoldsNothing` and `EnrollIdentityTests.R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound`.
 3. **A `kid` another identity holds.** The request must be refused, and the refused identity must end with **no** enrollment record, not one bound to a `kid` it can never register. This is why the store is asked before the log. Test: Task 5's `R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded`.
 4. **The same key re-sent from a fresh byte array.** It must be accepted with its window unmoved. `PublicKeyMaterial`'s generated record equality compares its `ReadOnlyMemory<byte>` by reference, so the comparison must be by content. Tests: Task 2's `R4_31_TheSameKeyAgainIsHeldNotRegistered` and Task 3's contract fact `R4_31_ReEnrollingTheSameKeyWritesNothingAndKeepsItsWindow`.
-5. **The pre-G14 statement run under the new grant.** `SET alg = …, public_key = …` must be refused by Postgres with `42501` on every call, even when no row conflicts. So a code regression fails loudly and never overwrites. Evidence: Task 6's case 7 needs both of its edits to reach the code's own refusal.
+5. **The pre-G14 statement run under the new grant.** `SET alg = …, public_key = …` must be refused by Postgres with `42501` on every call, even when no row conflicts. So a code regression fails loudly and never overwrites. Evidence: Task 7's case 7 needs both of its edits to reach the code's own refusal.
+6. **An anonymous search holding U+FFFE (D23).** It must be answered, and the vector channel must still rank: a fix that swallowed the throw at the route would leave the lexical channel alone answering. Every vector computable before the fix must be unchanged. Tests: Task 6's `SearchEndpointTests.ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks` and `HashedNGramEmbeddingTests.R9_5_AVectorThatCouldBeComputedBeforeD23IsUnchanged`.
 
-A sixth case is covered where the code lives rather than listed above. An `agent.enrolled` entry that names no `kid` binds nothing, and the identity is refused re-enrollment under every `kid`. Test: Task 5's `R4_31_AnEnrollmentThatNamesNoKidBindsNone`.
+A seventh case is covered where the code lives rather than listed above. An `agent.enrolled` entry that names no `kid` binds nothing, and the identity is refused re-enrollment under every `kid`. Test: Task 5's `R4_31_AnEnrollmentThatNamesNoKidBindsNone`.
 
 ---
 
@@ -79,9 +84,10 @@ A sixth case is covered where the code lives rather than listed above. An `agent
 | `curia-whitepaper-ERRATA-AND-ADDENDUM.md` | Entry G14; two index rows | 1 |
 | `src/Curia.Application/Ports/IAuthorKeyRegistry.cs` | `KeyEnrollment`, the three slugs and two new refusals (2); `EnrollAsync` replaces `RegisterAsync` on the port (3) | 2, 3 |
 | `tests/Curia.Application.Tests/KeyEnrollmentTests.cs` (new) | The rule, pure | 2 |
-| `tests/Curia.Api.Tests/EnrollmentBindingTests.cs` (new) | The attack, over HTTP, with `curia-testis` (3); the lost-row fact (5) | 3, 5 |
+| `tests/Curia.Api.Tests/EnrollmentBindingTests.cs` (new) | The attack, over HTTP, with `curia-testis`, and each refusal's served detail (3); the lost-row fact (5) | 3, 5 |
 | `tests/Curia.Application.Tests/AuthorKeyRegistryPortContractTests.cs` (new) | One enrollment contract, both adapters | 3 |
 | `tests/Curia.Application.Tests/InMemory/InMemoryAuthorKeyRegistry.cs` (new) | R11.4's in-memory adapter | 3 |
+| `tests/Curia.Api.Tests/BoundTokenTests.cs` | One comment's pointer, from the port's old `RegisterAsync` to `EnrollAsync` | 3 |
 | `src/Curia.Infrastructure/PostgresAgentKeyStore.cs` | `EnrollAsync` with the advisory lock (3); `RegisterAsync` internal and window-only (4) | 3, 4 |
 | `tests/Curia.Infrastructure.Tests/PostgresAuthorKeyRegistryTests.cs` (new) | The Postgres contract run; the lock, observed | 3 |
 | `src/Curia.Api/ForumEndpoints.cs` | Enrollment through `EnrollAsync` (3), then through `EnrollIdentity` (5) | 3, 5 |
@@ -90,14 +96,18 @@ A sixth case is covered where the code lives rather than listed above. An `agent
 | `src/Curia.Infrastructure/Curia.Infrastructure.csproj` | `InternalsVisibleTo` the matching test assembly | 4 |
 | `tests/Curia.Infrastructure.Tests/PostgresDatabaseFixture.cs` | Per-test key-store schemas render 0005 beside 0002 | 4 |
 | `tests/Curia.Infrastructure.Tests/AgentKeyMaterialGrantTests.cs` (new) | db/0005's grant, on the app role | 4 |
-| `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` | The history primitive refuses other bytes | 4 |
-| `src/Curia.Application/Credentials/EnrollmentBinding.cs` (new) | The `kid` the log bound | 5 |
+| `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` | The history primitive refuses other bytes, and another algorithm | 4 |
+| `src/Curia.Application/Credentials/EnrollmentBinding.cs` (new) | The `kid` the log bound, and when | 5 |
 | `src/Curia.Application/Credentials/EnrollIdentity.cs` (new) | CS-16's `Enroll`: log binding, key store, log record | 5 |
 | `src/Curia.Application/Credentials/EnrollAgent.cs` | Refuses a `kid` the log did not bind | 5 |
 | `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs` (new) | The use case, nine facts | 5 |
 | `src/Curia.Api/Program.cs` | Registers `EnrollIdentity` | 5 |
 | `src/Curia.Application/Projections/AgentStandingProjection.cs` | The `KeyIdField` remark | 5 |
-| `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `README.md`, the spec | Register, traps, what comes next | 7 |
+| `src/Curia.Domain/Search/HashedNGramEmbedding.cs` | `Words` reads a noncharacter or an unpaired surrogate as U+FFFD (D23) | 6 |
+| `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs` | Four facts: no throw, the same words, the same vector as before | 6 |
+| `tests/Curia.Api.Tests/SearchEndpointTests.cs` | The anonymous query, end to end | 6 |
+| `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `README.md`, the spec | Register, traps, what comes next; the moderation stage's parked residuals | 8 |
+| `src/Curia.Application/Moderation/ApplyModeration.cs`, `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs` | Doc comments only: the reason guard's class comment, and three stale test summaries | 8 |
 
 ---
 
@@ -109,7 +119,7 @@ A sixth case is covered where the code lives rather than listed above. An `agent
 **Interfaces:**
 - Consumes: nothing.
 - Produces: the requirement text every later task implements.
-  - **R4.31**: an enrollment binds an identity once, the decision and the registration are atomic, and a refusal writes nothing.
+  - **R4.31**: an enrollment binds an identity once, the decision and the registration are atomic, and a refusal writes nothing. Its one exception re-registers a lost row's bound `kid`, dated from the enrollment.
   - **R4.32**: a registered key's material never changes, and the grant enforces it.
 
 - [ ] **Step 1: Confirm the branch**
@@ -173,7 +183,7 @@ requirements. **Status:** proposed; not applied to the white paper.
 R4.19's revocation path. The store's own remarks call its last-write-wins key material "a real
 hazard, and one this increment does not close". G5 said the opposite about the endpoint above it:
 "a false enrollment can only impersonate an agent whose private key the caller already holds". The
-disagreement was then executed on 2026-09-26, against a pristine archive of the tree (`19c8f92`),
+disagreement was then executed on 2026-09-26, against a pristine archive of `main` at 9829a04,
 through the real Forum over Postgres.
 
 ### The finding
@@ -186,12 +196,12 @@ posted one question as it. It then sent two requests naming the victim's identif
 printed:
 
 ```
-attacker enrol (new kid, victim id): 201 {"agent_id":"https://agents.example/victim-2d14b7a1",
-  "kid":"attacker-2d14b7a1","enrolled_at":"2026-08-16T12:00:00+00:00","owner_verified":false}
+attacker enrol (new kid, victim id): 201 {"agent_id":"https://agents.example/victim-6e2dda3a",
+  "kid":"attacker-6e2dda3a","enrolled_at":"2026-08-16T12:00:00+00:00","owner_verified":false}
 attacker token: obtained
-attacker question as victim: 201 {"post_id":"01M0572TG061DF2SDPVH8JFR29", …}
-overwrite enrol (victim kid, other bytes): 201 {"agent_id":"https://agents.example/victim-2d14b7a1",
-  "kid":"victim-2d14b7a1", …}
+attacker question as victim: 201 {"post_id":"01M0572TG0R4YJJNHM5KWP4SWW", …}
+overwrite enrol (victim kid, other bytes): 201 {"agent_id":"https://agents.example/victim-6e2dda3a",
+  "kid":"victim-6e2dda3a", …}
 victim token after overwrite: Token request failed (401): … "Signature does not verify"
 ```
 
@@ -218,17 +228,23 @@ identity between them. The Forum answered each with a success, and each could po
 
 ### The requirements
 
-**R4.31** An enrollment request naming an identifier that the log records as enrolled SHALL register
-no key and append no event. The one exception is a request that re-presents the key that
-identifier's enrollment bound: the `kid` named by its `agent.enrolled` entry, with the algorithm and
-public key registered under it. Such a request SHALL succeed and change nothing. Any other request
-naming an enrolled identifier SHALL be refused by name. A refused enrollment SHALL leave both the key
-store and the log unchanged. Deciding that an identifier holds no key, and registering one for it,
-SHALL be a single act with respect to any concurrent enrollment of the same identifier. The reason:
-R4.16 makes enrollment and rotation the key store's only producers, and R4.18 requires a rotation to
-be signed by a key the identity already holds. An enrollment that adds a key to an enrolled identity
-is a rotation that proved nothing. Every post publishes its author's identifier, so without this
-requirement anyone who could read a post could post as its author.
+**R4.31** An enrollment request naming an identifier that the log records as enrolled SHALL append
+no event, and SHALL succeed in two cases only, each presenting the `kid` named by that identifier's
+`agent.enrolled` entry. When the key store holds that `kid` for the identifier with the algorithm and
+public key the request carries, the request SHALL succeed and change nothing. When the key store
+holds no key for the identifier, because it has lost the row the enrollment registered, the request
+SHALL succeed and register the key it carries, valid from the instant the log records the
+enrollment. Any other request naming an enrolled identifier SHALL be refused by name, and a refused
+enrollment SHALL leave both the key store and the log unchanged. Deciding that an identifier holds no
+key, and registering one for it, SHALL be a single act with respect to any concurrent enrollment of
+the same identifier. The reason: R4.16 makes enrollment and rotation the key store's only producers,
+and R4.18 requires a rotation to be signed by a key the identity already holds. An enrollment that
+adds a key to an enrolled identity is a rotation that proved nothing, and every post publishes its
+author's identifier, so without this requirement anyone who could read a post could post as its
+author. The second case is an identity's one path back from a lost row until rotation exists. It is
+dated from the enrollment because a key dated from its re-registration would put every post signed
+before the loss outside its key's window (R6.31), and it cannot check the bytes it registers: the log
+binds the `kid`, not the key.
 
 **R4.32** The public key and algorithm registered under a `kid`, and the identifier it is registered
 to, SHALL NOT change for the life of the key store. Only its validity window may change, and each
@@ -247,7 +263,7 @@ such a guarantee belongs: "enforced by the grant, not merely by the code's inten
 | §4.4, R4.16 | Cross-referenced to R4.31. "Populated exclusively through enrollment and rotation" means that an enrollment populates only an identity that holds no key. |
 | Appendix D, `agent_keys` | Annotated. The application role may UPDATE `valid_from` and `valid_until` and no other column (R4.32). |
 | `src/Curia.Infrastructure/PostgresAgentKeyStore.cs`, `RegisterAsync` | The remark that called last-write-wins material "a real hazard, and one this increment does not close" is replaced with R4.32. |
-| `src/Curia.Api/ForumEndpoints.cs`, the enrollment endpoint's remarks | The sentence "a false enrollment can only impersonate an agent whose private key the caller already holds" now says which requirements make it true. |
+| `src/Curia.Api/ForumEndpoints.cs`, the enrollment endpoint's remarks | The sentence "a false enrollment can only impersonate an agent whose private key the caller already holds" is kept. The remark now says which requirements make it true, when each half of it was false, and the two cases it still does not cover: an identifier nobody has enrolled, and a lost key row. |
 
 ### What this costs
 
@@ -263,6 +279,11 @@ such a guarantee belongs: "enforced by the grant, not merely by the code's inten
    `agent.enrolled` entry names. A store cannot show a replaced key's original bytes, because
    neither the store nor the log recorded them. No deployment is hosted, so the stores that exist
    are test databases and local ones.
+4. **A lost key row is bound again on its `kid` alone.** Once the store has lost an enrolled
+   identity's row, whoever first presents the bound `kid` for that identity registers the bytes they
+   send. R4.31 accepts that, because refusing would leave the honest agent no path back until
+   R4.18's rotation exists. A key binding in the Acta, a leaf carrying the key's thumbprint, is what
+   closes it, and it belongs with rotation.
 
 ### What this deliberately does not change
 
@@ -301,6 +322,9 @@ turn it red.
   both key-store adapters.
 - **R4.31, the log's half.** Remove the log's half. A test in which the store has lost the victim's
   row must find the attacker's key registered.
+- **R4.31, the lost row.** Date the re-registered key from now rather than from the enrollment. The
+  key set the Forum serves after the victim's recovery must then differ from the one it served
+  before the loss.
 - **R4.31, atomicity.** Remove the per-identifier lock. An enrollment must stop waiting while
   another holds that lock.
 - **R4.32.** Grant the application role UPDATE on `public_key`. The grant test naming that column
@@ -319,7 +343,7 @@ In `curia-whitepaper-ERRATA-AND-ADDENDUM.md`, insert after:
 this:
 
 ```markdown
-| R4.31 | An enrollment naming an identifier the log records as enrolled registers no key and appends no event, unless it re-presents the key that identifier's `agent.enrolled` entry bound; any other is refused by name, a refusal changes neither store, and deciding and registering are one act against a concurrent enrollment | G14 |
+| R4.31 | An enrollment naming an identifier the log records as enrolled appends no event and succeeds only with the `kid` its `agent.enrolled` entry bound: re-presenting the key the store holds changes nothing, and when the store has lost the identity's row the bound `kid` is registered again, valid from the enrollment; any other is refused by name, a refusal changes neither store, and deciding and registering are one act against a concurrent enrollment | G14 |
 | R4.32 | The key, algorithm and identifier registered under a `kid` never change; only the validity window moves, each end only earlier; the application role holds no privilege to change the rest | G14 |
 ```
 
@@ -339,6 +363,7 @@ spec-checks: clean
 ```
 baseline           clean (exit 0)
 entry under test   ## G14 — Any enrollment could re-key any identity, and G5's argument that none could rested on a check that was never built
+
 citation           red, named the cell: cites R11.997, which is defined in neither document
 duplicate          red, named the cell: R11.16 is defined unqualified in both
 index-orphan       red, named the cell: R4.31 is proposed in an entry but absent from the index
@@ -683,6 +708,7 @@ but commit -b enrollment-binds-once -m "$(printf 'R4.31 and R4.32 as one rule: r
 - Create: `tests/Curia.Application.Tests/InMemory/InMemoryAuthorKeyRegistry.cs`
 - Create: `tests/Curia.Infrastructure.Tests/PostgresAuthorKeyRegistryTests.cs`
 - Modify: `src/Curia.Application/Ports/IAuthorKeyRegistry.cs` (the port)
+- Modify: `tests/Curia.Api.Tests/BoundTokenTests.cs` (one comment's pointer to the port)
 - Modify: `src/Curia.Infrastructure/PostgresAgentKeyStore.cs` (`EnrollAsync`, the lock)
 - Modify: `src/Curia.Api/ForumEndpoints.cs` (the enrollment endpoint's one store call)
 
@@ -696,12 +722,12 @@ but commit -b enrollment-binds-once -m "$(printf 'R4.31 and R4.32 as one rule: r
 
 - [ ] **Step 1: Write the attack as a failing test**
 
-This is the probe that found D22, turned into assertions. Each fact holds the victim to three observations:
-- the refusal;
+This is the probe that found D22, turned into assertions. Each attack fact holds the victim to three observations:
+- the refusal, by type and by the detail spec Decision 9 fixes;
 - the key the Forum then serves;
 - `curia-testis`'s verdict on a question the victim posted before the attack.
 
-The last is the property the defect destroyed, checked by an implementation that shares no code with the store. The negative control beside it shows that the verifier does refuse the overwriter's key, so its pass carries information.
+The last is the property the defect destroyed, checked by an implementation that shares no code with the store. The negative control beside it shows that the verifier does refuse the overwriter's key, so its pass carries information. A third refusal fact covers a `kid` another identity holds; that refusal predates this stage, and what changes is its detail.
 
 Create `tests/Curia.Api.Tests/EnrollmentBindingTests.cs`:
 
@@ -820,10 +846,19 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
         }
     }
 
+    /// <summary>A refusal's <c>type</c> and <c>detail</c>, as the Forum served them.</summary>
+    private static async Task<(string? Type, string? Detail)> ProblemAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        var problem = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
+        return (problem["type"]?.GetValue<string>(), problem["detail"]?.GetValue<string>());
+    }
+
     /// <summary>
     /// R4.31: an enrolled identifier sent a second key under a new <c>kid</c> registers nothing. The
-    /// attacker gets a refusal naming what happened, cannot obtain a token as the victim, and the
-    /// victim's key set is unchanged -- so the victim's question still verifies offline.
+    /// attacker gets a refusal naming what happened and what to do, cannot obtain a token as the
+    /// victim, and the victim's key set is unchanged -- so the victim's question still verifies
+    /// offline. The victim's own token is the control: a token helper that always failed would pass
+    /// the attacker's line above it.
     /// </summary>
     [Fact]
     public async Task R4_31_EnrollingAnEnrolledIdentityWithANewKeyRegistersNothing()
@@ -834,11 +869,18 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
 
         var attacker = ForumAgent.Create(victim.Agent.AgentId, "attacker-" + Guid.NewGuid().ToString("N")[..8]);
         using var enrolled = await attacker.EnrollAsync(client, ct);
-        var refusal = await enrolled.Content.ReadAsStringAsync(ct);
+        var (type, detail) = await ProblemAsync(enrolled, ct);
 
         Assert.Equal(HttpStatusCode.Conflict, enrolled.StatusCode);
-        Assert.Contains("curia/enroll/already-enrolled", refusal, StringComparison.Ordinal);
+        Assert.Equal("curia/enroll/already-enrolled", type);
+
+        // Spec Decision 9: the detail names the identifier and the remedy. Before this stage the
+        // endpoint served the bare kid here, which tells an honest agent nothing it can act on.
+        Assert.StartsWith($"agent={victim.Agent.AgentId}: nothing was registered.", detail, StringComparison.Ordinal);
+        Assert.Contains("an agent identifier of its own", detail, StringComparison.Ordinal);
+
         Assert.Null(await TokenOrNullAsync(client, attacker, forum.Now, ct));
+        Assert.NotNull(await TokenOrNullAsync(client, victim.Agent, forum.Now, ct));
 
         var jwks = await JwksAsync(client, victim.Agent.AgentId, ct);
         AssertServesOnlyTheVictimsKey(jwks, victim.Agent);
@@ -863,10 +905,11 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
 
         var overwriter = ForumAgent.Create(victim.Agent.AgentId, victim.Agent.Kid);
         using var enrolled = await overwriter.EnrollAsync(client, ct);
-        var refusal = await enrolled.Content.ReadAsStringAsync(ct);
+        var (type, detail) = await ProblemAsync(enrolled, ct);
 
         Assert.Equal(HttpStatusCode.Conflict, enrolled.StatusCode);
-        Assert.Contains("curia/keys/material-immutable", refusal, StringComparison.Ordinal);
+        Assert.Equal("curia/keys/material-immutable", type);
+        Assert.StartsWith($"kid={victim.Agent.Kid}: nothing was registered.", detail, StringComparison.Ordinal);
 
         var jwks = await JwksAsync(client, victim.Agent.AgentId, ct);
         AssertServesOnlyTheVictimsKey(jwks, victim.Agent);
@@ -886,6 +929,31 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
 
         var (controlExit, controlOutput) = await TestisAsync(client, victim.PostId, substituted.ToJsonString(), ct);
         Assert.True(controlExit == 1, $"curia-testis did not refuse the victim's question under the overwriter's key (exit={controlExit}) -- the check above cannot fail:\n{controlOutput}");
+    }
+
+    /// <summary>
+    /// A <c>kid</c> another identity holds is refused to a fresh identifier, and the refusal names both
+    /// in the form spec Decision 9 fixes, <c>agent=… kid=…</c>; the Forum used to serve the bare
+    /// <c>kid</c>. The fresh identifier holds no key afterwards, and the holder's key set is unchanged.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKidAnotherIdentityHoldsIsRefusedNamingBoth()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var victim = await EnrolledVictimAsync(client, ct);
+
+        var newcomer = ForumAgent.Create("https://agents.example/newcomer-" + Guid.NewGuid().ToString("N")[..8], victim.Agent.Kid);
+        using var enrolled = await newcomer.EnrollAsync(client, ct);
+        var (type, detail) = await ProblemAsync(enrolled, ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, enrolled.StatusCode);
+        Assert.Equal("curia/enroll/kid-already-registered", type);
+        Assert.Equal($"agent={newcomer.AgentId} kid={victim.Agent.Kid}", detail);
+
+        using var newcomersKeys = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(newcomer.AgentId)}", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.NotFound, newcomersKeys.StatusCode);
+        AssertServesOnlyTheVictimsKey(await JwksAsync(client, victim.Agent.AgentId, ct), victim.Agent);
     }
 
     /// <summary>
@@ -923,24 +991,28 @@ dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedNa
 
 Expected:
 - The two attack facts fail at their first assertion: the Forum answered 201 to each.
+- The third refusal fact fails at its detail: the Forum refused the shared `kid` with 409 already, and served the bare `kid` as the detail.
 - The re-announcement fact passes, because it is the behavior this stage keeps.
 
 As printed when this plan was build-checked, with durations, paths and stack traces elided:
 
 ```
-[xUnit.net …]     Curia.Api.Tests.EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing [FAIL]
-[xUnit.net …]     Curia.Api.Tests.EnrollmentBindingTests.R4_31_EnrollingAnEnrolledIdentityWithANewKeyRegistersNothing [FAIL]
   Failed Curia.Api.Tests.EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing [… ms]
   Error Message:
    Assert.Equal() Failure: Values differ
 Expected: Conflict
 Actual:   Created
+  Failed Curia.Api.Tests.EnrollmentBindingTests.R4_31_AKidAnotherIdentityHoldsIsRefusedNamingBoth [… ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+Expected: "agent=https://agents.example/newcomer-… kid"···
+Actual:   "victim-…"
   Failed Curia.Api.Tests.EnrollmentBindingTests.R4_31_EnrollingAnEnrolledIdentityWithANewKeyRegistersNothing [… ms]
   Error Message:
    Assert.Equal() Failure: Values differ
 Expected: Conflict
 Actual:   Created
-Failed!  - Failed:     2, Passed:     1, Skipped:     0, Total:     3, Duration: … - Curia.Api.Tests.dll (net10.0)
+Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: … - Curia.Api.Tests.dll (net10.0)
 ```
 
 - [ ] **Step 3: The contract, and the in-memory adapter held to it**
@@ -1110,7 +1182,12 @@ public abstract class AuthorKeyRegistryPortContractTests
         AssertHolds(await store.KeysForAsync(Bob, ct), bobs, Today);
     }
 
-    /// <summary>R4.32 against the caller: bytes changed in the caller's array after enrollment do not change what is held.</summary>
+    /// <summary>
+    /// R4.32 against the caller: bytes changed in the caller's array after enrollment do not change
+    /// what is held. It can fail only in memory: on Postgres the bytes have crossed the wire before
+    /// the caller can touch them, so this fact holds the in-memory adapter to what a database row has
+    /// by construction.
+    /// </summary>
     [Fact]
     public async Task R4_32_ACallerReusingItsArrayCannotChangeWhatIsHeld()
     {
@@ -1193,7 +1270,10 @@ internal sealed class InMemoryAuthorKeyRegistry : IAuthorKeyRegistry
         }
     }
 
-    /// <summary>The Postgres adapter's order: newest window first, then <c>kid</c>, ordinally.</summary>
+    /// <summary>
+    /// The Postgres adapter's order: newest window first, then <c>kid</c> -- ordinally here, by the
+    /// database's collation there. Nothing depends on that tie-break.
+    /// </summary>
     private List<RegisteredKey> HeldBy(string agentId) =>
     [
         .. _byKid.Values
@@ -1298,6 +1378,20 @@ with:
 
 ```csharp
     /// The enrollment refusal <see cref="IAuthorKeyRegistry.EnrollAsync"/> describes. Its own
+```
+
+So did one test's comment, in prose where the compiler cannot see it:
+
+In `tests/Curia.Api.Tests/BoundTokenTests.cs`, replace:
+
+```csharp
+        // Curia.Application.Ports.IAuthorKeyRegistry.RegisterAsync for why sharing one is an
+```
+
+with:
+
+```csharp
+        // Curia.Application.Ports.IAuthorKeyRegistry.EnrollAsync for why sharing one is an
 ```
 
 - [ ] **Step 5: The Postgres adapter — the rule, under a per-identifier lock**
@@ -1580,7 +1674,7 @@ public sealed class PostgresEnrollmentSerializationTests
 
 - [ ] **Step 7: The endpoint calls the enrollment write**
 
-This is the smallest change that compiles against the new port. The refusal's `detail` is now the error's own, which names the agent, the `kid` and what to do; before, it was the bare `kid`. Task 5 moves the endpoint onto the use case.
+This is the smallest change that compiles against the new port. The refusal's `detail` is now the error's own, which names the agent, the `kid` and what to do; before, it was the bare `kid`. Step 1's three refusal facts hold each slug's detail, so serving the bare `kid` again turns them red (Task 7, case 15). Task 5 moves the endpoint onto the use case.
 
 In `src/Curia.Api/ForumEndpoints.cs`, replace:
 
@@ -1627,7 +1721,7 @@ Expected: 0 warnings, and every line `Passed!`. The Api line is the **whole** su
     0 Error(s)
 Passed!  - Failed:     0, Passed:    14, Skipped:     0, Total:    14, Duration: … - Curia.Application.Tests.dll (net10.0)
 Passed!  - Failed:     0, Passed:    21, Skipped:     0, Total:    21, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
-Passed!  - Failed:     0, Passed:   167, Skipped:     0, Total:   167, Duration: … - Curia.Api.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   169, Skipped:     0, Total:   169, Duration: … - Curia.Api.Tests.dll (net10.0)
 ```
 
 If an existing Api test now fails with `Expected: Created`, `Actual: Conflict`, find what it enrolls. It is either enrolling one identifier with two keys, which is this stage's defect in a fixture (fix the fixture and say so in the commit), or it has found a re-announcement the rule wrongly refuses. Tell the two apart before changing anything.
@@ -1646,7 +1740,7 @@ but commit -b enrollment-binds-once -m "$(printf 'Enrollment registers a key onl
 **Files:**
 - Create: `tests/Curia.Infrastructure.Tests/AgentKeyMaterialGrantTests.cs`
 - Create: `db/0005_protect_agent_key_material.sql`
-- Modify: `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` (one fact)
+- Modify: `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` (two facts)
 - Modify: `src/Curia.Infrastructure/Migrations/SchemaMigrations.cs`
 - Modify: `tests/Curia.Infrastructure.Tests/PostgresDatabaseFixture.cs`
 - Modify: `src/Curia.Infrastructure/PostgresAgentKeyStore.cs` (`RegisterAsync`)
@@ -1657,7 +1751,7 @@ but commit -b enrollment-binds-once -m "$(printf 'Enrollment registers a key onl
 - Produces:
   - db/0005: the application role holds UPDATE on `agent_keys (valid_from, valid_until)` only;
   - `SchemaMigrations.AgentKeyMaterialFile`;
-  - `RegisterAsync`, now `internal`, never writing material, and refusing other bytes by name.
+  - `RegisterAsync`, now `internal`, never writing material, and refusing other bytes or another algorithm by name.
 
 - [ ] **Step 1: Write the grant tests**
 
@@ -1771,7 +1865,7 @@ public sealed class AgentKeyMaterialGrantTests
 
 - [ ] **Step 2: Hold the history primitive to R4.32**
 
-In `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs`, add this fact. The class carries no underscore suppression, so the name has no underscore.
+In `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs`, add these two facts: other bytes, and the same bytes under another algorithm. The second fences the statement's `existing.alg = EXCLUDED.alg` clause, which nothing else does. The class carries no underscore suppression, so the names have no underscore.
 
 In `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs`, insert before:
 
@@ -1804,18 +1898,41 @@ this:
         Assert.Equal(original.Public.ToArray(), resolved.Public.ToArray());
     }
 
+    /// <summary>
+    /// R4.32 counts the algorithm as material: the same <c>kid</c> and bytes registered again under
+    /// another algorithm are refused by name, and the key that resolves still declares the original.
+    /// A verifier dispatches on the declared algorithm, so relabelling a key changes what its
+    /// signatures mean as surely as replacing its bytes. Nothing else fences the statement's
+    /// algorithm clause: the grant cannot, since the statement no longer sets the column.
+    /// </summary>
+    [Fact]
+    public async Task AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
+        var original = NewKey("kid-algorithm");
+
+        Require(await store.RegisterAsync("agent://forum/alice", original, LastMonth, cancellationToken: ct));
+        var relabelled = await store.RegisterAsync(
+            "agent://forum/alice", new PublicKeyMaterial("EdDSA", original.Kid, original.Public.ToArray()), Today, cancellationToken: ct);
+
+        Assert.Equal("curia/keys/material-immutable", Refusal(relabelled).Type);
+        var resolved = Require(await store.ResolveAsync("agent://forum/alice", "kid-algorithm", ServerTimestamp.At(Today), ct));
+        Assert.Equal("ES256", resolved.Alg);
+    }
+
 ```
 
 - [ ] **Step 3: Run both, and watch them fail**
 
 ```bash
 export CURIA_TEST_POSTGRES="Host=localhost;Port=5432;Username=$(whoami);Database=postgres"
-dotnet test tests/Curia.Infrastructure.Tests -c Release --nologo --filter "FullyQualifiedName~AgentKeyMaterialGrantTests|FullyQualifiedName~AKidRegisteredAgainWithOtherBytesIsRefusedAndTheOriginalStands"
+dotnet test tests/Curia.Infrastructure.Tests -c Release --nologo --filter "FullyQualifiedName~AgentKeyMaterialGrantTests|FullyQualifiedName~AKidRegisteredAgainWithOtherBytesIsRefusedAndTheOriginalStands|FullyQualifiedName~AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands"
 ```
 
 Expected:
 - The four column rows and the isolated-schema fact fail: `No exception was thrown`.
-- The history-primitive fact fails: the other bytes were accepted.
+- Both history-primitive facts fail: the other bytes, and the other algorithm, were accepted.
 - The two window rows and the TRUNCATE fact pass, because 0002 already allowed the first and never granted the second.
 
 As printed when this plan was build-checked, with durations, paths and stack traces elided:
@@ -1824,12 +1941,15 @@ As printed when this plan was build-checked, with durations, paths and stack tra
   Failed Curia.Infrastructure.Tests.PostgresAgentKeyStoreTests.AKidRegisteredAgainWithOtherBytesIsRefusedAndTheOriginalStands [… ms]
   Error Message:
    System.InvalidOperationException : Expected a failure, got RegisteredKey { Key = PublicKeyMaterial { Alg = ES256, Kid = kid-material, … }, NotBefore = …, NotAfter =  }
+  Failed Curia.Infrastructure.Tests.PostgresAgentKeyStoreTests.AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands [… ms]
+  Error Message:
+   System.InvalidOperationException : Expected a failure, got RegisteredKey { Key = PublicKeyMaterial { Alg = EdDSA, Kid = kid-algorithm, … }, NotBefore = …, NotAfter =  }
   Failed Curia.Infrastructure.Tests.AgentKeyMaterialGrantTests.R4_32_TheAppRoleCannotRewriteAKeysIdentityOrMaterial(column: "public_key") [… ms]
   Error Message:
    Assert.Throws() Failure: No exception was thrown
 Expected: typeof(Npgsql.PostgresException)
   (the same for column: "alg", "agent_id" and "kid", and for R4_32_TheIsolatedKeyStoreSchemasCarryTheSameGrant)
-Failed!  - Failed:     6, Passed:     3, Skipped:     0, Total:     9, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
+Failed!  - Failed:     7, Passed:     3, Skipped:     0, Total:    10, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
 ```
 
 - [ ] **Step 4: The migration**
@@ -2151,7 +2271,7 @@ Expected: 0 warnings, and the whole Infrastructure suite `Passed!`. `SchemaMigra
 ```
     0 Warning(s)
     0 Error(s)
-Passed!  - Failed:     0, Passed:   103, Skipped:     0, Total:   103, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   104, Skipped:     0, Total:   104, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
 ```
 
 - [ ] **Step 8: Commit**
@@ -2179,13 +2299,13 @@ but commit -b enrollment-binds-once -m "$(printf 'db/0005: a registered key neve
   - Task 3's `IAuthorKeyRegistry.EnrollAsync` and `InMemoryAuthorKeyRegistry`;
   - the `kid` that every `agent.enrolled` already carries (`AgentStandingProjector.KeyIdField`).
 - Produces:
-  - `EnrollmentBinding.Find(history, agentId)`;
+  - `EnrollmentBinding.Find(history, agentId)`, carrying the bound `kid` and the enrollment's instant;
   - `EnrollIdentity.EnrollAsync(agentId, key, ct)`, which the endpoint now calls;
   - `EnrollAgent.RecordAsync`, now refusing a `kid` the log did not bind.
 
 - [ ] **Step 1: The lost-row attack, over HTTP, as a failing test**
 
-The victim's key row is deleted by the provisioning role, as a restore from an older backup would lose it. The application role cannot delete one. After Task 3 the store holds nothing for the identity, so it would register the attacker's `kid`. Only the log still says which key the identity began with.
+The victim's key row is deleted by the provisioning role, as a restore from an older backup would lose it. The application role cannot delete one. After Task 3 the store holds nothing for the identity, so it would register the attacker's `kid`. Only the log still says which key the identity began with, and when. The victim's recovery is R4.31's one exception; the fact holds it to the key set the Forum served before the loss, window included.
 
 Add Npgsql to the test file's usings:
 
@@ -2220,8 +2340,10 @@ this:
     /// R4.31's log half at the surface. The victim's key row is lost from the store -- deleted by the
     /// provisioning role, as a restore from a backup older than the enrollment would lose it; the
     /// application role cannot delete one. An attacker's new <c>kid</c> is still refused, because
-    /// the log's enrollment names the victim's; and the victim, re-presenting its own key, is
-    /// registered again and authenticates.
+    /// the log's enrollment names the victim's. The victim, re-presenting its own key an hour later,
+    /// is registered again under R4.31's one exception, dated from the enrollment: the Forum then
+    /// serves the key set it served before the loss, window and all, so the question the victim asked
+    /// before the loss is still inside its key's window (R6.31).
     /// </summary>
     [Fact]
     public async Task R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment()
@@ -2229,6 +2351,8 @@ this:
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
         var victim = await EnrolledVictimAsync(client, ct);
+        var before = await JwksAsync(client, victim.Agent.AgentId, ct);
+        AssertServesOnlyTheVictimsKey(before, victim.Agent);
 
         await using (var admin = new NpgsqlConnection(forum.ConnectionString))
         {
@@ -2237,6 +2361,9 @@ this:
             lose.Parameters.AddWithValue("agent", victim.Agent.AgentId);
             Assert.Equal(1, await lose.ExecuteNonQueryAsync(ct));
         }
+
+        // An hour on, so a key re-registered from "now" would serve a later window than the one lost.
+        forum.Clock.Advance(TimeSpan.FromHours(1));
 
         var attacker = ForumAgent.Create(victim.Agent.AgentId, "attacker-" + Guid.NewGuid().ToString("N")[..8]);
         using (var enrolled = await attacker.EnrollAsync(client, ct))
@@ -2250,7 +2377,7 @@ this:
         using (var recovered = await victim.Agent.EnrollAsync(client, ct))
             Assert.Equal(HttpStatusCode.Created, recovered.StatusCode);
 
-        AssertServesOnlyTheVictimsKey(await JwksAsync(client, victim.Agent.AgentId, ct), victim.Agent);
+        Assert.Equal(before.GetRawText(), (await JwksAsync(client, victim.Agent.AgentId, ct)).GetRawText());
         Assert.NotNull(await TokenOrNullAsync(client, victim.Agent, forum.Now, ct));
     }
 
@@ -2260,7 +2387,7 @@ this:
 dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~EnrollmentBindingTests"
 ```
 
-Expected: the new fact fails, because the Forum answered 201. The other three pass. As printed when this plan was build-checked, with durations, paths and stack traces elided:
+Expected: the new fact fails, because the Forum answered 201. The other four pass. As printed when this plan was build-checked, with durations, paths and stack traces elided:
 
 ```
   Failed Curia.Api.Tests.EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment [… ms]
@@ -2268,14 +2395,16 @@ Expected: the new fact fails, because the Forum answered 201. The other three pa
    Assert.Equal() Failure: Values differ
 Expected: Conflict
 Actual:   Created
-Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: … - Curia.Api.Tests.dll (net10.0)
+Failed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5, Duration: … - Curia.Api.Tests.dll (net10.0)
 ```
 
 - [ ] **Step 2: The use case's tests**
 
 Nine facts. Every refusal is followed by a read of both stores.
 - Two facts fence the log's two halves separately (trap 13): the lost-row fact fences the use case's pre-check, and `R4_31_TheLogsRecordRefusesAKidItDidNotBind` fences `EnrollAgent`.
+- `R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound` fences R4.31's exception, and its date.
 - `R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded` fences the order: the store before the log.
+- The race of eight fences the store's rule under a race. Its barrier accounts for a racer that finishes without reaching the store, so a use case that wrote the log first leaves it green rather than timing out; the order has its own fact, above.
 
 Create `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs`:
 
@@ -2327,23 +2456,48 @@ public sealed class EnrollIdentityTests
         new(events, keys, new EnrollAgent(events, clock), clock);
 
     /// <summary>
-    /// Holds every caller at the key store until <paramref name="callers"/> have arrived, so each has
-    /// read the log -- and found it empty -- before any of them registers. That is the interleaving in
-    /// which only the store's own rule stands between a race and a key per racer. Without it, a racer
-    /// that happens to start after the winner has written the log is refused by the log's half, and
-    /// a broken store rule would pass whenever the scheduler was kind.
+    /// Holds every racer at the key store until all <paramref name="racers"/> are accounted for, so
+    /// each has read the log -- and found it empty -- before any of them registers. That is the
+    /// interleaving in which only the store's own rule stands between a race and a key per racer.
+    /// Without it, a racer that happens to start after the winner has written the log is refused by
+    /// the log's half, and a broken store rule would pass whenever the scheduler was kind.
+    ///
+    /// <para><b>A racer is accounted for when it arrives here or when it finishes.</b> Before the
+    /// release no arrived racer can finish, so a racer that finishes first never reached the store:
+    /// the use case refused it on the way. Counting only arrivals would wait for racers that are
+    /// never coming -- which is what a use case that wrote the log before asking the store produces --
+    /// and turn a wrong answer into a timeout. The timeout below is a hang guard, and no run reaches
+    /// it.</para>
     /// </summary>
-    private sealed class ConvergingRegistry(IAuthorKeyRegistry inner, int callers) : IAuthorKeyRegistry
+    private sealed class ConvergingRegistry(IAuthorKeyRegistry inner, int racers) : IAuthorKeyRegistry
     {
         private readonly TaskCompletionSource _all = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _arrived;
+        private int _accountedFor;
+
+        /// <summary>Runs one racer, and accounts for it when it finishes, however it finishes.</summary>
+        public async Task<T> RaceAsync<T>(Func<Task<T>> racer)
+        {
+            try
+            {
+                return await racer().ConfigureAwait(false);
+            }
+            finally
+            {
+                AccountFor();
+            }
+        }
 
         public async Task<Result<RegisteredKey>> EnrollAsync(
             string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
         {
-            if (Interlocked.Increment(ref _arrived) == callers) _all.SetResult();
-            await _all.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
+            AccountFor();
+            await _all.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
             return await inner.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
+        }
+
+        private void AccountFor()
+        {
+            if (Interlocked.Increment(ref _accountedFor) == racers) _all.SetResult();
         }
 
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default) =>
@@ -2440,9 +2594,11 @@ public sealed class EnrollIdentityTests
     }
 
     /// <summary>
-    /// The positive control for the fact above: over the same lost store, the key the log bound is
-    /// re-registered -- so the refusal there is about the kid, not a use case refusing everything
-    /// once the store and the log disagree.
+    /// R4.31's one exception, and the positive control for the fact above: over the same lost store,
+    /// a day later, the key the log bound is re-registered -- so the refusal there is about the kid,
+    /// not a use case refusing everything once the store and the log disagree. It is dated from the
+    /// enrollment the log records, not from the re-registration: a key dated today would put every
+    /// post the identity signed before the loss outside its window (R6.31).
     /// </summary>
     [Fact]
     public async Task R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound()
@@ -2454,11 +2610,14 @@ public sealed class EnrollIdentityTests
 
         Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Alice, key, ct));
 
+        clock.Advance(TimeSpan.FromDays(1));
         var lost = new InMemoryAuthorKeyRegistry();
         var again = Require(await Enroll(events, lost, clock).EnrollAsync(Alice, key, ct));
 
         Assert.True(again.WasAlreadyEnrolled);
-        Assert.Equal("alice-1", Assert.Single(await lost.KeysForAsync(Alice, ct)).Key.Kid);
+        var rebound = Assert.Single(await lost.KeysForAsync(Alice, ct));
+        Assert.Equal("alice-1", rebound.Key.Kid);
+        Assert.Equal(Start, rebound.NotBefore);
         Assert.Single(await StreamAsync(events, Alice, ct));
     }
 
@@ -2535,7 +2694,8 @@ public sealed class EnrollIdentityTests
     /// <summary>
     /// Eight enrollments of one fresh identity under eight <c>kid</c>s, every one past the log's check
     /// before any reaches the store: one key, one record, and the record names the key that was
-    /// registered. Every loser is refused by name.
+    /// registered. Every loser is refused by name. This fact is about the store's rule under a race;
+    /// the order of store and log is <see cref="R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded"/>'s.
     /// </summary>
     [Fact]
     public async Task R4_31_RacingEnrollmentsOfOneFreshIdentityLeaveOneKeyAndOneRecord()
@@ -2544,10 +2704,11 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock);
         var keys = new InMemoryAuthorKeyRegistry();
-        var enroll = Enroll(events, new ConvergingRegistry(keys, callers: 8), clock);
+        var converging = new ConvergingRegistry(keys, racers: 8);
+        var enroll = Enroll(events, converging, clock);
 
         var outcomes = await Task.WhenAll(Enumerable.Range(0, 8).Select(i =>
-            Task.Run(() => enroll.EnrollAsync(Alice, NewKey($"alice-{i}"), ct), ct)));
+            Task.Run(() => converging.RaceAsync(() => enroll.EnrollAsync(Alice, NewKey($"alice-{i}"), ct)), ct)));
 
         Assert.Single(outcomes, o => o.IsOk);
         Assert.All(outcomes.Where(o => !o.IsOk), o => Assert.Equal("curia/enroll/already-enrolled", Refusal(o).Type));
@@ -2581,9 +2742,9 @@ namespace Curia.Application.Credentials;
 
 /// <summary>
 /// What an identifier's enrollment bound, as the log records it (R4.31, errata G14): the <c>kid</c>
-/// named by its <c>agent.enrolled</c> event. There is at most one such event per identifier --
-/// <see cref="EnrollAgent"/> appends it at <c>AggregateVersion.New</c> -- so the first found is the
-/// binding.
+/// named by its <c>agent.enrolled</c> event, and when. There is at most one such event per
+/// identifier -- <see cref="EnrollAgent"/> appends it at <c>AggregateVersion.New</c> -- so the first
+/// found is the binding.
 ///
 /// <para><b>Why the log and not the key store.</b> The store can lose rows (db/0002 counts losing
 /// them as an availability cost: "agents re-enroll"), and a store written before errata G14 can hold
@@ -2596,7 +2757,11 @@ namespace Curia.Application.Credentials;
 /// writer in this solution has ever produced, and which <see cref="Binds"/> therefore treats as
 /// binding nothing: an identity whose binding cannot be read is refused re-enrollment, not granted it.
 /// </param>
-public sealed record EnrollmentBinding(string? Kid)
+/// <param name="EnrolledAt">
+/// The instant the log recorded the enrollment. R4.31 dates a key it re-registers after a lost row
+/// from here, so every post signed before the loss is still inside the key's window (R6.31).
+/// </param>
+public sealed record EnrollmentBinding(string? Kid, DateTimeOffset EnrolledAt)
 {
     /// <summary>The binding the log holds for <paramref name="agentId"/>, or <see langword="null"/> when it holds no enrollment.</summary>
     public static EnrollmentBinding? Find(IReadOnlyList<AppendedEvent> history, string agentId)
@@ -2617,7 +2782,7 @@ public sealed record EnrollmentBinding(string? Kid)
                 else if (string.Equals(member.Key, AgentStandingProjector.KeyIdField, StringComparison.Ordinal)) kid = text.Value;
             }
 
-            if (string.Equals(agent, agentId, StringComparison.Ordinal)) return new EnrollmentBinding(kid);
+            if (string.Equals(agent, agentId, StringComparison.Ordinal)) return new EnrollmentBinding(kid, appended.ServerTimestamp.Value);
         }
 
         return null;
@@ -2696,7 +2861,9 @@ namespace Curia.Application.Credentials;
 /// identity's rows, or was written before G14 and holds keys no enrollment bound.</item>
 /// <item><b>The key store's enrollment</b> (<see cref="IAuthorKeyRegistry.EnrollAsync"/>): registers
 /// only for an identity holding no key, atomically against a concurrent enrollment of the same
-/// identity, and refuses other bytes under a held <c>kid</c>.</item>
+/// identity, and refuses other bytes under a held <c>kid</c>. For an identity the log has already
+/// enrolled, "holding no key" means the store lost its row, and the bound <c>kid</c> is registered
+/// again from the enrollment's instant -- R4.31's one exception.</item>
 /// <item><b>The log's record</b> (<see cref="EnrollAgent"/>): appended once, and re-read and
 /// reported thereafter. A refusal at either earlier step appends nothing.</item>
 /// </list>
@@ -2741,10 +2908,17 @@ public sealed class EnrollIdentity
         if (!read.TryGetValue(out var history, out var readError))
             return Result<AgentEnrollment>.Fail(readError!);
 
-        if (EnrollmentBinding.Find(history!, agentId) is { } binding && !binding.Binds(key.Kid))
+        var binding = EnrollmentBinding.Find(history!, agentId);
+        if (binding is not null && !binding.Binds(key.Kid))
             return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
 
-        var registered = await _keys.EnrollAsync(agentId, key, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        // A fresh identity's key is valid from now. An enrolled one reaches the store only with its
+        // bound kid, and the store registers it only if it lost the row: then the key is dated from
+        // the enrollment, as the lost row was, or every post signed before the loss would fall
+        // outside its window (R6.31). When the store still holds the key, the date is not read.
+        var notBefore = binding?.EnrolledAt ?? _clock.GetUtcNow();
+
+        var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
         if (!registered.TryGetValue(out _, out var keyError))
             return Result<AgentEnrollment>.Fail(keyError!);
 
@@ -2779,7 +2953,7 @@ this:
             sp.GetRequiredService<TimeProvider>()));
 ```
 
-Move the endpoint onto it. The remark that said "a false enrollment can only impersonate an agent whose private key the caller already holds" now says under which requirements that is true. A refusal of the identity or the key is a 409; anything else is the Forum's, and a 500.
+Move the endpoint onto it. The remark keeps the sentence "a false enrollment can only impersonate an agent whose private key the caller already holds", as G14's editorial row says, and now says which requirements make it true, when each half of it was false, and the two cases it still does not cover. A refusal of the identity or the key is a 409; anything else is the Forum's, and a 500.
 
 In `src/Curia.Api/ForumEndpoints.cs`, replace:
 
@@ -2806,18 +2980,20 @@ with:
 
 ```csharp
     /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication,
-    /// and R4.11's proof of possession. This endpoint trusts what it is told about a <i>new</i>
-    /// identity, which is tolerable only because authorship is established by signature against
-    /// the key registered here -- and only while a registered key is bound to its identity for
-    /// good. That second condition was false until errata G14: the endpoint registered whatever key
-    /// a request carried, so anyone could add a key to an enrolled identity and post as it, or
-    /// replace the bytes behind its <c>kid</c> and unverify everything it had signed.
-    /// <see cref="EnrollIdentity"/> now registers a key only for an identity that holds none
-    /// (R4.31) and never changes a held one (R4.32). A first enrollment is still first-come: an
-    /// unenrolled identifier belongs to whoever enrolls it, which is the implementation plan's D4
-    /// and D7. The same sentence was false once before, for as long as the request carried
-    /// <c>owner_verified</c> (errata G5); R4.30 puts owner verification behind
-    /// <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route.</para>
+    /// and R4.11's proof of possession. This endpoint trusts what it is told, which is acceptable
+    /// because nothing downstream trusts an agent's *claim* -- authorship is established by
+    /// signature against the key registered here, so a false enrollment can only impersonate an
+    /// agent whose private key the caller already holds. Each half of that sentence has been false.
+    /// Its premise was false for as long as the request carried <c>owner_verified</c>, which Table
+    /// 11's T1 row and every provenance envelope trusted (errata G5); R4.30 puts owner verification
+    /// behind <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route. Its
+    /// conclusion was false until errata G14: the endpoint registered whatever key a request
+    /// carried, so anyone could add a key to an enrolled identity and post as it, or replace the
+    /// bytes behind its <c>kid</c> and unverify everything it had signed. R4.31 and R4.32 make it
+    /// true -- <see cref="EnrollIdentity"/> registers a key only for an identity that holds none,
+    /// and never changes one it holds -- except in two cases. An identifier nobody has enrolled
+    /// belongs to whoever enrolls it first (plan D4, D7). And an identity whose key row the store has
+    /// lost is bound again on its <c>kid</c> alone, because nothing recorded the bytes (R4.31).</para>
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
@@ -2917,8 +3093,8 @@ Expected: 0 warnings, and both `Passed!`. As printed when this plan was build-ch
 ```
     0 Warning(s)
     0 Error(s)
-Passed!  - Failed:     0, Passed:   256, Skipped:     0, Total:   256, Duration: … - Curia.Application.Tests.dll (net10.0)
-Passed!  - Failed:     0, Passed:   168, Skipped:     0, Total:   168, Duration: … - Curia.Api.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   273, Skipped:     0, Total:   273, Duration: … - Curia.Application.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   170, Skipped:     0, Total:   170, Duration: … - Curia.Api.Tests.dll (net10.0)
 ```
 
 - [ ] **Step 8: Commit**
@@ -2930,14 +3106,266 @@ but commit -b enrollment-binds-once -m "$(printf 'EnrollIdentity: the log binds 
 
 ---
 
-### Task 6: Falsify every new gate
+### Task 6: An anonymous search cannot crash the Forum (register D23)
+
+Carried from the moderation stage. An anonymous `GET /v1/search?q=%EF%BF%BE` answers 500: `HashedNGramEmbedding.Words` calls `string.Normalize(FormKC)`, and .NET's normalizer refuses U+FFFE and an unpaired surrogate outright. The pre-flight scan confirmed it at ccf200e, with this stack: `ForumEndpoints.SearchAsync` → `HybridSearch.SearchAsync` → `HybridSearch.VectorChannelAsync` (`HybridSearch.cs:123`) → `HashedNGramEmbedder.Embed` → `HashedNGramEmbedding.Words` (`HashedNGramEmbedding.cs:92`). A query never passes ADMIT, so nothing upstream refuses the character. U+FFFF, U+FDD0 and U+1FFFE answer 200.
+
+The fix makes the embedding total: its derived copy reads an ill-formed sequence, and every noncharacter, as U+FFFD before NFKC. None of them is a letter or a digit, so each separates words, as U+FFFD does. A text the normalizer accepted holds no ill-formed sequence, and a noncharacter in it already split words exactly as U+FFFD does, so no feature of it moves: every vector that could be computed before is unchanged, and `hashed-ngram@1` keeps its version (R9.5, R11.10). A route refusal, a 400 in parity with R6.15, was the alternative. It was rejected because it leaves `Embed` non-total, and the embedding has callers other than the route.
+
+`FlagDisclosure.Normalize` is not reused. It is internal to `Curia.Application`, which the domain may not reference (CS-7), and its pipeline drops hidden characters, lower-cases and collapses white space, each of which would change features for ordinary text. Only its noncharacter predicate is shared, as a third private copy.
+
+**Files:**
+- Modify: `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs` (four facts)
+- Modify: `tests/Curia.Api.Tests/SearchEndpointTests.cs` (one fact)
+- Modify: `src/Curia.Domain/Search/HashedNGramEmbedding.cs` (`Words`, and the predicate)
+
+**Interfaces:**
+- Consumes: nothing from Tasks 1–5.
+- Produces: `HashedNGramEmbedding.Embed`, total over every string. No signature changes.
+
+- [ ] **Step 1: Write the failing tests**
+
+Three facts fail before the fix, and one pins what the fix must not change. Its digest was taken at ccf200e, before the mapping existed, over a text holding what the mapping sits beside. The existing `R9_5_AKnownTextEmbedsToAKnownVector` pins an ordinary English query the same way. Every test character is a C# escape.
+
+In `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs`, insert after:
+
+```csharp
+    [Fact]
+    public void TextWithNoFeaturesHasNoEmbedding()
+    {
+        var result = HashedNGramEmbedding.Embed("... !!! ---");
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/embedding/no-features", error!.Type);
+    }
+```
+
+this:
+
+```csharp
+
+    /// <summary>
+    /// Register D23: .NET's normalizer refuses U+FFFE outright, so a query holding it threw out of the
+    /// vector channel and an anonymous <c>GET /v1/search</c> answered 500. A text that is only a
+    /// noncharacter has no features, as a text of punctuation has none; it is not an error.
+    /// </summary>
+    [Fact]
+    public void ANoncharacterAloneHasNoFeaturesAndDoesNotThrow()
+    {
+        var result = HashedNGramEmbedding.Embed("\uFFFE");
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/embedding/no-features", error!.Type);
+    }
+
+    /// <summary>
+    /// A noncharacter is read as U+FFFD, which separates words: <c>jcs</c> and <c>hash</c> either side
+    /// of one embed as they do either side of U+FFFD. U+FFFE threw before D23's fix; the other three
+    /// did not, and pin that the mapping changed nothing for them.
+    /// </summary>
+    [Fact]
+    public void ANoncharacterSeparatesWordsAsTheReplacementCharacterDoes()
+    {
+        var replaced = Embed("jcs\uFFFDhash");
+
+        Assert.Equal(replaced, Embed("jcs\uFFFEhash"));
+        Assert.Equal(replaced, Embed("jcs\uFFFFhash"));
+        Assert.Equal(replaced, Embed("jcs\uFDD0hash"));
+        Assert.Equal(replaced, Embed("jcs\U0010FFFFhash"));
+    }
+
+    /// <summary>An unpaired surrogate, which the normalizer also refuses, is read as U+FFFD too: a high one with no low one after it, and a low one alone.</summary>
+    [Fact]
+    public void AnUnpairedSurrogateIsReadAsTheReplacementCharacter()
+    {
+        var replaced = Embed("jcs\uFFFDhash");
+
+        Assert.Equal(replaced, Embed("jcs\uD800hash"));
+        Assert.Equal(replaced, Embed("jcs\uDC00hash"));
+    }
+
+    /// <summary>
+    /// D23's mapping moves no feature of any text the normalizer accepted: such a text holds no
+    /// ill-formed sequence, and a noncharacter in it split words exactly as U+FFFD does. So no vector
+    /// that could be computed before it changed, and <c>hashed-ngram@1</c> keeps its version (R9.5,
+    /// R11.10). Pinned before the mapping existed, over
+    /// a text holding what the mapping sits beside: a compatibility ligature, a combining accent, a
+    /// zero-width space between two words, U+FFFF between two more, which the normalizer accepts, and
+    /// U+FFFD.
+    /// </summary>
+    [Fact]
+    public void R9_5_AVectorThatCouldBeComputedBeforeD23IsUnchanged()
+    {
+        var vector = Embed("Canonical \uFB01le hash: cafe\u0301 and JCS\u200Bhash, jcs\uFFFFhash, not \uFFFD.");
+        var bytes = new byte[vector.Length * sizeof(float)];
+        Buffer.BlockCopy(vector.ToArray(), 0, bytes, 0, bytes.Length);
+
+        Assert.Equal(ComputableBeforeD23Digest, Convert.ToHexStringLower(SHA256.HashData(bytes)));
+    }
+
+    /// <summary>Pinned at ccf200e, before D23's mapping; see the test above.</summary>
+    private const string ComputableBeforeD23Digest = "042da00bbfaf5edec954d766767fae622f6f49ccefb31287fe044dd54f4c4e8e";
+```
+
+In `tests/Curia.Api.Tests/SearchEndpointTests.cs`, insert before:
+
+```csharp
+    /// <summary>
+    /// R9.22's floor, which is what the design actually promises: "a nearest-neighbour query always
+```
+
+this:
+
+```csharp
+    /// <summary>
+    /// Register D23: U+FFFE in a query made the vector channel throw, so an anonymous search answered
+    /// 500. It is answered now. Alone it is a query with no features; between two words it separates
+    /// them, and the question holding both is ranked by the vector channel -- not by the lexical
+    /// channel alone, which is all a route that caught the throw would have left.
+    /// </summary>
+    [Fact]
+    public async Task ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var word = "quokka" + Guid.NewGuid().ToString("N")[..6];
+
+        var asked = await AskAsync(client, board, $"The {word} marzipan", $"A body about the {word} marzipan.", ct);
+
+        using var alone = await SearchAsync(client, "q=%EF%BF%BE", ct);
+        Assert.Equal(JsonValueKind.Array, alone.RootElement.GetProperty("results").ValueKind);
+
+        using var between = await SearchAsync(client, $"q={word}%EF%BF%BEmarzipan&board={board}&why=true", ct);
+        var hit = Assert.Single(between.RootElement.GetProperty("results").EnumerateArray());
+        Assert.Equal(asked, hit.GetProperty("post").GetProperty("post_id").GetString());
+        Assert.Equal(JsonValueKind.Object, hit.GetProperty("why_ranked").GetProperty("vector").ValueKind);
+    }
+
+```
+
+- [ ] **Step 2: Run them, and watch them fail**
+
+```bash
+export CURIA_TEST_POSTGRES="Host=localhost;Port=5432;Username=$(whoami);Database=postgres"
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
+dotnet test tests/Curia.Domain.Tests -c Release --nologo --no-build --filter "FullyQualifiedName~HashedNGramEmbeddingTests" 2>&1 | grep -E "^\s+Failed |Passed!|Failed!|Exception|Expected|Actual"
+dotnet test tests/Curia.Api.Tests -c Release --nologo --no-build --filter "FullyQualifiedName~ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks" 2>&1 | grep -E "^\s+Failed |Passed!|Failed!|Expected|Actual"
+```
+
+Expected: the three facts that hold a character the normalizer refuses throw, and the pin passes, because nothing has changed yet. The search answers 500. As printed when this plan was build-checked:
+
+```
+  Failed Curia.Domain.Tests.Search.HashedNGramEmbeddingTests.ANoncharacterAloneHasNoFeaturesAndDoesNotThrow [… ms]
+   System.ArgumentException : String contains invalid Unicode code points. (Parameter 'strInput')
+  Failed Curia.Domain.Tests.Search.HashedNGramEmbeddingTests.ANoncharacterSeparatesWordsAsTheReplacementCharacterDoes [… ms]
+   System.ArgumentException : String contains invalid Unicode code points. (Parameter 'strInput')
+  Failed Curia.Domain.Tests.Search.HashedNGramEmbeddingTests.AnUnpairedSurrogateIsReadAsTheReplacementCharacter [… ms]
+   System.ArgumentException : String contains invalid Unicode code points. (Parameter 'strInput')
+Failed!  - Failed:     3, Passed:     7, Skipped:     0, Total:    10, Duration: … - Curia.Domain.Tests.dll (net10.0)
+```
+
+```
+  Failed Curia.Api.Tests.SearchEndpointTests.ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks [… ms]
+Expected: OK
+Actual:   InternalServerError
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: … - Curia.Api.Tests.dll (net10.0)
+```
+
+- [ ] **Step 3: Make the embedding total**
+
+In `src/Curia.Domain/Search/HashedNGramEmbedding.cs`, replace:
+
+```csharp
+    /// <summary>
+    /// Words: maximal runs of letters and digits after NFKC folding and lower-casing. Folding is
+    /// analysis on a derived copy (R6.13); nothing here touches stored content.
+    /// </summary>
+    private static IEnumerable<string> Words(string text)
+    {
+        // Upper-cased rather than lower-cased only because the analyzer's casing rule prefers the
+        // round-trippable direction; the feature strings are never shown, only hashed.
+        var folded = text.Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+```
+
+with:
+
+```csharp
+    /// <summary>
+    /// Words: maximal runs of letters and digits after NFKC folding and lower-casing. Folding is
+    /// analysis on a derived copy (R6.13); nothing here touches stored content.
+    ///
+    /// <para><b>Total over every string.</b> .NET's normalizer refuses U+FFFE and an unpaired
+    /// surrogate outright, and a search query reaches this without passing ADMIT, so
+    /// <c>GET /v1/search?q=%EF%BF%BE</c> answered 500 (register D23). The derived copy therefore reads
+    /// an ill-formed sequence, and every noncharacter, as U+FFFD first. None of them is a letter or a
+    /// digit, so each separates words as U+FFFD does, and a noncharacter the normalizer accepted
+    /// already did: no feature of any text it accepted moves, no stored vector changes, and the model
+    /// keeps its version (R9.5, R11.10).</para>
+    /// </summary>
+    private static IEnumerable<string> Words(string text)
+    {
+        var total = new StringBuilder(text.Length);
+        foreach (var rune in text.EnumerateRunes())
+            total.Append(IsNoncharacter(rune.Value) ? Rune.ReplacementChar.ToString() : rune.ToString());
+
+        // Upper-cased rather than lower-cased only because the analyzer's casing rule prefers the
+        // round-trippable direction; the feature strings are never shown, only hashed.
+        var folded = total.ToString().Normalize(NormalizationForm.FormKC).ToUpperInvariant();
+```
+
+In `src/Curia.Domain/Search/HashedNGramEmbedding.cs`, insert before:
+
+```csharp
+    private static void Count(Dictionary<string, int> counts, string feature) =>
+```
+
+this:
+
+```csharp
+    /// <summary>
+    /// A Unicode noncharacter: U+FDD0 to U+FDEF, and the last two code points of every plane. The rule
+    /// <c>JsonReader.IsNoncharacter</c> applies at ADMIT and the moderation writer's reason guard applies
+    /// to its copies; a third copy, because the first is internal to <c>Curia.Canon</c> and the second
+    /// to <c>Curia.Application</c>, which the domain may not reference (CS-7).
+    /// </summary>
+    private static bool IsNoncharacter(int codePoint) =>
+        codePoint is >= 0xFDD0 and <= 0xFDEF || (codePoint & 0xFFFE) == 0xFFFE;
+
+```
+
+- [ ] **Step 4: Run the Domain suite and the search tests**
+
+```bash
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
+dotnet test tests/Curia.Domain.Tests -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Failed!"
+dotnet test tests/Curia.Api.Tests -c Release --nologo --no-build --filter "FullyQualifiedName~SearchEndpointTests" 2>&1 | grep -E "Passed!|Failed!"
+```
+
+Expected: 0 warnings, and both `Passed!`. Both pinned digests hold, so no vector moved. As printed when this plan was build-checked:
+
+```
+    0 Warning(s)
+    0 Error(s)
+Passed!  - Failed:     0, Passed:   607, Skipped:     0, Total:   607, Duration: … - Curia.Domain.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    22, Skipped:     0, Total:    22, Duration: … - Curia.Api.Tests.dll (net10.0)
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+but status -fv
+but commit -b enrollment-binds-once -m "$(printf 'D23: an anonymous search holding U+FFFE is answered, not a 500\n\nHashedNGramEmbedding reads a noncharacter or an unpaired surrogate as U+FFFD\nbefore NFKC, which refuses U+FFFE outright. Every vector computable before is\nunchanged, pinned by digest, so hashed-ngram@1 keeps its version.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+```
+
+---
+
+### Task 7: Falsify every new gate
 
 **Files:**
 - Create (in the scratchpad only, never committed): `falsify.py`.
 - No tracked file changes. Every patch is restored, and each restore is proved.
 
 **Preconditions:**
-- Tasks 1–5 are committed, and `git status --porcelain` is empty.
+- Tasks 1–6 are committed, and `git status --porcelain` is empty.
 - The runner restores from a kept copy with a **plain copy**: `shutil.copyfile`, which gives the file a fresh mtime. It never uses `copy2` and never `git checkout`. `copy2` restores the old mtime, and MSBuild then keeps the patched assembly (trap 18).
 - It counts any MSBuild `: error ` line as BUILD FAILED, so an analyzer error can never read as RED.
 - For each failing test it prints the name, and then the whole `Error Message:` block down to the stack trace. That block carries the `Expected:` and `Actual:` lines and the exception lines, so the record needs no hand re-runs.
@@ -2968,7 +3396,10 @@ FIXTURE = "tests/Curia.Infrastructure.Tests/PostgresDatabaseFixture.cs"
 USECASE = "src/Curia.Application/Credentials/EnrollIdentity.cs"
 LOG = "src/Curia.Application/Credentials/EnrollAgent.cs"
 HTTP = "tests/Curia.Api.Tests/EnrollmentBindingTests.cs"
+ENDPOINT = "src/Curia.Api/ForumEndpoints.cs"
+EMBEDDING = "src/Curia.Domain/Search/HashedNGramEmbedding.cs"
 
+DOMAIN = "tests/Curia.Domain.Tests"
 APP = "tests/Curia.Application.Tests"
 INFRA = "tests/Curia.Infrastructure.Tests"
 API = "tests/Curia.Api.Tests"
@@ -2985,17 +3416,17 @@ LAST_WRITE_WINS = ("               SET alg         = EXCLUDED.alg,\n"
                    "                   valid_from  = LEAST(existing.valid_from, EXCLUDED.valid_from),\n"
                    "                   valid_until = LEAST(existing.valid_until, EXCLUDED.valid_until)\n"
                    "               WHERE existing.agent_id   = EXCLUDED.agent_id\n")
-PRECHECK = "        if (EnrollmentBinding.Find(history!, agentId) is { } binding && !binding.Binds(key.Kid))"
-PRECHECK_OFF = "        if (EnrollmentBinding.Find(history!, agentId) is { } binding && binding.Kid == \"no-such-kid\")"
+PRECHECK = "        if (binding is not null && !binding.Binds(key.Kid))"
+PRECHECK_OFF = "        if (binding is not null && binding.Kid == \"no-such-kid\")"
 RECORD_CHECK = "                if (EnrollmentBinding.Find(history!, agentId) is not { } binding || !binding.Binds(keyId))"
 RECORD_CHECK_OFF = "                if (EnrollmentBinding.Find(history!, agentId) is not { } binding || binding.Kid == \"no-such-kid\")"
-STORE_THEN_LOG = ("        var registered = await _keys.EnrollAsync(agentId, key, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n"
+STORE_THEN_LOG = ("        var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);\n"
                   "        if (!registered.TryGetValue(out _, out var keyError))\n"
                   "            return Result<AgentEnrollment>.Fail(keyError!);\n\n"
                   "        return await _log.RecordAsync(agentId, key.Kid, cancellationToken).ConfigureAwait(false);\n")
 LOG_THEN_STORE = ("        var recorded = await _log.RecordAsync(agentId, key.Kid, cancellationToken).ConfigureAwait(false);\n"
                   "        if (!recorded.IsOk) return recorded;\n\n"
-                  "        var registered = await _keys.EnrollAsync(agentId, key, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n"
+                  "        var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);\n"
                   "        return registered.TryGetValue(out _, out var keyError) ? recorded : Result<AgentEnrollment>.Fail(keyError!);\n")
 
 LOCK_BLOCK = ("        await using (var lockCommand = new NpgsqlCommand(\n"
@@ -3005,6 +3436,12 @@ LOCK_BLOCK = ("        await using (var lockCommand = new NpgsqlCommand(\n"
               "            await lockCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);\n"
               "        }\n\n")
 DECIDE = "        var decided = KeyEnrollment.Decide(agentId, key, held);\n"
+DATED_FROM_ENROLLMENT = "        var notBefore = binding?.EnrolledAt ?? _clock.GetUtcNow();"
+DATED_FROM_NOW = "        var notBefore = _clock.GetUtcNow();"
+TOTAL = "        var folded = total.ToString().Normalize(NormalizationForm.FormKC).ToUpperInvariant();"
+AS_GIVEN = "        var folded = text.Normalize(NormalizationForm.FormKC).ToUpperInvariant();"
+AS_REPLACEMENT = "IsNoncharacter(rune.Value) ? Rune.ReplacementChar.ToString() : rune.ToString()"
+AS_NOTHING = "IsNoncharacter(rune.Value) ? string.Empty : rune.ToString()"
 
 CASES = [
     dict(id="1", what="the rule registers a second kid for an enrolled identity",
@@ -3056,6 +3493,24 @@ CASES = [
          cmds=[dotnet(API, "FullyQualifiedName~R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing")],
          edits=[(HTTP, "        substituted[\"keys\"]![0]![\"x\"] = forged[\"x\"]!.GetValue<string>();\n"
                        "        substituted[\"keys\"]![0]![\"y\"] = forged[\"y\"]!.GetValue<string>();\n", "")]),
+    dict(id="13", what="the embedding normalizes the text it was given, as before D23",
+         cmds=[dotnet(DOMAIN, "FullyQualifiedName~HashedNGramEmbeddingTests"),
+               dotnet(API, "FullyQualifiedName~ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks")],
+         edits=[(EMBEDDING, TOTAL, AS_GIVEN)]),
+    dict(id="14", what="the embedding drops a noncharacter rather than reading it as U+FFFD",
+         cmds=[dotnet(DOMAIN, "FullyQualifiedName~HashedNGramEmbeddingTests")],
+         edits=[(EMBEDDING, AS_REPLACEMENT, AS_NOTHING)]),
+    dict(id="15", what="the endpoint serves the bare kid as a refusal's detail, as before this stage",
+         cmds=[dotnet(API, "FullyQualifiedName~EnrollmentBindingTests")],
+         edits=[(ENDPOINT, "new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))",
+                           "new Problem(enrollError.Type, enrollError.Title, request.Kid))")]),
+    dict(id="16", what="the history primitive no longer compares the algorithm",
+         cmds=[dotnet(INFRA, "FullyQualifiedName~PostgresAgentKeyStoreTests")],
+         edits=[(STORE, "                 AND existing.alg        = EXCLUDED.alg\n", "")]),
+    dict(id="17", what="a lost row's key re-registered from now, not from the enrollment",
+         cmds=[dotnet(APP, "FullyQualifiedName~EnrollIdentityTests"),
+               dotnet(API, "FullyQualifiedName~EnrollmentBindingTests")],
+         edits=[(USECASE, DATED_FROM_ENROLLMENT, DATED_FROM_NOW)]),
 ]
 
 # What a failing xUnit test prints about itself, and nothing else: its name, then its message
@@ -3125,28 +3580,34 @@ From the repository root, with `CURIA_TEST_POSTGRES` exported and `curia-testis`
 python3 <scratchpad>/falsify.py <scratchpad>/falsify-keep 2>&1 | tee <scratchpad>/falsify.log
 ```
 
-Each case must print `RED` for every command it runs, followed by `restore clean`. Cases 1, 2, 3 and 8 run more than one suite, and each suite must print `RED`. When this plan was build-checked, every case printed what the table says:
+Each case must print `RED` for every command it runs, followed by `restore clean`. Cases 1, 2, 3, 8, 13 and 17 run more than one suite, and each suite must print `RED`. When this plan was build-checked, every case printed what the table says, and nothing else failed:
 
 | Case | Must fail, by name |
 |---|---|
-| 1 | `KeyEnrollmentTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefused` (`expected a refusal, got register`); the in-memory and the Postgres `…ContractTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefusedAndRegistersNothing`; `EnrollIdentityTests.R4_31_RacingEnrollmentsOfOneFreshIdentityLeaveOneKeyAndOneRecord` (`Assert.Single() Failure: The collection contained 8 items`). The HTTP attack fact stays green, and it should: the log's half refuses the second `kid` before the store is asked |
+| 1 | `KeyEnrollmentTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefused` (`expected a refusal, got register`); the in-memory and the Postgres `…ContractTests.R4_31_ASecondKidForAnEnrolledIdentifierIsRefusedAndRegistersNothing`; `EnrollIdentityTests.R4_31_RacingEnrollmentsOfOneFreshIdentityLeaveOneKeyAndOneRecord` (`Assert.Single() Failure: The collection contained 8 items`). The HTTP suite is not run: its attack fact would stay green by design, since the log's half refuses the second `kid` before the store is asked, and cases 8–10 fence that half |
 | 2 | `KeyEnrollmentTests.R4_32_TheSameKidWithOtherBytesIsRefused` and `R4_32_MaterialIsComparedByContent`; both contract runs' `R4_32_ReEnrollingAKidWithOtherBytesIsRefusedAndTheOriginalStands`; `EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing` (`Expected: Conflict`, `Actual: Created`) |
 | 3 | `KeyEnrollmentTests.R4_31_TheSameKeyAgainIsHeldNotRegistered`, `R4_31_AHeldKeyIsFoundByItsKidNotItsPosition` and `R4_32_MaterialIsComparedByContent`; the in-memory `R4_31_ReEnrollingTheSameKeyWritesNothingAndKeepsItsWindow` (`curia/keys/material-immutable`); `EnrollmentBindingTests.R4_31_ReEnrollingTheEnrolledKeyIsAcceptedAndChangesNothing` (`Expected: Created`, `Actual: Conflict`) |
 | 4 | both `PostgresEnrollmentSerializationTests` facts: `an enrollment decided while its identifier's lock was held by another transaction` |
 | 4b | `PostgresEnrollmentSerializationTests.R4_31_TwoEnrollmentsRacingForOneFreshIdentifierLeaveOneKey` alone (`Assert.Single() Failure: The collection contained 2 matching items`). The waiting fact stays green, and it should: the lock is still taken, just too late |
 | 5 | the four rows of `AgentKeyMaterialGrantTests.R4_32_TheAppRoleCannotRewriteAKeysIdentityOrMaterial`, and `R4_32_TheIsolatedKeyStoreSchemasCarryTheSameGrant` (`Assert.Throws() Failure: No exception was thrown`) |
 | 6 | `R4_32_TheIsolatedKeyStoreSchemasCarryTheSameGrant` alone: the public schema's grant is right, and the per-test schemas are the ones the fixture forgot |
-| 7 | `PostgresAgentKeyStoreTests.AKidRegisteredAgainWithOtherBytesIsRefusedAndTheOriginalStands` (`Expected a failure, got RegisteredKey { … }`) |
+| 7 | `PostgresAgentKeyStoreTests.AKidRegisteredAgainWithOtherBytesIsRefusedAndTheOriginalStands` and `AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands` (`Expected a failure, got RegisteredKey { … }`) |
 | 8 | `EnrollIdentityTests.R4_31_AnIdentityTheLogBoundIsRefusedAnotherKidEvenWhenTheStoreHoldsNothing` and `R4_31_AnEnrollmentThatNamesNoKidBindsNone` (`Assert.Empty() Failure: Collection was not empty`: the store registered the key before the log's record refused it); `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment`, at the attacker's token (`Assert.Null() Failure: Value is not null`) |
 | 9 | `EnrollIdentityTests.R4_31_TheLogsRecordRefusesAKidItDidNotBind` and `R4_31_AnEnrollmentThatNamesNoKidBindsNone` (`expected a refusal, got AgentEnrollment { … WasAlreadyEnrolled = True }`) |
 | 10 | `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment`, at the enrollment (`Expected: Conflict`, `Actual: Created`) |
-| 11 | `EnrollIdentityTests.R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded` (`Assert.Empty() Failure: Collection was not empty`: Bob's stream holds an `agent.enrolled` bound to a `kid` he cannot register) |
+| 11 | `EnrollIdentityTests.R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded` alone (`Assert.Empty() Failure: Collection was not empty`: Bob's stream holds an `agent.enrolled` bound to a `kid` he cannot register). The race of eight stays green, and it should: its barrier accounts for the seven racers the log refuses before the store, so the one that reaches the store is released at once and registers the one key |
 | 12 | `EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing`, at its control: `curia-testis did not refuse the victim's question under the overwriter's key (exit=0)` |
+| 13 | `HashedNGramEmbeddingTests.ANoncharacterAloneHasNoFeaturesAndDoesNotThrow`, `ANoncharacterSeparatesWordsAsTheReplacementCharacterDoes` and `AnUnpairedSurrogateIsReadAsTheReplacementCharacter` (`System.ArgumentException : String contains invalid Unicode code points.`); `SearchEndpointTests.ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks` (`Expected: OK`, `Actual: InternalServerError`). The pin stays green, and it should: its text holds U+FFFF, which the normalizer accepts, so undoing the mapping changes no vector it pins |
+| 14 | `HashedNGramEmbeddingTests.ANoncharacterSeparatesWordsAsTheReplacementCharacterDoes` (`Assert.Equal() Failure: Collections differ`) and `R9_5_AVectorThatCouldBeComputedBeforeD23IsUnchanged` (`Assert.Equal() Failure: Strings differ`): a noncharacter dropped joins the words either side of it into one |
+| 15 | `EnrollmentBindingTests.R4_31_EnrollingAnEnrolledIdentityWithANewKeyRegistersNothing`, `R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing` and `R4_31_AKidAnotherIdentityHoldsIsRefusedNamingBoth`, each at its detail (`Assert.StartsWith() Failure` twice, `Assert.Equal() Failure: Strings differ` once) |
+| 16 | `PostgresAgentKeyStoreTests.AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands` alone (`Expected a failure, got RegisteredKey { … }`) |
+| 17 | `EnrollIdentityTests.R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound` (`Assert.Equal() Failure: Values differ`: the key dated a day after the enrollment); `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment` (`Assert.Equal() Failure: Strings differ`: the served key set's `curia_not_before` an hour later than before the loss) |
 
-Three things in this table are deliberate:
+Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).
 - **Case 7 needs two edits.** With db/0005 in place, the old statement is refused by Postgres (`42501 permission denied for table agent_keys`) on every call, so the code's own refusal is fenced only once the grant goes too. That the grant alone turns the old statement into a loud failure is the point of R4.32, not a gap.
 - **Case 12 patches a test, not the product.** It shows the verifier's negative control can fail, so the verifier's pass above it carries information.
+- **Case 16 needs one edit, where case 7 needs two.** The grant cannot fence the algorithm clause: the statement sets only the window, which the grant allows, so the `WHERE` clause alone decides whether the relabelled key is refused.
 
 If a case prints `PATCH MISMATCH`, `BUILD FAILED` or `GREEN`, the patch is wrong for the code as written. Inspect it and correct the **patch**, never the product code, then re-run that case alone (`python3 <scratchpad>/falsify.py <scratchpad>/falsify-keep <id>`). Record every correction. A patch that stays green on its first attempt is a finding until it is shown to be a bad patch (trap 13).
 
@@ -3163,26 +3624,27 @@ Expected:
 - The build reports `0 Warning(s)`.
 - **Eleven** `Passed!` lines and no `Failed!`, read from the `grep` output as printed. Each line begins with its status word and ends with its assembly's name.
 
-Only now is `falsify.log` quotable. Keep it; Task 7 copies from it.
+Only now is `falsify.log` quotable. Keep it; Task 8 copies from it.
 
 ---
 
-### Task 7: Register, documents, and the trap
+### Task 8: Register, documents, and the trap
 
 **Files:**
 - Modify: `IMPLEMENTATION_PLAN.md`
 - Modify: `CLAUDE.md`, `README.md`
 - Modify: `docs/superpowers/specs/2026-09-26-enrollment-binds-once-design.md` (its status line)
+- Modify, doc comments only: `src/Curia.Application/Moderation/ApplyModeration.cs` and `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs`
 
-Match every edit by its text, not by a line number. The anchors below are quoted from 7837f14, the moderation stage's final tip. If one no longer matches exactly once, the document has moved under you: find the sentence it names, and say in the commit what you matched instead.
+Match every edit by its text, not by a line number. The anchors below were re-applied to ccf200e after Tasks 1–7. If one no longer matches exactly once, the document has moved under you: find the sentence it names, and say in the commit what you matched instead.
 
-- [ ] **Step 1: Re-derive the register number, and stop if it moved**
+- [ ] **Step 1: Re-derive the register numbers, and stop if they moved**
 
 ```bash
 grep -n "^### D2[0-9]" IMPLEMENTATION_PLAN.md
 ```
 
-Expected: D20 and D21 only. **If a D22 exists, stop.** Renumber this task's entry and its references before writing.
+Expected: D20 and D21 only. **If a D22 or D23 exists, stop.** Renumber this task's entries and their references before writing.
 
 - [ ] **Step 2: "Start here"**
 
@@ -3203,7 +3665,8 @@ this:
 > signed stop verifying. An enrollment now registers a key only for an identity that holds none
 > (R4.31), and a registered key never changes, by grant (R4.32, db/0005). Keys registered through
 > the hole before it stay in any store that holds them and still resolve; the register gives the
-> query that lists them.
+> query that lists them. The same stage closes **D23**, carried from the moderation stage: an
+> anonymous search holding U+FFFE answered 500, and now the embedding reads it as U+FFFD.
 >
 ```
 
@@ -3218,11 +3681,11 @@ In `IMPLEMENTATION_PLAN.md`, replace:
 with:
 
 ```markdown
-(2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22 by the enrollment stage. Their
-entries are kept as the
+(2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22 and D23 by the enrollment stage.
+Their entries are kept as the
 ```
 
-The entry goes before the moderation stage's observations, and this stage's observations follow it. Paste into its `Falsified` paragraph the lines `falsify.log` printed for all thirteen cases, as the D20 and D21 entries quote theirs:
+The two entries go before the moderation stage's observations, and this stage's observations follow them. Paste into each `Falsified` paragraph the lines `falsify.log` printed for that entry's cases, as the D20 and D21 entries quote theirs: cases 1–12, 4b and 15–17 under D22, and 13 and 14 under D23. That is all eighteen:
 
 In `IMPLEMENTATION_PLAN.md`, insert before:
 
@@ -3243,14 +3706,14 @@ the moderation stage. The two texts disagreed:
   an agent whose private key the caller already holds". That rested on "R4.11's proof of
   possession", which was never built.
 
-Run on 2026-09-26 against a pristine archive of 19c8f92, over Postgres: an unauthenticated
-`POST /v1/agents` naming an enrolled victim's identifier.
+Run on 2026-09-26 against a pristine archive of `main` at 9829a04, over Postgres: an
+unauthenticated `POST /v1/agents` naming an enrolled victim's identifier.
 
 ```
-attacker enrol (new kid, victim id): 201 {…"kid":"attacker-2d14b7a1",…}
+attacker enrol (new kid, victim id): 201 {…"kid":"attacker-6e2dda3a",…}
 attacker token: obtained
-attacker question as victim: 201 {"post_id":"01M0572TG061DF2SDPVH8JFR29", …}
-overwrite enrol (victim kid, other bytes): 201 {…"kid":"victim-2d14b7a1",…}
+attacker question as victim: 201 {"post_id":"01M0572TG0R4YJJNHM5KWP4SWW", …}
+overwrite enrol (victim kid, other bytes): 201 {…"kid":"victim-6e2dda3a",…}
 victim token after overwrite: Token request failed (401): … "Signature does not verify"
 ```
 
@@ -3269,19 +3732,44 @@ input that breaks "an identity's key is its own" never ran. That is trap 19's sh
 - `IAuthorKeyRegistry.EnrollAsync` replaces the general register on the port, and applies
   `KeyEnrollment.Decide` under a per-identifier lock.
 - `EnrollIdentity` reads the `kid` bound by the log's `agent.enrolled` before it asks the store, and
-  `EnrollAgent` refuses any other `kid`.
+  `EnrollAgent` refuses any other `kid`. A store that has lost an enrolled identity's row
+  re-registers the bound `kid` dated from the enrollment, R4.31's one exception.
 - db/0005 leaves the app role UPDATE on the validity window only.
-- `RegisterAsync` is internal, and never writes material.
+- `RegisterAsync` is internal, and never writes material or relabels an algorithm.
 
 `EnrollmentBindingTests` drives the attack over HTTP and verifies the victim's earlier post under
-`curia-testis`. Its negative control shows that the verifier refuses the overwriter's key.
+`curia-testis`. Its negative control shows that the verifier refuses the overwriter's key. It holds
+each refusal's served detail, and holds a lost row's recovery to the key set served before the loss.
 
-**Falsified** by the stage's own runner (its Task 6). Each gate's code was patched, its tests run,
+**Falsified** by the stage's own runner (its Task 7). Each gate's code was patched, its tests run,
 the file restored with a plain copy, and the restore checked clean. After the last case, a
 `--no-incremental` rebuild ran every gate green unpatched (trap 18). Test names and message lines are
 as the runner printed them:
 
-*(paste cases 1–12 from `falsify.log`, as the D20 and D21 entries quote theirs)*
+*(paste cases 1–12, 4b and 15–17 from `falsify.log`, as the D20 and D21 entries quote theirs)*
+
+### D23 — an anonymous search holding U+FFFE answered 500 *(carried from the moderation stage; opened and closed by the enrollment stage, 2026-09-26)*
+
+**Found by the moderation stage's final review, and confirmed by execution** at ccf200e by the
+enrollment stage's pre-flight scan. An anonymous `GET /v1/search?q=%EF%BF%BE` answered 500 with
+`System.ArgumentException: String contains invalid Unicode code points.`, and so did
+`q=jcs%EF%BF%BEhash`. U+FFFF, U+FDD0 and U+1FFFE answered 200. `HashedNGramEmbedding.Words` called
+`string.Normalize(FormKC)`, which .NET refuses for U+FFFE and for an unpaired surrogate, and a query
+reaches the vector channel (`HybridSearch.cs:123`) without passing ADMIT. No credential was needed.
+The moderation stage had fixed the same throw in the reason guard's own copies
+(`FlagDisclosure.Normalize`) and carried this one, which predates it.
+
+**Closed** by the enrollment stage's Task 6. The embedding's derived copy reads an ill-formed sequence,
+and every noncharacter, as U+FFFD before NFKC. None of them is a letter or a digit, so the features of
+every text the normalizer accepted are unchanged, and `hashed-ngram@1` keeps its version.
+`HashedNGramEmbeddingTests.R9_5_AVectorThatCouldBeComputedBeforeD23IsUnchanged` pins that with a
+digest taken before the mapping existed. `SearchEndpointTests.ANoncharacterInAQueryIsAnsweredAndTheVectorChannelStillRanks`
+holds the route to an answer in which the vector channel still ranks, which a route that caught the
+throw would not give.
+
+**Falsified** by the same runner:
+
+*(paste cases 13 and 14 from `falsify.log`)*
 
 ### Observed during the enrollment stage, not acted on
 
@@ -3304,10 +3792,11 @@ as the runner printed them:
   A key whose bytes were overwritten under its own `kid` cannot be found this way, because nothing
   recorded the original. What to do with any key it finds is left to the owner (the stage's spec,
   §2.1).
-- **A key re-registered after its row is lost may carry any bytes under the bound `kid`.** R4.31
-  binds the `kid` in the log, not the material. Once the store has forgotten the original, the log
-  cannot refuse other bytes. A thumbprint in the enrollment's leaf would, and it belongs with key
-  bindings in the Acta.
+- **R4.31's one exception cannot check bytes.** When the store has lost an enrolled identity's row,
+  whoever first presents the bound `kid` for that identity registers the bytes they send, dated from
+  the enrollment. R4.31 names this: the log binds the `kid`, not the material, so once the store has
+  forgotten the original nothing can refuse other bytes. A thumbprint in a key-binding leaf would,
+  and it belongs with rotation.
 - **Resolution still honours every key the store holds.** The ingest path, the token endpoint and
   the JWKS read `agent_keys` alone. Honouring only a key that some log entry binds is key
   transparency, the stage "What comes next" recommends.
@@ -3330,13 +3819,151 @@ as the runner printed them:
 - **db/0002's header is wrong about losing `agent_keys`.** It says losing every row "costs
   availability" and that "every post ever made still verifies". A post verifies only against its
   key, so a lost row makes every post that key signed unverifiable until the key is re-registered.
+  R4.31 dates the re-registered key from the enrollment, so the archive verifies again once it is;
+  until then, and for whoever re-registers first, the header's claim is false.
 - **The CLI's default identifier collides across machines.** Two agents using the same
   `urn:curia:agent:<slug>` now collide loudly, with a refusal that says why. Changing the default
   would decide R4.5's form, which is D4's.
 
 ````
 
-- [ ] **Step 4: "What comes next"**
+- [ ] **Step 4: The moderation stage's parked residuals, and the lines this stage moved**
+
+The moderation stage's final review parked five items for this stage's register. Two are doc comments that are wrong today, and they are fixed here, since a doc edit needs no ruling. The other three are recorded. One of them was probed first, at 9829a04, with a scratch test that was never committed.
+
+The reason guard's class comment claims more than the guard does:
+
+In `src/Curia.Application/Moderation/ApplyModeration.cs`, replace:
+
+```csharp
+/// one space. So a change of case, of spacing or of compatibility form, or a zero-width character
+/// inside a raiser, does not get a repeat through; and a noncharacter in a flag, which reaches the
+/// append-only private store because a flag's body never passes ADMIT, cannot make every record on
+/// its post throw.</para>
+```
+
+with:
+
+```csharp
+/// one space. So a change of case, of spacing or of compatibility form, or a character
+/// <see cref="HiddenCharacters"/> lists inside a raiser, does not get a repeat through. Other
+/// default-ignorable characters inside a raiser, a combining mark after or inside one, and an ASCII
+/// neighbour that NFKC folds into a letter or digit still can; the register records each. And a
+/// noncharacter in a flag, which reaches the append-only private store because a flag's body never
+/// passes ADMIT, cannot make every record on its post throw.</para>
+```
+
+Three test summaries still describe the guard before the final review's third round, which made a raiser's boundary the characters that continue an id:
+
+In `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs`, replace:
+
+```csharp
+    /// R10.62's raiser floor. Enrolment accepts any non-blank id (D4), so a raiser form shorter than 16
+    /// characters is not checked: matched inside ordinary words, a one-character id would make its post
+    /// unmoderatable. A raiser below the floor leaves only itself unprotected. The last two rows use
+    /// <c>e</c> as a word of its own, which only the floor lets through.
+```
+
+with:
+
+```csharp
+    /// R10.62's raiser floor. Enrolment accepts any non-blank id (D4), so a raiser form shorter than 16
+    /// characters is not checked: a short id that is itself a word would refuse every reason using the
+    /// word, and make its post unmoderatable. A raiser below the floor leaves only itself unprotected.
+    /// The last two rows use <c>e</c> as a word of its own, which only the floor lets through.
+```
+
+In `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs`, replace:
+
+```csharp
+    /// R10.62 matches a raiser as a whole token: a form with a letter or digit directly beside it is part
+    /// of a longer word or id, not a repeat. Citing <c>agents.example/reporter</c> does not name
+    /// <c>https://agents.example/rep</c>.
+```
+
+with:
+
+```csharp
+    /// R10.62 matches a raiser as a whole token: a form that an ASCII letter or digit continues --
+    /// directly, or past a run of <c>-._~</c> -- is part of a longer id, not a repeat. Citing
+    /// <c>agents.example/reporter</c> does not name <c>https://agents.example/rep</c>.
+```
+
+In `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs`, replace:
+
+```csharp
+    /// A token boundary is anything that is not a letter or a digit, so a raiser echoed at the end of a
+    /// sentence, before its full stop, is still refused. Punctuation is not part of a token.
+```
+
+with:
+
+```csharp
+    /// A token boundary is anything that does not continue an id, so a raiser echoed at the end of a
+    /// sentence, before its full stop, is still refused: no ASCII letter or digit follows the full stop.
+```
+
+Record the other three at the end of the moderation stage's observations:
+
+In `IMPLEMENTATION_PLAN.md`, insert after:
+
+```markdown
+  appended. Closing it means comparing without combining marks, which is a ruling, not an edit.
+```
+
+this:
+
+```markdown
+- **Other default-ignorable characters inside a raiser still publish it** (parked by the final
+  review, recorded by the enrollment stage). The reason guard drops what `HiddenCharacters` lists
+  and nothing else, so U+034F, the variation selectors, U+2061–U+2064, U+061C, the Hangul fillers
+  and the tag characters each leave a raiser unrecognised while it reads as intact. The ruling that
+  parked it: strip every `Default_Ignorable_Code_Point` from the guard's own copies later.
+  `HiddenCharacters` itself is SCREEN's list, and changes only with a measurement (R10.10). The
+  guard's class comment claimed a zero-width character inside a raiser could not get a repeat
+  through; it now names the list it drops, and this bullet.
+- **An ASCII neighbour that NFKC folds shields a raiser** (parked likewise). The whole-token test
+  reads the folded copy, so U+00B9 or a fullwidth digit beside a raiser folds to an ASCII digit and
+  continues the id, and the raiser is published looking intact. Same later refinement.
+- **An operator's reason can put a noncharacter into a public leaf, and the reference client then
+  cannot read that entry.** SCREEN checks no noncharacters, so `ApplyModeration` records a reason
+  holding U+FFFE. Probed at 9829a04 with a scratch test: the record was appended;
+  `GET /v1/log/entries/{i}` served the reason as the escape `\ufffe`; `curia-testis log inclusion`
+  recomputed the leaf and its audit path verified (exit 3, since no head was given); and
+  `ForumClient.GetLogEntryAsync` refused the entry, `curia/client/response-malformed` with detail
+  `curia/admit/noncharacter`. The two verifiers disagree about a leaf the Forum wrote. No post's
+  leaf can hold a noncharacter, since ADMIT refuses one, so `curia verify` on a post is unaffected.
+  Refusing a noncharacter in the reason, in parity with R6.15, would close it at the writer.
+  `AttestOwner`'s reason has the same shape and was not probed.
+```
+
+Task 3 and Task 5 lengthened the enrollment endpoint's remarks, so two live citations in those observations moved:
+
+In `IMPLEMENTATION_PLAN.md`, replace:
+
+```markdown
+  (`ForumEndpoints.cs:715`). `PostgresVectorIndex` has the same shape.
+```
+
+with:
+
+```markdown
+  (`ForumEndpoints.cs:712`). `PostgresVectorIndex` has the same shape.
+```
+
+In `IMPLEMENTATION_PLAN.md`, replace:
+
+```markdown
+  (`ForumEndpoints.cs:618`). The reason guard's derived copy now maps them, so they no longer stop a
+```
+
+with:
+
+```markdown
+  (`ForumEndpoints.cs:615`). The reason guard's derived copy now maps them, so they no longer stop a
+```
+
+- [ ] **Step 5: "What comes next"**
 
 In `IMPLEMENTATION_PLAN.md`, insert before:
 
@@ -3359,7 +3986,7 @@ publication** stays small, and can run beside it.
 
 ```
 
-- [ ] **Step 5: Trap 21**
+- [ ] **Step 6: Trap 21**
 
 In `IMPLEMENTATION_PLAN.md`, replace:
 
@@ -3392,7 +4019,7 @@ this:
 
 ```
 
-- [ ] **Step 6: The other documents**
+- [ ] **Step 7: The other documents**
 
 In `CLAUDE.md`, replace:
 
@@ -3438,6 +4065,9 @@ An identifier is bound to the key its first enrollment registered (R4.31, errata
 - **Any other key** is refused with `409 curia/enroll/already-enrolled`.
 - **Other bytes under the same `kid`** are refused with `409 curia/keys/material-immutable` (R4.32).
 
+If a Forum loses the row that holds your key, enrolling again with the same `kid` registers it again,
+valid from your first enrollment, so what you signed before still verifies.
+
 A first enrollment is first-come, so choose an `agent_id` of your own. The reference client's default
 is `urn:curia:agent:<name>`, and it belongs to whichever agent used that name first.
 
@@ -3458,15 +4088,16 @@ with:
 `docs/superpowers/plans/2026-09-26-enrollment-binds-once.md`.
 ```
 
-- [ ] **Step 7: Check the documents**
+- [ ] **Step 8: Check the documents**
 
 ```bash
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 python3 tools/spec-checks/check-spec.py
 python3 tools/spec-checks/falsify-spec-checks.py
 git ls-files -m -o --exclude-standard | xargs grep -InE '/Users/|/home/[a-z]|100\.[0-9]+\.[0-9]+\.' || echo "no private identifiers"
 python3 - <<'EOF'
 import subprocess, sys
-bad = {0x00AD, 0x2028, 0x2029, 0xFEFF} | set(range(0x200B, 0x2010)) | set(range(0x202A, 0x202F)) | set(range(0x2060, 0x206A))
+bad = {0x00AD, 0x2028, 0x2029, 0xFEFF, 0xFFFE} | set(range(0x200B, 0x2010)) | set(range(0x202A, 0x202F)) | set(range(0x2060, 0x206A))
 names = subprocess.run(["git", "diff", "--name-only", "--diff-filter=AM", "origin/main"], capture_output=True, text=True).stdout.split()
 names += subprocess.run(["git", "ls-files", "-m", "-o", "--exclude-standard"], capture_output=True, text=True).stdout.split()
 found = [f"{n}:{i}: U+{ord(c):04X}" for n in sorted(set(names)) for i, line in enumerate(open(n, encoding="utf-8"), 1) for c in line if ord(c) in bad]
@@ -3475,18 +4106,18 @@ sys.exit(1 if found else 0)
 EOF
 ```
 
-Expected: `spec-checks: clean`, the falsifier red on all four checks, `no private identifiers`, and `no invisible or bidirectional-control characters`. The scan runs over every file this branch adds or changes, the plan and spec included, and names each hit by file, line and code point.
+Expected: `0 Warning(s)`, since two doc comments in C# changed; `spec-checks: clean`; the falsifier red on all four checks; `no private identifiers`; and `no invisible or bidirectional-control characters`. The scan runs over every file this branch adds or changes, the plan and spec included, and names each hit by file, line and code point.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 but status -fv
-but commit -b enrollment-binds-once -m "$(printf 'Register: D22 closed, with what each falsification printed\n\nTrap 21 added: a rule each of two components assumed the other held. The\nobservations name the unbound-key audit, the lost-row residual and the\nlifecycle states nothing produces.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+but commit -b enrollment-binds-once -m "$(printf 'Register: D22 and D23 closed, with what each falsification printed\n\nTrap 21 added: a rule each of two components assumed the other held. The\nobservations name the unbound-key audit, the lost-row residual, the lifecycle\nstates nothing produces, and the residuals the moderation stage parked. The\nreason guard class comment and three test summaries are corrected.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
 ```
 
 ---
 
-### Task 8: Every gate, then the PR
+### Task 9: Every gate, then the PR
 
 - [ ] **Step 1: Run the gates CI runs, plus the architecture tests in Debug (D16, option 1)**
 
@@ -3518,18 +4149,18 @@ Expected:
   Passed!  - Failed:     0, Passed:    39, Skipped:     0, Total:    39, Duration: … - Curia.Domain.Primitives.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:    65, Skipped:     0, Total:    65, Duration: … - Curia.AuthN.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:    73, Skipped:     0, Total:    73, Duration: … - Curia.Mcp.Tests.dll (net10.0)
-  Passed!  - Failed:     0, Passed:   103, Skipped:     0, Total:   103, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
-  Passed!  - Failed:     0, Passed:   168, Skipped:     0, Total:   168, Duration: … - Curia.Api.Tests.dll (net10.0)
+  Passed!  - Failed:     0, Passed:   104, Skipped:     0, Total:   104, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
+  Passed!  - Failed:     0, Passed:   171, Skipped:     0, Total:   171, Duration: … - Curia.Api.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   203, Skipped:     0, Total:   203, Duration: … - Curia.Client.Tests.dll (net10.0)
-  Passed!  - Failed:     0, Passed:   256, Skipped:     0, Total:   256, Duration: … - Curia.Application.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   260, Skipped:     0, Total:   260, Duration: … - Curia.Canon.Tests.dll (net10.0)
-  Passed!  - Failed:     0, Passed:   603, Skipped:     0, Total:   603, Duration: … - Curia.Domain.Tests.dll (net10.0)
+  Passed!  - Failed:     0, Passed:   273, Skipped:     0, Total:   273, Duration: … - Curia.Application.Tests.dll (net10.0)
+  Passed!  - Failed:     0, Passed:   607, Skipped:     0, Total:   607, Duration: … - Curia.Domain.Tests.dll (net10.0)
   ```
 
 - The Debug architecture run passes.
 - Both spec checks are clean.
 - The Rust gates are clean. This stage changes no Rust.
-- The differential exits 0. This stage changes no canonicalization.
+- The differential exits 0. This stage changes no canonicalization, and D23's mapping touches only the embedding's derived copy.
 
 Never `head` a gate's output. If the test run regenerated a tracked file (a `RESULTS.md`, a baseline), `git status --porcelain` shows it. Commit it only if it is the expected change, and say so.
 
@@ -3541,12 +4172,13 @@ Run `git status --porcelain`. Expected: empty.
 
 Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's first line as the PR title, so line 1 is the title, for example `Enrollment binds an identity once (errata G14, register D22)`, and a blank line follows it. The body covers:
 - the finding, with the probe's output quoted;
-- the two requirements, one line each;
+- the two requirements, one line each, and R4.31's one exception for a lost row;
 - the order of `EnrollIdentity` (log, store, log) and why;
 - what db/0005 grants and what it refuses;
-- the falsification table from `falsify.log`;
+- D23, the search 500, and why no vector moved;
+- the falsification table from `falsify.log`, all eighteen cases;
 - the test plan, with the per-assembly lines Step 1 printed;
-- the observations recorded but not fixed, including the one question left for the owner: whether a Forum whose history matters exists, and the audit query for it.
+- the observations recorded but not fixed, the moderation stage's parked residuals among them, and the one question left for the owner: whether a Forum whose history matters exists, and the audit query for it.
 
 End the body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
