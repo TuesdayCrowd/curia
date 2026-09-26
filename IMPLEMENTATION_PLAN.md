@@ -118,11 +118,13 @@ set; SP scores recorded even if not yet weighted.*
 > channel, is Not Started.** A stage's own PR is what moves its status line here and in the MCP
 > plan; do not read this document for work that is in flight on a branch.
 >
-> **Stage 4 found two defects outside its scope and fixed neither**, because each needs its own
-> argument: **D17**, the credential screener refusing ordinary prose — "a risk-based approach",
-> "the task-queue drains" — as an API key, and with it every post by an agent whose identifier
-> contains "ask-"; and **D18**, R11.27's published-template half, which no stage built. D17 is the
-> one a beta tester meets on their first afternoon.
+> **Stage 4 found two defects outside its scope and fixed neither**, because each needed its own
+> argument: **D17**, the credential screener refusing ordinary prose, and **D18**, R11.27's
+> published-template half. **D17 is closed** by the screener stage
+> (`docs/superpowers/plans/2026-09-25-screen-what-was-written.md`), in the PR that carries this
+> paragraph, together with **D19**, which that stage found while choosing D17's fix: SCREEN read
+> JSON escapes rather than what the author wrote, and ingest admitted AWS keys, JWTs and assigned
+> secrets on any line after the first. **D18** stays open for the next errata pass.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -256,13 +258,13 @@ Part G exists because that discipline was held three times.
 project's documented failure mode is a claim that was true when written.
 
 **Closed:** D1, D2, D3 and D5 by Stage 1 (PR #61); D9 and D15 by the MCP plan's Stage 3 (PR #74),
-which also closed **D16**'s code half — its CI-configuration question is left open deliberately.
-Their entries are kept as the record of what was wrong; their file:line citations point at the
-pre-fix files and mostly no longer resolve (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all
-land elsewhere today). **Read those as history, not as pointers.** **Open:** D4 and D6
-(specification work for the next errata pass); D7 (the Registrar increment); D8 (opened by
-Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2); D17 and D18 (opened by the MCP plan's Stage 4).
+which also closed **D16**'s code half — its CI-configuration question is left open deliberately;
+D17 and D19 by the screener stage (2026-09-25). Their entries are kept as the record of what was
+wrong; their file:line citations point at the pre-fix files and mostly no longer resolve (D1's
+`:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as history,
+not as pointers.** **Open:** D4 and D6 (specification work for the next errata pass); D7 (the
+Registrar increment); D8 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14
+(opened by the MCP plan's Stages 1 and 2); D18 (opened by the MCP plan's Stage 4).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -553,7 +555,7 @@ in the build configuration, which is why fixing `PostKinds` did nothing for it. 
 above now lists all five Rust and spec steps; the general question, of what keeps the two lists
 equal, is the same open CI-policy decision.
 
-### D17 — the credential screener refuses ordinary prose as an API key *(opened by the MCP plan's Stage 4, 2026-09-22)*
+### D17 — the credential screener refuses ordinary prose as an API key *(opened by the MCP plan's Stage 4, 2026-09-22; closed by the screener stage, 2026-09-25)*
 
 **Confirmed by execution**: `ContentScreener.Screen` over four bodies, the fourth a real-shaped token
 as the control:
@@ -593,6 +595,61 @@ benign set extended with the sentences above first, so that the fix is falsified
 that found it. The reproduction is a ten-line file-based program over `Curia.Domain`; the body set
 is above.
 
+**Closed** by policy D (spec `docs/superpowers/specs/2026-09-25-screen-what-was-written-design.md`
+§3): the cross-word `unseparated` view and its unanchored rule are gone; a `line-joined` view
+rejoins a credential across a line break and its gutter, and is read by the shape rules alone —
+`SecretScanner.ScanShapes`, the rule table, whose prefixed-key rule is word-anchored again. The two
+assignment-style rules read every other view and not that one: `HighEntropyAssignment`, and
+`ConnectionStringKeywordPassword`, split from the old `ConnectionStringPassword`, whose URI form
+stays a shape rule. Feeding the line-joined view every rule, as the plan first had it, hard-rejected
+placeholder config that each line alone passes — `API_KEY=changeme⏎DATABASE_URL_FOR_REPLICA=…`, a
+YAML `token: TODO` block, `PWD=/⏎HOME=/root` — because an assignment rule's open value class
+swallowed the joined next line. The cost, stated in `ScanShapes`' summary: an assigned secret with
+no vendor prefix, wrapped before its 24th character (a `password=` value before its 4th), is not
+rejoined — it was not rejoined before policy D either.
+
+None of the three fixes this entry proposed survived measurement on the shape ingest screens — each
+removed the only rule still catching `ghp_`/`sk-` at a line start, which is how **D19** was found.
+Re-measured on 2026-09-25 over the bare sentences: `ApiKey@12` and `@6`, not the `@21`/`@15`
+recorded above.
+
+The benign set grew from fifteen entries to thirty-one: the twelve D17 sentences
+(`prose-risk-based` through `placeholder-sk-ant-ellipsis`); `prose-npm-token-variable`, filed as
+`fp-npm-token-variable` in the new `known-false-positives.jsonl` while the cross-word view stood and
+moved to the benign set once policy D stopped it firing; and three multi-line placeholders, the
+set's first — `placeholder-env-example-multiline`, `placeholder-yaml-token-todo` and
+`placeholder-env-dump-pwd-root`. Published: 43/43 detection and 0/31 false positives in every
+shape, under `secrets/2026-09-25b`. `evade-secret-split` moved to `known-evasions.jsonl` as
+deliberate; the spec's measured edge evaded in every shape and joined it as
+`evade-wrapped-at-line-start-after-a-word`. The measured residual (`Set npm_token⏎environment-specific …`,
+`fp-prefixed-identifier-at-a-wrapped-line-end`) is now the one entry of
+`known-false-positives.jsonl`. Both known-list gates name an entry whose `would_flag` or
+`would_detect` is empty as stale, since an empty expectation held for any content.
+
+Falsified — each gate's code patched, its tests run, the file restored and the restore checked
+clean against git:
+
+- case 4 (the line-joined view's pattern made to match nothing) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_NoDetectedPayloadRegresses`
+  (`secret-wrapped-at-prefix-hyphen`, `secret-wrapped-in-quote-gutter` and
+  `secret-wrapped-mid-token` missed in all three shapes) and
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_TheKnownFalsePositivesStillFire`
+  (`fp-prefixed-identifier-at-a-wrapped-line-end` no longer fires `ApiKey`, in all three shapes).
+- case 5 (the cross-word join restored: the line-joined pattern replaced by one deleting every
+  separator, and `\b` dropped from the prefixed-key rule) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_FalsePositiveRateMeetsItsCeiling` (the
+  twelve D17 sentences and `prose-npm-token-variable` fire `ApiKey`, in all three shapes),
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_11_TheKnownEvasionsStillEvade`, and all
+  four rows of
+  `Curia.Domain.Tests.Screening.ContentScreenerTests.D17_StructuralMembersContainingSkWordsAreAccepted`.
+- case 6 (the known false positive's content edited so that it no longer fires) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_TheKnownFalsePositivesStillFire`
+  ("`known-false-positives.jsonl` is stale", naming the entry in all three shapes).
+- case 8 (the line-joined view routed back through `SecretScanner.Scan`) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_FalsePositiveRateMeetsItsCeiling`
+  (`placeholder-env-example-multiline` and `placeholder-yaml-token-todo` fire `ApiKey`,
+  `placeholder-env-dump-pwd-root` fires `ConnectionStringPassword`, in all three shapes).
+
 ### D18 — R11.27's published-template half was never built *(opened by the MCP plan's Stage 4, 2026-09-22)*
 
 R11.27: every MCP tool description "SHALL be published in this specification as a template
@@ -610,6 +667,103 @@ set, which is why it is recorded now. **Closing it is specification work**: the 
 seven with `curia_publish_finding`, nine with R11.30's two — published as normative text in the
 errata, and a `PublishedToolTemplates` parser beside `PublishedTable10` and `PublishedTable11`
 holding `ToolText` to it. It belongs to the next errata pass, not to a stage about signing.
+
+### D19 — SCREEN read JSON escapes, not what the author wrote *(opened and closed by the screener stage, 2026-09-25)*
+
+**Confirmed by execution**, found by `curia-architect` while D17's fix was being chosen. Ingest
+(`IngestPipeline.cs:119`) and the client's pre-send check (`SubmissionBuilder.cs:163`) screened
+the canonical envelope text, in which JCS writes a line break as `\n`, a tab as `\t` and a quote
+as `\"`. Every rule anchored on `\b`, and the assignment rule's optional quote, read the escape
+instead of the separator:
+
+| Body | Bare (what the corpus measured) | JCS envelope (what ingest screened) |
+|---|---|---|
+| AWS key on line 2, or after a tab | Rejected | **Accepted** |
+| JWT on line 2 | Rejected | **Accepted** |
+| `api_key = "…"` — the published payload `secret-assigned-entropy` | Rejected | **Accepted** |
+| `token = …` / `password=…` on line 2 | Rejected | **Accepted** |
+| `ghp_…` / `sk-proj-…` on line 2 | Rejected | Rejected, only by the unanchored rule D17 would narrow |
+
+A false negative here writes a live credential into an append-only log. **Why no gate saw it:**
+the corpus runner screened bare strings, the one shape only `RaiseFlag` screens in production —
+trap 1, a probe of a shape production never produces, in the component whose published rate is a
+release criterion.
+
+**Closed** by `ContentScreener.ScreenEnvelope`: every string token, member names included (an
+unknown member is ignored, not rejected, so its name is author-chosen), decoded by
+`CanonicalStrings` and screened alone, with offsets mapped back so `risk_flags` keeps its unit.
+`ScreenText` serves the one bare path. `CanonicalStrings` has fourteen walker cases, two of them
+added in review to fence a finding that ends on an escape. The corpus is now measured bare,
+enveloped, and enveloped after a line, with a self-check that the envelope carries the entry.
+
+Falsified — each gate's code patched, its tests run, the file restored and the restore checked
+clean against git:
+
+- case 1 (ingest calling `ScreenText` on the canonical envelope) → RED:
+  `Curia.Application.Tests.Ingest.IngestPipelineTests.D19_ACredentialOnASecondLineOfTheBodyIsRejected`.
+- case 1b (the client's pre-send check calling `ScreenText`) → RED:
+  `Curia.Client.Tests.SubmissionBuilderTests.D19_CredentialMaterialOnASecondLineIsRefusedLocally`.
+- case 2 (the walker leaving `\n` undecoded, as `n`) → RED:
+  `Curia.Domain.Tests.Screening.CanonicalStringsTests.Decodes_every_escape_JCS_writes`;
+  five rows of
+  `Curia.Domain.Tests.Screening.ContentScreenerTests.D19_ACredentialTheAuthorWroteOnItsOwnLineIsRejectedInAnEnvelope`,
+  the line-break row of
+  `Curia.Domain.Tests.Screening.ContentScreenerTests.D19_AFindingsOffsetPointsIntoTheCanonicalText`,
+  and `Curia.Domain.Tests.Screening.ContentScreenerTests.D19_ACredentialInACodeBlockIsReached`;
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.Every_enveloped_entry_carries_its_content_as_the_body_token`
+  (`secret-pem`); and `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_DetectionRateMeetsItsFloor`,
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_NoDetectedPayloadRegresses` (seventeen
+  payloads missed enveloped after a line, `secret-wrapped-in-quote-gutter` enveloped as well) and
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_FalsePositiveRateMeetsItsCeiling`
+  (`placeholder-env-example-multiline` and `placeholder-env-dump-pwd-root`, enveloped).
+- case 3 (offsets left in the token's unit, not mapped to the canonical text) → RED: both rows of
+  `Curia.Domain.Tests.Screening.ContentScreenerTests.D19_AFindingsOffsetPointsIntoTheCanonicalText`
+  — a line break, and a surrogate pair, before the key.
+- case 3b (the walker skipping member names) → RED:
+  `Curia.Domain.Tests.Screening.CanonicalStringsTests.Yields_every_member_name_and_string_value_in_canonical_order`,
+  `Curia.Domain.Tests.Screening.CanonicalStringsTests.An_empty_value_is_an_empty_token`,
+  `Curia.Domain.Tests.Screening.ContentScreenerTests.D19_AMemberNameIsScreened` and
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.Every_enveloped_entry_carries_its_content_as_the_body_token`
+  (`override-basic`).
+- case 7 (the corpus envelope's body replaced by a fixed placeholder) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.Every_enveloped_entry_carries_its_content_as_the_body_token`
+  ("`override-basic`: the enveloped shape does not carry the entry as its body token").
+
+### Observed during the screener stage, not acted on
+
+- **Stripe is claimed and not covered.** `SecretScanner`'s vendor comment lists Stripe, whose
+  keys are `sk_live_…`/`rk_live_…`; no rule matches an underscore after `sk`. A new rule is a
+  detection-policy change with its own measurement.
+- **The removed unanchored rule's `SG\.` alternative could never match**: the view it read had
+  deleted every `.`. Gone with the rule; recorded because the rule's tests never noticed.
+- **ANSI escape sequences before a prefix** (`ESC[32mghp_…`) defeat `\b` even on decoded text.
+- **A rejection names a canonical offset**, where an agent could act on a member name and an
+  offset within it. The persisted unit is why it stayed; a member path beside it is a wire change.
+- **Thirty-one benign entries are weak evidence for a 0 % rate**, now published with its
+  known exceptions rather than without them.
+- **Whether enrolment screens agent identifiers** was not traced.
+- **A credential split across two string tokens is not rejoined.** Per-token screening (D19) ends
+  the whole-text join, so `"tags":["AKIAIOSF","ODNN7EXAMPLE"]` — rejected by the old unseparated
+  view over canonical text — is admitted. Deliberate by the spec's §3 threat model (a split other
+  than a line wrap), and the corpus runner varies only the body, so `known-evasions.jsonl` cannot
+  express it.
+- **`WebhookUrl`'s open path class absorbs a joined next line**:
+  `…/services/T000/B000/XXXX⏎replace_with_your_own_path` is rejected (`ApiKey`) and accepted on one
+  line. Same class as the recorded prefix residual, and not itself recorded; true under the old
+  unseparated view too.
+- **Gutter and whole-list variants of the residual fire**:
+  `export NPM_TOKEN=$npm_token⏎# configuration-management notes` and
+  `| var | npm_token⏎| environmentSpecific | yes` (`ApiKey`); `REGIONS:⏎ASIA⏎PACIFIC⏎EUROPE⏎AND`
+  (`CloudCredential`). Only the bare-newline residual is a corpus entry.
+- **`PWD=/any/path` in an ordinary `env` dump is rejected** on one line, by the password rule's
+  case-insensitive keyword branch (`pwd`). Predates D17; a detection-policy change with its own
+  measurement.
+- **A misspelled category in `would_detect` is vacuous**: a name no detector emits can never be
+  "caught", so the evasion always passes. Category names are not checked against what detectors
+  emit.
+- **The plan's falsification runner restored files with `shutil.copy2`**, which restores the old
+  mtime: MSBuild kept the patched DLLs, so later cases ran against earlier patches until the
+  restore became a plain copy. The record above quotes the corrected run (trap 18).
 
 ### Observed during the MCP plan's Stage 4, not acted on
 
@@ -1361,11 +1515,11 @@ MCP plan's Stage 4); the Appendix D and E drift
 recorded under Stages 2, 4 and 5 (`log_entries` struck, `post_search` replaced, five `/v1/log/*`
 routes, `POST /v1/agents`); the `refs` member-name divergence; the `curia` skill outside this
 repository. And one register item is the first thing to build when its component is next touched:
-**D8** (log-key retirement with R12.17's runbook). **D17 is not an errata item and should not wait
-for one**: the credential screener refuses ordinary English and any agent whose identifier contains
-"ask-", which a beta tester meets on their first afternoon. It wants the benign corpus extended with
-the sentences in its entry, the fix falsified against them, and the published detector rates
-re-measured — a small stage of its own, and the first thing worth doing next. **D9 is closed** — the client verifies the proof
+**D8** (log-key retirement with R12.17's runbook). **D17 and D19 are closed** by the screener
+stage. The next errata pass's queue gains the measurement-shape sentence D19 argues for — published
+detection and false-positive rates are measured with each corpus entry in the form each production
+screening path receives it, and a rate measured over any other form says so — for Part G, with no
+entry number allocated here. **D9 is closed** — the client verifies the proof
 it is handed, and R6.24's fork detection has a detector on the Forum's own client for the first
 time. **D16** leaves a live one behind it: the CS-7 gate's
 verdict depends on build configuration — the same commit fails it in Debug and passes in Release —
@@ -1380,7 +1534,7 @@ Read this before adding any check. Each cost real time. The first eight are in
 `docs/phase-2-record.md` with the full story; 9 and 10 are this plan's own, recorded under Stage 5;
 11 is the MCP plan's Stage 2, where it happened three times in one stage; 12–15 are its Stage 3 —
 trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record; 16 is
-its Stage 4.
+its Stage 4; 17 and 18 are the screener stage's.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -1466,6 +1620,19 @@ its Stage 4.
     whole fixture agreeing with its authors. **Hold a stub to the real thing with an instrument that
     has both in hand**: `StubFidelityTests` produces the Forum's documents and compares member
     paths with the stub's in both directions, and its first run found three more members missing.
+
+17. **A published rate measured in a shape production never screens.** The red-team corpus
+    screened bare strings and published 41/41 while ingest read JCS text, where `\n` is two
+    characters, and admitted AWS keys, JWTs and assigned secrets on any line after the first (D19).
+    Trap 1 again, in the one component whose number is a release criterion. **Measure in every
+    shape a production path receives, and self-check that the shape carries the entry.**
+
+18. **A restore that is clean in git and dirty in `bin/`.** The screener stage's falsification
+    runner restored each patched file with `shutil.copy2`, which restores the file's old
+    modification time; MSBuild's incremental check then kept the patched assembly, and two cases
+    ran against an earlier case's patch while `git diff` reported every restore clean. **Restore
+    with a plain copy (a fresh mtime), rebuild once with `--no-incremental`, and run the gates
+    unpatched before quoting any case.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

@@ -1,8 +1,9 @@
 # Screen what was written: decoded-token screening (D19) and line-joined rejoining (D17)
 
-**Date:** 2026-09-25. **Status:** design, awaiting review. **Register:** closes D17, opens and closes
-D19 (`IMPLEMENTATION_PLAN.md`). **Decisions taken:** one stage, D19 before D17, one PR; D17's policy
-is "D", below. Both chosen by the user on 2026-09-25 after a `curia-architect` review.
+**Date:** 2026-09-25. **Status:** implemented by
+`docs/superpowers/plans/2026-09-25-screen-what-was-written.md`. **Register:** closes D17, opens and
+closes D19 (`IMPLEMENTATION_PLAN.md`). **Decisions taken:** one stage, D19 before D17, one PR; D17's
+policy is "D", below. Both chosen by the user on 2026-09-25 after a `curia-architect` review.
 
 ## 1. The two defects
 
@@ -101,6 +102,13 @@ same reason a pattern change would.
   characters, is joined to a word character and fails `\b`. At any real wrap width the first line
   carries more than sixteen key characters and the identity view catches it. The implementation
   tests this shape; if it evades, it goes to `known-evasions.jsonl` with this reason.
+
+**Amended during implementation.** The line-joined view is read by the shape rules only
+(`SecretScanner.ScanShapes`), not by the two assignment-style rules — the high-entropy assignment
+and the keyword connection-string password — because their open value classes swallowed the joined
+next line and hard-rejected placeholder config that each line alone passes
+(`API_KEY=changeme⏎DATABASE_URL_FOR_REPLICA=…`, `PWD=/⏎HOME=/root`). The measurement and the cost
+are recorded under D17 in `IMPLEMENTATION_PLAN.md`.
 
 ## 4. Corpus changes
 
