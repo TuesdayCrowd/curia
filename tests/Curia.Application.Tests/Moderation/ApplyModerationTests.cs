@@ -240,6 +240,27 @@ public sealed class ApplyModerationTests
         Assert.Equal(before, (await LogAsync(world, ct)).Count);
     }
 
+    /// <summary>
+    /// R10.59's <c>operator:&lt;name&gt;</c> names who acted. <c>operator: </c> is a valid
+    /// <see cref="ActorId"/> and passes the prefix test, but it names no one, in a leaf that is public
+    /// and permanent; it is refused by name, and nothing is appended. The operator tool refuses a
+    /// blank <c>--by</c> first; this is the writer's own guard, for every other caller.
+    /// </summary>
+    [Fact]
+    public async Task R10_59_ABlankOperatorNameIsRefusedAndNothingIsAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Require(ActorId.Create("operator:   ")), ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/blank-operator-name", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
     /// <summary>R10.60: the rationale lands in a leaf R6.51 serves verbatim, so a credential in it is refused and not echoed.</summary>
     [Fact]
     public async Task R10_60_ACredentialInTheReasonIsRefusedAndNothingIsAppended()

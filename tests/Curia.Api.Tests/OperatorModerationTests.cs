@@ -258,6 +258,38 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     }
 
     /// <summary>
+    /// A blank value is a missing one, refused as usage before anything is written. Without that,
+    /// <c>--post " "</c> reached the writer's argument guard and threw; <c>--by " "</c> was recorded
+    /// as <c>operator: </c>, a permanent public leaf naming no one (R10.59); and <c>--reason " "</c>
+    /// was refused by the writer instead of the verb. Each is aimed at a real, servable post, as
+    /// <see cref="AMissingCategoryIsAUsageErrorAndWritesNothing"/> is, so a verb that let the blank
+    /// through would grow the log.
+    /// </summary>
+    [Theory]
+    [InlineData("post")]
+    [InlineData("by")]
+    [InlineData("reason")]
+    public async Task ABlankValueIsAUsageErrorAndWritesNothing(string blank)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var author = await PartyAsync(client, "op-author", ct);
+        var (postId, _) = await AskAsync(client, author, ct);
+        var before = await LogSizeAsync(client, ct);
+
+        var args = Moderate(postId, "withhold");
+        args[Array.IndexOf(args, "--" + blank) + 1] = " ";
+        var (exit, _, stderr) = await RunAsync(args, ct);
+
+        Assert.Equal(ExitCode.Usage, exit);
+        Assert.Contains($"--{blank} is required", stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await LogSizeAsync(client, ct));
+
+        using var read = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+    }
+
+    /// <summary>
     /// R10.39 counts records, so two operators recording one decision at once must leave one record.
     /// <c>ApplyModeration</c> decides on one read of the log, and the store refuses the append that
     /// read no longer describes; the verb then tells that operator to re-read the post and re-run.
@@ -322,7 +354,9 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     /// R11.31's shape, for the join R10.62 creates. A private row rewritten or lost after the fact no
     /// longer opens its entry's commitment, so the directory skips the flag; the listing is the one
     /// place an operator sees that join, and it counts each skip by reason rather than reading as a
-    /// Forum where the flag was never raised. The count names no raiser and repeats no text.
+    /// Forum where the flag was never raised. The count names no raiser and repeats no text. A
+    /// skipped flag cannot be attributed to a post, so under <c>--post</c> the listing says the
+    /// counts cover every post.
     ///
     /// <para>Both changes are the database owner's: R11.6's grant refuses the Forum's role
     /// <c>UPDATE</c> and <c>DELETE</c> on the table.</para>
@@ -358,6 +392,7 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var (exit, stdout, stderr) = await RunAsync(["flags", "--post", postId], ct);
 
         Assert.True(exit == ExitCode.Ok, stderr);
+        Assert.Contains("note       the skipped counts below cover every post, not only --post", stdout, StringComparison.Ordinal);
         Assert.Contains($"skipped    {FlagDirectory.SkippedCommitmentMismatch}: 1", stdout, StringComparison.Ordinal);
         Assert.Contains($"skipped    {FlagDirectory.SkippedNoDetail}: 1", stdout, StringComparison.Ordinal);
         Assert.Contains("0 flag(s)", stdout, StringComparison.Ordinal);

@@ -374,7 +374,7 @@ public static class OperatorCommands
         }
 
         foreach (var required in (string[])["post", "category", "effect", "reason", "by"])
-            if (!values.TryGetValue(required, out var given) || given.Length == 0)
+            if (!values.TryGetValue(required, out var given) || string.IsNullOrWhiteSpace(given))
                 return await UsageErrorAsync(stderr, $"--{required} is required.").ConfigureAwait(false);
 
         if (!FlagKinds.Parse(values["category"]).TryGetValue(out var category, out var categoryError))
@@ -486,6 +486,11 @@ public static class OperatorCommands
                 TerminalText.Block(rationales.GetValueOrDefault(flag.FlagId, string.Empty)), MarkingMode.Datamark)).ConfigureAwait(false);
             await stdout.WriteLineAsync().ConfigureAwait(false);
         }
+
+        // A skipped flag's post is unknown (no row) or not believed (a row that no longer opens the
+        // commitment), so no skip can be filtered by --post; the counts are the whole directory's.
+        if (post is not null && !directory.Skipped.IsEmpty)
+            await stdout.WriteLineAsync("note       the skipped counts below cover every post, not only --post: a skipped flag cannot be attributed to one").ConfigureAwait(false);
 
         foreach (var (reason, skipped) in directory.Skipped)
             await stdout.WriteLineAsync($"skipped    {reason}: {skipped.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);

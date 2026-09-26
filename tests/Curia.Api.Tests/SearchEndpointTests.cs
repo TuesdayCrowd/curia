@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json;
 using Curia.Domain.Search;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Curia.Api.Tests;

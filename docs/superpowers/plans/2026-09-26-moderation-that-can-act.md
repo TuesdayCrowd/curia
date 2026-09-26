@@ -3758,6 +3758,7 @@ but commit -b moderation-that-can-act -m "$(printf 'The Acta over flag.committed
     | Error | Slug |
     |---|---|
     | `NotAnOperator()` | `curia/moderation/not-an-operator` |
+    | `BlankOperatorName()` | `curia/moderation/blank-operator-name` |
     | `NoSuchPost(string)` | `curia/moderation/no-such-post` |
     | `RationaleRejected(RiskAnnotations)` | `curia/moderation/rationale-rejected` |
     | `NoOp(string, ModerationEffect, FlagKind)` | `curia/moderation/no-op` |
@@ -4010,6 +4011,27 @@ public sealed class ApplyModerationTests
         Assert.Equal(before, (await LogAsync(world, ct)).Count);
     }
 
+    /// <summary>
+    /// R10.59's <c>operator:&lt;name&gt;</c> names who acted. <c>operator: </c> is a valid
+    /// <see cref="ActorId"/> and passes the prefix test, but it names no one, in a leaf that is public
+    /// and permanent; it is refused by name, and nothing is appended. The operator tool refuses a
+    /// blank <c>--by</c> first; this is the writer's own guard, for every other caller.
+    /// </summary>
+    [Fact]
+    public async Task R10_59_ABlankOperatorNameIsRefusedAndNothingIsAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Require(ActorId.Create("operator:   ")), ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/blank-operator-name", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
     /// <summary>R10.60: the rationale lands in a leaf R6.51 serves verbatim, so a credential in it is refused and not echoed.</summary>
     [Fact]
     public async Task R10_60_ACredentialInTheReasonIsRefusedAndNothingIsAppended()
@@ -4173,10 +4195,12 @@ The last four facts were added when the task was built. The first two each cover
   - The overtaken record is refused with `curia/domain/concurrency-conflict`, and the log holds one record, not two.
   - Under a second read, it was appended.
 
+A fourteenth fact, `R10_59_ABlankOperatorNameIsRefusedAndNothingIsAppended`, came from Task 9's review. `operator: ` is a valid `ActorId` and passes the prefix test, so a blank name reached a leaf that is public and permanent. The writer now refuses it as `curia/moderation/blank-operator-name`, after the prefix check and before anything is read. `curia-operator moderate` refuses a blank `--by` as usage before the writer sees it; this is the writer's own guard, for every other caller.
+
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests"`
-Expected: build FAILS with `CS0246: The type or namespace name 'ApplyModeration' could not be found`. That covers all thirteen facts, the four added ones included.
+Expected: build FAILS with `CS0246: The type or namespace name 'ApplyModeration' could not be found`. That covers all fourteen facts, the five added ones included.
 
 - [ ] **Step 3: Write the writer**
 
@@ -4261,6 +4285,10 @@ public sealed class ApplyModeration
             || !moderator.Value.StartsWith(OperatorPrefix, StringComparison.Ordinal)
             || moderator.Value.Length == OperatorPrefix.Length)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NotAnOperator());
+
+        // "operator: " passes the prefix test and names no one, in a leaf that is public and permanent.
+        if (moderator.Value.AsSpan(OperatorPrefix.Length).IsWhiteSpace())
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.BlankOperatorName());
 
         if (string.IsNullOrWhiteSpace(rationale))
             return Result<ModerationRecorded>.Fail(ModerationErrors.RationaleRequired());
@@ -4360,6 +4388,12 @@ public static class ModerationRecordErrors
         "Only an operator records a human moderator's action (R10.59)",
         "the actor must be named operator:<name>");
 
+    /// <summary>R10.59: a record names who acted, publicly and permanently, so the name after <c>operator:</c> may not be blank.</summary>
+    public static Error BlankOperatorName() => new(
+        "curia/moderation/blank-operator-name",
+        "The operator's name is blank; a record names who acted (R10.59)",
+        "the actor must be named operator:<name>, with a <name> that is not blank");
+
     public static Error NoSuchPost(string postId) => new(
         "curia/moderation/no-such-post",
         "No such post",
@@ -4425,7 +4459,7 @@ The slug and title are Task 6's, unchanged, so `R10_26_ACredentialInTheRationale
 - [ ] **Step 4: Run them to see them pass**
 
 Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests|FullyQualifiedName~RaiseFlagTests"`
-Expected: 20 PASS, the 13 `ApplyModerationTests` and the 7 `RaiseFlagTests`, which still read the flag path's refusal through the shared body. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"` reports `0 Warning(s)`.
+Expected: 21 PASS, the 14 `ApplyModerationTests` and the 7 `RaiseFlagTests`, which still read the flag path's refusal through the shared body. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"` reports `0 Warning(s)`.
 
 - [ ] **Step 5: Commit**
 
@@ -4449,7 +4483,7 @@ but commit -b moderation-that-can-act -m "$(printf 'ApplyModeration: the human a
 **Interfaces:**
 - Consumes: `ApplyModeration`, `ModerationRecorded` and `ModerationRecordErrors` (Task 8); `FlagDirectory` (Task 5); `ModerationPolicy.UpheldFlags` and `AdjudicatedFlags` (Task 2); `PostgresAdapters.FlagDetails` (Task 4); `Datamarking.Render` with `MarkingMode.Datamark` (existing, `Curia.Domain.Serving`).
 - Produces:
-  - `curia-operator moderate --post <id> --category <kind> --effect withhold|quarantine|restore|dismiss --reason <text> --by <name>`. Exit codes: `0` recorded, `1` usage, `2` refused. A `curia/domain/concurrency-conflict` refusal (another write reached the post after the record was decided) adds a `hint:` line on stderr: re-read the post and re-run. It names no flag, raiser or rationale.
+  - `curia-operator moderate --post <id> --category <kind> --effect withhold|quarantine|restore|dismiss --reason <text> --by <name>`. Exit codes: `0` recorded, `1` usage, `2` refused. A missing or blank (whitespace-only) value is a usage error. A `curia/domain/concurrency-conflict` refusal (another write reached the post after the record was decided) adds a `hint:` line on stderr: re-read the post and re-run. It names no flag, raiser or rationale.
   - `curia-operator flags [--post <id>] [--open]`.
   - `internal static class TerminalText` with `Line(string)` and `Block(string)`.
   - Stdout formats, which the tests below read:
@@ -4479,7 +4513,7 @@ but commit -b moderation-that-can-act -m "$(printf 'ApplyModeration: the human a
     <<<CURIA-UNTRUSTED-END>>>
     ```
 
-    then `skipped    <reason>: <n>` lines, and `<n> flag(s)`.
+    then, under `--post` and only when something was skipped, a `note` line saying the counts cover every post, because a skipped flag cannot be attributed to one; then `skipped    <reason>: <n>` lines, and `<n> flag(s)`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4746,6 +4780,38 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     }
 
     /// <summary>
+    /// A blank value is a missing one, refused as usage before anything is written. Without that,
+    /// <c>--post " "</c> reached the writer's argument guard and threw; <c>--by " "</c> was recorded
+    /// as <c>operator: </c>, a permanent public leaf naming no one (R10.59); and <c>--reason " "</c>
+    /// was refused by the writer instead of the verb. Each is aimed at a real, servable post, as
+    /// <see cref="AMissingCategoryIsAUsageErrorAndWritesNothing"/> is, so a verb that let the blank
+    /// through would grow the log.
+    /// </summary>
+    [Theory]
+    [InlineData("post")]
+    [InlineData("by")]
+    [InlineData("reason")]
+    public async Task ABlankValueIsAUsageErrorAndWritesNothing(string blank)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var author = await PartyAsync(client, "op-author", ct);
+        var (postId, _) = await AskAsync(client, author, ct);
+        var before = await LogSizeAsync(client, ct);
+
+        var args = Moderate(postId, "withhold");
+        args[Array.IndexOf(args, "--" + blank) + 1] = " ";
+        var (exit, _, stderr) = await RunAsync(args, ct);
+
+        Assert.Equal(ExitCode.Usage, exit);
+        Assert.Contains($"--{blank} is required", stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await LogSizeAsync(client, ct));
+
+        using var read = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+    }
+
+    /// <summary>
     /// R10.39 counts records, so two operators recording one decision at once must leave one record.
     /// <c>ApplyModeration</c> decides on one read of the log, and the store refuses the append that
     /// read no longer describes; the verb then tells that operator to re-read the post and re-run.
@@ -4810,7 +4876,9 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     /// R11.31's shape, for the join R10.62 creates. A private row rewritten or lost after the fact no
     /// longer opens its entry's commitment, so the directory skips the flag; the listing is the one
     /// place an operator sees that join, and it counts each skip by reason rather than reading as a
-    /// Forum where the flag was never raised. The count names no raiser and repeats no text.
+    /// Forum where the flag was never raised. The count names no raiser and repeats no text. A
+    /// skipped flag cannot be attributed to a post, so under <c>--post</c> the listing says the
+    /// counts cover every post.
     ///
     /// <para>Both changes are the database owner's: R11.6's grant refuses the Forum's role
     /// <c>UPDATE</c> and <c>DELETE</c> on the table.</para>
@@ -4846,6 +4914,7 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var (exit, stdout, stderr) = await RunAsync(["flags", "--post", postId], ct);
 
         Assert.True(exit == ExitCode.Ok, stderr);
+        Assert.Contains("note       the skipped counts below cover every post, not only --post", stdout, StringComparison.Ordinal);
         Assert.Contains($"skipped    {FlagDirectory.SkippedCommitmentMismatch}: 1", stdout, StringComparison.Ordinal);
         Assert.Contains($"skipped    {FlagDirectory.SkippedNoDetail}: 1", stdout, StringComparison.Ordinal);
         Assert.Contains("0 flag(s)", stdout, StringComparison.Ordinal);
@@ -4858,7 +4927,7 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~OperatorModerationTests"`
-Expected: the tests build, and every test that runs a verb FAILS with exit code `1` (`unknown verb 'moderate'` or `'flags'`). `AMissingCategoryIsAUsageErrorAndWritesNothing` also fails, on the message. So do the two facts beyond the first six: the race fact at `Assert.Single`, both runs having exited `1`, and the skip-count fact on its exit code.
+Expected: the tests build, and every test that runs a verb FAILS with exit code `1` (`unknown verb 'moderate'` or `'flags'`). `AMissingCategoryIsAUsageErrorAndWritesNothing` also fails, on the message. So do the tests beyond the first six: the race fact at `Assert.Single`, both runs having exited `1`; the skip-count fact on its exit code; and the three rows of `ABlankValueIsAUsageErrorAndWritesNothing`, on the message, as `AMissingCategoryIsAUsageErrorAndWritesNothing` does.
 
 - [ ] **Step 3: Write the terminal-safety helper**
 
@@ -4977,7 +5046,7 @@ In `src/Curia.Operator/Program.cs`:
         }
 
         foreach (var required in (string[])["post", "category", "effect", "reason", "by"])
-            if (!values.TryGetValue(required, out var given) || given.Length == 0)
+            if (!values.TryGetValue(required, out var given) || string.IsNullOrWhiteSpace(given))
                 return await UsageErrorAsync(stderr, $"--{required} is required.").ConfigureAwait(false);
 
         if (!FlagKinds.Parse(values["category"]).TryGetValue(out var category, out var categoryError))
@@ -5090,6 +5159,11 @@ In `src/Curia.Operator/Program.cs`:
             await stdout.WriteLineAsync().ConfigureAwait(false);
         }
 
+        // A skipped flag's post is unknown (no row) or not believed (a row that no longer opens the
+        // commitment), so no skip can be filtered by --post; the counts are the whole directory's.
+        if (post is not null && !directory.Skipped.IsEmpty)
+            await stdout.WriteLineAsync("note       the skipped counts below cover every post, not only --post: a skipped flag cannot be attributed to one").ConfigureAwait(false);
+
         foreach (var (reason, skipped) in directory.Skipped)
             await stdout.WriteLineAsync($"skipped    {reason}: {skipped.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
 
@@ -5190,7 +5264,7 @@ In `tests/Curia.Api.Tests/FlagEndpointTests.cs`:
 
 In `tests/Curia.Api.Tests/SearchEndpointTests.cs`, change `await WithholdAsync(withheld, ct);` to `await forum.WithholdAsync(withheld, ct);`, and delete the private `WithholdAsync` method and its doc comment.
 
-Deleting the private `WithholdAsync` copies orphans every `using` only they needed. In `FlagEndpointTests.cs`, delete `using Curia.Application.Ports;`, `using Curia.Application.Projections;`, `using Curia.Canon.Json;`, `using Curia.Domain;`, `using Curia.Domain.Moderation;`, `using Curia.Domain.Primitives;` and `using Microsoft.Extensions.DependencyInjection;`. In `SearchEndpointTests.cs`, delete the same first six. The build will not point at them: IDE0005 has no severity in this repository, so an unused `using` builds clean. Checked with IDE0005 switched on and read from a SARIF log (`-p:ErrorLog=…`), because IDE0005 reports a contiguous run of unnecessary usings as one diagnostic at the run's first line: those thirteen lines are the only ones this task orphans. `SearchEndpointTests.cs`'s `using Curia.Domain.Search;` was already unused before this task and is left alone.
+Deleting the private `WithholdAsync` copies orphans every `using` only they needed. In both `FlagEndpointTests.cs` and `SearchEndpointTests.cs`, delete `using Curia.Application.Ports;`, `using Curia.Application.Projections;`, `using Curia.Canon.Json;`, `using Curia.Domain;`, `using Curia.Domain.Moderation;`, `using Curia.Domain.Primitives;` and `using Microsoft.Extensions.DependencyInjection;`. The build will not point at them: IDE0005 has no severity in this repository, so an unused `using` builds clean. Checked by removing each remaining `using` in both files in turn and compiling: those fourteen lines are the only ones this task orphans. IDE0005's own report is not a count to rely on here, since it reports a contiguous run of unnecessary usings as one diagnostic at the run's first line, and its SARIF regions missed `DependencyInjection` in `SearchEndpointTests.cs`. `SearchEndpointTests.cs`'s `using Curia.Domain.Search;` was already unused before this task and is left alone.
 
 - [ ] **Step 6: Run the verbs and every suite that withholds**
 
@@ -5202,7 +5276,7 @@ dotnet test tests/Curia.Architecture.Tests -c Release --nologo
 
 Expected:
 - `0 Warning(s)`.
-- The 8 `OperatorModerationTests` pass.
+- The 11 `OperatorModerationTests` cases pass: eight facts, and a theory over three blank values.
 - `BatchRetrievalTests` and `ConditionalRequestTests` pass unchanged. They withhold through the fixture, which now runs the writer.
 - `CS7_HostProjectsDoNotNameDatabaseOrCryptoTypes` passes, because the operator names no Npgsql type.
 

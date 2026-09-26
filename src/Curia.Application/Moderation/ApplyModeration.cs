@@ -77,6 +77,10 @@ public sealed class ApplyModeration
             || moderator.Value.Length == OperatorPrefix.Length)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NotAnOperator());
 
+        // "operator: " passes the prefix test and names no one, in a leaf that is public and permanent.
+        if (moderator.Value.AsSpan(OperatorPrefix.Length).IsWhiteSpace())
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.BlankOperatorName());
+
         if (string.IsNullOrWhiteSpace(rationale))
             return Result<ModerationRecorded>.Fail(ModerationErrors.RationaleRequired());
 
@@ -174,6 +178,12 @@ public static class ModerationRecordErrors
         "curia/moderation/not-an-operator",
         "Only an operator records a human moderator's action (R10.59)",
         "the actor must be named operator:<name>");
+
+    /// <summary>R10.59: a record names who acted, publicly and permanently, so the name after <c>operator:</c> may not be blank.</summary>
+    public static Error BlankOperatorName() => new(
+        "curia/moderation/blank-operator-name",
+        "The operator's name is blank; a record names who acted (R10.59)",
+        "the actor must be named operator:<name>, with a <name> that is not blank");
 
     public static Error NoSuchPost(string postId) => new(
         "curia/moderation/no-such-post",
