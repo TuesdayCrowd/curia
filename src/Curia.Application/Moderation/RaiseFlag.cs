@@ -171,17 +171,8 @@ public static class FlagErrors
     /// the category and its position (R10.27) and never the matched value — structurally, because
     /// <c>RiskFlag</c> has no member that can carry content.
     /// </summary>
-    public static Error RationaleRejected(RiskAnnotations annotations)
-    {
-        ArgumentNullException.ThrowIfNull(annotations);
-
-        var categories = string.Join(
-            ", ",
-            annotations.Flags.Select(f => $"{f.Category}@{f.Offset.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
-
-        return new Error(
-            "curia/flag/rationale-rejected",
-            "The flag's rationale was rejected by ingest screening",
-            categories);
-    }
+    public static Error RationaleRejected(RiskAnnotations annotations) => RationaleRefusal.Of(
+        "curia/flag/rationale-rejected",
+        "The flag's rationale was rejected by ingest screening",
+        annotations);
 }

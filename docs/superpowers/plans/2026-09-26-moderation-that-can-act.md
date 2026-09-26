@@ -4016,13 +4016,86 @@ public sealed class ApplyModerationTests
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/no-such-post", error!.Type);
     }
+
+    /// <summary>
+    /// R10.61 where lateness is visible. A flag raised after its category was withheld is neither upheld
+    /// nor adjudicated by that withholding, and the next withholding is a record rather than a no-op,
+    /// because it adjudicates the late flag. R10.60 has a reviewing record name every flag of its
+    /// category raised before it, so that record names the first flag again; the late flag is the only
+    /// one it adjudicates for the first time.
+    /// </summary>
+    [Fact]
+    public async Task R10_61_ALateFlagIsNotUpheldByAnEarlierWithholdingAndTheNextWithholdingAdjudicatesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+
+        var first = await FlagAsync(world, FlagKind.Spam, ct);
+        var withheld = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        Assert.Equal([first], withheld.Adjudicates);
+
+        var late = await FlagAsync(world, FlagKind.Spam, ct);
+        var between = await ModerationAsync(world, ct);
+        Assert.Equal([first], between.UpheldFlags);
+        Assert.DoesNotContain(late, ModerationPolicy.AdjudicatedFlags(between.History));
+
+        var again = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: the same advertising.", Operator, ct);
+
+        Assert.True(again.TryGetValue(out var recorded, out var error), error?.Type);
+        Assert.Equal([first, late], recorded!.Adjudicates);
+        var after = await ModerationAsync(world, ct);
+        Assert.Equal([late], ModerationPolicy.AdjudicatedFlags(after.History).Except(ModerationPolicy.AdjudicatedFlags(between.History)));
+        Assert.Contains(late, after.UpheldFlags);
+    }
+
+    /// <summary>
+    /// R10.60: an automated record SHALL name no flag. The writer takes no moderator kind and records
+    /// R10.59's human arm alone, so every record it writes, whatever its effect, names its flags as a
+    /// human record, in the leaf and in the fold, and none is automated.
+    /// </summary>
+    [Fact]
+    public async Task R10_60_EveryRecordTheWriterWritesIsHumanSoNoAutomatedRecordNamesAFlag()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+
+        await FlagAsync(world, FlagKind.Spam, ct);
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Quarantine, FlagKind.Spam, "Pending a closer look.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.Spam, "Not advertising after all.", Operator, ct));
+        await FlagAsync(world, FlagKind.Incorrect, ct);
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Dismiss, FlagKind.Incorrect, "Reviewed: the premise holds.", Operator, ct));
+        await FlagAsync(world, FlagKind.Injection, ct);
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Injection, "Reviewed: it addresses the reader.", Operator, ct));
+
+        var records = (await LogAsync(world, ct)).Where(e => e.Event.Type.Value == FlagProjector.ModerationAppliedType).ToList();
+        Assert.Equal(4, records.Count);
+        Assert.All(records, r => Assert.Equal(
+            new JsonValue.String("human"),
+            ((JsonValue.Object)r.Event.Payload).Members.Single(m => m.Key == FlagProjector.ModeratorField).Value));
+
+        var history = (await ModerationAsync(world, ct)).History;
+        Assert.Equal(4, history.Length);
+        Assert.All(history, action =>
+        {
+            Assert.NotEmpty(action.Adjudicates);
+            Assert.Equal(ModeratorKind.Human, action.Moderator);
+        });
+    }
 }
 ```
+
+The last two facts were added when the task was built. Each covers a case an earlier task's review said no test reached:
+
+- `R10_61_ALateFlagIsNotUpheldByAnEarlierWithholdingAndTheNextWithholdingAdjudicatesIt` is Task 5's late-flag sequence, at the layer where lateness is visible:
+  1. A spam flag is raised and withheld. The record names exactly that flag.
+  2. A second spam flag is raised. `UpheldFlags` is still the first flag alone, and the second is not adjudicated.
+  3. A second withholding is recorded, not refused as a no-op. R10.60 has a reviewing record name every flag of its category raised before it, so it names both flags. The late flag is the only one it adjudicates for the first time.
+- `R10_60_EveryRecordTheWriterWritesIsHumanSoNoAutomatedRecordNamesAFlag` is Task 6's carry. R10.60 says an automated record SHALL name no flag, and `curia_flag`'s text tells agents that an automated quarantine is not a review. `RecordAsync` takes no moderator kind, so the writer is human-only by construction. The fact records one of each of the four effects, each naming a flag, and asserts that every record is human in the leaf and in the fold.
 
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests"`
-Expected: build FAILS with `CS0246: The type or namespace name 'ApplyModeration' could not be found`.
+Expected: build FAILS with `CS0246: The type or namespace name 'ApplyModeration' could not be found`. That covers all eleven facts, the two added ones included.
 
 - [ ] **Step 3: Write the writer**
 
@@ -4271,7 +4344,7 @@ The slug and title are Task 6's, unchanged, so `R10_26_ACredentialInTheRationale
 - [ ] **Step 4: Run them to see them pass**
 
 Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests|FullyQualifiedName~RaiseFlagTests"`
-Expected: 16 PASS, the 9 `ApplyModerationTests` and the 7 `RaiseFlagTests`, which still read the flag path's refusal through the shared body. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"` reports `0 Warning(s)`.
+Expected: 18 PASS, the 11 `ApplyModerationTests` and the 7 `RaiseFlagTests`, which still read the flag path's refusal through the shared body. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"` reports `0 Warning(s)`.
 
 - [ ] **Step 5: Commit**
 
