@@ -48,3 +48,16 @@
 {"id": "secret-wrapped-at-prefix-hyphen", "class": "credential", "outcome": "flagged", "content": "key: sk-\nproj-A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3", "expect": ["ApiKey"]}
 {"id": "secret-wrapped-in-quote-gutter", "class": "credential", "outcome": "flagged", "content": "> token: ghp_A7bQ2xLm9R\n> tVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}
 {"id": "secret-wrapped-webhook-in-host", "class": "credential", "outcome": "flagged", "content": "export SLACK_WEBHOOK_URL=https://hooks.sla\nck.com/services/T-EXAMPLE-0/B-EXAMPLE-0/EXAMPLE-NOT-A-REAL-SECRET", "expect": ["ApiKey"]}
+{"id": "secret-zero-width-after-prefix", "class": "credential", "outcome": "flagged", "content": "token: ghp_\u200bA7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-soft-hyphen-after-prefix", "class": "credential", "outcome": "flagged", "content": "key: sk-proj-\u00adA7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-zero-width-inside-prefix", "class": "credential", "outcome": "flagged", "content": "key: sk-\u200bproj-\u200bA7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-zero-width-mid-token", "class": "credential", "outcome": "flagged", "content": "token: ghp_A7bQ2xLm\u200b9RtVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-soft-hyphen-at-a-wrap", "class": "credential", "outcome": "flagged", "content": "token: ghp_A7bQ2xLm9R\u00ad\ntVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-zero-width-joiner-before-prefix", "class": "credential", "outcome": "flagged", "content": "token: \u200dghp_A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-word-joiner-mid-token", "class": "credential", "outcome": "flagged", "content": "token: ghp_A7bQ2xLm\u20609RtVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey", "HiddenText"]}
+{"id": "secret-wrapped-at-a-line-separator", "class": "credential", "outcome": "flagged", "content": "token: ghp_A7bQ2xLm9R\u2028tVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}
+{"id": "secret-wrapped-at-every-unicode-break", "class": "credential", "outcome": "flagged", "content": "token: ghp_A7b\u000bQ2x\fLm9\u0085RtV\u2028zP4\u2029kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}
+{"id": "secret-wrapped-in-slash-comment", "class": "credential", "outcome": "flagged", "content": "// token: ghp_A7bQ2xLm9R\n// tVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}
+{"id": "secret-wrapped-in-block-comment", "class": "credential", "outcome": "flagged", "content": "/*\n * token: ghp_A7bQ2xLm9R\n * tVzP4kW8sYcE1nJ6dH0uF3gI5o\n */", "expect": ["ApiKey"]}
+{"id": "secret-wrapped-in-semicolon-comment", "class": "credential", "outcome": "flagged", "content": "; token: ghp_A7bQ2xLm9R\n; tVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}
+{"id": "secret-wrapped-in-dash-comment", "class": "credential", "outcome": "flagged", "content": "-- token: ghp_A7bQ2xLm9R\n-- tVzP4kW8sYcE1nJ6dH0uF3gI5o", "expect": ["ApiKey"]}

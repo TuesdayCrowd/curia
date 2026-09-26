@@ -256,7 +256,9 @@ public sealed class RedTeamCorpusTests
             .AppendLine("canonical post envelope, as ingest and the client's pre-send check screen it, and")
             .AppendLine("*enveloped after a line* puts one line before it. These rates were once published for the")
             .AppendLine("bare shape only, while ingest -- which read JCS text, where a line break is `\\n` --")
-            .AppendLine("admitted AWS keys, JWTs and assigned secrets on any line after the first.")
+            .AppendLine("admitted a credential at the start of any line after the first or after a tab, and an")
+            .AppendLine("assigned secret whose value was quoted, and left an injection phrase starting such a line")
+            .AppendLine("unannotated.")
             .AppendLine()
             .AppendLine("## How to read these numbers (R10.11)")
             .AppendLine()
@@ -449,8 +451,9 @@ public sealed class RedTeamCorpusTests
     /// The forms a corpus entry is screened in (R10.24, register D19). <b>bare</b> is what
     /// <c>RaiseFlag</c> screens. The two enveloped shapes are what ingest and the client's pre-send
     /// check screen: the entry as the <c>body</c> of a canonical envelope, alone and after one line.
-    /// The rates were once published for the bare shape only, while ingest admitted AWS keys, JWTs
-    /// and assigned secrets on any line after the first -- a rate is a statement about a shape.
+    /// The rates were once published for the bare shape only, while ingest admitted a credential at
+    /// the start of any line after the first or after a tab, and an assigned secret whose value was
+    /// quoted -- a rate is a statement about a shape.
     /// </summary>
     private sealed record Shape(string Name, Func<string, string[]> Detect);
 

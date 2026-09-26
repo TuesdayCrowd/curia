@@ -42,8 +42,9 @@ public sealed record CanonicalString(string Text, ImmutableArray<int> Start, Imm
 /// <para><b>Why SCREEN needs this.</b> Ingest and the client's pre-send check hold canonical text,
 /// in which JCS writes a line break as the two characters <c>\n</c> and a quote as <c>\"</c>. A rule
 /// anchored on a word boundary read the escape's letter instead of the separator the author typed,
-/// so an AWS key, a JWT or an assigned secret on any line after the first was admitted into an
-/// append-only log, while the red-team corpus — which screened bare strings — published 41/41.</para>
+/// so a credential at the start of any line after the first or after a tab, and an assigned secret
+/// whose value was quoted, were admitted into an append-only log, while the red-team corpus — which
+/// screened bare strings — published 41/41.</para>
 ///
 /// <para><b>Member names are tokens too.</b> An unknown member is ignored rather than rejected
 /// (<c>PostEnvelope</c>), so its name is chosen by the author, signed and persisted.</para>

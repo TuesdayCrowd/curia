@@ -41,14 +41,15 @@ public sealed record ScreeningResult(ScreeningOutcome Outcome, RiskAnnotations A
 /// arranged so that breaking it requires adding a member, not forgetting a rule:</para>
 ///
 /// <list type="bullet">
-/// <item><see cref="Screen"/> takes <see cref="ReadOnlySpan{T}"/> of the verified bytes. A span
-/// cannot be stored in a field, so the phase structurally cannot retain the content it
-/// screened.</item>
-/// <item>It returns a <see cref="ScreeningResult"/>, which holds only
+/// <item><see cref="ScreenEnvelope"/> and <see cref="ScreenText"/> take <see cref="ReadOnlySpan{T}"/>
+/// of the verified bytes. A span cannot be stored in a field, so the phase structurally cannot
+/// retain the content it screened.</item>
+/// <item>Each returns a <see cref="ScreeningResult"/>, which holds only
 /// <see cref="RiskAnnotations"/>, which holds only <see cref="RiskFlag"/>s, which hold no text.
 /// There is no return path a byte of content could travel along.</item>
-/// <item>The derived copy R6.13 permits -- the decoded string the detectors read -- is a local.
-/// It is created here, read by the detectors, and unreachable when this method returns.</item>
+/// <item>The derived copy R6.13 permits -- the decoded strings the detectors read -- is held in
+/// locals. They are created here, read by the detectors, and unreachable when either method
+/// returns.</item>
 /// </list>
 ///
 /// <para>P23/P25 then test what the types already claim, which is the right redundancy: the
@@ -70,7 +71,9 @@ public static class ContentScreener
     /// <para><b>Screens what the author wrote, not how JCS encoded it</b> (register D19). In
     /// canonical text a line break is the two characters <c>\n</c> and a quote is <c>\"</c>, so a
     /// rule anchored on a word boundary read the escape's letter instead of the separator the author
-    /// typed: an AWS key, a JWT or an assigned secret on any line after the first was admitted.
+    /// typed: a credential at the start of any line after the first or after a tab, and an assigned
+    /// secret whose value was quoted, were admitted, and an injection phrase starting such a line
+    /// went unannotated.
     /// Every string token — member names included — is decoded by <see cref="CanonicalStrings"/>
     /// and screened on its own, which also stops a pattern running from one member into the next.</para>
     ///
@@ -107,10 +110,12 @@ public static class ContentScreener
 
     private static string Decode(ReadOnlySpan<byte> bytes)
     {
-        // R6.13's derived copy, and the only one. The bytes are already known-valid UTF-8 -- ADMIT
-        // rejected invalid UTF-8, unpaired surrogates and NUL bytes before canonicalization was
-        // attempted (R6.15) -- so a throwing decoder is the right one here: a failure would mean
-        // an earlier phase let something through, which is a bug rather than a submission outcome.
+        // R6.13's derived copy -- this decoded string and, in ScreenEnvelope, each token's decoded
+        // text, all locals discarded when screening returns. The bytes are already known-valid
+        // UTF-8 -- ADMIT rejected invalid UTF-8, unpaired surrogates and NUL bytes before
+        // canonicalization was attempted (R6.15) -- so a throwing decoder is the right one here: a
+        // failure would mean an earlier phase let something through, which is a bug rather than a
+        // submission outcome.
         try
         {
             return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
@@ -139,10 +144,12 @@ public static class ContentScreener
             // The line-joined view deletes line breaks, so a phrase pattern over it would match across
             // lines that were never adjacent as prose; the injection detector never reads it. It is for
             // credentials, and only the secret shape rules read it (register D17). The prefixed-key
-            // rule is word-anchored, so a vendor prefix inside a word does not start a match. The two
-            // assignment rules -- the keyword connection-string password and the high-entropy
-            // assignment -- are left out: their open value classes would swallow the joined next line
-            // and turn a placeholder into a secret.
+            // rule is word-anchored, so a vendor prefix inside a word does not start a match. Three
+            // rules are left out, each for an open class that reads the joined next line into its
+            // match: the high-entropy assignment and the keyword connection-string password, whose
+            // values would swallow it and turn a placeholder into a secret, and the URI
+            // connection-string password, which reads a `host:port` line end followed by an @-mention,
+            // a decorator or a doc-comment `@param` as `user:pass@`.
             var scoped = view.Name is "line-joined"
                 ? SecretScanner.ScanShapes(view.Text)
                 : SecretScanner.Scan(view.Text).Concat(InjectionDetector.Scan(view.Text));

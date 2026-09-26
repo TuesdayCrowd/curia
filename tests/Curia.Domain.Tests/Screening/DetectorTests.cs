@@ -90,13 +90,32 @@ public sealed class DetectorTests
     public void R10_8_InjectionPatternsAreDetected(string content, RiskCategory expected) =>
         Assert.Contains(expected, Injections(content));
 
-    /// <summary>R10.8's "zero-width characters ... unusual Unicode direction marks".</summary>
+    /// <summary>
+    /// R10.8's "zero-width characters ... unusual Unicode direction marks": every character of the
+    /// set, one row each, because the set is shared with the line-joined view (HiddenCharacters) and
+    /// a character dropped from it would stop both annotating and being deleted from a split key.
+    /// U+2060 (word joiner) joined the set in injection/2026-09-26; before that a key split by one
+    /// was admitted with no annotation at all (register D17). Written as escapes, not as the
+    /// characters themselves, so the rows can be read.
+    /// </summary>
     [Theory]
-    [InlineData("visible​hidden")]   // zero-width space
-    [InlineData("visible‍hidden")]   // zero-width joiner
-    [InlineData("visible‮hidden")]   // right-to-left override
-    [InlineData("visible⁦hidden")]   // first strong isolate
-    [InlineData("visible­hidden")]   // soft hyphen
+    [InlineData("visible\u00ADhidden")]   // soft hyphen
+    [InlineData("visible\u200Bhidden")]   // zero-width space
+    [InlineData("visible\u200Chidden")]   // zero-width non-joiner
+    [InlineData("visible\u200Dhidden")]   // zero-width joiner
+    [InlineData("visible\u200Ehidden")]   // left-to-right mark
+    [InlineData("visible\u200Fhidden")]   // right-to-left mark
+    [InlineData("visible\u202Ahidden")]   // left-to-right embedding
+    [InlineData("visible\u202Bhidden")]   // right-to-left embedding
+    [InlineData("visible\u202Chidden")]   // pop directional formatting
+    [InlineData("visible\u202Dhidden")]   // left-to-right override
+    [InlineData("visible\u202Ehidden")]   // right-to-left override
+    [InlineData("visible\u2060hidden")]   // word joiner
+    [InlineData("visible\u2066hidden")]   // left-to-right isolate
+    [InlineData("visible\u2067hidden")]   // right-to-left isolate
+    [InlineData("visible\u2068hidden")]   // first strong isolate
+    [InlineData("visible\u2069hidden")]   // pop directional isolate
+    [InlineData("visible\uFEFFhidden")]   // zero-width no-break space (BOM)
     public void R10_8_HiddenCharactersAreDetected(string content) =>
         Assert.Contains(RiskCategory.HiddenText, Injections(content));
 

@@ -2,11 +2,11 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (44/44) | **0.0 %** (0/31) |
-| enveloped | **100.0 %** (44/44) | **0.0 %** (0/31) |
-| enveloped after a line | **100.0 %** (44/44) | **0.0 %** (0/31) |
+| bare | **100.0 %** (57/57) | **0.0 %** (0/34) |
+| enveloped | **100.0 %** (57/57) | **0.0 %** (0/34) |
+| enveloped after a line | **100.0 %** (57/57) | **0.0 %** (0/34) |
 
-- Detector versions: secrets/2026-09-25b, injection/2026-09-25
+- Detector versions: secrets/2026-09-26, injection/2026-09-26
 - Excluded from the detection rate: **6** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
 
 ## The shapes (register D19)
@@ -16,7 +16,9 @@ alone, as a flag's rationale is screened. *enveloped* is the entry as the `body`
 canonical post envelope, as ingest and the client's pre-send check screen it, and
 *enveloped after a line* puts one line before it. These rates were once published for the
 bare shape only, while ingest -- which read JCS text, where a line break is `\n` --
-admitted AWS keys, JWTs and assigned secrets on any line after the first.
+admitted a credential at the start of any line after the first or after a tab, and an
+assigned secret whose value was quoted, and left an injection phrase starting such a line
+unannotated.
 
 ## How to read these numbers (R10.11)
 
@@ -30,7 +32,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**5 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**9 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody
@@ -43,6 +45,10 @@ Each one, with the reason recorded in the corpus:
 - **`evade-role-indirect`** -- would be RoleAssumption. Role assumption without any of the named phrasings. Same class as the synonym case.
 - **`evade-secret-split`** -- would be ApiKey. A credential split with words between its pieces on one line. Accidents split a credential at a line break, which the line-joined view rejoins; words interleaved on one line are deliberate, and a deliberate author has encodings no view undoes. The cross-word view that caught this also refused ordinary English -- risk-based, task-queue -- and every agent whose identifier contained ask- (register D17).
 - **`evade-wrapped-at-line-start-after-a-word`** -- would be ApiKey. A key whose line starts with its prefix, after a line ending in a letter, wrapped within its first sixteen characters. The line-joined view puts that letter before the prefix, so the anchored rule finds no word boundary. At any real wrap width the first line carries more than sixteen key characters and the identity view catches it; this shape needs a line narrower than the prefix plus sixteen.
+- **`evade-split-into-adjacent-literals`** -- would be ApiKey. A key split into adjacent string literals is joined by the language, not by a wrap: the quotes between the pieces are authored syntax, like the words in evade-secret-split. Policy D rejoins what a terminal or a mail client wrapped, and rejoining literals needs a model of each language's syntax (register D17).
+- **`evade-split-by-concatenation-operator`** -- would be ApiKey. The same authored split with an operator between the literals, recorded beside the adjacent-literal case so that a view rejoining one language's syntax is not read as covering the family (register D17).
+- **`evade-split-by-shell-continuation`** -- would be ApiKey. A backslash continuation inside a key is typed, not wrapped: tools that wrap a long command break it between arguments, where the key stays whole. Policy D rejoins wraps (register D17).
+- **`evade-connection-string-wrapped-in-userinfo`** -- would be ConnectionStringPassword. A connection string wrapped inside its user or password is rejoined only by the line-joined view, which the URI rule no longer reads: its open classes made a host:port ending one line and a decorator, annotation or @-mention starting the next read as user:pass@. Unlike WebhookUrl's join, that false positive is ordinary code and the wrap it bought is rare, since a connection string is short (register D17).
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.

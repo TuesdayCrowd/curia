@@ -33,8 +33,11 @@ public static partial class SecretScanner
     /// 2026-09-25b: the unanchored prefix rule went with the cross-word view it served; the
     /// connection-string rule split into its URI and keyword forms; and neither the keyword form
     /// nor the high-entropy assignment rule reads the line-joined view that replaced it (register D17).
+    /// 2026-09-26: the line-joined view also deletes invisible characters and rejoins across the
+    /// extended line-break and gutter set, and the connection-string URI rule no longer reads it
+    /// (register D17). A new name, not 2026-09-25b reused: that one is published and in built DLLs.
     /// </summary>
-    public const string Version = "secrets/2026-09-25b";
+    public const string Version = "secrets/2026-09-26";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -55,11 +58,6 @@ public static partial class SecretScanner
         // enough to reject on rather than merely flag.
         (JwtShape(), RiskCategory.JsonWebToken),
 
-        // "connection strings with embedded passwords", the URI form: credentials in the authority.
-        // The keyword form (`Password=...`) is an assignment, and runs in Scan beside the
-        // high-entropy assignment rule rather than here.
-        (ConnectionStringUriPassword(), RiskCategory.ConnectionStringPassword),
-
         // Webhook URLs whose secret is the *path*, not a query parameter.
         //
         // Found by adding a Slack webhook to the red-team corpus and watching every rule miss it.
@@ -76,9 +74,10 @@ public static partial class SecretScanner
     ];
 
     /// <summary>
-    /// Scans a derived copy of the content with every rule: <see cref="ScanShapes"/> and the two
-    /// assignment rules, the keyword connection-string password and the high-entropy assignment.
-    /// The caller owns that copy and discards it (R6.13); nothing returned from here references it.
+    /// Scans a derived copy of the content with every rule: <see cref="ScanShapes"/> and the three
+    /// rules the line-joined view does not read -- the connection-string password in its URI and
+    /// keyword forms, and the high-entropy assignment. The caller owns that copy and discards it
+    /// (R6.13); nothing returned from here references it.
     /// </summary>
     public static IEnumerable<RiskFlag> Scan(string derivedCopy)
     {
@@ -86,6 +85,12 @@ public static partial class SecretScanner
 
         foreach (var flag in ScanShapes(derivedCopy))
             yield return flag;
+
+        // "connection strings with embedded passwords", the URI form: credentials in the authority.
+        // Here rather than in ScanShapes because its open classes read a joined `host:port` line end
+        // and a decorator, annotation or @-mention on the next line as `user:pass@` -- see ScanShapes.
+        foreach (var match in ConnectionStringUriPassword().Matches(derivedCopy).Cast<Match>())
+            yield return new RiskFlag(RiskCategory.ConnectionStringPassword, match.Index, match.Length, Version);
 
         // "connection strings with embedded passwords", the keyword form: `Password=...` is an
         // assignment whose value class is open, so it runs here with the other assignment rule and
@@ -103,18 +108,22 @@ public static partial class SecretScanner
     }
 
     /// <summary>
-    /// Scans a derived copy with the shape rules alone -- every rule in the table, without the two
-    /// assignment rules (the keyword connection-string password and the high-entropy assignment).
-    /// The caller owns that copy and discards it (R6.13).
+    /// Scans a derived copy with the shape rules alone -- every rule in the table, without the three
+    /// <see cref="Scan"/> adds: the connection-string password in its URI and keyword forms, and the
+    /// high-entropy assignment. The caller owns that copy and discards it (R6.13).
     ///
     /// <para><b>The line-joined view reads only these</b> (register D17). That view deletes line
-    /// breaks, and an assignment rule's open value class would swallow the joined next line:
-    /// <c>API_KEY=changeme</c> above <c>DATABASE_URL_FOR_REPLICA=…</c> reads as one long assigned
-    /// run, and <c>PWD=/</c> above <c>HOME=/root</c> as a password, so a placeholder becomes a
-    /// secret. The cost: an assigned value wrapped before either rule's length floor is not
-    /// rejoined for it -- as it was not before this view existed. A wrapped key with a vendor
-    /// prefix is still rejoined for the prefixed-key rule, and a wrapped
-    /// <c>scheme://user:pass@</c> URI for the connection-string URI rule.</para>
+    /// breaks, and each of the three has an open class that reads the joined next line as part of
+    /// its match. An assignment rule's value swallows it: <c>API_KEY=changeme</c> above
+    /// <c>DATABASE_URL_FOR_REPLICA=…</c> reads as one long assigned run, and <c>PWD=/</c> above
+    /// <c>HOME=/root</c> as a password, so a placeholder becomes a secret. The URI rule reads a
+    /// <c>host:port</c> ending one line and an @-mention, a decorator or a doc-comment
+    /// <c>@param</c> starting the next as <c>user:pass@</c> -- and <c>http://localhost:PORT</c> is the
+    /// commonest URL agents post. The cost: an assigned value wrapped before either assignment
+    /// rule's length floor, or a connection string wrapped inside its user or password, is not
+    /// rejoined -- as it was not before this view existed; the second is recorded in
+    /// known-evasions.jsonl. A wrapped key with a vendor prefix is still rejoined for the
+    /// prefixed-key rule, and a wrapped webhook for the webhook rule.</para>
     /// </summary>
     public static IEnumerable<RiskFlag> ScanShapes(string derivedCopy)
     {
@@ -169,7 +178,7 @@ public static partial class SecretScanner
     [GeneratedRegex(@"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", RegexOptions.CultureInvariant)]
     private static partial Regex JwtShape();
 
-    // A URI with credentials in the authority.
+    // A URI with credentials in the authority. Scan runs it and ScanShapes does not.
     [GeneratedRegex(
         @"(?:[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

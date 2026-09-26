@@ -173,6 +173,27 @@ public sealed class ContentScreenerTests
         Assert.NotEqual(ScreeningOutcome.Rejected, result.Outcome);
     }
 
+    /// <summary>
+    /// D17: the line-joined view deletes invisible characters and then line breaks, and composes the
+    /// two index maps, so a rejection's offset still lands on the key the author wrote (R10.27). The
+    /// corpus compares categories only and cannot see an offset; this pins it. The rows are
+    /// <c>secret-zero-width-mid-token</c>, and <c>secret-soft-hyphen-at-a-wrap</c>, where both
+    /// deletions happen inside the key.
+    /// </summary>
+    [Theory]
+    [InlineData("token: ghp_A7bQ2xLm\u200B9RtVzP4kW8sYcE1nJ6dH0uF3gI5o")]
+    [InlineData("token: ghp_A7bQ2xLm9R\u00AD\ntVzP4kW8sYcE1nJ6dH0uF3gI5o")]
+    public void D17_AKeySplitByAnInvisibleCharacterIsReportedWhereTheAuthorWroteIt(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        var flag = Assert.Single(Screen(content).Annotations.Rejecting, f => f.Category is RiskCategory.ApiKey);
+        var reported = content.Substring(flag.Offset, flag.Length);
+
+        Assert.StartsWith("ghp_", reported, StringComparison.Ordinal);
+        Assert.EndsWith("gI5o", reported, StringComparison.Ordinal);
+    }
+
     // ---- R6.13: the three outcomes ----------------------------------------------------------
 
     [Fact]

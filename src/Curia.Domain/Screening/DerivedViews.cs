@@ -106,16 +106,22 @@ public static partial class DerivedViews
         views.Add(Map(content, "unconfused", c => Confusables.TryGetValue(c, out var latin) ? latin : c));
 
         // A credential wrapped across lines: "token: ghp_A7bQ2xLm9R" / "tVzP4k...". Deleting each line
-        // break -- with the next line's indentation and any quote or border gutter (`> `, `│ `, `| `,
-        // `# `, `+ `) -- rejoins what a terminal, an editor or an email client wrapped. Scoped to secret
-        // scanning only, see ContentScreener.
+        // break -- CR, LF, VT, FF, NEL, U+2028 or U+2029, with the next line's indentation and any quote,
+        // border or comment gutter (`> `, `│ `, `| `, `# `, `+ `, ` * `, `; `, `// `, `-- `) -- rejoins
+        // what a terminal, an editor or an email client wrapped. Scoped to secret scanning only, see
+        // ContentScreener.
+        //
+        // It also deletes invisible characters first (HiddenCharacters), because a renderer leaves a soft
+        // hyphen or a zero-width break at a wrap, and a verbatim copy keeps it -- the accidental
+        // disclosure §10.8 is about, not an authored split. The two deletions compose: every kept
+        // character still maps to its index in the original, so a rejection's offset lands on the key.
         //
         // It replaced the "unseparated" view, which deleted *every* separator and so let a vendor prefix
         // swallow the prose after it: "a risk-based approach" read as `sk-basedapproach…`, and an agent
         // whose identifier contained "ask-" could not post at all (register D17). Accidents split a
         // credential at a line break; a split with words between the pieces on one line is deliberate,
         // and is recorded in known-evasions.jsonl rather than chased.
-        views.Add(WithRunsRemoved(content, "line-joined", LineBreakWithGutter()));
+        views.Add(WithRunsRemoved(Map(content, "line-joined", Visible), LineBreakWithGutter()));
 
         views.AddRange(DecodedSegments(content));
 
@@ -161,34 +167,43 @@ public static partial class DerivedViews
         return new DerivedView(name, text.ToString(), indexes.ToImmutable());
     }
 
-    [GeneratedRegex(@"[ \t]*[\r\n]+[ \t]*(?:[>│|#+][ \t]*)*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"[ \t]*[\r\n\u000B\u000C\u0085\u2028\u2029]+[ \t]*(?:(?:[>│|#+*;]|/{2,}|--)[ \t]*)*", RegexOptions.CultureInvariant)]
     private static partial Regex LineBreakWithGutter();
 
-    /// <summary>Drops every run <paramref name="runs"/> matches, keeping the index map.</summary>
-    private static DerivedView WithRunsRemoved(string content, string name, Regex runs)
+    /// <summary>Drops the invisible characters <see cref="HiddenCharacters"/> names, for the line-joined view.</summary>
+    private static char Visible(char c) => HiddenCharacters.Contains(c) ? '\0' : c;
+
+    /// <summary>
+    /// Drops every run <paramref name="runs"/> matches in <paramref name="view"/>'s text, composing the
+    /// index maps: each kept character maps to the original index its source character in
+    /// <paramref name="view"/> already mapped to, so <see cref="DerivedView.ToOriginal"/> still lands
+    /// in the original after two deletions.
+    /// </summary>
+    private static DerivedView WithRunsRemoved(DerivedView view, Regex runs)
     {
-        var text = new StringBuilder(content.Length);
-        var indexes = ImmutableArray.CreateBuilder<int>(content.Length);
+        var source = view.Text;
+        var text = new StringBuilder(source.Length);
+        var indexes = ImmutableArray.CreateBuilder<int>(source.Length);
         var next = 0;
 
-        foreach (var run in runs.Matches(content).Cast<Match>())
+        foreach (var run in runs.Matches(source).Cast<Match>())
         {
             for (var i = next; i < run.Index; i++)
             {
-                text.Append(content[i]);
-                indexes.Add(i);
+                text.Append(source[i]);
+                indexes.Add(view.OriginalIndex[i]);
             }
 
             next = run.Index + run.Length;
         }
 
-        for (var i = next; i < content.Length; i++)
+        for (var i = next; i < source.Length; i++)
         {
-            text.Append(content[i]);
-            indexes.Add(i);
+            text.Append(source[i]);
+            indexes.Add(view.OriginalIndex[i]);
         }
 
-        return new DerivedView(name, text.ToString(), indexes.ToImmutable());
+        return new DerivedView(view.Name, text.ToString(), indexes.ToImmutable());
     }
 
     /// <summary>

@@ -29,3 +29,6 @@
 {"id": "placeholder-env-example-multiline", "class": "benign", "outcome": "not-flagged", "content": "API_KEY=changeme\nDATABASE_URL_FOR_REPLICA=postgres://db.internal/forum", "expect": []}
 {"id": "placeholder-yaml-token-todo", "class": "benign", "outcome": "not-flagged", "content": "auth:\n  token: TODO\n  refresh_interval_seconds_max: 300", "expect": []}
 {"id": "placeholder-env-dump-pwd-root", "class": "benign", "outcome": "not-flagged", "content": "PWD=/\nHOME=/root", "expect": []}
+{"id": "prose-localhost-url-before-a-mention", "class": "benign", "outcome": "not-flagged", "content": "The Forum runs at http://localhost:5000\n@curia-architect can you confirm the port?", "expect": []}
+{"id": "code-url-constant-before-a-decorator", "class": "benign", "outcome": "not-flagged", "content": "BASE_URL = \"http://localhost:8000\"\n\n\n@pytest.fixture\ndef client():\n    return Client(BASE_URL)", "expect": []}
+{"id": "code-doc-comment-url-before-a-param-tag", "class": "benign", "outcome": "not-flagged", "content": "/**\n * Calls http://localhost:8080\n * @param id the post\n */", "expect": []}
