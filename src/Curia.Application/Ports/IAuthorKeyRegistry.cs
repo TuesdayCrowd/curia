@@ -66,11 +66,13 @@ public interface IAuthorKeyRegistry
     /// </list>
     ///
     /// <para><b>And, as before, a <c>kid</c> registered to a different agent is refused</b>
-    /// (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>). This store is asked for keys two
-    /// ways: by (agent, kid) on the ingest path, and by <c>kid</c> alone by
-    /// <c>Curia.AuthN.Ports.IAgentKeyResolver</c> -- correctly, because a client assertion names its
-    /// key and the subject is established by <i>which key verified</i>, not by a claim. That second
-    /// question only has an answer if a <c>kid</c> identifies one key.</para>
+    /// (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>): a <c>kid</c> identifies one key
+    /// across every identifier (the table's primary key). Both resolvers ask by agent and <c>kid</c>
+    /// together: ingest for a post's author (R6.2), and the token endpoint for the agent named as the
+    /// client (R5.20). The token endpoint once asked by <c>kid</c> alone, on the premise that "the
+    /// subject is established by which key verified". A signature shows possession of <i>some</i>
+    /// registered key and not whose, so one enrolled key minted every identity's token (errata G15,
+    /// D26).</para>
     ///
     /// <para><b>Why the port has no general "register".</b> It had one, and the enrollment endpoint
     /// called it for every request, so any caller could add a key to any identity or replace the

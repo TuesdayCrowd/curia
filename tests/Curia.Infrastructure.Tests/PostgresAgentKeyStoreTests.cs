@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using Curia.Application.Ports;
 using Curia.Canon.Jws;
@@ -16,6 +17,10 @@ namespace Curia.Infrastructure.Tests;
 /// Forum received last month, and a store that answered "is this valid now" would quietly
 /// invalidate the archive one rotation at a time.</para>
 /// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class PostgresAgentKeyStoreTests
 {
@@ -128,10 +133,8 @@ public sealed class PostgresAgentKeyStoreTests
 
     /// <summary>
     /// The constraint the task brief singles out, now enforced by a UNIQUE (PRIMARY KEY) index
-    /// rather than by an application-side scan two concurrent enrollments could both pass.
-    /// <c>Curia.AuthN.Ports.IAgentKeyResolver</c> resolves by <c>kid</c> alone, so a shared
-    /// <c>kid</c> would authenticate the wrong agent -- intermittently, which is the worst way for
-    /// an authentication defect to present.
+    /// rather than by an application-side scan two concurrent enrollments could both pass: the
+    /// store holds a <c>kid</c> for one identifier (R4.31, R4.32).
     /// </summary>
     [Fact]
     public async Task AKidAlreadyRegisteredToADifferentAgentIsRefused()
@@ -147,7 +150,7 @@ public sealed class PostgresAgentKeyStoreTests
 
         // And the refusal left the original registration alone: the resolver still answers with
         // Alice's key, which is the property the refusal exists to protect.
-        var stillAlices = Require(await store.ResolveAsync("kid-contested", ServerTimestamp.At(Today), ct));
+        var stillAlices = Require(await store.ResolveAsync("agent://forum/alice", "kid-contested", ServerTimestamp.At(Today), ct));
         Assert.Equal("kid-contested", stillAlices.Kid);
     }
 
@@ -282,7 +285,7 @@ public sealed class PostgresAgentKeyStoreTests
         Assert.Equal(Today, again.NotAfter);
         Assert.Equal(
             "curia/keys/no-longer-valid",
-            Refusal(await store.ResolveAsync(key.Kid, ServerTimestamp.At(Today.AddDays(1)), ct)).Type);
+            Refusal(await store.ResolveAsync("agent://forum/alice", key.Kid, ServerTimestamp.At(Today.AddDays(1)), ct)).Type);
     }
 
     /// <summary>
@@ -305,25 +308,34 @@ public sealed class PostgresAgentKeyStoreTests
     }
 
     /// <summary>
-    /// <c>Curia.AuthN</c>'s half of the store: resolution by <c>kid</c> alone, which is what a
-    /// client assertion supplies. Sound because a <c>kid</c> identifies exactly one key (the
-    /// PRIMARY KEY above) and because possession of the matching private key is what actually
-    /// authenticates -- see <see cref="PostgresAgentKeyStore"/>'s remarks.
+    /// R5.20 (errata G15), at the adapter: <c>Curia.AuthN</c>'s port asks for a key by agent and
+    /// <c>kid</c> together, and the store answers only for the agent the key is registered to, and
+    /// only inside its window. The fact this replaces held the store to resolving by <c>kid</c>
+    /// alone, the lookup through which any enrolled key obtained any enrolled identity's token.
     /// </summary>
     [Fact]
-    public async Task ResolvingByKidAloneFindsTheKeyAndStillHonorsItsWindow()
+    [SuppressMessage(
+        "Performance",
+        "CA1859:Use concrete types when possible for improved performance",
+        Justification = "The fact is about Curia.AuthN's port, so the store is held as that port: the " +
+            "calls go through the interface R5.20 gave an agent parameter, and would not compile if it lost one.")]
+    public async Task R5_20_TheAssertionPortResolvesAKeyOnlyForTheAgentItIsRegisteredTo()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
-        var key = NewKey("kid-by-kid-alone");
+        Curia.AuthN.Ports.IAgentKeyResolver assertionPort = store;
+        var key = NewKey("kid-alices-alone");
+        var insideWindow = ServerTimestamp.At(LastMonth.AddDays(1));
 
         Require(await store.RegisterAsync("agent://forum/alice", key, LastMonth, Today, ct));
 
-        Assert.Equal(key.Kid, Require(await store.ResolveAsync(key.Kid, ServerTimestamp.At(LastMonth.AddDays(1)), ct)).Kid);
-        Assert.Equal("curia/keys/no-longer-valid", Refusal(await store.ResolveAsync(key.Kid, ServerTimestamp.At(Today), ct)).Type);
+        Assert.Equal(key.Kid, Require(await assertionPort.ResolveAsync("agent://forum/alice", key.Kid, insideWindow, ct)).Kid);
         Assert.Equal(
             "curia/keys/not-registered-to-agent",
-            Refusal(await store.ResolveAsync("kid-nobody-registered", ServerTimestamp.At(Today), ct)).Type);
+            Refusal(await assertionPort.ResolveAsync("agent://forum/bob", key.Kid, insideWindow, ct)).Type);
+        Assert.Equal(
+            "curia/keys/no-longer-valid",
+            Refusal(await assertionPort.ResolveAsync("agent://forum/alice", key.Kid, ServerTimestamp.At(Today), ct)).Type);
     }
 
     /// <summary>

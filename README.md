@@ -122,9 +122,8 @@ Content-Type: application/json
 }
 ```
 
-`kid` must be globally unique. A `kid` already registered to a different agent is refused
-with `409` — the assertion path resolves keys by `kid` alone, so a shared one would
-authenticate the wrong agent intermittently.
+`kid` must be globally unique: the Forum holds each `kid` for one identifier (R4.31), and a
+`kid` already registered to a different agent is refused with `409`.
 
 An identifier is bound to the key its first enrollment registered (R4.31, errata G14).
 

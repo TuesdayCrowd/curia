@@ -297,8 +297,13 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     }
 
     /// <summary>
-    /// R6.31 (errata A12) for the ingest path: the key registered <b>to this agent</b> under this
-    /// <c>kid</c>, valid at <paramref name="at"/> -- the post's <c>server_ts</c>, never "now".
+    /// R6.31 (errata A12) for both resolvers: the key registered <b>to this agent</b> under this
+    /// <c>kid</c>, valid at <paramref name="at"/> -- a <c>server_ts</c>, never "now". Ingest asks for
+    /// a post's author (R6.2, <see cref="IAuthorKeyResolver"/>); the token endpoint asks for the agent
+    /// a request names as its client (R5.20, <c>Curia.AuthN.Ports.IAgentKeyResolver</c>). The two
+    /// ports' signatures are identical, so this one method implements both, and nothing here resolves
+    /// a key by <c>kid</c> alone: a signature shows that its signer holds some registered key, and
+    /// only this table says whose (errata G15).
     /// </summary>
     [SuppressMessage(
         "Reliability",
@@ -328,47 +333,9 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     }
 
     /// <summary>
-    /// R6.31 for the authentication path, where the question arrives without an agent.
-    ///
-    /// <para>Resolving by <c>kid</c> alone is correct here and not a weakening: a client assertion
-    /// names its key, and the subject is established by <i>which key verified</i> rather than by a
-    /// claim, so a <c>kid</c> resolving to some agent's key still only authenticates whoever holds
-    /// the matching private key. What it requires is that a <c>kid</c> identify exactly one key --
-    /// which is why <c>kid</c> is the table's PRIMARY KEY and why enrollment's insert
-    /// (<see cref="EnrollAsync"/>, <c>ON CONFLICT (kid) DO NOTHING</c>) refuses a collision. Under
-    /// the in-memory predecessor this was a scan across every registered agent whose result
-    /// depended on iteration order; here it is a primary-key lookup that cannot return two rows
-    /// because the index cannot hold two.</para>
-    /// </summary>
-    [SuppressMessage(
-        "Reliability",
-        "CA2007:Consider calling ConfigureAwait on the awaited task",
-        Justification = "See RegisterAsync's identical suppression.")]
-    [SuppressMessage(
-        "Security",
-        "CA2100:Review SQL queries for security vulnerabilities",
-        Justification = "See RegisterAsync's identical suppression: the only interpolated text is " +
-            "_table and the SelectColumns constant, both fixed before any call.")]
-    public async Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(kid);
-
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new NpgsqlCommand(
-            $"SELECT {SelectColumns} FROM {_table} WHERE kid = @kid;", connection);
-        command.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = kid });
-
-        // "(any)" is the agent in the failure detail, matching what the in-memory adapter
-        // reported: the caller genuinely did not name one, and inventing a plausible agent id for
-        // the message would make an operator's grep for a real one match this line.
-        return ValidateAt(await ReadOneAsync(command, cancellationToken).ConfigureAwait(false), "(any)", kid, at);
-    }
-
-    /// <summary>
-    /// The single R6.31 evaluation both resolve overloads share. Written once because two copies
-    /// of a validity check are two chances for one of them to compare the wrong instant, which is
-    /// the exact shape of errata A12.
+    /// The single R6.31 evaluation, kept apart from the query. Written once because two copies of a
+    /// validity check are two chances for one of them to compare the wrong instant, which is the
+    /// exact shape of errata A12.
     /// </summary>
     private static Result<PublicKeyMaterial> ValidateAt(
         RegisteredKey? registered, string agentId, string kid, ServerTimestamp at)

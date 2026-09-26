@@ -26,15 +26,23 @@ namespace Curia.AuthN.Ports;
 /// <c>AgentKeySet.ValidateAt</c>/<c>ValidKeysAt</c> under the hood, but that is an implementation
 /// detail on the other side of this port, not something this interface can or should name.
 ///
-/// One resolver instance is scoped by its caller to one agent's registered keys -- see
-/// <see cref="ClientAssertionValidationContext.AgentKeyResolver"/>'s remarks -- mirroring
+/// The agent is a parameter, for the reason the instant is: there is no way to ask for a key
+/// without saying whose (R5.20, errata G15). A signature shows that its signer holds <i>some</i>
+/// registered key and says nothing about whose; only the Registrar's store knows, and a lookup by
+/// <c>kid</c> alone discards the answer. This port once took a <c>kid</c> and an instant, and its
+/// remarks said each instance was scoped by its caller to one agent's keys. The token endpoint
+/// passed the store unscoped, so a key enrolled under its holder's own identifier obtained every
+/// enrolled identity's token. The client-assertion validator now passes the agent the request names
+/// as its client.
+///
+/// The agent is an identifier the store is asked about, never a location, mirroring
 /// <see cref="IJwsKeyResolver"/>'s own "resolve <c>kid</c> only within the configured [...] JWKS,
-/// never fetch a key from a URL found inside the token" shape: the only inputs are a
-/// <c>kid</c> string and an instant, so there is nothing here an implementation could be tempted
-/// to treat as a fetchable location.
+/// never fetch a key from a URL found inside the token" shape: the inputs are two strings and an
+/// instant, and an agent identifier that happens to look like a URL is still only a key in the
+/// store's table (R4.16 rev., errata A16).
 /// </summary>
 public interface IAgentKeyResolver
 {
     Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string kid, ServerTimestamp at, CancellationToken cancellationToken = default);
+        string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default);
 }

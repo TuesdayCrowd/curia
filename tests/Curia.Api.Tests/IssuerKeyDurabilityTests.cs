@@ -159,8 +159,9 @@ public sealed class IssuerKeyDurabilityTests(ForumFixture forum) : IClassFixture
     /// <summary>
     /// The <c>kid</c> uniqueness constraint survives too, and it has to: it is enforced by a
     /// PRIMARY KEY rather than by a scan of process memory, so a host that has just come up
-    /// already knows the identifier is taken. A restarted in-memory store would have handed the
-    /// <c>kid</c> to whoever asked next, and <c>IAgentKeyResolver</c> resolves by <c>kid</c> alone.
+    /// already knows the identifier is taken. A <c>kid</c> is held for one identifier, and the
+    /// primary key survives a restart; a restarted in-memory store would have handed the <c>kid</c>
+    /// to whoever asked next.
     /// </summary>
     [Fact]
     public async Task AKidRegisteredBeforeARestartIsStillRefusedToAnotherAgentAfterOne()

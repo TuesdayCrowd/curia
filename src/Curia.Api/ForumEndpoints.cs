@@ -374,9 +374,12 @@ public static class ForumEndpoints
     /// behind <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route. Its
     /// conclusion was false until errata G14: the endpoint registered whatever key a request
     /// carried, so anyone could add a key to an enrolled identity and post as it, or replace the
-    /// bytes behind its <c>kid</c> and unverify everything it had signed. R4.31 and R4.32 make it
-    /// true -- <see cref="EnrollIdentity"/> registers a key only for an identity that holds none,
-    /// and never changes one it holds -- except in two cases. An identifier nobody has enrolled
+    /// bytes behind its <c>kid</c> and unverify everything it had signed; and, until errata G15, at
+    /// the token endpoint, which resolved an assertion's key by <c>kid</c> alone, so a key enrolled
+    /// under its holder's own identifier authenticated every enrolled identity. R4.31, R4.32 and
+    /// R5.20 make it true -- <see cref="EnrollIdentity"/> registers a key only for an identity that
+    /// holds none, and never changes one it holds, and the token endpoint honours a key only for the
+    /// identity it is registered to -- except in two cases. An identifier nobody has enrolled
     /// belongs to whoever enrolls it first (plan D4, D7). And a lost key row is bound again on its
     /// <c>kid</c> alone, by whoever presents it first, unless another identity took it (R4.31).</para>
     /// </summary>

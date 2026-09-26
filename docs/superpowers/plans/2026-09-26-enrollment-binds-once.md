@@ -3910,11 +3910,14 @@ LOG = "src/Curia.Application/Credentials/EnrollAgent.cs"
 HTTP = "tests/Curia.Api.Tests/EnrollmentBindingTests.cs"
 ENDPOINT = "src/Curia.Api/ForumEndpoints.cs"
 EMBEDDING = "src/Curia.Domain/Search/HashedNGramEmbedding.cs"
+VALIDATOR = "src/Curia.AuthN/ClientAssertionValidator.cs"
+AUTHN_RESOLVER = "tests/Curia.AuthN.Tests/InMemory/InMemoryAgentKeyResolver.cs"
 
 DOMAIN = "tests/Curia.Domain.Tests"
 APP = "tests/Curia.Application.Tests"
 INFRA = "tests/Curia.Infrastructure.Tests"
 API = "tests/Curia.Api.Tests"
+AUTHN = "tests/Curia.AuthN.Tests"
 
 GRANT = ("REVOKE UPDATE ON agent_keys FROM __CURIA_APP_ROLE__;\n"
          "GRANT UPDATE (valid_from, valid_until) ON agent_keys TO __CURIA_APP_ROLE__;   -- R4.19's window; R4.32 forbids the rest\n")
@@ -4037,6 +4040,17 @@ CASES = [
          cmds=[dotnet(DOMAIN, "FullyQualifiedName~HashedNGramEmbeddingTests"),
                dotnet(API, "FullyQualifiedName~WhoseFeaturesCancel")],
          edits=[(EMBEDDING, ZERO_NORM, "")]),
+    dict(id="21", what="both adapters of the authentication port answer by kid alone",
+         cmds=[dotnet(AUTHN, "FullyQualifiedName~R5_20"),
+               dotnet(INFRA, "FullyQualifiedName~PostgresAgentKeyStoreTests"),
+               dotnet(API, "FullyQualifiedName~TokenSubjectBindingTests")],
+         edits=[(STORE, "WHERE kid = @kid AND agent_id = @agent;", "WHERE kid = @kid;"),
+                (AUTHN_RESOLVER, "        if (!_entries.TryGetValue((agentId, kid), out var entry))",
+                                 "        if (_entries.FirstOrDefault(pair => pair.Key.Kid == kid).Value is not { } entry)")]),
+    dict(id="22", what="the validator stops comparing sub with the client",
+         cmds=[dotnet(AUTHN, "FullyQualifiedName~ClientAssertionValidatorTests"),
+               dotnet(API, "FullyQualifiedName~TokenSubjectBindingTests")],
+         edits=[(VALIDATOR, "if (claims.Sub != context.ExpectedSubject)", "if (claims.Sub == \"no-such-subject\")")]),
 ]
 
 # What a failing xUnit test prints about itself, and nothing else: its name, then its message
@@ -4144,7 +4158,7 @@ echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipesta
 
 A pipeline's own status is `tee`'s, so the last line reads the runner's: `${PIPESTATUS[0]}` in bash, `$pipestatus[1]` in fish. That `echo` is the wrapper's and is not logged; the log's last line is the runner's own `runner exit: N`.
 
-Each case must print `RED` for every command it runs, followed by `restore clean`, and the runner's last line must be `runner exit: 0`. `RED` means the run printed a `Failed!` line: a test ran and failed. The runner exits non-zero whenever any command is not `RED` (`BUILD FAILED`, `GREEN`, or `DID NOT RUN`: a non-zero exit with no `Failed!` line, which falsifies nothing), and whenever a patch mismatches or a restore is dirty. Cases 1, 2, 3, 8, 13, 17 and 20 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
+Each case must print `RED` for every command it runs, followed by `restore clean`, and the runner's last line must be `runner exit: 0`. `RED` means the run printed a `Failed!` line: a test ran and failed. The runner exits non-zero whenever any command is not `RED` (`BUILD FAILED`, `GREEN`, or `DID NOT RUN`: a non-zero exit with no `Failed!` line, which falsifies nothing), and whenever a patch mismatches or a restore is dirty. Cases 1, 2, 3, 8, 13, 17, 20, 21 and 22 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
 
 | Case | Must fail, by name |
 |---|---|
@@ -4169,6 +4183,8 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 | 18 | `PostgresAgentKeyStoreTests.AnotherAgentPresentingTheExactKeyIsRefusedAndMovesNoWindow` alone (`Expected a failure, got RegisteredKey { … NotAfter = 3/1/2026 … }`: mallory is handed alice's row, with alice's window closed). `AKidAlreadyRegisteredToADifferentAgentIsRefused` stays green, and it should: its fresh bytes are refused by the material clauses, so only an exact copy of the key reaches the ownership clause alone |
 | 19 | `EnrollIdentityTests.R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt` alone (`Assert.Equal() Failure: Values differ`, `Expected: 0`, `Actual: 1`: the store was asked, called the key held, and only the log's record refused it). The lost-row fact stays green, and it should: an empty store holds nothing to exempt |
 | 20 | `HashedNGramEmbeddingTests.FeaturesThatCancelHaveNoEmbedding` (`Assert.False() Failure`: a vector where there is none); `SearchEndpointTests.AQueryWhoseFeaturesCancelIsAnswered` (`Expected: OK`, `Actual: ServiceUnavailable`), `AQuestionWhoseFeaturesCancelIsCreatedAndServed` (`Expected: Created`, `Actual: InternalServerError`) and `AHostRestartedOverAPostWhoseFeaturesCancelStarts` (`System.InvalidOperationException : The vector index could not be reconciled with the log (curia/retrieval/index-unavailable: … 22000: NaN not allowed in vector)`). Both digest pins stay green, and they should: neither text's features cancel |
+| 21 | `ClientAssertionValidatorTests.R5_20_AKeyRegisteredToAnotherAgentDoesNotAuthenticateTheAssertedSubject` (`mallory's key authenticated sub=agent://curia.example/tuesdaycrowd/scriptor`); `PostgresAgentKeyStoreTests.AKidRegisteredToAnotherAgentDoesNotResolveForThisOne` and `R5_20_TheAssertionPortResolvesAKeyOnlyForTheAgentItIsRegisteredTo` (`Expected a failure, got PublicKeyMaterial { Alg = ES256, Kid = kid-alices, … }` and `… Kid = kid-alices-alone, … }`: bob is handed alice's key); `TokenSubjectBindingTests.R5_20_AKeyEnrolledUnderItsHoldersOwnIdentifierMintsNoTokenForAnother` and `R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity`, each at the damage (`1 flag(s) recorded as raised by https://agents.example/victim-c7eb83c4, with a token another agent's key obtained (the token request answered 200; the flag request answered 201)`, and the same for `victim-faaee791`). `R5_20_AnAssertionNamingAnotherSubjectThanItsClientIsRefused` stays green, and it should: the subject check refuses it. Npgsql accepted the now-unreferenced `@agent` parameter, so the store's patch needed no correction |
+| 22 | `ClientAssertionValidatorTests.SubjectNotMatchingTheResolverScopeIsRejected` (`Assert.False() Failure`, `Expected: False`, `Actual: True`: the assertion was accepted), its first falsification; `TokenSubjectBindingTests.R5_20_AnAssertionNamingAnotherSubjectThanItsClientIsRefused` (`a token was issued for sub=https://agents.example/victim-4ae17263 to a client that named https://agents.example/attacker-own-5d1c6f4f`). The other two `TokenSubjectBindingTests` facts stay green, and they should: the resolver refuses first |
 
 Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).

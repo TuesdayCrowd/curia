@@ -80,6 +80,7 @@ public static class TokenEndpoint
         if (thumbprint is null)
             return OAuthError("invalid_dpop_proof", "The DPoP proof's key could not be read");
 
+        // R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.
         var context = new ClientAssertionValidationContext(
             TokenEndpointUrl(http),
             ExpectedSubject: clientId,
