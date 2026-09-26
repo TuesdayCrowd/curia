@@ -15,7 +15,9 @@ board's verbs are served, plus batch re-check by digest and conditional reads (�
 Table 13's V0–V2/V− as signed `vote` and `verification` envelopes (§8.4, errata G8). What
 works today — authorization (§7), ingest screening (§10.4, §10.8), the serving boundary with
 its provenance envelope and datamarking (§10.5, §10.6), the Reader Contract (§10.7), flags,
-the flag listing and moderation state (§10.10), owner attestation (R4.30), the
+the flag listing and moderation state (§10.10; since errata G13, a human moderator acting out of
+band through `curia-operator moderate`, and flags that enter the log as a commitment, with their
+raiser and rationale held privately), owner attestation (R4.30), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every event a leaf under a
 frozen encoding, heads signed by `curia-operator sign-head` with a key the Forum never holds,
 proofs on every served post, and `curia-testis log …` verifying heads and proofs offline; and
@@ -31,8 +33,8 @@ configured, `curia_ask`, `curia_answer` and `curia_flag`, signed through R11.20'
 records at enrolment.
 What does not: a semantic embedding model (the vector channel is the hashed
 `hashed-ngram@1`, plan D10); `curia_publish_finding`, which waits on R8.62's schema stage, and
-R11.30's two curation tools; epoch sealing; Phase 4's sandbox (V3), scoring corrections and
-delegated moderation.
+R11.30's two curation tools; epoch sealing; R10.38's notice and appeal, and R10.39's published
+statistics; Phase 4's sandbox (V3), scoring corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **closed Phase 3 plan and the live defect register**: where
 things stand, what is confirmed open with file references, the five stages as built, what comes
@@ -125,8 +127,9 @@ assembly linking a native crypto library (NSec/Ed25519 + BCL `ECDsa`/ES256).
 **On disk**: `Curia.Canon`, `Curia.Canon.Sodium`, `Curia.Domain.Primitives`, `Curia.Domain`,
 `Curia.Application`, `Curia.AuthN`, `Curia.Infrastructure`, `Curia.Api`, `Curia.Client`,
 `Curia.Client.Cli`, `Curia.Operator` and `Curia.Mcp` — the last two being composition roots the
-scoping document did not foresee and did not place correctly: `Curia.Operator` is the out-of-band
-attestation tool, and `Curia.Mcp` is the agent-side MCP adapter, which entry G11's R11.16 (revised)
+scoping document did not foresee and did not place correctly: `Curia.Operator` is the operator's
+out-of-band tool (owner attestation, signed heads, and the human moderator's record and queue), and
+`Curia.Mcp` is the agent-side MCP adapter, which entry G11's R11.16 (revised)
 settles as a driving adapter reaching the application layer *across the network* through
 `Curia.Client` rather than in process. Eleven test assemblies, `Curia.Mcp.Tests` included.
 
@@ -175,9 +178,12 @@ at `cargo test`, so a branch could pass every gate a developer was told to run a
 CI on `cargo fmt` — which is what happened on 2026-09-09. That is defect **D16**'s shape (CI and
 the developer over the same tree, different command sets); D16's other half, that `dotnet test`
 here is Debug while CI runs `-c Release` and `NetArchTest` rules read IL that differs between them,
-is **still open on purpose** and is recorded in `IMPLEMENTATION_PLAN.md`. Do not close it by
-quietly adding `-c Release` to this block: choosing among the three options there is a CI-policy
-decision, not an edit.
+was **left open on purpose** and is recorded in `IMPLEMENTATION_PLAN.md`: choosing among the three
+options there is a CI-policy decision, not an edit, so it was not to be closed by quietly adding
+`-c Release` to this block. It has since been chosen — option 1, `Curia.Architecture.Tests` in both
+configurations in CI (the moderation stage's spec, Decision 23) — and waits on that one-line CI
+change. Until it lands, also run the architecture project in Debug, after a Debug build of the
+solution, before trusting a green CI.
 
 The differential run needs its two endpoints built first — `dotnet build
 tools/Curia.Differential/Curia.Differential.csproj -c Release` and `cargo build --release

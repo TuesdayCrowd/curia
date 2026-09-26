@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using CsCheck;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
@@ -18,7 +19,7 @@ public sealed class ModerationTests
 
     private static ModerationAction Action(
         ModeratorKind moderator, ModerationEffect effect, string rationale = "reviewed") =>
-        new("01J0", moderator, "mod-1", effect, FlagKind.Injection, rationale, Now);
+        new("01J0", moderator, "mod-1", effect, FlagKind.Injection, rationale, Now, []);
 
     /// <summary>R10.35's seven types, exactly. An eighth would be a specification change.</summary>
     [Fact]
@@ -181,75 +182,267 @@ public sealed class ModerationTests
                 nameof(ModerationAction.Rationale),
             },
             properties.Where(p => p.PropertyType == typeof(string)).Select(p => p.Name).ToArray());
+
+        // A collection of strings is checked too, since a string filter lets it past. The one there
+        // is is an id list: Adjudicates names the flags the record decided, by event id (R10.60) —
+        // never a flag's rationale, and never the post.
+        Assert.Equal(
+            new[] { nameof(ModerationAction.Adjudicates) },
+            properties
+                .Where(p => typeof(IEnumerable<string>).IsAssignableFrom(p.PropertyType))
+                .Select(p => p.Name)
+                .ToArray());
     }
 
-    private static ModerationAction On(
-        FlagKind category, ModerationEffect effect, ModeratorKind moderator = ModeratorKind.Human) =>
-        new("01J0", moderator, "mod-1", effect, category, "reviewed", Now);
+    private static ModerationAction Adjudicating(
+        ModerationEffect effect, ModeratorKind moderator, params string[] flags) =>
+        new("01J0", moderator, "mod-1", effect, FlagKind.Injection, "reviewed", Now, [.. flags]);
+
+    private static string[] Sorted(IEnumerable<string> flags) => [.. flags.Order(StringComparer.Ordinal)];
 
     /// <summary>
-    /// Table 11's "≥ 3 questions with no upheld flags" needs a definition of <i>upheld</i>, and the
-    /// specification never gives one directly — R10.39 publishes an "upheld rate" and leaves the
-    /// numerator to the implementation. It is defined here as the moderation outcome, not the flag:
-    /// a flag is upheld when the most recent moderation action citing its category acted on the
-    /// content. A flag nobody has reviewed is not upheld, which is the safe direction — the opposite
-    /// reading would let any agent demote any other by raising a flag nobody adjudicates.
+    /// Table 11's "≥ 3 questions with no upheld flags" needs a definition of <i>upheld</i>. R10.61:
+    /// a flag is upheld while the most recent reviewing record that names it quarantined or withheld
+    /// the post. A flag no record names is not upheld — the safe direction, since R10.35 lets every
+    /// T0 agent raise one.
     /// </summary>
     [Fact]
     public void R10_39_AnUnreviewedFlagIsNotUpheld() =>
-        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, []));
+        Assert.Empty(ModerationPolicy.UpheldFlags([]));
 
-    /// <summary>Acting on the content upholds the flag; both acting effects count.</summary>
+    /// <summary>Acting on the content upholds the flags the record names; both acting effects count.</summary>
     [Theory]
     [InlineData(ModerationEffect.Quarantine)]
     [InlineData(ModerationEffect.Withhold)]
-    public void R10_39_ActingOnContentUpholdsTheFlag(ModerationEffect effect) =>
-        Assert.True(ModerationPolicy.IsUpheld(FlagKind.Injection, [On(FlagKind.Injection, effect)]));
+    public void R10_39_ActingOnContentUpholdsTheFlagsTheRecordNames(ModerationEffect effect) =>
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags([Adjudicating(effect, ModeratorKind.Human, "f1")])));
 
-    /// <summary>
-    /// A dismissal is the denominator's other half: reviewed, and found not to warrant action.
-    /// </summary>
+    /// <summary>A dismissal is the denominator's other half: reviewed, and found not to warrant action.</summary>
     [Fact]
     public void R10_39_ADismissalDoesNotUpholdTheFlag() =>
-        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, [On(FlagKind.Injection, ModerationEffect.Dismiss)]));
+        Assert.Empty(ModerationPolicy.UpheldFlags([Adjudicating(ModerationEffect.Dismiss, ModeratorKind.Human, "f1")]));
 
     /// <summary>
-    /// A restore reverses the upholding as well as the withholding. R7.8 requires demotion on
-    /// posture degradation; nothing in Table 11 says the degradation outlives the decision that
-    /// caused it, and an agent left demoted by a reversed action would be serving a penalty a
-    /// moderator explicitly lifted.
+    /// A restore reverses the upholding as well as the withholding, for every flag it names — an
+    /// agent left demoted by an action a moderator explicitly reversed would be serving it anyway.
     /// </summary>
     [Fact]
-    public void R10_39_ARestoreReversesTheUpholding() =>
-        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, [
-            On(FlagKind.Injection, ModerationEffect.Withhold),
-            On(FlagKind.Injection, ModerationEffect.Restore)]));
+    public void R10_39_ARestoreReleasesEveryFlagItNames() =>
+        Assert.Empty(ModerationPolicy.UpheldFlags([
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1", "f2"),
+            Adjudicating(ModerationEffect.Restore, ModeratorKind.Human, "f1", "f2")]));
 
     /// <summary>
-    /// Categories are decided independently. A post withheld for <c>Spam</c> says nothing about
-    /// whether its <c>Injection</c> flag was upheld — R10.37 records a category on every action
-    /// precisely so the two can be told apart, and collapsing them would make one moderator's
-    /// decision silently answer a question they never considered.
+    /// R10.61: upholding is decided per flag. A restore that names f1 releases f1 and says nothing
+    /// about f2, which the same category's withholding upheld. Keyed to the category, the restore
+    /// would have released both.
     /// </summary>
     [Fact]
-    public void R10_37_UpholdingIsDecidedPerCategory()
+    public void R10_61_UpholdingIsDecidedPerFlag() =>
+        Assert.Equal(["f2"], Sorted(ModerationPolicy.UpheldFlags([
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1", "f2"),
+            Adjudicating(ModerationEffect.Restore, ModeratorKind.Human, "f1")])));
+
+    /// <summary>
+    /// R10.61's reason. Keyed to a category, a flag raised after a withholding in its category was
+    /// upheld the instant it was raised, by nobody. Keyed to the record that names it, it is not
+    /// upheld until a record does.
+    /// </summary>
+    [Fact]
+    public void R10_61_AWithholdingUpholdsOnlyTheFlagsItNames() =>
+        Assert.Empty(ModerationPolicy.UpheldFlags([Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human)]));
+
+    /// <summary>The most recent reviewing record governs: the history is the state.</summary>
+    [Fact]
+    public void UpholdingIsAFoldOverHistory() =>
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags([
+            Adjudicating(ModerationEffect.Quarantine, ModeratorKind.Human, "f1"),
+            Adjudicating(ModerationEffect.Restore, ModeratorKind.Human, "f1"),
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1")])));
+
+    /// <summary>
+    /// PR #59's Task B1, confirmed by execution in Step 2 and fixed here. R10.36: automated
+    /// moderation quarantines <i>pending review</i>; pending review is not upheld.
+    /// </summary>
+    [Fact]
+    public void An_automated_quarantine_is_not_an_upheld_flag() =>
+        Assert.Empty(ModerationPolicy.UpheldFlags([Adjudicating(ModerationEffect.Quarantine, ModeratorKind.Automated, "f1")]));
+
+    [Fact]
+    public void A_human_quarantine_is_an_upheld_flag() =>
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags([Adjudicating(ModerationEffect.Quarantine, ModeratorKind.Human, "f1")])));
+
+    [Fact]
+    public void A_delegated_agents_quarantine_is_an_upheld_flag() =>
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags([Adjudicating(ModerationEffect.Quarantine, ModeratorKind.DelegatedAgent, "f1")])));
+
+    /// <summary>
+    /// R10.61, and the spec's Decision 20: an automated record changes no flag's state in either
+    /// direction. An automated dismissal releasing a flag a human upheld would be a system reviewing
+    /// a human.
+    /// </summary>
+    [Fact]
+    public void An_automated_dismissal_does_not_release_a_flag_a_human_upheld() =>
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags([
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1"),
+            Adjudicating(ModerationEffect.Dismiss, ModeratorKind.Automated, "f1")])));
+
+    /// <summary>
+    /// PR #59's Task B1, second half. The log is append-only, so a record R10.36 forbids can exist in
+    /// it — appended by a defect or by a compromised writer. The fold must not honour it, or
+    /// appending an event becomes a way to remove content.
+    /// </summary>
+    [Fact]
+    public void An_automated_withholding_does_not_stop_a_post_being_served() =>
+        Assert.True(ModerationPolicy.MayServe([Action(ModeratorKind.Automated, ModerationEffect.Withhold)]));
+
+    /// <summary>
+    /// B1's mirror. R10.36 gives automated moderation no restore: a restore is a review outcome, and
+    /// a system able to lift a human's withholding would be reviewing a human. A guard that ignored
+    /// only forbidden withholdings would honour this record, and appending an event would become a
+    /// way to serve what a human withheld.
+    /// </summary>
+    [Fact]
+    public void An_automated_restore_does_not_serve_what_a_human_withheld() =>
+        Assert.False(ModerationPolicy.MayServe([
+            Action(ModeratorKind.Human, ModerationEffect.Withhold),
+            Action(ModeratorKind.Automated, ModerationEffect.Restore)]));
+
+    /// <summary>R10.36 permits exactly this, and it is the reason automated moderation exists.</summary>
+    [Fact]
+    public void An_automated_quarantine_does_stop_a_post_being_served() =>
+        Assert.False(ModerationPolicy.MayServe([Action(ModeratorKind.Automated, ModerationEffect.Quarantine)]));
+
+    private static ModerationAction In(FlagKind category, ModerationEffect effect, params string[] flags) =>
+        new("01J0", ModeratorKind.Human, "operator:reviewer", effect, category, "reviewed", Now, [.. flags]);
+
+    /// <summary>
+    /// R10.61: a permitted quarantine or withholding holds its post in the category it cites, and only
+    /// a restore citing that category releases the hold. Read as one servable bit, a restore in
+    /// <c>spam</c> served a post withheld for a credential leak while the flag that withholding upheld
+    /// stayed upheld: the post back in service, its author still demoted.
+    /// </summary>
+    [Fact]
+    public void R10_61_ARestoreInAnotherCategoryDoesNotServe()
     {
-        var history = (ModerationAction[])[On(FlagKind.Spam, ModerationEffect.Withhold)];
+        ModerationAction[] history =
+        [
+            In(FlagKind.CredentialLeak, ModerationEffect.Withhold, "f1"),
+            In(FlagKind.Spam, ModerationEffect.Restore),
+        ];
 
-        Assert.True(ModerationPolicy.IsUpheld(FlagKind.Spam, history));
-        Assert.False(ModerationPolicy.IsUpheld(FlagKind.Injection, history));
+        Assert.False(ModerationPolicy.MayServe(history));
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags(history)));
+    }
+
+    /// <summary>R10.61: a post held in two categories is served only once each hold has its own restore.</summary>
+    [Fact]
+    public void R10_61_TwoHoldsNeedTwoRestores()
+    {
+        var spam = In(FlagKind.Spam, ModerationEffect.Withhold);
+        var leak = In(FlagKind.CredentialLeak, ModerationEffect.Quarantine);
+        var restoreSpam = In(FlagKind.Spam, ModerationEffect.Restore);
+        var restoreLeak = In(FlagKind.CredentialLeak, ModerationEffect.Restore);
+
+        Assert.False(ModerationPolicy.MayServe([spam, leak, restoreSpam]));
+        Assert.True(ModerationPolicy.MayServe([spam, leak, restoreSpam, restoreLeak]));
+    }
+
+    private static readonly FlagKind[] PropertyKinds = [FlagKind.Spam, FlagKind.CredentialLeak, FlagKind.Injection];
+    private static readonly ModeratorKind[] PropertyModerators = Enum.GetValues<ModeratorKind>();
+    private static readonly ModerationEffect[] PropertyEffects = Enum.GetValues<ModerationEffect>();
+
+    /// <summary>
+    /// Builds one post's log from generated steps: step 0 raises a flag in a category, and every other
+    /// step is a record whose <c>adjudicates</c> follows R10.60 — a record by a moderator who reviews
+    /// names every flag of its category raised before it, and an automated record names none. Every
+    /// (moderator, effect) cell is generated, refused ones included, because the log can hold them.
+    /// Three categories rather than seven, so records in different categories meet often.
+    /// </summary>
+    private static List<ModerationAction> RecordsFollowingR10_60(IReadOnlyList<(int Step, int Moderator, int Category)> steps)
+    {
+        var raised = PropertyKinds.ToDictionary(k => k, _ => new List<string>());
+        var history = new List<ModerationAction>();
+
+        foreach (var (step, moderatorChoice, categoryChoice) in steps)
+        {
+            var category = PropertyKinds[categoryChoice];
+            if (step == 0)
+            {
+                raised[category].Add("f" + raised.Values.Sum(f => f.Count).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                continue;
+            }
+
+            var moderator = PropertyModerators[moderatorChoice];
+            string[] names = moderator is ModeratorKind.Automated ? [] : [.. raised[category]];
+            history.Add(new ModerationAction(
+                "01J0", moderator, "mod-1", PropertyEffects[step - 1], category, "reviewed", Now, [.. names]));
+        }
+
+        return history;
     }
 
     /// <summary>
-    /// The most recent decision in a category governs, for the reason <see cref="ModerationPolicy.MayServe"/>
-    /// folds rather than stores: the history is the state, so a reversal needs nothing invalidated.
+    /// R10.61's two folds agree, for any log whose records follow R10.60: a post the serving path may
+    /// serve has no upheld flag. A fold that ignored category, or a restore that released every hold,
+    /// serves a post whose flag another category's record still upholds, and the generator finds that
+    /// sequence without being handed it.
     /// </summary>
     [Fact]
-    public void UpholdingIsAFoldOverHistory() =>
-        Assert.True(ModerationPolicy.IsUpheld(FlagKind.Injection, [
-            On(FlagKind.Injection, ModerationEffect.Quarantine),
-            On(FlagKind.Injection, ModerationEffect.Restore),
-            On(FlagKind.Injection, ModerationEffect.Withhold)]));
+    public void R10_61_AServedPostHasNoUpheldFlag() =>
+        Gen.Select(Gen.Int[0, PropertyEffects.Length], Gen.Int[0, PropertyModerators.Length - 1], Gen.Int[0, PropertyKinds.Length - 1])
+            .List[0, 12]
+            .Sample(
+                steps =>
+                {
+                    var history = RecordsFollowingR10_60(steps);
+                    return !ModerationPolicy.MayServe(history) || ModerationPolicy.UpheldFlags(history).IsEmpty;
+                },
+                iter: 1000);
+
+    /// <summary>R10.39's denominator: the flags a reviewing record named, dismissed or not; never an automated one's.</summary>
+    [Fact]
+    public void R10_61_AdjudicatedFlagsCountOnlyReviewingRecords() =>
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.AdjudicatedFlags([
+            Adjudicating(ModerationEffect.Dismiss, ModeratorKind.Human, "f1"),
+            Adjudicating(ModerationEffect.Quarantine, ModeratorKind.Automated, "f2")])));
+
+    /// <summary>
+    /// Structural equality, including what the record adjudicates. R11.9's rebuild drill compares a
+    /// fold with its own rebuild, and a record compared by array reference would make it compare
+    /// nothing.
+    /// </summary>
+    [Fact]
+    public void A_moderation_action_is_equal_by_value_including_what_it_adjudicates()
+    {
+        Assert.Equal(
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1", "f2"),
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1", "f2"));
+
+        Assert.NotEqual(
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1"),
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f2"));
+    }
+
+    /// <summary>
+    /// "Never the default array" holds on every path that sets <see cref="ModerationAction.Adjudicates"/>,
+    /// not only the positional constructor. A <c>with</c> goes through the <c>init</c> accessor, and a
+    /// default array there would make every fold that enumerates it throw — and
+    /// <c>AgentStandingProjector</c> reaches those folds through <c>HasUpheldFlag</c>.
+    /// </summary>
+    [Fact]
+    public void A_with_expression_cannot_make_what_a_record_adjudicates_default()
+    {
+        var reset = Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1") with { Adjudicates = default };
+
+        Assert.Empty(reset.Adjudicates);
+        Assert.Empty(ModerationPolicy.UpheldFlags([reset]));
+        Assert.Empty(ModerationPolicy.AdjudicatedFlags([reset]));
+
+        var unnamed = Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human);
+        Assert.Equal(unnamed, reset);
+        Assert.Equal(unnamed.GetHashCode(), reset.GetHashCode());
+    }
 
     /// <summary>
     /// R10.35 names the seven types in the spelling they travel in: <c>injection</c>,

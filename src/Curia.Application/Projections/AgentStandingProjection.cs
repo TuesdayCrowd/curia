@@ -405,7 +405,7 @@ public static class AgentStandingProjector
         if (!string.Equals(kind, QuestionKind, StringComparison.Ordinal)) return;
 
         // Table 11's "≥ 3 questions with no upheld flags". *Upheld* is the moderation outcome, not
-        // the flag -- see ModerationPolicy.IsUpheld for why the other reading would hand every T0
+        // the flag -- see ModerationPolicy.UpheldFlags for why the other reading would hand every T0
         // agent a demotion primitive against every other. The ingest-time risk annotations on the
         // post are a different thing entirely and are deliberately not consulted here: treating
         // them as upheld flags would deny promotion for content the Forum itself accepted.

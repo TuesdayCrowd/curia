@@ -7,6 +7,9 @@
 > Stage 4 (PR #64) made every event a leaf of the Acta under one encoding (R6.46), so a grant
 > event is logged and provable by construction and needs no leaf decision. Errata Part G now runs
 > to G10 while **G4 stays reserved for this plan**; derive nothing from the entry count.
+>
+> **Task B1 was absorbed and closed by the moderation stage (2026-09-26, register D20).** Parts A
+> and B remain; Task B4's first bullet is answered for the human arm.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -880,6 +883,7 @@ Cover: B1's two gaps and whether execution confirmed or refuted them; the granto
 - [ ] **Step 2: Name the remaining gaps explicitly**
 
 - **`moderation`/`apply` has no writer.** The queue can be read and nothing can act on it. R10.37's signed log entry, and the R10.36 admissibility check on the write path, are the next piece.
+  *Answered for R10.36's human arm by the moderation stage (2026-09-26; errata G13's R10.59 and R10.60; register D20).* `ApplyModeration` is the writer, reached in production only by `curia-operator moderate`, out of band under R11.6's grant, with no HTTP route and no Table 10 pair. R10.36's admissibility check runs on its write path as `ModerationPolicy.Authorize`. R10.37's signed entry is, for a human moderator who holds no key, a leaf under a head signed with the log key. The record also carries the post's digest and the flags it adjudicates, derived by the writer. **Still unanswered:** the delegated arm's writer, a T3 grantee acting through `moderation`|`apply`, which is this plan's Part B.
 - **R10.38's notice and appeal path** does not exist. Authors' owners are not notified of anything, and there is no owner contact channel to notify them through.
 - **R10.39's published statistics** do not exist. G3's argument for keeping unadjudicated flags private *rested* on R6.25's log and R10.39's statistics as the instruments that audit the operator instead — and both are still unbuilt. **That is now a live debt, not a footnote:** the entry said so, and said the cell should be revisited in the direction of more disclosure if they do not arrive.
 - **A compromised issuer key can now grant moderation.** Raise as an erratum against §3's threat model.

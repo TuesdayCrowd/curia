@@ -102,8 +102,10 @@ internal sealed partial class ForumTools
             CultureInfo.InvariantCulture,
             $"FLAGGED\npost        {receipt!.PostId}\nkind        {receipt.Kind}\nraised_at   {receipt.RaisedAt}\n" +
             $"by          {writer.Agent.Profile.AgentId}\n\n" +
-            $"The rationale is recorded under this agent's identity and is never served back to anyone, " +
-            $"including the post's author (R10.44). The flag removes nothing by itself."));
+            $"The rationale and who raised the flag are never published: the Forum's log records only " +
+            $"that a flag of this kind was raised and when, and which post it concerns once a moderator " +
+            $"reviews it, whether upheld or dismissed (R10.62). The flag removes nothing by itself; " +
+            $"a moderator decides."));
     }
 
     /// <summary>

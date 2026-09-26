@@ -710,6 +710,9 @@ public static class ForumEndpoints
         // request was well-formed and was rejected on its content.
         "curia/flag/rationale-rejected" => StatusCodes.Status422UnprocessableEntity,
         "curia/moderation/rationale-required" => StatusCodes.Status400BadRequest,
+
+        // The private store could not be written; nothing was, in either store (R10.62).
+        "curia/flag/detail-store-unavailable" => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest,
     };
 
@@ -726,6 +729,7 @@ public static class ForumEndpoints
         HttpRequest http,
         IPolicyDecisionPoint pdp,
         IEventReader events,
+        IFlagDetailStore details,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
@@ -736,9 +740,10 @@ public static class ForumEndpoints
 
         if (problem is not null) return problem;
 
-        var mine = FlagProjector.Fold(ok!.Log).Values
-            .SelectMany(m => m.Flags)
-            .Where(f => string.Equals(f.RaisedBy, ok.Subject, StringComparison.Ordinal));
+        var (flags, detailProblem) = await FlagsAsync(ok!.Log, details, cancellationToken).ConfigureAwait(false);
+        if (detailProblem is not null) return detailProblem;
+
+        var mine = flags.Where(f => string.Equals(f.RaisedBy, ok.Subject, StringComparison.Ordinal));
 
         // Ownership is established by the filter immediately above, not claimed.
         var decision = ok.Decision.Discharge(satisfied: true);
@@ -764,6 +769,7 @@ public static class ForumEndpoints
         HttpRequest http,
         IPolicyDecisionPoint pdp,
         IEventReader events,
+        IFlagDetailStore details,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
@@ -791,9 +797,10 @@ public static class ForumEndpoints
                 "Not permitted at this trust tier",
                 $"{decision.Reason} post={postId}"));
 
-        var flags = FlagProjector.Fold(ok.Log).TryGetValue(postId, out var moderation)
-            ? moderation.Flags.AsEnumerable()
-            : [];
+        var (all, detailProblem) = await FlagsAsync(ok.Log, details, cancellationToken).ConfigureAwait(false);
+        if (detailProblem is not null) return detailProblem;
+
+        var flags = all.Where(f => string.Equals(f.PostId, postId, StringComparison.Ordinal));
 
         return Results.Ok(new FlagListResponse(Summarise(flags)));
     }
@@ -857,6 +864,21 @@ public static class ForumEndpoints
                 "curia/authz/denied", "Not permitted at this trust tier", d.Reason)));
 
         return (new FlagListContext(subject, log, d), null);
+    }
+
+    /// <summary>
+    /// R7.18's flags, joined from the log's commitments and the private store (R10.62). A store that
+    /// cannot be read is a 503: serving the log's half alone would list every committed flag as
+    /// absent, which reads as "nothing was raised".
+    /// </summary>
+    private static async Task<(ImmutableArray<RaisedFlag> Flags, IResult? Problem)> FlagsAsync(
+        IReadOnlyList<AppendedEvent> log, IFlagDetailStore details, CancellationToken cancellationToken)
+    {
+        var rows = await details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!rows.TryGetValue(out var detailRows, out var error))
+            return ([], Problem(StatusCodes.Status503ServiceUnavailable, error!));
+
+        return (FlagDirectory.Join(log, detailRows!).Flags, null);
     }
 
     /// <summary>

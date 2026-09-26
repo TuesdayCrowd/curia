@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R6.46",
+  "note": "A flag as R10.62 writes one: event_type flag.committed on the flag's own aggregate, a null actor, and a payload of its kind and a salted commitment -- no post, no raiser, no rationale. The commitment is opaque here: a shape-valid sha256: value that opens to no private row, since the leaf encoding never looks inside it. Expected values were computed with python3's json and hashlib, outside both implementations; a new entry kind is a payload decision under G9's one encoding, and this vector is the evidence that both runners agree on it unchanged."
+}

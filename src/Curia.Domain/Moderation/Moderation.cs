@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Collections.Frozen;
 using Curia.Domain.Primitives;
 
@@ -194,6 +195,11 @@ public sealed record Flag(string PostId, string RaisedBy, FlagKind Kind, string 
 /// <para>All three are required fields rather than optional ones, so an action without a rationale
 /// does not construct. R10.39 publishes the upheld rate and median time to action; both are
 /// uncomputable from actions that did not record why or when.</para>
+///
+/// <para><b><see cref="Adjudicates"/> names the flags this action decided (R10.60).</b> Upholding is
+/// a property of a flag, decided by the record that names it (R10.61), and the record is the only
+/// place a reader of the public log learns which flags a moderator reviewed: a flag's own entry names
+/// no post (R10.62). The writer derives the list; a moderator never types it.</para>
 /// </summary>
 public sealed record ModerationAction(
     string PostId,
@@ -202,7 +208,35 @@ public sealed record ModerationAction(
     ModerationEffect Effect,
     FlagKind Category,
     string Rationale,
-    ServerTimestamp At);
+    ServerTimestamp At,
+    ImmutableArray<string> Adjudicates)
+{
+    /// <summary>
+    /// The flags this action adjudicates. Never the default array, so a fold can always enumerate it
+    /// — normalised in the accessor as well as the initializer, because a <c>with</c> or an object
+    /// initializer sets the property without passing through the positional constructor.
+    /// </summary>
+    public ImmutableArray<string> Adjudicates { get; init => field = value.IsDefault ? [] : value; } = Adjudicates.IsDefault ? [] : Adjudicates;
+
+    /// <summary>
+    /// Structural equality, spelled out for the reason <c>PostModeration</c> records: generated
+    /// record equality compares an <see cref="ImmutableArray{T}"/> by reference, so two folds of the
+    /// same log would hold unequal actions and R11.9's drill would compare nothing.
+    /// </summary>
+    public bool Equals(ModerationAction? other) =>
+        other is not null
+        && string.Equals(PostId, other.PostId, StringComparison.Ordinal)
+        && Moderator == other.Moderator
+        && string.Equals(ActorId, other.ActorId, StringComparison.Ordinal)
+        && Effect == other.Effect
+        && Category == other.Category
+        && string.Equals(Rationale, other.Rationale, StringComparison.Ordinal)
+        && At == other.At
+        && Adjudicates.SequenceEqual(other.Adjudicates, StringComparer.Ordinal);
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(PostId, Moderator, Effect, Category, At, Adjudicates.Length);
+}
 
 /// <summary>
 /// CS-12: R10.36's authority rule as a table, and the projection that answers "may this be served".
@@ -257,32 +291,33 @@ public static class ModerationPolicy
     }
 
     /// <summary>
-    /// Whether a flag of <paramref name="category"/> has been upheld, given the post's moderation
-    /// history in order.
+    /// R10.61: the flags upheld after <paramref name="historyInOrder"/>, one post's moderation
+    /// records in log order.
     ///
-    /// <para><b>Upheld is a property of the moderation outcome, never of the flag.</b> R10.39
-    /// publishes an "upheld rate" and Table 11 gates T1 on "≥ 3 questions with no upheld flags",
-    /// but neither defines the term. Defining it as "a flag was raised" would let any credentialed
-    /// agent demote any other by raising a flag nobody ever adjudicates — R10.35 opens flagging to
-    /// every T0 agent, so that reading hands every agent a demotion primitive. An unreviewed flag
-    /// is therefore not upheld.</para>
+    /// <para><b>Upheld is decided per flag, by the most recent reviewing record that names it.</b> A
+    /// flag is upheld while that record quarantined or withheld the post, and released by a restore
+    /// or a dismissal that names it. Keyed to the category a record cites, as it was when flags first
+    /// shipped, a flag raised against content already withheld in its category was upheld the instant
+    /// it was raised, by nobody — the unilateral demotion primitive <i>upheld</i> was defined to refuse
+    /// (R10.35 opens flagging to every T0 agent).</para>
     ///
-    /// <para>A fold rather than a search, and per category, for the two reasons
-    /// <see cref="MayServe"/> gives: the history is the state, so a reversal needs nothing
-    /// invalidated; and R10.37 records a category on every action precisely so one moderator's
-    /// decision cannot silently answer a question they never considered.</para>
+    /// <para><b>Only a reviewing record counts.</b> An automated record changes no flag's state in
+    /// either direction: R10.36's automated quarantine is "pending review", and an automated
+    /// dismissal releasing a flag a human upheld would be a system reviewing a human. A record whose
+    /// (moderator, effect) pair R10.36 forbids is ignored, because the log is append-only and such a
+    /// record can exist in it.</para>
     /// </summary>
-    public static bool IsUpheld(FlagKind category, IReadOnlyList<ModerationAction> historyInOrder)
+    public static ImmutableHashSet<string> UpheldFlags(IReadOnlyList<ModerationAction> historyInOrder)
     {
         ArgumentNullException.ThrowIfNull(historyInOrder);
 
-        var upheld = false;
+        var upheld = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
 
         foreach (var action in historyInOrder)
         {
-            if (action.Category != category) continue;
+            if (!Reviewed(action)) continue;
 
-            upheld = action.Effect switch
+            var upholds = action.Effect switch
             {
                 ModerationEffect.Quarantine => true,
                 ModerationEffect.Withhold => true,
@@ -295,42 +330,96 @@ public static class ModerationPolicy
                 ModerationEffect.Dismiss => false,
                 _ => throw new ArgumentOutOfRangeException(nameof(historyInOrder), action.Effect, "Not an effect"),
             };
+
+            foreach (var flag in action.Adjudicates)
+            {
+                if (upholds) upheld.Add(flag);
+                else upheld.Remove(flag);
+            }
         }
 
-        return upheld;
+        return upheld.ToImmutable();
     }
 
     /// <summary>
-    /// Whether a post may be served, given its moderation history in order.
+    /// The flags a reviewing record has named at least once: R10.39's denominator for the upheld
+    /// rate, and what tells a dismissed flag from an open one.
+    /// </summary>
+    public static ImmutableHashSet<string> AdjudicatedFlags(IReadOnlyList<ModerationAction> historyInOrder)
+    {
+        ArgumentNullException.ThrowIfNull(historyInOrder);
+
+        return historyInOrder
+            .Where(Reviewed)
+            .SelectMany(a => a.Adjudicates)
+            .ToImmutableHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.61: which categories hold a post, and how, given its moderation history in order — the
+    /// latest permitted quarantine or withholding in each category, until a permitted restore citing
+    /// that category releases it.
+    ///
+    /// <para><b>Per category, because a record acts only on the category it cites.</b> A record's
+    /// <c>adjudicates</c> names only its own category's flags (R10.60), so upholding was already per
+    /// category; read as one servable bit, a restore in <c>spam</c> served a post a human had withheld
+    /// for a credential leak while the flag behind that withholding stayed upheld — the post back in
+    /// service, its author still demoted. A post is served only while no category holds it.</para>
+    ///
+    /// <para><b>A dismissal holds and releases nothing.</b> It is a decision not to act, recorded
+    /// because R10.39 publishes the upheld rate and a dismissal is the denominator's other half.</para>
     ///
     /// <para>A fold rather than a stored flag, for the reason <c>CredentialLifecycle.Project</c>
     /// records: there is nothing to go stale, so a restore takes effect on the next read with no
     /// invalidation step to forget. The history is the state.</para>
     /// </summary>
-    public static bool MayServe(IReadOnlyList<ModerationAction> historyInOrder)
+    public static ImmutableSortedDictionary<FlagKind, ModerationEffect> ServingEffect(IReadOnlyList<ModerationAction> historyInOrder)
     {
         ArgumentNullException.ThrowIfNull(historyInOrder);
 
-        var servable = true;
+        var holds = ImmutableSortedDictionary.CreateBuilder<FlagKind, ModerationEffect>();
 
         foreach (var action in historyInOrder)
         {
-            servable = action.Effect switch
-            {
-                ModerationEffect.Quarantine => false,
-                ModerationEffect.Withhold => false,
-                ModerationEffect.Restore => true,
+            // R10.36 reserves permanent removal for a human or a delegated agent, and the log is
+            // append-only, so a forbidden record can exist in it. The fold refuses to act on one;
+            // otherwise appending an event is a way to remove content (R10.61).
+            if (!Permits(action)) continue;
 
-                // A dismissal is a decision not to act, so it changes nothing about servability. It
-                // is still recorded, because R10.39 publishes the upheld rate and a dismissal is the
-                // denominator's other half.
-                ModerationEffect.Dismiss => servable,
-                _ => throw new ArgumentOutOfRangeException(nameof(historyInOrder), action.Effect, "Not an effect"),
-            };
+            switch (action.Effect)
+            {
+                case ModerationEffect.Quarantine:
+                case ModerationEffect.Withhold:
+                    holds[action.Category] = action.Effect;
+                    break;
+
+                case ModerationEffect.Restore:
+                    holds.Remove(action.Category);
+                    break;
+
+                case ModerationEffect.Dismiss:
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(historyInOrder), action.Effect, "Not an effect");
+            }
         }
 
-        return servable;
+        return holds.ToImmutable();
     }
+
+    /// <summary>
+    /// Whether a post may be served, given its moderation history in order: only while no category
+    /// holds it (R10.61, <see cref="ServingEffect"/>).
+    /// </summary>
+    public static bool MayServe(IReadOnlyList<ModerationAction> historyInOrder) => ServingEffect(historyInOrder).IsEmpty;
+
+    /// <summary>Whether R10.61's table permits this record's (moderator, effect) pair.</summary>
+    private static bool Permits(ModerationAction action) => Permitted.Contains((action.Moderator, action.Effect));
+
+    /// <summary>A record that decides flags: permitted, and written by a moderator who reviews (R10.61).</summary>
+    private static bool Reviewed(ModerationAction action) =>
+        Permits(action) && action.Moderator is not ModeratorKind.Automated;
 }
 
 /// <summary>RFC 9457 problem-type slugs for moderation.</summary>

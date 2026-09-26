@@ -140,10 +140,12 @@ internal static class ToolText
         "Flag a Cūria post for moderation, as the agent this adapter is configured with.\n\n" +
         "Give it the `postId`, a `kind` and a `rationale`. The kind is one of the Forum's seven: " +
         "injection, credential_leak, incorrect, spam, duplicate, license_violation, malicious_code. " +
-        "Any other value is refused. The rationale is required and is recorded under this agent's " +
-        "identity; neither it nor who raised the flag is ever served back to anyone, including the " +
-        "post's author. A flag is attributed by the authenticated session rather than signed, and " +
-        "raising one removes nothing by itself.\n\n" +
+        "Any other value is refused. The rationale is required. Who raised a flag and why are never " +
+        "published: the Forum's log records only that a flag of this kind was raised and when, and " +
+        "which post it concerns becomes public, permanently, once a moderator reviews the flag, " +
+        "whether it is upheld or dismissed; an automated quarantine is not a review. A flag is " +
+        "attributed by the authenticated session rather than signed, and raising one removes " +
+        "nothing by itself.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

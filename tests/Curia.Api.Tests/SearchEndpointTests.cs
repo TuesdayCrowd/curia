@@ -1,14 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json;
-using Curia.Application.Ports;
-using Curia.Application.Projections;
-using Curia.Canon.Json;
-using Curia.Domain;
-using Curia.Domain.Moderation;
-using Curia.Domain.Primitives;
 using Curia.Domain.Search;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -154,7 +147,7 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         using (var before = await SearchAsync(client, $"q={term}&board={board}", ct))
             Assert.Equal(2, Ids(before).Length);
 
-        await WithholdAsync(withheld, ct);
+        await forum.WithholdAsync(withheld, ct);
 
         using var after = await SearchAsync(client, $"q={term}&board={board}", ct);
         Assert.Equal((string[])[kept], Ids(after));
@@ -444,36 +437,5 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
             vectorRanked > 0,
             "no result was vector-ranked, so the assertion above ran zero times and proved nothing. "
             + "That is a defect in this test, not in the floor.");
-    }
-
-    /// <summary>Appends a withholding action through the host's own store; no route creates one.</summary>
-    private async Task WithholdAsync(string postId, CancellationToken ct)
-    {
-        using var scope = forum.Services.CreateScope();
-        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
-
-        static T Require<T>(Result<T> result) =>
-            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
-
-        var aggregate = Require(AggregateId.Create(postId));
-        var history = Require(await store.ReadByAggregateAsync(aggregate, ct));
-
-        Require(await store.AppendAsync(
-            aggregate,
-            Require(AggregateVersion.From(history.Count)),
-            [new DomainEvent(
-                Require(EventId.Create($"{postId}-mod")),
-                Require(EventType.Create(FlagProjector.ModerationAppliedType)),
-                Require(ActorId.Create("https://agents.example/moderator")),
-                new JsonValue.Object(
-                [
-                    new(FlagProjector.PostIdField, new JsonValue.String(postId)),
-                    new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(ModeratorKind.Human))),
-                    new(FlagProjector.ActorIdField, new JsonValue.String("https://agents.example/moderator")),
-                    new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(ModerationEffect.Withhold))),
-                    new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(FlagKind.Injection))),
-                    new(FlagProjector.RationaleField, new JsonValue.String("reviewed")),
-                ]))],
-            ct));
     }
 }

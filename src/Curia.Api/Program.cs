@@ -121,6 +121,10 @@ public sealed class Program
         // review convention. Registering it is what lets them ask for the narrower type.
         builder.Services.AddSingleton<IEventReader>(sp => sp.GetRequiredService<IEventStore>());
 
+        // The private half of every flag (R10.62, R11.32). Its own port rather than a member of the
+        // event store's, because what it holds must never become an event: R6.51 serves every event.
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().FlagDetails);
+
         // The vector half of hybrid retrieval (§9.2). The embedder is the dependency-free hashed
         // model (see HashedNGramEmbedding for what it is and is not); the index is pgvector through
         // the same adapters object as every other Postgres port; the reconcile brings the index up
@@ -193,11 +197,18 @@ public sealed class Program
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
-        // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does: it appends a fact
-        // about an agent's conduct, and CS-15's phase typing governs submitted content -- there is
-        // no envelope here and nothing to verify, only a rationale to screen.
+        // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does, and the private
+        // store because a flag's post, raiser and rationale are never an event (R10.62, R11.32).
         builder.Services.AddSingleton(sp => new RaiseFlag(
             sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<IFlagDetailStore>(),
+            sp.GetRequiredService<TimeProvider>()));
+
+        // R10.59's writer, reached by no HTTP route: registered so the end-to-end fixture withholds
+        // through the same object the operator tool builds, never by hand-building the event.
+        builder.Services.AddSingleton(sp => new ApplyModeration(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<IFlagDetailStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // Table 10's answer/accept. Holds IEventStore for the reason EnrollAgent and RaiseFlag do.

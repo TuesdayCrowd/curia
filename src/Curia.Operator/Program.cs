@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Application.Credentials;
+using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Envelope;
@@ -9,7 +11,9 @@ using Curia.Canon.Sodium;
 using Curia.Domain;
 using Curia.Domain.Acta;
 using Curia.Domain.Credentials;
+using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Serving;
 using Curia.Infrastructure;
 
 namespace Curia.OperatorTool;
@@ -30,9 +34,12 @@ public static class ExitCode
 }
 
 /// <summary>
-/// <c>curia-operator</c>: the Forum operator's out-of-band verbs. One today -- R4.30's owner
-/// attestation (errata G5) -- because that is the one fact §4.6 places outside the agent's reach
-/// and the one the Forum could not otherwise learn.
+/// <c>curia-operator</c>: the Forum operator's out-of-band verbs. Four today: <c>attest-owner</c>,
+/// R4.30's owner attestation (errata G5), because that is the one fact §4.6 places outside the
+/// agent's reach and the one the Forum could not otherwise learn; <c>sign-head</c>, R6.49's signed
+/// head (errata G9), because the Forum holds no log key (R11.7); and <c>moderate</c> and
+/// <c>flags</c>, R10.36's human moderator (R10.59, errata G13) -- the record, and the review queue
+/// it is decided from.
 ///
 /// <para>Speaks to the event log directly, over the same <see cref="PostgresAdapters"/> the Forum
 /// runs on and the same append-only grant (R11.6). There is no HTTP surface for what it does, on
@@ -92,6 +99,25 @@ public static class OperatorCommands
               records a lapse instead. The agent must already be enrolled; an agent's owner is
               bound once (R4.1), so a later attestation naming a different owner is refused.
 
+          curia-operator moderate --post <post-id> --category <kind> --effect <effect>
+                                  --reason <text> --by <operator-name>
+
+              Records R10.36's human moderator acting on <post-id> (R10.59): <effect> is one of
+              withhold, quarantine, restore, dismiss; <kind> is one of R10.35's seven. The record
+              names every flag of that kind raised against the post (R10.60) and is refused if it
+              would change nothing. It acts only on the category it cites (R10.61): a restore in a
+              category that holds nothing is refused, as is a dismissal in one that holds the post.
+              The reason lands in a public leaf and is screened like a flag's: credential
+              material is refused. A reason repeating a flag's raiser or rationale is refused;
+              neither is ever published (R10.62).
+
+          curia-operator flags [--post <post-id>] [--open] [--raisers]
+
+              Lists flags and why they were raised -- the review queue, out of band. Each
+              rationale is delimited and datamarked (R10.44), and control characters are escaped.
+              --open lists only flags no record has adjudicated. --raisers adds who raised each;
+              judging content needs no identity, so the listing leaves it out by default.
+
         ENVIRONMENT
           CURIA_EVENTS_POSTGRES      the Forum's events database (required)
           CURIA_LOG_SIGNING_KEY_PEM  the Acta's ES256 signing key (sign-head only)
@@ -102,6 +128,17 @@ public static class OperatorCommands
           2  refused -- the reason's slug is on stderr; nothing was written
           3  CURIA_EVENTS_POSTGRES is not set
         """;
+
+    /// <summary>
+    /// What an operator does about <c>curia/domain/concurrency-conflict</c> from <c>moderate</c>.
+    /// <see cref="ApplyModeration"/> decides on one read of the log, and the store refuses the append
+    /// once another write has reached the post since that read, so the record was never written and
+    /// only a fresh read can say whether it is still wanted. Names no flag, raiser or rationale
+    /// (R10.27, R10.28).
+    /// </summary>
+    private const string OvertakenGuidance =
+        "hint: another write reached this post after this record was decided, so nothing was written. " +
+        "Re-read the post (curia-operator flags --post <post-id>) and re-run moderate if the record is still wanted.";
 
     /// <param name="logSigningKeyPem">
     /// <c>CURIA_LOG_SIGNING_KEY_PEM</c>: the Acta's signing key, needed by <c>sign-head</c> alone.
@@ -130,6 +167,14 @@ public static class OperatorCommands
 
         if (args[0] == "sign-head")
             return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, stdout, stderr, logSigningKeyPem, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "moderate")
+            return await ModerateAsync(args.Skip(1).ToArray(), connectionString, clock, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "flags")
+            return await FlagsAsync(args.Skip(1).ToArray(), connectionString, clock, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] != "attest-owner")
@@ -306,6 +351,171 @@ public static class OperatorCommands
         }
     }
 
+    /// <summary>
+    /// R10.59: an operator's moderation record, appended out of band through
+    /// <see cref="ApplyModeration"/> — the only producer of <c>moderation.applied</c>.
+    /// </summary>
+    private static async Task<int> ModerateAsync(
+        string[] argv,
+        string connectionString,
+        TimeProvider clock,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var i = 0; i < argv.Length; i++)
+        {
+            var arg = argv[i];
+            if (!arg.StartsWith("--", StringComparison.Ordinal))
+                return await UsageErrorAsync(stderr, $"unexpected argument '{arg}'.").ConfigureAwait(false);
+
+            var name = arg[2..];
+            if (name is not ("post" or "category" or "effect" or "reason" or "by"))
+                return await UsageErrorAsync(stderr, $"unknown flag --{name}.").ConfigureAwait(false);
+
+            if (i + 1 >= argv.Length)
+                return await UsageErrorAsync(stderr, $"--{name} needs a value.").ConfigureAwait(false);
+
+            values[name] = argv[++i];
+        }
+
+        foreach (var required in (string[])["post", "category", "effect", "reason", "by"])
+            if (!values.TryGetValue(required, out var given) || string.IsNullOrWhiteSpace(given))
+                return await UsageErrorAsync(stderr, $"--{required} is required.").ConfigureAwait(false);
+
+        if (!FlagKinds.Parse(values["category"]).TryGetValue(out var category, out var categoryError))
+            return await UsageErrorAsync(stderr, categoryError!.Detail ?? categoryError.Title).ConfigureAwait(false);
+
+        if (!ModerationEffects.Parse(values["effect"]).TryGetValue(out var effect, out var effectError))
+            return await UsageErrorAsync(stderr, effectError!.Detail ?? effectError.Title).ConfigureAwait(false);
+
+        // The operator namespace, applied once here as attest-owner applies it (plan D4).
+        var by = values["by"];
+        var actorValue = by.StartsWith(ApplyModeration.OperatorPrefix, StringComparison.Ordinal) ? by : ApplyModeration.OperatorPrefix + by;
+        if (!ActorId.Create(actorValue).TryGetValue(out var actor, out _))
+            return await UsageErrorAsync(stderr, "--by <operator-name> is required.").ConfigureAwait(false);
+
+        Result<ModerationRecorded> result;
+        var adapters = new PostgresAdapters(connectionString, clock);
+        await using (adapters.ConfigureAwait(false))
+        {
+            result = await new ApplyModeration(adapters.EventStore, adapters.FlagDetails, clock)
+                .RecordAsync(values["post"], effect, category, values["reason"], actor, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!result.TryGetValue(out var recorded, out var error))
+        {
+            var refused = await RefuseAsync(stderr, error!).ConfigureAwait(false);
+            if (string.Equals(error!.Type, DomainErrors.ConcurrencyConflictType, StringComparison.Ordinal))
+                await stderr.WriteLineAsync(OvertakenGuidance).ConfigureAwait(false);
+
+            return refused;
+        }
+
+        var count = recorded!.Adjudicates.Length.ToString(CultureInfo.InvariantCulture);
+        var named = recorded.Adjudicates.IsEmpty ? string.Empty : ": " + string.Join(", ", recorded.Adjudicates);
+
+        await stdout.WriteLineAsync($"moderated    {TerminalText.Line(recorded.PostId)}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"effect       {ModerationEffects.Wire(recorded.Effect)}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"category     {FlagKinds.Wire(recorded.Category)}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"digest       {recorded.Digest}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"adjudicates  {count}{named}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"by           {TerminalText.Line(recorded.Moderator.Value)}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"at           {recorded.At.ToString("O", CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        return ExitCode.Ok;
+    }
+
+    /// <summary>
+    /// The review queue, out of band: every flag with its rationale, which only an operator ever sees
+    /// (R10.44's <c>moderation</c>|<c>list</c> view for the human arm). Rationales are delimited and
+    /// datamarked, because the reader may be a model, and every agent-written string is made
+    /// terminal-safe first. The raiser is listed only under <c>--raisers</c>: judging content needs
+    /// no identity, and a reviewer shown none cannot repeat one into a public reason (R10.62).
+    /// </summary>
+    private static async Task<int> FlagsAsync(
+        string[] argv,
+        string connectionString,
+        TimeProvider clock,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        string? post = null;
+        var openOnly = false;
+        var raisers = false;
+        for (var i = 0; i < argv.Length; i++)
+        {
+            if (argv[i] == "--open") { openOnly = true; continue; }
+            if (argv[i] == "--raisers") { raisers = true; continue; }
+            if (argv[i] == "--post" && i + 1 < argv.Length) { post = argv[++i]; continue; }
+            return await UsageErrorAsync(stderr, $"unexpected argument '{argv[i]}'. flags takes [--post <post-id>] [--open] [--raisers].").ConfigureAwait(false);
+        }
+
+        IReadOnlyList<AppendedEvent> log;
+        IReadOnlyList<FlagDetail> details;
+        var adapters = new PostgresAdapters(connectionString, clock);
+        await using (adapters.ConfigureAwait(false))
+        {
+            var read = await adapters.EventStore.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!read.TryGetValue(out var events, out var readError))
+                return await RefuseAsync(stderr, readError!).ConfigureAwait(false);
+
+            var rows = await adapters.FlagDetails.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+            if (!rows.TryGetValue(out var detailRows, out var detailError))
+                return await RefuseAsync(stderr, detailError!).ConfigureAwait(false);
+
+            log = events!;
+            details = detailRows!;
+        }
+
+        var directory = FlagDirectory.Join(log, details);
+        var moderation = FlagProjector.Fold(log);
+        var rationales = FlagDirectory.RationalesByFlag(log, details);
+
+        var listed = 0;
+        foreach (var flag in directory.Flags.Where(f => post is null || string.Equals(f.PostId, post, StringComparison.Ordinal)))
+        {
+            ImmutableArray<ModerationAction> history = moderation.TryGetValue(flag.PostId, out var state) ? state.History : [];
+            var status = ModerationPolicy.UpheldFlags(history).Contains(flag.FlagId) ? "upheld"
+                : ModerationPolicy.AdjudicatedFlags(history).Contains(flag.FlagId) ? "adjudicated, not upheld"
+                : "open";
+
+            if (openOnly && status != "open") continue;
+            listed++;
+
+            await stdout.WriteLineAsync($"flag       {flag.FlagId}").ConfigureAwait(false);
+            await stdout.WriteLineAsync($"post       {TerminalText.Line(flag.PostId)}").ConfigureAwait(false);
+            await stdout.WriteLineAsync($"kind       {FlagKinds.Wire(flag.Kind)}").ConfigureAwait(false);
+            if (raisers)
+                await stdout.WriteLineAsync($"raised_by  {TerminalText.Line(flag.RaisedBy)}").ConfigureAwait(false);
+            await stdout.WriteLineAsync($"raised_at  {flag.At.Value.ToString("O", CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+            await stdout.WriteLineAsync($"state      {status}").ConfigureAwait(false);
+            await stdout.WriteLineAsync("rationale").ConfigureAwait(false);
+            await stdout.WriteLineAsync(Datamarking.Render(
+                TerminalText.Block(rationales.GetValueOrDefault(flag.FlagId, string.Empty)), MarkingMode.Datamark)).ConfigureAwait(false);
+            await stdout.WriteLineAsync().ConfigureAwait(false);
+        }
+
+        // A skipped flag's post is unknown (no row) or not believed (a row that no longer opens the
+        // commitment), so no skip can be filtered by --post; the counts are the whole directory's.
+        if (post is not null && !directory.Skipped.IsEmpty)
+            await stdout.WriteLineAsync("note       the skipped counts below cover every post, not only --post: a skipped flag cannot be attributed to one").ConfigureAwait(false);
+
+        foreach (var (reason, skipped) in directory.Skipped)
+            await stdout.WriteLineAsync($"skipped    {reason}: {skipped.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+
+        await stdout.WriteLineAsync($"{listed.ToString(CultureInfo.InvariantCulture)} flag(s)").ConfigureAwait(false);
+        return ExitCode.Ok;
+    }
+
+    private static async Task<int> UsageErrorAsync(TextWriter stderr, string message)
+    {
+        await stderr.WriteLineAsync("error: " + message).ConfigureAwait(false);
+        return ExitCode.Usage;
+    }
+
     private static LogSigningKey? LoadKey(string pem, out string? problem)
     {
         try
@@ -403,14 +613,17 @@ public static class OperatorCommands
             values[name] = argv[++i];
         }
 
-        if (!values.TryGetValue("agent", out var agent) || agent.Length == 0)
+        // A blank value is a missing one, as moderate treats it: " " would otherwise reach the use
+        // case's argument guard (--agent), a public leaf naming no one (--by), or the use case's
+        // refusal rather than the verb's (--reason).
+        if (!values.TryGetValue("agent", out var agent) || string.IsNullOrWhiteSpace(agent))
             return Parsed.Fail("--agent <agent-id> is required.");
 
         if (!values.TryGetValue("owner", out var ownerValue)
             || !OwnerId.Create(ownerValue).TryGetValue(out var owner, out _))
             return Parsed.Fail("--owner <owner-id> is required.");
 
-        if (!values.TryGetValue("by", out var byValue) || byValue.Length == 0)
+        if (!values.TryGetValue("by", out var byValue) || string.IsNullOrWhiteSpace(byValue))
             return Parsed.Fail("--by <operator-name> is required.");
 
         // The operator namespace is a convention, not a rule the domain can hold (plan D4). Applied
@@ -426,8 +639,13 @@ public static class OperatorCommands
                 return Parsed.Fail($"{methodError!.Title}: '{methodValue}'.");
         }
 
-        var reason = values.TryGetValue("reason", out var reasonValue) && reasonValue.Length > 0
-            ? reasonValue
+        // --reason is optional, and omitting it records the default; given, it may not be blank.
+        var hasReason = values.TryGetValue("reason", out var reasonValue);
+        if (hasReason && string.IsNullOrWhiteSpace(reasonValue))
+            return Parsed.Fail("--reason <text> may not be blank; omit it for the default.");
+
+        var reason = hasReason
+            ? reasonValue!
             : $"Owner attested by {actorValue} via {OwnerVerificationMethods.Wire(method)}";
 
         return new Parsed(agent, owner, by, !unverified, method, reason, null);

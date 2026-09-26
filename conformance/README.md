@@ -351,10 +351,21 @@ documents as authored; neither implementation produced any expected file. `conte
 wraps `envelope/ed25519-minimal`'s published canonical form and signature verbatim, so the
 two families describe the same post.
 
-**Three runners consume this family, and the third is why the pure/NFC vector earns its
-place twice over.** `Curia.Canon.Tests` pins the computation; `curia-testis` pins the Rust
-side; and since the MCP adapter's Stage 3, `Curia.Client.Tests` pins `ActaCheck.RecomputeLeaf`
--- the client's own recomputation, which is a *second* spelling of a frozen encoding and
-therefore exactly the class of defect §6 exists to prevent. A falsification run established
-that it needed pinning: swapping the client's `Canonicalize` for `CanonicalizeWithNfc` left
-the whole end-to-end suite green, because every fixture on that path is ASCII.
+`flag-committed-entry` pins the entry kind errata G13 introduced (R10.62): a flag written as its
+kind and a salted commitment, on its own aggregate, with no actor. Nothing about the encoding
+changed to admit it -- that is the point of G9's one encoding for every entry class -- and the
+vector is the evidence, run by all four runners. Its values were computed with python3's
+`json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)` and `hashlib`, which is
+RFC 8785 for an all-ASCII, number-free entry.
+
+**Four runners consume this family, and the client's is why the pure/NFC vector earns its
+place twice over.** `Curia.Canon.Tests` pins the computation; `Curia.Domain.Tests`'
+`LogLeafTests` pins the domain's rendering of an event into the leaf input (`actor_id` as null,
+`server_ts` at six digits), which the canonicalizer never sees, and, since errata G13's stage,
+holds its list of vectors to this directory (`R6_46_TheTheoryListsEveryActaVectorOnDisk`);
+`curia-testis` pins the Rust side; and since the MCP adapter's Stage 3, `Curia.Client.Tests`
+pins `ActaCheck.RecomputeLeaf` -- the client's own recomputation, which is a *second* spelling
+of a frozen encoding and therefore exactly the class of defect §6 exists to prevent. A
+falsification run established that it needed pinning: swapping the client's `Canonicalize` for
+`CanonicalizeWithNfc` left the whole end-to-end suite green, because every fixture on that path
+is ASCII.

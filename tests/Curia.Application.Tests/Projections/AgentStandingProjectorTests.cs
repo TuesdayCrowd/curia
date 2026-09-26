@@ -319,6 +319,28 @@ public sealed class AgentStandingProjectorTests
         Assert.Single(await LogAsync(store, ct));
     }
 
+    /// <summary>
+    /// An attestation names who attested, publicly and permanently. <c>operator: </c> is a valid
+    /// <see cref="ActorId"/> and passes the namespace convention, but names no one; it is refused by
+    /// name, and nothing is appended. The operator tool refuses a blank <c>--by</c> first; this is the
+    /// use case's own guard, for every other caller.
+    /// </summary>
+    [Fact]
+    public async Task R4_30_ABlankOperatorNameIsRefusedAndNothingIsAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ct));
+
+        var refused = await AttestAsync(store, clock, Agent, ct, by: "operator:   ");
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/attest/blank-operator-name", error!.Type);
+        Assert.Single(await LogAsync(store, ct));
+    }
+
     /// <summary>An attestation for an agent the log has never enrolled is refused, and appends nothing.</summary>
     [Fact]
     public async Task R4_30_AnAttestationNeedsAnEnrollment()
@@ -588,14 +610,19 @@ public sealed class AgentStandingProjectorTests
     }
 
     /// <summary>
-    /// Appends a <c>moderation.applied</c> event upholding a flag of <paramref name="category"/> on
-    /// <paramref name="postId"/> — the half of §10.10 that decides, as distinct from the flag that
-    /// asks. Raised first, because a moderation action on a post nobody flagged is not what Table 11
-    /// counts.
+    /// Appends a flag of <paramref name="category"/> on <paramref name="postId"/> and a
+    /// <c>moderation.applied</c> record that names it and withholds the post — the half of §10.10
+    /// that decides, as distinct from the flag that asks. The record names the flag's event id,
+    /// because R10.61 decides upholding per flag: a record naming nothing upholds nothing.
     /// </summary>
     private static async Task UpholdFlagAsync(
         InMemoryEventStore store, string postId, FlagKind category, string reporter, CancellationToken ct)
     {
+        // AppendToPostAsync names each event "{postId}-{position}", so the flag's id is read here,
+        // before the flag is appended.
+        var position = Require(await store.ReadByAggregateAsync(Require(AggregateId.Create(postId)), ct).ConfigureAwait(false)).Count;
+        var flagId = $"{postId}-{position.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+
         await AppendToPostAsync(store, postId, FlagProjector.FlagRaisedType, new JsonValue.Object(
         [
             new(FlagProjector.PostIdField, new JsonValue.String(postId)),
@@ -612,6 +639,7 @@ public sealed class AgentStandingProjectorTests
             new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(ModerationEffect.Withhold))),
             new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
             new(FlagProjector.RationaleField, new JsonValue.String("reviewed and confirmed")),
+            new(FlagProjector.AdjudicatesField, new JsonValue.Array([new JsonValue.String(flagId)])),
         ]), ct).ConfigureAwait(false);
     }
 
