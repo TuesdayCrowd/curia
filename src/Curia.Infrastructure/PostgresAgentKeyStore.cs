@@ -334,10 +334,11 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     /// names its key, and the subject is established by <i>which key verified</i> rather than by a
     /// claim, so a <c>kid</c> resolving to some agent's key still only authenticates whoever holds
     /// the matching private key. What it requires is that a <c>kid</c> identify exactly one key --
-    /// which is why <c>kid</c> is the table's PRIMARY KEY and why
-    /// <see cref="RegisterAsync"/> refuses a collision. Under the in-memory predecessor this was a
-    /// scan across every registered agent whose result depended on iteration order; here it is a
-    /// primary-key lookup that cannot return two rows because the index cannot hold two.</para>
+    /// which is why <c>kid</c> is the table's PRIMARY KEY and why enrollment's insert
+    /// (<see cref="EnrollAsync"/>, <c>ON CONFLICT (kid) DO NOTHING</c>) refuses a collision. Under
+    /// the in-memory predecessor this was a scan across every registered agent whose result
+    /// depended on iteration order; here it is a primary-key lookup that cannot return two rows
+    /// because the index cannot hold two.</para>
     /// </summary>
     [SuppressMessage(
         "Reliability",

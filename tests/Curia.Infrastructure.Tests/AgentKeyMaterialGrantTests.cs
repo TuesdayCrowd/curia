@@ -75,6 +75,7 @@ public sealed class AgentKeyMaterialGrantTests
 
         var ex = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+        Assert.Contains("permission denied for table agent_keys", ex.MessageText, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -97,5 +98,6 @@ public sealed class AgentKeyMaterialGrantTests
 
         var ex = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+        Assert.Contains("permission denied for table agent_keys", ex.MessageText, StringComparison.Ordinal);
     }
 }

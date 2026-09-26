@@ -240,6 +240,28 @@ public sealed class PostgresAgentKeyStoreTests
     }
 
     /// <summary>
+    /// The ownership clause, fenced on its own: another identity presenting alice's exact key -- which
+    /// is public, since the JWKS serves it -- is refused by name and moves nothing. The material checks
+    /// cannot refuse it, because the material matches; without the ownership clause the statement
+    /// would hand back alice's row as mallory's success, and <c>LEAST</c> would let mallory close
+    /// alice's window (a revocation) or open it earlier (a backdating).
+    /// </summary>
+    [Fact]
+    public async Task AnotherAgentPresentingTheExactKeyIsRefusedAndMovesNoWindow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
+        var alices = NewKey("kid-exact-copy");
+
+        Require(await store.RegisterAsync("agent://forum/alice", alices, LastMonth, cancellationToken: ct));
+        var copied = await store.RegisterAsync("agent://forum/mallory", alices, LastMonth, Today, ct);
+
+        Assert.Equal("curia/enroll/kid-already-registered", Refusal(copied).Type);
+        var stillOpen = Require(await store.ResolveAsync("agent://forum/alice", "kid-exact-copy", ServerTimestamp.At(Today.AddDays(1)), ct));
+        Assert.Equal(alices.Kid, stillOpen.Kid);
+    }
+
+    /// <summary>
     /// A repeat registration cannot un-revoke a key. The in-memory predecessor assigned
     /// <c>NotAfter</c> outright, so calling the enrollment endpoint again -- which needs no owner
     /// authentication yet -- quietly restored a revoked key to service. R4.19 requires revocation

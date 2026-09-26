@@ -1816,7 +1816,7 @@ but commit -b enrollment-binds-once -m "$(printf 'Enrollment registers a key onl
 **Files:**
 - Create: `tests/Curia.Infrastructure.Tests/AgentKeyMaterialGrantTests.cs`
 - Create: `db/0005_protect_agent_key_material.sql`
-- Modify: `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` (three facts)
+- Modify: `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` (four facts)
 - Modify: `src/Curia.Infrastructure/Migrations/SchemaMigrations.cs`
 - Modify: `tests/Curia.Infrastructure.Tests/PostgresDatabaseFixture.cs`
 - Modify: `src/Curia.Infrastructure/PostgresAgentKeyStore.cs` (`RegisterAsync`)
@@ -1913,6 +1913,7 @@ public sealed class AgentKeyMaterialGrantTests
 
         var ex = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+        Assert.Contains("permission denied for table agent_keys", ex.MessageText, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1935,6 +1936,7 @@ public sealed class AgentKeyMaterialGrantTests
 
         var ex = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+        Assert.Contains("permission denied for table agent_keys", ex.MessageText, StringComparison.Ordinal);
     }
 }
 ```
@@ -1944,6 +1946,8 @@ public sealed class AgentKeyMaterialGrantTests
 In `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs`, add these two facts: other bytes, and the same bytes under another algorithm. The second fences the statement's `existing.alg = EXCLUDED.alg` clause, which nothing else does. The class carries no underscore suppression, so the names have no underscore.
 
 A third fact, carried from Task 3's review, fences `EnrollAsync`'s read rather than this statement: a key whose window has closed still counts as held, so enrolling its identifier under a new `kid` is refused. An added `AND valid_until IS NULL` in that SELECT turns it red and nothing else in the key-store classes. It passes from the start, so Step 3 does not run it.
+
+A fourth fact, from Task 4's review, fences the statement's ownership clause, `existing.agent_id = EXCLUDED.agent_id`. Once the material clauses exist, `AKidAlreadyRegisteredToADifferentAgentIsRefused` no longer does: its fresh bytes are refused by the material clauses, and the second read names the same slug. Another identity presenting the victim's exact key, which the JWKS publishes, is refused only by the ownership clause. Without it, the statement returns the victim's row as a success, and `LEAST` lets the caller revoke or backdate the victim's window. The fact passes from the start, so Step 3 does not run it. Task 7's case 18 is its falsifier.
 
 In `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs`, insert before:
 
@@ -2017,6 +2021,28 @@ this:
         var enrolled = await store.EnrollAsync("agent://forum/alice", NewKey("kid-after-closing"), Today.AddDays(1), ct);
 
         Assert.Equal("curia/enroll/already-enrolled", Refusal(enrolled).Type);
+    }
+
+    /// <summary>
+    /// The ownership clause, fenced on its own: another identity presenting alice's exact key -- which
+    /// is public, since the JWKS serves it -- is refused by name and moves nothing. The material checks
+    /// cannot refuse it, because the material matches; without the ownership clause the statement
+    /// would hand back alice's row as mallory's success, and <c>LEAST</c> would let mallory close
+    /// alice's window (a revocation) or open it earlier (a backdating).
+    /// </summary>
+    [Fact]
+    public async Task AnotherAgentPresentingTheExactKeyIsRefusedAndMovesNoWindow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
+        var alices = NewKey("kid-exact-copy");
+
+        Require(await store.RegisterAsync("agent://forum/alice", alices, LastMonth, cancellationToken: ct));
+        var copied = await store.RegisterAsync("agent://forum/mallory", alices, LastMonth, Today, ct);
+
+        Assert.Equal("curia/enroll/kid-already-registered", Refusal(copied).Type);
+        var stillOpen = Require(await store.ResolveAsync("agent://forum/alice", "kid-exact-copy", ServerTimestamp.At(Today.AddDays(1)), ct));
+        Assert.Equal(alices.Kid, stillOpen.Kid);
     }
 
 ```
@@ -2372,7 +2398,7 @@ Expected: 0 warnings, and the whole Infrastructure suite `Passed!`. `SchemaMigra
 Passed!  - Failed:     0, Passed:   104, Skipped:     0, Total:   104, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
 ```
 
-The closed-window fact Step 2 carries from Task 3's review makes it 105.
+Step 2's closed-window and ownership facts, from the Task 3 and Task 4 reviews, make it 106.
 
 - [ ] **Step 8: Commit**
 
@@ -3613,6 +3639,9 @@ CASES = [
          cmds=[dotnet(APP, "FullyQualifiedName~EnrollIdentityTests"),
                dotnet(API, "FullyQualifiedName~EnrollmentBindingTests")],
          edits=[(USECASE, DATED_FROM_ENROLLMENT, DATED_FROM_NOW)]),
+    dict(id="18", what="the history primitive no longer compares the owner",
+         cmds=[dotnet(INFRA, "FullyQualifiedName~PostgresAgentKeyStoreTests")],
+         edits=[(STORE, "               WHERE existing.agent_id   = EXCLUDED.agent_id\n", "               WHERE TRUE\n")]),
 ]
 
 # What a failing xUnit test prints about itself, and nothing else: its name, then its message
@@ -3704,6 +3733,7 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 | 15 | `EnrollmentBindingTests.R4_31_EnrollingAnEnrolledIdentityWithANewKeyRegistersNothing`, `R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing` and `R4_31_AKidAnotherIdentityHoldsIsRefusedNamingBoth`, each at its detail (`Assert.StartsWith() Failure` twice, `Assert.Equal() Failure: Strings differ` once) |
 | 16 | `PostgresAgentKeyStoreTests.AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands` alone (`Expected a failure, got RegisteredKey { … }`) |
 | 17 | `EnrollIdentityTests.R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound` (`Assert.Equal() Failure: Values differ`: the key dated a day after the enrollment); `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment` (`Assert.Equal() Failure: Strings differ`: the served key set's `curia_not_before` an hour later than before the loss) |
+| 18 | `PostgresAgentKeyStoreTests.AnotherAgentPresentingTheExactKeyIsRefusedAndMovesNoWindow` alone (`Expected a failure, got RegisteredKey { … NotAfter = 3/1/2026 … }`: mallory is handed alice's row, with alice's window closed). `AKidAlreadyRegisteredToADifferentAgentIsRefused` stays green, and it should: its fresh bytes are refused by the material clauses, so only an exact copy of the key reaches the ownership clause alone |
 
 Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).
@@ -3787,7 +3817,7 @@ with:
 Their entries are kept as the
 ```
 
-The two entries go before the moderation stage's observations, and this stage's observations follow them. Paste into each `Falsified` paragraph the lines `falsify.log` printed for that entry's cases, as the D20 and D21 entries quote theirs: cases 1–12, 4b and 15–17 under D22, and 13 and 14 under D23. That is all eighteen:
+The two entries go before the moderation stage's observations, and this stage's observations follow them. Paste into each `Falsified` paragraph the lines `falsify.log` printed for that entry's cases, as the D20 and D21 entries quote theirs: cases 1–12, 4b and 15–18 under D22, and 13 and 14 under D23. That is all nineteen:
 
 In `IMPLEMENTATION_PLAN.md`, insert before:
 
@@ -3848,7 +3878,7 @@ the file restored with a plain copy, and the restore checked clean. After the la
 `--no-incremental` rebuild ran every gate green unpatched (trap 18). Test names and message lines are
 as the runner printed them:
 
-*(paste cases 1–12, 4b and 15–17 from `falsify.log`, as the D20 and D21 entries quote theirs)*
+*(paste cases 1–12, 4b and 15–18 from `falsify.log`, as the D20 and D21 entries quote theirs)*
 
 ### D23 — an anonymous search holding U+FFFE answered 500 *(carried from the moderation stage; opened and closed by the enrollment stage, 2026-09-26)*
 
@@ -4281,7 +4311,7 @@ Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's
 - the order of `EnrollIdentity` (log, store, log) and why;
 - what db/0005 grants and what it refuses;
 - D23, the search 500, and why no vector moved;
-- the falsification table from `falsify.log`, all eighteen cases;
+- the falsification table from `falsify.log`, all nineteen cases;
 - the test plan, with the per-assembly lines Step 1 printed;
 - the observations recorded but not fixed, the moderation stage's parked residuals among them, and the one question left for the owner: whether a Forum whose history matters exists, and the audit query for it.
 
