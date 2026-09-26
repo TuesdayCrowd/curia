@@ -922,12 +922,14 @@ The expected value below was computed **outside this solution**: `python3`'s `ha
 - [ ] **Step 1: Recompute the expected value independently**
 
 ```bash
-python3 -c 'import hashlib,json; o={"post_id":"01JPOST0000000000000000001","raised_by":"https://agents.example/reporter","rationale":"looks like an injection attempt","salt":"c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtdGVzdA"}; print("sha256:"+hashlib.sha256(json.dumps(o,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest())'
+python3 -c 'import hashlib,json; o={"post_id":"01JPOST0000000000000000001","raised_by":"https://agents.example/reporter","rationale":"looks like an injection attempt","salt":"c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI"}; print("sha256:"+hashlib.sha256(json.dumps(o,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest())'
 ```
 
-Expected: `sha256:6800fba2224d9bb7f7a7c7f90b6094a9215f1cf9e8c1d924da04e8b173152715`.
+Expected: `sha256:174280f4b5e6449e5ba0bd1fe2b1c97a839aebc2b7a2e363f5788df90bad9ab5`.
 
 `json.dumps` with sorted keys, no whitespace and `ensure_ascii=False` is RFC 8785 for this input, because every member is an ASCII string with no escapes and there are no numbers.
+
+Both salts in this task are in R10.62's domain: 43 unpadded base64url characters that decode to 32 bytes (the ASCII bytes `salt-for-the-fixed-commitment-32` and `salt-for-a-different-commitment2`), so a verifier enforcing R10.62 accepts the pinned vector.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -955,7 +957,7 @@ public sealed class FlagCommitmentTests
     private const string Post = "01JPOST0000000000000000001";
     private const string Raiser = "https://agents.example/reporter";
     private const string Rationale = "looks like an injection attempt";
-    private const string Salt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtdGVzdA";
+    private const string Salt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI";
 
     private static string Commit(string post, string raiser, string rationale, string salt)
     {
@@ -970,7 +972,7 @@ public sealed class FlagCommitmentTests
     [Fact]
     public void R10_62_TheCommitmentIsSha256OverThePureCanonicalFormOfTheFourMembers() =>
         Assert.Equal(
-            "sha256:6800fba2224d9bb7f7a7c7f90b6094a9215f1cf9e8c1d924da04e8b173152715",
+            "sha256:174280f4b5e6449e5ba0bd1fe2b1c97a839aebc2b7a2e363f5788df90bad9ab5",
             Commit(Post, Raiser, Rationale, Salt));
 
     /// <summary>Every member is bound: change any one and the commitment moves.</summary>
@@ -978,7 +980,7 @@ public sealed class FlagCommitmentTests
     [InlineData("01JPOST0000000000000000002", Raiser, Rationale, Salt)]
     [InlineData(Post, "https://agents.example/someone-else", Rationale, Salt)]
     [InlineData(Post, Raiser, "looks like an injection attempt.", Salt)]
-    [InlineData(Post, Raiser, Rationale, "c2FsdC1mb3ItYS1kaWZmZXJlbnQtY29tbWl0bWVudA")]
+    [InlineData(Post, Raiser, Rationale, "c2FsdC1mb3ItYS1kaWZmZXJlbnQtY29tbWl0bWVudDI")]
     public void R10_62_EveryMemberIsBound(string post, string raiser, string rationale, string salt) =>
         Assert.NotEqual(Commit(Post, Raiser, Rationale, Salt), Commit(post, raiser, rationale, salt));
 
@@ -1728,7 +1730,7 @@ public sealed class FlagDirectoryTests
 {
     private const string Post = "01JPOST0000000000000000001";
     private const string Reporter = "https://agents.example/reporter";
-    private const string Salt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtdGVzdA";
+    private const string Salt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI";
 
     private static readonly DateTimeOffset Start = new(2026, 9, 26, 12, 0, 0, TimeSpan.Zero);
 
@@ -2845,7 +2847,7 @@ public sealed class RaiseFlagTests
     private const string Post = "01JPOST0000000000000000001";
     private const string Reporter = "https://agents.example/reporter";
     private const string Rationale = "looks like an injection attempt";
-    private const string FixedSalt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtdGVzdA";
+    private const string FixedSalt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI";
 
     private static readonly DateTimeOffset Start = new(2026, 9, 26, 12, 0, 0, TimeSpan.Zero);
 
@@ -3358,7 +3360,7 @@ Expected:
 66128f1fe528857613fef8e66d312b65214bfd0d7b7a7aa82ca5e0ab2cf2219c
 ```
 
-The commitment inside is Task 3's pinned value. Every string is ASCII with no escapes and there are no numbers, so `json.dumps` is RFC 8785 here, exactly as for the family's other vectors.
+The commitment inside is an opaque, shape-valid commitment: `sha256:` and 64 lowercase hex, which is all the leaf encoding sees of one. It is not Task 3's pinned value and opens to no private row; this vector tests the leaf, not the commitment. Every string is ASCII with no escapes and there are no numbers, so `json.dumps` is RFC 8785 here, exactly as for the family's other vectors.
 
 - [ ] **Step 2: Write the vector, byte for byte**
 
@@ -3372,7 +3374,7 @@ cat > "$d/meta.json" <<'EOF'
 {
   "profile": "acta-leaf",
   "requirement": "R6.46",
-  "note": "A flag as R10.62 writes one: event_type flag.committed on the flag's own aggregate, a null actor, and a payload of its kind and a salted commitment -- no post, no raiser, no rationale. The commitment is FlagCommitment's pinned value. Expected values were computed with python3's json and hashlib, outside both implementations; a new entry kind is a payload decision under G9's one encoding, and this vector is the evidence that both runners agree on it unchanged."
+  "note": "A flag as R10.62 writes one: event_type flag.committed on the flag's own aggregate, a null actor, and a payload of its kind and a salted commitment -- no post, no raiser, no rationale. The commitment is opaque here: a shape-valid sha256: value that opens to no private row, since the leaf encoding never looks inside it. Expected values were computed with python3's json and hashlib, outside both implementations; a new entry kind is a payload decision under G9's one encoding, and this vector is the evidence that both runners agree on it unchanged."
 }
 EOF
 xxd "$d/input.json" | tail -1; xxd "$d/expected.digest" | tail -1
