@@ -77,7 +77,7 @@ public sealed class RaiseFlag
 
         // SCREEN, before anything is written. The screener takes a span, which cannot be stored in
         // a field, so this phase structurally cannot retain what it screened.
-        var screened = ContentScreener.Screen(Encoding.UTF8.GetBytes(rationale));
+        var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(rationale));
         if (!screened.TryGetValue(out var screening, out var screeningError))
             return Result<FlagRaised>.Fail(screeningError!);
 

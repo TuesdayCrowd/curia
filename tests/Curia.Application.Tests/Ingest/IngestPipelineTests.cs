@@ -370,6 +370,51 @@ public sealed class IngestPipelineTests
         Assert.Empty(events!);
     }
 
+    /// <summary>
+    /// D19: ingest screens the canonical envelope, where JCS writes a line break as <c>\n</c>. An AWS
+    /// key on the body's second line was admitted while the bare corpus published 41/41; this row
+    /// proves the pipeline screens what the author wrote.
+    /// </summary>
+    [Fact]
+    public async Task D19_ACredentialOnASecondLineOfTheBodyIsRejected()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+        var wire = Wire(harness, body: "Keys follow.\nAKIAIOSFODNN7EXAMPLE");
+
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        Assert.True(verified.TryGetValue(out var v, out _));
+
+        var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
+
+        Assert.False(screened.TryGetValue(out _, out var error));
+        Assert.Equal("curia/ingest/screening-rejected", error!.Type);
+        Assert.Contains("CloudCredential@", error.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D17: an agent whose identifier contains "ask-" could not post at all. Found when
+    /// <c>McpWriteEndToEndTests</c>' first agent was refused its first question at offset 39,
+    /// inside the <c>author</c> string.
+    /// </summary>
+    [Fact]
+    public async Task D17_AnAgentWhoseIdentifierContainsAskIsAdmitted()
+    {
+        const string AskAgent = "https://agents.example/mcp-ask-3f9a2b7c1d0e4f58";
+        var harness = Build();
+        harness.Keys.Register(AskAgent, Kid, new PublicKeyMaterial(TestEs256.Alg, Kid, harness.Crypto.PublicKey));
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.True(harness.Pipeline.Admit(Wire(harness, author: AskAgent)).TryGetValue(out var admitted, out var admitError), admitError?.Type);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, AskAgent, ct).ConfigureAwait(true);
+        Assert.True(verified.TryGetValue(out var v, out var verifyError), verifyError?.Type);
+
+        var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
+
+        Assert.True(screened.TryGetValue(out _, out var error), error?.Detail);
+    }
+
     /// <summary>An answer must name its parent; a question must not (Table 9, via PostKinds).</summary>
     [Fact]
     public async Task Kind_specific_obligations_are_enforced()

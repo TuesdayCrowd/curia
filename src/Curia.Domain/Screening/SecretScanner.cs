@@ -27,8 +27,17 @@ public static partial class SecretScanner
     /// <summary>
     /// R10.10/R10.30: bump this whenever a pattern changes, so a re-run over the archive is
     /// attributable to a rule set. The date is the rule set's, not the build's.
+    /// 2026-09-25: no pattern changed; SCREEN began reading decoded tokens rather than canonical
+    /// text (register D19), which changes the verdict for identical content, and attribution is
+    /// what the version is for.
+    /// 2026-09-25b: the unanchored prefix rule went with the cross-word view it served; the
+    /// connection-string rule split into its URI and keyword forms; and neither the keyword form
+    /// nor the high-entropy assignment rule reads the line-joined view that replaced it (register D17).
+    /// 2026-09-26: the line-joined view also deletes invisible characters and rejoins across the
+    /// extended line-break and gutter set, and the connection-string URI rule no longer reads it
+    /// (register D17). A new name, not 2026-09-25b reused: that one is published and in built DLLs.
     /// </summary>
-    public const string Version = "secrets/2026-08-18b";
+    public const string Version = "secrets/2026-09-26";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -49,9 +58,6 @@ public static partial class SecretScanner
         // enough to reject on rather than merely flag.
         (JwtShape(), RiskCategory.JsonWebToken),
 
-        // "connection strings with embedded passwords".
-        (ConnectionStringPassword(), RiskCategory.ConnectionStringPassword),
-
         // Webhook URLs whose secret is the *path*, not a query parameter.
         //
         // Found by adding a Slack webhook to the red-team corpus and watching every rule miss it.
@@ -68,33 +74,29 @@ public static partial class SecretScanner
     ];
 
     /// <summary>
-    /// Scans a derived copy of the content. The caller owns that copy and discards it (R6.13);
-    /// nothing returned from here references it.
+    /// Scans a derived copy of the content with every rule: <see cref="ScanShapes"/> and the three
+    /// rules the line-joined view does not read -- the connection-string password in its URI and
+    /// keyword forms, and the high-entropy assignment. The caller owns that copy and discards it
+    /// (R6.13); nothing returned from here references it.
     /// </summary>
-    /// <param name="relaxWordBoundaries">
-    /// Drops the leading word-boundary anchor on the prefixed-key rule.
-    ///
-    /// <para><b>Set only for the "unseparated" view</b>, where every separator has been removed and
-    /// the whole content is one token. A credential split across words -- "Concatenate ghp_A7bQ2xLm
-    /// and 9RtVz..." -- rejoins in that view, but <c>\b</c> then finds no boundary before the prefix
-    /// because the preceding character is a letter too. The anchor exists to stop the rule matching
-    /// inside a longer identifier in ordinary text; in a view that is *entirely* one identifier, it
-    /// only prevents the detection the view was built for.</para>
-    ///
-    /// <para>Found by adding a split-credential payload to the red-team corpus and watching the rule
-    /// miss it -- the pattern was right and the anchor was wrong for that one reading.</para>
-    /// </param>
-    public static IEnumerable<RiskFlag> Scan(string derivedCopy, bool relaxWordBoundaries = false)
+    public static IEnumerable<RiskFlag> Scan(string derivedCopy)
     {
         ArgumentNullException.ThrowIfNull(derivedCopy);
 
-        foreach (var (pattern, category) in Rules)
-            foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
-                yield return new RiskFlag(category, match.Index, match.Length, Version);
+        foreach (var flag in ScanShapes(derivedCopy))
+            yield return flag;
 
-        if (relaxWordBoundaries)
-            foreach (var match in ApiKeyPrefixUnanchored().Matches(derivedCopy).Cast<Match>())
-                yield return new RiskFlag(RiskCategory.ApiKey, match.Index, match.Length, Version);
+        // "connection strings with embedded passwords", the URI form: credentials in the authority.
+        // Here rather than in ScanShapes because its open classes read a joined `host:port` line end
+        // and a decorator, annotation or @-mention on the next line as `user:pass@` -- see ScanShapes.
+        foreach (var match in ConnectionStringUriPassword().Matches(derivedCopy).Cast<Match>())
+            yield return new RiskFlag(RiskCategory.ConnectionStringPassword, match.Index, match.Length, Version);
+
+        // "connection strings with embedded passwords", the keyword form: `Password=...` is an
+        // assignment whose value class is open, so it runs here with the other assignment rule and
+        // not in ScanShapes -- see ScanShapes for why the line-joined view reads neither.
+        foreach (var match in ConnectionStringKeywordPassword().Matches(derivedCopy).Cast<Match>())
+            yield return new RiskFlag(RiskCategory.ConnectionStringPassword, match.Index, match.Length, Version);
 
         // "high-entropy strings in assignment position" is the one rule with a second condition,
         // so it runs outside the table rather than being forced into it. The regex finds the
@@ -103,6 +105,33 @@ public static partial class SecretScanner
         foreach (var match in HighEntropyAssignment().Matches(derivedCopy).Cast<Match>())
             if (LooksHighEntropy(derivedCopy.AsSpan(match.Index, match.Length)))
                 yield return new RiskFlag(RiskCategory.ApiKey, match.Index, match.Length, Version);
+    }
+
+    /// <summary>
+    /// Scans a derived copy with the shape rules alone -- every rule in the table, without the three
+    /// <see cref="Scan"/> adds: the connection-string password in its URI and keyword forms, and the
+    /// high-entropy assignment. The caller owns that copy and discards it (R6.13).
+    ///
+    /// <para><b>The line-joined view reads only these</b> (register D17). That view deletes line
+    /// breaks, and each of the three has an open class that reads the joined next line as part of
+    /// its match. An assignment rule's value swallows it: <c>API_KEY=changeme</c> above
+    /// <c>DATABASE_URL_FOR_REPLICA=…</c> reads as one long assigned run, and <c>PWD=/</c> above
+    /// <c>HOME=/root</c> as a password, so a placeholder becomes a secret. The URI rule reads a
+    /// <c>host:port</c> ending one line and an @-mention, a decorator or a doc-comment
+    /// <c>@param</c> starting the next as <c>user:pass@</c> -- and <c>http://localhost:PORT</c> is the
+    /// commonest URL agents post. The cost: an assigned value wrapped before either assignment
+    /// rule's length floor, or a connection string wrapped inside its user or password, is not
+    /// rejoined -- as it was not before this view existed; the second is recorded in
+    /// known-evasions.jsonl. A wrapped key with a vendor prefix is still rejoined for the
+    /// prefixed-key rule, and a wrapped webhook for the webhook rule.</para>
+    /// </summary>
+    public static IEnumerable<RiskFlag> ScanShapes(string derivedCopy)
+    {
+        ArgumentNullException.ThrowIfNull(derivedCopy);
+
+        foreach (var (pattern, category) in Rules)
+            foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
+                yield return new RiskFlag(category, match.Index, match.Length, Version);
     }
 
     /// <summary>
@@ -143,23 +172,24 @@ public static partial class SecretScanner
         RegexOptions.CultureInvariant)]
     private static partial Regex ApiKeyPrefix();
 
-    // The same vendor prefixes without the leading boundary anchor, for the unseparated view only.
-    [GeneratedRegex(
-        @"(?:gh[pousr]_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,}|SG\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{16,}|AIza[A-Za-z0-9_-]{20,})",
-        RegexOptions.CultureInvariant)]
-    private static partial Regex ApiKeyPrefixUnanchored();
-
     [GeneratedRegex(@"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", RegexOptions.CultureInvariant)]
     private static partial Regex CloudCredential();
 
     [GeneratedRegex(@"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", RegexOptions.CultureInvariant)]
     private static partial Regex JwtShape();
 
-    // A URI with credentials in the authority, or a keyword connection string carrying a password.
+    // A URI with credentials in the authority. Scan runs it and ScanShapes does not.
     [GeneratedRegex(
-        @"(?:[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@)|(?:\b(?:password|pwd)\s*=\s*[^\s;""']{4,})",
+        @"(?:[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex ConnectionStringPassword();
+    private static partial Regex ConnectionStringUriPassword();
+
+    // A keyword connection string carrying a password. An assignment, so Scan runs it and
+    // ScanShapes does not.
+    [GeneratedRegex(
+        @"\b(?:password|pwd)\s*=\s*[^\s;""']{4,}",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ConnectionStringKeywordPassword();
 
     [GeneratedRegex(
         @"https://(?:hooks\.slack\.com/services/[A-Za-z0-9_/-]{20,}|discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}|outlook\.office\.com/webhook/[A-Za-z0-9@/-]{20,})",

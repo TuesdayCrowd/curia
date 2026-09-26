@@ -3,6 +3,9 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Curia.Canon.Canonical;
+using Curia.Canon.Json;
+using Curia.Domain.Content;
 using Curia.Domain.Screening;
 using Xunit;
 
@@ -23,8 +26,172 @@ public sealed class ContentScreenerTests
     private static ScreeningResult Screen(string content)
     {
         var bytes = Encoding.UTF8.GetBytes(content);
-        Assert.True(ContentScreener.Screen(bytes).TryGetValue(out var result, out var error), error?.Type);
+        Assert.True(ContentScreener.ScreenText(bytes).TryGetValue(out var result, out var error), error?.Type);
         return result!;
+    }
+
+    private static string CanonicalEnvelope(
+        string body,
+        string author = "https://agents.example/screener-tests",
+        string board = "general",
+        string[]? tags = null,
+        JsonValue.Array? codeBlocks = null,
+        KeyValuePair<string, JsonValue>? extra = null)
+    {
+        var members = new List<KeyValuePair<string, JsonValue>>
+        {
+            new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)),
+            new("kind", new JsonValue.String("question")),
+            new("author", new JsonValue.String(author)),
+            new("board", new JsonValue.String(board)),
+            new("title", new JsonValue.String("Screening an envelope")),
+            new("body", new JsonValue.String(body)),
+            new("code_blocks", codeBlocks ?? new JsonValue.Array([])),
+            new("refs", new JsonValue.Array([])),
+            new("tags", new JsonValue.Array([.. (tags ?? ["jcs"]).Select(t => (JsonValue)new JsonValue.String(t))])),
+            new("content_type", new JsonValue.String(PostEnvelope.RequiredContentType)),
+            new("created_at", new JsonValue.String("2026-09-25T00:00:00.0000000+00:00")),
+            new("nonce", new JsonValue.String("00000000000000000000000000000000")),
+        };
+        if (extra is { } member) members.Add(member);
+
+        Assert.True(
+            CanonicalJson.CanonicalizeWithNfc(new JsonValue.Object([.. members])).TryGetValue(out var canonical, out var error),
+            error?.Type);
+        return Encoding.UTF8.GetString(canonical.Span);
+    }
+
+    private static ScreeningResult ScreenEnvelope(string canonical)
+    {
+        Assert.True(
+            ContentScreener.ScreenEnvelope(Encoding.UTF8.GetBytes(canonical)).TryGetValue(out var result, out var error),
+            error?.Type);
+        return result!;
+    }
+
+    // ---- D19: an envelope is screened as the author wrote it -----------------------------------
+
+    /// <summary>
+    /// D19: in canonical text a line break is <c>\n</c>, a tab <c>\t</c>, a quote <c>\"</c>, and each
+    /// of these rows was admitted by ingest while the bare corpus published 41/41.
+    /// </summary>
+    [Theory]
+    [InlineData("Keys follow.\nAKIAIOSFODNN7EXAMPLE", "CloudCredential")]
+    [InlineData("Keys follow:\tAKIAIOSFODNN7EXAMPLE", "CloudCredential")]
+    [InlineData("Keys follow.\r\nAKIAIOSFODNN7EXAMPLE", "CloudCredential")]
+    [InlineData("Header follows.\neyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk", "JsonWebToken")]
+    [InlineData("api_key = \"Zk3Rq7Vt2Xw9Yb5Nc8Md1Pf4Hj6Lg0Sa\"", "ApiKey")]
+    [InlineData("Env follows.\ntoken = Zk3Rq7Vt2Xw9Yb5Nc8Md1Pf4Hj6Lg0SaEXAMPLE", "ApiKey")]
+    [InlineData("Conn follows.\npassword=hunter2hunter2", "ConnectionStringPassword")]
+    public void D19_ACredentialTheAuthorWroteOnItsOwnLineIsRejectedInAnEnvelope(string body, string category)
+    {
+        var result = ScreenEnvelope(CanonicalEnvelope(body));
+
+        Assert.Equal(ScreeningOutcome.Rejected, result.Outcome);
+        Assert.Contains(result.Annotations.Rejecting, f => f.Category.ToString() == category);
+    }
+
+    [Fact]
+    public void D19_ACredentialInACodeBlockIsReached()
+    {
+        var codeBlocks = new JsonValue.Array(
+        [
+            new JsonValue.Object(
+            [
+                new("language", new JsonValue.String("sh")),
+                new("source", new JsonValue.String("#!/bin/sh\nAKIAIOSFODNN7EXAMPLE")),
+            ]),
+        ]);
+
+        Assert.Equal(ScreeningOutcome.Rejected, ScreenEnvelope(CanonicalEnvelope("See the script.", codeBlocks: codeBlocks)).Outcome);
+    }
+
+    /// <summary>An unknown member is ignored, not rejected, so its name is author-chosen and persisted.</summary>
+    [Fact]
+    public void D19_AMemberNameIsScreened()
+    {
+        var extra = new KeyValuePair<string, JsonValue>("AKIAIOSFODNN7EXAMPLE", new JsonValue.String("x"));
+
+        Assert.Equal(ScreeningOutcome.Rejected, ScreenEnvelope(CanonicalEnvelope("Nothing here.", extra: extra)).Outcome);
+    }
+
+    /// <summary>
+    /// Offsets keep the unit persisted in <c>risk_flags</c>: UTF-16 offsets into the canonical text.
+    /// </summary>
+    [Theory]
+    [InlineData("line one\nAKIAIOSFODNN7EXAMPLE")]
+    [InlineData("😀 then AKIAIOSFODNN7EXAMPLE")]
+    public void D19_AFindingsOffsetPointsIntoTheCanonicalText(string body)
+    {
+        var canonical = CanonicalEnvelope(body);
+
+        var flag = Assert.Single(ScreenEnvelope(canonical).Annotations.Rejecting);
+
+        Assert.Equal("AKIAIOSFODNN7EXAMPLE", canonical.Substring(flag.Offset, flag.Length));
+    }
+
+    [Fact]
+    public void D19_ScreenEnvelopeRefusesTextThatIsNotAnEnvelope()
+    {
+        var bytes = Encoding.UTF8.GetBytes("Keys follow.\nAKIAIOSFODNN7EXAMPLE");
+
+        Assert.Throws<InvalidOperationException>(() => ContentScreener.ScreenEnvelope(bytes));
+    }
+
+    [Fact]
+    public void R6_12_ScreeningAnEnvelopeLeavesTheBufferByteIdentical()
+    {
+        var bytes = Encoding.UTF8.GetBytes(CanonicalEnvelope("Keys follow.\nAKIAIOSFODNN7EXAMPLE"));
+        var before = (byte[])bytes.Clone();
+
+        _ = ContentScreener.ScreenEnvelope(bytes);
+
+        Assert.Equal(before, bytes);
+    }
+
+    // ---- D17: structure that only looks like a key -------------------------------------------
+
+    /// <summary>
+    /// D17: the cross-word view read "sk-" plus the next sixteen characters of a member as an API key,
+    /// so an agent whose identifier contained "ask-" could not post at all, and neither could a board,
+    /// a tag or a member name carrying a "-sk" word.
+    /// </summary>
+    [Theory]
+    [InlineData("https://agents.example/mcp-ask-3f9a2b7c1d0e4f58", "general", "jcs", null)]
+    [InlineData("https://agents.example/screener-tests", "risk-management-and-compliance", "jcs", null)]
+    [InlineData("https://agents.example/screener-tests", "general", "risk-assessment-framework", null)]
+    [InlineData("https://agents.example/screener-tests", "general", "jcs", "task-orchestration-notes")]
+    public void D17_StructuralMembersContainingSkWordsAreAccepted(string author, string board, string tag, string? memberName)
+    {
+        KeyValuePair<string, JsonValue>? extra = memberName is null
+            ? null
+            : new KeyValuePair<string, JsonValue>(memberName, new JsonValue.String("x"));
+
+        var result = ScreenEnvelope(CanonicalEnvelope(
+            "Why does the pooler idle the connection?", author, board, [tag], extra: extra));
+
+        Assert.NotEqual(ScreeningOutcome.Rejected, result.Outcome);
+    }
+
+    /// <summary>
+    /// D17: the line-joined view deletes invisible characters and then line breaks, and composes the
+    /// two index maps, so a rejection's offset still lands on the key the author wrote (R10.27). The
+    /// corpus compares categories only and cannot see an offset; this pins it. The rows are
+    /// <c>secret-zero-width-mid-token</c>, and <c>secret-soft-hyphen-at-a-wrap</c>, where both
+    /// deletions happen inside the key.
+    /// </summary>
+    [Theory]
+    [InlineData("token: ghp_A7bQ2xLm\u200B9RtVzP4kW8sYcE1nJ6dH0uF3gI5o")]
+    [InlineData("token: ghp_A7bQ2xLm9R\u00AD\ntVzP4kW8sYcE1nJ6dH0uF3gI5o")]
+    public void D17_AKeySplitByAnInvisibleCharacterIsReportedWhereTheAuthorWroteIt(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        var flag = Assert.Single(Screen(content).Annotations.Rejecting, f => f.Category is RiskCategory.ApiKey);
+        var reported = content.Substring(flag.Offset, flag.Length);
+
+        Assert.StartsWith("ghp_", reported, StringComparison.Ordinal);
+        Assert.EndsWith("gI5o", reported, StringComparison.Ordinal);
     }
 
     // ---- R6.13: the three outcomes ----------------------------------------------------------
@@ -210,7 +377,7 @@ public sealed class ContentScreenerTests
         var bytes = Encoding.UTF8.GetBytes(content);
         var before = (byte[])bytes.Clone();
 
-        ContentScreener.Screen(bytes);
+        ContentScreener.ScreenText(bytes);
 
         Assert.Equal(before, bytes);
     }

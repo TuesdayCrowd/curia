@@ -52,9 +52,6 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
     [Fact]
     public async Task Phase1_AQuestionAskedThroughMcpVerifiesUnderTheIndependentVerifier()
     {
-        // Not "mcp-ask": "ask-" followed by the random suffix reads as an `sk-` API key in the
-        // credential screener's separator-stripped view, and the Forum refuses the envelope. That is
-        // a live screener false positive, register entry D17, and not this test's subject.
         var agent = await EnrolAsync("mcp-writer", signer: null);
         await AssertAskVerifiesOfflineAsync(agent);
     }

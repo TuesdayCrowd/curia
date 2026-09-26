@@ -24,8 +24,15 @@ namespace Curia.Domain.Screening;
 /// </summary>
 public static partial class InjectionDetector
 {
-    /// <summary>R10.10: versioned, so a November rule set can be re-run over March's archive.</summary>
-    public const string Version = "injection/2026-08-17";
+    /// <summary>
+    /// R10.10: versioned, so a November rule set can be re-run over March's archive.
+    /// 2026-09-25: no pattern changed; SCREEN began reading decoded tokens rather than canonical
+    /// text (register D19), which changes the verdict for identical content, and attribution is
+    /// what the version is for.
+    /// 2026-09-26: U+2060 (word joiner) joined the hidden-text set, which is now
+    /// <see cref="HiddenCharacters"/>, shared with the line-joined view (register D17).
+    /// </summary>
+    public const string Version = "injection/2026-09-26";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -59,14 +66,14 @@ public static partial class InjectionDetector
             foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
                 yield return new RiskFlag(category, match.Index, match.Length, Version);
 
-        foreach (var flag in HiddenCharacters(derivedCopy))
+        foreach (var flag in HiddenTextFlags(derivedCopy))
             yield return flag;
     }
 
     /// <summary>
     /// R10.8's "zero-width characters ... unusual Unicode direction marks". Character-by-character
-    /// rather than by regex, because these are code points rather than a lexical shape, and
-    /// because a regex over them reads as noise at review time while a named list does not.
+    /// rather than by regex, because these are code points rather than a lexical shape; the set is
+    /// <see cref="HiddenCharacters"/>, which the line-joined view deletes by the same predicate.
     ///
     /// <para>Note what is <b>not</b> here: homoglyph substitution, which R10.8 also names.
     /// Detecting it needs a confusables table (UTS #39) and a notion of what the text is being
@@ -75,24 +82,11 @@ public static partial class InjectionDetector
     /// unimplemented clause rather than approximated, so nobody reads a clean scan as evidence
     /// there is no homoglyph.</para>
     /// </summary>
-    private static IEnumerable<RiskFlag> HiddenCharacters(string text)
+    private static IEnumerable<RiskFlag> HiddenTextFlags(string text)
     {
         for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            var hidden = c switch
-            {
-                '​' or '‌' or '‍' or '﻿' => true, // zero-width space/NJ/J, BOM
-                '‎' or '‏' => true,                          // LRM, RLM
-                >= '‪' and <= '‮' => true,                   // embedding/override
-                >= '⁦' and <= '⁩' => true,                   // isolates
-                '­' => true,                                      // soft hyphen
-                _ => false,
-            };
-
-            if (hidden)
+            if (HiddenCharacters.Contains(text[i]))
                 yield return new RiskFlag(RiskCategory.HiddenText, i, 1, Version);
-        }
     }
 
     [GeneratedRegex(
