@@ -648,11 +648,12 @@ fn merkle() {
 ///
 /// The literals below are counted from the corpus directory, family by
 /// family: admit-accept 5, admit-reject 14, c4 10, numbers 9, ordering 3,
-/// unicode 6, envelope 8, merkle 9, acta 5 — 69 vector directories — plus
-/// the 6 vendored `rfc8785/` file pairs, 75 in all. (Envelope grew from 6 to
+/// unicode 6, envelope 8, merkle 9, acta 6 — 70 vector directories — plus
+/// the 6 vendored `rfc8785/` file pairs, 76 in all. (Envelope grew from 6 to
 /// 8 with errata G8's `vote-minimal` and `verification-contradicted`; merkle
 /// and acta arrived with Phase 3 Stage 4 -- one merkle vector per tree size
-/// 0–8, and five acta vectors pinning R6.46's leaf input.) (An earlier version of this comment
+/// 0–8, and five acta vectors pinning R6.46's leaf input. Acta grew from 5 to 6
+/// with errata G13's `flag-committed-entry`.) (An earlier version of this comment
 /// cited "50 vector directories, per CHARTER.md": a count that contradicted
 /// the assertion beneath it, and a file that does not exist in this
 /// repository. Both are corrected here.)
@@ -676,11 +677,11 @@ fn corpus_size_matches_charter() {
             + c.envelope.len()
             + c.merkle.len()
             + c.acta.len(),
-        69,
+        70,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
          + admit-reject + admit-accept + envelope + merkle + acta)"
     );
-    assert_eq!(c.total_len(), 75, "every vector in conformance/");
+    assert_eq!(c.total_len(), 76, "every vector in conformance/");
 
     // `Index::load` already refuses a family entry with no `count`, so
     // `filter_map` here drops only the non-family entries (`red-team/`).
@@ -692,7 +693,7 @@ fn corpus_size_matches_charter() {
         .filter_map(|e| e.count)
         .sum();
     assert_eq!(
-        declared, 75,
+        declared, 76,
         "conformance/index.json's declared family counts"
     );
 }

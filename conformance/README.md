@@ -351,6 +351,13 @@ documents as authored; neither implementation produced any expected file. `conte
 wraps `envelope/ed25519-minimal`'s published canonical form and signature verbatim, so the
 two families describe the same post.
 
+`flag-committed-entry` pins the entry kind errata G13 introduced (R10.62): a flag written as its
+kind and a salted commitment, on its own aggregate, with no actor. Nothing about the encoding
+changed to admit it -- that is the point of G9's one encoding for every entry class -- and the
+vector is the evidence, run by all three runners. Its values were computed with python3's
+`json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)` and `hashlib`, which is
+RFC 8785 for an all-ASCII, number-free entry.
+
 **Three runners consume this family, and the third is why the pure/NFC vector earns its
 place twice over.** `Curia.Canon.Tests` pins the computation; `curia-testis` pins the Rust
 side; and since the MCP adapter's Stage 3, `Curia.Client.Tests` pins `ActaCheck.RecomputeLeaf`

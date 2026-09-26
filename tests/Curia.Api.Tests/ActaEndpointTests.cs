@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Curia.OperatorTool;
 using Xunit;
@@ -140,6 +141,78 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         // A changed entry recomputes to a different leaf; the served proof no longer describes it.
         var entry = await File.ReadAllTextAsync(entryPath, ct);
         var tampered = entry.Replace("\"kind\":\"question\"", "\"kind\":\"answer\"", StringComparison.Ordinal);
+        Assert.NotEqual(entry, tampered);
+        var tamperedPath = Path.Combine(dir, "entry-tampered.json");
+        await File.WriteAllTextAsync(tamperedPath, tampered, ct);
+
+        var (tamperedCode, _, tamperedFailure) = TestisBinary.Run(
+            verifier, $"log inclusion --entry \"{tamperedPath}\" --proof \"{proofPath}\"");
+        Assert.Equal(1, tamperedCode);
+        Assert.Contains("curia/acta/leaf-mismatch", tamperedFailure, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.62 through the Acta: a committed flag is an ordinary leaf, its entry names no post, raiser
+    /// or rationale, and <c>curia-testis</c> — which never dispatches on <c>event_type</c> — verifies its
+    /// inclusion under a signed head offline, and refuses it once a byte of the entry changes.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ACommittedFlagIsALeafTestisVerifiesAndItNamesNoRaiserOrPost()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var dir = Scratch();
+
+        var postId = await PostQuestionAsync(http, ct);
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var raiser = ForumAgent.Create("https://agents.example/acta-raiser-" + suffix, "acta-raiser-" + suffix);
+        using (var enrolled = await raiser.EnrollAsync(http, ct))
+            Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+
+        var dpop = DpopClient.For(raiser, raiser.AssertionKey);
+        var token = await dpop.GetTokenAsync(http, TokenEndpoint, forum.Now, ct);
+        using (var flagged = await dpop.PostAsync(
+            http, $"http://localhost/v1/posts/{postId}/flags", token,
+            Encoding.UTF8.GetBytes("{\"kind\":\"spam\",\"rationale\":\"Advertising, not a question.\"}"),
+            forum.Now, ct, contentType: "application/json"))
+            Assert.Equal(HttpStatusCode.Created, flagged.StatusCode);
+
+        var (exit, _, stderr) = await SignHeadAsync(ct);
+        Assert.True(exit == ExitCode.Ok, stderr);
+
+        // Found the way any reader finds it: by walking the log.
+        long? index = null;
+        string? entry = null;
+        for (long i = 0; i < 100_000; i++)
+        {
+            using var response = await http.GetAsync(new Uri($"/v1/log/entries/{i}", UriKind.Relative), ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) break;
+
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (body.Contains("\"event_type\":\"flag.committed\"", StringComparison.Ordinal))
+                (index, entry) = (i, body);
+        }
+
+        Assert.True(index is not null, "no flag.committed leaf in the log: the raise did not commit");
+        Assert.DoesNotContain(postId, entry!, StringComparison.Ordinal);
+        Assert.DoesNotContain(raiser.AgentId, entry!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Advertising", entry!, StringComparison.Ordinal);
+
+        var entryPath = Path.Combine(dir, "entry.json");
+        await File.WriteAllTextAsync(entryPath, entry!, ct);
+        var proofPath = await SaveAsync(http, $"/v1/log/proof/{index}", dir, "proof.json", ct);
+        var headPath = await SaveAsync(http, "/v1/log/head", dir, "head.json", ct);
+        var jwksPath = await SaveAsync(http, "/v1/log/jwks", dir, "log-jwks.json", ct);
+        var verifier = TestisBinary.Locate();
+
+        var (code, verified, failure) = TestisBinary.Run(
+            verifier, $"log inclusion --entry \"{entryPath}\" --proof \"{proofPath}\" --head \"{headPath}\" --log-jwks \"{jwksPath}\"");
+        Assert.True(code == 0, failure);
+        Assert.Contains($"log_index: {index}", verified, StringComparison.Ordinal);
+
+        // One member changed, and the entry is a different leaf the proof does not describe.
+        var tampered = entry!.Replace("\"kind\":\"spam\"", "\"kind\":\"incorrect\"", StringComparison.Ordinal);
         Assert.NotEqual(entry, tampered);
         var tamperedPath = Path.Combine(dir, "entry-tampered.json");
         await File.WriteAllTextAsync(tamperedPath, tampered, ct);
