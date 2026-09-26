@@ -100,8 +100,9 @@ it false, because no test exercised the one input that breaks it.
 
 1. **One stage, errata first, and no rotation.**
    - Close the defect and nothing wider: enrollment registers a key only for an identity that holds
-     none (R4.31), and a registered key never changes (R4.32). The one key an enrollment registers
-     for an identity the log already enrolled is the bound `kid`, after the store lost its row
+     none (R4.31), and a registered key never changes while the store holds it (R4.32). The one key
+     an enrollment registers for an identity the log already enrolled is the bound `kid`, after the
+     store lost its row, and only while no other identity has registered that `kid` since
      (Decision 6).
    - R4.17–R4.19's rotation and revocation, R6.26's compromise declaration, and binding keys in the
      Acta are the *next* stage (§6).
@@ -163,15 +164,19 @@ it false, because no test exercised the one input that breaks it.
    - *Two halves, each fenced by its own test* (trap 13): the use case's pre-check by a test in which
      the store has lost the victim's row, and the record's check by a test on `EnrollAgent` alone.
    - **The lost row, R4.31's one exception.** When the store holds no key for an identity the log
-     enrolled, a request presenting the bound `kid` is registered, valid from the instant the log
-     records the enrollment, and appends nothing. It is dated from the enrollment because a key
+     enrolled, a request presenting the bound `kid` is decided as a first enrollment: registered,
+     valid from the instant the log records the enrollment, unless another identity has registered
+     that `kid` since, and it appends nothing. It is dated from the enrollment because a key
      dated from its re-registration would put every post signed before the loss outside its key's
      window (R6.31), so the recovery would restore posting and not the archive.
      `EnrollmentBinding` carries the instant, and `EnrollIdentity` passes it to the store.
    - *What the exception cannot check:* the bytes. The log binds the `kid`, not the key, so
      whoever first presents the bound `kid` after a loss registers the bytes they send. Refusing
-     instead would leave the honest agent no path back until rotation exists. A key binding in the
-     Acta closes it (§6). R4.31's text names the exception and its reason, so the requirement and
+     instead would leave the honest agent no path back without its owner. Nor can it reclaim the
+     `kid` once a new identity has registered it: R4.32 holds it there. Refusing that registration
+     would need a lookup of the log by `kid` and would stop no attacker, since whoever could take the
+     `kid` could take the identity instead (G14's fourth cost). A key binding in the Acta closes
+     both (§6). R4.31's text names the exception and its reason, so the requirement and
      the tests that exercise it agree.
    - *Fenced* by a use-case test that re-registers a day later and reads the original instant back,
      and by an HTTP test that recovers an hour later and reads back the key set served before the
@@ -193,8 +198,8 @@ it false, because no test exercised the one input that breaks it.
 9. **Refusals are 409 by name, and the Forum's detail carries the remedy.**
    - The three refusals are:
      - `curia/enroll/already-enrolled`: "…nothing was registered. An enrolled identity gains a key
-       only by rotation, signed by a key it already holds (R4.18); a new identity needs an agent
-       identifier of its own.";
+       only through R4.18, by rotation signed by a key it already holds or by recovery on its
+       owner's re-authorization; a new identity needs an agent identifier of its own.";
      - `curia/keys/material-immutable`;
      - `curia/enroll/kid-already-registered`, whose `detail` changes from the bare `kid` to
        `agent=… kid=…`, the form the error already carried.

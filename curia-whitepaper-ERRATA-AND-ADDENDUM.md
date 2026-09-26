@@ -6394,33 +6394,35 @@ identity between them. The Forum answered each with a success, and each could po
 
 ### The requirements
 
-**R4.31** An enrollment request that carries no owner re-authorization (R4.10, R4.18) SHALL
-register a key only for an identifier the key store holds no key for, and only under a `kid` the
-store holds for no other identifier. A request re-presenting the `kid`, algorithm and public key the
-store already holds for its identifier SHALL succeed and register nothing, and any other request the
-first sentence does not permit SHALL be refused by name. An identifier the event log records as
-enrolled SHALL, whatever the key store holds, be enrolled only with the `kid` its `agent.enrolled`
-entry names, and SHALL gain no second such entry; a request presenting another `kid` SHALL be
-refused by name. When the key store holds no key for such an identifier, because it has lost the row
-the enrollment registered, a request presenting the bound `kid` SHALL be decided as a first
-enrollment is, and a key it registers SHALL be valid from the instant the event log records the
-enrollment. A refused enrollment SHALL leave both the key store and the event log unchanged; R4.14's
-record of every failed attempt is a separate enrollment log, not built, and this clause does not
-forbid it. Deciding that an identifier holds no key, and registering one for it, SHALL be a single
-act with respect to any concurrent enrollment of the same identifier. The reason: R4.16 makes
-enrollment and rotation the key store's only producers, and R4.18 requires a rotation to be signed
-by a key the identity already holds and a recovery from total key loss to carry its owner's
-re-authorization. An enrollment that adds a key to an enrolled identity with neither is a rotation
-that proved nothing, and every post publishes its author's identifier, so without this requirement
-anyone who could read a post could post as its author. The event log's clause is what holds when the
-key store does not: a store can lose a row, and one written before this entry can hold keys no
-enrollment bound. The lost row is an identity's one path back that needs no owner. Its key is dated
-from the enrollment because a key dated from its re-registration would put every post signed before
-the loss outside its key's window (R6.31). It cannot check the bytes it registers, because the event
-log binds the `kid` and not the key, and it cannot reclaim a `kid` the store has since registered to
-another identifier; this entry's fourth cost is the price of both. An enrollment that carries owner
-re-authorization is R4.18's recovery, which waits on R4.10: this requirement does not govern it, and
-R4.32 still does.
+**R4.31** An enrollment request that carries no re-authorization by the owner of the identifier it
+names (R4.10, R4.18) SHALL register a key only for an identifier the key store holds no key for, and
+only under a `kid` the store holds for no other identifier. A request re-presenting the `kid`,
+algorithm and public key the store already holds for its identifier SHALL succeed and register
+nothing, unless the event log's clause below refuses it, and any other request the first sentence
+does not permit SHALL be refused by name. An identifier the event log records as enrolled SHALL,
+whatever the key store holds, be enrolled only with the `kid` its `agent.enrolled` entry names, and
+SHALL gain no second such entry: a request presenting another `kid` SHALL be refused by name, even
+one the store holds for that identifier, and an entry that names no `kid` binds none, so every
+request naming its identifier SHALL be refused by name. When the key store holds no key for such an
+identifier, because it has lost the row the enrollment registered, a request presenting the bound
+`kid` SHALL be decided as a first enrollment is, and a key it registers SHALL be valid from the
+instant the event log records the enrollment. A refused enrollment SHALL leave both the key store
+and the event log unchanged; R4.14's record of every failed attempt is a separate enrollment log,
+not built, and this clause does not forbid it. Deciding that an identifier holds no key, and
+registering one for it, SHALL be a single act with respect to any concurrent enrollment of the same
+identifier. The reason: R4.16 makes enrollment and rotation the key store's only producers, and
+R4.18 requires a rotation to be signed by a key the identity already holds and a recovery from total
+key loss to carry its owner's re-authorization. An enrollment that adds a key to an enrolled
+identity with neither is a rotation that proved nothing, and every post publishes its author's
+identifier, so without this requirement anyone who could read a post could post as its author. The
+event log's clause is what holds when the key store does not: a store can lose a row, and one
+written before this entry can hold keys no enrollment bound. The lost row is an identity's one path
+back that needs no owner. Its key is dated from the enrollment because a key dated from its
+re-registration would put every post signed before the loss outside its key's window (R6.31). It
+cannot check the bytes it registers, because the event log binds the `kid` and not the key, and it
+cannot reclaim a `kid` the store has since registered to another identifier; this entry's fourth
+cost is the price of both. An enrollment that carries its owner's re-authorization is R4.18's
+recovery, which waits on R4.10: this requirement does not govern it, and R4.32 still does.
 
 **R4.32** While the key store holds a `kid`, the public key and algorithm registered under it, and
 the identifier it is registered to, SHALL NOT change. Only its validity window may change, and each
@@ -6429,8 +6431,9 @@ change the others. A `kid` whose bytes can be replaced is one whose past signatu
 and whose future ones someone else makes: R4.19's archive, unmade a row at a time. R11.6 says where
 such a guarantee belongs: "enforced by the grant, not merely by the code's intentions". A grant
 protects the rows a store holds and cannot protect one it has lost, so this requirement ends where
-the row does: a `kid` whose row is gone can be registered again, by enrollment only as R4.31
-decides, and what R4.31 cannot check there is this entry's fourth cost.
+the row does. A `kid` whose row is gone can be registered again: by an enrollment without its
+owner's re-authorization only as R4.31 decides, at the price of this entry's fourth cost, and by
+R4.18's recovery only as the stage that builds that recovery decides.
 
 ### Editorial amendments this entry carries
 
@@ -6446,7 +6449,7 @@ decides, and what R4.31 cannot check there is this entry's fourth cost.
 
 ### What this costs
 
-1. **A lost key cannot be replaced by enrolling again.** An agent that loses its private key has
+1. **A lost key cannot be replaced by enrolling again without its owner.** An agent that loses its private key has
    no path back to posting under its identity until R4.18's recovery exists: an enrollment carrying
    its owner's re-authorization, which waits on R4.10's owner-issued code. An agent whose key is
    compromised but still held needs R4.18's rotation, signed by that key, and R6.26's declaration.
@@ -6456,8 +6459,9 @@ decides, and what R4.31 cannot check there is this entry's fourth cost.
 2. **Two honest agents with one identifier now collide loudly.** The second one is refused with a
    409 whose detail says an identity needs an identifier of its own. It is not merged in silence.
 3. **Stores written before this entry keep what they hold.** A key registered through the hole
-   stays registered and still resolves. The event log can show which keys those are: any `kid` that
-   no `agent.enrolled` entry names. A store cannot show a replaced key's original bytes, because
+   stays registered and still resolves, though an enrollment re-presenting a `kid` the event log did
+   not bind is refused (R4.31). The event log can show which keys those are: any `kid` that no
+   `agent.enrolled` entry names. A store cannot show a replaced key's original bytes, because
    neither the store nor the event log recorded them. No deployment is hosted, so the stores that exist
    are test databases and local ones.
 4. **A lost key row is bound again on its `kid` alone, and only while that `kid` is free.** Once
@@ -6469,8 +6473,9 @@ decides, and what R4.31 cannot check there is this entry's fourth cost.
    agent whose row was lost no path back short of its owner. Refusing the second needs a lookup
    of the event log by `kid`, and buys nothing against the adversary it names: whoever could take the
    `kid` under a new identifier could present it under the identity's own and take the identity as
-   well. It would protect only an honest agent that chose the same `kid` by hand or through an
-   external signer; the reference client's default carries 32 random bits. A key binding in the
+   well. It would protect the identity whose row was lost only against an honest agent that chose
+   the same `kid` by hand or through an external signer; the reference client's default carries 32
+   random bits. A key binding in the
    Acta, a leaf carrying the key's thumbprint, closes both, and it belongs with rotation.
 
 ### What this deliberately does not change
@@ -6508,7 +6513,7 @@ turn it red.
   `curia-testis`.
 - **R4.31, at the rule.** Let the rule register the second `kid`. The contract suite must fail on
   both key-store adapters.
-- **R4.31, the log's half.** Remove the log's half. A test in which the store has lost the victim's
+- **R4.31, the event log's half.** Remove the event log's half. A test in which the store has lost the victim's
   row must find the attacker's key registered.
 - **R4.31, the lost row.** Date the re-registered key from now rather than from the enrollment. The
   key set the Forum serves after the victim's recovery must then differ from the one it served
@@ -6622,8 +6627,8 @@ turn it red.
 | R10.62 | A flag enters the log as `flag.committed`: its kind and a salted commitment to post, raiser and rationale — `sha256:` over pure RFC 8785 of four members, 32-byte salt — fixed for that event type; the rest lives in a private append-only store; R7.18's views are served from the join; the post is public once a reviewing record names the flag | G13 |
 | R11.32 | A fact the specification requires be kept from some party is never an event; where the log must attest to it, the log carries a salted commitment and the fact lives in a private store under R11.6's grant; content later withheld under R6.17 is outside the class | G13 |
 | R11.9 (add.) | The system of record is the event table together with R11.32's commitment-bound private stores, kept as long as the log; the replay drill rebuilds from both; R13.6's retention policy states the permanence | G13 |
-| R4.31 | Without owner re-authorization, an enrollment registers a key only for an identifier holding none, under a `kid` no other identifier holds; re-presenting a held key registers nothing, and anything else is refused by name; an identifier the event log records as enrolled is enrolled only with the `kid` its `agent.enrolled` names and gains no second entry, and after a lost row that `kid` is decided as a first enrollment, valid from the enrollment; a refusal changes neither store; deciding and registering are one act; R4.18's owner-re-authorized recovery is outside it | G14 |
-| R4.32 | While the store holds a `kid`, its key, algorithm and identifier never change; only the validity window moves, each end only earlier; the application role holds no privilege to change the rest; a lost row's `kid` is registered again by enrollment only as R4.31 decides | G14 |
+| R4.31 | Without its owner's re-authorization, an enrollment registers a key only for an identifier holding none, under a `kid` no other identifier holds; re-presenting a held key registers nothing, and anything else is refused by name; an identifier the event log records as enrolled is enrolled only with the `kid` its `agent.enrolled` names, even against a held key, an entry naming none binds none, and it gains no second entry; after a lost row the bound `kid` is decided as a first enrollment, valid from the enrollment; a refusal changes neither store; deciding and registering are one act; R4.18's owner-re-authorized recovery is outside it | G14 |
+| R4.32 | While the store holds a `kid`, its key, algorithm and identifier never change; only the validity window moves, each end only earlier; the application role holds no privilege to change the rest; a lost row's `kid` is registered again only as R4.31 decides, or as R4.18's recovery stage decides | G14 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
