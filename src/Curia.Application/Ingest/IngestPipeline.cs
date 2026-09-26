@@ -116,7 +116,7 @@ public sealed class IngestPipeline : IIngestPipeline
         ArgumentNullException.ThrowIfNull(verified);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var screened = ContentScreener.Screen(verified.Canonical.Span);
+        var screened = ContentScreener.ScreenEnvelope(verified.Canonical.Span);
         if (!screened.TryGetValue(out var result, out var error))
             return Task.FromResult(Result<ScreenedSubmission>.Fail(error!));
 

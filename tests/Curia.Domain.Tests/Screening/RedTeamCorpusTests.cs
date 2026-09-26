@@ -337,7 +337,7 @@ public sealed class RedTeamCorpusTests
     private static string[] Detect(string content)
     {
         var bytes = Encoding.UTF8.GetBytes(content);
-        Assert.True(ContentScreener.Screen(bytes).TryGetValue(out var result, out _));
+        Assert.True(ContentScreener.ScreenText(bytes).TryGetValue(out var result, out _));
 
         return result!.Annotations.Flags
             .Select(f => f.Category.ToString())

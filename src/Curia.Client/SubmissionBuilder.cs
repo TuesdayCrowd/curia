@@ -160,7 +160,7 @@ public static class SubmissionBuilder
     /// </summary>
     private static Error? Prescreen(ReadOnlySpan<byte> canonical)
     {
-        if (!ContentScreener.Screen(canonical).TryGetValue(out var screening, out var error))
+        if (!ContentScreener.ScreenEnvelope(canonical).TryGetValue(out var screening, out var error))
             return error;
 
         if (screening!.Outcome is not ScreeningOutcome.Rejected) return null;

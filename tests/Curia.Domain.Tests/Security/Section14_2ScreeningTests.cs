@@ -40,7 +40,7 @@ public sealed class Section14_2ScreeningTests
         var content = $"Reporting an incident. The leaked value was {credential} -- please advise.";
         var bytes = Encoding.UTF8.GetBytes(content);
 
-        Assert.True(ContentScreener.Screen(bytes).TryGetValue(out var result, out _));
+        Assert.True(ContentScreener.ScreenText(bytes).TryGetValue(out var result, out _));
 
         // Hard-rejected.
         Assert.Equal(ScreeningOutcome.Rejected, result!.Outcome);
@@ -68,7 +68,7 @@ public sealed class Section14_2ScreeningTests
         var bytes = Encoding.UTF8.GetBytes(
             "Reporting an incident. The value has been rotated and the old one is revoked.");
 
-        Assert.True(ContentScreener.Screen(bytes).TryGetValue(out var result, out _));
+        Assert.True(ContentScreener.ScreenText(bytes).TryGetValue(out var result, out _));
 
         Assert.NotEqual(ScreeningOutcome.Rejected, result!.Outcome);
         Assert.True(result.MayPersist);

@@ -188,6 +188,17 @@ public sealed class SubmissionBuilderTests : IDisposable
         Assert.DoesNotContain(Token, error.Title, StringComparison.Ordinal);
     }
 
+    /// <summary>D19: the pre-send check screens the canonical envelope too, so it had the same blind spot.</summary>
+    [Fact]
+    public void D19_CredentialMaterialOnASecondLineIsRefusedLocally()
+    {
+        var draft = Question with { Body = "CI logged the key:\nAKIAIOSFODNN7EXAMPLE" };
+
+        Assert.False(SubmissionBuilder.Build(_agent, draft, When).TryGetValue(out _, out var error));
+        Assert.Equal("curia/client/credential-material", error!.Type);
+        Assert.Contains("CloudCredential@", error.Detail, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void InjectionShapedContentIsNotRefused()
     {

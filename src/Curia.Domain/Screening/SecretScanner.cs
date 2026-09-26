@@ -27,8 +27,11 @@ public static partial class SecretScanner
     /// <summary>
     /// R10.10/R10.30: bump this whenever a pattern changes, so a re-run over the archive is
     /// attributable to a rule set. The date is the rule set's, not the build's.
+    /// 2026-09-25: no pattern changed; SCREEN began reading decoded tokens rather than canonical
+    /// text (register D19), which changes the verdict for identical content, and attribution is
+    /// what the version is for.
     /// </summary>
-    public const string Version = "secrets/2026-08-18b";
+    public const string Version = "secrets/2026-09-25";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [

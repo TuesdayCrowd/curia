@@ -181,7 +181,7 @@ public sealed class DetectorTests
 
         // SCREEN builds the derived views and does catch it. This is the assertion whose absence
         // let the closed gap read as open for an entire stage.
-        Assert.True(ContentScreener.Screen(
+        Assert.True(ContentScreener.ScreenText(
             System.Text.Encoding.UTF8.GetBytes(Disguised)).TryGetValue(out var screened, out _));
 
         Assert.Contains(

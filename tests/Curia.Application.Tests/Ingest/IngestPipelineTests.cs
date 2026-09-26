@@ -370,6 +370,29 @@ public sealed class IngestPipelineTests
         Assert.Empty(events!);
     }
 
+    /// <summary>
+    /// D19: ingest screens the canonical envelope, where JCS writes a line break as <c>\n</c>. An AWS
+    /// key on the body's second line was admitted while the bare corpus published 41/41; this row
+    /// proves the pipeline screens what the author wrote.
+    /// </summary>
+    [Fact]
+    public async Task D19_ACredentialOnASecondLineOfTheBodyIsRejected()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+        var wire = Wire(harness, body: "Keys follow.\nAKIAIOSFODNN7EXAMPLE");
+
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        Assert.True(verified.TryGetValue(out var v, out _));
+
+        var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
+
+        Assert.False(screened.TryGetValue(out _, out var error));
+        Assert.Equal("curia/ingest/screening-rejected", error!.Type);
+        Assert.Contains("CloudCredential@", error.Detail, StringComparison.Ordinal);
+    }
+
     /// <summary>An answer must name its parent; a question must not (Table 9, via PostKinds).</summary>
     [Fact]
     public async Task Kind_specific_obligations_are_enforced()
