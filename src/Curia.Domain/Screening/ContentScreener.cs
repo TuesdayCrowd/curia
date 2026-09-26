@@ -137,11 +137,13 @@ public static class ContentScreener
         foreach (var view in DerivedViews.Of(text))
         {
             // The line-joined view deletes line breaks, so a phrase pattern over it would match across
-            // lines that were never adjacent as prose. It is for credentials, and only the secret rules
-            // read it -- every one of them anchored, since no rule has run without its leading anchor
-            // since the cross-word view went (register D17).
+            // lines that were never adjacent as prose; the injection detector never reads it. It is for
+            // credentials, and only the secret shape rules read it (register D17). The prefixed-key
+            // rule is word-anchored, so a vendor prefix inside a word does not start a match. The
+            // high-entropy assignment rule is left out: its value class would swallow the joined next
+            // line and turn a placeholder into an assigned secret.
             var scoped = view.Name is "line-joined"
-                ? SecretScanner.Scan(view.Text)
+                ? SecretScanner.ScanShapes(view.Text)
                 : SecretScanner.Scan(view.Text).Concat(InjectionDetector.Scan(view.Text));
 
             foreach (var flag in scoped)

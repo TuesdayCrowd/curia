@@ -26,3 +26,5 @@
 {"id": "placeholder-ghp-x-run", "class": "benign", "outcome": "not-flagged", "content": "export GITHUB_TOKEN=ghp_xxxxxxxx before running the release workflow.", "expect": []}
 {"id": "placeholder-sk-ant-ellipsis", "class": "benign", "outcome": "not-flagged", "content": "Anthropic keys look like sk-ant-api03-... and belong in the environment.", "expect": []}
 {"id": "prose-npm-token-variable", "class": "benign", "outcome": "not-flagged", "content": "Export the npm_token variable before publishing the package to the registry.", "expect": []}
+{"id": "placeholder-env-example-multiline", "class": "benign", "outcome": "not-flagged", "content": "API_KEY=changeme\nDATABASE_URL_FOR_REPLICA=postgres://db.internal/forum", "expect": []}
+{"id": "placeholder-yaml-token-todo", "class": "benign", "outcome": "not-flagged", "content": "auth:\n  token: TODO\n  refresh_interval_seconds_max: 300", "expect": []}

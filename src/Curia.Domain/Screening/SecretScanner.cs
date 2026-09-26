@@ -30,7 +30,8 @@ public static partial class SecretScanner
     /// 2026-09-25: no pattern changed; SCREEN began reading decoded tokens rather than canonical
     /// text (register D19), which changes the verdict for identical content, and attribution is
     /// what the version is for.
-    /// 2026-09-25b: the unanchored prefix rule went with the cross-word view it served (register D17).
+    /// 2026-09-25b: the unanchored prefix rule went with the cross-word view it served, and the
+    /// high-entropy assignment rule does not read the line-joined view that replaced it (register D17).
     /// </summary>
     public const string Version = "secrets/2026-09-25b";
 
@@ -72,16 +73,16 @@ public static partial class SecretScanner
     ];
 
     /// <summary>
-    /// Scans a derived copy of the content. The caller owns that copy and discards it (R6.13);
-    /// nothing returned from here references it.
+    /// Scans a derived copy of the content with every rule: <see cref="ScanShapes"/> and the
+    /// high-entropy assignment rule. The caller owns that copy and discards it (R6.13); nothing
+    /// returned from here references it.
     /// </summary>
     public static IEnumerable<RiskFlag> Scan(string derivedCopy)
     {
         ArgumentNullException.ThrowIfNull(derivedCopy);
 
-        foreach (var (pattern, category) in Rules)
-            foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
-                yield return new RiskFlag(category, match.Index, match.Length, Version);
+        foreach (var flag in ScanShapes(derivedCopy))
+            yield return flag;
 
         // "high-entropy strings in assignment position" is the one rule with a second condition,
         // so it runs outside the table rather than being forced into it. The regex finds the
@@ -90,6 +91,27 @@ public static partial class SecretScanner
         foreach (var match in HighEntropyAssignment().Matches(derivedCopy).Cast<Match>())
             if (LooksHighEntropy(derivedCopy.AsSpan(match.Index, match.Length)))
                 yield return new RiskFlag(RiskCategory.ApiKey, match.Index, match.Length, Version);
+    }
+
+    /// <summary>
+    /// Scans a derived copy with the shape rules alone -- every rule in the table, without the
+    /// high-entropy assignment rule. The caller owns that copy and discards it (R6.13).
+    ///
+    /// <para><b>The line-joined view reads only these</b> (register D17). That view deletes line
+    /// breaks, and the assignment rule's value class would swallow the joined next line:
+    /// <c>API_KEY=changeme</c> above <c>DATABASE_URL_FOR_REPLICA=…</c> reads as one long assigned
+    /// run, and a placeholder becomes a secret. The cost: an assigned secret with no vendor prefix,
+    /// wrapped before its twenty-fourth character, is not rejoined for that rule -- as it was not
+    /// before this view existed. A wrapped key with a vendor prefix is still rejoined for the
+    /// prefixed-key rule.</para>
+    /// </summary>
+    public static IEnumerable<RiskFlag> ScanShapes(string derivedCopy)
+    {
+        ArgumentNullException.ThrowIfNull(derivedCopy);
+
+        foreach (var (pattern, category) in Rules)
+            foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
+                yield return new RiskFlag(category, match.Index, match.Length, Version);
     }
 
     /// <summary>
