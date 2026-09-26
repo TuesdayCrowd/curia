@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using Curia.Canon.Json;
 using Curia.Domain.Acta;
@@ -66,6 +67,7 @@ public sealed class LogLeafTests
     [InlineData("null-actor-entry")]
     [InlineData("head-entry")]
     [InlineData("nfd-payload-stays-nfd")]
+    [InlineData("flag-committed-entry")]
     public void R6_46_AnEventRendersToTheConformanceVectorsLeafInputAndLeaf(string vector)
     {
         var dir = Path.Combine(ConformanceRoot, "acta", vector);
@@ -76,6 +78,31 @@ public sealed class LogLeafTests
         Assert.Equal(
             File.ReadAllText(Path.Combine(dir, "expected.leaf")).Trim(),
             Convert.ToHexStringLower([.. Require(LogLeaf.Hash(appended))]));
+    }
+
+    /// <summary>
+    /// The theory above hand-lists its vectors, so a vector added to <c>conformance/acta/</c> and never
+    /// listed there would go unread by the domain while every runner stayed green. This holds the list
+    /// to the directory: every vector on disk is a row, and every row is a vector on disk.
+    /// </summary>
+    [Fact]
+    public void R6_46_TheTheoryListsEveryActaVectorOnDisk()
+    {
+        var listed = typeof(LogLeafTests)
+            .GetMethod(nameof(R6_46_AnEventRendersToTheConformanceVectorsLeafInputAndLeaf))!
+            .GetCustomAttributes<InlineDataAttribute>()
+            .Select(row => (string)row.Data[0]!)
+            .ToHashSet(StringComparer.Ordinal);
+        var onDisk = Directory.GetDirectories(Path.Combine(ConformanceRoot, "acta"))
+            .Select(path => Path.GetFileName(path))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var unlisted = onDisk.Except(listed, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var absent = listed.Except(onDisk, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        Assert.True(
+            unlisted.Length == 0 && absent.Length == 0,
+            $"conformance/acta/ vectors the theory does not list: [{string.Join(", ", unlisted)}]; " +
+            $"rows naming no vector on disk: [{string.Join(", ", absent)}]");
     }
 
     [Fact]

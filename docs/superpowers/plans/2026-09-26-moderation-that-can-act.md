@@ -5356,6 +5356,7 @@ CASES = [
          edits=[(APPLY, "new JsonValue.String(ModerationEffects.Wire(effect))", "new JsonValue.String(effect.ToString())")]),
     dict(id="14 acta vector's leaf off by one digit",
          cmds=[dotnet("tests/Curia.Canon.Tests", "FullyQualifiedName~ActaLeafVectorTests"),
+               dotnet("tests/Curia.Domain.Tests", "FullyQualifiedName~LogLeafTests"),
                dotnet("tests/Curia.Client.Tests", "FullyQualifiedName~ActaLeafRecomputationTests"),
                ["cargo", "test", "--manifest-path", "rust/curia-testis/Cargo.toml", "--locked", "--test", "vectors", "acta"]],
          edits=[("conformance/acta/flag-committed-entry/expected.leaf", "66128f1f", "76128f1f")]),
@@ -5403,7 +5404,7 @@ From the repository root, with `CURIA_TEST_POSTGRES` exported and `curia-testis`
 python3 <scratchpad>/falsify.py <scratchpad>/falsify-keep 2>&1 | tee <scratchpad>/falsify.log
 ```
 
-Each case must print `RED` and `restore clean`. Case 12b prints `RED` twice, once per suite, and case 14 three times, once per runner.
+Each case must print `RED` and `restore clean`. Case 12b prints `RED` twice, once per suite, and case 14 four times, once per runner.
 
 | Case | Must fail, by name |
 |---|---|
@@ -5422,7 +5423,7 @@ Each case must print `RED` and `restore clean`. Case 12b prints `RED` twice, onc
 | 12a | both `ModerationLoopTests`: `R10_61_…` at the refused answer (a record naming no flag upholds nothing), and `R10_39_…` at the missing `adjudicates` member (`KeyNotFoundException`) |
 | 12b | `R10_39_TimeToActionAndTheUpheldRateAreComputableFromThePublicLogAlone`, the public-log derivation (spec §4.12), at the missing `digest` it ties each record to its accepted post with (`KeyNotFoundException`); and, in memory, `R10_60_ARecordNamesThePostItsDigestAndTheFlagsItAdjudicates` |
 | 13 | `R9_18_OneItemPerElementInOrderAndNothingOmitted`; `R10_36_AWithheldPostStopsBeingServedAndIsNotDeleted`. They would stay green if the fixture still hand-built its events (trap 16) |
-| 14 | `R6_46_TheClientRecomputesEveryPublishedLeaf(name: "flag-committed-entry")` and the Rust `acta` family test (`[FAIL] acta/flag-committed-entry: leaf hash: expected 76128f1f…, got 66128f1f…`), each naming `flag-committed-entry`; and `R6_46_EveryVectorCanonicalizesUnderThePureProfileAndHashesToItsLeaf`, which names no vector and prints only `Expected: "76128f1f…"` against `Actual: "66128f1f…"` |
+| 14 | `R6_46_TheClientRecomputesEveryPublishedLeaf(name: "flag-committed-entry")`, the domain's `R6_46_AnEventRendersToTheConformanceVectorsLeafInputAndLeaf(vector: "flag-committed-entry")`, and the Rust `acta` family test (`[FAIL] acta/flag-committed-entry: leaf hash: expected 76128f1f…, got 66128f1f…`), each naming `flag-committed-entry`; and `R6_46_EveryVectorCanonicalizesUnderThePureProfileAndHashesToItsLeaf`, which names no vector and prints only `Expected: "76128f1f…"` against `Actual: "66128f1f…"` |
 | 15 | `R11_32_TheAppRoleCannotUpdateAFlagDetail` and `R11_32_TheAppRoleCannotDeleteAFlagDetail`: no exception is thrown, and each failing test's name names the privilege that was granted |
 | 16 | `R10_62_TheCommitmentIsOverPureRfc8785WithNoNormalization` alone, at its pinned value: expected `sha256:be4b171a…`, actual `sha256:552d7e39…`, the NFC form, which composes `cafe` + U+0301 to U+00E9. The other six `FlagCommitmentTests` stay green, as they must: every other input is ASCII, where NFC is the identity. `CanonicalJson`'s own remarks say anything signed or verified SHALL use `CanonicalizeWithNfc`, which invites exactly this swap |
 
