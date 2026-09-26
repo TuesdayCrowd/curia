@@ -37,6 +37,19 @@ public sealed class FlagCommitmentTests
             "sha256:174280f4b5e6449e5ba0bd1fe2b1c97a839aebc2b7a2e363f5788df90bad9ab5",
             Commit(Post, Raiser, Rationale, Salt));
 
+    /// <summary>
+    /// R10.62's "with no normalization step". The rationale is NFD, <c>e</c> then U+0301, which R6.9's
+    /// NFC step (<c>CanonicalizeWithNfc</c>) would compose to U+00E9, moving the commitment; every other
+    /// input here is ASCII, where NFC changes nothing. A commitment already logged over such a rationale
+    /// would then stop recomputing, and the flag directory would skip its flag. Pinned, like the fact
+    /// above, to python3 over the unnormalized form (the command is in the plan's Task 3).
+    /// </summary>
+    [Fact]
+    public void R10_62_TheCommitmentIsOverPureRfc8785WithNoNormalization() =>
+        Assert.Equal(
+            "sha256:be4b171a3c8fd1fa3810e10eb484589bcc6c77bdadaf1bd7dfc7a04604865da6",
+            Commit(Post, Raiser, "cafe\u0301", Salt));
+
     /// <summary>Every member is bound: change any one and the commitment moves.</summary>
     [Theory]
     [InlineData("01JPOST0000000000000000002", Raiser, Rationale, Salt)]

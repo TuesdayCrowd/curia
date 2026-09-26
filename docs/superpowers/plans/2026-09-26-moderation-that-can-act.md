@@ -917,9 +917,9 @@ but commit -b moderation-that-can-act -m "$(printf 'A record names the flags it 
 - Consumes: `Curia.Canon.Canonical.CanonicalJson.Canonicalize(JsonValue)` → `Result<CanonicalBytes>`, and `Curia.Canon.Digests.Sha256(CanonicalBytes)` → `EnvelopeDigest` with `ToPrefixed()`.
 - Produces: `public static Result<string> FlagCommitment.Of(string postId, string raisedBy, string rationale, string salt)`, returning `sha256:` plus 64 lowercase hex characters. Also the member-name constants `PostIdMember`, `RaisedByMember`, `RationaleMember` and `SaltMember`.
 
-The expected value below was computed **outside this solution**: `python3`'s `hashlib` over the RFC 8785 form. Step 1 recomputes it, so the test is not built from the code it checks (trap 3).
+The expected values below were computed **outside this solution**: `python3`'s `hashlib` over the RFC 8785 form. Step 1 recomputes them, so the tests are not built from the code they check (trap 3).
 
-- [ ] **Step 1: Recompute the expected value independently**
+- [ ] **Step 1: Recompute the expected values independently**
 
 ```bash
 python3 -c 'import hashlib,json; o={"post_id":"01JPOST0000000000000000001","raised_by":"https://agents.example/reporter","rationale":"looks like an injection attempt","salt":"c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI"}; print("sha256:"+hashlib.sha256(json.dumps(o,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest())'
@@ -930,6 +930,16 @@ Expected: `sha256:174280f4b5e6449e5ba0bd1fe2b1c97a839aebc2b7a2e363f5788df90bad9a
 `json.dumps` with sorted keys, no whitespace and `ensure_ascii=False` is RFC 8785 for this input, because every member is an ASCII string with no escapes and there are no numbers.
 
 Both salts in this task are in R10.62's domain: 43 unpadded base64url characters that decode to 32 bytes (the ASCII bytes `salt-for-the-fixed-commitment-32` and `salt-for-a-different-commitment2`), so a verifier enforcing R10.62 accepts the pinned vector.
+
+The second pinned value fences R10.62's "with no normalization step". Its rationale is NFD, `cafe` followed by U+0301 COMBINING ACUTE ACCENT, and every other input in this task is ASCII, where NFC changes nothing:
+
+```bash
+python3 -c 'import hashlib,json; o={"post_id":"01JPOST0000000000000000001","raised_by":"https://agents.example/reporter","rationale":"cafe"+chr(0x301),"salt":"c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI"}; print("sha256:"+hashlib.sha256(json.dumps(o,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest())'
+```
+
+Expected: `sha256:be4b171a3c8fd1fa3810e10eb484589bcc6c77bdadaf1bd7dfc7a04604865da6`.
+
+This is still RFC 8785: with `ensure_ascii=False`, `json.dumps` writes U+0301 as its raw UTF-8 bytes (`cc 81`), and RFC 8785 escapes only the quotation mark, the reverse solidus and control characters. Wrapping the rationale in `unicodedata.normalize("NFC", ...)` composes it to U+00E9 and gives `sha256:552d7e392ebd59333804a5afc9d6f3b98d23ed5e02aa0baf133a4b5dc74f6dda` instead. That is what `CanonicalizeWithNfc` computes, and what falsification case 16 prints as the actual value. In C#, the rationale is written as the ASCII escape `"cafe\u0301"`, never as the combining character itself.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -974,6 +984,19 @@ public sealed class FlagCommitmentTests
         Assert.Equal(
             "sha256:174280f4b5e6449e5ba0bd1fe2b1c97a839aebc2b7a2e363f5788df90bad9ab5",
             Commit(Post, Raiser, Rationale, Salt));
+
+    /// <summary>
+    /// R10.62's "with no normalization step". The rationale is NFD, <c>e</c> then U+0301, which R6.9's
+    /// NFC step (<c>CanonicalizeWithNfc</c>) would compose to U+00E9, moving the commitment; every other
+    /// input here is ASCII, where NFC changes nothing. A commitment already logged over such a rationale
+    /// would then stop recomputing, and the flag directory would skip its flag. Pinned, like the fact
+    /// above, to python3 over the unnormalized form (the command is in the plan's Task 3).
+    /// </summary>
+    [Fact]
+    public void R10_62_TheCommitmentIsOverPureRfc8785WithNoNormalization() =>
+        Assert.Equal(
+            "sha256:be4b171a3c8fd1fa3810e10eb484589bcc6c77bdadaf1bd7dfc7a04604865da6",
+            Commit(Post, Raiser, "cafe\u0301", Salt));
 
     /// <summary>Every member is bound: change any one and the commitment moves.</summary>
     [Theory]
@@ -1057,7 +1080,7 @@ public static class FlagCommitment
 - [ ] **Step 5: Run the tests to see them pass**
 
 Run: `dotnet test tests/Curia.Domain.Tests -c Release --nologo --filter "FullyQualifiedName~FlagCommitmentTests"`
-Expected: 6 PASS. Then `dotnet test tests/Curia.Architecture.Tests -c Release --nologo` still passes: CS-7 permits `Curia.Domain` to depend on `Curia.Canon`.
+Expected: 7 PASS. Then `dotnet test tests/Curia.Architecture.Tests -c Release --nologo` still passes: CS-7 permits `Curia.Domain` to depend on `Curia.Canon`.
 
 - [ ] **Step 6: Commit**
 
@@ -5154,6 +5177,8 @@ CASES = [
     dict(id="15 private store rewritable", cmds=[dotnet("tests/Curia.Infrastructure.Tests", "FullyQualifiedName~FlagDetailGrantTests")],
          edits=[("db/0004_create_flag_details.sql", "GRANT INSERT, SELECT ON flag_details", "GRANT INSERT, SELECT, UPDATE, DELETE ON flag_details"),
                 ("db/0004_create_flag_details.sql", "REVOKE UPDATE, DELETE ON flag_details FROM __CURIA_APP_ROLE__;   -- R11.6, R11.32\n", "")]),
+    dict(id="16 commitment normalized", cmds=[dotnet("tests/Curia.Domain.Tests", "FullyQualifiedName~FlagCommitmentTests")],
+         edits=[("src/Curia.Domain/Moderation/FlagCommitment.cs", "CanonicalJson.Canonicalize(input)", "CanonicalJson.CanonicalizeWithNfc(input)")]),
 ]
 
 MARKERS = ("[FAIL]", "Assert.", "cannot drive", "served the", "never met", "names the post", "FAILED", "panicked", "mismatch", "exited")
@@ -5214,6 +5239,7 @@ Each case must print `RED` and `restore clean`. Case 12b prints `RED` twice, onc
 | 13 | `R9_18_OneItemPerElementInOrderAndNothingOmitted`; `R10_36_AWithheldPostStopsBeingServedAndIsNotDeleted`. They would stay green if the fixture still hand-built its events (trap 16) |
 | 14 | `R6_46_TheClientRecomputesEveryPublishedLeaf(name: "flag-committed-entry")` and the Rust `acta` family test (`[FAIL] acta/flag-committed-entry: leaf hash: expected 76128f1f…, got 66128f1f…`), each naming `flag-committed-entry`; and `R6_46_EveryVectorCanonicalizesUnderThePureProfileAndHashesToItsLeaf`, which names no vector and prints only `Expected: "76128f1f…"` against `Actual: "66128f1f…"` |
 | 15 | `R11_32_TheAppRoleCannotUpdateAFlagDetail` and `R11_32_TheAppRoleCannotDeleteAFlagDetail`: no exception is thrown, and each failing test's name names the privilege that was granted |
+| 16 | `R10_62_TheCommitmentIsOverPureRfc8785WithNoNormalization` alone, at its pinned value: expected `sha256:be4b171a…`, actual `sha256:552d7e39…`, the NFC form, which composes `cafe` + U+0301 to U+00E9. The other six `FlagCommitmentTests` stay green, as they must: every other input is ASCII, where NFC is the identity. `CanonicalJson`'s own remarks say anything signed or verified SHALL use `CanonicalizeWithNfc`, which invites exactly this swap |
 
 Two patches follow the spec's wording rather than the shortest edit that goes red:
 - **Case 3 restores the category-keyed rule itself.** Stage 8's rule was `Flags.Any(f => IsUpheld(f.Kind, History))`: a flag is upheld while the latest record in its category quarantines or withholds. After Task 5 the fold holds no flags, because a flag's entry names no post (R10.62). So the patch applies the same `IsUpheld` over the categories the records cite. For the late-flag test, where a flag of that category does exist, the two are the same rule.
@@ -5292,7 +5318,7 @@ Match every edit by its text, not by a line number. The numbers quoted are from 
    changed. The new `conformance/acta/flag-committed-entry` vector pins the entry kind in C# and in
    Rust, with no leaf computation changed (R15.1). **Flags raised before this stage stay public
    forever**; the only logs that held any were test databases. Falsified: *(paste cases 4a, 4b,
-   4c, 5, 5b, 6, 7, 12a, 12b, 14 and 15)*.
+   4c, 5, 5b, 6, 7, 12a, 12b, 14, 15 and 16)*.
    ```
 
 3. In `### Still unverified — do not cite as established`, replace the bullet beginning `**\`ModerationPolicy.IsUpheld\` may count an automated quarantine as upheld.**` with what Task 2 Step 2 printed. Write either `**Confirmed by execution and fixed (D20):** …` or `**Refuted by execution:** …`, and say which half. The second bullet, about the quarantine floor, is unchanged.
