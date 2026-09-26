@@ -15,11 +15,15 @@ namespace Curia.Api.Tests;
 /// under its name, and anyone who knew its <c>kid</c> could make every post it had signed stop
 /// verifying and lock it out. Both identifiers are public -- every post and every JWKS carries them.
 ///
-/// <para>Each fact holds the victim to three observations, not one: the refusal, the key the Forum
-/// then serves, and the independent verifier's verdict on a post the victim made before the attack.
-/// The last is the property the defect destroyed, checked by an implementation that shares no code
-/// with the store, and the negative control beside it shows the verifier does refuse the attacker's
-/// key -- so its pass carries information.</para>
+/// <para>Each fact holds the victim to the Forum's answer and then to what a store holds afterwards:
+/// the key set it serves, a token, or the log's record. Two attacks would change the key a verifier
+/// reads for the victim -- the overwrite, and the lost row -- and those facts hold the served key to
+/// the victim's own. The overwrite fact runs the independent verifier, which shares no code with the
+/// store, over a post the victim made before the attack, and its negative control shows the verifier
+/// does refuse the overwriter's key, so that pass carries information. The lost-row fact compares the
+/// served key set byte for byte with the one served before the loss. The new-kid fact runs the
+/// verifier too, but that attack adds a key and leaves the victim's alone, so the verifier would pass
+/// had the attack succeeded; the single served key and the attacker's missing token fence it.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -118,6 +122,30 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
     {
         var problem = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
         return (problem["type"]?.GetValue<string>(), problem["detail"]?.GetValue<string>());
+    }
+
+    /// <summary>
+    /// The agent's key row lost from the store: deleted by the provisioning role, as a restore from a
+    /// backup older than the enrollment would lose it. The application role cannot delete one.
+    /// </summary>
+    private async Task LoseKeyRowAsync(string agentId, CancellationToken ct)
+    {
+        await using var admin = new NpgsqlConnection(forum.ConnectionString);
+        await admin.OpenAsync(ct);
+        await using var lose = new NpgsqlCommand("DELETE FROM agent_keys WHERE agent_id = @agent;", admin);
+        lose.Parameters.AddWithValue("agent", agentId);
+        Assert.Equal(1, await lose.ExecuteNonQueryAsync(ct));
+    }
+
+    /// <summary>The <c>agent.enrolled</c> events in the agent's own stream, counted as the provisioning role.</summary>
+    private async Task<long> EnrollmentsRecordedAsync(string agentId, CancellationToken ct)
+    {
+        await using var admin = new NpgsqlConnection(forum.ConnectionString);
+        await admin.OpenAsync(ct);
+        await using var count = new NpgsqlCommand(
+            "SELECT count(*) FROM events WHERE aggregate_id = @agent AND event_type = 'agent.enrolled';", admin);
+        count.Parameters.AddWithValue("agent", agentId);
+        return (long)(await count.ExecuteScalarAsync(ct))!;
     }
 
     /// <summary>
@@ -244,13 +272,7 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
         var before = await JwksAsync(client, victim.Agent.AgentId, ct);
         AssertServesOnlyTheVictimsKey(before, victim.Agent);
 
-        await using (var admin = new NpgsqlConnection(forum.ConnectionString))
-        {
-            await admin.OpenAsync(ct);
-            await using var lose = new NpgsqlCommand("DELETE FROM agent_keys WHERE agent_id = @agent;", admin);
-            lose.Parameters.AddWithValue("agent", victim.Agent.AgentId);
-            Assert.Equal(1, await lose.ExecuteNonQueryAsync(ct));
-        }
+        await LoseKeyRowAsync(victim.Agent.AgentId, ct);
 
         // An hour on, so a key re-registered from "now" would serve a later window than the one lost.
         forum.Clock.Advance(TimeSpan.FromHours(1));
@@ -269,6 +291,37 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
 
         Assert.Equal(before.GetRawText(), (await JwksAsync(client, victim.Agent.AgentId, ct)).GetRawText());
         Assert.NotNull(await TokenOrNullAsync(client, victim.Agent, forum.Now, ct));
+    }
+
+    /// <summary>
+    /// Where R4.31's one exception stops. The victim's key row is lost, and before the victim
+    /// recovers, a fresh identifier enrolls the victim's <c>kid</c>, which the store no longer holds:
+    /// that enrollment is registered. The victim, re-presenting the key its enrollment bound, is then
+    /// refused by name, <c>curia/enroll/kid-already-registered</c> naming the victim and the
+    /// <c>kid</c>, as any <c>kid</c> held elsewhere is. The store must not answer the conflict as the
+    /// victim's own key held, which would report an enrollment that registered nothing. The victim's
+    /// stream still holds its one <c>agent.enrolled</c>: the refusal appends nothing.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_ALostRowsKidTakenByAnotherIdentityRefusesTheRecoveryByName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var victim = await EnrolledVictimAsync(client, ct);
+
+        await LoseKeyRowAsync(victim.Agent.AgentId, ct);
+
+        var newcomer = ForumAgent.Create("https://agents.example/newcomer-" + Guid.NewGuid().ToString("N")[..8], victim.Agent.Kid);
+        using (var taken = await newcomer.EnrollAsync(client, ct))
+            Assert.Equal(HttpStatusCode.Created, taken.StatusCode);
+
+        using var recovered = await victim.Agent.EnrollAsync(client, ct);
+        var (type, detail) = await ProblemAsync(recovered, ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, recovered.StatusCode);
+        Assert.Equal("curia/enroll/kid-already-registered", type);
+        Assert.Equal($"agent={victim.Agent.AgentId} kid={victim.Agent.Kid}", detail);
+        Assert.Equal(1, await EnrollmentsRecordedAsync(victim.Agent.AgentId, ct));
     }
 
     /// <summary>

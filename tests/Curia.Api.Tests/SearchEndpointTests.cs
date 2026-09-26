@@ -30,15 +30,24 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     private async Task<string> AskAsync(
         HttpClient client, string board, string title, string body, CancellationToken ct, string[]? tags = null)
     {
+        var (status, answer) = await QuestionAsync(client, board, title, body, ct, tags);
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        using var json = JsonDocument.Parse(answer);
+        return json.RootElement.GetProperty("post_id").GetString()!;
+    }
+
+    /// <summary>Enrols an agent and posts one question, returning the Forum's status and body, whatever they are.</summary>
+    private async Task<(HttpStatusCode Status, string Body)> QuestionAsync(
+        HttpClient client, string board, string title, string body, CancellationToken ct, string[]? tags = null)
+    {
         var agent = ForumAgent.Create(Unique("asker"), "asker-" + Guid.NewGuid().ToString("N")[..8]);
         var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         using var response = await dpop.PostAsync(
             client, PostsUrl, token, agent.SignQuestion(board, body, title, forum.Now, tags), forum.Now, ct);
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        return json.RootElement.GetProperty("post_id").GetString()!;
+        return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
     }
 
     private static async Task<JsonDocument> SearchAsync(HttpClient client, string query, CancellationToken ct)
@@ -416,6 +425,33 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
 
         using var found = await SearchAsync(client, $"q=dk&board={board}", ct);
         Assert.Equal(asked, Assert.Single(Ids(found)));
+    }
+
+    /// <summary>
+    /// Register D24, at §8.5's dedupe, and a check that the text's features cancel. The control,
+    /// <c>dk</c> and <c>ja</c> with no tags, has features: asked twice on one board by two agents, the
+    /// second ask is refused as a duplicate of the first, so dedupe engages for text of this shape.
+    /// <c>dk</c> and <c>j</c> + U+00E0, asked twice on the same board, is created both times: its
+    /// features cancel, so it has no embedding, and the dedupe measures nothing against it. Before D24
+    /// it embedded as NaN, and its first ask answered 503: the control's question is a candidate on
+    /// the board, so the dedupe asked the vector index for the NaN vector's neighbours, and pgvector
+    /// refuses NaN.
+    /// </summary>
+    [Fact]
+    public async Task AQuestionWhoseFeaturesCancelIsNotRefusedAsADuplicateOfItself()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        Assert.Equal(HttpStatusCode.Created, (await QuestionAsync(client, board, "dk", "ja", ct, tags: [])).Status);
+        var (controlStatus, controlBody) = await QuestionAsync(client, board, "dk", "ja", ct, tags: []);
+        Assert.Equal(HttpStatusCode.Conflict, controlStatus);
+        using (var refusal = JsonDocument.Parse(controlBody))
+            Assert.Equal("curia/posts/duplicate-question", refusal.RootElement.GetProperty("type").GetString());
+
+        Assert.Equal(HttpStatusCode.Created, (await QuestionAsync(client, board, "dk", "j\u00E0", ct, tags: [])).Status);
+        Assert.Equal(HttpStatusCode.Created, (await QuestionAsync(client, board, "dk", "j\u00E0", ct, tags: [])).Status);
     }
 
     /// <summary>

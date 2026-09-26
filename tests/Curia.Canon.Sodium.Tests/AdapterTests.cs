@@ -42,8 +42,9 @@ public sealed class AdapterTests
     /// SubjectPublicKeyInfo with nothing after it (R4.28's form). Each row is refused as a key and
     /// verifies nothing, and none throws (CS-10). <c>p384-spki</c> carries a genuine P-384/SHA-256
     /// signature and the trailing-byte row a genuine P-256 one, so both would verify without the
-    /// rule. The brainpool row has P-256's coordinate length and another curve's OID; macOS cannot
-    /// import it at all.
+    /// rule. The brainpool row is a genuine brainpoolP256r1 point, with P-256's coordinate length and
+    /// key size and another curve's OID: on Linux, where OpenSSL imports it, only the OID clause
+    /// refuses it; macOS cannot import it at all.
     /// </summary>
     [Theory]
     [InlineData("empty")]

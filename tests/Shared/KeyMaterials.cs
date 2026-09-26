@@ -18,6 +18,12 @@ internal static class KeyMaterials
     /// <summary>The named-curve OID of brainpoolP256r1, a 256-bit curve that is not P-256.</summary>
     private const string BrainpoolP256r1 = "1.3.36.3.3.2.8.1.1.7";
 
+    /// <summary>The x coordinate of brainpoolP256r1's base point G, as RFC 5639 §3.4 prints it.</summary>
+    private const string BrainpoolGx = "8BD2AEB9CB7E57CB2C4B482FFC81B7AFB9DE27E1E3BD23C23A4453BD9ACE3262";
+
+    /// <summary>The y coordinate of brainpoolP256r1's base point G, as RFC 5639 §3.4 prints it.</summary>
+    private const string BrainpoolGy = "547EF835C3DAC4FD97F8461A14611DC9C27745132DED8E545C1D54C72F046997";
+
     /// <summary><c>id-ecPublicKey</c>.</summary>
     private const string EcPublicKey = "1.2.840.10045.2.1";
 
@@ -60,19 +66,25 @@ internal static class KeyMaterials
             case "p256-spki-and-a-trailing-byte":
                 return ([.. p256.ExportSubjectPublicKeyInfo(), 0x00], p256Signature);
             case "brainpoolP256r1-spki":
-                return (BrainpoolSpki(p256), p256Signature);
+                return (BrainpoolSpki(), p256Signature);
             default:
                 throw new ArgumentOutOfRangeException(nameof(name), name, "no such material");
         }
     }
 
     /// <summary>
-    /// A SubjectPublicKeyInfo naming brainpoolP256r1 around an honest P-256 point: 32-byte
-    /// coordinates, as P-256's are, so only the curve's OID tells the two apart.
+    /// A SubjectPublicKeyInfo holding a genuine brainpoolP256r1 point, uncompressed: the curve's base
+    /// point G, which is on the curve by definition. Its coordinates are 32 bytes, as P-256's are, and
+    /// its key size is 256 bits, so a check by coordinate length or key size cannot tell the two curves
+    /// apart; only the OID does. Where the platform imports brainpool (OpenSSL, on Linux), the OID
+    /// clause is what refuses it. macOS cannot import the curve at all, so there it is refused before
+    /// the OID is read. An earlier version wrapped a P-256 point in this OID; that point is not on
+    /// brainpoolP256r1, so OpenSSL's point validation refused it first, and no platform reached the
+    /// OID clause. The row's signature is P-256's, not one made under G, so for this row only
+    /// <c>IsPublicKey</c> carries the curve rule: <c>Verify</c> answers false under any rule.
     /// </summary>
-    private static byte[] BrainpoolSpki(ECDsa p256)
+    private static byte[] BrainpoolSpki()
     {
-        var point = p256.ExportParameters(includePrivateParameters: false).Q;
         var writer = new AsnWriter(AsnEncodingRules.DER);
         using (writer.PushSequence())
         {
@@ -82,7 +94,7 @@ internal static class KeyMaterials
                 writer.WriteObjectIdentifier(BrainpoolP256r1);
             }
 
-            writer.WriteBitString([0x04, .. point.X!, .. point.Y!]);
+            writer.WriteBitString([0x04, .. Convert.FromHexString(BrainpoolGx), .. Convert.FromHexString(BrainpoolGy)]);
         }
 
         return writer.Encode();

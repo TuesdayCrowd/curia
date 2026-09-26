@@ -111,11 +111,22 @@ public static class KeyEnrollment
     /// <summary>
     /// What an enrollment of <paramref name="key"/> for <paramref name="agentId"/> does, given every
     /// key the identifier already holds.
+    ///
+    /// <para><b>Two of enrollment's refusals are not decided here</b>, because
+    /// <paramref name="held"/> cannot show them. A <c>kid</c> registered to a different identifier is
+    /// the adapter's to refuse (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>), at its
+    /// write, since only the whole store holds that <c>kid</c>. The event log's binding, which refuses
+    /// a <c>kid</c> the identifier's <c>agent.enrolled</c> does not name, is <c>EnrollIdentity</c>'s,
+    /// applied before the store is asked (R4.31).</para>
     /// </summary>
     /// <returns>
-    /// <c>Ok(null)</c>: register it -- the identifier holds no key. <c>Ok(existing)</c>: the
-    /// identifier already holds exactly this key; write nothing and return it, window unmoved. A
-    /// failure: refuse, and write nothing.
+    /// <c>Ok(null)</c>: register it -- the identifier holds no key. The adapter's write still refuses
+    /// it when another identifier holds the <c>kid</c>. <c>Ok(existing)</c>: the identifier already
+    /// holds exactly this key, the same <c>kid</c>, algorithm and bytes; write nothing and return it,
+    /// window unmoved. A failure: <see cref="AuthorKeyErrors.MaterialImmutable"/> when it holds this
+    /// <c>kid</c> under another algorithm or with other bytes, and
+    /// <see cref="AuthorKeyErrors.AlreadyEnrolled"/> when it holds any other key; refuse, and write
+    /// nothing.
     /// </returns>
     public static Result<RegisteredKey?> Decide(string agentId, PublicKeyMaterial key, IReadOnlyList<RegisteredKey> held)
     {
@@ -153,10 +164,13 @@ public static class KeyEnrollment
 }
 
 /// <summary>
-/// Three distinct reasons a key does not resolve. Distinct because they mean different things to
-/// an operator: a <c>kid</c> that is not the agent's is a possible impersonation attempt; a key
-/// outside its window is ordinary lifecycle. Collapsing them would make the first invisible
-/// inside the second's noise.
+/// The key store's refusals, each by name. Three say why a key does not resolve:
+/// <see cref="NotRegisteredToAgent"/>, <see cref="NotYetValid"/> and <see cref="NoLongerValid"/>.
+/// They are distinct because they mean different things to an operator: a <c>kid</c> that is not the
+/// agent's is a possible impersonation attempt; a key outside its window is ordinary lifecycle.
+/// Collapsing them would make the first invisible inside the second's noise. Three say why an
+/// enrollment registered nothing (R4.31, R4.32): <see cref="KidRegisteredToAnotherAgent"/>,
+/// <see cref="AlreadyEnrolled"/> and <see cref="MaterialImmutable"/>.
 /// </summary>
 public static class AuthorKeyErrors
 {
@@ -208,9 +222,9 @@ public static class AuthorKeyErrors
         "re-authorization; a new identity needs an agent identifier of its own.");
 
     /// <summary>
-    /// R4.32: this <c>kid</c> is registered with other bytes, and a registered key never changes.
-    /// Names the kid and never the material, as every refusal here names identifiers and nothing
-    /// the request carried beyond them.
+    /// R4.32: this <c>kid</c> is registered with other material, under another algorithm or with
+    /// other bytes, and a registered key never changes. Names the kid and never the material, as
+    /// every refusal here names identifiers and nothing the request carried beyond them.
     /// </summary>
     public static Error MaterialImmutable(string kid) => new(
         MaterialImmutableType,

@@ -247,7 +247,9 @@ public sealed class PostgresAgentKeyStoreTests
     /// is public, since the JWKS serves it -- is refused by name and moves nothing. The material checks
     /// cannot refuse it, because the material matches; without the ownership clause the statement
     /// would hand back alice's row as mallory's success, and <c>LEAST</c> would let mallory close
-    /// alice's window (a revocation) or open it earlier (a backdating).
+    /// alice's window (a revocation) or open it earlier (a backdating). Mallory asks for both, a week
+    /// before alice's window opens and a revocation today, and each is observed: alice's key still
+    /// resolves after today, and still does not resolve the day before its window opened.
     /// </summary>
     [Fact]
     public async Task AnotherAgentPresentingTheExactKeyIsRefusedAndMovesNoWindow()
@@ -257,11 +259,14 @@ public sealed class PostgresAgentKeyStoreTests
         var alices = NewKey("kid-exact-copy");
 
         Require(await store.RegisterAsync("agent://forum/alice", alices, LastMonth, cancellationToken: ct));
-        var copied = await store.RegisterAsync("agent://forum/mallory", alices, LastMonth, Today, ct);
+        var copied = await store.RegisterAsync("agent://forum/mallory", alices, LastMonth.AddDays(-7), Today, ct);
 
         Assert.Equal("curia/enroll/kid-already-registered", Refusal(copied).Type);
         var stillOpen = Require(await store.ResolveAsync("agent://forum/alice", "kid-exact-copy", ServerTimestamp.At(Today.AddDays(1)), ct));
         Assert.Equal(alices.Kid, stillOpen.Kid);
+        Assert.Equal(
+            "curia/keys/not-yet-valid",
+            Refusal(await store.ResolveAsync("agent://forum/alice", "kid-exact-copy", ServerTimestamp.At(LastMonth.AddDays(-1)), ct)).Type);
     }
 
     /// <summary>
