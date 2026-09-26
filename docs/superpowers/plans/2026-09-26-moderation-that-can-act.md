@@ -18,9 +18,9 @@
 ## Global Constraints
 
 **Build and test**
-- `dotnet build Curia.sln -c Release` reports **0 warnings**. The build treats warnings as errors under `AnalysisLevel latest-all` with `EnforceCodeStyleInBuild`, so an unused `using` or a missing `ConfigureAwait(false)` in `src/` fails it.
+- `dotnet build Curia.sln -c Release` reports **0 warnings**. The build treats warnings as errors under `AnalysisLevel latest-all` with `EnforceCodeStyleInBuild`, so any analyzer finding fails it: a missing `ConfigureAwait(false)` in `src/` (CA2007), a dereferenced parameter with no null check (CA1062), a public test class whose tests are all inherited (CA1515), a non-constant SQL string (CA2100). An unused `using` does **not** fail it: `.editorconfig` gives IDE0005 no severity, so the build never reports one. Removing a dead `using` is a review step; the build will not prompt it.
 - Tests run with `-c Release`, which is what CI runs. Before any run that touches `Curia.Infrastructure.Tests` or `Curia.Api.Tests`, export `CURIA_TEST_POSTGRES="Host=localhost;Port=5432;Username=$(whoami);Database=postgres"`. Never write the username out.
-- Register D16 is decided as option 1. This stage's gates run `Curia.Architecture.Tests` in **both** Debug and Release; the CI change itself is a separate one-line PR.
+- Register D16 is decided as option 1. This stage's gates run `Curia.Architecture.Tests` in **both** Debug and Release; the CI change itself is a separate one-line PR. **Build `Curia.sln -c Debug` before the Debug run.** The architecture tests load the other assemblies from their Debug output folders. Without that build, CS-15 fails naming a missing `Curia.Domain.Tests.dll`; in a tree that still holds older Debug outputs, it passes over stale assemblies instead.
 - Count test assemblies, never totals. **Eleven** must appear. This plan adds no test project.
 
 **Invariants this stage must not break**
@@ -78,19 +78,20 @@ A sixth case is covered where the code lives rather than listed above: a log wri
 | `src/Curia.Application/Projections/FlagDirectory.cs` (new) | `RaisedFlag`, the join, skip counts | 5 |
 | `tests/Curia.Application.Tests/Projections/FlagDirectoryTests.cs` (new) | Join, legacy, skips, R11.9 | 5 |
 | `src/Curia.Api/ForumEndpoints.cs` | R7.18's views through the directory (5); a status code (6) | 5, 6 |
-| `src/Curia.Application/Moderation/RaiseFlag.cs` | Commit, don't publish; details first; `FlagSalt` | 6 |
+| `src/Curia.Application/Moderation/RaiseFlag.cs` | Commit, don't publish; details first; `FlagSalt` (6); `FlagErrors.RationaleRejected` delegates to the shared refusal (8) | 6, 8 |
 | `tests/Curia.Application.Tests/Moderation/RaiseFlagTests.cs` (new) | What the leaf carries; ordering; refusals | 6 |
-| `tests/Curia.Api.Tests/FlagPrivacyGateTests.cs` (new) | The disclosure gate, from the registrations | 6 |
+| `tests/Curia.Api.Tests/FlagPrivacyGateTests.cs` (new) | The disclosure gate, from the registrations (6); the gate again over a moderated fixture (10) | 6, 10 |
 | `src/Curia.Mcp/ToolText.cs:139-147`, `src/Curia.Mcp/WriteTools.cs:101-106` | The two false privacy sentences | 6 |
 | `conformance/acta/flag-committed-entry/` (new), `conformance/index.json`, `conformance/README.md` | The new entry kind, pinned in both implementations | 7 |
 | `rust/curia-testis/tests/vectors.rs:646-683` | The corpus hand count, 69→70 and 75→76 | 7 |
 | `tests/Curia.Api.Tests/ActaEndpointTests.cs` | `curia-testis` verifies a committed flag's inclusion | 7 |
 | `src/Curia.Application/Moderation/ApplyModeration.cs` (new) | The writer, its no-op rule, its errors | 8 |
+| `src/Curia.Application/Moderation/RationaleRefusal.cs` (new) | The one body both rationale refusals share | 8 |
 | `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs` (new) | Every record rule | 8 |
 | `src/Curia.Operator/Program.cs`, `src/Curia.Operator/TerminalText.cs` (new) | The verbs `moderate` and `flags` | 9 |
 | `tests/Curia.Api.Tests/OperatorModerationTests.cs` (new) | The verbs against Postgres | 9 |
 | `tests/Curia.Api.Tests/ForumFixture.cs`, `FlagEndpointTests.cs`, `SearchEndpointTests.cs` | Withholding through the writer, not by hand | 9 |
-| `tests/Curia.Api.Tests/ModerationLoopTests.cs` (new) | Table 11's loop; R10.39 from the public log | 10 |
+| `tests/Curia.Api.Tests/ModerationLoopTests.cs` (new) | Table 11's loop; R10.39 from the public log, checked against the private join | 10 |
 | `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `README.md`, PR #59's plan, the spec | Register, traps, what comes next | 12 |
 
 ---
@@ -104,12 +105,15 @@ A sixth case is covered where the code lives rather than listed above: a log wri
 - Consumes: nothing.
 - Produces: the requirement text every later task implements. **R10.59** is the out-of-band human arm. **R10.60** is what a moderation record carries. **R10.61** is per-flag upholding. **R10.62** is a flag entry that names nothing private. **R11.32** says a private fact is never an event. **R11.9 (addendum)** says the system of record includes the private stores.
 
-- [ ] **Step 1: Open the branch**
+- [ ] **Step 1: Confirm the branch**
+
+The branch `moderation-that-can-act` was opened before this task, and carries the spec and plan commits. Do not create it again.
 
 ```bash
 but status
-but branch new moderation-that-can-act
 ```
+
+Expected: `moderation-that-can-act` is applied, with the spec and plan commits on it.
 
 - [ ] **Step 2: Re-derive the numbers, and stop if they moved**
 
@@ -136,7 +140,7 @@ Expected:
 
 - [ ] **Step 3: Write the entry**
 
-Insert this text verbatim before `# Consolidated proposed-requirements index`. Keep the blank line that separates it from G12's last paragraph.
+Insert this text verbatim before `# Consolidated proposed-requirements index`. Keep the blank line that separates it from G12's last paragraph, and leave one blank line between the entry's last line and that heading.
 
 ````markdown
 ## G13 — A flag nobody can uphold, and a flag everybody can read
@@ -490,10 +494,16 @@ In the same file:
             Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1", "f2"),
             Adjudicating(ModerationEffect.Restore, ModeratorKind.Human, "f1", "f2")]));
 
-    /// <summary>R10.61: upholding is decided per flag. A record that names f1 says nothing about f2.</summary>
+    /// <summary>
+    /// R10.61: upholding is decided per flag. A restore that names f1 releases f1 and says nothing
+    /// about f2, which the same category's withholding upheld. Keyed to the category, the restore
+    /// would have released both.
+    /// </summary>
     [Fact]
     public void R10_61_UpholdingIsDecidedPerFlag() =>
-        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags([Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1")])));
+        Assert.Equal(["f2"], Sorted(ModerationPolicy.UpheldFlags([
+            Adjudicating(ModerationEffect.Withhold, ModeratorKind.Human, "f1", "f2"),
+            Adjudicating(ModerationEffect.Restore, ModeratorKind.Human, "f1")])));
 
     /// <summary>
     /// R10.61's reason. Keyed to a category, a flag raised after a withholding in its category was
@@ -835,6 +845,8 @@ In `tests/Curia.Application.Tests/Projections/FlagProjectorTests.cs`:
     }
 ```
 
+This is spec Decision 5's late-flag test, and falsification case 3 is aimed at it. Task 5 replaces this file whole; it carries the test across under the same name, re-expressed for a fold that no longer reads flags. Never let a rewrite drop it.
+
 In `tests/Curia.Application.Tests/Projections/AgentStandingProjectorTests.cs`, replace `UpholdFlagAsync` (its doc comment and body) with:
 
 ```csharp
@@ -876,7 +888,7 @@ In `tests/Curia.Application.Tests/Projections/AgentStandingProjectorTests.cs`, r
 - [ ] **Step 9: Build and run everything this touches**
 
 ```bash
-dotnet build Curia.sln -c Release --nologo 2>&1 | tail -3
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test tests/Curia.Domain.Tests -c Release --nologo --filter "FullyQualifiedName~Moderation"
 dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~FlagProjectorTests|FullyQualifiedName~AgentStandingProjectorTests|FullyQualifiedName~SearchProjectorTests"
 ```
@@ -1190,6 +1202,10 @@ public abstract class FlagDetailStorePortContractTests
 }
 
 /// <summary>R11.4's in-memory adapter, held to the contract.</summary>
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "xUnit discovery needs the concrete class public; every [Fact] is inherited, so the analyzer's test-class heuristic does not see it.")]
 public sealed class InMemoryFlagDetailStoreContractTests : FlagDetailStorePortContractTests
 {
     protected override IFlagDetailStore CreateStore() => new InMemory.InMemoryFlagDetailStore();
@@ -1423,6 +1439,8 @@ public sealed class PostgresFlagDetailStore : IFlagDetailStore
         Justification = "The only interpolated text is the quoted table name built in the constructor from a schema the composition root supplies; every value is a parameter.")]
     public async Task<Result<FlagDetail>> AppendAsync(FlagDetail detail, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(detail);
+
         if (!FlagDetailRules.Admit(detail).TryGetValue(out _, out var refusal))
             return Result<FlagDetail>.Fail(refusal!);
 
@@ -1567,8 +1585,13 @@ public sealed class PostgresFlagDetailStoreContractTests : FlagDetailStorePortCo
 /// <summary>
 /// db/0004's grant, proved the way <see cref="AppRoleGrantRefusalTests"/> proves R11.6's: on a
 /// connection opened as the application role, asserting Postgres's own insufficient-privilege state.
+/// One test per privilege, each over constant SQL, so a failure names the privilege that was granted.
 /// </summary>
 [Collection(PostgresCollectionDefinition.Name)]
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class FlagDetailGrantTests
 {
     private readonly PostgresDatabaseFixture _fixture;
@@ -1594,15 +1617,28 @@ public sealed class FlagDetailGrantTests
         Assert.Equal(1L, (long)(await select.ExecuteScalarAsync(ct))!);
     }
 
-    /// <summary>R11.6 applied to the private store (R11.32): no UPDATE and no DELETE, by grant rather than by restraint.</summary>
-    [Theory]
-    [InlineData("UPDATE flag_details SET rationale = 'rewritten' WHERE event_id = 'no-such-row';")]
-    [InlineData("DELETE FROM flag_details WHERE event_id = 'no-such-row';")]
-    public async Task R11_32_TheAppRoleCannotRewriteOrDeleteAFlagDetail(string statement)
+    /// <summary>R11.6 applied to the private store (R11.32): no UPDATE, by grant rather than by restraint.</summary>
+    [Fact]
+    public async Task R11_32_TheAppRoleCannotUpdateAFlagDetail()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var connection = await _fixture.AppRoleDataSource.OpenConnectionAsync(ct);
-        await using var command = new NpgsqlCommand(statement, connection);
+        await using var command = new NpgsqlCommand(
+            "UPDATE flag_details SET rationale = 'rewritten' WHERE event_id = 'no-such-row';", connection);
+
+        var ex = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+        Assert.Contains("permission denied for table flag_details", ex.MessageText, StringComparison.Ordinal);
+    }
+
+    /// <summary>R11.6 applied to the private store (R11.32): no DELETE, by grant rather than by restraint.</summary>
+    [Fact]
+    public async Task R11_32_TheAppRoleCannotDeleteAFlagDetail()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var connection = await _fixture.AppRoleDataSource.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand(
+            "DELETE FROM flag_details WHERE event_id = 'no-such-row';", connection);
 
         var ex = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
@@ -1615,14 +1651,14 @@ public sealed class FlagDetailGrantTests
 
 ```bash
 export CURIA_TEST_POSTGRES="Host=localhost;Port=5432;Username=$(whoami);Database=postgres"
-dotnet build Curia.sln -c Release --nologo 2>&1 | tail -3
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test tests/Curia.Infrastructure.Tests -c Release --nologo
 ```
 
 Expected:
 - `0 Warning(s)`.
 - `Curia.Infrastructure.Tests` passes in full, including `SchemaMigrationsTests.FileNamesCoversEveryCheckedInMigrationInOrder`. Without Step 6's `FileNames` line that test fails, naming `0004_create_flag_details.sql`.
-- The 10 Postgres contract rows and the 3 grant rows pass.
+- The 10 Postgres contract rows and the 3 grant tests pass: the positive control, and one refusal per privilege.
 
 - [ ] **Step 10: Commit**
 
@@ -1994,7 +2030,6 @@ using System.Collections.Immutable;
 using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Moderation;
-using Curia.Domain.Primitives;
 
 namespace Curia.Application.Projections;
 
@@ -2262,6 +2297,32 @@ public sealed class FlagProjectorTests
             ct).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// A flag on the post's own stream, as the log held one before R10.62. It is the one shape whose
+    /// post a public fold could ever see, so it is the one a category-keyed fold would have upheld.
+    /// </summary>
+    private static async Task RaiseLegacyAsync(InMemoryEventStore store, string eventId, FlagKind kind, CancellationToken ct)
+    {
+        var aggregate = Require(AggregateId.Create(Post));
+        var history = Require(await store.ReadByAggregateAsync(aggregate, ct).ConfigureAwait(false));
+
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(history.Count)),
+            [new DomainEvent(
+                Require(EventId.Create(eventId)),
+                Require(EventType.Create(FlagProjector.FlagRaisedType)),
+                Require(ActorId.Create("https://agents.example/reporter")),
+                new JsonValue.Object(
+                [
+                    new(FlagProjector.PostIdField, new JsonValue.String(Post)),
+                    new(FlagProjector.RaisedByField, new JsonValue.String("https://agents.example/reporter")),
+                    new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(kind))),
+                    new(FlagProjector.RationaleField, new JsonValue.String("reported after the withholding")),
+                ]))],
+            ct).ConfigureAwait(false));
+    }
+
     /// <summary>A post no record names is absent, not present-and-empty.</summary>
     [Fact]
     public async Task APostNoRecordNamesIsAbsentFromTheProjection()
@@ -2315,20 +2376,27 @@ public sealed class FlagProjectorTests
     }
 
     /// <summary>
-    /// R10.61's reason, at the projection: a withholding that names no flag upholds nothing, so a flag
-    /// raised against the post afterwards is not upheld until a record names it.
+    /// Spec Decision 5's late-flag test, carried across from Task 2 when flags left this fold. A
+    /// withholding names the flags it reviewed. A flag raised against the post afterwards, in the same
+    /// category, was reviewed by nobody. Keyed to the category, that flag was upheld the instant it was
+    /// raised. Keyed to the record that names it, it is not upheld until a record does. The first half
+    /// is also Decision 16: a proactive withholding moves no one's standing.
     /// </summary>
     [Fact]
-    public async Task R10_61_AWithholdingThatNamesNoFlagUpholdsNothing()
+    public async Task R10_61_AFlagRaisedAfterAWithholdingIsNotUpheldUntilARecordNamesIt()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = new InMemoryEventStore(new ManualTimeProvider(Start));
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct);
+        await RaiseLegacyAsync(store, Flag, FlagKind.Spam, ct);
 
         var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
         Assert.False(post.MayServe);
         Assert.False(post.HasUpheldFlag);
+
+        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Spam, ModerationEffect.Withhold, ct, ModeratorKind.Human, true, Flag);
+        Assert.Equal([Flag], FlagProjector.Fold(await LogAsync(store, ct))[Post].UpheldFlags);
     }
 
     /// <summary>
@@ -2433,7 +2501,7 @@ In `tests/Curia.Api.Tests/FlagListingTests.cs:229`, the comment names `RaisedFla
 - [ ] **Step 7: Build and run what this touches**
 
 ```bash
-dotnet build Curia.sln -c Release --nologo 2>&1 | tail -3
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test tests/Curia.Application.Tests -c Release --nologo
 dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~FlagListingTests|FullyQualifiedName~FlagEndpointTests|FullyQualifiedName~SearchEndpointTests"
 ```
@@ -2480,7 +2548,6 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -2603,11 +2670,11 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
         throw new InvalidOperationException("the log did not end within 100,000 entries; this gate would not finish");
     }
 
-    [Fact]
-    public async Task R10_62_NoSurfaceServesAFlagsRaiserRationaleOrUnadjudicatedPost()
+    /// <summary>A question, and a flag against it from an agent that authors nothing, carrying a nonce rationale.</summary>
+    private sealed record Flagged(Party Author, Party Raiser, Party Bystander, string Board, string PostId, string Digest, string Nonce);
+
+    private async Task<Flagged> FlagAQuestionAsync(HttpClient client, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
         var board = "gate-" + Guid.NewGuid().ToString("N")[..8];
 
         var author = await PartyAsync(client, "gate-author", ct);
@@ -2635,19 +2702,33 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
             forum.Now, ct, contentType: "application/json");
         Assert.Equal(HttpStatusCode.Created, raised.StatusCode);
 
+        return new Flagged(author, raiser, bystander, board, postId, digest, nonce);
+    }
+
+    /// <summary>What one sweep of every registered surface met.</summary>
+    private sealed record Sweep(
+        List<string> Undriven, List<string> Leaks, int Fetched, long TreeSize, bool SawPostLeaf, List<string> FlagLeaves, string? RecordLeaf);
+
+    /// <summary>
+    /// Drives every registered read surface, anonymously and as the bystander, and records each
+    /// response that serves the flag's rationale, its raiser, or, in the flag's own leaf, its post.
+    /// </summary>
+    private async Task<Sweep> SweepAsync(HttpClient client, Flagged flagged, CancellationToken ct)
+    {
         var treeSize = await TreeSizeAsync(client, ct);
         var undriven = new List<string>();
         var leaks = new List<string>();
         var fetched = 0;
         var sawPostLeaf = false;
-        string? flagLeaf = null;
+        var flagLeaves = new List<string>();
+        string? recordLeaf = null;
 
         foreach (var (method, route) in Registered())
         {
             var key = $"{method} {route}";
             if (WriteRoutes.Contains(key)) continue;
 
-            var requests = Drive(method, route, postId, digest, board, author.Agent.AgentId, treeSize);
+            var requests = Drive(method, route, flagged.PostId, flagged.Digest, flagged.Board, flagged.Author.Agent.AgentId, treeSize);
             if (requests is null)
             {
                 undriven.Add(key);
@@ -2656,7 +2737,7 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
 
             foreach (var (url, body) in requests)
             {
-                foreach (var who in (Party?[])[null, bystander])
+                foreach (var who in (Party?[])[null, flagged.Bystander])
                 {
                     if (body is not null && who is not null) continue; // the batch is an anonymous read
 
@@ -2664,37 +2745,61 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
                     fetched++;
                     var reader = who is null ? "an anonymous caller" : "an uninvolved agent";
 
-                    if (served.Contains(nonce, StringComparison.Ordinal))
+                    if (served.Contains(flagged.Nonce, StringComparison.Ordinal))
                         leaks.Add($"{key} served the flag's rationale to {reader} ({url})");
 
                     var ownEnrolment = served.Contains("\"event_type\":\"agent.", StringComparison.Ordinal);
-                    if (served.Contains(raiser.Agent.AgentId, StringComparison.Ordinal) && !ownEnrolment)
+                    if (served.Contains(flagged.Raiser.Agent.AgentId, StringComparison.Ordinal) && !ownEnrolment)
                         leaks.Add($"{key} served the raiser's identity to {reader} ({url})");
 
                     if (route == EntriesRoute)
                     {
                         if (served.Contains("\"post.accepted\"", StringComparison.Ordinal)
-                            && served.Contains(postId, StringComparison.Ordinal))
+                            && served.Contains(flagged.PostId, StringComparison.Ordinal))
                             sawPostLeaf = true;
 
                         if (served.Contains("\"event_type\":\"flag.", StringComparison.Ordinal))
-                            flagLeaf = served;
+                        {
+                            flagLeaves.Add(served);
+
+                            // R10.62: the post stays out of the flag's own leaf, whatever else becomes public later.
+                            if (served.Contains(flagged.PostId, StringComparison.Ordinal))
+                                leaks.Add($"{key} served the flagged post's id in the flag's own leaf to {reader} ({url})");
+                        }
+
+                        if (served.Contains("\"event_type\":\"moderation.applied\"", StringComparison.Ordinal)
+                            && served.Contains(flagged.PostId, StringComparison.Ordinal))
+                            recordLeaf = served;
                     }
                 }
             }
         }
 
-        // Non-vacuity first, each in its own assertion: a failure here is a defect in this gate.
-        Assert.True(undriven.Count == 0,
-            "Registered surfaces this gate cannot drive (R14.9: a surface the enumeration reaches and the gate " +
-            "cannot evaluate is a failure, never an omission): " + string.Join(", ", undriven));
-        Assert.True(fetched >= 2 * treeSize, $"the gate fetched {fetched} responses over a log of {treeSize}; it cannot have walked it");
-        Assert.True(sawPostLeaf, "the log walk never met the question's own leaf -- a defect in this gate, not in the Forum");
-        Assert.True(flagLeaf is not null, "the log walk never met the flag's leaf -- a defect in this gate, not in the Forum");
+        return new Sweep(undriven, leaks, fetched, treeSize, sawPostLeaf, flagLeaves, recordLeaf);
+    }
 
-        Assert.False(flagLeaf!.Contains(postId, StringComparison.Ordinal),
-            "the flag's own leaf names the post it concerns (R10.62): " + flagLeaf);
-        Assert.True(leaks.Count == 0, string.Join("\n", leaks));
+    /// <summary>Non-vacuity, each in its own assertion: a failure here is a defect in this gate, not in the Forum.</summary>
+    private static void AssertTheSweepReachedEverything(Sweep sweep)
+    {
+        Assert.True(sweep.Undriven.Count == 0,
+            "Registered surfaces this gate cannot drive (R14.9: a surface the enumeration reaches and the gate " +
+            "cannot evaluate is a failure, never an omission): " + string.Join(", ", sweep.Undriven));
+        Assert.True(sweep.Fetched >= 2 * sweep.TreeSize, $"the gate fetched {sweep.Fetched} responses over a log of {sweep.TreeSize}; it cannot have walked it");
+        Assert.True(sweep.SawPostLeaf, "the log walk never met the question's own leaf -- a defect in this gate, not in the Forum");
+        Assert.True(sweep.FlagLeaves.Count > 0, "the log walk never met a flag's leaf -- a defect in this gate, not in the Forum");
+    }
+
+    [Fact]
+    public async Task R10_62_NoSurfaceServesAFlagsRaiserRationaleOrUnadjudicatedPost()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var flagged = await FlagAQuestionAsync(client, ct);
+
+        var sweep = await SweepAsync(client, flagged, ct);
+
+        AssertTheSweepReachedEverything(sweep);
+        Assert.True(sweep.Leaks.Count == 0, string.Join("\n", sweep.Leaks));
     }
 }
 ```
@@ -2707,7 +2812,7 @@ dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedNa
 ```
 
 Expected: FAIL.
-- The message names `GET /v1/log/entries/{index:long} served the flag's rationale to an anonymous caller` and `… served the raiser's identity …`, or the flag-leaf assertion naming the post.
+- The message names `GET /v1/log/entries/{index:long} served the flag's rationale to an anonymous caller`, `… served the raiser's identity …` and `… served the flagged post's id in the flag's own leaf …`. Every leak line names the route, so each of Task 11's cases 4a–4c is named by it too (spec §4.4).
 - The four non-vacuity assertions pass. If `undriven` is non-empty, a route exists that this plan did not see: add a driver for it or a `WriteRoutes` entry, whichever it is, and say which in the commit.
 
 - [ ] **Step 3: Write the writer's failing tests**
@@ -2850,20 +2955,28 @@ public sealed class RaiseFlagTests
         Assert.NotEqual(commitments[0], commitments[1]);
     }
 
-    /// <summary>The private row first: a detail that cannot be written leaves no public entry to open (spec Decision 4).</summary>
+    /// <summary>
+    /// The private row first (spec Decision 4): a detail that cannot be written leaves no public entry
+    /// to open. Checked first the way a reader meets the failure, through the join, which skips and
+    /// counts a commitment that has no row. Written the other way round, this is where it shows.
+    /// </summary>
     [Fact]
-    public async Task R10_62_AFailedDetailAppendWritesNoEntry()
+    public async Task R10_62_AFailedDetailAppendLeavesNoCommitmentForTheJoinToSkip()
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
+        var details = new DownDetailStore();
         await PostExistsAsync(store, ct);
 
-        var result = await new RaiseFlag(store, new DownDetailStore(), clock).RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct);
+        var result = await new RaiseFlag(store, details, clock).RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("test/detail-store-down", error!.Type);
-        Assert.Empty(FlagEvents(await LogAsync(store, ct)));
+
+        var log = await LogAsync(store, ct);
+        Assert.Empty(FlagDirectory.Join(log, Require(await details.ReadAllAsync(ct))).Skipped);
+        Assert.Empty(FlagEvents(log));
     }
 
     /// <summary>Review Focus 1: a rationale the store cannot hold is refused by name, and nothing is written anywhere.</summary>
@@ -2884,6 +2997,7 @@ public sealed class RaiseFlagTests
         Assert.Empty(Require(await details.ReadAllAsync(ct)));
     }
 
+    /// <summary>A flag against a post the log never accepted is refused, and neither store is written: the log stays empty.</summary>
     [Fact]
     public async Task AFlagAgainstAPostThatDoesNotExistIsRefusedAndNothingIsWritten()
     {
@@ -2897,6 +3011,7 @@ public sealed class RaiseFlagTests
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/flag/no-such-post", error!.Type);
         Assert.Empty(Require(await details.ReadAllAsync(ct)));
+        Assert.Empty(await LogAsync(store, ct));
     }
 
     /// <summary>R10.26: a credential in the rationale is refused before either store sees it.</summary>
@@ -3177,7 +3292,7 @@ with
 - [ ] **Step 7: Run the writer's tests, the gate, and the suites that raise flags**
 
 ```bash
-dotnet build Curia.sln -c Release --nologo 2>&1 | tail -3
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~RaiseFlagTests|FullyQualifiedName~FlagDirectoryTests"
 dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~FlagPrivacyGateTests|FullyQualifiedName~FlagListingTests|FullyQualifiedName~FlagEndpointTests|FullyQualifiedName~McpWriteEndToEndTests|FullyQualifiedName~StubFidelityTests"
 dotnet test tests/Curia.Mcp.Tests -c Release --nologo
@@ -3306,7 +3421,12 @@ Expected:
 - `ActaLeafVectorTests` and `ConformanceIndexTests` pass.
 - `ActaLeafRecomputationTests` shows six theory rows, all passing. The new row is `flag-committed-entry`.
 
-Watch this vector go red **before** trusting it. Change one hex digit of `expected.leaf`. Both `cargo test --test vectors` and `ActaLeafVectorTests` must fail naming `flag-committed-entry`. Then restore it by re-running Step 2's `printf '%s\n' 66128f1f… > "$d/expected.leaf"` line, and check `git diff --quiet -- conformance/acta` is clean. Task 11 repeats this, but a vector nobody has seen fail is not known to be read.
+Watch this vector go red **before** trusting it. Change one hex digit of `expected.leaf`, then run the three runners again:
+- `cargo test --test vectors` must fail, and its message names `flag-committed-entry`.
+- `ActaLeafRecomputationTests` must fail on exactly one theory row, `R6_46_TheClientRecomputesEveryPublishedLeaf(name: "flag-committed-entry")`. This is the C# runner that names the vector.
+- `ActaLeafVectorTests` must fail too, but it does **not** name the vector. It loops over the family inside one fact and asserts the leaf with no message, so it prints only the expected and computed values (the edited digits against `66128f1f…`). That is enough to see it read the file; it is not a name.
+
+Then restore it by re-running Step 2's `printf '%s\n' 66128f1f… > "$d/expected.leaf"` line, and check `git diff --quiet -- conformance/acta` is clean. Task 11 repeats this, but a vector nobody has seen fail is not known to be read.
 
 - [ ] **Step 4: Write the end-to-end test: `curia-testis` verifies a real committed flag**
 
@@ -3408,6 +3528,8 @@ but commit -b moderation-that-can-act -m "$(printf 'The Acta over flag.committed
 
 **Files:**
 - Create: `src/Curia.Application/Moderation/ApplyModeration.cs`
+- Create: `src/Curia.Application/Moderation/RationaleRefusal.cs`
+- Modify: `src/Curia.Application/Moderation/RaiseFlag.cs` (`FlagErrors.RationaleRejected` delegates to `RationaleRefusal`)
 - Test: `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs`
 
 **Interfaces:**
@@ -3429,6 +3551,7 @@ but commit -b moderation-that-can-act -m "$(printf 'The Acta over flag.committed
     | `NoSuchPost(string)` | `curia/moderation/no-such-post` |
     | `RationaleRejected(RiskAnnotations)` | `curia/moderation/rationale-rejected` |
     | `NoOp(string, ModerationEffect, FlagKind)` | `curia/moderation/no-op` |
+  - `internal static class RationaleRefusal`, with `Error Of(string type, string title, RiskAnnotations annotations)`: the one body behind both `FlagErrors.RationaleRejected` and `ModerationRecordErrors.RationaleRejected`, which differ only in slug and title.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3879,19 +4002,10 @@ public static class ModerationRecordErrors
         $"post={postId}");
 
     /// <summary>R10.60: categories and offsets only (R10.27), never the matched value.</summary>
-    public static Error RationaleRejected(RiskAnnotations annotations)
-    {
-        ArgumentNullException.ThrowIfNull(annotations);
-
-        var categories = string.Join(
-            ", ",
-            annotations.Flags.Select(f => $"{f.Category}@{f.Offset.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
-
-        return new Error(
-            "curia/moderation/rationale-rejected",
-            "The moderator's rationale was rejected by screening; it would land in a public leaf (R10.60)",
-            categories);
-    }
+    public static Error RationaleRejected(RiskAnnotations annotations) => RationaleRefusal.Of(
+        "curia/moderation/rationale-rejected",
+        "The moderator's rationale was rejected by screening; it would land in a public leaf (R10.60)",
+        annotations);
 
     /// <summary>A record that would change nothing (spec Decision 11).</summary>
     public static Error NoOp(string postId, ModerationEffect effect, FlagKind category) => new(
@@ -3901,16 +4015,59 @@ public static class ModerationRecordErrors
 }
 ```
 
+The moderator's rationale is refused exactly as a flag's is, so the two refusals share one body. Create `src/Curia.Application/Moderation/RationaleRefusal.cs`:
+
+```csharp
+using System.Globalization;
+using Curia.Domain.Primitives;
+using Curia.Domain.Screening;
+
+namespace Curia.Application.Moderation;
+
+/// <summary>
+/// The refusal a rationale carrying credential material earns (R10.26), for both writers that screen
+/// one: a flag's (<see cref="RaiseFlag"/>) and a moderator's (<see cref="ApplyModeration"/>). The
+/// detail names each category and its offset (R10.27) and never the matched value (R10.28):
+/// structurally, because <c>RiskFlag</c> has no member that can carry content. One body, so the two
+/// refusals cannot come to differ in what they echo.
+/// </summary>
+internal static class RationaleRefusal
+{
+    /// <summary>An RFC 9457 error of <paramref name="type"/> whose detail lists each annotation as <c>category@offset</c>.</summary>
+    public static Error Of(string type, string title, RiskAnnotations annotations)
+    {
+        ArgumentNullException.ThrowIfNull(annotations);
+
+        var categories = string.Join(
+            ", ",
+            annotations.Flags.Select(f => $"{f.Category}@{f.Offset.ToString(CultureInfo.InvariantCulture)}"));
+
+        return new Error(type, title, categories);
+    }
+}
+```
+
+In `src/Curia.Application/Moderation/RaiseFlag.cs`, keep `FlagErrors.RationaleRejected`'s doc comment and replace the method itself, from `    public static Error RationaleRejected(RiskAnnotations annotations)` through its closing brace, with:
+
+```csharp
+    public static Error RationaleRejected(RiskAnnotations annotations) => RationaleRefusal.Of(
+        "curia/flag/rationale-rejected",
+        "The flag's rationale was rejected by ingest screening",
+        annotations);
+```
+
+The slug and title are Task 6's, unchanged, so `R10_26_ACredentialInTheRationaleIsRefusedBeforeEitherStore` still reads `curia/flag/rationale-rejected`.
+
 - [ ] **Step 4: Run them to see them pass**
 
-Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests"`
-Expected: 9 PASS. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | tail -3` reports `0 Warning(s)`.
+Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests|FullyQualifiedName~RaiseFlagTests"`
+Expected: 16 PASS, the 9 `ApplyModerationTests` and the 7 `RaiseFlagTests`, which still read the flag path's refusal through the shared body. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"` reports `0 Warning(s)`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 but status -fv
-but commit -b moderation-that-can-act -m "$(printf 'ApplyModeration: the human arm of R10.36, out of band (R10.59, R10.60)\n\nA record carries the post digest and the flags it adjudicates, derived from the\ndirectory; an operator actor only; a screened rationale; no-op records refused.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+but commit -b moderation-that-can-act -m "$(printf 'ApplyModeration: the human arm of R10.36, out of band (R10.59, R10.60)\n\nA record carries the post digest and the flags it adjudicates, derived from the\ndirectory; an operator actor only; a screened rationale; no-op records refused.\nThe flag and moderation rationale refusals now share one body.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
 ```
 
 ---
@@ -4032,6 +4189,18 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
 
     private static string[] Moderate(string postId, string effect, string category = "spam", string reason = "Reviewed: advertising.") =>
         ["moderate", "--post", postId, "--category", category, "--effect", effect, "--reason", reason, "--by", "reviewer"];
+
+    /// <summary>How many entries the log serves, counted the way any reader counts them.</summary>
+    private static async Task<long> LogSizeAsync(HttpClient client, CancellationToken ct)
+    {
+        for (long i = 0; i < 100_000; i++)
+        {
+            using var entry = await client.GetAsync(new Uri($"/v1/log/entries/{i}", UriKind.Relative), ct);
+            if (entry.StatusCode == HttpStatusCode.NotFound) return i;
+        }
+
+        throw new InvalidOperationException("the log did not end within 100,000 entries");
+    }
 
     /// <summary>R10.59, R10.60, R6.25: the post stops being served, and the record — public, in the log — names who and why, and the digest.</summary>
     [Fact]
@@ -4162,14 +4331,29 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
     }
 
+    /// <summary>
+    /// A usage error is refused before anything is written. It is aimed at a real, servable post, so
+    /// a verb that defaulted the missing category would have withheld it: the log would grow and the
+    /// post would stop being served. Against a post that does not exist, "writes nothing" would hold
+    /// whatever the verb did.
+    /// </summary>
     [Fact]
     public async Task AMissingCategoryIsAUsageErrorAndWritesNothing()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (exit, _, stderr) = await RunAsync(["moderate", "--post", "01JX", "--effect", "withhold", "--reason", "r", "--by", "x"], ct);
+        var client = forum.Client;
+        var author = await PartyAsync(client, "op-author", ct);
+        var (postId, _) = await AskAsync(client, author, ct);
+        var before = await LogSizeAsync(client, ct);
+
+        var (exit, _, stderr) = await RunAsync(["moderate", "--post", postId, "--effect", "withhold", "--reason", "r", "--by", "x"], ct);
 
         Assert.Equal(ExitCode.Usage, exit);
         Assert.Contains("--category is required", stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await LogSizeAsync(client, ct));
+
+        using var read = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
     }
 }
 ```
@@ -4488,12 +4672,12 @@ In `tests/Curia.Api.Tests/FlagEndpointTests.cs`:
 
 In `tests/Curia.Api.Tests/SearchEndpointTests.cs`, change `await WithholdAsync(withheld, ct);` to `await forum.WithholdAsync(withheld, ct);`, and delete the private `WithholdAsync` method and its doc comment.
 
-In both files, remove any `using` the build now reports unnecessary. Remove only those, because `EnforceCodeStyleInBuild` makes each one an error.
+In both files, deleting the private `WithholdAsync` leaves `using Curia.Application.Ports;` unused. Delete that one line from each file. The build will not point at it: IDE0005 has no severity in this repository, so an unused `using` builds clean. Checked with IDE0005 switched on, those two lines are the only ones this task orphans; every other `using` in both files is still used.
 
 - [ ] **Step 6: Run the verbs and every suite that withholds**
 
 ```bash
-dotnet build Curia.sln -c Release --nologo 2>&1 | tail -3
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~OperatorModerationTests|FullyQualifiedName~OperatorAttestationTests|FullyQualifiedName~FlagEndpointTests|FullyQualifiedName~SearchEndpointTests|FullyQualifiedName~BatchRetrievalTests|FullyQualifiedName~ConditionalRequestTests"
 dotnet test tests/Curia.Architecture.Tests -c Release --nologo
 ```
@@ -4517,9 +4701,10 @@ but commit -b moderation-that-can-act -m "$(printf 'curia-operator moderate and 
 
 **Files:**
 - Test: `tests/Curia.Api.Tests/ModerationLoopTests.cs`
+- Test: `tests/Curia.Api.Tests/FlagPrivacyGateTests.cs` (a second fact: the gate again, over a moderated fixture)
 
 **Interfaces:**
-- Consumes: everything above, through HTTP and `OperatorCommands.RunAsync` only.
+- Consumes: everything above, through HTTP and `OperatorCommands.RunAsync`. The one exception is the R10.39 test's oracle, which reads the private join (`IEventReader`, `IFlagDetailStore`, `FlagDirectory.Join`, `FlagProjector.Fold`) from the host's own services, because the spec asks that the public figures equal the private ones.
 - Produces: nothing new in `src/`. If a step fails, the defect is in an earlier task's code. Fix it there, in that task's own terms, and say so in this task's commit.
 
 - [ ] **Step 1: Write the loop**
@@ -4534,8 +4719,13 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Curia.Application.Ports;
+using Curia.Application.Projections;
 using Curia.Domain.Authorization;
+using Curia.Domain.Moderation;
+using Curia.Domain.Primitives;
 using Curia.OperatorTool;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -4632,6 +4822,9 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
 
     private static string TypeOf(JsonElement entry) => entry.GetProperty("event_type").GetString()!;
 
+    private static T Require<T>(Result<T> result) =>
+        result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
     /// <summary>Every read path agrees, in both directions — the second direction is what stops the first passing on an empty page.</summary>
     private async Task AssertServedAsync(HttpClient client, Party reader, string board, string postId, string digest, bool served, CancellationToken ct)
     {
@@ -4723,9 +4916,12 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
-    /// R10.39 and R10.60: median time to action and the upheld rate are computable from the public log
-    /// alone — flag entries give the instants, records give the adjudications — and the expected values
-    /// come from this test's own clock, not from the implementation.
+    /// R10.39 and R10.60: each flag's time to action and the upheld rate are computable from the public
+    /// log alone. Flag entries give the instants, records give the adjudications, and each record's
+    /// digest ties it to the envelope the log accepted for its post (R6.25), so an auditor counts no
+    /// record for content the log never held. The figures must equal the same figures computed through
+    /// the private join, which knows each flag's post without any record (spec Increment 4). The test's
+    /// own clock is kept only as the non-vacuity guard: two flags, 90 and 120 minutes, one upheld.
     /// </summary>
     [Fact]
     public async Task R10_39_TimeToActionAndTheUpheldRateAreComputableFromThePublicLogAlone()
@@ -4756,28 +4952,52 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
         var raisedAt = log.Where(e => TypeOf(e) == "flag.committed")
             .ToDictionary(e => e.GetProperty("event_id").GetString()!, At, StringComparer.Ordinal);
 
-        var firstAction = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
-        var upheld = new HashSet<string>(StringComparer.Ordinal);
-        var ours = new List<string>();
+        string AcceptedDigest(string postId) => log
+            .Single(e => TypeOf(e) == "post.accepted" && e.GetProperty("payload").GetProperty("post_id").GetString() == postId)
+            .GetProperty("payload").GetProperty("digest").GetString()!;
+
+        var publicTimeToAction = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+        var publicUpheld = new HashSet<string>(StringComparer.Ordinal);
         foreach (var record in log.Where(e => TypeOf(e) == "moderation.applied"))
         {
             var payload = record.GetProperty("payload");
-            var postId = payload.GetProperty("post_id").GetString();
-            var upholds = payload.GetProperty("effect").GetString() is "withhold" or "quarantine";
+            var postId = payload.GetProperty("post_id").GetString()!;
+            if (postId != first.PostId && postId != second.PostId) continue;
 
+            // R6.25: the record names the bytes it acted on, and they are the bytes the log accepted.
+            Assert.Equal(AcceptedDigest(postId), payload.GetProperty("digest").GetString());
+
+            var upholds = payload.GetProperty("effect").GetString() is "withhold" or "quarantine";
             foreach (var flag in payload.GetProperty("adjudicates").EnumerateArray().Select(f => f.GetString()!))
             {
-                firstAction.TryAdd(flag, At(record));
-                if (upholds) upheld.Add(flag); else upheld.Remove(flag);
-                if (postId == first.PostId || postId == second.PostId) ours.Add(flag);
+                publicTimeToAction.TryAdd(flag, At(record) - raisedAt[flag]);
+                if (upholds) publicUpheld.Add(flag); else publicUpheld.Remove(flag);
             }
         }
 
-        Assert.Equal(2, ours.Count);
+        // The same figures through the private join: the directory knows each flag's post from the
+        // private store, and the fold decides upholding exactly as posture does.
+        var events = Require(await forum.Services.GetRequiredService<IEventReader>().ReadAllAsync(ct));
+        var details = Require(await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct));
+        var moderation = FlagProjector.Fold(events);
+
+        var privateTimeToAction = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+        var privateUpheld = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var flag in FlagDirectory.Join(events, details).Flags.Where(f => f.PostId == first.PostId || f.PostId == second.PostId))
+        {
+            var history = moderation[flag.PostId].History;
+            privateTimeToAction[flag.FlagId] = history.First(a => a.Adjudicates.Contains(flag.FlagId)).At.Value - flag.At.Value;
+            if (ModerationPolicy.UpheldFlags(history).Contains(flag.FlagId)) privateUpheld.Add(flag.FlagId);
+        }
+
         Assert.Equal(
-            [TimeSpan.FromMinutes(90), TimeSpan.FromMinutes(120)],
-            ours.Select(f => firstAction[f] - raisedAt[f]).Order());
-        Assert.Equal(1, ours.Count(upheld.Contains));
+            privateTimeToAction.OrderBy(p => p.Key, StringComparer.Ordinal),
+            publicTimeToAction.OrderBy(p => p.Key, StringComparer.Ordinal));
+        Assert.Equal(privateUpheld.Order(StringComparer.Ordinal), publicUpheld.Order(StringComparer.Ordinal));
+
+        // Non-vacuity: two flags, acted on 90 and 120 minutes after they were raised, one of them upheld.
+        Assert.Equal([TimeSpan.FromMinutes(90), TimeSpan.FromMinutes(120)], publicTimeToAction.Values.Order());
+        Assert.Single(publicUpheld);
 
         // And the public log carries neither raiser.
         foreach (var entry in log.Where(e => TypeOf(e) is "flag.committed" or "moderation.applied"))
@@ -4789,18 +5009,59 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
 }
 ```
 
-- [ ] **Step 2: Run the loop**
+- [ ] **Step 2: Run the disclosure gate again, over a moderated fixture**
 
-Run: `dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~ModerationLoopTests"`
-Expected: both tests pass.
-- If the first fails at `the author did not reach T1`, the test's setup is wrong. Compare it with `TwoAgentsConversationTests`, and do not weaken an assertion.
+Spec Increment 4 asks for the gate again once moderation can act. After a record adjudicates the flag, that record is public, names the post, and is served by the same log route. So the gate's sweep has to be run over that state too, not only over an unmoderated one.
+
+In `tests/Curia.Api.Tests/FlagPrivacyGateTests.cs`, add this fact after `R10_62_NoSurfaceServesAFlagsRaiserRationaleOrUnadjudicatedPost`. It reuses Task 6's `FlagAQuestionAsync`, `SweepAsync` and `AssertTheSweepReachedEverything`, and withholds through `ForumFixture.WithholdAsync`, which since Task 9 runs R10.59's writer in category `spam`:
+
+```csharp
+    /// <summary>
+    /// The same gate over a moderated fixture (spec Increment 4). Once a moderator adjudicates the
+    /// flag, the record is public and names the post, its envelope digest, the category and the flag
+    /// it adjudicates (R10.60, R6.25). Still no surface serves the raiser or the rationale, the record
+    /// included, and the flag's own leaf still names no post. The record is written by R10.59's
+    /// writer, as every withholding in this suite is (trap 16).
+    /// </summary>
+    [Fact]
+    public async Task R10_60_AfterModerationTheRecordIsPublicAndStillNamesNoRaiser()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var flagged = await FlagAQuestionAsync(client, ct);
+
+        await forum.WithholdAsync(flagged.PostId, ct);
+        var sweep = await SweepAsync(client, flagged, ct);
+
+        AssertTheSweepReachedEverything(sweep);
+        Assert.True(sweep.RecordLeaf is not null, "the log walk never met the moderation record -- the withholding wrote nothing");
+        Assert.True(sweep.Leaks.Count == 0, string.Join("\n", sweep.Leaks));
+
+        using var record = JsonDocument.Parse(sweep.RecordLeaf!);
+        var payload = record.RootElement.GetProperty("entry").GetProperty("payload");
+        Assert.Equal(flagged.PostId, payload.GetProperty("post_id").GetString());
+        Assert.Equal(flagged.Digest, payload.GetProperty("digest").GetString());
+        Assert.Equal("spam", payload.GetProperty("category").GetString());
+
+        // The record names the flag by the event id its public entry carries, so the two can be joined from the log alone.
+        var adjudicated = Assert.Single(payload.GetProperty("adjudicates").EnumerateArray()).GetString()!;
+        Assert.Contains(sweep.FlagLeaves, leaf => leaf.Contains($"\"event_id\":\"{adjudicated}\"", StringComparison.Ordinal));
+    }
+```
+
+- [ ] **Step 3: Run the loop and both gates**
+
+Run: `dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~ModerationLoopTests|FullyQualifiedName~FlagPrivacyGateTests"`
+Expected: all four tests pass, the two `ModerationLoopTests` and the two `FlagPrivacyGateTests`.
+- If the first loop test fails at `the author did not reach T1`, the test's setup is wrong. Compare it with `TwoAgentsConversationTests`, and do not weaken an assertion.
 - If it fails at the refused answer, R10.61 is not reaching `TierPolicy`. The defect is in Task 2 or Task 9's code.
+- If the R10.39 test's two dictionaries differ, the public derivation and the private join disagree about a flag. Find which side is wrong before touching either; neither is the oracle for the other by default.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 but status -fv
-but commit -b moderation-that-can-act -m "$(printf 'The loop: an upheld flag demotes, a restore reinstates, R10.39 from the public log\n\nTable 11s T1 clause carries information for the first time: withholding one of\nthree clean questions drops the author to T0 on every read path, and the log\nalone yields time to action and the upheld rate.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+but commit -b moderation-that-can-act -m "$(printf 'The loop: an upheld flag demotes, a restore reinstates, R10.39 from the public log\n\nTable 11s T1 clause carries information for the first time: withholding one of\nthree clean questions drops the author to T0 on every read path, and the log\nalone yields time to action and the upheld rate, equal to the private join.\nThe disclosure gate runs again over a moderated fixture.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
 ```
 
 ---
@@ -4835,6 +5096,12 @@ RAISE = "src/Curia.Application/Moderation/RaiseFlag.cs"
 APPLY = "src/Curia.Application/Moderation/ApplyModeration.cs"
 GATE = "tests/Curia.Api.Tests/FlagPrivacyGateTests.cs"
 KIND_LINE = "            new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(kind))),\n"
+DETAIL_FIRST = ("        // The private row first (see the remarks above).\n"
+                "        var stored = await _details\n"
+                "            .AppendAsync(new FlagDetail(id, postId, raisedBy, rationale, salt), cancellationToken)\n"
+                "            .ConfigureAwait(false);\n"
+                "        if (!stored.TryGetValue(out _, out var storeError)) return Result<FlagRaised>.Fail(storeError!);\n\n")
+RETURN_LINE = "        return appended.Map(recorded => new FlagRaised("
 
 CASES = [
     dict(id="1 automated record upholds", cmds=[dotnet("tests/Curia.Domain.Tests", "FullyQualifiedName~ModerationTests")],
@@ -4843,7 +5110,7 @@ CASES = [
          edits=[(MOD, "            if (!Permits(action)) continue;\n", "")]),
     dict(id="3 category-keyed upholding", cmds=[dotnet("tests/Curia.Application.Tests", "FullyQualifiedName~FlagProjectorTests")],
          edits=[(PROJ, "    public bool HasUpheldFlag => !UpheldFlags.IsEmpty;",
-                 "    public bool HasUpheldFlag => History.Any(a => a.Effect is ModerationEffect.Withhold or ModerationEffect.Quarantine);")]),
+                 "    public bool HasUpheldFlag => History.GroupBy(a => a.Category).Any(g => g.Last().Effect is ModerationEffect.Withhold or ModerationEffect.Quarantine);")]),
     dict(id="4a raiser in the entry", cmds=[dotnet("tests/Curia.Api.Tests", "FullyQualifiedName~FlagPrivacyGateTests")],
          edits=[(RAISE, KIND_LINE, KIND_LINE + "            new(FlagProjector.RaisedByField, new JsonValue.String(raisedBy)),\n")]),
     dict(id="4b rationale in the entry", cmds=[dotnet("tests/Curia.Api.Tests", "FullyQualifiedName~FlagPrivacyGateTests")],
@@ -4854,8 +5121,8 @@ CASES = [
          edits=[(GATE, "            (\"GET\", \"/health\") => [(\"/health\", null)],\n", "")]),
     dict(id="5b the gate walks no log", cmds=[dotnet("tests/Curia.Api.Tests", "FullyQualifiedName~FlagPrivacyGateTests")],
          edits=[(GATE, "            if (response.StatusCode == HttpStatusCode.NotFound) return i;", "            if (response.StatusCode == HttpStatusCode.NotFound || i >= 0) return 0;")]),
-    dict(id="6 entry written despite a failed detail", cmds=[dotnet("tests/Curia.Application.Tests", "FullyQualifiedName~RaiseFlagTests")],
-         edits=[(RAISE, "        if (!stored.TryGetValue(out _, out var storeError)) return Result<FlagRaised>.Fail(storeError!);", "        _ = stored;")]),
+    dict(id="6 event written before the detail row", cmds=[dotnet("tests/Curia.Application.Tests", "FullyQualifiedName~RaiseFlagTests")],
+         edits=[(RAISE, DETAIL_FIRST, ""), (RAISE, RETURN_LINE, DETAIL_FIRST + RETURN_LINE)]),
     dict(id="7 commitment not recomputed", cmds=[dotnet("tests/Curia.Application.Tests", "FullyQualifiedName~FlagDirectoryTests")],
          edits=[(DIR, "|| !string.Equals(expected, commitment, StringComparison.Ordinal))",
                  "|| (string.IsNullOrEmpty(expected) && !string.Equals(expected, commitment, StringComparison.Ordinal)))")]),
@@ -4870,13 +5137,16 @@ CASES = [
          edits=[(APPLY, "        var noOp = ModerationPolicy.MayServe(before)", "        var noOp = false && ModerationPolicy.MayServe(before)")]),
     dict(id="12a record without adjudicates", cmds=[dotnet("tests/Curia.Api.Tests", "FullyQualifiedName~ModerationLoopTests")],
          edits=[(APPLY, "            new(FlagProjector.AdjudicatesField, new JsonValue.Array([.. adjudicates.Select(id => (JsonValue)new JsonValue.String(id))])),\n", "")]),
-    dict(id="12b record without digest", cmds=[dotnet("tests/Curia.Application.Tests", "FullyQualifiedName~ApplyModerationTests")],
+    dict(id="12b record without digest",
+         cmds=[dotnet("tests/Curia.Api.Tests", "FullyQualifiedName~ModerationLoopTests"),
+               dotnet("tests/Curia.Application.Tests", "FullyQualifiedName~ApplyModerationTests")],
          edits=[(APPLY, "            new(FlagProjector.DigestField, new JsonValue.String(post.Digest)),\n", "")]),
     dict(id="13 writer spells an effect the fold cannot read",
          cmds=[dotnet("tests/Curia.Api.Tests", "FullyQualifiedName~BatchRetrievalTests|FullyQualifiedName~R10_36_AWithheldPostStopsBeingServedAndIsNotDeleted")],
          edits=[(APPLY, "new JsonValue.String(ModerationEffects.Wire(effect))", "new JsonValue.String(effect.ToString())")]),
     dict(id="14 acta vector's leaf off by one digit",
          cmds=[dotnet("tests/Curia.Canon.Tests", "FullyQualifiedName~ActaLeafVectorTests"),
+               dotnet("tests/Curia.Client.Tests", "FullyQualifiedName~ActaLeafRecomputationTests"),
                ["cargo", "test", "--manifest-path", "rust/curia-testis/Cargo.toml", "--locked", "--test", "vectors", "acta"]],
          edits=[("conformance/acta/flag-committed-entry/expected.leaf", "66128f1f", "76128f1f")]),
     dict(id="15 private store rewritable", cmds=[dotnet("tests/Curia.Infrastructure.Tests", "FullyQualifiedName~FlagDetailGrantTests")],
@@ -4899,7 +5169,10 @@ for case in CASES:
         for cmd in case["cmds"]:
             r = subprocess.run(cmd, capture_output=True, text=True)
             out = r.stdout + r.stderr
-            status = "BUILD FAILED" if "error CS" in out else ("RED" if r.returncode != 0 else "GREEN -- bad patch or a gap")
+            # Any MSBuild error line -- CS, CA, IDE or MSB -- means the patched code did not build. A
+            # failing test run prints none, so this cannot report RED as BUILD FAILED, and an analyzer
+            # error can no longer pass for RED.
+            status = "BUILD FAILED" if ": error " in out else ("RED" if r.returncode != 0 else "GREEN -- bad patch or a gap")
             print(f"[{case['id']}] {' '.join(cmd[:3])} {status}")
             for line in out.splitlines():
                 if any(m in line for m in MARKERS):
@@ -4918,27 +5191,31 @@ From the repository root, with `CURIA_TEST_POSTGRES` exported and `curia-testis`
 python3 <scratchpad>/falsify.py <scratchpad>/falsify-keep 2>&1 | tee <scratchpad>/falsify.log
 ```
 
-Each case must print `RED` and `restore clean`. Case 14 prints `RED` twice, once per runner.
+Each case must print `RED` and `restore clean`. Case 12b prints `RED` twice, once per suite, and case 14 three times, once per runner.
 
 | Case | Must fail, by name |
 |---|---|
 | 1 | `An_automated_quarantine_is_not_an_upheld_flag`; `An_automated_dismissal_does_not_release_a_flag_a_human_upheld`; `R10_61_AdjudicatedFlagsCountOnlyReviewingRecords` |
 | 2 | `An_automated_withholding_does_not_stop_a_post_being_served` |
-| 3 | `R10_61_AWithholdingThatNamesNoFlagUpholdsNothing`; `R10_61_ARecordWithoutAdjudicatesStillWithholdsAndUpholdsNothing`; `R10_36_AQuarantineMakesThePostUnservable` |
-| 4a, 4b, 4c | `R10_62_NoSurfaceServesAFlagsRaiserRationaleOrUnadjudicatedPost`, naming `GET /v1/log/entries/{index:long}` (4a, 4b) or the flag leaf naming the post (4c) |
-| 5 | the same gate: `Registered surfaces this gate cannot drive … GET /health` |
-| 5b | the same gate: `the gate fetched …` or `never met the question's own leaf` |
-| 6 | `R10_62_AFailedDetailAppendWritesNoEntry` |
+| 3 | `R10_61_AFlagRaisedAfterAWithholdingIsNotUpheldUntilARecordNamesIt`, the late-flag test (spec §4.3), at its first `HasUpheldFlag`; also `R10_61_ARecordWithoutAdjudicatesStillWithholdsAndUpholdsNothing` and `R10_36_AQuarantineMakesThePostUnservable`. `ARestoreMakesThePostServableAgain` stays green, as it should: under the category-keyed rule a restore released the category too |
+| 4a, 4b, 4c | both `FlagPrivacyGateTests` facts, each leak line naming `GET /v1/log/entries/{index:long}` (spec §4.4): `served the raiser's identity` (4a), `served the flag's rationale` (4b), `served the flagged post's id in the flag's own leaf` (4c), each to an anonymous caller and to an uninvolved agent |
+| 5 | both gate facts: `Registered surfaces this gate cannot drive … GET /health` |
+| 5b | both gate facts: `the log walk never met the question's own leaf`. The patched walk reports a log of size 0, so the fetch-count guard passes and the leaf guard is the one that catches it |
+| 6 | `R10_62_AFailedDetailAppendLeavesNoCommitmentForTheJoinToSkip`, the skip-and-count test (spec §4.6), at the join's skip count: `Collection: [["flag.committed: no detail"] = 1]`; also `R11_21_ARationaleCarryingANulIsRefusedAndNothingIsWritten`, whose refused row now leaves an entry behind |
 | 7 | `R10_62_ATamperedDetailIsSkippedAndCounted` |
-| 8 | `R10_61_AnUpheldFlagDemotesItsAuthorAndARestoreReinstatesIt`, at the refused answer: expected `Forbidden`, got `Created`. This is the case that shows Table 11's clause now carries information |
-| 9 | the same loop test: `curia-operator moderate … exited 2: … curia/moderation/not-permitted` |
+| 8 | `R10_61_AnUpheldFlagDemotesItsAuthorAndARestoreReinstatesIt`, at the refused answer: expected `Forbidden`, got `Created`. This is the case that shows Table 11's clause now carries information. `R10_39_…` fails too, at its dismissal: a record naming no flag dismisses nothing, so the writer refuses it as `curia/moderation/no-op` |
+| 9 | both loop tests, at their first withholding: `curia-operator moderate … exited 2: … curia/moderation/not-permitted` |
 | 10 | `R10_60_ACredentialInTheReasonIsRefusedAndNothingIsAppended` |
 | 11 | `R10_39_ASecondIdenticalRecordIsRefusedAsANoOp`; `R10_39_ADismissalOfOpenFlagsIsARecordAndADismissalOfNothingIsNot`; `R10_59_ARestoreAfterAProactiveWithholdingIsARecordARestoreOfAServablePostIsNot` |
-| 12a | both `ModerationLoopTests` (no `adjudicates` member to read) |
-| 12b | `R10_60_ARecordNamesThePostItsDigestAndTheFlagsItAdjudicates` |
+| 12a | both `ModerationLoopTests`: `R10_61_…` at the refused answer (a record naming no flag upholds nothing), and `R10_39_…` at the missing `adjudicates` member (`KeyNotFoundException`) |
+| 12b | `R10_39_TimeToActionAndTheUpheldRateAreComputableFromThePublicLogAlone`, the public-log derivation (spec §4.12), at the missing `digest` it ties each record to its accepted post with (`KeyNotFoundException`); and, in memory, `R10_60_ARecordNamesThePostItsDigestAndTheFlagsItAdjudicates` |
 | 13 | `R9_18_OneItemPerElementInOrderAndNothingOmitted`; `R10_36_AWithheldPostStopsBeingServedAndIsNotDeleted`. They would stay green if the fixture still hand-built its events (trap 16) |
-| 14 | `R6_46_EveryVectorCanonicalizesUnderThePureProfileAndHashesToItsLeaf`, and the Rust `acta` family test, each naming `flag-committed-entry` |
-| 15 | `R11_32_TheAppRoleCannotRewriteOrDeleteAFlagDetail`, both rows |
+| 14 | `R6_46_TheClientRecomputesEveryPublishedLeaf(name: "flag-committed-entry")` and the Rust `acta` family test (`[FAIL] acta/flag-committed-entry: leaf hash: expected 76128f1f…, got 66128f1f…`), each naming `flag-committed-entry`; and `R6_46_EveryVectorCanonicalizesUnderThePureProfileAndHashesToItsLeaf`, which names no vector and prints only `Expected: "76128f1f…"` against `Actual: "66128f1f…"` |
+| 15 | `R11_32_TheAppRoleCannotUpdateAFlagDetail` and `R11_32_TheAppRoleCannotDeleteAFlagDetail`: no exception is thrown, and each failing test's name names the privilege that was granted |
+
+Two patches follow the spec's wording rather than the shortest edit that goes red:
+- **Case 3 restores the category-keyed rule itself.** Stage 8's rule was `Flags.Any(f => IsUpheld(f.Kind, History))`: a flag is upheld while the latest record in its category quarantines or withholds. After Task 5 the fold holds no flags, because a flag's entry names no post (R10.62). So the patch applies the same `IsUpheld` over the categories the records cite. For the late-flag test, where a flag of that category does exist, the two are the same rule.
+- **Case 6 writes the event before the detail row** (spec §4.6), instead of ignoring the failed append. The detail append moves below the event append, and its failure is still returned, so the only change is the order.
 
 If a case prints `PATCH MISMATCH`, `BUILD FAILED` or `GREEN`, the patch is wrong for the code as written. Inspect it and correct the **patch**, never the product code, then re-run that case. Record every correction. A patch that stays green on its first attempt is a finding until it is shown to be a bad patch (trap 13).
 
@@ -4946,15 +5223,15 @@ If a case prints `PATCH MISMATCH`, `BUILD FAILED` or `GREEN`, the patch is wrong
 
 ```bash
 git status --porcelain
-dotnet build Curia.sln -c Release --no-incremental --nologo 2>&1 | tail -3
-dotnet test Curia.sln -c Release --nologo 2>&1 | grep -E "Passed!|Failed!" | sed 's/.* - //' | sort
+dotnet build Curia.sln -c Release --no-incremental --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
+dotnet test Curia.sln -c Release --nologo 2>&1 | grep -E "Passed!|Failed!"
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked
 ```
 
 Expected:
 - `git status --porcelain` prints nothing.
 - The build reports `0 Warning(s)`.
-- **Eleven** `Passed!` lines and no `Failed!`.
+- **Eleven** `Passed!` lines and no `Failed!`, read from the `grep` output as printed. Each line begins with its status word and ends with its assembly's name. Do not pipe it through `sed` or anything else that strips the status word: a line with `Failed!` removed reads exactly like a passing one.
 - The Rust suite is green.
 
 Only now is `falsify.log` quotable. Keep it; Task 12 copies from it.
@@ -4966,14 +5243,14 @@ Only now is `falsify.log` quotable. Keep it; Task 12 copies from it.
 **Files:**
 - Modify: `IMPLEMENTATION_PLAN.md`
 - Modify: `CLAUDE.md`, `README.md`
-- Modify: `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md` (its status block)
+- Modify: `docs/superpowers/plans/2026-08-27-moderation-rationale-and-delegation.md` (its status block, and Task B4's first bullet)
 - Modify: `docs/superpowers/specs/2026-09-26-moderation-that-can-act-design.md` (its status line)
 
 Match every edit by its text, not by a line number. The numbers quoted are from the tree this plan was written against, and they move as earlier insertions land.
 
 - [ ] **Step 1: Open and close the two register entries**
 
-1. In the register header's **Closed** list, append `; D20 and D21 by the moderation stage (2026-09-26)`.
+1. In the register header's **Closed** list, change `D17 and D19 by the screener stage (2026-09-25).` to `D17 and D19 by the screener stage (2026-09-25); D20 and D21 by the moderation stage (2026-09-26).` The new clause goes before the sentence's full stop, not after it.
 
 2. Insert both entries after the D19 entry, before `### Observed during the screener stage, not acted on`. Paste into each `Falsified` line the lines `falsify.log` printed for the cases it names.
 
@@ -4994,7 +5271,7 @@ Match every edit by its text, not by a line number. The numbers quoted are from 
    adjudicates; *upheld* is decided per flag by the reviewing record that names it, automated
    records change no flag's state, and forbidden records are ignored by every fold (PR #59's Task
    B1, confirmed by execution first). `ModerationLoopTests` drives an author from T1 to T0 by
-   upholding one flag and back by restoring it. Falsified: *(paste cases 1, 2, 3, 8, 9, 11 and 13)*.
+   upholding one flag and back by restoring it. Falsified: *(paste cases 1, 2, 3, 8, 9, 10, 11 and 13)*.
 
    ### D21 — the log served every flag's raiser and rationale to anyone *(opened and closed by the moderation stage, 2026-09-26)*
 
@@ -5080,7 +5357,13 @@ Change the Traps header's `17 and 18 are the screener stage's.` to `17 and 18 ar
 - **`CLAUDE.md`, "What works today" paragraph.** After the clause about flags, the flag listing and moderation state, add: `a human moderator acting out of band through curia-operator moderate (errata G13), and flags that enter the log as a commitment, with their raiser and rationale held privately`.
 - **`CLAUDE.md`, "What does not" sentence.** Add: `R10.38's notice and appeal, and R10.39's published statistics`.
 - **`README.md`.** Where it describes flags or the operator tool, name `curia-operator moderate` and `curia-operator flags`, and say that a flag's raiser and rationale are never published.
-- **PR #59's plan.** Add a line to its top status block: `> **Task B1 was absorbed and closed by the moderation stage (2026-09-26, register D20).** Parts A and B remain.`
+- **PR #59's plan.** Two edits, which together absorb Task B1 and answer the Task B4 bullet it left open.
+  - Add a line to its top status block: `> **Task B1 was absorbed and closed by the moderation stage (2026-09-26, register D20).** Parts A and B remain; Task B4's first bullet is answered for the human arm.`
+  - In `### Task B4`, Step 2, directly under its first bullet (the one saying `moderation`/`apply` has no writer), add this indented line. It answers the bullet for the human arm and leaves the delegated arm's half open, because that half is Part B's:
+
+    ```markdown
+      *Answered for R10.36's human arm by the moderation stage (2026-09-26; errata G13's R10.59 and R10.60; register D20).* `ApplyModeration` is the writer, reached only by `curia-operator moderate`, out of band under R11.6's grant, with no HTTP route and no Table 10 pair. R10.36's admissibility check runs on its write path as `ModerationPolicy.Authorize`. R10.37's signed entry is, for a human moderator who holds no key, a leaf under a head signed with the log key. The record also carries the post's digest and the flags it adjudicates, derived by the writer. **Still unanswered:** the delegated arm's writer, a T3 grantee acting through `moderation`|`apply`, which is this plan's Part B.
+    ```
 - **The spec.** Set its status to `**Status:** implemented by \`docs/superpowers/plans/2026-09-26-moderation-that-can-act.md\`.`
 
 - [ ] **Step 6: Check the documents**
@@ -5109,9 +5392,10 @@ but commit -b moderation-that-can-act -m "$(printf 'Register: D20 and D21 closed
 ```bash
 export CURIA_TEST_POSTGRES="Host=localhost;Port=5432;Username=$(whoami);Database=postgres"
 dotnet restore Curia.sln --locked-mode
-dotnet build Curia.sln -c Release --nologo 2>&1 | tail -3
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 cargo build --manifest-path rust/curia-testis/Cargo.toml --bin curia-testis
-dotnet test Curia.sln -c Release --nologo 2>&1 | grep -E "Passed!|Failed!" | sed 's/.* - //' | sort
+dotnet test Curia.sln -c Release --nologo 2>&1 | grep -E "Passed!|Failed!"
+dotnet build Curia.sln -c Debug --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test tests/Curia.Architecture.Tests -c Debug --nologo 2>&1 | grep -E "Passed!|Failed!"
 python3 tools/spec-checks/check-spec.py
 python3 tools/spec-checks/falsify-spec-checks.py
@@ -5124,9 +5408,9 @@ node tools/differential-oracle/compare.mjs --fail-on-divergence
 ```
 
 Expected:
-- `0 Warning(s)`.
-- **Eleven** `Passed!` lines and no `Failed!`.
-- The Debug architecture run passes.
+- `0 Warning(s)` from both builds, Release and Debug.
+- **Eleven** `Passed!` lines and no `Failed!`, read from the `grep` output as printed (Task 11 Step 3 says why nothing may strip the status word).
+- The Debug architecture run passes. It reads the Debug outputs the Debug build just wrote. Without that build, CS-15 fails naming a missing `Curia.Domain.Tests.dll`, or passes over stale assemblies left by an older build.
 - Both spec checks clean.
 - Rust clean, with `corpus_size_matches_charter` passing at 70 and 76.
 - The differential exits 0.
@@ -5139,7 +5423,7 @@ Run: `git status --porcelain`. Expected: empty.
 
 - [ ] **Step 3: Open the PR**
 
-Write the body to the scratchpad as `pr.md`, covering:
+Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's first line as the PR title, so line 1 is the title, for example `Moderation that can act, and flags that stay private (errata G13)`, and a blank line follows it. The body covers:
 - the two findings, with the probe's leaf quoted;
 - the six requirements in one line each;
 - what R15.1 and G9 say about the new entry kind, and what happened to legacy flags;
