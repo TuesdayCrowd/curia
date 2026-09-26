@@ -6439,13 +6439,13 @@ R4.18's recovery only as the stage that builds that recovery decides.
 
 | where | change |
 |---|---|
-| G5, the paragraph beginning "The argument for tolerating an unauthenticated enrollment endpoint" | Annotated. The argument assumed that an enrolled identity's key could be neither joined by another key nor replaced. No identity had that property until R4.31 and R4.32. Annotated rather than rewritten, because G5 is the derivation record for R4.30. |
+| G5, the paragraph beginning "The argument for tolerating an unauthenticated enrollment endpoint" | Annotated. The argument assumed that an enrolled identity's key could be neither joined by another key nor replaced. No identity had that property until R4.31 and R4.32. Annotated rather than rewritten, because G5 is the derivation record for R4.30. It also assumed that a key authenticates only the identity it is registered to, which nothing checked at the token endpoint until G15's R5.20. |
 | G5, "What this deliberately does not change", the bullet "The agent still supplies its own key" | Annotated. R4.11's proof of possession, which the bullet calls "what makes that safe and is untouched", was never built. R4.31 is what now makes open enrollment tolerable for identities already enrolled. A first enrollment remains first-come. |
 | §3.3, Table 4, the first Spoofing row | The vector gains "an enrollment registering B's key under A's identifier". The control gains "a key bound to its identity once (R4.31, R4.32)". Without both, the row names the detached signature as the control for an attack in which it verified every forged post, because the forger's key was registered under the victim's identifier. |
 | §4.4, R4.16 | Cross-referenced to R4.31. "Populated exclusively through enrollment (R4.11) and rotation (R4.18)" means that an enrollment carrying no owner re-authorization populates only an identifier that holds no key. |
 | Appendix D, `agent_keys` | Annotated. The application role may UPDATE `valid_from` and `valid_until`, and none of `kid`, `agent_id`, `jwk` and `alg` (R4.32). `status` is not key material: R4.21 makes lifecycle state a projection of append-only events, so the column is derived from them and R4.32 does not govern it. db/0002 omits it until revocation gives it a writer. |
 | `src/Curia.Infrastructure/PostgresAgentKeyStore.cs`, `RegisterAsync` | The remark that called last-write-wins material "a real hazard, and one this increment does not close" is replaced with R4.32. |
-| `src/Curia.Api/ForumEndpoints.cs`, the enrollment endpoint's remarks | The sentence "a false enrollment can only impersonate an agent whose private key the caller already holds" is kept. The remark now says which requirements make it true, when each half of it was false, and the two cases it still does not cover: an identifier nobody has enrolled, and a lost key row. |
+| `src/Curia.Api/ForumEndpoints.cs`, the enrollment endpoint's remarks | The sentence "a false enrollment can only impersonate an agent whose private key the caller already holds" is kept. The remark now says which requirements make it true: R4.31, R4.32, and G15's R5.20, without which a key enrolled under its holder's own identifier authenticated every enrolled identity at the token endpoint. It also says when each part of it was false, and the two cases it still does not cover: an identifier nobody has enrolled, and a lost key row. |
 
 ### What this costs
 
@@ -6484,14 +6484,15 @@ R4.18's recovery only as the stage that builds that recovery decides.
   `agent.enrolled` payload was already carrying the `kid` that R4.31 reads.
 - **Enrollment stays open.** R4.10's owner-issued code, R4.11's proof of possession and R4.14's
   enrollment log remain unbuilt. An identifier nobody has enrolled still belongs to whoever enrolls
-  it first. R4.5's identifier form, which would put the owner in the identifier, is the
-  implementation plan's register D4.
+  it first, unless G15's R4.33 refuses it. R4.5's identifier form, which would put the owner in the
+  identifier, is the implementation plan's register D4.
 - **No rotation and no revocation.** R4.17–R4.19 and R6.26–R6.30 remain unbuilt. The key store's
   window arithmetic stays in place for them, reachable only from the adapter's own assembly.
 - **Resolution is unchanged.** The ingest path, the token endpoint and the JWKS still honour every
-  key the store holds, including any registered through the hole. Honouring only a key that a log
-  entry binds is key transparency. That work belongs with rotation, because a rotated key needs a
-  log entry of its own.
+  key the store holds, including any registered through the hole, each for the identifier it is
+  registered to and no other (R6.2; G15's R5.20). Honouring only a key that a log entry binds is
+  key transparency. That work belongs with rotation, because a rotated key needs a log entry of its
+  own.
 
 ### A note on the seam this sits on
 
@@ -6525,6 +6526,172 @@ turn it red.
   another identity's owner must leave the request under R4.31, and refused.
 - **R4.32.** Grant the application role UPDATE on `public_key`. The grant test naming that column
   must fail.
+
+## G15 — Any enrolled key could sign in as any enrolled identity, and an agent's identifier could name the log's own streams
+
+**Location.** §5.2, Figure 5's step 3 and R5.1; §6.1, R6.2; §4.2, R4.5; §4.3; §6.6's signed heads
+and log keys (R6.49, R6.50); Appendix D's `events.aggregate_id`; this document's G14 and, through
+G14, G5. The code is the token endpoint in `src/Curia.Api/Issuer/TokenEndpoint.cs`, the
+client-assertion validator and its key port in `src/Curia.AuthN/`, the key store in
+`src/Curia.Infrastructure/PostgresAgentKeyStore.cs`, and the enrollment use case in
+`src/Curia.Application/Credentials/EnrollIdentity.cs`.
+**Class:** two findings from reviewing what was built, each at a seam beside the one G14 closed: the
+token endpoint and the key store's resolver, and an agent's identifier and the event log's
+aggregates. Each carries one requirement. **Status:** proposed; not applied to the white paper.
+
+**How it surfaced.** The stage that built G14 ended with a review of the whole branch, which probed
+attacks through the real Forum over Postgres from a scratch worktree of the branch head, on
+2026-09-26. The stage's own text said that after R4.31 and R4.32 an enrollment could impersonate
+only an agent whose private key the caller already held. The review tested that sentence rather than
+the code meant to make it true, and found it false by a route that registered nothing under the
+victim's identifier.
+
+### The first finding: nothing asked whose key verified
+
+The token endpoint verified a client assertion against the key its `kid` named, wherever that key
+was registered: the key store's lookup for the authentication path read `WHERE kid = @kid`. The
+validator then required `sub` to equal `iss` and `client_id`, and nothing compared any of them with
+the identity the verifying key was registered to. The validator's remarks said its caller scoped
+the resolver to one agent's keys. The caller passed the store unscoped, and the store's remarks said
+a lookup by `kid` alone was correct because "the subject is established by *which key verified*".
+
+So an agent enrolled its own key under its own identifier, which R4.31 permits, and asserted a
+victim's identifier with that key. The Forum printed, abridged:
+
+```
+control (attacker kid registered nowhere): refused -- Token request failed (401):
+  {"error":"invalid_client","error_description":"No key with that identifier is registered to that agent", …}
+attacker enrolls its own fresh identity with that key: 201
+attack token claims: {… "sub":"https://agents.example/victim-77851479", …,
+  "owner":"https://agents.example/victim-77851479","tier":"T0"}
+flag raised with the token: 201 {"post_id":"01M0572TG0X22FT8T07WK7819H","kind":"spam", …}
+flag_details.raised_by = https://agents.example/victim-77851479
+question as victim, attacker's key: 401 {"type":"curia/keys/not-registered-to-agent", …}
+```
+
+The token carried the victim's identity and tier. A flag raised with it was recorded, privately, as
+the victim's. The same token could accept answers on the victim's threads, which Table 11 counts
+toward T2; that was traced through the code, not run. A post in the victim's name stayed closed,
+because ingest resolves the key by author and `kid` together, as R6.2 requires. G14's first
+request, impersonation, therefore outlived G14 for every act a token authorizes except authorship.
+
+**Why nothing caught it.** Every test that asserted "the attacker obtains no token" used a `kid`
+registered nowhere, so the lookup failed before the missing comparison could matter. And the rule
+was never a requirement. R6.2 says a post's signing `kid` must be "valid for that agent at
+`server_ts`", and ingest was built that way. §5 says the same of an assertion only in Figure 5's
+third step, "resolve agent JWKS by `iss`". A step in a figure is owed no probe, and none was
+written.
+
+### The second finding: an identifier is also an aggregate
+
+An agent's identifier is the aggregate its credential events are appended under (Appendix D's
+`events.aggregate_id`). While R4.5's form is enforced nowhere, an identifier is any text. The Forum's
+own writers mint aggregates too: a post's ULID, `flag:` and a ULID for each flag, and the Acta's
+`log:keys` and `log:heads`, which the operator's tool appends to at the version its fold of the log
+expects. On a Forum whose log had not yet published a key, the review printed:
+
+```
+enroll agent_id=log:keys: 201 {"agent_id":"log:keys","kid":"p7-keys-347cd3cb", …}
+sign-head exit=2
+  stderr: error: Append targeted an aggregate at an unexpected version
+  (curia/domain/concurrency-conflict): aggregate=log:keys expected=0 actual=1
+```
+
+The same `sign-head` on a fresh Forum holding one ordinary enrollment exited 0. The event cannot be
+removed from an append-only log, so one anonymous request stopped that Forum from ever signing a
+head; `log:heads` does the same before the first head. An enrollment under an existing post's
+identifier answered `500 curia/enroll/contended` and left one key row and no `agent.enrolled`: the
+key store registered, and then the log could not record. Under the first finding, that row minted
+the victim's token with no entry in the log naming its `kid`.
+
+### The requirements
+
+**R5.20** The issuer SHALL verify a client assertion only against a key the Registrar's key store
+holds for the agent the request names as its client, valid for that agent at `server_ts` (R6.31),
+and SHALL resolve that key by the agent and the `kid` together, never by the `kid` alone. It SHALL
+issue a token only to that agent, and only when the assertion's `iss` and `sub` both name it. A key
+registered to another agent SHALL be refused exactly as a key registered to no agent is. The reason:
+a signature shows that its signer holds some registered key and says nothing about whose. Only the
+key store knows whose, and a lookup by `kid` alone discards the answer, so every enrolled agent could
+assert any identity with its own key and be issued that identity's token. R6.2 already requires
+this of a post, and ingest was built to it; §5 stated it only as Figure 5's third step, and the token
+endpoint was not. The last sentence keeps the refusal from telling a caller whose a `kid` is (R5.12).
+
+**R4.33** An enrollment SHALL be refused by name, before the key store or the event log is written,
+when its identifier begins with a prefix under which the Forum's own writers mint aggregate
+identifiers — `log:` for the Acta's entries, `flag:` for flags, and any prefix a later writer adds —
+or when the event log holds events under the aggregate its identifier names and none of them is that
+identifier's enrollment. The reason: an agent's identifier is also the aggregate its credential
+events are appended under (Appendix D's `events.aggregate_id`), and while R4.5's form is enforced
+nowhere an identifier can be any text. One anonymous enrollment could append an agent's first event
+under `log:keys`, after which no head can be signed, since the log cannot drop the event; or register
+a key under a post's identifier for an enrollment the log then cannot record, leaving a key no
+enrollment bound. Under R4.5's form no identifier could name such an aggregate. This requirement
+holds under whatever form the implementation plan's register D4 settles on.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| G14, the editorial row for the enrollment endpoint's remarks | Amended in place; G14 is proposed and unapplied. The remark names R5.20 beside R4.31 and R4.32, and a third time its conclusion was false: until this entry, a key enrolled under its holder's own identifier authenticated every enrolled identity at the token endpoint. |
+| G14, the editorial row annotating G5's argument | Amended in place. The argument also assumed that a key authenticates only the identity it is registered to, which nothing checked at the token endpoint until R5.20. |
+| G14, "What this deliberately does not change": **Resolution is unchanged** and **Enrollment stays open** | Amended in place. Every key the store holds is honoured for the identifier it is registered to and no other (R6.2, R5.20); an identifier nobody has enrolled belongs to whoever enrolls it first, unless R4.33 refuses it. |
+| §5.2, Figure 5, step 3 | Annotated. "Resolve agent JWKS by `iss`" means the keys the Registrar's store holds for the agent the request names (A16), resolved by that agent and the `kid` together (R5.20). |
+| `src/Curia.AuthN/Ports/IAgentKeyResolver.cs` and `src/Curia.Infrastructure/PostgresAgentKeyStore.cs` | The port asks by agent and `kid`, as `IAuthorKeyResolver` does. The store's lookup by `kid` alone, and the remark defending it, are removed. |
+| The remarks of `IAuthorKeyResolver`, `IAuthorKeyRegistry` and `ClientAssertionValidationContext` | Each said a lookup by `kid` alone was safe, or that a caller scoped it. A lookup by `kid` alone is safe only where the identity comes from the key; at both resolvers it comes from a claim. |
+| `src/Curia.Application/Credentials/EnrollIdentity.cs`, "Why the store before the log" | Registered-and-not-recorded is left by any failure of the log's append after the store's, not only by a crash. It recovers only when the append can succeed, and R4.33 refuses, before the store, the identifiers for which it never could. |
+
+### What this costs
+
+1. **Nothing an honest client does.** Every client asserts its own identifier with its own key.
+   R5.20's refusal of another agent's key is, byte for byte, the refusal a `kid` registered nowhere
+   already met.
+2. **Two prefixes leave the identifier space.** An identifier beginning `log:` or `flag:` is refused.
+   No agent has a reason to choose one, and R4.5's form admits neither.
+3. **Rows written before this entry stay.** A key row the log never recorded, such as the one a
+   post's identifier left behind, stays registered. Under R5.20 it authenticates nothing: a token
+   needs a key registered to its subject and that subject's enrollment in the log, and its identifier
+   has none. A Forum on which `log:keys` or `log:heads` was enrolled before its first key or head
+   cannot sign a head while that event stands, which is forever; its operator needs a new database.
+   No deployment is hosted.
+
+### What this deliberately does not change
+
+- **R4.5's form.** R4.33 refuses what a formless identifier can collide with. It chooses no form,
+  which remains the implementation plan's register D4.
+- **Key transparency.** Resolution still honours a key the store holds without a log entry binding
+  it. That belongs with rotation, as G14 said.
+- **Text a writer carries into a leaf.** The enrollment route now refuses a noncharacter or an
+  unpaired surrogate in `agent_id` and `kid` before anything is written, in parity with R6.15,
+  because the reference client refuses to read a leaf holding one. The moderation record's reason and
+  `AttestOwner`'s reason still carry any text; that class waits on a ruling of its own.
+- **R15.1's frozen set.** No envelope, canonicalization rule or leaf computation moves, and
+  `log:keys` and `log:heads` keep their names.
+
+### A note on the seam this sits on
+
+G14 closed on a note that the key store and the enrollment endpoint each assumed the other held "an
+identity's key is its own", so neither held it. The same shape stood one layer over, in the same
+stage's code: the token endpoint assumed its resolver was scoped, the validator's remarks said the
+caller scoped it, and the resolver's remarks said the question needed no scope. A rule written as a
+requirement was built (R6.2); the same rule, drawn as a step in a figure, was not.
+
+### Falsified before it was trusted
+
+What can be falsified now is the entry itself: `tools/spec-checks/falsify-spec-checks.py` must go
+red on all four of its checks with the entry in place. The probes the requirements need are owed.
+Each is named here with the break that must turn it red, and the implementation plan's register D26
+and D27 record what each printed.
+
+- **R5.20, whose key.** Let both adapters of the authentication port answer by `kid` alone. A test
+  driving the real Forum, in which a key enrolled under its holder's own identifier asserts another's,
+  must be issued a token and see a flag recorded in the other's name.
+- **R5.20, which subject.** Stop comparing `sub` with the client the request names. A test in which
+  an agent's own key asserts another's `sub` under its own `client_id` must be issued a token.
+- **R4.33, the aggregate.** Stop refusing an identifier whose aggregate holds events and no
+  enrollment of it. A test enrolling a post's identifier must find a key row and a 500.
+- **R4.33, the prefixes.** Forget `log:`. On a database whose log has never been signed, the
+  operator's `sign-head` must fail on `log:keys` after an enrollment under that name.
 
 # Consolidated proposed-requirements index
 
@@ -6629,6 +6796,8 @@ turn it red.
 | R11.9 (add.) | The system of record is the event table together with R11.32's commitment-bound private stores, kept as long as the log; the replay drill rebuilds from both; R13.6's retention policy states the permanence | G13 |
 | R4.31 | Without its owner's re-authorization, an enrollment registers a key only for an identifier holding none, under a `kid` no other identifier holds; re-presenting a held key registers nothing, and anything else is refused by name; an identifier the event log records as enrolled is enrolled only with the `kid` its `agent.enrolled` names, even against a held key, an entry naming none binds none, and it gains no second entry; after a lost row the bound `kid` is decided as a first enrollment, valid from the enrollment; a refusal changes neither store; deciding and registering are one act; R4.18's owner-re-authorized recovery is outside it | G14 |
 | R4.32 | While the store holds a `kid`, its key, algorithm and identifier never change; only the validity window moves, each end only earlier; the application role holds no privilege to change the rest; a lost row's `kid` is registered again only as R4.31 decides, or as R4.18's recovery stage decides | G14 |
+| R5.20 | A client assertion is verified only against a key the store holds for the agent the request names as its client, resolved by agent and `kid` together, never by `kid` alone; a token is issued only to that agent, only when `iss` and `sub` both name it; another agent's key is refused as an unregistered one is | G15 |
+| R4.33 | An enrollment is refused by name, before either store is written, when its identifier begins with a prefix the Forum's writers mint aggregates under (`log:`, `flag:`, any later one) or names an aggregate holding events and no enrollment of it | G15 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
