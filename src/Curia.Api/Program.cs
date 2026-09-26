@@ -121,6 +121,10 @@ public sealed class Program
         // review convention. Registering it is what lets them ask for the narrower type.
         builder.Services.AddSingleton<IEventReader>(sp => sp.GetRequiredService<IEventStore>());
 
+        // The private half of every flag (R10.62, R11.32). Its own port rather than a member of the
+        // event store's, because what it holds must never become an event: R6.51 serves every event.
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().FlagDetails);
+
         // The vector half of hybrid retrieval (§9.2). The embedder is the dependency-free hashed
         // model (see HashedNGramEmbedding for what it is and is not); the index is pgvector through
         // the same adapters object as every other Postgres port; the reconcile brings the index up

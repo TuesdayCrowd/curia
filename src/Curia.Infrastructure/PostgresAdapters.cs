@@ -64,6 +64,9 @@ public sealed class PostgresAdapters : IAsyncDisposable
 
     public IVectorIndex VectorIndex => new PostgresVectorIndex(_dataSource, _clock);
 
+    /// <summary>The private half of every flag (R10.62, R11.32): append-only, like the event log it is bound to.</summary>
+    public IFlagDetailStore FlagDetails => new PostgresFlagDetailStore(_dataSource);
+
     public async ValueTask DisposeAsync()
     {
         await _dataSource.DisposeAsync().ConfigureAwait(false);

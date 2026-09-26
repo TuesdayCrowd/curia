@@ -267,6 +267,35 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
         return schemaName;
     }
 
+    /// <summary>
+    /// db/0004 rendered into a fresh schema through the production renderer, so each flag-detail
+    /// contract test starts from an empty table. <c>public</c> keeps the table RenderAll created,
+    /// which the grant tests read.
+    /// </summary>
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "See CreateIsolatedOperationalSchemaAsync: a generated schema name and a checked-in template.")]
+    public async Task<string> CreateIsolatedFlagDetailSchemaAsync(CancellationToken cancellationToken = default)
+    {
+        var schemaName = $"flg{Guid.NewGuid():N}";
+        var quotedSchema = QuoteIdentifier(schemaName);
+
+        var sql = $"""
+            CREATE SCHEMA {quotedSchema};
+            GRANT USAGE ON SCHEMA {quotedSchema} TO {QuoteIdentifier(_roleName)};
+            SET search_path TO {quotedSchema}, public;
+            {SchemaMigrations.Render(SchemaMigrations.FlagDetailsFile, _roleName)}
+            RESET search_path;
+            """;
+
+        await using var connection = await AdminDataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        return schemaName;
+    }
+
     [SuppressMessage(
         "Reliability",
         "CA1031:Do not catch general exception types",
