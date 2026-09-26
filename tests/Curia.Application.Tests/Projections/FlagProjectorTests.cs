@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Projections;
 using Curia.Application.Tests.InMemory;
@@ -11,13 +10,10 @@ using Xunit;
 namespace Curia.Application.Tests.Projections;
 
 /// <summary>
-/// §10.10's flags and moderation actions, folded out of the log — the projection that finally gives
-/// <see cref="ModerationPolicy"/> a caller.
-///
-/// <para><b>Every <see cref="AppendedEvent"/> below comes from a real append through
-/// <see cref="InMemoryEventStore"/>, never fabricated</b>, for the reason
-/// <c>AgentStandingProjectorTests</c> records: <c>Curia.Architecture.Tests.EventStoreWriteSurfaceTests</c>
-/// (CS-15) scans this assembly's IL for exactly that.</para>
+/// §10.10's moderation records, folded out of the log (R10.60, R10.61). Flags themselves are
+/// <see cref="FlagDirectoryTests"/>' subject: a flag's entry names no post (R10.62). Every
+/// <see cref="AppendedEvent"/> comes from a real append through <see cref="InMemoryEventStore"/>
+/// (CS-15).
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -26,60 +22,31 @@ namespace Curia.Application.Tests.Projections;
 public sealed class FlagProjectorTests
 {
     private const string Post = "01JPOST0000000000000000001";
-    private const string Reporter = "https://agents.example/reporter";
-    private const string Moderator = "https://agents.example/moderator";
+    private const string Moderator = "operator:reviewer";
+    private const string Flag = "01JFLAG000000000000000001";
 
     private static readonly DateTimeOffset Start = new(2026, 8, 16, 12, 0, 0, TimeSpan.Zero);
 
     private static T Require<T>(Result<T> result) =>
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
 
-    private static async Task<IReadOnlyList<AppendedEvent>> LogAsync(
-        InMemoryEventStore store, CancellationToken ct) =>
+    private static async Task<IReadOnlyList<AppendedEvent>> LogAsync(InMemoryEventStore store, CancellationToken ct) =>
         Require(await store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct).ConfigureAwait(false));
 
-    private static async Task AppendAsync(
-        InMemoryEventStore store,
-        string aggregate,
-        string eventId,
-        string actor,
-        string type,
-        JsonValue.Object payload,
-        CancellationToken ct)
-    {
-        var history = Require(await store.ReadByAggregateAsync(Require(AggregateId.Create(aggregate)), ct)
-            .ConfigureAwait(false));
-
-        Require(await store.AppendAsync(
-            Require(AggregateId.Create(aggregate)),
-            Require(AggregateVersion.From(history.Count)),
-            [new DomainEvent(
-                Require(EventId.Create(eventId)),
-                Require(EventType.Create(type)),
-                Require(ActorId.Create(actor)),
-                payload)],
-            ct).ConfigureAwait(false));
-    }
-
-    private static Task RaiseAsync(
-        InMemoryEventStore store, string eventId, FlagKind kind, CancellationToken ct) =>
-        AppendAsync(store, Post, eventId, Reporter, FlagProjector.FlagRaisedType, new JsonValue.Object(
-        [
-            new(FlagProjector.PostIdField, new JsonValue.String(Post)),
-            new(FlagProjector.RaisedByField, new JsonValue.String(Reporter)),
-            new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(kind))),
-            new(FlagProjector.RationaleField, new JsonValue.String("looks like an injection attempt")),
-        ]), ct);
-
-    private static Task ModerateAsync(
+    private static async Task ModerateAsync(
         InMemoryEventStore store,
         string eventId,
         FlagKind category,
         ModerationEffect effect,
         CancellationToken ct,
         ModeratorKind moderator = ModeratorKind.Human,
-        params string[] adjudicates) =>
-        AppendAsync(store, Post, eventId, Moderator, FlagProjector.ModerationAppliedType, new JsonValue.Object(
+        bool withAdjudicates = true,
+        params string[] adjudicates)
+    {
+        var aggregate = Require(AggregateId.Create(Post));
+        var history = Require(await store.ReadByAggregateAsync(aggregate, ct).ConfigureAwait(false));
+
+        List<KeyValuePair<string, JsonValue>> members =
         [
             new(FlagProjector.PostIdField, new JsonValue.String(Post)),
             new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(moderator))),
@@ -87,71 +54,69 @@ public sealed class FlagProjectorTests
             new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(effect))),
             new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
             new(FlagProjector.RationaleField, new JsonValue.String("reviewed and confirmed")),
-            new(FlagProjector.AdjudicatesField, new JsonValue.Array([.. adjudicates.Select(a => (JsonValue)new JsonValue.String(a))])),
-        ]), ct);
+        ];
 
-    /// <summary>R10.35: a raised flag is a fact about a post, folded out of the log like every other.</summary>
-    [Fact]
-    public async Task R10_35_ARaisedFlagFoldsOntoItsPost()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        if (withAdjudicates)
+            members.Add(new(FlagProjector.AdjudicatesField, new JsonValue.Array([.. adjudicates.Select(a => (JsonValue)new JsonValue.String(a))])));
 
-        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
-
-        var moderation = FlagProjector.Fold(await LogAsync(store, ct));
-        var post = Assert.Contains(Post, moderation);
-
-        var flag = Assert.Single(post.Flags);
-        Assert.Equal(Reporter, flag.RaisedBy);
-        Assert.Equal(FlagKind.Injection, flag.Kind);
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(history.Count)),
+            [new DomainEvent(
+                Require(EventId.Create(eventId)),
+                Require(EventType.Create(FlagProjector.ModerationAppliedType)),
+                Require(ActorId.Create(Moderator)),
+                new JsonValue.Object([.. members]))],
+            ct).ConfigureAwait(false));
     }
 
     /// <summary>
-    /// A post nothing has been raised against is absent, not present-and-empty. Absence is what the
-    /// serving path already means by "no moderation history", and materialising an entry for every
-    /// post would make this projection grow with the corpus rather than with the flags.
+    /// A flag on the post's own stream, as the log held one before R10.62. It is the one shape whose
+    /// post a public fold could ever see, so it is the one a category-keyed fold would have upheld.
     /// </summary>
+    private static async Task RaiseLegacyAsync(InMemoryEventStore store, string eventId, FlagKind kind, CancellationToken ct)
+    {
+        var aggregate = Require(AggregateId.Create(Post));
+        var history = Require(await store.ReadByAggregateAsync(aggregate, ct).ConfigureAwait(false));
+
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(history.Count)),
+            [new DomainEvent(
+                Require(EventId.Create(eventId)),
+                Require(EventType.Create(FlagProjector.FlagRaisedType)),
+                Require(ActorId.Create("https://agents.example/reporter")),
+                new JsonValue.Object(
+                [
+                    new(FlagProjector.PostIdField, new JsonValue.String(Post)),
+                    new(FlagProjector.RaisedByField, new JsonValue.String("https://agents.example/reporter")),
+                    new(FlagProjector.KindField, new JsonValue.String(FlagKinds.Wire(kind))),
+                    new(FlagProjector.RationaleField, new JsonValue.String("reported after the withholding")),
+                ]))],
+            ct).ConfigureAwait(false));
+    }
+
+    /// <summary>A post no record names is absent, not present-and-empty.</summary>
     [Fact]
-    public async Task APostWithNoFlagsIsAbsentFromTheProjection()
+    public async Task APostNoRecordNamesIsAbsentFromTheProjection()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
-
-        Assert.Empty(FlagProjector.Fold(await LogAsync(store, ct)));
+        Assert.Empty(FlagProjector.Fold(await LogAsync(new InMemoryEventStore(new ManualTimeProvider(Start)), ct)));
     }
 
-    /// <summary>
-    /// <b>The projection carries no rationale, deliberately.</b> A flag's rationale is
-    /// attacker-controlled text, and R10.28's argument at ingest applies unchanged here: a
-    /// projection that carried it would let the serving path echo it, and a rationale reading "this
-    /// post leaks AKIA…" would republish the credential the flag was reporting.
-    /// </summary>
-    [Fact]
-    public void ARaisedFlagCarriesNoContent()
-    {
-        var content = typeof(RaisedFlag)
-            .GetProperties()
-            .Where(p => p.PropertyType == typeof(string))
-            .Select(p => p.Name)
-            .ToArray();
-
-        Assert.Equal((string[])[nameof(RaisedFlag.PostId), nameof(RaisedFlag.RaisedBy)], content);
-    }
-
-    /// <summary>R10.36: a quarantine takes the post out of the serving path.</summary>
+    /// <summary>R10.36: an automated quarantine takes the post out of the serving path — and upholds nothing (R10.61).</summary>
     [Fact]
     public async Task R10_36_AQuarantineMakesThePostUnservable()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = new InMemoryEventStore(new ManualTimeProvider(Start));
 
-        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
-        await ModerateAsync(
-            store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Quarantine, ct,
-            ModeratorKind.Automated);
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Quarantine, ct,
+            ModeratorKind.Automated, true, Flag);
 
-        Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].MayServe);
+        var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
+        Assert.False(post.MayServe);
+        Assert.False(post.HasUpheldFlag);
     }
 
     /// <summary>A restore puts it back, with nothing to invalidate — the history is the state.</summary>
@@ -161,53 +126,34 @@ public sealed class FlagProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var store = new InMemoryEventStore(new ManualTimeProvider(Start));
 
-        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
-        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Withhold, ct);
-        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Restore, ct);
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Withhold, ct, ModeratorKind.Human, true, Flag);
+        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Restore, ct, ModeratorKind.Human, true, Flag);
 
-        Assert.True(FlagProjector.Fold(await LogAsync(store, ct))[Post].MayServe);
+        var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
+        Assert.True(post.MayServe);
+        Assert.False(post.HasUpheldFlag);
     }
 
-    /// <summary>
-    /// Table 11's "no upheld flags" reads off this: a flag becomes upheld when a moderator acts on
-    /// it, and a dismissal leaves it unupheld however many agents raised it.
-    /// </summary>
+    /// <summary>Table 11 reads off this: a flag becomes upheld when a record that names it acts; a dismissal leaves it unupheld.</summary>
     [Fact]
-    public async Task R10_39_AFlagIsUpheldOnlyWhenAModeratorActsOnIt()
+    public async Task R10_61_AFlagIsUpheldOnlyWhenARecordThatNamesItActs()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = new InMemoryEventStore(new ManualTimeProvider(Start));
 
-        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Dismiss, ct, ModeratorKind.Human, true, Flag);
         Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
 
-        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Dismiss, ct, ModeratorKind.Human, "01JFLAG000000000000000001");
-        Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
-
-        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Withhold, ct, ModeratorKind.Human, "01JFLAG000000000000000001");
-        Assert.True(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
+        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Withhold, ct, ModeratorKind.Human, true, Flag);
+        Assert.Equal([Flag], FlagProjector.Fold(await LogAsync(store, ct))[Post].UpheldFlags);
     }
 
     /// <summary>
-    /// A moderation action in one category does not uphold a flag raised in another. R10.37 records
-    /// the category on every action so the two can be told apart.
-    /// </summary>
-    [Fact]
-    public async Task R10_37_AnActionInAnotherCategoryDoesNotUpholdTheFlag()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
-
-        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
-        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct);
-
-        Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
-    }
-
-    /// <summary>
-    /// R10.61's reason, at the projection. A withholding that names no flag upholds nothing, so a flag
-    /// raised against the post afterwards is not upheld until a record names it — it could not have
-    /// been reviewed by a record written before it existed.
+    /// Spec Decision 5's late-flag test, carried across from Task 2 when flags left this fold. A
+    /// withholding names the flags it reviewed. A flag raised against the post afterwards, in the same
+    /// category, was reviewed by nobody. Keyed to the category, that flag was upheld the instant it was
+    /// raised. Keyed to the record that names it, it is not upheld until a record does. The first half
+    /// is also Decision 16: a proactive withholding moves no one's standing.
     /// </summary>
     [Fact]
     public async Task R10_61_AFlagRaisedAfterAWithholdingIsNotUpheldUntilARecordNamesIt()
@@ -215,8 +161,29 @@ public sealed class FlagProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var store = new InMemoryEventStore(new ManualTimeProvider(Start));
 
-        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Withhold, ct);
-        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct);
+        await RaiseLegacyAsync(store, Flag, FlagKind.Spam, ct);
+
+        var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
+        Assert.False(post.MayServe);
+        Assert.False(post.HasUpheldFlag);
+
+        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Spam, ModerationEffect.Withhold, ct, ModeratorKind.Human, true, Flag);
+        Assert.Equal([Flag], FlagProjector.Fold(await LogAsync(store, ct))[Post].UpheldFlags);
+    }
+
+    /// <summary>
+    /// A record written without <c>adjudicates</c> — as hand-built fixtures wrote them before R10.60 —
+    /// is read, not dropped: it still withholds, and it upholds nothing.
+    /// </summary>
+    [Fact]
+    public async Task R10_61_ARecordWithoutAdjudicatesStillWithholdsAndUpholdsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct,
+            ModeratorKind.Human, withAdjudicates: false);
 
         var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
         Assert.False(post.MayServe);
@@ -224,13 +191,8 @@ public sealed class FlagProjectorTests
     }
 
     /// <summary>
-    /// R11.9: the projection rebuilds from zero to the identical state.
-    ///
-    /// <para>Asserted with <see cref="Assert.Equal{T}(T, T)"/> over the projected values, which only
-    /// means anything because <see cref="PostModeration"/> spells out its own equality — the
-    /// compiler-generated version compares <see cref="ImmutableArray{T}"/> by <i>reference</i>, so a
-    /// record left to it reports two folds of the same events as unequal and makes this drill
-    /// silently compare nothing. <c>AgentStanding</c> had exactly that defect, and it was green.</para>
+    /// R11.9: the projection rebuilds from zero to the identical state. Meaningful only because
+    /// <see cref="PostModeration"/> and <see cref="ModerationAction"/> spell out structural equality.
     /// </summary>
     [Fact]
     public async Task R11_9_TheProjectionRebuildsFromZeroToTheIdenticalState()
@@ -238,16 +200,13 @@ public sealed class FlagProjectorTests
         var ct = TestContext.Current.CancellationToken;
         var store = new InMemoryEventStore(new ManualTimeProvider(Start));
 
-        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
-        await RaiseAsync(store, "01JFLAG000000000000000002", FlagKind.Spam, ct);
-        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Quarantine, ct);
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Quarantine, ct, ModeratorKind.Human, true, Flag);
 
         var log = await LogAsync(store, ct);
         Assert.Equal(FlagProjector.Fold(log), FlagProjector.Fold(log));
 
-        // The negative control: two folds of *different* logs must not compare equal, or the
-        // assertion above would pass for a type whose equality is vacuously true.
-        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Restore, ct);
+        // The negative control: two folds of different logs must not compare equal.
+        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Restore, ct, ModeratorKind.Human, true, Flag);
         Assert.NotEqual(FlagProjector.Fold(log), FlagProjector.Fold(await LogAsync(store, ct)));
     }
 }
