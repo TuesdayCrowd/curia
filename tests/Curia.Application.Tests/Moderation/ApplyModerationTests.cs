@@ -657,6 +657,129 @@ public sealed class ApplyModerationTests
         }
     }
 
+    /// <summary>Records a withholding in <c>spam</c> on a post whose one spam flag was raised by <paramref name="raiser"/>.</summary>
+    private static async Task<(Result<ModerationRecorded> Result, int Before, int After)> WithholdAfterFlagByAsync(
+        string raiser, string reason, CancellationToken ct)
+    {
+        var world = await WorldWithPostAsync(ct).ConfigureAwait(false);
+        await FlagAsync(world, FlagKind.Spam, raiser, "Advertising, not a question.", ct).ConfigureAwait(false);
+        var before = (await LogAsync(world, ct).ConfigureAwait(false)).Count;
+        var result = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, reason, Operator, ct).ConfigureAwait(false);
+        return (result, before, (await LogAsync(world, ct).ConfigureAwait(false)).Count);
+    }
+
+    /// <summary>
+    /// R10.62's raiser floor. Enrolment accepts any non-blank id (D4), so a raiser form shorter than 16
+    /// characters is not checked: matched inside ordinary words, a one-character id would make its post
+    /// unmoderatable. A raiser below the floor leaves only itself unprotected. The last two rows use
+    /// <c>e</c> as a word of its own, which only the floor lets through.
+    /// </summary>
+    [Theory]
+    [InlineData("https://e", "Reviewed: advertising.")]
+    [InlineData("e", "Reviewed: advertising.")]
+    [InlineData("https://e", "Reviewed: advertising, as in exhibit e.")]
+    [InlineData("e", "Reviewed: advertising, as in exhibit e.")]
+    public async Task R10_62_AOneCharacterRaiserCannotShieldItsPost(string raiser, string reason)
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(raiser, reason, TestContext.Current.CancellationToken);
+
+        Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
+        Assert.Equal(before + 1, after);
+    }
+
+    /// <summary>R10.62's raiser floor is 16 characters: a 16-character raiser is checked, a 15-character one is not.</summary>
+    [Fact]
+    public async Task R10_62_SixteenCharactersAreCheckedFifteenAreNot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string sixteen = "did:example:1234";
+        const string fifteen = "did:example:123";
+        Assert.Equal((16, 15), (sixteen.Length, fifteen.Length));
+
+        var (checkedResult, checkedBefore, checkedAfter) = await WithholdAfterFlagByAsync(sixteen, "Upheld, as " + sixteen + " reported.", ct);
+        Assert.False(checkedResult.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal(checkedBefore, checkedAfter);
+
+        var (uncheckedResult, uncheckedBefore, uncheckedAfter) = await WithholdAfterFlagByAsync(fifteen, "Upheld, as " + fifteen + " reported.", ct);
+        Assert.True(uncheckedResult.TryGetValue(out _, out var uncheckedError), uncheckedError?.Type + " " + uncheckedError?.Detail);
+        Assert.Equal(uncheckedBefore + 1, uncheckedAfter);
+    }
+
+    /// <summary>
+    /// R10.62 matches a raiser as a whole token: a form with a letter or digit directly beside it is part
+    /// of a longer word or id, not a repeat. Citing <c>agents.example/reporter</c> does not name
+    /// <c>https://agents.example/rep</c>.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ARaiserInsideALongerIdIsNotARepeat()
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(
+            "https://agents.example/rep",
+            "Reviewed: the pattern agents.example/reporter described elsewhere applies here too.",
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
+        Assert.Equal(before + 1, after);
+    }
+
+    /// <summary>
+    /// A token boundary is anything that is not a letter or a digit, so a raiser echoed at the end of a
+    /// sentence, before its full stop, is still refused. Punctuation is not part of a token.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_AnEchoBeforeAFullStopIsRefused()
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(
+            Reporter, "Upheld, as reported by " + Reporter + ".", TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal("field=raised_by", error.Detail);
+        Assert.Equal(before, after);
+    }
+
+    /// <summary>
+    /// The floor applies to each form. <c>agent://c.io/a/b</c> is 16 characters and is checked; its
+    /// schemeless form, <c>c.io/a/b</c>, is 8 and is not. A short host is still caught by its full form.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_AShortHostIsCaughtByItsFullForm()
+    {
+        const string raiser = "agent://c.io/a/b";
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, raiser, "Advertising, not a question.", ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var full = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + raiser + " reported.", Operator, ct);
+
+        Assert.False(full.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+
+        var schemeless = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld: see c.io/a/b for the policy.", Operator, ct);
+
+        Assert.True(schemeless.TryGetValue(out _, out var schemelessError), schemelessError?.Type + " " + schemelessError?.Detail);
+        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// A raiser form containing white space is not checked. Enrolment accepts one, and checked, an id
+    /// such as "upheld: advertising" would refuse the phrase a moderator is most likely to write.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ASpacedRaiserCannotRefuseAPhrase()
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(
+            "upheld: advertising", "Upheld: advertising.", TestContext.Current.CancellationToken);
+
+        Assert.True(result.TryGetValue(out _, out var error), error?.Type + " " + error?.Detail);
+        Assert.Equal(before + 1, after);
+    }
+
     /// <summary>
     /// R10.39 counts records, so a record decided on a view another record has since overtaken is
     /// refused by the store, not appended: the expected version comes from the read the decision was

@@ -196,8 +196,10 @@ raised on any deployment is exposed forever.
 11. **A record that changes nothing is refused by name.** That means a record that would change
     neither which categories hold the post, or how, nor any flag's upheld state, and adjudicates no
     flag that no earlier record had adjudicated. R10.39 counts records, so no-op records would
-    distort it. A dismissal of open flags is therefore permitted — it changes nothing served, but it
-    records a review, which is R10.39's denominator.
+    distort it. A dismissal of open flags in a category that does not hold the post is therefore
+    permitted — it changes nothing served, but it records a review, which is R10.39's denominator.
+    In a category that holds the post, a dismissal is refused (R10.61): it holds and releases
+    nothing, and would leave the post withheld with the flags behind the hold no longer upheld.
 
 12. **The operator's review listing marks rationales** under R10.44's envelope obligation for
     `moderation`|`list`, because the reviewer may be a model. It also escapes terminal control

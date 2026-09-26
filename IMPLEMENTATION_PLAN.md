@@ -1007,9 +1007,15 @@ record and the writer's blank operator name.
   second category. It had been refused as a no-op, leaving restore-then-withhold as the only way to
   escalate: the post served in between, and a permanent restore nobody meant.
 - **The reason guard** (R10.60, R10.62). After NFKC, invariant lower-casing and whitespace collapse,
-  a reason containing any raiser of a flag on the post, with or without its `scheme://`, or any 32
-  consecutive characters of a rationale at least that long, is refused before anything is appended,
-  as `curia/moderation/rationale-discloses-flag` with only `field=raised_by` or `field=rationale`.
+  a reason is refused before anything is appended, as `curia/moderation/rationale-discloses-flag`
+  with only `field=raised_by` or `field=rationale`, when it repeats either of two things for a flag
+  on the post. The first is the flag's raiser, with or without its `scheme://`, as a whole token
+  (no letter or digit directly beside it), in a form of at least 16 characters without white space.
+  The second is any 32 consecutive characters of a rationale at least that long. The raiser floor is
+  the architect's ruling on the wave's own finding: enrolment accepts any non-blank id
+  (`ForumEndpoints.cs:384`, D4), and matched as a substring a one-character raiser made "Reviewed:
+  advertising." unrecordable on its post. Every honest id shape is 17 characters or more, and a
+  raiser below the floor leaves only itself unprotected.
   Every flag on the post is checked, whatever its category or state. `FlagDirectory.RationalesByFlag`
   is the one source the guard and the listing read, and `curia-operator flags` prints `raised_by`
   only under `--raisers`.
@@ -1044,7 +1050,9 @@ unpatched. Messages are as the runner printed them:
 - G1 (the raiser check deleted) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserInTheReasonIsRefusedAndNothingAppended`,
   all four rows of `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserMatchesCaseFoldedAndSchemeless`,
   `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AFlagOfAnotherCategoryIsChecked` and `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_TheRefusalNamesNoFlagOrText`
-  (`Assert.False() Failure` seven times).
+  (`Assert.False() Failure` seven times); re-run after the raiser floor landed, it also reds the floor's
+  three refusing facts, `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AnEchoBeforeAFullStopIsRefused`,
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_SixteenCharactersAreCheckedFifteenAreNot` and `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AShortHostIsCaughtByItsFullForm` (ten).
 - G2 (the raiser compared ordinally, unnormalized) → RED: the three rows of
   `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserMatchesCaseFoldedAndSchemeless` whose case or form differs; the lower-case
   schemeless row stayed green, as it should.
@@ -1058,7 +1066,8 @@ unpatched. Messages are as the runner printed them:
   `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_TheRefusalNamesNoFlagOrText` (`Assert.False() Failure` four times).
 - G6 (the check narrowed to the flags the record adjudicates) → RED:
   `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AFlagOfAnotherCategoryIsChecked` alone (`Assert.False() Failure`).
-- G7a (the refusal echoing the flag's id) → RED: every test that reads the detail, seven, among them
+- G7a (the refusal echoing the flag's id) → RED: every test that reads the detail, seven (eight on the
+  amended tree, with `R10_62_AnEchoBeforeAFullStopIsRefused`), among them
   `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_TheRefusalNamesNoFlagOrText`
   (`Expected: "field=raised_by"`, `Actual:   "field=raised_by flag=01M3…"`); G7b (echoing the
   matched text) → RED: four, the same test among them (`Actual:   "field=rationale matched=is an advert for a storefr"···`).
@@ -1077,6 +1086,27 @@ unpatched. Messages are as the runner printed them:
   against the prefix assertion as it stood; RED against the equality:
   `Curia.Application.Tests.Moderation.RaiseFlagTests.R10_62_AFlagEntersTheLogAsItsKindAndACommitmentAlone`
   (`Expected: "flag:01M3ESC9G0YZB9E8240F9YEP25"`, `Actual:   "flag:1M3ESC9G0YZB9E8240F9YEP25"`).
+
+The raiser floor and whole-token match, falsified the same way against the amended tree; G1–G3 and
+G7a were re-run there too and went red on the rows above:
+
+- L1 (the raiser floor removed) → RED: the two rows of
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AOneCharacterRaiserCannotShieldItsPost` that use `e` as a word of its own,
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_SixteenCharactersAreCheckedFifteenAreNot` and
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AShortHostIsCaughtByItsFullForm`, each at `curia/moderation/rationale-discloses-flag field=raised_by`.
+  The two rows whose reason is "Reviewed: advertising." stayed green: with the floor gone, the
+  whole-token match still keeps `e` inside a word from counting.
+- L2a (the floor raised to 17) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_SixteenCharactersAreCheckedFifteenAreNot` and
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AShortHostIsCaughtByItsFullForm` (`Assert.False() Failure` twice). L2b (lowered to 15)
+  → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_SixteenCharactersAreCheckedFifteenAreNot` alone (`curia/moderation/rationale-discloses-flag field=raised_by`).
+- L3 (a plain substring match instead of a whole token) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ARaiserInsideALongerIdIsNotARepeat` alone (`curia/moderation/rationale-discloses-flag field=raised_by`).
+- L4 (punctuation counted as a token character) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AnEchoBeforeAFullStopIsRefused`
+  alone (`Assert.False() Failure`).
+- L5 (the full form not checked, only the schemeless one) → RED:
+  `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_AShortHostIsCaughtByItsFullForm` alone (`Assert.False() Failure`).
+- L6 (a form holding white space checked) → RED: `Curia.Application.Tests.Moderation.ApplyModerationTests.R10_62_ASpacedRaiserCannotRefuseAPhrase` alone
+  (`curia/moderation/rationale-discloses-flag field=raised_by`).
 
 ### D21 — the log served every flag's raiser and rationale to anyone *(opened and closed by the moderation stage, 2026-09-26)*
 
@@ -1269,10 +1299,11 @@ Falsified by the same runner, recorded the same way:
   pending a closer look, already demotes the author (Table 11).
 - **`ApplyModeration` is registered in the production container, for the test fixture.** "No HTTP
   route" rests on no endpoint injecting it; no test guards that.
-- **The reason guard over-refuses for a very short raiser identifier** (found in the final-review
-  wave, measured by a throwaway probe). It matches a raiser as a substring, and R4.5's identifier form
-  is enforced nowhere (D4): a flag raised by `https://e`, or by `e`, makes "Reviewed: advertising."
-  unrecordable on that post, so a raiser can make its post hard to moderate. For the architect.
+- **A raiser whose every form is under 16 characters, or holds white space, can be named in a public
+  reason.** It is the price of the raiser floor, which the architect ruled on after the final-review
+  wave measured a one-character raiser making "Reviewed: advertising." unrecordable on its post
+  (D20). Enrolment accepts any non-blank id (D4), and every honest id shape is 17 characters or more,
+  so the only raiser left unprotected is one that chose a short id.
 
 ### Observed during the screener stage, not acted on
 

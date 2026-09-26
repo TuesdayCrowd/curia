@@ -6140,22 +6140,25 @@ the same reason.
 post's envelope (`digest`), which R6.25's "a `moderation` record referencing a digest" names; the
 moderator kind (`moderator`); the actor (`actor_id`); the effect (`effect`); the category
 (`category`, R10.35); a rationale (`rationale`) screened as a flag's rationale is and refused on a
-hard rejection (R10.26) or when it repeats any raiser, or 32 consecutive characters of any
-rationale, of a flag on the post (R10.62), since it lands in a leaf R6.51 serves verbatim; and the
-flags it names (`adjudicates`), each by the `event_id` of that flag's own log entry — never by
-aggregate id, which a flag raised before R10.62 shares with its post — derived by the writer and
-never supplied by the moderator. A reviewing record (R10.61) SHALL name every flag of its category
-raised against the post before it, whether the flag entered the log as `flag.committed` (R10.62) or,
-earlier, as `flag.raised`. A record written by automated moderation SHALL name no flag: R10.61 lets
-no automated record decide one, and a flag it named would publish which post that flag concerns
-(R10.62) on a quarantine nobody has reviewed. For the human arm, R10.37's "signed" is discharged by
-the record being a leaf (R6.46) under a head signed with the log key (R6.49): a human moderator
-holds no key, and a per-entry signature would add nothing against the party R6.25 exists to hold to
-account, which can withhold without writing any record at all. A record that names its flags, read
-against R10.61's table, is what lets anyone holding the log compute R10.39's upheld rate and median
-time to action without being shown a single raiser (R10.62); a record naming only a category leaves
-which reports a moderator actually reviewed to inference after the fact, and that inference cannot
-be rerun against flags whose leaves no longer name their posts.
+hard rejection (R10.26) or when it repeats, as a whole token, any raiser, with or without its
+`scheme://`, in a form of at least 16 characters without white space, or 32 consecutive characters
+of any rationale, of a flag on the post (R10.62), since it lands in a leaf R6.51 serves verbatim;
+and the flags it names (`adjudicates`), each by the `event_id` of that flag's own log entry — never
+by aggregate id, which a flag raised before R10.62 shares with its post — derived by the writer and
+never supplied by the moderator. A shorter form goes unchecked: matched inside ordinary words, it
+would let a raiser make its post unmoderatable. A reviewing record (R10.61) SHALL name every flag of
+its category raised against the post before it, whether the flag entered the log as
+`flag.committed` (R10.62) or, earlier, as `flag.raised`. A record written by automated moderation
+SHALL name no flag: R10.61 lets no automated record decide one, and a flag it named would publish
+which post that flag concerns (R10.62) on a quarantine nobody has reviewed. For the human
+arm, R10.37's "signed" is discharged by the record being a leaf (R6.46) under a head signed with the
+log key (R6.49): a human moderator holds no key, and a per-entry signature would add nothing against
+the party R6.25 exists to hold to account, which can withhold without writing any record at all. A
+record that names its flags, read against R10.61's table, is what lets anyone holding the log
+compute R10.39's upheld rate and median time to action without being shown a single raiser (R10.62);
+a record naming only a category leaves which reports a moderator actually reviewed to inference
+after the fact, and that inference cannot be rerun against flags whose leaves no longer name their
+posts.
 
 **R10.61** R10.36's authority SHALL be read as the table below, and a moderation record whose
 (`moderator`, `effect`) cell the table marks refused SHALL be ignored by every fold that reads the
@@ -6423,8 +6426,8 @@ automated on a withholding, and the writer must refuse it under R10.61's table.
 | R10.54 (rev.) | The clamp narrows to deployments configured above V0 — dormant, not vacuous — and stays only while stated; the schema clause is struck, and G11's injection threat is conceded rather than mitigated | G12 |
 | R10.58 | A content-dependent control the Forum applies on its own initiative defers, never removes; only a requester's criterion or a stated floor in force removes; moderation withholding, the epoch gate, kind exclusion and R9.22's published bounds are named as carve-outs | G12 |
 | R10.59 | R10.36's human moderator acts out of band through an operator tool under R11.6's grant, with no HTTP route and no Table 10 pair; actor `operator:<name>`, moderator kind human | G13 |
-| R10.60 | A moderation record carries post, envelope digest, moderator kind, actor, effect, category, a screened rationale, and `adjudicates`: a reviewing record names every flag of its category on the post by entry `event_id`, derived by the writer; an automated record names none; "signed" is a leaf under a signed head for the human arm | G13 |
-| R10.61 | R10.36 published as a (moderator kind, effect) table; a flag is upheld only while the latest reviewing record that names it quarantines or withholds; non-reviewing records change no flag's state; records the table refuses are ignored by every fold | G13 |
+| R10.60 | A moderation record carries post, envelope digest, moderator kind, actor, effect, category, a screened rationale — refused if it repeats, as a whole token, a raiser form of at least 16 characters without white space, or 32 consecutive characters of a rationale, of any flag on the post — and `adjudicates`: a reviewing record names every flag of its category on the post by entry `event_id`, derived by the writer; an automated record names none; "signed" is a leaf under a signed head for the human arm | G13 |
+| R10.61 | R10.36 published as a (moderator kind, effect) table; a flag is upheld only while the latest reviewing record that names it quarantines or withholds; non-reviewing records change no flag's state; records the table refuses are ignored by every fold; a permitted quarantine or withholding holds its post in the category it cites until a permitted restore citing that category, and a post is served only while nothing holds it; a dismissal holds and releases nothing; a writer refuses a restore in a category not holding the post, and a dismissal in one that does | G13 |
 | R10.62 | A flag enters the log as `flag.committed`: its kind and a salted commitment to post, raiser and rationale — `sha256:` over pure RFC 8785 of four members, 32-byte salt — fixed for that event type; the rest lives in a private append-only store; R7.18's views are served from the join; the post is public once a reviewing record names the flag | G13 |
 | R11.32 | A fact the specification requires be kept from some party is never an event; where the log must attest to it, the log carries a salted commitment and the fact lives in a private store under R11.6's grant; content later withheld under R6.17 is outside the class | G13 |
 | R11.9 (add.) | The system of record is the event table together with R11.32's commitment-bound private stores, kept as long as the log; the replay drill rebuilds from both; R13.6's retention policy states the permanence | G13 |

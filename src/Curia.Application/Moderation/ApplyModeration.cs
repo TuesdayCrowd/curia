@@ -273,6 +273,13 @@ public static class ModerationRecordErrors
 /// comparing — NFKC, lower-cased invariantly, each run of white space collapsed to one space — so a
 /// change of case, of spacing or of compatibility form does not get a repeat through.</para>
 ///
+/// <para><b>A raiser is matched as a whole token, in a form of at least <see cref="RaiserFloor"/>
+/// characters without white space</b> — the raiser, and the raiser without its <c>scheme://</c>, each
+/// judged on its own. Enrolment accepts any non-blank id (D4), so without the floor a one-character
+/// id, matched inside ordinary words, would make its post unmoderatable; every honest id shape is
+/// longer, and a raiser below the floor leaves only itself unprotected. A form with a letter or digit
+/// directly beside it in the reason is part of a longer word or id, not a repeat.</para>
+///
 /// <para><b>A rationale shorter than <see cref="QuoteLength"/> is not checked</b>, so a one-word
 /// rationale such as "spam" never blocks a reason; one at least that long is checked in every window
 /// of that length, so quoting part of it counts as quoting it.</para>
@@ -281,6 +288,9 @@ internal static class FlagDisclosure
 {
     /// <summary>The shortest run of a rationale that counts as repeating it (R10.60, R10.62).</summary>
     internal const int QuoteLength = 32;
+
+    /// <summary>The shortest raiser form that is checked at all (R10.60, R10.62).</summary>
+    internal const int RaiserFloor = 16;
 
     internal const string RaisedByField = "raised_by";
     internal const string RationaleField = "rationale";
@@ -297,7 +307,7 @@ internal static class FlagDisclosure
         foreach (var flag in flagsOnPost)
         {
             var raiser = Normalize(flag.RaisedBy);
-            if (Says(said, raiser) || Says(said, WithoutScheme(raiser)))
+            if (NamesAsToken(said, raiser) || NamesAsToken(said, WithoutScheme(raiser)))
                 return RaisedByField;
         }
 
@@ -342,7 +352,35 @@ internal static class FlagDisclosure
         return collapsed.ToString();
     }
 
-    private static bool Says(string said, string form) => form.Length > 0 && said.Contains(form, StringComparison.Ordinal);
+    /// <summary>
+    /// Whether <paramref name="said"/> contains <paramref name="form"/> as a whole token: with no letter
+    /// or digit directly before or after it. A form shorter than <see cref="RaiserFloor"/>, or holding
+    /// white space, is not checked.
+    /// </summary>
+    private static bool NamesAsToken(string said, string form)
+    {
+        if (form.Length < RaiserFloor || form.Contains(' ', StringComparison.Ordinal)) return false;
+
+        for (var at = said.IndexOf(form, StringComparison.Ordinal); at >= 0; at = said.IndexOf(form, at + 1, StringComparison.Ordinal))
+        {
+            if (!WordCharacter(said.AsSpan(0, at), last: true) && !WordCharacter(said.AsSpan(at + form.Length), last: false))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether the rune at the end (<paramref name="last"/>) or start of <paramref name="text"/> is a letter or a digit.</summary>
+    private static bool WordCharacter(ReadOnlySpan<char> text, bool last)
+    {
+        if (text.IsEmpty) return false;
+
+        var status = last
+            ? Rune.DecodeLastFromUtf16(text, out var rune, out _)
+            : Rune.DecodeFromUtf16(text, out rune, out _);
+
+        return status == System.Buffers.OperationStatus.Done && Rune.IsLetterOrDigit(rune);
+    }
 
     /// <summary>
     /// The raiser without a leading <c>scheme://</c> — RFC 3986's scheme: a letter, then letters,
