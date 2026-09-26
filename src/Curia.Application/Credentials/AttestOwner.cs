@@ -49,6 +49,9 @@ public sealed class AttestOwner
     /// <summary>One retry, for the reason <see cref="EnrollAgent"/> gives: a conflict means someone else appended to this agent's stream, and the re-read observes it.</summary>
     private const int Attempts = 2;
 
+    /// <summary>The operator namespace the composition root applies (plan D4); an actor in it must name someone.</summary>
+    private const string OperatorPrefix = "operator:";
+
     private readonly IEventStore _events;
     private readonly UlidGenerator _ids;
 
@@ -81,6 +84,13 @@ public sealed class AttestOwner
 
         if (string.Equals(attestedBy.Value, agentId, StringComparison.Ordinal))
             return Result<OwnerAttestation>.Fail(AttestationErrors.SelfAttestation(agentId));
+
+        // "operator: " keeps the namespace convention and names no one, in a leaf that is public and
+        // permanent.
+        if (attestedBy.Value is { } actor
+            && actor.StartsWith(OperatorPrefix, StringComparison.Ordinal)
+            && actor.AsSpan(OperatorPrefix.Length).IsWhiteSpace())
+            return Result<OwnerAttestation>.Fail(AttestationErrors.BlankOperatorName());
 
         if (!TransitionReason.Create(reason).TryGetValue(out _, out var reasonError))
             return Result<OwnerAttestation>.Fail(reasonError!);
@@ -166,6 +176,12 @@ public static class AttestationErrors
         "curia/attest/self-attestation",
         "An agent cannot attest its own owner's verification; R4.30 requires an operator or the owner",
         $"agent={agentId}");
+
+    /// <summary>An attestation names who attested, publicly and permanently, so the name after <c>operator:</c> may not be blank. Names no value.</summary>
+    public static Error BlankOperatorName() => new(
+        "curia/attest/blank-operator-name",
+        "The operator's name is blank; an attestation names who attested (R4.30)",
+        "the attesting actor must be named operator:<name>, with a <name> that is not blank");
 
     /// <summary>No enrollment in the log, so there is no credential to attest an owner for.</summary>
     public static Error NotEnrolled(string agentId) => new(

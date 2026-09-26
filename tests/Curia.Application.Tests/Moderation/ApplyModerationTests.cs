@@ -77,6 +77,13 @@ public sealed class ApplyModerationTests
         return (await LogAsync(world, ct).ConfigureAwait(false)).Last(e => e.Event.Type.Value == FlagProjector.FlagCommittedType).Event.Id.Value;
     }
 
+    /// <summary>Raises a flag against <see cref="Post"/> with the given raiser and rationale, through the real writer.</summary>
+    private static async Task<string> FlagAsync(World world, FlagKind kind, string raiser, string rationale, CancellationToken ct)
+    {
+        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(Post, raiser, kind, rationale, ct).ConfigureAwait(false));
+        return (await LogAsync(world, ct).ConfigureAwait(false)).Last(e => e.Event.Type.Value == FlagProjector.FlagCommittedType).Event.Id.Value;
+    }
+
     private static async Task<PostModeration> ModerationAsync(World world, CancellationToken ct) =>
         FlagProjector.Fold(await LogAsync(world, ct).ConfigureAwait(false))[Post];
 
@@ -377,6 +384,277 @@ public sealed class ApplyModerationTests
         var named = ((JsonValue.Object)record.Event.Payload).Members.Single(m => m.Key == FlagProjector.AdjudicatesField).Value;
         Assert.Equal([mine], ((JsonValue.Array)named).Items.Cast<JsonValue.String>().Select(s => s.Value));
         Assert.DoesNotContain(theirs, FlagProjector.Fold(log).Values.SelectMany(m => ModerationPolicy.AdjudicatedFlags(m.History)));
+    }
+
+    /// <summary>
+    /// The final review's probe. A post withheld for a credential leak, then "restored" in <c>spam</c>:
+    /// under R10.61 the restore releases nothing, since only the credential-leak hold keeps the post
+    /// from being served, and the writer refuses it by name. The open spam flag is there so the no-op
+    /// rule cannot refuse it first: the restore would adjudicate that flag for the first time.
+    /// </summary>
+    [Fact]
+    public async Task R10_61_TheProbeSequenceIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var leak = await FlagAsync(world, FlagKind.CredentialLeak, ct);
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.CredentialLeak, "A credential on line 2.", Operator, ct));
+        await FlagAsync(world, FlagKind.Spam, ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var restore = await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.Spam, "Not advertising after all.", Operator, ct);
+
+        Assert.False(restore.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/restore-of-unheld-category", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+
+        var moderation = await ModerationAsync(world, ct);
+        Assert.False(moderation.MayServe);
+        Assert.Equal([leak], moderation.UpheldFlags);
+    }
+
+    /// <summary>
+    /// R10.61: a dismissal holds and releases nothing, so in a category that holds the post it would
+    /// leave the post withheld with the flag behind the hold no longer upheld. The writer refuses it by
+    /// name, and nothing is appended.
+    /// </summary>
+    [Fact]
+    public async Task R10_61_ADismissalInAHeldCategoryIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var flag = await FlagAsync(world, FlagKind.Spam, ct);
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        var before = (await LogAsync(world, ct)).Count;
+
+        var dismissal = await world.Moderate.RecordAsync(Post, ModerationEffect.Dismiss, FlagKind.Spam, "Reviewed again: not advertising.", Operator, ct);
+
+        Assert.False(dismissal.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/dismissal-of-held-category", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+
+        var moderation = await ModerationAsync(world, ct);
+        Assert.False(moderation.MayServe);
+        Assert.Equal([flag], moderation.UpheldFlags);
+    }
+
+    /// <summary>
+    /// R10.61: a hold in a second category changes which categories hold the post, though not whether
+    /// it is served, so it is a record rather than a no-op; and a restore in the first category then
+    /// leaves the post held by the second.
+    /// </summary>
+    [Fact]
+    public async Task R10_61_AHoldInASecondCategoryIsNotANoOp()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        var before = (await LogAsync(world, ct)).Count;
+
+        var second = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.CredentialLeak, "A credential on line 2.", Operator, ct);
+
+        Assert.True(second.TryGetValue(out _, out var error), error?.Type);
+        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.Spam, "Advertising was a misreading.", Operator, ct));
+        Assert.False((await ModerationAsync(world, ct)).MayServe);
+    }
+
+    /// <summary>
+    /// The escalation. After a human quarantine, a human withholding in the same category changes how
+    /// the category holds the post, which R10.60 publishes as the record's effect, so it is a record:
+    /// one entry, the post never servable in between, the upheld flags unchanged. Refused as a no-op,
+    /// the only way to escalate was restore-then-withhold, which serves the post in between and leaves
+    /// a permanent restore nobody meant. A repeated withholding is still a no-op.
+    /// </summary>
+    [Fact]
+    public async Task R10_61_AHumanWithholdingAfterAHumanQuarantineIsARecord()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var flag = await FlagAsync(world, FlagKind.Spam, ct);
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Quarantine, FlagKind.Spam, "Pending a closer look.", Operator, ct));
+        var quarantined = await ModerationAsync(world, ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var withheld = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct);
+
+        Assert.True(withheld.TryGetValue(out var recorded, out var error), error?.Type);
+        Assert.Equal([flag], recorded!.Adjudicates);
+        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+
+        var after = await ModerationAsync(world, ct);
+        Assert.False(quarantined.MayServe);
+        Assert.False(after.MayServe);
+        Assert.Equal([flag], quarantined.UpheldFlags);
+        Assert.Equal([flag], after.UpheldFlags);
+
+        var again = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising, again.", Operator, ct);
+
+        Assert.False(again.TryGetValue(out _, out var repeated));
+        Assert.Equal("curia/moderation/no-op", repeated!.Type);
+        Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>A rationale long enough for R10.62's quote rule, and no raiser's identity in it.</summary>
+    private const string Advert = "This post is an advert for a storefront, with a list of coupon codes and no question in it.";
+
+    /// <summary>
+    /// R10.62: a flag's raiser is published never, and the record's reason is published always (R10.60),
+    /// so a reason naming the raiser is refused before anything is appended — refused, not repaired
+    /// (R10.26). A moderator, or a model drafting the reason from the review queue, repeating the report
+    /// is the natural way this fails.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ARaiserInTheReasonIsRefusedAndNothingAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, Reporter, "Advertising, not a question.", ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + Reporter + " reported.", Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal("field=raised_by", error.Detail);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+        Assert.True((await LogAsync(world, ct)).All(e => e.Event.Type.Value != FlagProjector.ModerationAppliedType));
+    }
+
+    /// <summary>
+    /// R10.62's raiser rule compares normalized text — NFKC, lower-cased, whitespace runs collapsed — and
+    /// matches the raiser with or without its <c>scheme://</c>. An ordinal comparison lets a change of case
+    /// through, and one form alone lets the other through. The last row spells the first letter as a
+    /// fullwidth <c>a</c>, which NFKC folds.
+    /// </summary>
+    [Theory]
+    [InlineData("Upheld, as HTTPS://AGENTS.EXAMPLE/REPORTER reported.")]
+    [InlineData("Upheld, as agents.example/reporter reported.")]
+    [InlineData("Upheld, as Agents.Example/Reporter reported.")]
+    [InlineData("Upheld, as \uFF41gents.example/reporter reported.")]
+    public async Task R10_62_ARaiserMatchesCaseFoldedAndSchemeless(string reason)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, Reporter, "Advertising, not a question.", ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, reason, Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal("field=raised_by", error.Detail);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// R10.62's quote rule: 32 consecutive characters of a rationale are refused and 31 are not, and a
+    /// rationale shorter than 32 characters is not checked at all, so a one-word rationale such as
+    /// "spam" never blocks a reason.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ThirtyTwoCharactersOfARationaleAreRefusedThirtyOneAreNot()
+    {
+        const string shortRationale = "The premise on line 1 is false.";
+        Assert.Equal(31, shortRationale.Length);
+
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, Reporter, Advert, ct);
+        await FlagAsync(world, FlagKind.Incorrect, Reporter, shortRationale, ct);
+
+        var thirtyOne = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam,
+            "Reviewed: \"" + Advert[..31] + "\" and \"" + shortRationale + "\".", Operator, ct);
+        Assert.True(thirtyOne.TryGetValue(out _, out var accepted), accepted?.Type + " " + accepted?.Detail);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var thirtyTwo = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Restore, FlagKind.Spam, "Reviewed: \"" + Advert[..32] + "\".", Operator, ct);
+
+        Assert.False(thirtyTwo.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal("field=rationale", error.Detail);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// R10.62's quote rule checks every 32-character window of a rationale, so quoting part of it is
+    /// refused as quoting all of it is; and the comparison is over normalized text, so a change of case
+    /// or of line breaks does not get a quote through.
+    /// </summary>
+    [Theory]
+    [InlineData("Reviewed: the flag said \"an advert for a storefront, with a list of coupon codes\", which holds.")]
+    [InlineData("Reviewed: the flag said \"AN ADVERT FOR A STOREFRONT,\n  WITH A LIST OF COUPON CODES\", which holds.")]
+    public async Task R10_62_APartialQuoteIsRefused(string reason)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, Reporter, Advert, ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, reason, Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal("field=rationale", error.Detail);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// R10.62 publishes a raiser never, whichever record is being written: every flag on the post is
+    /// checked, not only the flags this record adjudicates. A record in <c>injection</c> naming the
+    /// raiser of a <c>spam</c> flag publishes that raiser as surely as a record in <c>spam</c> would.
+    /// </summary>
+    [Fact]
+    public async Task R10_62_AFlagOfAnotherCategoryIsChecked()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, Reporter, "Advertising, not a question.", ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Injection, "Addresses the reader; " + Reporter + " saw it first.", Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
+        Assert.Equal("field=raised_by", error.Detail);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// The refusal says which field was repeated and nothing else: not the raiser, not the rationale's
+    /// text, and not the flag, whose id would tie the flag to this post for whoever reads the refusal
+    /// (R10.27, R10.28, R10.62).
+    /// </summary>
+    [Fact]
+    public async Task R10_62_TheRefusalNamesNoFlagOrText()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var flag = await FlagAsync(world, FlagKind.Spam, Reporter, Advert, ct);
+
+        var byRaiser = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + Reporter + " reported.", Operator, ct);
+        var byRationale = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld: \"" + Advert[10..50] + "\".", Operator, ct);
+
+        Assert.False(byRaiser.TryGetValue(out _, out var raiserError));
+        Assert.False(byRationale.TryGetValue(out _, out var rationaleError));
+        Assert.Equal("field=raised_by", raiserError!.Detail);
+        Assert.Equal("field=rationale", rationaleError!.Detail);
+
+        foreach (var error in (Error[])[raiserError, rationaleError])
+        {
+            var said = error.Type + " " + error.Title + " " + error.Detail;
+            Assert.DoesNotContain("agents.example", said, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(flag, said, StringComparison.Ordinal);
+            Assert.DoesNotContain("storefront", said, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("coupon", said, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>

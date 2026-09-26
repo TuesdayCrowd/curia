@@ -76,7 +76,9 @@ public sealed class RaiseFlagTests
         var flag = Assert.Single(FlagEvents(await LogAsync(store, ct)));
         Assert.Equal(FlagProjector.FlagCommittedType, flag.Event.Type.Value);
         Assert.Null(flag.Event.Actor);
-        Assert.StartsWith(RaiseFlag.FlagAggregatePrefix, flag.AggregateId.Value, StringComparison.Ordinal);
+        // R10.62: the aggregate is `flag:` followed by the entry's own event id — exactly that, since the
+        // aggregate id is a member of the leaf (R6.46) and anything else there is published too.
+        Assert.Equal("flag:" + flag.Event.Id.Value, flag.AggregateId.Value);
 
         var payload = Assert.IsType<JsonValue.Object>(flag.Event.Payload);
         Assert.Equal([FlagProjector.CommitmentField, FlagProjector.KindField], payload.Members.Select(m => m.Key).Order(StringComparer.Ordinal));

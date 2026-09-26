@@ -36,8 +36,12 @@ public sealed record ModerationRecorded(
 /// record is the only place a reader of the public log learns which flags were reviewed.</para>
 ///
 /// <para><b>A record that changes nothing is refused.</b> R10.39 counts records. A record that
-/// changes neither servability nor any flag's upheld state, and names no flag no earlier record
-/// named, would inflate the counts while recording no decision.</para>
+/// changes neither which categories hold the post, or how (<see cref="ModerationPolicy.ServingEffect"/>),
+/// nor any flag's upheld state, and names no flag no earlier record named, would inflate the counts
+/// while recording no decision.</para>
+///
+/// <para><b>A record acts only on the category it cites (R10.61).</b> So a restore in a category
+/// that holds nothing is refused, as is a dismissal in one that holds the post.</para>
 /// </summary>
 public sealed class ApplyModeration
 {
@@ -108,13 +112,25 @@ public sealed class ApplyModeration
         if (!rows.TryGetValue(out var details, out var detailError))
             return Result<ModerationRecorded>.Fail(detailError!);
 
+        ImmutableArray<RaisedFlag> onPost =
+        [
+            .. FlagDirectory.Join(log!, details!).Flags
+                .Where(f => string.Equals(f.PostId, postId, StringComparison.Ordinal)),
+        ];
+
         // R10.60: every flag of this category raised against the post so far — derived, never typed.
         ImmutableArray<string> adjudicates =
         [
-            .. FlagDirectory.Join(log!, details!).Flags
-                .Where(f => string.Equals(f.PostId, postId, StringComparison.Ordinal) && f.Kind == category)
+            .. onPost
+                .Where(f => f.Kind == category)
                 .Select(f => f.FlagId),
         ];
+
+        // R10.62: a raiser and a rationale are published never, and this reason is published always
+        // (R10.60), so a reason repeating either, for any flag on the post, is refused — never repaired
+        // (R10.26). The refusal names the field alone: the matched text, or the flag, would disclose it.
+        if (FlagDisclosure.Repeated(rationale, onPost, FlagDirectory.RationalesByFlag(log!, details!)) is { } field)
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RationaleDisclosesFlag(field));
 
         ImmutableArray<ModerationAction> before = FlagProjector.Fold(log!).TryGetValue(postId, out var moderation)
             ? moderation.History
@@ -127,11 +143,23 @@ public sealed class ApplyModeration
             return Result<ModerationRecorded>.Fail(authorizeError!);
 
         ImmutableArray<ModerationAction> after = [.. before, action];
-        var noOp = ModerationPolicy.MayServe(before) == ModerationPolicy.MayServe(after)
+        var holdsBefore = ModerationPolicy.ServingEffect(before);
+        var noOp = SameHolds(holdsBefore, ModerationPolicy.ServingEffect(after))
             && ModerationPolicy.UpheldFlags(before).SetEquals(ModerationPolicy.UpheldFlags(after))
             && ModerationPolicy.AdjudicatedFlags(before).IsSupersetOf(adjudicates);
         if (noOp)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoOp(postId, effect, category));
+
+        // R10.61: a restore releases only the hold of the category it cites. One citing a category that
+        // holds nothing would release nothing, and would still release the flags it names while another
+        // category's hold kept the post unserved.
+        if (effect == ModerationEffect.Restore && !holdsBefore.ContainsKey(category))
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RestoreOfUnheldCategory(postId, category));
+
+        // R10.61: a dismissal holds and releases nothing. In a category that holds the post, it would
+        // leave the post withheld with the flags behind the hold no longer upheld.
+        if (effect == ModerationEffect.Dismiss && holdsBefore.ContainsKey(category))
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.DismissalOfHeldCategory(postId, category));
 
         // The expected version comes from the read the decision was made on, not from a second read.
         // A record another operator appended to this post since then fails this append, rather than
@@ -168,6 +196,17 @@ public sealed class ApplyModeration
         return appended.Map(events => new ModerationRecorded(
             postId, post.Digest, effect, category, adjudicates, moderator, events[0].ServerTimestamp.Value));
     }
+
+    /// <summary>
+    /// Whether two <see cref="ModerationPolicy.ServingEffect"/> maps hold the post in the same
+    /// categories, the same way: compared element by element, since an immutable map's own
+    /// <c>Equals</c> compares references.
+    /// </summary>
+    private static bool SameHolds(
+        ImmutableSortedDictionary<FlagKind, ModerationEffect> first,
+        ImmutableSortedDictionary<FlagKind, ModerationEffect> second) =>
+        first.Count == second.Count
+        && first.All(hold => second.TryGetValue(hold.Key, out var effect) && effect == hold.Value);
 }
 
 /// <summary>RFC 9457 problem-type slugs the moderation writer emits.</summary>
@@ -196,9 +235,129 @@ public static class ModerationRecordErrors
         "The moderator's rationale was rejected by screening; it would land in a public leaf (R10.60)",
         annotations);
 
+    /// <summary>
+    /// R10.62: the reason repeats a flag's raiser or rationale. The detail names the field alone —
+    /// <c>field=raised_by</c> or <c>field=rationale</c> — never the matched text or the flag, either of
+    /// which would disclose what the refusal exists to keep private.
+    /// </summary>
+    public static Error RationaleDisclosesFlag(string field) => new(
+        "curia/moderation/rationale-discloses-flag",
+        "The reason repeats a flag's raiser or rationale, which are never published; the reason is (R10.62)",
+        $"field={field}");
+
     /// <summary>A record that would change nothing (spec Decision 11).</summary>
     public static Error NoOp(string postId, ModerationEffect effect, FlagKind category) => new(
         "curia/moderation/no-op",
         "That record would change nothing, and R10.39 counts records",
         $"post={postId} effect={ModerationEffects.Wire(effect)} category={FlagKinds.Wire(category)}");
+
+    /// <summary>R10.61: a restore releases only its own category's hold, and nothing holds the post in this one. Echoes only what the operator supplied.</summary>
+    public static Error RestoreOfUnheldCategory(string postId, FlagKind category) => new(
+        "curia/moderation/restore-of-unheld-category",
+        "Nothing holds the post in that category, so a restore there would release nothing (R10.61)",
+        $"post={postId} category={FlagKinds.Wire(category)}");
+
+    /// <summary>R10.61: a dismissal holds and releases nothing, and this category holds the post. Echoes only what the operator supplied.</summary>
+    public static Error DismissalOfHeldCategory(string postId, FlagKind category) => new(
+        "curia/moderation/dismissal-of-held-category",
+        "That category holds the post; a dismissal releases nothing, so restore it or leave the hold (R10.61)",
+        $"post={postId} category={FlagKinds.Wire(category)}");
+}
+
+/// <summary>
+/// R10.62's "published never", where a moderator's own words enter the log: whether a record's
+/// reason repeats a raiser, or 32 consecutive characters of a rationale, of a flag on the post.
+///
+/// <para><b>Compared on derived copies, which are discarded.</b> The reason is refused, never
+/// repaired (R10.26); nothing here is written anywhere. Each text is normalized the same way before
+/// comparing — NFKC, lower-cased invariantly, each run of white space collapsed to one space — so a
+/// change of case, of spacing or of compatibility form does not get a repeat through.</para>
+///
+/// <para><b>A rationale shorter than <see cref="QuoteLength"/> is not checked</b>, so a one-word
+/// rationale such as "spam" never blocks a reason; one at least that long is checked in every window
+/// of that length, so quoting part of it counts as quoting it.</para>
+/// </summary>
+internal static class FlagDisclosure
+{
+    /// <summary>The shortest run of a rationale that counts as repeating it (R10.60, R10.62).</summary>
+    internal const int QuoteLength = 32;
+
+    internal const string RaisedByField = "raised_by";
+    internal const string RationaleField = "rationale";
+
+    /// <summary>
+    /// The field <paramref name="reason"/> repeats — <see cref="RaisedByField"/> or
+    /// <see cref="RationaleField"/> — for any of <paramref name="flagsOnPost"/>, whatever its category
+    /// or state; or <see langword="null"/>.
+    /// </summary>
+    internal static string? Repeated(string reason, IReadOnlyList<RaisedFlag> flagsOnPost, IReadOnlyDictionary<string, string> rationales)
+    {
+        var said = Normalize(reason);
+
+        foreach (var flag in flagsOnPost)
+        {
+            var raiser = Normalize(flag.RaisedBy);
+            if (Says(said, raiser) || Says(said, WithoutScheme(raiser)))
+                return RaisedByField;
+        }
+
+        foreach (var flag in flagsOnPost)
+        {
+            if (!rationales.TryGetValue(flag.FlagId, out var rationale)) continue;
+
+            var text = Normalize(rationale);
+            for (var start = 0; start + QuoteLength <= text.Length; start++)
+            {
+                if (said.AsSpan().Contains(text.AsSpan(start, QuoteLength), StringComparison.Ordinal))
+                    return RationaleField;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// NFKC, lower-cased invariantly, each run of white space collapsed to one space. An unpaired
+    /// surrogate, which NFKC cannot take, becomes U+FFFD first, as it does in the UTF-8 SCREEN reads.
+    /// </summary>
+    internal static string Normalize(string text)
+    {
+        var wellFormed = Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(text));
+        var collapsed = new StringBuilder(wellFormed.Length);
+        var inWhiteSpace = false;
+
+        foreach (var rune in wellFormed.Normalize(NormalizationForm.FormKC).EnumerateRunes())
+        {
+            if (Rune.IsWhiteSpace(rune))
+            {
+                if (!inWhiteSpace) collapsed.Append(' ');
+                inWhiteSpace = true;
+                continue;
+            }
+
+            collapsed.Append(Rune.ToLowerInvariant(rune).ToString());
+            inWhiteSpace = false;
+        }
+
+        return collapsed.ToString();
+    }
+
+    private static bool Says(string said, string form) => form.Length > 0 && said.Contains(form, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The raiser without a leading <c>scheme://</c> — RFC 3986's scheme: a letter, then letters,
+    /// digits, <c>+</c>, <c>-</c> or <c>.</c> — or the raiser as it stands.
+    /// </summary>
+    private static string WithoutScheme(string raiser)
+    {
+        var separator = raiser.IndexOf("://", StringComparison.Ordinal);
+        if (separator <= 0 || !char.IsAsciiLetter(raiser[0])) return raiser;
+
+        foreach (var c in raiser.AsSpan(1, separator - 1))
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c is not ('+' or '-' or '.')) return raiser;
+        }
+
+        return raiser[(separator + 3)..];
+    }
 }

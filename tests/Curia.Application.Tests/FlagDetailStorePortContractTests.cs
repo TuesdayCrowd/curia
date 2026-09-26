@@ -32,13 +32,18 @@ public abstract class FlagDetailStorePortContractTests
         Assert.Empty(Require(await CreateStore().ReadAllAsync(ct)));
     }
 
-    /// <summary>Every member comes back exactly as appended — a store that normalized one would break the commitment.</summary>
+    /// <summary>
+    /// Every member comes back exactly as appended — a store that normalized one would break the
+    /// commitment. The rationale carries an NFD member, <c>e</c> followed by U+0301, beside the
+    /// precomposed ones: NFC leaves precomposed text alone, so without it an adapter that normalized
+    /// on write to NFC would pass.
+    /// </summary>
     [Fact]
     public async Task R11_32_AnAppendedDetailReadsBackVerbatim()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore();
-        var detail = Detail("01JFLAG000000000000000001", "Café — naïve rationale\nwith a second line");
+        var detail = Detail("01JFLAG000000000000000001", "Café — naïve rationale\nwith a second line, and cafe\u0301 decomposed");
 
         Require(await store.AppendAsync(detail, ct));
 

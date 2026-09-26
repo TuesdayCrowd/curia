@@ -356,17 +356,28 @@ public static class ModerationPolicy
     }
 
     /// <summary>
-    /// Whether a post may be served, given its moderation history in order.
+    /// R10.61: which categories hold a post, and how, given its moderation history in order — the
+    /// latest permitted quarantine or withholding in each category, until a permitted restore citing
+    /// that category releases it.
+    ///
+    /// <para><b>Per category, because a record acts only on the category it cites.</b> A record's
+    /// <c>adjudicates</c> names only its own category's flags (R10.60), so upholding was already per
+    /// category; read as one servable bit, a restore in <c>spam</c> served a post a human had withheld
+    /// for a credential leak while the flag behind that withholding stayed upheld — the post back in
+    /// service, its author still demoted. A post is served only while no category holds it.</para>
+    ///
+    /// <para><b>A dismissal holds and releases nothing.</b> It is a decision not to act, recorded
+    /// because R10.39 publishes the upheld rate and a dismissal is the denominator's other half.</para>
     ///
     /// <para>A fold rather than a stored flag, for the reason <c>CredentialLifecycle.Project</c>
     /// records: there is nothing to go stale, so a restore takes effect on the next read with no
     /// invalidation step to forget. The history is the state.</para>
     /// </summary>
-    public static bool MayServe(IReadOnlyList<ModerationAction> historyInOrder)
+    public static ImmutableSortedDictionary<FlagKind, ModerationEffect> ServingEffect(IReadOnlyList<ModerationAction> historyInOrder)
     {
         ArgumentNullException.ThrowIfNull(historyInOrder);
 
-        var servable = true;
+        var holds = ImmutableSortedDictionary.CreateBuilder<FlagKind, ModerationEffect>();
 
         foreach (var action in historyInOrder)
         {
@@ -375,22 +386,33 @@ public static class ModerationPolicy
             // otherwise appending an event is a way to remove content (R10.61).
             if (!Permits(action)) continue;
 
-            servable = action.Effect switch
+            switch (action.Effect)
             {
-                ModerationEffect.Quarantine => false,
-                ModerationEffect.Withhold => false,
-                ModerationEffect.Restore => true,
+                case ModerationEffect.Quarantine:
+                case ModerationEffect.Withhold:
+                    holds[action.Category] = action.Effect;
+                    break;
 
-                // A dismissal is a decision not to act, so it changes nothing about servability. It
-                // is still recorded, because R10.39 publishes the upheld rate and a dismissal is the
-                // denominator's other half.
-                ModerationEffect.Dismiss => servable,
-                _ => throw new ArgumentOutOfRangeException(nameof(historyInOrder), action.Effect, "Not an effect"),
-            };
+                case ModerationEffect.Restore:
+                    holds.Remove(action.Category);
+                    break;
+
+                case ModerationEffect.Dismiss:
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(historyInOrder), action.Effect, "Not an effect");
+            }
         }
 
-        return servable;
+        return holds.ToImmutable();
     }
+
+    /// <summary>
+    /// Whether a post may be served, given its moderation history in order: only while no category
+    /// holds it (R10.61, <see cref="ServingEffect"/>).
+    /// </summary>
+    public static bool MayServe(IReadOnlyList<ModerationAction> historyInOrder) => ServingEffect(historyInOrder).IsEmpty;
 
     /// <summary>Whether R10.61's table permits this record's (moderator, effect) pair.</summary>
     private static bool Permits(ModerationAction action) => Permitted.Contains((action.Moderator, action.Effect));

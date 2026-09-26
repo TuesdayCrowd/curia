@@ -92,6 +92,32 @@ public sealed record FlagDirectory(ImmutableArray<RaisedFlag> Flags, ImmutableSo
             ? (new RaisedFlag(appended.Event.Id.Value, postId, raisedBy, kind, appended.ServerTimestamp), null)
             : (null, SkippedUnreadableLegacy);
 
+    /// <summary>
+    /// Every flag's rationale, by flag id: the private row for a committed flag, the event itself for
+    /// a legacy one. Read by the two out-of-band paths that need a rationale and never by a serving
+    /// path — the operator's review listing, and <c>ApplyModeration</c>'s check that a record's public
+    /// reason repeats none (R10.62) — so both read one source. Look a rationale up only for a flag
+    /// <see cref="Join"/> listed: a row is keyed here whether or not it still opens its commitment.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> RationalesByFlag(IReadOnlyList<AppendedEvent> log, IReadOnlyList<FlagDetail> details)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(details);
+
+        var rationales = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var detail in details)
+            rationales.TryAdd(detail.EventId, detail.Rationale);
+
+        foreach (var appended in log.Where(e => e.Event.Type.Value == FlagProjector.FlagRaisedType))
+        {
+            if (appended.Event.Payload is JsonValue.Object payload
+                && payload.Members.FirstOrDefault(m => m.Key == FlagProjector.RationaleField).Value is JsonValue.String legacy)
+                rationales.TryAdd(appended.Event.Id.Value, legacy.Value);
+        }
+
+        return rationales;
+    }
+
     private static (RaisedFlag? Flag, string? Reason) Committed(
         Dictionary<string, JsonValue> fields, AppendedEvent appended, Dictionary<string, FlagDetail> byEvent)
     {

@@ -319,6 +319,28 @@ public sealed class AgentStandingProjectorTests
         Assert.Single(await LogAsync(store, ct));
     }
 
+    /// <summary>
+    /// An attestation names who attested, publicly and permanently. <c>operator: </c> is a valid
+    /// <see cref="ActorId"/> and passes the namespace convention, but names no one; it is refused by
+    /// name, and nothing is appended. The operator tool refuses a blank <c>--by</c> first; this is the
+    /// use case's own guard, for every other caller.
+    /// </summary>
+    [Fact]
+    public async Task R4_30_ABlankOperatorNameIsRefusedAndNothingIsAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, Kid, ct));
+
+        var refused = await AttestAsync(store, clock, Agent, ct, by: "operator:   ");
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/attest/blank-operator-name", error!.Type);
+        Assert.Single(await LogAsync(store, ct));
+    }
+
     /// <summary>An attestation for an agent the log has never enrolled is refused, and appends nothing.</summary>
     [Fact]
     public async Task R4_30_AnAttestationNeedsAnEnrollment()

@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using CsCheck;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
@@ -311,6 +312,93 @@ public sealed class ModerationTests
     [Fact]
     public void An_automated_quarantine_does_stop_a_post_being_served() =>
         Assert.False(ModerationPolicy.MayServe([Action(ModeratorKind.Automated, ModerationEffect.Quarantine)]));
+
+    private static ModerationAction In(FlagKind category, ModerationEffect effect, params string[] flags) =>
+        new("01J0", ModeratorKind.Human, "operator:reviewer", effect, category, "reviewed", Now, [.. flags]);
+
+    /// <summary>
+    /// R10.61: a permitted quarantine or withholding holds its post in the category it cites, and only
+    /// a restore citing that category releases the hold. Read as one servable bit, a restore in
+    /// <c>spam</c> served a post withheld for a credential leak while the flag that withholding upheld
+    /// stayed upheld: the post back in service, its author still demoted.
+    /// </summary>
+    [Fact]
+    public void R10_61_ARestoreInAnotherCategoryDoesNotServe()
+    {
+        ModerationAction[] history =
+        [
+            In(FlagKind.CredentialLeak, ModerationEffect.Withhold, "f1"),
+            In(FlagKind.Spam, ModerationEffect.Restore),
+        ];
+
+        Assert.False(ModerationPolicy.MayServe(history));
+        Assert.Equal(["f1"], Sorted(ModerationPolicy.UpheldFlags(history)));
+    }
+
+    /// <summary>R10.61: a post held in two categories is served only once each hold has its own restore.</summary>
+    [Fact]
+    public void R10_61_TwoHoldsNeedTwoRestores()
+    {
+        var spam = In(FlagKind.Spam, ModerationEffect.Withhold);
+        var leak = In(FlagKind.CredentialLeak, ModerationEffect.Quarantine);
+        var restoreSpam = In(FlagKind.Spam, ModerationEffect.Restore);
+        var restoreLeak = In(FlagKind.CredentialLeak, ModerationEffect.Restore);
+
+        Assert.False(ModerationPolicy.MayServe([spam, leak, restoreSpam]));
+        Assert.True(ModerationPolicy.MayServe([spam, leak, restoreSpam, restoreLeak]));
+    }
+
+    private static readonly FlagKind[] PropertyKinds = [FlagKind.Spam, FlagKind.CredentialLeak, FlagKind.Injection];
+    private static readonly ModeratorKind[] PropertyModerators = Enum.GetValues<ModeratorKind>();
+    private static readonly ModerationEffect[] PropertyEffects = Enum.GetValues<ModerationEffect>();
+
+    /// <summary>
+    /// Builds one post's log from generated steps: step 0 raises a flag in a category, and every other
+    /// step is a record whose <c>adjudicates</c> follows R10.60 — a record by a moderator who reviews
+    /// names every flag of its category raised before it, and an automated record names none. Every
+    /// (moderator, effect) cell is generated, refused ones included, because the log can hold them.
+    /// Three categories rather than seven, so records in different categories meet often.
+    /// </summary>
+    private static List<ModerationAction> RecordsFollowingR10_60(IReadOnlyList<(int Step, int Moderator, int Category)> steps)
+    {
+        var raised = PropertyKinds.ToDictionary(k => k, _ => new List<string>());
+        var history = new List<ModerationAction>();
+
+        foreach (var (step, moderatorChoice, categoryChoice) in steps)
+        {
+            var category = PropertyKinds[categoryChoice];
+            if (step == 0)
+            {
+                raised[category].Add("f" + raised.Values.Sum(f => f.Count).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                continue;
+            }
+
+            var moderator = PropertyModerators[moderatorChoice];
+            string[] names = moderator is ModeratorKind.Automated ? [] : [.. raised[category]];
+            history.Add(new ModerationAction(
+                "01J0", moderator, "mod-1", PropertyEffects[step - 1], category, "reviewed", Now, [.. names]));
+        }
+
+        return history;
+    }
+
+    /// <summary>
+    /// R10.61's two folds agree, for any log whose records follow R10.60: a post the serving path may
+    /// serve has no upheld flag. A fold that ignored category, or a restore that released every hold,
+    /// serves a post whose flag another category's record still upholds, and the generator finds that
+    /// sequence without being handed it.
+    /// </summary>
+    [Fact]
+    public void R10_61_AServedPostHasNoUpheldFlag() =>
+        Gen.Select(Gen.Int[0, PropertyEffects.Length], Gen.Int[0, PropertyModerators.Length - 1], Gen.Int[0, PropertyKinds.Length - 1])
+            .List[0, 12]
+            .Sample(
+                steps =>
+                {
+                    var history = RecordsFollowingR10_60(steps);
+                    return !ModerationPolicy.MayServe(history) || ModerationPolicy.UpheldFlags(history).IsEmpty;
+                },
+                iter: 1000);
 
     /// <summary>R10.39's denominator: the flags a reviewing record named, dismissed or not; never an automated one's.</summary>
     [Fact]
