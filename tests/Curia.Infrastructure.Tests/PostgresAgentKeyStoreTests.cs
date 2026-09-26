@@ -176,6 +176,70 @@ public sealed class PostgresAgentKeyStoreTests
     }
 
     /// <summary>
+    /// R4.32 (errata G14) at the history primitive: the same <c>kid</c> registered again with other
+    /// bytes is refused by name, and the key that resolves is still the original. Before G14 this
+    /// call replaced the bytes and returned success -- which is how an enrollment request could make
+    /// every post a key had signed stop verifying.
+    /// </summary>
+    [Fact]
+    public async Task AKidRegisteredAgainWithOtherBytesIsRefusedAndTheOriginalStands()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
+        var original = NewKey("kid-material");
+
+        Require(await store.RegisterAsync("agent://forum/alice", original, LastMonth, cancellationToken: ct));
+        var replaced = await store.RegisterAsync("agent://forum/alice", NewKey("kid-material"), Today, cancellationToken: ct);
+
+        Assert.Equal("curia/keys/material-immutable", Refusal(replaced).Type);
+        var resolved = Require(await store.ResolveAsync("agent://forum/alice", "kid-material", ServerTimestamp.At(Today), ct));
+        Assert.Equal(original.Public.ToArray(), resolved.Public.ToArray());
+    }
+
+    /// <summary>
+    /// R4.32 counts the algorithm as material: the same <c>kid</c> and bytes registered again under
+    /// another algorithm are refused by name, and the key that resolves still declares the original.
+    /// A verifier dispatches on the declared algorithm, so relabelling a key changes what its
+    /// signatures mean as surely as replacing its bytes. Nothing else fences the statement's
+    /// algorithm clause: the grant cannot, since the statement no longer sets the column.
+    /// </summary>
+    [Fact]
+    public async Task AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
+        var original = NewKey("kid-algorithm");
+
+        Require(await store.RegisterAsync("agent://forum/alice", original, LastMonth, cancellationToken: ct));
+        var relabelled = await store.RegisterAsync(
+            "agent://forum/alice", new PublicKeyMaterial("EdDSA", original.Kid, original.Public.ToArray()), Today, cancellationToken: ct);
+
+        Assert.Equal("curia/keys/material-immutable", Refusal(relabelled).Type);
+        var resolved = Require(await store.ResolveAsync("agent://forum/alice", "kid-algorithm", ServerTimestamp.At(Today), ct));
+        Assert.Equal("ES256", resolved.Alg);
+    }
+
+    /// <summary>
+    /// R4.31 at the adapter's read: a key whose window has closed is still a key its identifier
+    /// holds, so enrolling that identifier under a new <c>kid</c> is refused by name. The rule says so
+    /// already (<c>KeyEnrollmentTests.R4_31_AKeyWhoseWindowHasClosedIsStillHeld</c>); this fences the
+    /// SELECT that feeds it, where an added <c>valid_until IS NULL</c> would hand every retired
+    /// identity to whoever enrolled it next -- G14's attack, reopened the day revocation writes
+    /// <c>valid_until</c>.
+    /// </summary>
+    [Fact]
+    public async Task AKeyWhoseWindowHasClosedStillCountsAsHeldWhenEnrollingANewKid()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
+
+        Require(await store.RegisterAsync("agent://forum/alice", NewKey("kid-closed"), LastMonth, Today, ct));
+        var enrolled = await store.EnrollAsync("agent://forum/alice", NewKey("kid-after-closing"), Today.AddDays(1), ct);
+
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(enrolled).Type);
+    }
+
+    /// <summary>
     /// A repeat registration cannot un-revoke a key. The in-memory predecessor assigned
     /// <c>NotAfter</c> outright, so calling the enrollment endpoint again -- which needs no owner
     /// authentication yet -- quietly restored a revoked key to service. R4.19 requires revocation

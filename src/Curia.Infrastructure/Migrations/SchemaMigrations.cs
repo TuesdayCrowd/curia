@@ -37,6 +37,10 @@ public static class SchemaMigrations
     /// <summary>db/0004: the private half of a flag (R10.62, R11.32), under the event table's append-only grant.</summary>
     public const string FlagDetailsFile = "0004_create_flag_details.sql";
 
+    /// <summary>db/0005: UPDATE on <c>agent_keys</c> narrowed to the validity window (R4.32). Rendered beside
+    /// <see cref="OperationalStateFile"/> wherever that file is rendered on its own.</summary>
+    public const string AgentKeyMaterialFile = "0005_protect_agent_key_material.sql";
+
     /// <summary>
     /// Every migration file in <c>db/</c>, in the order it must be applied. The names are the
     /// checked-in file names, so a reader comparing this list against a directory listing can
@@ -48,6 +52,7 @@ public static class SchemaMigrations
         OperationalStateFile,
         RetrievalIndexFile,
         FlagDetailsFile,
+        AgentKeyMaterialFile,
     ];
 
     /// <summary>

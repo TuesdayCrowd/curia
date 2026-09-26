@@ -1816,7 +1816,7 @@ but commit -b enrollment-binds-once -m "$(printf 'Enrollment registers a key onl
 **Files:**
 - Create: `tests/Curia.Infrastructure.Tests/AgentKeyMaterialGrantTests.cs`
 - Create: `db/0005_protect_agent_key_material.sql`
-- Modify: `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` (two facts)
+- Modify: `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs` (three facts)
 - Modify: `src/Curia.Infrastructure/Migrations/SchemaMigrations.cs`
 - Modify: `tests/Curia.Infrastructure.Tests/PostgresDatabaseFixture.cs`
 - Modify: `src/Curia.Infrastructure/PostgresAgentKeyStore.cs` (`RegisterAsync`)
@@ -1943,6 +1943,8 @@ public sealed class AgentKeyMaterialGrantTests
 
 In `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs`, add these two facts: other bytes, and the same bytes under another algorithm. The second fences the statement's `existing.alg = EXCLUDED.alg` clause, which nothing else does. The class carries no underscore suppression, so the names have no underscore.
 
+A third fact, carried from Task 3's review, fences `EnrollAsync`'s read rather than this statement: a key whose window has closed still counts as held, so enrolling its identifier under a new `kid` is refused. An added `AND valid_until IS NULL` in that SELECT turns it red and nothing else in the key-store classes. It passes from the start, so Step 3 does not run it.
+
 In `tests/Curia.Infrastructure.Tests/PostgresAgentKeyStoreTests.cs`, insert before:
 
 ```csharp
@@ -1995,6 +1997,26 @@ this:
         Assert.Equal("curia/keys/material-immutable", Refusal(relabelled).Type);
         var resolved = Require(await store.ResolveAsync("agent://forum/alice", "kid-algorithm", ServerTimestamp.At(Today), ct));
         Assert.Equal("ES256", resolved.Alg);
+    }
+
+    /// <summary>
+    /// R4.31 at the adapter's read: a key whose window has closed is still a key its identifier
+    /// holds, so enrolling that identifier under a new <c>kid</c> is refused by name. The rule says so
+    /// already (<c>KeyEnrollmentTests.R4_31_AKeyWhoseWindowHasClosedIsStillHeld</c>); this fences the
+    /// SELECT that feeds it, where an added <c>valid_until IS NULL</c> would hand every retired
+    /// identity to whoever enrolled it next -- G14's attack, reopened the day revocation writes
+    /// <c>valid_until</c>.
+    /// </summary>
+    [Fact]
+    public async Task AKeyWhoseWindowHasClosedStillCountsAsHeldWhenEnrollingANewKid()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
+
+        Require(await store.RegisterAsync("agent://forum/alice", NewKey("kid-closed"), LastMonth, Today, ct));
+        var enrolled = await store.EnrollAsync("agent://forum/alice", NewKey("kid-after-closing"), Today.AddDays(1), ct);
+
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(enrolled).Type);
     }
 
 ```
@@ -2349,6 +2371,8 @@ Expected: 0 warnings, and the whole Infrastructure suite `Passed!`. `SchemaMigra
     0 Error(s)
 Passed!  - Failed:     0, Passed:   104, Skipped:     0, Total:   104, Duration: … - Curia.Infrastructure.Tests.dll (net10.0)
 ```
+
+The closed-window fact Step 2 carries from Task 3's review makes it 105.
 
 - [ ] **Step 8: Commit**
 

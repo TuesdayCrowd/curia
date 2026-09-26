@@ -1,3 +1,4 @@
+using System.Data;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ports;
 using Curia.Canon.Jws;
@@ -98,7 +99,13 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         ArgumentNullException.ThrowIfNull(key);
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        // READ COMMITTED, named rather than left to the driver: the lock below serializes enrollments
+        // of one identifier only because the SELECT after it takes a fresh snapshot once the lock is
+        // granted. Under REPEATABLE READ the snapshot is taken at the lock statement, before the lock
+        // is granted, so two racers on a fresh identifier would each read no key and each insert one.
+        // Npgsql already sends READ COMMITTED for an unspecified level; naming it makes that a decision.
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
 
         await using (var lockCommand = new NpgsqlCommand(
             "SELECT pg_advisory_xact_lock(hashtextextended(@lockkey, 0));", connection, transaction))
@@ -163,44 +170,34 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     }
 
     /// <summary>
-    /// Registers a key, refusing a <c>kid</c> already registered to a different agent.
+    /// The key store's history primitive: records a key with a window, refusing a <c>kid</c> already
+    /// registered to a different agent (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>) or
+    /// already registered with different material (<see cref="AuthorKeyErrors.MaterialImmutable"/>,
+    /// R4.32).
     ///
-    /// <para><b>The PRIMARY KEY on <c>kid</c> is what enforces this, not the application.</b> The
-    /// in-memory predecessor scanned its own dictionary for a colliding <c>kid</c> and then wrote
-    /// -- a check-then-act that two concurrent enrollments can both pass, leaving exactly the
-    /// ambiguity the check existed to prevent. Here the scan is gone: the whole decision is one
-    /// <c>INSERT ... ON CONFLICT (kid) DO UPDATE ... WHERE agent_id matches</c>. A row comes back
-    /// when the caller owns the <c>kid</c>; nothing comes back when someone else does, and
-    /// Postgres decided that, under an index, for whichever enrollment arrived first.</para>
+    /// <para><b>Internal, and on no port.</b> Enrollment's write is <see cref="EnrollAsync"/>, which
+    /// registers only for an identifier that holds no key (R4.31). This method registers for any
+    /// identifier, which is the capability errata G14 found the enrollment endpoint exercising for
+    /// every caller; it stays because R4.18's rotation and R4.19's revocation will each need the
+    /// window arithmetic below behind a port that proves what they must, and until then its callers
+    /// are this assembly's tests.</para>
     ///
-    /// <para><b><c>valid_from</c> only ever moves earlier</b> -- <c>LEAST</c>, not assignment.
-    /// The in-memory version overwrote it, so an agent re-enrolling (which a client does whenever
-    /// it wants a fresh key registration) silently invalidated every signature that key had
-    /// already made: R6.31 evaluates validity at each post's <c>server_ts</c>, and a
-    /// <c>valid_from</c> dragged forward to today is a declaration that last week's posts were
-    /// signed by a key that did not yet exist. This is the same defect
-    /// <c>Curia.Application.Credentials.EnrollAgent</c> refuses for the tenure clock -- there by
-    /// declining to append a second enrollment event at all -- in the one place where it destroys
-    /// evidence rather than standing. The day a key first became valid is a fact about the
-    /// archive, not a field the latest request gets to set.</para>
+    /// <para><b>The PRIMARY KEY on <c>kid</c> decides ownership, not the application.</b> The whole
+    /// decision is one <c>INSERT ... ON CONFLICT (kid) DO UPDATE ... WHERE</c> the existing row names
+    /// the same agent, algorithm and bytes. A row comes back when the caller re-presents the key it
+    /// holds; nothing comes back otherwise, and a second read then says which refusal it was.</para>
     ///
-    /// <para><b><c>valid_until</c> only ever moves earlier</b>, symmetrically, and for a sharper
-    /// reason: a repeat enrollment must not be able to <i>un</i>-revoke a key. Postgres's
-    /// <c>LEAST</c> ignores nulls, which gives exactly the semantics wanted here with null read as
-    /// "no revocation recorded" rather than as "valid forever" -- registering with no expiry over
-    /// an existing revocation keeps the revocation, registering a revocation over an open window
-    /// applies it, and an earlier revocation beats a later one. The predecessor assigned this
-    /// column outright, so an enrollment call could quietly restore a compromised key to service;
-    /// R4.19 requires revocation to take effect within 60 seconds, not to take effect until
-    /// somebody enrolls again.</para>
+    /// <para><b><c>valid_from</c> only ever moves earlier</b> -- <c>LEAST</c>, not assignment: R6.31
+    /// evaluates validity at each post's <c>server_ts</c>, and a <c>valid_from</c> dragged forward
+    /// declares last week's posts signed by a key that did not yet exist. <b><c>valid_until</c> only
+    /// ever moves earlier</b> too, so a repeat registration cannot un-revoke a key; <c>LEAST</c>
+    /// ignores nulls, which reads null as "no revocation recorded".</para>
     ///
-    /// <para>The two key-material columns are last-write-wins, matching the predecessor. A repeat
-    /// enrollment that supplies <i>different key bytes</i> under an existing <c>kid</c> is
-    /// therefore accepted and silently changes what that <c>kid</c> means -- a real hazard, and
-    /// one this increment does not close because closing it properly is R4.18's rotation flow (a
-    /// new key signed by a currently valid one), not an extra predicate bolted onto an enrollment
-    /// endpoint that has no owner authentication yet either. Recorded here so the next increment
-    /// finds it named rather than having to rediscover it.</para>
+    /// <para><b>The material is never written over.</b> The statement sets the window alone, and
+    /// db/0005 grants the application role UPDATE on those two columns and no others, so a statement
+    /// that tried to set <c>alg</c> or <c>public_key</c> would be refused by Postgres rather than
+    /// obeyed. Before errata G14 this method set both, last write winning, and the enrollment endpoint
+    /// reached it with whatever bytes a request carried.</para>
     /// </summary>
     [SuppressMessage(
         "Reliability",
@@ -218,7 +215,7 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
             "in this solution supplies itself, never external input -- plus the SelectColumns " +
             "constant. Every per-call value (agent id, kid, algorithm, key bytes, the two instants) " +
             "is bound through a parameterized NpgsqlParameter and never reaches the command text.")]
-    public async Task<Result<RegisteredKey>> RegisterAsync(
+    internal async Task<Result<RegisteredKey>> RegisterAsync(
         string agentId,
         PublicKeyMaterial key,
         DateTimeOffset notBefore,
@@ -229,36 +226,44 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         ArgumentNullException.ThrowIfNull(key);
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new NpgsqlCommand(
+        await using (var command = new NpgsqlCommand(
             $"""
              INSERT INTO {_table} AS existing (kid, agent_id, alg, public_key, valid_from, valid_until)
              VALUES (@kid, @agent, @alg, @public, @from, @until)
              ON CONFLICT (kid) DO UPDATE
-               SET alg         = EXCLUDED.alg,
-                   public_key  = EXCLUDED.public_key,
-                   valid_from  = LEAST(existing.valid_from, EXCLUDED.valid_from),
+               SET valid_from  = LEAST(existing.valid_from, EXCLUDED.valid_from),
                    valid_until = LEAST(existing.valid_until, EXCLUDED.valid_until)
-               WHERE existing.agent_id = EXCLUDED.agent_id
+               WHERE existing.agent_id   = EXCLUDED.agent_id
+                 AND existing.alg        = EXCLUDED.alg
+                 AND existing.public_key = EXCLUDED.public_key
              RETURNING {SelectColumns};
              """,
-            connection);
-
-        command.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = key.Kid });
-        command.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
-        command.Parameters.Add(new NpgsqlParameter("alg", NpgsqlDbType.Text) { Value = key.Alg });
-        command.Parameters.Add(new NpgsqlParameter("public", NpgsqlDbType.Bytea) { Value = key.Public.ToArray() });
-        command.Parameters.Add(new NpgsqlParameter("from", NpgsqlDbType.TimestampTz) { Value = notBefore });
-        command.Parameters.Add(new NpgsqlParameter("until", NpgsqlDbType.TimestampTz)
+            connection))
         {
-            Value = notAfter is { } until ? until : DBNull.Value,
-        });
+            command.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = key.Kid });
+            command.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
+            command.Parameters.Add(new NpgsqlParameter("alg", NpgsqlDbType.Text) { Value = key.Alg });
+            command.Parameters.Add(new NpgsqlParameter("public", NpgsqlDbType.Bytea) { Value = key.Public.ToArray() });
+            command.Parameters.Add(new NpgsqlParameter("from", NpgsqlDbType.TimestampTz) { Value = notBefore });
+            command.Parameters.Add(new NpgsqlParameter("until", NpgsqlDbType.TimestampTz)
+            {
+                Value = notAfter is { } until ? until : DBNull.Value,
+            });
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                return Result<RegisteredKey>.Ok(MapRow(reader));
+        }
 
-        // No row means the ON CONFLICT's WHERE refused: the kid exists and belongs to someone
-        // else. There is no other way for this statement to write nothing.
-        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ? Result<RegisteredKey>.Ok(MapRow(reader))
+        // No row: the kid exists and the WHERE refused. Which refusal is a fact about the row that
+        // stands, and a kid's owner never changes (db/0005 grants no UPDATE on agent_id), so reading
+        // it after the statement cannot race into a different answer.
+        await using var owner = new NpgsqlCommand($"SELECT agent_id FROM {_table} WHERE kid = @kid;", connection);
+        owner.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = key.Kid });
+        var holder = (string?)await owner.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        return string.Equals(holder, agentId, StringComparison.Ordinal)
+            ? Result<RegisteredKey>.Fail(AuthorKeyErrors.MaterialImmutable(key.Kid))
             : Result<RegisteredKey>.Fail(AuthorKeyErrors.KidRegisteredToAnotherAgent(agentId, key.Kid));
     }
 
