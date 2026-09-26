@@ -4449,7 +4449,7 @@ but commit -b moderation-that-can-act -m "$(printf 'ApplyModeration: the human a
 **Interfaces:**
 - Consumes: `ApplyModeration`, `ModerationRecorded` and `ModerationRecordErrors` (Task 8); `FlagDirectory` (Task 5); `ModerationPolicy.UpheldFlags` and `AdjudicatedFlags` (Task 2); `PostgresAdapters.FlagDetails` (Task 4); `Datamarking.Render` with `MarkingMode.Datamark` (existing, `Curia.Domain.Serving`).
 - Produces:
-  - `curia-operator moderate --post <id> --category <kind> --effect withhold|quarantine|restore|dismiss --reason <text> --by <name>`. Exit codes: `0` recorded, `1` usage, `2` refused.
+  - `curia-operator moderate --post <id> --category <kind> --effect withhold|quarantine|restore|dismiss --reason <text> --by <name>`. Exit codes: `0` recorded, `1` usage, `2` refused. A `curia/domain/concurrency-conflict` refusal (another write reached the post after the record was decided) adds a `hint:` line on stderr: re-read the post and re-run. It names no flag, raiser or rationale.
   - `curia-operator flags [--post <id>] [--open]`.
   - `internal static class TerminalText` with `Line(string)` and `Block(string)`.
   - Stdout formats, which the tests below read:
@@ -4490,8 +4490,10 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Curia.Application.Projections;
 using Curia.Domain.Serving;
 using Curia.OperatorTool;
+using Npgsql;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -4564,6 +4566,29 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         }
 
         throw new InvalidOperationException("the log did not end within 100,000 entries");
+    }
+
+    /// <summary>
+    /// Waits until <paramref name="sessions"/> sessions of this database wait for a lock on
+    /// <c>flag_details</c>, or until a run has ended without waiting, which the caller's assertions
+    /// then report.
+    /// </summary>
+    private static async Task WaitUntilQueuedAsync(NpgsqlDataSource db, int sessions, Task[] runs, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3_000; attempt++)
+        {
+            if (runs.Any(r => r.IsCompleted)) return;
+
+            await using var waiting = db.CreateCommand(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'relation' AND NOT granted " +
+                "AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) " +
+                "AND relation = 'flag_details'::regclass");
+            if ((long)(await waiting.ExecuteScalarAsync(ct))! >= sessions) return;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10), ct);
+        }
+
+        throw new TimeoutException($"{sessions} runs did not reach the private store within 30 s");
     }
 
     /// <summary>R10.59, R10.60, R6.25: the post stops being served, and the record — public, in the log — names who and why, and the digest.</summary>
@@ -4719,13 +4744,121 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         using var read = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct);
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
     }
+
+    /// <summary>
+    /// R10.39 counts records, so two operators recording one decision at once must leave one record.
+    /// <c>ApplyModeration</c> decides on one read of the log, and the store refuses the append that
+    /// read no longer describes; the verb then tells that operator to re-read the post and re-run.
+    /// The guidance names no flag, raiser or rationale (R10.27, R10.28).
+    ///
+    /// <para>Both runs are held at the private store, which the writer reads after the log and before
+    /// it appends, until both are waiting there, so both decide on the same view of the log. The lock
+    /// is the database owner's; the Forum's role holds no grant that could take it.</para>
+    /// </summary>
+    [Fact]
+    public async Task R10_39_OfTwoRecordsDecidedOnOneViewOneLandsAndTheOtherIsToldToReRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var author = await PartyAsync(client, "op-author", ct);
+        var raiser = await PartyAsync(client, "op-raiser", ct);
+        var (postId, _) = await AskAsync(client, author, ct);
+        const string rationale = "Advertising, not a question.";
+        await FlagAsync(client, raiser, postId, "spam", rationale, ct);
+
+        (int Exit, string Out, string Err)[] runs;
+        await using (var db = NpgsqlDataSource.Create(forum.ConnectionString))
+        await using (var holder = await db.OpenConnectionAsync(ct))
+        await using (var hold = await holder.BeginTransactionAsync(ct))
+        {
+            await using (var lockTable = new NpgsqlCommand("LOCK TABLE flag_details IN ACCESS EXCLUSIVE MODE", holder, hold))
+                await lockTable.ExecuteNonQueryAsync(ct);
+
+            Task<(int Exit, string Out, string Err)>[] pending =
+                [RunAsync(Moderate(postId, "withhold"), ct), RunAsync(Moderate(postId, "withhold"), ct)];
+            await WaitUntilQueuedAsync(db, pending.Length, pending, ct);
+            await hold.RollbackAsync(ct);
+            runs = await Task.WhenAll(pending);
+        }
+
+        var landed = Assert.Single(runs, r => r.Exit == ExitCode.Ok);
+        var overtaken = Assert.Single(runs, r => r.Exit == ExitCode.Refused);
+        Assert.Contains("curia/domain/concurrency-conflict", overtaken.Err, StringComparison.Ordinal);
+        Assert.Contains("nothing was written", overtaken.Err, StringComparison.Ordinal);
+        Assert.Contains("Re-read the post", overtaken.Err, StringComparison.Ordinal);
+
+        var flagId = landed.Out.Split('\n').Single(l => l.StartsWith("adjudicates  1: ", StringComparison.Ordinal))["adjudicates  1: ".Length..].Trim();
+        Assert.DoesNotContain(flagId, overtaken.Err, StringComparison.Ordinal);
+        Assert.DoesNotContain(raiser.Agent.AgentId, overtaken.Err, StringComparison.Ordinal);
+        Assert.DoesNotContain(rationale, overtaken.Err, StringComparison.Ordinal);
+
+        var records = 0;
+        for (long i = 0; i < 100_000; i++)
+        {
+            using var entry = await client.GetAsync(new Uri($"/v1/log/entries/{i}", UriKind.Relative), ct);
+            if (entry.StatusCode == HttpStatusCode.NotFound) break;
+
+            var body = await entry.Content.ReadAsStringAsync(ct);
+            if (body.Contains("\"moderation.applied\"", StringComparison.Ordinal) && body.Contains(postId, StringComparison.Ordinal))
+                records++;
+        }
+
+        Assert.Equal(1, records);
+    }
+
+    /// <summary>
+    /// R11.31's shape, for the join R10.62 creates. A private row rewritten or lost after the fact no
+    /// longer opens its entry's commitment, so the directory skips the flag; the listing is the one
+    /// place an operator sees that join, and it counts each skip by reason rather than reading as a
+    /// Forum where the flag was never raised. The count names no raiser and repeats no text.
+    ///
+    /// <para>Both changes are the database owner's: R11.6's grant refuses the Forum's role
+    /// <c>UPDATE</c> and <c>DELETE</c> on the table.</para>
+    /// </summary>
+    [Fact]
+    public async Task R10_62_ARewrittenOrLostPrivateRowIsCountedInTheListing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var author = await PartyAsync(client, "op-author", ct);
+        var raiser = await PartyAsync(client, "op-raiser", ct);
+        var (postId, _) = await AskAsync(client, author, ct);
+        await FlagAsync(client, raiser, postId, "spam", "Advertising, not a question.", ct);
+        await FlagAsync(client, raiser, postId, "incorrect", "The premise is false.", ct);
+
+        await using (var db = NpgsqlDataSource.Create(forum.ConnectionString))
+        {
+            await using (var rewrite = db.CreateCommand(
+                "UPDATE flag_details SET rationale = 'Rewritten after the fact.' WHERE post_id = @post AND rationale = 'Advertising, not a question.'"))
+            {
+                rewrite.Parameters.AddWithValue("post", postId);
+                Assert.Equal(1, await rewrite.ExecuteNonQueryAsync(ct));
+            }
+
+            await using (var lose = db.CreateCommand(
+                "DELETE FROM flag_details WHERE post_id = @post AND rationale = 'The premise is false.'"))
+            {
+                lose.Parameters.AddWithValue("post", postId);
+                Assert.Equal(1, await lose.ExecuteNonQueryAsync(ct));
+            }
+        }
+
+        var (exit, stdout, stderr) = await RunAsync(["flags", "--post", postId], ct);
+
+        Assert.True(exit == ExitCode.Ok, stderr);
+        Assert.Contains($"skipped    {FlagDirectory.SkippedCommitmentMismatch}: 1", stdout, StringComparison.Ordinal);
+        Assert.Contains($"skipped    {FlagDirectory.SkippedNoDetail}: 1", stdout, StringComparison.Ordinal);
+        Assert.Contains("0 flag(s)", stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rewritten after the fact.", stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain(raiser.Agent.AgentId, stdout, StringComparison.Ordinal);
+    }
 }
 ```
 
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~OperatorModerationTests"`
-Expected: the tests build, and every test that runs a verb FAILS with exit code `1` (`unknown verb 'moderate'` or `'flags'`). `AMissingCategoryIsAUsageErrorAndWritesNothing` also fails, on the message.
+Expected: the tests build, and every test that runs a verb FAILS with exit code `1` (`unknown verb 'moderate'` or `'flags'`). `AMissingCategoryIsAUsageErrorAndWritesNothing` also fails, on the message. So do the two facts beyond the first six: the race fact at `Assert.Single`, both runs having exited `1`, and the skip-count fact on its exit code.
 
 - [ ] **Step 3: Write the terminal-safety helper**
 
@@ -4869,7 +5002,13 @@ In `src/Curia.Operator/Program.cs`:
         }
 
         if (!result.TryGetValue(out var recorded, out var error))
-            return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+        {
+            var refused = await RefuseAsync(stderr, error!).ConfigureAwait(false);
+            if (string.Equals(error!.Type, DomainErrors.ConcurrencyConflictType, StringComparison.Ordinal))
+                await stderr.WriteLineAsync(OvertakenGuidance).ConfigureAwait(false);
+
+            return refused;
+        }
 
         var count = recorded!.Adjudicates.Length.ToString(CultureInfo.InvariantCulture);
         var named = recorded.Adjudicates.IsEmpty ? string.Empty : ": " + string.Join(", ", recorded.Adjudicates);
@@ -4982,6 +5121,21 @@ In `src/Curia.Operator/Program.cs`:
 
 If the compiler reports `AppendedEvent`, `FlagDetail`, `FlagDirectory`, `FlagProjector`, `JsonValue` or `ModerationAction` unresolved, add the matching `using`. The file already imports `Curia.Application.Ports`, `Curia.Application.Projections`, `Curia.Canon.Json` and `Curia.Domain`.
 
+5. Directly after the `Usage` constant, add the guidance `moderate` prints under a `curia/domain/concurrency-conflict` refusal. `ApplyModeration` decides on one read of the log (Task 8), so a record another write overtook is refused whole and nothing is written; the operator's next step is a fresh read. The hint names no flag, raiser or rationale (R10.27, R10.28):
+
+```csharp
+    /// <summary>
+    /// What an operator does about <c>curia/domain/concurrency-conflict</c> from <c>moderate</c>.
+    /// <see cref="ApplyModeration"/> decides on one read of the log, and the store refuses the append
+    /// once another write has reached the post since that read, so the record was never written and
+    /// only a fresh read can say whether it is still wanted. Names no flag, raiser or rationale
+    /// (R10.27, R10.28).
+    /// </summary>
+    private const string OvertakenGuidance =
+        "hint: another write reached this post after this record was decided, so nothing was written. " +
+        "Re-read the post (curia-operator flags --post <post-id>) and re-run moderate if the record is still wanted.";
+```
+
 - [ ] **Step 5: Register the writer, correct the doc comment, and route every withholding through it**
 
 In `src/Curia.Api/Program.cs`, after the `RaiseFlag` registration, add:
@@ -5036,7 +5190,7 @@ In `tests/Curia.Api.Tests/FlagEndpointTests.cs`:
 
 In `tests/Curia.Api.Tests/SearchEndpointTests.cs`, change `await WithholdAsync(withheld, ct);` to `await forum.WithholdAsync(withheld, ct);`, and delete the private `WithholdAsync` method and its doc comment.
 
-In both files, deleting the private `WithholdAsync` leaves `using Curia.Application.Ports;` unused. Delete that one line from each file. The build will not point at it: IDE0005 has no severity in this repository, so an unused `using` builds clean. Checked with IDE0005 switched on, those two lines are the only ones this task orphans; every other `using` in both files is still used.
+Deleting the private `WithholdAsync` copies orphans every `using` only they needed. In `FlagEndpointTests.cs`, delete `using Curia.Application.Ports;`, `using Curia.Application.Projections;`, `using Curia.Canon.Json;`, `using Curia.Domain;`, `using Curia.Domain.Moderation;`, `using Curia.Domain.Primitives;` and `using Microsoft.Extensions.DependencyInjection;`. In `SearchEndpointTests.cs`, delete the same first six. The build will not point at them: IDE0005 has no severity in this repository, so an unused `using` builds clean. Checked with IDE0005 switched on and read from a SARIF log (`-p:ErrorLog=…`), because IDE0005 reports a contiguous run of unnecessary usings as one diagnostic at the run's first line: those thirteen lines are the only ones this task orphans. `SearchEndpointTests.cs`'s `using Curia.Domain.Search;` was already unused before this task and is left alone.
 
 - [ ] **Step 6: Run the verbs and every suite that withholds**
 
@@ -5048,7 +5202,7 @@ dotnet test tests/Curia.Architecture.Tests -c Release --nologo
 
 Expected:
 - `0 Warning(s)`.
-- The 6 `OperatorModerationTests` pass.
+- The 8 `OperatorModerationTests` pass.
 - `BatchRetrievalTests` and `ConditionalRequestTests` pass unchanged. They withhold through the fixture, which now runs the writer.
 - `CS7_HostProjectsDoNotNameDatabaseOrCryptoTypes` passes, because the operator names no Npgsql type.
 

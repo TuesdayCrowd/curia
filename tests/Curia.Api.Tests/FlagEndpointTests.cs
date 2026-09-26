@@ -2,13 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using Curia.Application.Ports;
-using Curia.Application.Projections;
-using Curia.Canon.Json;
-using Curia.Domain;
-using Curia.Domain.Moderation;
-using Curia.Domain.Primitives;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -216,12 +209,8 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     /// event</b>, never deletion — the post stays in the log exactly as signed, and the read path
     /// declines to serve it.
     ///
-    /// <para>The moderation action is appended directly to the store because no HTTP route creates
-    /// one: Table 10 gates <c>moderation:apply</c> to "T3 (delegated)" and Table 22 puts delegated
-    /// moderation in Phase 4. Asserting the filter through the log rather than through a route is
-    /// the whole reason <c>moderation.applied</c> ships without a writer — a <c>MayServe</c> folded
-    /// over a history that could only ever be empty is a filter whose silence carries no
-    /// information.</para>
+    /// <para>The withholding is R10.59's record, written through the operator's own use case by the
+    /// fixture.</para>
     /// </summary>
     [Fact]
     public async Task R10_36_AWithheldPostStopsBeingServedAndIsNotDeleted()
@@ -235,7 +224,7 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         using (var before = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct))
             Assert.Equal(HttpStatusCode.OK, before.StatusCode);
 
-        await WithholdAsync(postId, ct);
+        await forum.WithholdAsync(postId, ct);
 
         using var after = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct);
         Assert.Equal(HttpStatusCode.NotFound, after.StatusCode);
@@ -244,39 +233,5 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         // the withholding not having happened.
         using var listing = await client.GetAsync(new Uri($"/v1/boards/{board}/posts", UriKind.Relative), ct);
         Assert.DoesNotContain(postId, await listing.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Appends a <c>moderation.applied</c> event withholding a post, through the host's own event
-    /// store — the same append-only Postgres table everything else writes to.
-    /// </summary>
-    private async Task WithholdAsync(string postId, CancellationToken ct)
-    {
-        using var scope = forum.Services.CreateScope();
-        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
-
-        static T Require<T>(Result<T> result) =>
-            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
-
-        var aggregate = Require(AggregateId.Create(postId));
-        var history = Require(await store.ReadByAggregateAsync(aggregate, ct));
-
-        Require(await store.AppendAsync(
-            aggregate,
-            Require(AggregateVersion.From(history.Count)),
-            [new DomainEvent(
-                Require(EventId.Create($"{postId}-mod")),
-                Require(EventType.Create(FlagProjector.ModerationAppliedType)),
-                Require(ActorId.Create("https://agents.example/moderator")),
-                new JsonValue.Object(
-                [
-                    new(FlagProjector.PostIdField, new JsonValue.String(postId)),
-                    new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(ModeratorKind.Human))),
-                    new(FlagProjector.ActorIdField, new JsonValue.String("https://agents.example/moderator")),
-                    new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(ModerationEffect.Withhold))),
-                    new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(FlagKind.Injection))),
-                    new(FlagProjector.RationaleField, new JsonValue.String("reviewed and confirmed")),
-                ]))],
-            ct));
     }
 }

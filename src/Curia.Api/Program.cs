@@ -204,6 +204,13 @@ public sealed class Program
             sp.GetRequiredService<IFlagDetailStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
+        // R10.59's writer, reached by no HTTP route: registered so the end-to-end fixture withholds
+        // through the same object the operator tool builds, never by hand-building the event.
+        builder.Services.AddSingleton(sp => new ApplyModeration(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<IFlagDetailStore>(),
+            sp.GetRequiredService<TimeProvider>()));
+
         // Table 10's answer/accept. Holds IEventStore for the reason EnrollAgent and RaiseFlag do.
         builder.Services.AddSingleton(sp => new AcceptAnswer(
             sp.GetRequiredService<IEventStore>(),

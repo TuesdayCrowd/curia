@@ -68,6 +68,10 @@ public static class FlagProjector
     /// <summary>
     /// A moderation record. R10.37: "Every moderation action SHALL be a signed log entry with actor,
     /// category, and rationale."
+    ///
+    /// <para><b>One producer: R10.59's human arm</b>, <c>ApplyModeration</c>, reached out of band by
+    /// <c>curia-operator moderate</c>. The delegated arm (R10.36's T3 grant, Table 22's Phase 4) has
+    /// none yet, and Table 10 gives no route one.</para>
     /// </summary>
     public const string ModerationAppliedType = "moderation.applied";
 
