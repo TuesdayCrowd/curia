@@ -606,7 +606,10 @@ placeholder config that each line alone passes — `API_KEY=changeme⏎DATABASE_
 YAML `token: TODO` block, `PWD=/⏎HOME=/root` — because an assignment rule's open value class
 swallowed the joined next line. The cost, stated in `ScanShapes`' summary: an assigned secret with
 no vendor prefix, wrapped before its 24th character (a `password=` value before its 4th), is not
-rejoined — it was not rejoined before policy D either.
+rejoined — it was not rejoined before policy D either. `WebhookUrl` has an open path class too, and
+stays in the table deliberately: a webhook wrapped inside its host, or before its 20th path
+character, is caught by the line-joined view and by nothing else, and R10.26 makes a false negative
+permanent. Its measured join is filed as a known false positive instead (below).
 
 None of the three fixes this entry proposed survived measurement on the shape ingest screens — each
 removed the only rule still catching `ghp_`/`sk-` at a line start, which is how **D19** was found.
@@ -618,13 +621,28 @@ The benign set grew from fifteen entries to thirty-one: the twelve D17 sentences
 `fp-npm-token-variable` in the new `known-false-positives.jsonl` while the cross-word view stood and
 moved to the benign set once policy D stopped it firing; and three multi-line placeholders, the
 set's first — `placeholder-env-example-multiline`, `placeholder-yaml-token-todo` and
-`placeholder-env-dump-pwd-root`. Published: 43/43 detection and 0/31 false positives in every
-shape, under `secrets/2026-09-25b`. `evade-secret-split` moved to `known-evasions.jsonl` as
-deliberate; the spec's measured edge evaded in every shape and joined it as
-`evade-wrapped-at-line-start-after-a-word`. The measured residual (`Set npm_token⏎environment-specific …`,
-`fp-prefixed-identifier-at-a-wrapped-line-end`) is now the one entry of
-`known-false-positives.jsonl`. Both known-list gates name an entry whose `would_flag` or
-`would_detect` is empty as stale, since an empty expectation held for any content.
+`placeholder-env-dump-pwd-root`. The payloads gained `secret-wrapped-webhook-in-host`, a Slack
+webhook wrapped inside its host, which gives the webhook rule's line-joined catch a probe. Published:
+44/44 detection and 0/31 false positives in every shape, under `secrets/2026-09-25b`.
+`evade-secret-split` moved to `known-evasions.jsonl` as deliberate; the spec's measured edge evaded
+in every shape and joined it as `evade-wrapped-at-line-start-after-a-word`.
+
+`known-false-positives.jsonl` holds three entries, each held to still firing:
+
+- `fp-prefixed-identifier-at-a-wrapped-line-end` — the measured residual,
+  `Set npm_token⏎environment-specific …`: a prefixed identifier ending one line reads as one token
+  with the next line's first word (`ApiKey`). It predates policy D; the cross-word view fired on it
+  too.
+- `fp-webhook-placeholder-at-a-line-end` — **new with policy D**: a webhook placeholder too short to
+  fire alone borrows the next line's first identifier through the rule's open path class
+  (`ApiKey`). The old unseparated view deleted the `://` and `.` the rule needs, so it could not
+  produce this.
+- `fp-uppercase-list-joined-into-a-key-id` — **new with policy D**, a different rule and mechanism:
+  `REGIONS:⏎ASIA⏎PACIFIC⏎EUROPE⏎AND` accumulates one-word lines into `ASIA` plus exactly sixteen
+  characters (`CloudCredential`).
+
+Both known-list gates name an entry whose `would_flag` or `would_detect` is empty as stale, since
+an empty expectation held for any content.
 
 Falsified — each gate's code patched, its tests run, the file restored and the restore checked
 clean against git:
@@ -642,13 +660,19 @@ clean against git:
   `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_11_TheKnownEvasionsStillEvade`, and all
   four rows of
   `Curia.Domain.Tests.Screening.ContentScreenerTests.D17_StructuralMembersContainingSkWordsAreAccepted`.
-- case 6 (the known false positive's content edited so that it no longer fires) → RED:
+- case 6 (the residual's content edited so that it no longer fires) → RED:
   `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_TheKnownFalsePositivesStillFire`
-  ("`known-false-positives.jsonl` is stale", naming the entry in all three shapes).
+  ("`known-false-positives.jsonl` is stale", naming `fp-prefixed-identifier-at-a-wrapped-line-end`
+  in all three shapes).
 - case 8 (the line-joined view routed back through `SecretScanner.Scan`) → RED:
   `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_FalsePositiveRateMeetsItsCeiling`
   (`placeholder-env-example-multiline` and `placeholder-yaml-token-todo` fire `ApiKey`,
   `placeholder-env-dump-pwd-root` fires `ConnectionStringPassword`, in all three shapes).
+- case 9 (`WebhookUrl` moved out of the rule table, so that only `Scan` runs it) → RED:
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_NoDetectedPayloadRegresses`
+  (`secret-wrapped-webhook-in-host` missed in all three shapes) and
+  `Curia.Domain.Tests.Screening.RedTeamCorpusTests.R10_24_TheKnownFalsePositivesStillFire`
+  (`fp-webhook-placeholder-at-a-line-end` no longer fires `ApiKey`, in all three shapes).
 
 ### D18 — R11.27's published-template half was never built *(opened by the MCP plan's Stage 4, 2026-09-22)*
 
@@ -743,18 +767,16 @@ clean against git:
   known exceptions rather than without them.
 - **Whether enrolment screens agent identifiers** was not traced.
 - **A credential split across two string tokens is not rejoined.** Per-token screening (D19) ends
-  the whole-text join, so `"tags":["AKIAIOSF","ODNN7EXAMPLE"]` — rejected by the old unseparated
-  view over canonical text — is admitted. Deliberate by the spec's §3 threat model (a split other
-  than a line wrap), and the corpus runner varies only the body, so `known-evasions.jsonl` cannot
-  express it.
-- **`WebhookUrl`'s open path class absorbs a joined next line**:
-  `…/services/T000/B000/XXXX⏎replace_with_your_own_path` is rejected (`ApiKey`) and accepted on one
-  line. Same class as the recorded prefix residual, and not itself recorded; true under the old
-  unseparated view too.
-- **Gutter and whole-list variants of the residual fire**:
+  the whole-text join, so `{"body":"x","tags":["ghp_A1b2C3d4","E5f6G7h8I9j0K1l2M3n4"]}` — rejected
+  by the old unseparated view over canonical text (`ApiKey@21+35`, the unanchored prefix rule
+  running across both tokens) — is accepted by `ScreenEnvelope`. Deliberate by the spec's §3 threat
+  model (a split other than a line wrap), and the corpus runner varies only the body, so
+  `known-evasions.jsonl` cannot express it.
+- **Gutter variants of the residual fire**:
   `export NPM_TOKEN=$npm_token⏎# configuration-management notes` and
-  `| var | npm_token⏎| environmentSpecific | yes` (`ApiKey`); `REGIONS:⏎ASIA⏎PACIFIC⏎EUROPE⏎AND`
-  (`CloudCredential`). Only the bare-newline residual is a corpus entry.
+  `| var | npm_token⏎| environmentSpecific | yes` (`ApiKey`). They use the recorded residual's rule
+  and mechanism, and they predate policy D: each already fired under the cross-word view it
+  replaced. Only the bare-newline residual is a corpus entry.
 - **`PWD=/any/path` in an ordinary `env` dump is rejected** on one line, by the password rule's
   case-insensitive keyword branch (`pwd`). Predates D17; a detection-policy change with its own
   measurement.
