@@ -50,9 +50,10 @@ public sealed class RedTeamCorpusTests
         internal const string NotFlagged = "not-flagged";
         internal const string EscapedAtServing = "escaped-at-serving";
         internal const string ExpectedToPass = "expected-to-pass";
+        internal const string KnownFalsePositive = "known-false-positive";
 
         internal static readonly ImmutableArray<string> Known =
-            [Flagged, NotFlagged, EscapedAtServing, ExpectedToPass];
+            [Flagged, NotFlagged, EscapedAtServing, ExpectedToPass, KnownFalsePositive];
     }
 
     /// <summary>
@@ -285,6 +286,21 @@ public sealed class RedTeamCorpusTests
             .AppendLine("A recorded evasion that starts being detected fails the build, so this list cannot")
             .AppendLine("silently go stale.");
 
+        report
+            .AppendLine()
+            .AppendLine("## Known false positives")
+            .AppendLine()
+            .AppendLine(string.Create(CultureInfo.InvariantCulture,
+                $"**{KnownFalsePositives().Length} entries in `known-false-positives.jsonl` are refused although they are benign**,"))
+            .AppendLine("each with the reason recorded. The false-positive rate above is computed over `benign.jsonl`")
+            .AppendLine("only, so it reads \"0 % of that set, with these known exceptions\" -- never a claim about all prose.")
+            .AppendLine()
+            .Append(string.Concat(KnownFalsePositives().Select(f => string.Create(
+                CultureInfo.InvariantCulture,
+                $"- **`{f.Id}`** -- fires {string.Join(", ", f.WouldFlag)}. {f.Why}\n"))))
+            .AppendLine()
+            .AppendLine("An entry that stops firing fails the build, so this list cannot silently go stale.");
+
         var path = Path.Combine(CorpusDirectory(), "RESULTS.md");
         File.WriteAllText(path, report.ToString());
 
@@ -363,6 +379,58 @@ public sealed class RedTeamCorpusTests
                     root.GetProperty("why").GetString()!);
             })
             .ToArray();
+    }
+
+    /// <summary>A benign entry the detectors refuse, and why that is accepted, read from the corpus.</summary>
+    private sealed record FalsePositive(string Id, string Content, ImmutableArray<string> WouldFlag, string Why);
+
+    private static FalsePositive[] KnownFalsePositives() =>
+        File.ReadAllLines(Path.Combine(CorpusDirectory(), "known-false-positives.jsonl"))
+            .Where(line => line.Trim().Length > 0)
+            .Select(line =>
+            {
+                using var json = JsonDocument.Parse(line);
+                var root = json.RootElement;
+                return new FalsePositive(
+                    root.GetProperty("id").GetString()!,
+                    root.GetProperty("content").GetString()!,
+                    [.. root.GetProperty("would_flag").EnumerateArray().Select(e => e.GetString()!)],
+                    root.GetProperty("why").GetString()!);
+            })
+            .ToArray();
+
+    /// <summary>
+    /// <b>A known false positive must still be one.</b> The mirror of the known-evasions check, and
+    /// R10.57's evaluator for the <c>known-false-positive</c> kind.
+    ///
+    /// <para>The false-positive ceiling is zero, so a benign sentence the detectors refuse cannot sit in
+    /// <c>benign.jsonl</c> without failing the build -- and recorded only in prose elsewhere, it would
+    /// make the published 0 % a statement about a set that quietly excludes it. Here it is counted,
+    /// listed in <c>RESULTS.md</c> with its reason, and held to still firing: an entry that stops
+    /// firing belongs in <c>benign.jsonl</c>, and this fails until it is moved.</para>
+    /// </summary>
+    [Fact]
+    public void R10_24_TheKnownFalsePositivesStillFire()
+    {
+        var stale = new List<string>();
+
+        foreach (var fp in KnownFalsePositives())
+        {
+            foreach (var shape in Shapes)
+            {
+                var fired = shape.Detect(fp.Content);
+                var silent = fp.WouldFlag.Where(e => !fired.Contains(e, StringComparer.Ordinal)).ToArray();
+
+                if (silent.Length > 0)
+                    stale.Add($"{fp.Id} ({shape.Name}): no longer fires {string.Join(", ", silent)} -- move it to benign.jsonl");
+            }
+        }
+
+        Assert.True(
+            stale.Count == 0,
+            "known-false-positives.jsonl is stale. A false positive that no longer fires understates the "
+            + "detectors, and a list that drifts out of date is worse than no list:\n"
+            + string.Join("\n", stale));
     }
 
     /// <summary>
@@ -524,7 +592,7 @@ public sealed class RedTeamCorpusTests
     }
 
     /// <summary>The files this runner evaluates. Named once so a third cannot be added unnoticed.</summary>
-    private static readonly string[] CorpusFiles = ["payloads.jsonl", "benign.jsonl"];
+    private static readonly string[] CorpusFiles = ["payloads.jsonl", "benign.jsonl", "known-false-positives.jsonl"];
 
     private static Case[] Load(string file)
     {

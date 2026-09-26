@@ -44,3 +44,13 @@ Each one, with the reason recorded in the corpus:
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.
+
+## Known false positives
+
+**1 entries in `known-false-positives.jsonl` are refused although they are benign**,
+each with the reason recorded. The false-positive rate above is computed over `benign.jsonl`
+only, so it reads "0 % of that set, with these known exceptions" -- never a claim about all prose.
+
+- **`fp-npm-token-variable`** -- fires ApiKey. The cross-word view joins the identifier to the prose after it: npm_ plus sixteen letters. Filed while that view stands; policy D (register D17) removes it, and this entry moves to benign.jsonl then.
+
+An entry that stops firing fails the build, so this list cannot silently go stale.

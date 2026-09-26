@@ -17,6 +17,12 @@ credential hit a hard rejection — so a false positive here costs an author the
 The false-positive rate is therefore the number that constrains the design, and the corpus exists to
 make it visible rather than assumed.
 
+`known-false-positives.jsonl` is benign content the detectors refuse, each entry with a `why`. The
+false-positive ceiling is zero, so such a sentence cannot sit in `benign.jsonl`; recorded only in a
+register, it would make the published 0 % a statement about a set that silently excludes it. Entries
+are listed in `RESULTS.md`, excluded from the rate like known evasions, and must still fire — one
+that stops firing belongs in `benign.jsonl`, and the build fails until it is moved.
+
 ## Honest reading of the numbers (R10.11)
 
 A detection rate is a statement about **these payloads against today's detectors**. Optimized
@@ -55,3 +61,5 @@ One JSON object per line:
 
 `expect` names the `RiskCategory` values that must fire. An empty `expect` in `benign.jsonl` means
 nothing may fire.
+
+An entry in `known-false-positives.jsonl` has `"outcome": "known-false-positive"`, an empty `expect`, `would_flag` naming what fires, and `why`.
