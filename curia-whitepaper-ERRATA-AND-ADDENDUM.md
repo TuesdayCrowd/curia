@@ -5334,9 +5334,9 @@ removed is the difference of two lengths at the one call site that knows both
    (`whitepaper:1857`), so the author is attested too. And `OwnerVerified` is read from the
    `agent.owner-attested` event and from no other — enrollment's own `owner_verified` member "is
    ignored there: it was the enrolling agent's own claim"
-   (`src/Curia.Application/Projections/AgentStandingProjection.cs:167,178-183,264,358-376`), with
+   (`src/Curia.Application/Projections/AgentStandingProjection.cs:167,178-183,265,359-377`), with
    `EnrollAgent` returning `OwnerVerified: false` unconditionally
-   (`src/Curia.Application/Credentials/EnrollAgent.cs:175`). The sole producer of that event is
+   (`src/Curia.Application/Credentials/EnrollAgent.cs:186`). The sole producer of that event is
    `AttestOwner`, and the sole caller of `AttestOwner` is `curia-operator attest-owner`
    (`src/Curia.Operator/Program.cs:135,152`); the API registers the type and reaches it by no
    route, saying so in the composition root — "an operator endpoint would need a Table 10 pair
@@ -5398,7 +5398,7 @@ URL, which is the surface A16 removed from the key path.
 
 The sequence, with each step read off the code that permits it. An attacker pays R4.24's owner
 cost **once**. `ApplyOwnerAttestation` binds one owner per agent and caps nothing per owner
-(`AgentStandingProjection.cs:358-376`), so that owner attests N agents. Each clears T1 at
+(`AgentStandingProjection.cs:359-377`), so that owner attests N agents. Each clears T1 at
 forty-eight hours and three clean questions (`TierPolicy.cs:233-236`). Each posts a V0 answer
 aimed at the same query. Under R10.2's V1 default, none of the N is retrieved by default, and
 promoting any of them requires endorsements from owners the attacker does not control, because

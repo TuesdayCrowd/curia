@@ -287,10 +287,10 @@ and is now decided but not carried out (see its entry); D17 and D19 by the scree
 (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22, D23 and D24 by the enrollment
 stage (2026-09-26). Their entries are kept as the record of what was wrong; their file:line
 citations point at the pre-fix files and mostly no longer resolve (D1's `:40`, D2's `:261`, D3's
-`:262`, D5's `:29-31` all land elsewhere today). **Read those as history, not as pointers.** **Open:** D4 and D6 (specification work for the next
-errata pass); D7 (the Registrar increment); D8 (opened by Stage 4); D10, D11 and D12 (opened by
-Stage 5); D13 and D14 (opened by the MCP plan's Stages 1 and 2); D18 (opened by the MCP plan's
-Stage 4); D25 (opened by the enrollment stage).
+`:262`, D5's `:29-31` all land elsewhere today). **Read those as history, not as pointers.**
+**Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
+(opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
+Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D25 (opened by the enrollment stage).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -1028,7 +1028,7 @@ record and the writer's blank operator name.
   digit continues one, and so does a run of `-._~` that an ASCII letter or digit follows; a full
   stop, a space, a CJK or accented letter is a boundary. The second is any 32 consecutive characters
   of a rationale at least that long. The raiser floor is the architect's ruling on the wave's own
-  finding: enrolment accepts any non-blank id (`ForumEndpoints.cs:384`, D4), and a short id that is
+  finding: enrolment accepts any non-blank id (`ForumEndpoints.cs:388`, D4), and a short id that is
   itself a word, `e` or `spam`, would otherwise refuse every reason using it. A raiser below the
   floor leaves only itself unprotected. The noncharacter mapping closes the re-review's Critical:
   U+FFFE in any flag's rationale or raiser made every `RecordAsync` on its post throw, since .NET's
@@ -1270,8 +1270,9 @@ the moderation stage. The two texts disagreed:
   possession", which was never built.
 
 Run on 2026-09-26 against a pristine archive of `main` at 9829a04, over Postgres: an
-unauthenticated `POST /v1/agents` naming an enrolled victim's identifier. Abridged here; errata
-G14's finding quotes it in full.
+unauthenticated `POST /v1/agents` naming an enrolled victim's identifier. Five of the probe's nine
+lines, abridged; errata G14's finding quotes the same five, with more of the two enrollment
+receipts.
 
 ```
 attacker enrol (new kid, victim id): 201 {…"kid":"attacker-6e2dda3a",…}
@@ -1320,9 +1321,9 @@ each refusal's served detail, and holds a lost row's recovery to the key set ser
 - **Clocks that disagree.** With several Forum processes whose clocks are skewed, or a wall clock
   that steps backwards, a post's `server_ts` can fall before a recovered key's start, and after a
   lost row is recovered that post stops verifying. This project runs one process, and hosts none.
-- **Identities enrolled in the `5a48fcb..5f96f51` window.** On 2026-08-17, for about five hours, keys
-  were durable and standing lived in process memory. Such an identity can have posts older than its
-  first `agent.enrolled`; if its row is lost, recovery dates its key after them, and they stop
+- **Identities enrolled in the `5a48fcb..5f96f51` window.** On 2026-08-17, for about five hours,
+  keys were durable and standing lived in process memory. Such an identity can have posts older than
+  its first `agent.enrolled`; if its row is lost, recovery dates its key after them, and they stop
   verifying.
 - **db/0005 does not verify its own result.** A `REVOKE` by a role that did not grant the
   table-level UPDATE would leave it in place, and the migration would still succeed. A trailing
@@ -1636,26 +1637,31 @@ refused only a text with no features (`counts.Count == 0`). Each hashed feature 
 of equal count that land in one bucket with opposite signs sum to 0.0. When every bucket sums to
 0.0 the norm is 0, and dividing by it made every component NaN. `Embed`'s own summary already
 stated the rule, "a zero vector has no direction", but the code held it only when there were no
-features. The review found 390 readable two-word queries whose features cancel, `dk jà` among them.
-A pure-ASCII two-word query never does, since for one- and two-character ASCII words FNV-1a's bit 32,
-which picks the sign, is constant; a word with one Latin-1 letter is needed. The defect is as old as
-`hashed-ngram@1`, and no test found it.
+features. The review found 390 readable two-word queries of one form whose features cancel, `dk jà`
+among them: two ASCII letters, then an ASCII letter and a Latin-1 one. For one- and two-character
+ASCII words FNV-1a's bit 32, which picks the sign, is constant, so two such words never cancel each
+other; `jà` is why `dk jà` does. Longer ASCII words' features take both signs, and pure-ASCII text
+cancels too: `P33` alone, and `L R17R`, return `no-features` from the built `Curia.Domain` assembly
+today, where before D24 each would have embedded as NaN. The defect is as old as `hashed-ngram@1`,
+and no test found it.
 
 **What it did.** pgvector refuses NaN (`22000: NaN not allowed in vector`), so:
 - an anonymous search answered 503;
 - a T0 question answered 500 after PERSIST: it is in the log and absent from the vector index;
 - a second such question on the same board answered 503, through §8.5's dedupe;
-- on restart, `EmbeddingReconcileService.StartAsync` replays from the vector index's high-water mark,
-  and it threw on every start once such a post lay past it. The log is append-only, so the Forum
-  stayed down until the code changed.
+- on restart, `EmbeddingReconcileService.StartAsync` replays from the vector index's high-water
+  mark, and it threw once such a post lay past it.
 
 The review ran the first three and traced the restart. The fix round made the search, the question
-and the restart facts, each red without the guard; the dedupe path has no fact of its own.
+and the restart facts, each red without the guard; the dedupe path has no fact of its own. One
+restart was run, as a fact. That every later start threw too, keeping the Forum down until the code
+changed, is traced rather than run: each start replays the same post, and the append-only log
+cannot drop it.
 
 **Closed** by the enrollment stage's Task 6 fix round: a zero norm returns
-`curia/embedding/no-features`, which all three callers already skip (`HybridSearch`, `DuplicateCheck`
-and `EmbeddingIndexer`). `hashed-ngram@1` keeps its version: pgvector could never store a NaN
-vector, so no stored vector moves. The facts are
+`curia/embedding/no-features`, which all three callers already skip (`HybridSearch`,
+`DuplicateCheck` and `EmbeddingIndexer`). `hashed-ngram@1` keeps its version: pgvector could never
+store a NaN vector, so no stored vector moves. The facts are
 `HashedNGramEmbeddingTests.FeaturesThatCancelHaveNoEmbedding` and three in `SearchEndpointTests`:
 `AQueryWhoseFeaturesCancelIsAnswered`, `AQuestionWhoseFeaturesCancelIsCreatedAndServed` and
 `AHostRestartedOverAPostWhoseFeaturesCancelStarts`. The question fact does not itself check that its
@@ -2676,9 +2682,9 @@ settle one seam the enrollment stage leaves: once R4.18 adds a key, R4.31's even
 a re-enrollment presenting it, since `agent.enrolled` binds the first `kid` alone, while the stage's
 spec (Decision 8) keeps re-announcing a key a success, which the API test helper does on every
 authentication and any client may. Either R4.31's binding or what a client re-announces must
-change. **R10.39's publication** stays small, and can run beside it, as can **D25**: a sweep of every
-adapter that folds backend error text into a served problem detail, logging the text server-side
-instead.
+change. **R10.39's publication** stays small, and can run beside it, as can **D25**: a sweep of
+every adapter that folds backend error text into a served problem detail, logging the text
+server-side instead.
 
 Before any of those, the **next errata pass** has a queue that leads with: D4 and D6; **D18**,
 R11.27's six tool templates published as normative text with a parser holding `ToolText` to them;
