@@ -77,7 +77,8 @@ public sealed class FlagProjectorTests
         FlagKind category,
         ModerationEffect effect,
         CancellationToken ct,
-        ModeratorKind moderator = ModeratorKind.Human) =>
+        ModeratorKind moderator = ModeratorKind.Human,
+        params string[] adjudicates) =>
         AppendAsync(store, Post, eventId, Moderator, FlagProjector.ModerationAppliedType, new JsonValue.Object(
         [
             new(FlagProjector.PostIdField, new JsonValue.String(Post)),
@@ -86,6 +87,7 @@ public sealed class FlagProjectorTests
             new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(effect))),
             new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
             new(FlagProjector.RationaleField, new JsonValue.String("reviewed and confirmed")),
+            new(FlagProjector.AdjudicatesField, new JsonValue.Array([.. adjudicates.Select(a => (JsonValue)new JsonValue.String(a))])),
         ]), ct);
 
     /// <summary>R10.35: a raised flag is a fact about a post, folded out of the log like every other.</summary>
@@ -179,10 +181,10 @@ public sealed class FlagProjectorTests
         await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
         Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
 
-        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Dismiss, ct);
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Dismiss, ct, ModeratorKind.Human, "01JFLAG000000000000000001");
         Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
 
-        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Withhold, ct);
+        await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Withhold, ct, ModeratorKind.Human, "01JFLAG000000000000000001");
         Assert.True(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
     }
 
@@ -200,6 +202,25 @@ public sealed class FlagProjectorTests
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct);
 
         Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
+    }
+
+    /// <summary>
+    /// R10.61's reason, at the projection. A withholding that names no flag upholds nothing, so a flag
+    /// raised against the post afterwards is not upheld until a record names it — it could not have
+    /// been reviewed by a record written before it existed.
+    /// </summary>
+    [Fact]
+    public async Task R10_61_AFlagRaisedAfterAWithholdingIsNotUpheldUntilARecordNamesIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+
+        await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Withhold, ct);
+        await RaiseAsync(store, "01JFLAG000000000000000001", FlagKind.Injection, ct);
+
+        var post = FlagProjector.Fold(await LogAsync(store, ct))[Post];
+        Assert.False(post.MayServe);
+        Assert.False(post.HasUpheldFlag);
     }
 
     /// <summary>

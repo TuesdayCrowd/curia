@@ -588,14 +588,19 @@ public sealed class AgentStandingProjectorTests
     }
 
     /// <summary>
-    /// Appends a <c>moderation.applied</c> event upholding a flag of <paramref name="category"/> on
-    /// <paramref name="postId"/> — the half of §10.10 that decides, as distinct from the flag that
-    /// asks. Raised first, because a moderation action on a post nobody flagged is not what Table 11
-    /// counts.
+    /// Appends a flag of <paramref name="category"/> on <paramref name="postId"/> and a
+    /// <c>moderation.applied</c> record that names it and withholds the post — the half of §10.10
+    /// that decides, as distinct from the flag that asks. The record names the flag's event id,
+    /// because R10.61 decides upholding per flag: a record naming nothing upholds nothing.
     /// </summary>
     private static async Task UpholdFlagAsync(
         InMemoryEventStore store, string postId, FlagKind category, string reporter, CancellationToken ct)
     {
+        // AppendToPostAsync names each event "{postId}-{position}", so the flag's id is read here,
+        // before the flag is appended.
+        var position = Require(await store.ReadByAggregateAsync(Require(AggregateId.Create(postId)), ct).ConfigureAwait(false)).Count;
+        var flagId = $"{postId}-{position.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+
         await AppendToPostAsync(store, postId, FlagProjector.FlagRaisedType, new JsonValue.Object(
         [
             new(FlagProjector.PostIdField, new JsonValue.String(postId)),
@@ -612,6 +617,7 @@ public sealed class AgentStandingProjectorTests
             new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(ModerationEffect.Withhold))),
             new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
             new(FlagProjector.RationaleField, new JsonValue.String("reviewed and confirmed")),
+            new(FlagProjector.AdjudicatesField, new JsonValue.Array([new JsonValue.String(flagId)])),
         ]), ct).ConfigureAwait(false);
     }
 

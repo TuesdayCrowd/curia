@@ -32,12 +32,12 @@ public sealed record PostModeration(
     public bool MayServe => ModerationPolicy.MayServe(History);
 
     /// <summary>
-    /// Table 11's "no upheld flags", for one post: whether any flag raised against it has been
-    /// upheld by a moderator. False for a post nobody has adjudicated, however many flags it carries
-    /// — see <see cref="ModerationPolicy.IsUpheld"/> for why the alternative hands every agent a
+    /// Table 11's "no upheld flags", for one post: whether any flag this post's records adjudicated is
+    /// upheld (R10.61). False for a post nobody has adjudicated, however many flags it carries — see
+    /// <see cref="ModerationPolicy.UpheldFlags"/> for why the alternative hands every agent a
     /// demotion primitive.
     /// </summary>
-    public bool HasUpheldFlag => Flags.Any(f => ModerationPolicy.IsUpheld(f.Kind, History));
+    public bool HasUpheldFlag => !ModerationPolicy.UpheldFlags(History).IsEmpty;
 
     /// <summary>
     /// Structural equality, spelled out for the reason <c>AgentStanding</c> records:
@@ -113,6 +113,12 @@ public static class FlagProjector
     /// projected — see <see cref="RaisedFlag"/>.
     /// </summary>
     public const string RationaleField = "rationale";
+
+    /// <summary>R6.25's "a <c>moderation</c> record referencing a digest": the post's envelope digest (R10.60).</summary>
+    public const string DigestField = "digest";
+
+    /// <summary>The flags a moderation record adjudicates, by event id (R10.60, R10.61).</summary>
+    public const string AdjudicatesField = "adjudicates";
 
     /// <summary>Folds a seq-ordered event list into per-post moderation state.</summary>
     public static ImmutableDictionary<string, PostModeration> Fold(
@@ -196,8 +202,14 @@ public static class FlagProjector
         if (!ModerationEffects.Parse(effectWire).TryGetValue(out var effect, out _)) return;
         if (!FlagKinds.Parse(categoryWire).TryGetValue(out var category, out _)) return;
 
+        // A record without the member still governs servability and upholds nothing (R10.61). It is
+        // read, not dropped: dropping a withholding would serve what a human withheld.
+        ImmutableArray<string> adjudicates = fields.TryGetValue(AdjudicatesField, out var named) && named is JsonValue.Array list
+            ? [.. list.Items.OfType<JsonValue.String>().Select(s => s.Value)]
+            : [];
+
         For(actions, postId).Add(new ModerationAction(
-            postId, moderator, actorId, effect, category, rationale, appended.ServerTimestamp));
+            postId, moderator, actorId, effect, category, rationale, appended.ServerTimestamp, adjudicates));
     }
 
     private static ImmutableArray<T>.Builder For<T>(
