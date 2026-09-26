@@ -81,6 +81,21 @@ public sealed class HashedNGramEmbeddingTests
     }
 
     /// <summary>
+    /// Register D24: features can cancel. <c>dk</c> and <c>j</c> + U+00E0 are two words of equal
+    /// count whose features hash to one bucket with opposite signs, so the vector is zero and has no
+    /// direction. Before D24 its zero norm divided it into NaN, which pgvector refuses: an anonymous
+    /// search answered 503, and a question 500 after PERSIST. It has no features, as a text of
+    /// punctuation has none.
+    /// </summary>
+    [Fact]
+    public void FeaturesThatCancelHaveNoEmbedding()
+    {
+        var result = HashedNGramEmbedding.Embed("dk j\u00E0");
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/embedding/no-features", error!.Type);
+    }
+
+    /// <summary>
     /// Register D23: .NET's normalizer refuses U+FFFE outright, so a query holding it threw out of the
     /// vector channel and an anonymous <c>GET /v1/search</c> answered 500. A text that is only a
     /// noncharacter has no features, as a text of punctuation has none; it is not an error.
@@ -96,7 +111,8 @@ public sealed class HashedNGramEmbeddingTests
     /// <summary>
     /// A noncharacter is read as U+FFFD, which separates words: <c>jcs</c> and <c>hash</c> either side
     /// of one embed as they do either side of U+FFFD. U+FFFE threw before D23's fix; the other three
-    /// did not, and pin that the mapping changed nothing for them.
+    /// did not. This fact holds how they embed now, not how they embedded before the mapping; the
+    /// digest pin below holds that, for U+FFFF.
     /// </summary>
     [Fact]
     public void ANoncharacterSeparatesWordsAsTheReplacementCharacterDoes()
@@ -109,7 +125,11 @@ public sealed class HashedNGramEmbeddingTests
         Assert.Equal(replaced, Embed("jcs\U0010FFFFhash"));
     }
 
-    /// <summary>An unpaired surrogate, which the normalizer also refuses, is read as U+FFFD too: a high one with no low one after it, and a low one alone.</summary>
+    /// <summary>
+    /// An unpaired surrogate, which the normalizer also refuses, is read as U+FFFD too: a high one with
+    /// no low one after it, a low one alone, a low one before a high one, which are two unpaired halves
+    /// and not a pair, and a high one that ends the text.
+    /// </summary>
     [Fact]
     public void AnUnpairedSurrogateIsReadAsTheReplacementCharacter()
     {
@@ -117,6 +137,8 @@ public sealed class HashedNGramEmbeddingTests
 
         Assert.Equal(replaced, Embed("jcs\uD800hash"));
         Assert.Equal(replaced, Embed("jcs\uDC00hash"));
+        Assert.Equal(replaced, Embed("jcs\uDC00\uD800hash"));
+        Assert.Equal(Embed("jcs hash\uFFFD"), Embed("jcs hash\uD800"));
     }
 
     /// <summary>

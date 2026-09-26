@@ -31,8 +31,8 @@ public static class HashedNGramEmbedding
 
     /// <summary>
     /// The embedding of <paramref name="text"/>, or a failure when the text has no features at
-    /// all (nothing a letter or digit), because a zero vector has no direction and a cosine
-    /// against it is undefined rather than zero.
+    /// all (nothing a letter or digit) or its features cancel to a zero vector, because a zero
+    /// vector has no direction and a cosine against it is undefined rather than zero.
     /// </summary>
     public static Result<ImmutableArray<float>> Embed(string text)
     {
@@ -65,6 +65,14 @@ public static class HashedNGramEmbedding
         var norm = 0.0;
         foreach (var v in vector) norm += (double)v * v;
         norm = Math.Sqrt(norm);
+
+        // Features can cancel: two of equal count that hash to one bucket with opposite signs sum to
+        // 0.0, and when every bucket sums to 0.0 the vector is zero -- the words "dk" and "j" + U+00E0
+        // are one such text (register D24). A zero vector has no direction, the rule the summary
+        // states, so this is no features, not a division into NaN. No stored vector moves and the
+        // model keeps its version: pgvector refuses NaN, so no such vector was ever stored or queried.
+        if (norm == 0) return Result<ImmutableArray<float>>.Fail(EmbeddingErrors.NoFeatures());
+
         for (var i = 0; i < vector.Length; i++) vector[i] = (float)(vector[i] / norm);
 
         return Result<ImmutableArray<float>>.Ok([.. vector]);
@@ -82,8 +90,8 @@ public static class HashedNGramEmbedding
     }
 
     /// <summary>
-    /// Words: maximal runs of letters and digits after NFKC folding and lower-casing. Folding is
-    /// analysis on a derived copy (R6.13); nothing here touches stored content.
+    /// Words: maximal runs of letters and digits after NFKC folding and upper-casing (see the comment
+    /// in the body). Folding is analysis on a derived copy (R6.13); nothing here touches stored content.
     ///
     /// <para><b>Total over every string.</b> .NET's normalizer refuses U+FFFE and an unpaired
     /// surrogate outright, and a search query reaches this without passing ADMIT, so
@@ -91,7 +99,8 @@ public static class HashedNGramEmbedding
     /// an ill-formed sequence, and every noncharacter, as U+FFFD first. None of them is a letter or a
     /// digit, so each separates words as U+FFFD does, and a noncharacter the normalizer accepted
     /// already did: no feature of any text it accepted moves, no stored vector changes, and the model
-    /// keeps its version (R9.5, R11.10).</para>
+    /// keeps its version (R9.5, R11.10). With <see cref="Embed"/> refusing a zero vector as no features
+    /// (register D24), every string embeds either to a unit vector or to <c>no-features</c>.</para>
     /// </summary>
     private static IEnumerable<string> Words(string text)
     {

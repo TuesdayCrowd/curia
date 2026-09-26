@@ -26,15 +26,15 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
 
     private static string Unique(string stem) => $"https://agents.example/{stem}-{Guid.NewGuid().ToString("N")[..8]}";
 
-    /// <summary>Enrols an agent and posts one question, returning its id.</summary>
+    /// <summary>Enrols an agent and posts one question, returning its id. With no <paramref name="tags"/>, it carries <see cref="ForumAgent"/>'s default.</summary>
     private async Task<string> AskAsync(
-        HttpClient client, string board, string title, string body, CancellationToken ct)
+        HttpClient client, string board, string title, string body, CancellationToken ct, string[]? tags = null)
     {
         var agent = ForumAgent.Create(Unique("asker"), "asker-" + Guid.NewGuid().ToString("N")[..8]);
         var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
 
         using var response = await dpop.PostAsync(
-            client, PostsUrl, token, agent.SignQuestion(board, body, title, forum.Now), forum.Now, ct);
+            client, PostsUrl, token, agent.SignQuestion(board, body, title, forum.Now, tags), forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
@@ -384,6 +384,66 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
         var hit = Assert.Single(between.RootElement.GetProperty("results").EnumerateArray());
         Assert.Equal(asked, hit.GetProperty("post").GetProperty("post_id").GetString());
         Assert.Equal(JsonValueKind.Object, hit.GetProperty("why_ranked").GetProperty("vector").ValueKind);
+    }
+
+    /// <summary>
+    /// Register D24: the query <c>dk</c> and <c>j</c> + U+00E0 has features that cancel to a zero
+    /// vector, which embedded as NaN, and pgvector refuses NaN: an anonymous search answered 503. It has
+    /// no features now, as a query of punctuation has none, and the lexical channel answers alone.
+    /// </summary>
+    [Fact]
+    public async Task AQueryWhoseFeaturesCancelIsAnswered()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        using var found = await SearchAsync(forum.Client, "q=dk%20j%C3%A0", ct);
+        Assert.Equal(JsonValueKind.Array, found.RootElement.GetProperty("results").ValueKind);
+    }
+
+    /// <summary>
+    /// Register D24: a fresh (T0) agent's question titled <c>dk</c>, with the body <c>j</c> + U+00E0
+    /// and no tags, was persisted and then answered 500, because the vector index refused its NaN
+    /// vector after PERSIST. It is created now, placed nowhere in the vector space, and served.
+    /// </summary>
+    [Fact]
+    public async Task AQuestionWhoseFeaturesCancelIsCreatedAndServed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        var asked = await AskAsync(client, board, "dk", "j\u00E0", ct, tags: []);
+
+        using var found = await SearchAsync(client, $"q=dk&board={board}", ct);
+        Assert.Equal(asked, Assert.Single(Ids(found)));
+    }
+
+    /// <summary>
+    /// Register D24, at startup: <c>EmbeddingReconcileService</c> replays every post past the vector
+    /// index's high-water mark, and one whose features cancel failed it, so the Forum refused to start
+    /// on every restart, since the log cannot drop the post. A restart is a second host over the same
+    /// database, as <see cref="AgentStandingDurabilityTests"/> models it. This one starts, and serves
+    /// the post.
+    /// </summary>
+    [Fact]
+    public async Task AHostRestartedOverAPostWhoseFeaturesCancelStarts()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create(Unique("asker"), "asker-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        // Its status is the fact above's to hold. Before D24 it was 500, after PERSIST, so the post is
+        // in the log and past the high-water mark either way, which is all this fact needs.
+        using var posted = await dpop.PostAsync(
+            client, PostsUrl, token, agent.SignQuestion(board, "j\u00E0", "dk", forum.Now, tags: []), forum.Now, ct);
+
+        using var restarted = forum.WithWebHostBuilder(_ => { });
+        using var afterRestart = restarted.CreateClient();
+
+        using var found = await SearchAsync(afterRestart, $"q=dk&board={board}", ct);
+        Assert.Single(Ids(found));
     }
 
     /// <summary>

@@ -103,9 +103,9 @@ A seventh case is covered where the code lives rather than listed above. An `age
 | `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs` (new) | The use case, ten facts | 5 |
 | `src/Curia.Api/Program.cs` | Registers `EnrollIdentity` | 5 |
 | `src/Curia.Application/Projections/AgentStandingProjection.cs` | The `KeyIdField` remark | 5 |
-| `src/Curia.Domain/Search/HashedNGramEmbedding.cs` | `Words` reads a noncharacter or an unpaired surrogate as U+FFFD (D23) | 6 |
-| `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs` | Four facts: no throw, the same words, the same vector as before | 6 |
-| `tests/Curia.Api.Tests/SearchEndpointTests.cs` | The anonymous query, end to end | 6 |
+| `src/Curia.Domain/Search/HashedNGramEmbedding.cs` | `Words` reads a noncharacter or an unpaired surrogate as U+FFFD (D23); `Embed` refuses a zero vector as no features (D24) | 6 |
+| `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs` | Five facts: no throw, the same words, the same vector as before, and none for features that cancel (D24) | 6 |
+| `tests/Curia.Api.Tests/SearchEndpointTests.cs` | The anonymous query, end to end (D23); a query, a question and a restart whose features cancel (D24) | 6 |
 | `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `README.md`, the spec | Register, traps, what comes next; the moderation stage's parked residuals | 8 |
 | `src/Curia.Application/Moderation/ApplyModeration.cs`, `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs` | Doc comments only: the reason guard's class comment, and three stale test summaries | 8 |
 
@@ -3311,14 +3311,16 @@ The fix makes the embedding total: its derived copy reads an ill-formed sequence
 
 `FlagDisclosure.Normalize` is not reused. It is internal to `Curia.Application`, which the domain may not reference (CS-7), and its pipeline drops hidden characters, lower-cases and collapses white space, each of which would change features for ordinary text. Only its noncharacter predicate is shared, as a third private copy.
 
+**D24, found by this task's review, and closed in Steps 6–10.** `Embed` returned `Ok` with a vector of NaN when its features cancelled exactly: two features of equal count that hash to one bucket with opposite signs sum to 0.0, and a zero vector divided by its zero norm is NaN in every component. `dk jà` is one such text, and the review found 390 readable queries like it. pgvector refuses NaN, so an anonymous search answered 503, a T0 question 500 after PERSIST, a second such question on its board 503 from the dedupe path, and a restart failed in `EmbeddingReconcileService` once such a post lay past the index's high-water mark, on every restart, since the log cannot drop the post. The code at 096b4a7 behaves the same, so D24 predates this stage; it is opened and closed in it. A zero norm is now `no-features`, which `HybridSearch`, `DuplicateCheck` and `EmbeddingIndexer` already skip. No stored vector moves, because pgvector never stored a NaN one, so `hashed-ngram@1` keeps its version. The same steps take the review's three minors: the `Words` summary said lower-casing (M-1), a test summary claimed a pre-fix run that never happened (M-2), and two surrogate arrangements were untested (M-3).
+
 **Files:**
-- Modify: `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs` (four facts)
-- Modify: `tests/Curia.Api.Tests/SearchEndpointTests.cs` (one fact)
-- Modify: `src/Curia.Domain/Search/HashedNGramEmbedding.cs` (`Words`, and the predicate)
+- Modify: `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs` (four facts for D23; for D24, one fact and two more surrogate arrangements, in Step 6)
+- Modify: `tests/Curia.Api.Tests/SearchEndpointTests.cs` (one fact for D23; for D24, three facts and a `tags` parameter on `AskAsync`, in Step 6)
+- Modify: `src/Curia.Domain/Search/HashedNGramEmbedding.cs` (`Words`, and the predicate; for D24, `Embed`'s zero-norm refusal and two summaries, in Step 8)
 
 **Interfaces:**
 - Consumes: nothing from Tasks 1–5.
-- Produces: `HashedNGramEmbedding.Embed`, total over every string. No signature changes.
+- Produces: `HashedNGramEmbedding.Embed`, total over every string: a unit vector or `no-features`, never a throw (D23) and never NaN (D24). No signature changes.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3553,6 +3555,315 @@ but status -fv
 but commit -b enrollment-binds-once -m "$(printf 'D23: an anonymous search holding U+FFFE is answered, not a 500\n\nHashedNGramEmbedding reads a noncharacter or an unpaired surrogate as U+FFFD\nbefore NFKC, which refuses U+FFFE outright. Every vector computable before is\nunchanged, pinned by digest, so hashed-ngram@1 keeps its version.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
 ```
 
+- [ ] **Step 6: D24's failing tests, and the review's minors in the tests**
+
+Four facts fail before the fix: one in the domain, and one each over HTTP for the search, the question and the restart. The restart is modeled as `AgentStandingDurabilityTests` models it, a second host over the same database, so `EmbeddingReconcileService` runs over the fixture's log. `ForumAgent` signs the tag `jcs` unless told otherwise, and that tag's features do not cancel, so both question facts send `tags: []`, and `AskAsync` gains the parameter. The same step rewords the summary that claimed a pre-fix run (M-2), and adds a low surrogate before a high one and a high surrogate that ends the text (M-3). D23's mapping already reads both as U+FFFD, so both are green before and after this fix. Every test character is a C# escape.
+
+In `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs`, insert after:
+
+```csharp
+    [Fact]
+    public void TextWithNoFeaturesHasNoEmbedding()
+    {
+        var result = HashedNGramEmbedding.Embed("... !!! ---");
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/embedding/no-features", error!.Type);
+    }
+```
+
+this:
+
+```csharp
+
+    /// <summary>
+    /// Register D24: features can cancel. <c>dk</c> and <c>j</c> + U+00E0 are two words of equal
+    /// count whose features hash to one bucket with opposite signs, so the vector is zero and has no
+    /// direction. Before D24 its zero norm divided it into NaN, which pgvector refuses: an anonymous
+    /// search answered 503, and a question 500 after PERSIST. It has no features, as a text of
+    /// punctuation has none.
+    /// </summary>
+    [Fact]
+    public void FeaturesThatCancelHaveNoEmbedding()
+    {
+        var result = HashedNGramEmbedding.Embed("dk j\u00E0");
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/embedding/no-features", error!.Type);
+    }
+```
+
+In `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs`, replace:
+
+```csharp
+    /// of one embed as they do either side of U+FFFD. U+FFFE threw before D23's fix; the other three
+    /// did not, and pin that the mapping changed nothing for them.
+```
+
+with:
+
+```csharp
+    /// of one embed as they do either side of U+FFFD. U+FFFE threw before D23's fix; the other three
+    /// did not. This fact holds how they embed now, not how they embedded before the mapping; the
+    /// digest pin below holds that, for U+FFFF.
+```
+
+In `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs`, replace:
+
+```csharp
+    /// <summary>An unpaired surrogate, which the normalizer also refuses, is read as U+FFFD too: a high one with no low one after it, and a low one alone.</summary>
+```
+
+with:
+
+```csharp
+    /// <summary>
+    /// An unpaired surrogate, which the normalizer also refuses, is read as U+FFFD too: a high one with
+    /// no low one after it, a low one alone, a low one before a high one, which are two unpaired halves
+    /// and not a pair, and a high one that ends the text.
+    /// </summary>
+```
+
+In `tests/Curia.Domain.Tests/Search/HashedNGramEmbeddingTests.cs`, replace:
+
+```csharp
+        Assert.Equal(replaced, Embed("jcs\uD800hash"));
+        Assert.Equal(replaced, Embed("jcs\uDC00hash"));
+```
+
+with:
+
+```csharp
+        Assert.Equal(replaced, Embed("jcs\uD800hash"));
+        Assert.Equal(replaced, Embed("jcs\uDC00hash"));
+        Assert.Equal(replaced, Embed("jcs\uDC00\uD800hash"));
+        Assert.Equal(Embed("jcs hash\uFFFD"), Embed("jcs hash\uD800"));
+```
+
+In `tests/Curia.Api.Tests/SearchEndpointTests.cs`, replace:
+
+```csharp
+    /// <summary>Enrols an agent and posts one question, returning its id.</summary>
+    private async Task<string> AskAsync(
+        HttpClient client, string board, string title, string body, CancellationToken ct)
+    {
+        var agent = ForumAgent.Create(Unique("asker"), "asker-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        using var response = await dpop.PostAsync(
+            client, PostsUrl, token, agent.SignQuestion(board, body, title, forum.Now), forum.Now, ct);
+```
+
+with:
+
+```csharp
+    /// <summary>Enrols an agent and posts one question, returning its id. With no <paramref name="tags"/>, it carries <see cref="ForumAgent"/>'s default.</summary>
+    private async Task<string> AskAsync(
+        HttpClient client, string board, string title, string body, CancellationToken ct, string[]? tags = null)
+    {
+        var agent = ForumAgent.Create(Unique("asker"), "asker-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        using var response = await dpop.PostAsync(
+            client, PostsUrl, token, agent.SignQuestion(board, body, title, forum.Now, tags), forum.Now, ct);
+```
+
+In `tests/Curia.Api.Tests/SearchEndpointTests.cs`, insert before:
+
+```csharp
+    /// <summary>
+    /// R9.22's floor, which is what the design actually promises: "a nearest-neighbour query always
+```
+
+this:
+
+```csharp
+    /// <summary>
+    /// Register D24: the query <c>dk</c> and <c>j</c> + U+00E0 has features that cancel to a zero
+    /// vector, which embedded as NaN, and pgvector refuses NaN: an anonymous search answered 503. It has
+    /// no features now, as a query of punctuation has none, and the lexical channel answers alone.
+    /// </summary>
+    [Fact]
+    public async Task AQueryWhoseFeaturesCancelIsAnswered()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        using var found = await SearchAsync(forum.Client, "q=dk%20j%C3%A0", ct);
+        Assert.Equal(JsonValueKind.Array, found.RootElement.GetProperty("results").ValueKind);
+    }
+
+    /// <summary>
+    /// Register D24: a fresh (T0) agent's question titled <c>dk</c>, with the body <c>j</c> + U+00E0
+    /// and no tags, was persisted and then answered 500, because the vector index refused its NaN
+    /// vector after PERSIST. It is created now, placed nowhere in the vector space, and served.
+    /// </summary>
+    [Fact]
+    public async Task AQuestionWhoseFeaturesCancelIsCreatedAndServed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        var asked = await AskAsync(client, board, "dk", "j\u00E0", ct, tags: []);
+
+        using var found = await SearchAsync(client, $"q=dk&board={board}", ct);
+        Assert.Equal(asked, Assert.Single(Ids(found)));
+    }
+
+    /// <summary>
+    /// Register D24, at startup: <c>EmbeddingReconcileService</c> replays every post past the vector
+    /// index's high-water mark, and one whose features cancel failed it, so the Forum refused to start
+    /// on every restart, since the log cannot drop the post. A restart is a second host over the same
+    /// database, as <see cref="AgentStandingDurabilityTests"/> models it. This one starts, and serves
+    /// the post.
+    /// </summary>
+    [Fact]
+    public async Task AHostRestartedOverAPostWhoseFeaturesCancelStarts()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create(Unique("asker"), "asker-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        // Its status is the fact above's to hold. Before D24 it was 500, after PERSIST, so the post is
+        // in the log and past the high-water mark either way, which is all this fact needs.
+        using var posted = await dpop.PostAsync(
+            client, PostsUrl, token, agent.SignQuestion(board, "j\u00E0", "dk", forum.Now, tags: []), forum.Now, ct);
+
+        using var restarted = forum.WithWebHostBuilder(_ => { });
+        using var afterRestart = restarted.CreateClient();
+
+        using var found = await SearchAsync(afterRestart, $"q=dk&board={board}", ct);
+        Assert.Single(Ids(found));
+    }
+
+```
+
+- [ ] **Step 7: Run them, and watch them fail**
+
+```bash
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
+dotnet test tests/Curia.Domain.Tests -c Release --nologo --no-build --filter "FullyQualifiedName~HashedNGramEmbeddingTests" 2>&1 | grep -E "^\s+Failed |Passed!|Failed!|Exception|Expected|Actual|Assert"
+dotnet test tests/Curia.Api.Tests -c Release --nologo --no-build --filter "FullyQualifiedName~WhoseFeaturesCancel" 2>&1 | grep -E "^\s+Failed |Passed!|Failed!|Exception|Expected|Actual"
+```
+
+Expected: the domain fact is handed a vector where there is none, and each HTTP fact fails where the review found it: the search 503, the question 500 after PERSIST, and the restart refused by the reconcile. As printed when this step was run:
+
+```
+  Failed Curia.Domain.Tests.Search.HashedNGramEmbeddingTests.FeaturesThatCancelHaveNoEmbedding [… ms]
+   Assert.False() Failure
+Expected: False
+Actual:   True
+Failed!  - Failed:     1, Passed:    10, Skipped:     0, Total:    11, Duration: … - Curia.Domain.Tests.dll (net10.0)
+```
+
+```
+  Failed Curia.Api.Tests.SearchEndpointTests.AQuestionWhoseFeaturesCancelIsCreatedAndServed [… ms]
+Expected: Created
+Actual:   InternalServerError
+  Failed Curia.Api.Tests.SearchEndpointTests.AQueryWhoseFeaturesCancelIsAnswered [… ms]
+Expected: OK
+Actual:   ServiceUnavailable
+  Failed Curia.Api.Tests.SearchEndpointTests.AHostRestartedOverAPostWhoseFeaturesCancelStarts [… ms]
+   System.InvalidOperationException : The vector index could not be reconciled with the log (curia/retrieval/index-unavailable: The vector index could not be queried; 22000: NaN not allowed in vector). The Forum does not start with a retrieval channel it cannot keep in step with the log.
+   at Microsoft.Extensions.Hosting.Internal.Host.ForeachService[T](IEnumerable`1 services, CancellationToken token, Boolean concurrent, Boolean abortOnFirstException, List`1 exceptions, Func`3 operation)
+Failed!  - Failed:     3, Passed:     0, Skipped:     0, Total:     3, Duration: … - Curia.Api.Tests.dll (net10.0)
+```
+
+- [ ] **Step 8: Refuse a zero vector, and correct the summaries**
+
+A zero vector has no direction, the rule `Embed`'s summary already states; it now holds for features that cancel as well as for none. The `Words` summary says upper-casing (M-1), and its D23 paragraph's "Total over every string" becomes true of the result as well as of throwing.
+
+In `src/Curia.Domain/Search/HashedNGramEmbedding.cs`, replace:
+
+```csharp
+    /// The embedding of <paramref name="text"/>, or a failure when the text has no features at
+    /// all (nothing a letter or digit), because a zero vector has no direction and a cosine
+    /// against it is undefined rather than zero.
+```
+
+with:
+
+```csharp
+    /// The embedding of <paramref name="text"/>, or a failure when the text has no features at
+    /// all (nothing a letter or digit) or its features cancel to a zero vector, because a zero
+    /// vector has no direction and a cosine against it is undefined rather than zero.
+```
+
+In `src/Curia.Domain/Search/HashedNGramEmbedding.cs`, replace:
+
+```csharp
+        norm = Math.Sqrt(norm);
+        for (var i = 0; i < vector.Length; i++) vector[i] = (float)(vector[i] / norm);
+```
+
+with:
+
+```csharp
+        norm = Math.Sqrt(norm);
+
+        // Features can cancel: two of equal count that hash to one bucket with opposite signs sum to
+        // 0.0, and when every bucket sums to 0.0 the vector is zero -- the words "dk" and "j" + U+00E0
+        // are one such text (register D24). A zero vector has no direction, the rule the summary
+        // states, so this is no features, not a division into NaN. No stored vector moves and the
+        // model keeps its version: pgvector refuses NaN, so no such vector was ever stored or queried.
+        if (norm == 0) return Result<ImmutableArray<float>>.Fail(EmbeddingErrors.NoFeatures());
+
+        for (var i = 0; i < vector.Length; i++) vector[i] = (float)(vector[i] / norm);
+```
+
+In `src/Curia.Domain/Search/HashedNGramEmbedding.cs`, replace:
+
+```csharp
+    /// Words: maximal runs of letters and digits after NFKC folding and lower-casing. Folding is
+    /// analysis on a derived copy (R6.13); nothing here touches stored content.
+    ///
+```
+
+with:
+
+```csharp
+    /// Words: maximal runs of letters and digits after NFKC folding and upper-casing (see the comment
+    /// in the body). Folding is analysis on a derived copy (R6.13); nothing here touches stored content.
+    ///
+```
+
+In `src/Curia.Domain/Search/HashedNGramEmbedding.cs`, replace:
+
+```csharp
+    /// keeps its version (R9.5, R11.10).</para>
+```
+
+with:
+
+```csharp
+    /// keeps its version (R9.5, R11.10). With <see cref="Embed"/> refusing a zero vector as no features
+    /// (register D24), every string embeds either to a unit vector or to <c>no-features</c>.</para>
+```
+
+- [ ] **Step 9: Run the Domain suite and the search tests**
+
+```bash
+dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
+dotnet test tests/Curia.Domain.Tests -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Failed!"
+dotnet test tests/Curia.Api.Tests -c Release --nologo --no-build --filter "FullyQualifiedName~SearchEndpointTests" 2>&1 | grep -E "Passed!|Failed!"
+```
+
+Expected: 0 warnings, and both `Passed!`. Both pinned digests hold: neither text's features cancel, so the refusal moves neither. As printed when this step was run:
+
+```
+    0 Warning(s)
+    0 Error(s)
+Passed!  - Failed:     0, Passed:   608, Skipped:     0, Total:   608, Duration: … - Curia.Domain.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: … - Curia.Api.Tests.dll (net10.0)
+```
+
+- [ ] **Step 10: Commit**
+
+```bash
+but status -fv
+but commit -b enrollment-binds-once -m "$(printf 'D24: features that cancel have no embedding, not a NaN one\n\nEmbed divided a zero vector by its zero norm when its features cancelled\nexactly, and returned NaN, which pgvector refuses: an anonymous search\nanswered 503, a T0 question 500 after PERSIST, and a restart past such a post\nfailed to reconcile. A zero norm is now no-features, which every caller skips.\nNo stored vector moves, so hashed-ngram@1 keeps its version. Also the minors\nfrom the review: the Words summary says upper-casing, a test summary claims\nonly what it runs, and two more surrogate arrangements are held. Falsified by\ncase 20.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+```
+
 ---
 
 ### Task 7: Falsify every new gate
@@ -3641,6 +3952,7 @@ TOTAL = "        var folded = total.ToString().Normalize(NormalizationForm.FormK
 AS_GIVEN = "        var folded = text.Normalize(NormalizationForm.FormKC).ToUpperInvariant();"
 AS_REPLACEMENT = "IsNoncharacter(rune.Value) ? Rune.ReplacementChar.ToString() : rune.ToString()"
 AS_NOTHING = "IsNoncharacter(rune.Value) ? string.Empty : rune.ToString()"
+ZERO_NORM = "        if (norm == 0) return Result<ImmutableArray<float>>.Fail(EmbeddingErrors.NoFeatures());\n"
 
 CASES = [
     dict(id="1", what="the rule registers a second kid for an enrolled identity",
@@ -3716,6 +4028,10 @@ CASES = [
     dict(id="19", what="the use case exempts a kid the store holds from the log's binding",
          cmds=[dotnet(APP, "FullyQualifiedName~EnrollIdentityTests")],
          edits=[(USECASE, PRECHECK, PRECHECK_EXEMPTS_HELD)]),
+    dict(id="20", what="the embedding divides a zero vector by its zero norm, as before D24",
+         cmds=[dotnet(DOMAIN, "FullyQualifiedName~HashedNGramEmbeddingTests"),
+               dotnet(API, "FullyQualifiedName~WhoseFeaturesCancel")],
+         edits=[(EMBEDDING, ZERO_NORM, "")]),
 ]
 
 # What a failing xUnit test prints about itself, and nothing else: its name, then its message
@@ -3785,7 +4101,7 @@ From the repository root, with `CURIA_TEST_POSTGRES` exported and `curia-testis`
 python3 <scratchpad>/falsify.py <scratchpad>/falsify-keep 2>&1 | tee <scratchpad>/falsify.log
 ```
 
-Each case must print `RED` for every command it runs, followed by `restore clean`. Cases 1, 2, 3, 8, 13 and 17 run more than one suite, and each suite must print `RED`. When this plan was build-checked, every case printed what the table says, and nothing else failed:
+Each case must print `RED` for every command it runs, followed by `restore clean`. Cases 1, 2, 3, 8, 13, 17 and 20 run more than one suite, and each suite must print `RED`. When this plan was build-checked, every case printed what the table says, and nothing else failed:
 
 | Case | Must fail, by name |
 |---|---|
@@ -3809,6 +4125,7 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 | 17 | `EnrollIdentityTests.R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound` (`Assert.Equal() Failure: Values differ`: the key dated a day after the enrollment); `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment` (`Assert.Equal() Failure: Strings differ`: the served key set's `curia_not_before` an hour later than before the loss) |
 | 18 | `PostgresAgentKeyStoreTests.AnotherAgentPresentingTheExactKeyIsRefusedAndMovesNoWindow` alone (`Expected a failure, got RegisteredKey { … NotAfter = 3/1/2026 … }`: mallory is handed alice's row, with alice's window closed). `AKidAlreadyRegisteredToADifferentAgentIsRefused` stays green, and it should: its fresh bytes are refused by the material clauses, so only an exact copy of the key reaches the ownership clause alone |
 | 19 | `EnrollIdentityTests.R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt` alone (`Assert.Equal() Failure: Values differ`, `Expected: 0`, `Actual: 1`: the store was asked, called the key held, and only the log's record refused it). The lost-row fact stays green, and it should: an empty store holds nothing to exempt |
+| 20 | `HashedNGramEmbeddingTests.FeaturesThatCancelHaveNoEmbedding` (`Assert.False() Failure`: a vector where there is none); `SearchEndpointTests.AQueryWhoseFeaturesCancelIsAnswered` (`Expected: OK`, `Actual: ServiceUnavailable`), `AQuestionWhoseFeaturesCancelIsCreatedAndServed` (`Expected: Created`, `Actual: InternalServerError`) and `AHostRestartedOverAPostWhoseFeaturesCancelStarts` (`System.InvalidOperationException : The vector index could not be reconciled with the log (curia/retrieval/index-unavailable: … 22000: NaN not allowed in vector)`). Both digest pins stay green, and they should: neither text's features cancel |
 
 Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).
@@ -3892,7 +4209,9 @@ with:
 Their entries are kept as the
 ```
 
-The two entries go before the moderation stage's observations, and this stage's observations follow them. Paste into each `Falsified` paragraph the lines `falsify.log` printed for that entry's cases, as the D20 and D21 entries quote theirs: cases 1–12, 4b and 15–19 under D22, and 13 and 14 under D23. That is all twenty:
+**D24** *(placeholder: the controller supplies this entry's wording)*: a vector of NaN from features that cancel, opened by Task 6's review and closed by Task 6's Steps 6–10, in this stage; its entry follows D23's, and its `Falsified` paragraph quotes case 20.
+
+The two entries go before the moderation stage's observations, and this stage's observations follow them. Paste into each `Falsified` paragraph the lines `falsify.log` printed for that entry's cases, as the D20 and D21 entries quote theirs: cases 1–12, 4b and 15–19 under D22, 13 and 14 under D23, and 20 under D24. That is all twenty-one:
 
 In `IMPLEMENTATION_PLAN.md`, insert before:
 
@@ -4385,8 +4704,8 @@ Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's
 - the two requirements, one line each, and R4.31's one exception for a lost row;
 - the order of `EnrollIdentity` (log, store, log) and why;
 - what db/0005 grants and what it refuses;
-- D23, the search 500, and why no vector moved;
-- the falsification table from `falsify.log`, all twenty cases;
+- D23, the search 500, and D24, the vector of NaN from features that cancel, and why neither moved a stored vector;
+- the falsification table from `falsify.log`, all twenty-one cases;
 - the test plan, with the per-assembly lines Step 1 printed;
 - the observations recorded but not fixed, the moderation stage's parked residuals among them, and the one question left for the owner: whether a Forum whose history matters exists, and the audit query for it.
 
