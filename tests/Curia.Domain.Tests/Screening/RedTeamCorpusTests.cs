@@ -345,6 +345,12 @@ public sealed class RedTeamCorpusTests
 
         foreach (var evasion in KnownEvasions())
         {
+            if (evasion.WouldDetect.IsEmpty)
+            {
+                stale.Add($"{evasion.Id}: would_detect is empty, so nothing checks that it evades");
+                continue;
+            }
+
             foreach (var shape in Shapes)
             {
                 var fired = shape.Detect(evasion.Content);
@@ -416,6 +422,12 @@ public sealed class RedTeamCorpusTests
 
         foreach (var fp in KnownFalsePositives())
         {
+            if (fp.WouldFlag.IsEmpty)
+            {
+                stale.Add($"{fp.Id}: would_flag is empty, so nothing checks that it fires");
+                continue;
+            }
+
             foreach (var shape in Shapes)
             {
                 var fired = shape.Detect(fp.Content);
