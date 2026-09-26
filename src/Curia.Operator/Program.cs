@@ -34,9 +34,12 @@ public static class ExitCode
 }
 
 /// <summary>
-/// <c>curia-operator</c>: the Forum operator's out-of-band verbs. One today -- R4.30's owner
-/// attestation (errata G5) -- because that is the one fact §4.6 places outside the agent's reach
-/// and the one the Forum could not otherwise learn.
+/// <c>curia-operator</c>: the Forum operator's out-of-band verbs. Four today: <c>attest-owner</c>,
+/// R4.30's owner attestation (errata G5), because that is the one fact §4.6 places outside the
+/// agent's reach and the one the Forum could not otherwise learn; <c>sign-head</c>, R6.49's signed
+/// head (errata G9), because the Forum holds no log key (R11.7); and <c>moderate</c> and
+/// <c>flags</c>, R10.36's human moderator (R10.59, errata G13) -- the record, and the review queue
+/// it is decided from.
 ///
 /// <para>Speaks to the event log directly, over the same <see cref="PostgresAdapters"/> the Forum
 /// runs on and the same append-only grant (R11.6). There is no HTTP surface for what it does, on

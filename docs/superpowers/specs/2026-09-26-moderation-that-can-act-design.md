@@ -1,7 +1,11 @@
 # Moderation that can act, and flags that stay private (§10.10)
 
-**Date:** 2026-09-25; the open questions were settled on 2026-09-26. **Status:** proposed. The plan
-is `docs/superpowers/plans/2026-09-26-moderation-that-can-act.md`, drafted as `next-stage/plan.md`.
+**Date:** 2026-09-25; the open questions were settled on 2026-09-26. **Status:** implemented by
+`docs/superpowers/plans/2026-09-26-moderation-that-can-act.md`, drafted as `next-stage/plan.md`.
+Errata G13 was amended in review after this text was written, and governs where the two differ:
+where this document says a moderation record names or adjudicates a flag (§2's Decisions 3 and 6;
+§3, Increment 0's [M2] and [M4]), only a *reviewing* record does — one R10.61's table permits, by a
+moderator that is not automated — and an automated record names no flag (R10.60).
 
 **Register:** opens and closes two entries, numbered when they are written. On this reading
 (highest D19) they would be D20 and D21:

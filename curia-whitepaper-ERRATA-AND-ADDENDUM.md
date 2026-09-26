@@ -6174,7 +6174,7 @@ carrying no `adjudicates` names no flag.
 R10.36 settles two cells of the automated row — quarantine pending review is permitted, and
 withholding, its "permanent removal", is not — and leaves the other two open. The table settles them
 as `ModerationPolicy` already does: an automated restore is refused, because a system reversing a
-quarantine nobody has reviewed would be reviewing itself (the Phase 2 record's Stage 8), and one
+quarantine nobody has reviewed would be reviewing itself (the Phase 2 record's Stage 5), and one
 reversing a human's withholding would be overruling its reviewer; an automated dismissal is
 permitted because, not being reviewing, it changes no post's servability and no flag's state. The
 human and delegated rows are whole, since each may take the permanent action and every other effect
@@ -6316,12 +6316,12 @@ test naming that row must fail; drop the permitted-cell guard from servability, 
 withholding must stop a post being served. **R10.62:** put the raiser, the rationale or the post
 into a flag's entry, and a gate enumerating every registered surface from the endpoint data source —
 never from a list beside it — must name `/v1/log/entries/{index}`; change the commitment's profile,
-members or prefix, and a test pinned to a value computed outside the solution must fail.
-**R10.60:** have the writer emit an empty `adjudicates`, and an end-to-end test of Table 11 must
-find the author still at T1 after its flag was upheld; its automated clause has no writer to break
-yet, and the stage that builds one owes that probe. **R11.32:** grant the application role `UPDATE`
-on the private store, and the grant test named for that privilege must fail. **R10.59:** record the
-moderator as automated on a withholding, and the writer must refuse it under R10.61's table.
+members or prefix, and a test pinned to a value computed outside the solution must fail. **R10.60:**
+have the writer emit an empty `adjudicates`, and an end-to-end test of Table 11 must find the author
+still at T1 after its flag was upheld; its automated clause has no writer to break yet, and the stage
+that builds one owes that probe. **R11.32:** grant the application role `UPDATE` on the private
+store, and the grant test named for that privilege must fail. **R10.59:** record the moderator as
+automated on a withholding, and the writer must refuse it under R10.61's table.
 
 # Consolidated proposed-requirements index
 

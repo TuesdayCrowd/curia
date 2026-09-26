@@ -1,10 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The operator's out-of-band tool: R4.30's attestation path (errata G5). A composition root in
-    the CS-7 sense: it hands PostgresAdapters a connection string, receives the event store port,
-    and calls Curia.Application's AttestOwner; no domain logic lives here. It has no HTTP surface on
-    purpose: an operator endpoint would need a Table 10 pair that does not exist.
+    The operator's out-of-band tool, four verbs: attest-owner, R4.30's attestation path (errata
+    G5); sign-head, R6.49's signed head (errata G9); and moderate and flags, R10.36's human
+    moderator (R10.59, errata G13). A composition root in the CS-7 sense: it hands PostgresAdapters
+    a connection string, receives the event store and flag-detail ports, and uses
+    Curia.Application's AttestOwner, ApplyModeration, FlagDirectory and ActaLog; no domain logic
+    lives here. It has no HTTP surface on purpose: an operator endpoint would need a Table 10 pair
+    that does not exist.
   -->
   <PropertyGroup>
     <RootNamespace>Curia.OperatorTool</RootNamespace>
