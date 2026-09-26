@@ -710,6 +710,9 @@ public static class ForumEndpoints
         // request was well-formed and was rejected on its content.
         "curia/flag/rationale-rejected" => StatusCodes.Status422UnprocessableEntity,
         "curia/moderation/rationale-required" => StatusCodes.Status400BadRequest,
+
+        // The private store could not be written; nothing was, in either store (R10.62).
+        "curia/flag/detail-store-unavailable" => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest,
     };
 

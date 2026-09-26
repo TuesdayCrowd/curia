@@ -197,11 +197,11 @@ public sealed class Program
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
-        // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does: it appends a fact
-        // about an agent's conduct, and CS-15's phase typing governs submitted content -- there is
-        // no envelope here and nothing to verify, only a rationale to screen.
+        // R10.35's flag path. Holds IEventStore for the reason EnrollAgent does, and the private
+        // store because a flag's post, raiser and rationale are never an event (R10.62, R11.32).
         builder.Services.AddSingleton(sp => new RaiseFlag(
             sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<IFlagDetailStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // Table 10's answer/accept. Holds IEventStore for the reason EnrollAgent and RaiseFlag do.

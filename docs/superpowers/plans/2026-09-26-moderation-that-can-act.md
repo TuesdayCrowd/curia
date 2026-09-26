@@ -3325,9 +3325,10 @@ with
 ```csharp
         "Any other value is refused. The rationale is required. Who raised a flag and why are never " +
         "published: the Forum's log records only that a flag of this kind was raised and when, and " +
-        "which post it concerns becomes public only if a moderator acts on it. A flag is attributed " +
-        "by the authenticated session rather than signed, and raising one removes nothing by " +
-        "itself.\n\n" +
+        "which post it concerns becomes public, permanently, once a moderator reviews the flag, " +
+        "whether it is upheld or dismissed; an automated quarantine is not a review. A flag is " +
+        "attributed by the authenticated session rather than signed, and raising one removes " +
+        "nothing by itself.\n\n" +
 ```
 
 In `src/Curia.Mcp/WriteTools.cs`, replace
