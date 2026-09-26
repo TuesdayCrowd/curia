@@ -129,11 +129,11 @@ public sealed class ApplyModeration
         if (noOp)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoOp(postId, effect, category));
 
-        var stream = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
-        if (!stream.TryGetValue(out var streamEvents, out var streamError))
-            return Result<ModerationRecorded>.Fail(streamError!);
-
-        if (!AggregateVersion.From(streamEvents!.Count).TryGetValue(out var version, out var versionError))
+        // The expected version comes from the read the decision was made on, not from a second read.
+        // A record another operator appended to this post since then fails this append, rather than
+        // standing beside a record decided without it (R10.39 counts records). A flag committed since
+        // is on its own aggregate and is not caught here; it stays open until a later record names it.
+        if (!AggregateVersion.From(log!.Count(e => e.AggregateId == aggregate)).TryGetValue(out var version, out var versionError))
             return Result<ModerationRecorded>.Fail(versionError!);
 
         if (!_ids.Next().TryGetValue(out var ulid, out var idError))
@@ -149,7 +149,7 @@ public sealed class ApplyModeration
         [
             new(FlagProjector.PostIdField, new JsonValue.String(postId)),
             new(FlagProjector.DigestField, new JsonValue.String(post.Digest)),
-            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(ModeratorKind.Human))),
+            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(action.Moderator))),
             new(FlagProjector.ActorIdField, new JsonValue.String(moderator.Value)),
             new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(effect))),
             new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),

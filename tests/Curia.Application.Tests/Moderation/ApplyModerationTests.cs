@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Moderation;
+using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
@@ -18,8 +19,10 @@ namespace Curia.Application.Tests.Moderation;
 public sealed class ApplyModerationTests
 {
     private const string Post = "01JPOST0000000000000000001";
+    private const string OtherPost = "01JPOST0000000000000000002";
     private const string Reporter = "https://agents.example/reporter";
     private static readonly string Digest = "sha256:" + new string('a', 64);
+    private static readonly string OtherDigest = "sha256:" + new string('b', 64);
     private static readonly DateTimeOffset Start = new(2026, 9, 26, 12, 0, 0, TimeSpan.Zero);
 
     private static T Require<T>(Result<T> result) =>
@@ -36,42 +39,62 @@ public sealed class ApplyModerationTests
     {
         var clock = new ManualTimeProvider(Start);
         var world = new World(new InMemoryEventStore(clock), new InMemoryFlagDetailStore(), clock);
+        await AcceptPostAsync(world, Post, Digest, ct).ConfigureAwait(false);
+        return world;
+    }
 
-        // Every member PostProjector requires, shaped as IngestPipeline persists a post.
+    /// <summary>Every member PostProjector requires, shaped as IngestPipeline persists a post.</summary>
+    private static async Task AcceptPostAsync(World world, string postId, string digest, CancellationToken ct) =>
         Require(await world.Store.AppendAsync(
-            Require(AggregateId.Create(Post)),
+            Require(AggregateId.Create(postId)),
             AggregateVersion.New,
             [new DomainEvent(
-                Require(EventId.Create(Post)),
+                Require(EventId.Create(postId)),
                 Require(EventType.Create(PostProjector.PostAcceptedType)),
                 Require(ActorId.Create("https://agents.example/author")),
                 new JsonValue.Object(
                 [
-                    new("post_id", new JsonValue.String(Post)),
+                    new("post_id", new JsonValue.String(postId)),
                     new("canonical", new JsonValue.String("{\"body\":\"a question\"}")),
                     new("signature", new JsonValue.String("sig")),
-                    new("digest", new JsonValue.String(Digest)),
+                    new("digest", new JsonValue.String(digest)),
                     new("author", new JsonValue.String("https://agents.example/author")),
                     new("board", new JsonValue.String("board-1")),
                     new("kind", new JsonValue.String("question")),
                 ]))],
             ct).ConfigureAwait(false));
 
-        return world;
-    }
-
     private static async Task<IReadOnlyList<AppendedEvent>> LogAsync(World world, CancellationToken ct) =>
         Require(await world.Store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct).ConfigureAwait(false));
 
-    /// <summary>Raises a flag through the real writer and returns its event id.</summary>
-    private static async Task<string> FlagAsync(World world, FlagKind kind, CancellationToken ct)
+    /// <summary>Raises a flag against <see cref="Post"/> through the real writer and returns its event id.</summary>
+    private static Task<string> FlagAsync(World world, FlagKind kind, CancellationToken ct) => FlagAsync(world, Post, kind, ct);
+
+    /// <summary>Raises a flag against <paramref name="postId"/> through the real writer and returns its event id.</summary>
+    private static async Task<string> FlagAsync(World world, string postId, FlagKind kind, CancellationToken ct)
     {
-        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(Post, Reporter, kind, "reported", ct).ConfigureAwait(false));
+        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(postId, Reporter, kind, "reported", ct).ConfigureAwait(false));
         return (await LogAsync(world, ct).ConfigureAwait(false)).Last(e => e.Event.Type.Value == FlagProjector.FlagCommittedType).Event.Id.Value;
     }
 
     private static async Task<PostModeration> ModerationAsync(World world, CancellationToken ct) =>
         FlagProjector.Fold(await LogAsync(world, ct).ConfigureAwait(false))[Post];
+
+    /// <summary>
+    /// A detail store that lets a second writer append between the writer's read of the log and its
+    /// own append: where two operators acting on one post at once would interleave.
+    /// </summary>
+    private sealed class InterleavingDetailStore(IFlagDetailStore inner, Func<Task> interleave) : IFlagDetailStore
+    {
+        public Task<Result<FlagDetail>> AppendAsync(FlagDetail detail, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(detail, cancellationToken);
+
+        public async Task<Result<IReadOnlyList<FlagDetail>>> ReadAllAsync(CancellationToken cancellationToken = default)
+        {
+            await interleave().ConfigureAwait(false);
+            return await inner.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     [Fact]
     public async Task R10_60_ARecordNamesThePostItsDigestAndTheFlagsItAdjudicates()
@@ -310,5 +333,54 @@ public sealed class ApplyModerationTests
             Assert.NotEmpty(action.Adjudicates);
             Assert.Equal(ModeratorKind.Human, action.Moderator);
         });
+    }
+
+    /// <summary>
+    /// R10.60 names the flags raised against the record's own post. A flag of the same category on
+    /// another post is neither named nor adjudicated: naming it would put a false flag-to-post link in a
+    /// leaf nothing can take back (R11.6, R6.51), and would decide that flag without anyone reviewing it.
+    /// </summary>
+    [Fact]
+    public async Task R10_60_AFlagOfTheSameCategoryOnAnotherPostIsNeitherNamedNorAdjudicated()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await AcceptPostAsync(world, OtherPost, OtherDigest, ct);
+        var theirs = await FlagAsync(world, OtherPost, FlagKind.Spam, ct);
+        var mine = await FlagAsync(world, Post, FlagKind.Spam, ct);
+
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+
+        var log = await LogAsync(world, ct);
+        var record = log.Single(e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
+        var named = ((JsonValue.Object)record.Event.Payload).Members.Single(m => m.Key == FlagProjector.AdjudicatesField).Value;
+        Assert.Equal([mine], ((JsonValue.Array)named).Items.Cast<JsonValue.String>().Select(s => s.Value));
+        Assert.DoesNotContain(theirs, FlagProjector.Fold(log).Values.SelectMany(m => ModerationPolicy.AdjudicatedFlags(m.History)));
+    }
+
+    /// <summary>
+    /// R10.39 counts records, so a record decided on a view another record has since overtaken is
+    /// refused by the store, not appended: the expected version comes from the read the decision was
+    /// made on. Two operators withholding the same flag at once leave one record, not two.
+    /// </summary>
+    [Fact]
+    public async Task R10_39_ARecordDecidedOnAViewAnotherRecordOvertookIsRefusedAndNotAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, ct);
+
+        var racing = new ApplyModeration(
+            world.Store,
+            new InterleavingDetailStore(
+                world.Details,
+                async () => Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed first.", Operator, ct).ConfigureAwait(false))),
+            world.Clock);
+
+        var overtaken = await racing.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed second.", Operator, ct);
+
+        Assert.False(overtaken.TryGetValue(out _, out var error));
+        Assert.Equal(DomainErrors.ConcurrencyConflictType, error!.Type);
+        Assert.Single(await LogAsync(world, ct), e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
     }
 }

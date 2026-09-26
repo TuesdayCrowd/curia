@@ -3770,6 +3770,7 @@ Create `tests/Curia.Application.Tests/Moderation/ApplyModerationTests.cs`:
 ```csharp
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Moderation;
+using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
@@ -3788,8 +3789,10 @@ namespace Curia.Application.Tests.Moderation;
 public sealed class ApplyModerationTests
 {
     private const string Post = "01JPOST0000000000000000001";
+    private const string OtherPost = "01JPOST0000000000000000002";
     private const string Reporter = "https://agents.example/reporter";
     private static readonly string Digest = "sha256:" + new string('a', 64);
+    private static readonly string OtherDigest = "sha256:" + new string('b', 64);
     private static readonly DateTimeOffset Start = new(2026, 9, 26, 12, 0, 0, TimeSpan.Zero);
 
     private static T Require<T>(Result<T> result) =>
@@ -3806,42 +3809,62 @@ public sealed class ApplyModerationTests
     {
         var clock = new ManualTimeProvider(Start);
         var world = new World(new InMemoryEventStore(clock), new InMemoryFlagDetailStore(), clock);
+        await AcceptPostAsync(world, Post, Digest, ct).ConfigureAwait(false);
+        return world;
+    }
 
-        // Every member PostProjector requires, shaped as IngestPipeline persists a post.
+    /// <summary>Every member PostProjector requires, shaped as IngestPipeline persists a post.</summary>
+    private static async Task AcceptPostAsync(World world, string postId, string digest, CancellationToken ct) =>
         Require(await world.Store.AppendAsync(
-            Require(AggregateId.Create(Post)),
+            Require(AggregateId.Create(postId)),
             AggregateVersion.New,
             [new DomainEvent(
-                Require(EventId.Create(Post)),
+                Require(EventId.Create(postId)),
                 Require(EventType.Create(PostProjector.PostAcceptedType)),
                 Require(ActorId.Create("https://agents.example/author")),
                 new JsonValue.Object(
                 [
-                    new("post_id", new JsonValue.String(Post)),
+                    new("post_id", new JsonValue.String(postId)),
                     new("canonical", new JsonValue.String("{\"body\":\"a question\"}")),
                     new("signature", new JsonValue.String("sig")),
-                    new("digest", new JsonValue.String(Digest)),
+                    new("digest", new JsonValue.String(digest)),
                     new("author", new JsonValue.String("https://agents.example/author")),
                     new("board", new JsonValue.String("board-1")),
                     new("kind", new JsonValue.String("question")),
                 ]))],
             ct).ConfigureAwait(false));
 
-        return world;
-    }
-
     private static async Task<IReadOnlyList<AppendedEvent>> LogAsync(World world, CancellationToken ct) =>
         Require(await world.Store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct).ConfigureAwait(false));
 
-    /// <summary>Raises a flag through the real writer and returns its event id.</summary>
-    private static async Task<string> FlagAsync(World world, FlagKind kind, CancellationToken ct)
+    /// <summary>Raises a flag against <see cref="Post"/> through the real writer and returns its event id.</summary>
+    private static Task<string> FlagAsync(World world, FlagKind kind, CancellationToken ct) => FlagAsync(world, Post, kind, ct);
+
+    /// <summary>Raises a flag against <paramref name="postId"/> through the real writer and returns its event id.</summary>
+    private static async Task<string> FlagAsync(World world, string postId, FlagKind kind, CancellationToken ct)
     {
-        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(Post, Reporter, kind, "reported", ct).ConfigureAwait(false));
+        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(postId, Reporter, kind, "reported", ct).ConfigureAwait(false));
         return (await LogAsync(world, ct).ConfigureAwait(false)).Last(e => e.Event.Type.Value == FlagProjector.FlagCommittedType).Event.Id.Value;
     }
 
     private static async Task<PostModeration> ModerationAsync(World world, CancellationToken ct) =>
         FlagProjector.Fold(await LogAsync(world, ct).ConfigureAwait(false))[Post];
+
+    /// <summary>
+    /// A detail store that lets a second writer append between the writer's read of the log and its
+    /// own append: where two operators acting on one post at once would interleave.
+    /// </summary>
+    private sealed class InterleavingDetailStore(IFlagDetailStore inner, Func<Task> interleave) : IFlagDetailStore
+    {
+        public Task<Result<FlagDetail>> AppendAsync(FlagDetail detail, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(detail, cancellationToken);
+
+        public async Task<Result<IReadOnlyList<FlagDetail>>> ReadAllAsync(CancellationToken cancellationToken = default)
+        {
+            await interleave().ConfigureAwait(false);
+            return await inner.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     [Fact]
     public async Task R10_60_ARecordNamesThePostItsDigestAndTheFlagsItAdjudicates()
@@ -4081,21 +4104,79 @@ public sealed class ApplyModerationTests
             Assert.Equal(ModeratorKind.Human, action.Moderator);
         });
     }
+
+    /// <summary>
+    /// R10.60 names the flags raised against the record's own post. A flag of the same category on
+    /// another post is neither named nor adjudicated: naming it would put a false flag-to-post link in a
+    /// leaf nothing can take back (R11.6, R6.51), and would decide that flag without anyone reviewing it.
+    /// </summary>
+    [Fact]
+    public async Task R10_60_AFlagOfTheSameCategoryOnAnotherPostIsNeitherNamedNorAdjudicated()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await AcceptPostAsync(world, OtherPost, OtherDigest, ct);
+        var theirs = await FlagAsync(world, OtherPost, FlagKind.Spam, ct);
+        var mine = await FlagAsync(world, Post, FlagKind.Spam, ct);
+
+        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+
+        var log = await LogAsync(world, ct);
+        var record = log.Single(e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
+        var named = ((JsonValue.Object)record.Event.Payload).Members.Single(m => m.Key == FlagProjector.AdjudicatesField).Value;
+        Assert.Equal([mine], ((JsonValue.Array)named).Items.Cast<JsonValue.String>().Select(s => s.Value));
+        Assert.DoesNotContain(theirs, FlagProjector.Fold(log).Values.SelectMany(m => ModerationPolicy.AdjudicatedFlags(m.History)));
+    }
+
+    /// <summary>
+    /// R10.39 counts records, so a record decided on a view another record has since overtaken is
+    /// refused by the store, not appended: the expected version comes from the read the decision was
+    /// made on. Two operators withholding the same flag at once leave one record, not two.
+    /// </summary>
+    [Fact]
+    public async Task R10_39_ARecordDecidedOnAViewAnotherRecordOvertookIsRefusedAndNotAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        await FlagAsync(world, FlagKind.Spam, ct);
+
+        var racing = new ApplyModeration(
+            world.Store,
+            new InterleavingDetailStore(
+                world.Details,
+                async () => Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed first.", Operator, ct).ConfigureAwait(false))),
+            world.Clock);
+
+        var overtaken = await racing.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed second.", Operator, ct);
+
+        Assert.False(overtaken.TryGetValue(out _, out var error));
+        Assert.Equal(DomainErrors.ConcurrencyConflictType, error!.Type);
+        Assert.Single(await LogAsync(world, ct), e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
+    }
 }
 ```
 
-The last two facts were added when the task was built. Each covers a case an earlier task's review said no test reached:
+The last four facts were added when the task was built. The first two each cover a case an earlier task's review said no test reached; the last two came from this task's own review:
 
 - `R10_61_ALateFlagIsNotUpheldByAnEarlierWithholdingAndTheNextWithholdingAdjudicatesIt` is Task 5's late-flag sequence, at the layer where lateness is visible:
   1. A spam flag is raised and withheld. The record names exactly that flag.
   2. A second spam flag is raised. `UpheldFlags` is still the first flag alone, and the second is not adjudicated.
   3. A second withholding is recorded, not refused as a no-op. R10.60 has a reviewing record name every flag of its category raised before it, so it names both flags. The late flag is the only one it adjudicates for the first time.
-- `R10_60_EveryRecordTheWriterWritesIsHumanSoNoAutomatedRecordNamesAFlag` is Task 6's carry. R10.60 says an automated record SHALL name no flag, and `curia_flag`'s text tells agents that an automated quarantine is not a review. `RecordAsync` takes no moderator kind, so the writer is human-only by construction. The fact records one of each of the four effects, each naming a flag, and asserts that every record is human in the leaf and in the fold.
+- `R10_60_EveryRecordTheWriterWritesIsHumanSoNoAutomatedRecordNamesAFlag` is Task 6's carry. R10.60 says an automated record SHALL name no flag, and `curia_flag`'s text tells agents that an automated quarantine is not a review. `RecordAsync` takes no moderator kind, so the writer is human-only by construction. The fact records one of each of the four effects, each naming a flag, and asserts that every record is human in the leaf and in the fold. The payload's `moderator` is written from the authorized action (`ModeratorKinds.Wire(action.Moderator)`), so the leaf is literally what `Authorize` judged, and a drift of the action's kind turns this fact red too.
+- `R10_60_AFlagOfTheSameCategoryOnAnotherPostIsNeitherNamedNorAdjudicated` pins the post clause of the `adjudicates` filter. Every other fact uses one post, so dropping `string.Equals(f.PostId, postId, …) &&` left them all green. This fact raises a spam flag on each of two posts, withholds spam on the first, and asserts:
+  - the record's leaf names only the first post's flag;
+  - no fold adjudicates the second post's flag.
+
+  A regression would put a false flag-to-post link in a leaf nothing can take back (R11.6, R6.51), and would decide that flag without review.
+- `R10_39_ARecordDecidedOnAViewAnotherRecordOvertookIsRefusedAndNotAppended` pins where the expected version comes from. The no-op decision and `adjudicates` are taken from one `ReadAllAsync` snapshot, so the expected version is taken from that snapshot too, not from a second read of the post's stream.
+  - An `InterleavingDetailStore` lets a second operator's withholding land between the writer's read and its append.
+  - The overtaken record is refused with `curia/domain/concurrency-conflict`, and the log holds one record, not two.
+  - Under a second read, it was appended.
 
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests"`
-Expected: build FAILS with `CS0246: The type or namespace name 'ApplyModeration' could not be found`. That covers all eleven facts, the two added ones included.
+Expected: build FAILS with `CS0246: The type or namespace name 'ApplyModeration' could not be found`. That covers all thirteen facts, the four added ones included.
 
 - [ ] **Step 3: Write the writer**
 
@@ -4233,11 +4314,11 @@ public sealed class ApplyModeration
         if (noOp)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoOp(postId, effect, category));
 
-        var stream = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
-        if (!stream.TryGetValue(out var streamEvents, out var streamError))
-            return Result<ModerationRecorded>.Fail(streamError!);
-
-        if (!AggregateVersion.From(streamEvents!.Count).TryGetValue(out var version, out var versionError))
+        // The expected version comes from the read the decision was made on, not from a second read.
+        // A record another operator appended to this post since then fails this append, rather than
+        // standing beside a record decided without it (R10.39 counts records). A flag committed since
+        // is on its own aggregate and is not caught here; it stays open until a later record names it.
+        if (!AggregateVersion.From(log!.Count(e => e.AggregateId == aggregate)).TryGetValue(out var version, out var versionError))
             return Result<ModerationRecorded>.Fail(versionError!);
 
         if (!_ids.Next().TryGetValue(out var ulid, out var idError))
@@ -4253,7 +4334,7 @@ public sealed class ApplyModeration
         [
             new(FlagProjector.PostIdField, new JsonValue.String(postId)),
             new(FlagProjector.DigestField, new JsonValue.String(post.Digest)),
-            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(ModeratorKind.Human))),
+            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(action.Moderator))),
             new(FlagProjector.ActorIdField, new JsonValue.String(moderator.Value)),
             new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(effect))),
             new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
@@ -4344,7 +4425,7 @@ The slug and title are Task 6's, unchanged, so `R10_26_ACredentialInTheRationale
 - [ ] **Step 4: Run them to see them pass**
 
 Run: `dotnet test tests/Curia.Application.Tests -c Release --nologo --filter "FullyQualifiedName~ApplyModerationTests|FullyQualifiedName~RaiseFlagTests"`
-Expected: 18 PASS, the 11 `ApplyModerationTests` and the 7 `RaiseFlagTests`, which still read the flag path's refusal through the shared body. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"` reports `0 Warning(s)`.
+Expected: 20 PASS, the 13 `ApplyModerationTests` and the 7 `RaiseFlagTests`, which still read the flag path's refusal through the shared body. Then `dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"` reports `0 Warning(s)`.
 
 - [ ] **Step 5: Commit**
 
