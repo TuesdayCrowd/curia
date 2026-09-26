@@ -282,6 +282,12 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
 
+        // Postgres `text` cannot hold U+0000, so no stored row names an agent carrying one; sent as a
+        // parameter, it is refused (22021), and /v1/jwks answered an anonymous caller 500. Such an
+        // agent gets the answer an agent with no keys gets, before a connection is opened.
+        if (agentId.Contains('\0', StringComparison.Ordinal))
+            return [];
+
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(
             $"SELECT {SelectColumns} FROM {_table} WHERE agent_id = @agent ORDER BY valid_from DESC, kid;",

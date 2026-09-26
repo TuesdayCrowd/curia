@@ -3912,12 +3912,15 @@ ENDPOINT = "src/Curia.Api/ForumEndpoints.cs"
 EMBEDDING = "src/Curia.Domain/Search/HashedNGramEmbedding.cs"
 VALIDATOR = "src/Curia.AuthN/ClientAssertionValidator.cs"
 AUTHN_RESOLVER = "tests/Curia.AuthN.Tests/InMemory/InMemoryAgentKeyResolver.cs"
+RESERVED = "src/Curia.Application/Credentials/ReservedIdentifiers.cs"
+CANON_READER = "src/Curia.Canon/Json/JsonReader.cs"
 
 DOMAIN = "tests/Curia.Domain.Tests"
 APP = "tests/Curia.Application.Tests"
 INFRA = "tests/Curia.Infrastructure.Tests"
 API = "tests/Curia.Api.Tests"
 AUTHN = "tests/Curia.AuthN.Tests"
+CANON = "tests/Curia.Canon.Tests"
 
 GRANT = ("REVOKE UPDATE ON agent_keys FROM __CURIA_APP_ROLE__;\n"
          "GRANT UPDATE (valid_from, valid_until) ON agent_keys TO __CURIA_APP_ROLE__;   -- R4.19's window; R4.32 forbids the rest\n")
@@ -4051,6 +4054,26 @@ CASES = [
          cmds=[dotnet(AUTHN, "FullyQualifiedName~ClientAssertionValidatorTests"),
                dotnet(API, "FullyQualifiedName~TokenSubjectBindingTests")],
          edits=[(VALIDATOR, "if (claims.Sub != context.ExpectedSubject)", "if (claims.Sub == \"no-such-subject\")")]),
+    dict(id="23", what="the use case lets an identifier whose stream holds another writer's events reach the store",
+         cmds=[dotnet(APP, "FullyQualifiedName~EnrollIdentityTests"),
+               dotnet(API, "FullyQualifiedName~EnrollmentIdentifierTests")],
+         edits=[(USECASE, "history!.Count > 0", "history!.Count < 0")]),
+    dict(id="24", what="the reserved prefixes forget log:",
+         cmds=[dotnet(APP, "FullyQualifiedName~EnrollIdentityTests"),
+               dotnet(API, "FullyQualifiedName~ActaNamespaceTests")],
+         edits=[(RESERVED, "[LogPrefix, RaiseFlag.FlagAggregatePrefix]", "[RaiseFlag.FlagAggregatePrefix]")]),
+    dict(id="25", what="CheckString accepts a noncharacter",
+         cmds=[dotnet(CANON, "FullyQualifiedName~JsonReaderCheckStringTests"),
+               dotnet(API, "FullyQualifiedName~R6_15_AnEnrollmentHolding")],
+         edits=[(CANON_READER, "            if (IsNoncharacter(scalar.Value))\n                return Result<string>.Fail(CanonErrors.Noncharacter());",
+                               "            if (IsNoncharacter(scalar.Value))\n                return Result<string>.Ok(value);")]),
+    dict(id="25b", what="the route lets U+0000 through to the database",
+         cmds=[dotnet(API, "FullyQualifiedName~AnEnrollmentHoldingUPlus0000")],
+         edits=[(ENDPOINT, "value.Contains('\\0', StringComparison.Ordinal) ? EnrollmentErrors.NulCharacter(field)",
+                           "value.Contains(\"no-such-text\", StringComparison.Ordinal) ? EnrollmentErrors.NulCharacter(field)")]),
+    dict(id="26", what="the route's algorithm check never refuses",
+         cmds=[dotnet(API, "FullyQualifiedName~R4_15_AnEnrollmentWithoutAnAlgorithm")],
+         edits=[(ENDPOINT, "if (request.Alg is null || !verifiers.ContainsKey(request.Alg))", "if (request.Alg == \"no-such-algorithm\")")]),
 ]
 
 # What a failing xUnit test prints about itself, and nothing else: its name, then its message
@@ -4158,7 +4181,7 @@ echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipesta
 
 A pipeline's own status is `tee`'s, so the last line reads the runner's: `${PIPESTATUS[0]}` in bash, `$pipestatus[1]` in fish. That `echo` is the wrapper's and is not logged; the log's last line is the runner's own `runner exit: N`.
 
-Each case must print `RED` for every command it runs, followed by `restore clean`, and the runner's last line must be `runner exit: 0`. `RED` means the run printed a `Failed!` line: a test ran and failed. The runner exits non-zero whenever any command is not `RED` (`BUILD FAILED`, `GREEN`, or `DID NOT RUN`: a non-zero exit with no `Failed!` line, which falsifies nothing), and whenever a patch mismatches or a restore is dirty. Cases 1, 2, 3, 8, 13, 17, 20, 21 and 22 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
+Each case must print `RED` for every command it runs, followed by `restore clean`, and the runner's last line must be `runner exit: 0`. `RED` means the run printed a `Failed!` line: a test ran and failed. The runner exits non-zero whenever any command is not `RED` (`BUILD FAILED`, `GREEN`, or `DID NOT RUN`: a non-zero exit with no `Failed!` line, which falsifies nothing), and whenever a patch mismatches or a restore is dirty. Cases 1, 2, 3, 8, 13, 17, 20, 21, 22, 23, 24 and 25 run more than one suite, and each suite must print `RED`. When this task ran on 3643dac, every case printed what the table says, and nothing else failed:
 
 | Case | Must fail, by name |
 |---|---|
@@ -4185,6 +4208,11 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 | 20 | `HashedNGramEmbeddingTests.FeaturesThatCancelHaveNoEmbedding` (`Assert.False() Failure`: a vector where there is none); `SearchEndpointTests.AQueryWhoseFeaturesCancelIsAnswered` (`Expected: OK`, `Actual: ServiceUnavailable`), `AQuestionWhoseFeaturesCancelIsCreatedAndServed` (`Expected: Created`, `Actual: InternalServerError`) and `AHostRestartedOverAPostWhoseFeaturesCancelStarts` (`System.InvalidOperationException : The vector index could not be reconciled with the log (curia/retrieval/index-unavailable: … 22000: NaN not allowed in vector)`). Both digest pins stay green, and they should: neither text's features cancel |
 | 21 | `ClientAssertionValidatorTests.R5_20_AKeyRegisteredToAnotherAgentDoesNotAuthenticateTheAssertedSubject` (`mallory's key authenticated sub=agent://curia.example/tuesdaycrowd/scriptor`); `PostgresAgentKeyStoreTests.AKidRegisteredToAnotherAgentDoesNotResolveForThisOne` and `R5_20_TheAssertionPortResolvesAKeyOnlyForTheAgentItIsRegisteredTo` (`Expected a failure, got PublicKeyMaterial { Alg = ES256, Kid = kid-alices, … }` and `… Kid = kid-alices-alone, … }`: bob is handed alice's key); `TokenSubjectBindingTests.R5_20_AKeyEnrolledUnderItsHoldersOwnIdentifierMintsNoTokenForAnother` and `R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity`, each at the damage (`1 flag(s) recorded as raised by https://agents.example/victim-13bdbd49, with a token another agent's key obtained (the token request answered 200; the flag request answered 201)`, and the same for `victim-4ecb7aa3`). `R5_20_AnAssertionNamingAnotherSubjectThanItsClientIsRefused` stays green, and it should: the subject check refuses it. So does `R5_20_AnAssertionNamingANulIdentifierOrKidIsRefusedAsAnUnregisteredKeyIs`: the store refuses a U+0000 before its query runs. Npgsql accepted the now-unreferenced `@agent` parameter, so the store's patch needed no correction |
 | 22 | `ClientAssertionValidatorTests.SubjectNotMatchingTheResolverScopeIsRejected` (`Assert.False() Failure`, `Expected: False`, `Actual: True`: the assertion was accepted), its first falsification; `TokenSubjectBindingTests.R5_20_AnAssertionNamingAnotherSubjectThanItsClientIsRefused` (`a token was issued for sub=https://agents.example/victim-c07bd3b8 to a client that named https://agents.example/attacker-own-da41d7d5`). The other three `TokenSubjectBindingTests` facts stay green, and they should: the resolver refuses first |
+| 23 | `EnrollIdentityTests.R4_33_AnIdentifierWhoseStreamHoldsAnotherWritersEventsIsRefusedBeforeTheStoreIsAsked` (`Expected: "curia/enroll/identifier-reserved"`, `Actual: "curia/enroll/contended"`: the store registered, and the log's append at `New` could not succeed); `EnrollmentIdentifierTests.R4_33_AnEnrollmentNamingAPostIsRefusedAndRegistersNothing` (`observed: 500 curia/enroll/contended agent=… attempts=2; key rows 1; events under the post 1`). `R4_33_EveryAggregateNameTheForumMintsIsReserved` stays green, and it should: the namespace clause refuses its names first, on a log that holds nothing under them. The Acta fact is not run here, for the same reason; case 24 fences it |
+| 24 | `EnrollIdentityTests.R4_33_EveryAggregateNameTheForumMintsIsReserved` (`not reserved: LogEntries.HeadsAggregate (log:heads): enrolled, the store asked 1 time(s); LogEntries.KeysAggregate (log:keys): enrolled, the store asked 1 time(s)`); `ActaNamespaceTests.R4_33_AnEnrollmentNamingTheActasStreamsIsRefusedAndAHeadCanStillBeSigned`, at the damage (`sign-head exited 2: error: Append targeted an aggregate at an unexpected version (curia/domain/concurrency-conflict): aggregate=log:keys expected=0 actual=1`). The stream fact stays green, and it should: a post's identifier carries no prefix. `flag:` is still reserved, so the reflection fact names the two `log:` constants alone |
+| 25 | `JsonReaderCheckStringTests.CheckStringRefusesANoncharacterAndAnUnpairedSurrogateByName`, at its noncharacter half (`Expected: "curia/admit/noncharacter"`, `Actual: "ok"`), and `CheckStringAgreesWithAdmitOnEveryString` (`CsCheck.CsCheckException`, shrunk to `U+FDD2`; the seed and the example differ from run to run); both rows of `EnrollmentIdentifierTests.R6_15_AnEnrollmentHoldingANoncharacterIsRefusedBeforeAnythingIsWritten` (`Expected: "400 curia/admit/noncharacter field=…"`, `Actual: "201 enrolled; key rows 1, events 1"`). One edit, three layers |
+| 25b | both rows of `EnrollmentIdentifierTests.AnEnrollmentHoldingUPlus0000IsRefusedByNameBeforeAnythingIsWritten` (`Expected: "400 curia/enroll/nul-character field=…"`, `Actual: "500 Npgsql.PostgresException (0x80004005): 22021: "`: the database's own refusal). A case of its own, not a second edit in case 25: case 25 is one edit that shows three layers carry information, and `CheckString` accepts U+0000 by design, as ADMIT does |
+| 26 | all five rows of `EnrollmentIdentifierTests.R4_15_AnEnrollmentWithoutAnAlgorithmTheForumVerifiesIsRefusedByName` (`Expected: "400 curia/enroll/unsupported-algorithm alg=…"`; `Actual: "500 Npgsql.PostgresException (0x80004005): 23514: "` for `""`, `RS256`, `HS256` and `es256`, the CHECK, and `Actual: "500 System.InvalidOperationException: Parameter 'a"` for a missing `alg`, Npgsql's null parameter) |
 
 Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).

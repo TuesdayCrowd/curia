@@ -187,9 +187,12 @@ it false, because no test exercised the one input that breaks it.
    - `EnrollIdentity` asks the key store before it appends `agent.enrolled`.
    - *Reason:* a `kid` held by another identity is discovered at the store. Appending first would
      bind the identity, permanently, to a `kid` it can never register.
-   - *What this order can leave:* registered and not yet recorded, after a crash between the two
-     steps. The same request, sent again, finds its own key held and appends the record, so that
-     state recovers.
+   - *What this order can leave:* registered and not yet recorded, when the log's append fails after
+     the store's, whether by a crash between the two steps or by the event store refusing the
+     append. It recovers when the append can succeed: the same request, sent again, finds its own
+     key held and appends the record.
+   - An identifier whose aggregate the log uses for something else could never recover, so R4.33
+     (errata G15) refuses it before the store is asked.
 
 8. **Re-enrolling the bound key stays a success.** It answers 201 with the same receipt, the
    enrollment instant unmoved, and writes nothing. The API test helper re-announces its enrollment

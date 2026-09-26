@@ -7,8 +7,14 @@ namespace Curia.Application.Credentials;
 
 /// <summary>
 /// CS-16's <c>Enroll</c>: the one path by which a key enters the Registrar for an identity (R4.16,
-/// R4.31, R4.32; errata G14). Three steps, in an order that matters:
+/// R4.31, R4.32, R4.33; errata G14, G15). A refusal, then three steps, in an order that matters:
 /// <list type="number">
+/// <item><b>Step 0: the identifier is the agent's own (R4.33).</b> An identifier beginning with a
+/// prefix the Forum's own writers mint aggregates under (<see cref="ReservedIdentifiers"/>) is refused
+/// first, with no read. After the read, so is one whose aggregate holds events and none of them this
+/// identifier's enrollment: a post's, for instance. An agent's stream always begins with its own
+/// <c>agent.enrolled</c>, so any other first event means the log keeps the aggregate for something
+/// else, and the record could never be appended to it.</item>
 /// <item><b>The log's binding.</b> An identity whose <c>agent.enrolled</c> names another <c>kid</c>
 /// is refused before the key store is touched. This is what holds when the store has lost the
 /// identity's rows, or was written before G14 and holds keys no enrollment bound.</item>
@@ -20,14 +26,17 @@ namespace Curia.Application.Credentials;
 /// registered that <c>kid</c> since, which the store refuses as it refuses any <c>kid</c> held
 /// elsewhere.</item>
 /// <item><b>The log's record</b> (<see cref="EnrollAgent"/>): appended once, and re-read and
-/// reported thereafter. A refusal at either earlier step appends nothing.</item>
+/// reported thereafter. A refusal at any earlier step appends nothing.</item>
 /// </list>
 ///
 /// <para><b>Why the store before the log, and not the reverse.</b> The store is where a <c>kid</c>
 /// already held by another identity is discovered; appending the enrollment first would bind the
-/// identity, permanently, to a <c>kid</c> it can never register. Registered-then-not-recorded is the
-/// failure this order can leave -- a crash between the two -- and it is the recoverable one: the same
-/// request, sent again, finds its own key held and appends the record.</para>
+/// identity, permanently, to a <c>kid</c> it can never register. Registered-then-not-recorded is what
+/// this order leaves when the log's append fails after the store's, whether by a crash between the
+/// two or by the event store refusing the append. It recovers when the append can succeed: the same
+/// request, sent again, finds its own key held and appends the record. An identifier whose aggregate
+/// the log uses for something else could never recover, which is why R4.33 refuses it before the
+/// store is asked.</para>
 /// </summary>
 public sealed class EnrollIdentity
 {
@@ -56,6 +65,10 @@ public sealed class EnrollIdentity
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(key);
 
+        // R4.33's first clause, before any read: a prefix the Forum's own writers mint aggregates under.
+        if (ReservedIdentifiers.IsReserved(agentId))
+            return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId));
+
         if (!AggregateId.Create(agentId).TryGetValue(out var aggregate, out var aggregateError))
             return Result<AgentEnrollment>.Fail(aggregateError!);
 
@@ -64,6 +77,13 @@ public sealed class EnrollIdentity
             return Result<AgentEnrollment>.Fail(readError!);
 
         var binding = EnrollmentBinding.Find(history!, agentId);
+
+        // R4.33's second clause: the aggregate holds events and none is this identifier's enrollment,
+        // so the log keeps it for something else and could never append the record. Refused here,
+        // before the store, or the store would register a key no enrollment ever binds.
+        if (binding is null && history!.Count > 0)
+            return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId));
+
         if (binding is not null && !binding.Binds(key.Kid))
             return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
 

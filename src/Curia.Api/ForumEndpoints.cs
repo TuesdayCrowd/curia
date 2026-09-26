@@ -9,6 +9,7 @@ using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.AuthN;
 using Curia.AuthN.Ports;
+using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Authorization;
@@ -380,17 +381,34 @@ public static class ForumEndpoints
     /// R5.20 make it true -- <see cref="EnrollIdentity"/> registers a key only for an identity that
     /// holds none, and never changes one it holds, and the token endpoint honours a key only for the
     /// identity it is registered to -- except in two cases. An identifier nobody has enrolled
-    /// belongs to whoever enrolls it first (plan D4, D7). And a lost key row is bound again on its
-    /// <c>kid</c> alone, by whoever presents it first, unless another identity took it (R4.31).</para>
+    /// belongs to whoever enrolls it first (plan D4, D7), unless R4.33 refuses it because the event
+    /// log keeps it for its own records. And a lost key row is bound again on its <c>kid</c> alone, by
+    /// whoever presents it first, unless another identity took it (R4.31).</para>
+    ///
+    /// <para><b>What the request may carry into the log,</b> checked in this order, before anything
+    /// is read or written: the two identifiers' text (R6.15's condition, and U+0000), then the
+    /// algorithm (R4.15), then the key's encoding. The first two were refused by the database, or
+    /// not at all: a noncharacter wrote a public leaf the reference client refuses to read, and
+    /// U+0000 or an algorithm the Forum does not verify answered 500, which tells an agent to
+    /// retry.</para>
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
         EnrollIdentity enroll,
+        IReadOnlyDictionary<string, IContentVerifier> verifiers,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
             return Results.BadRequest(new Problem(
                 "curia/enroll/invalid", "agent_id and kid are required", null));
+
+        if ((RefusedText(request.AgentId, "agent_id") ?? RefusedText(request.Kid, "kid")) is { } textError)
+            return Problem(StatusCodes.Status400BadRequest, textError);
+
+        // R4.15, against the allow-list DetachedJws verifies with, so the Forum never registers a key
+        // it could not check a signature against. The database's CHECK agrees, and answered 500.
+        if (request.Alg is null || !verifiers.ContainsKey(request.Alg))
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.UnsupportedAlgorithm(request.Alg, verifiers.Keys));
 
         byte[] publicKey;
         try
@@ -419,6 +437,7 @@ public static class ForumEndpoints
             return enrollError!.Type is AuthorKeyErrors.AlreadyEnrolledType
                     or AuthorKeyErrors.MaterialImmutableType
                     or AuthorKeyErrors.KidRegisteredToAnotherAgentType
+                    or EnrollmentErrors.IdentifierReservedType
                 ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))
                 : Problem(StatusCodes.Status500InternalServerError, enrollError);
         }
@@ -437,6 +456,21 @@ public static class ForumEndpoints
             // fresh enrollment's answer is always false, whatever the request body claimed.
             owner_verified = enrollment.OwnerVerified,
         });
+    }
+
+    /// <summary>
+    /// The refusal for an identifier an enrollment would carry into a public leaf, or null. First
+    /// ADMIT's own rules (<see cref="JsonReader.CheckString"/>): a noncharacter or an unpaired
+    /// surrogate, under ADMIT's slug, since the reference client refuses to read a leaf holding
+    /// either. Then U+0000, which ADMIT accepts written as an escape and Postgres <c>text</c> cannot
+    /// store. Each names the field and never echoes the value.
+    /// </summary>
+    private static Error? RefusedText(string value, string field)
+    {
+        if (!JsonReader.CheckString(value).TryGetValue(out _, out var textError))
+            return textError! with { Detail = "field=" + field };
+
+        return value.Contains('\0', StringComparison.Ordinal) ? EnrollmentErrors.NulCharacter(field) : null;
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text;               // Encoding.UTF8.GetByteCount
 using System.Text.Json;
 using System.Text.Unicode;          // Utf8.IsValid
+using Curia.Canon.Canonical;        // CanonicalJson.HasUnpairedSurrogate, for CheckString
 using Curia.Domain.Primitives;
 
 namespace Curia.Canon.Json;
@@ -401,6 +402,36 @@ public static class JsonReader
     /// </summary>
     internal static bool IsNoncharacter(int codePoint) =>
         (codePoint is >= 0xFDD0 and <= 0xFDEF) || (codePoint & 0xFFFE) == 0xFFFE;
+
+    /// <summary>
+    /// <see cref="ReadStringValue"/>'s R6.15 rules for a string that did not arrive through
+    /// <see cref="Parse"/>: refused as an unpaired surrogate or a noncharacter, under ADMIT's own
+    /// slugs and in ADMIT's order, and otherwise returned unchanged. For a writer that carries text
+    /// into a public leaf ADMIT never saw -- the enrollment route's <c>agent_id</c> and <c>kid</c> --
+    /// because the reference client refuses to read a leaf holding either, and one condition should
+    /// have one name across the system.
+    ///
+    /// <para>Only the two character rules. R6.39's string cap is not applied: it is policy for a
+    /// submission's size, and the caller bounds its own strings. U+0000 is accepted, as ADMIT accepts
+    /// it written as an escape (c4/vector-09); a caller that cannot store it refuses it itself.</para>
+    /// </summary>
+    public static Result<string> CheckString(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        // First, as ReadStringValue's GetString() throws before any noncharacter is looked for.
+        if (CanonicalJson.HasUnpairedSurrogate(value))
+            return Result<string>.Fail(CanonErrors.UnpairedSurrogate());
+
+        // Well-formed now, so every rune is a scalar value and none is a U+FFFD standing in for a half.
+        foreach (var scalar in value.EnumerateRunes())
+        {
+            if (IsNoncharacter(scalar.Value))
+                return Result<string>.Fail(CanonErrors.Noncharacter());
+        }
+
+        return Result<string>.Ok(value);
+    }
 
     private static Result<JsonValue> ReadObject(ref Utf8JsonReader reader, Policy policy, int depth)
     {

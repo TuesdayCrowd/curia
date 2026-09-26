@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Security.Cryptography;
 using Curia.Application.Credentials;
 using Curia.Application.Ports;
@@ -7,6 +8,7 @@ using Curia.Application.Tests.InMemory;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
+using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
 using Xunit;
 
@@ -125,6 +127,29 @@ public sealed class EnrollIdentityTests
 
         private IReadOnlyList<RegisteredKey> HeldBy(string agentId) =>
             string.Equals(agentId, holder, StringComparison.Ordinal) ? held : [];
+    }
+
+    /// <summary>
+    /// Passes every request on to <paramref name="inner"/>, and counts each request to enroll. R4.33's
+    /// refusals come before the key store is asked, so a count above zero is a key registered for an
+    /// identifier whose enrollment the log could never record.
+    /// </summary>
+    private sealed class CountingKeyStore(IAuthorKeyRegistry inner) : IAuthorKeyRegistry
+    {
+        private int _enrollments;
+
+        /// <summary>How many times enrollment asked this store to register a key.</summary>
+        public int Enrollments => Volatile.Read(ref _enrollments);
+
+        public Task<Result<RegisteredKey>> EnrollAsync(
+            string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _enrollments);
+            return inner.EnrollAsync(agentId, key, notBefore, cancellationToken);
+        }
+
+        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default) =>
+            inner.KeysForAsync(agentId, cancellationToken);
     }
 
     private static async Task<IReadOnlyList<AppendedEvent>> StreamAsync(InMemoryEventStore events, string agentId, CancellationToken ct) =>
@@ -365,5 +390,85 @@ public sealed class EnrollIdentityTests
 
         var held = Assert.Single(await keys.KeysForAsync(Alice, ct));
         Assert.Equal([held.Key.Kid], EnrolledKids(await StreamAsync(events, Alice, ct)));
+    }
+
+    /// <summary>
+    /// R4.33's second clause (errata G15): an identifier whose aggregate holds another writer's events,
+    /// here a post's as the review enrolled one, and no enrollment of it. It is refused before the key
+    /// store is asked. Without the refusal the store registered the key, and the log's append at
+    /// <see cref="AggregateVersion.New"/> could never succeed however often the request was sent,
+    /// leaving a key no enrollment bound. The stream is left as it was.
+    /// </summary>
+    [Fact]
+    public async Task R4_33_AnIdentifierWhoseStreamHoldsAnotherWritersEventsIsRefusedBeforeTheStoreIsAsked()
+    {
+        const string PostId = "01M0572TG0X22FT8T07WK7819H";
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(PostId)),
+            AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create("post-accepted-under-the-identifier")),
+                Require(EventType.Create(PostProjector.PostAcceptedType)),
+                Require(ActorId.Create(Alice)),
+                new JsonValue.Object(
+                [
+                    new("post_id", new JsonValue.String(PostId)),
+                    new("author", new JsonValue.String(Alice)),
+                    new("kind", new JsonValue.String("question")),
+                ]))],
+            ct));
+
+        var keys = new CountingKeyStore(new InMemoryAuthorKeyRegistry());
+        var answer = (await Enroll(events, keys, clock).EnrollAsync(PostId, NewKey("post-named"), ct)).Match(_ => "enrolled", e => e.Type);
+
+        Assert.Equal("curia/enroll/identifier-reserved", answer);
+        Assert.Equal(0, keys.Enrollments);
+        Assert.Equal(PostProjector.PostAcceptedType, Assert.Single(await StreamAsync(events, PostId, ct)).Event.Type.Value);
+    }
+
+    /// <summary>
+    /// R4.33's first clause, derived from the writers and not from the refusal's own list. Every public
+    /// <c>const string</c> in the domain and the application named <c>...Aggregate</c> (an aggregate a
+    /// writer names) or <c>...AggregatePrefix</c> (one it mints under a prefix, enrolled here followed
+    /// by a ULID) is refused before the store is asked, on a log that holds nothing under it, so only
+    /// the namespace can refuse it. A writer that adds a constant outside every reserved prefix turns
+    /// this red. At least three must be found, or the fact is passing over an empty enumeration.
+    /// </summary>
+    [Fact]
+    public async Task R4_33_EveryAggregateNameTheForumMintsIsReserved()
+    {
+        const string Ulid = "01M0572TG0X22FT8T07WK7819H";
+        var ct = TestContext.Current.CancellationToken;
+
+        var minted = new[] { typeof(LogEntries).Assembly, typeof(EnrollIdentity).Assembly }
+            .SelectMany(assembly => assembly.GetTypes())
+            .SelectMany(type => type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
+            .Where(field => field.IsLiteral && field.FieldType == typeof(string))
+            .Select(field => (Field: field, Prefix: field.Name.EndsWith("AggregatePrefix", StringComparison.Ordinal)))
+            .Where(named => named.Prefix || named.Field.Name.EndsWith("Aggregate", StringComparison.Ordinal))
+            .Select(named => (
+                Name: named.Field.DeclaringType!.Name + "." + named.Field.Name,
+                Identifier: (string)named.Field.GetRawConstantValue()! + (named.Prefix ? Ulid : "")))
+            .ToList();
+
+        Assert.True(minted.Count >= 3, $"found {minted.Count} aggregate names the Forum mints; the Acta's two and the flag prefix exist, so the reflection is wrong");
+
+        var admitted = new List<string>();
+        foreach (var (name, identifier) in minted)
+        {
+            var clock = new ManualTimeProvider(Start);
+            var events = new InMemoryEventStore(clock);
+            var keys = new CountingKeyStore(new InMemoryAuthorKeyRegistry());
+
+            var answer = (await Enroll(events, keys, clock).EnrollAsync(identifier, NewKey("minted-" + name), ct)).Match(_ => "enrolled", e => e.Type);
+            if (answer != "curia/enroll/identifier-reserved" || keys.Enrollments != 0)
+                admitted.Add($"{name} ({identifier}): {answer}, the store asked {keys.Enrollments} time(s)");
+        }
+
+        Assert.True(admitted.Count == 0, "not reserved: " + string.Join("; ", admitted));
     }
 }
