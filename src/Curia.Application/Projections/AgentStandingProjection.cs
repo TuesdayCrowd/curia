@@ -189,10 +189,11 @@ public static class AgentStandingProjector
     public const string ReasonField = "reason";
 
     /// <summary>
-    /// The payload member naming the key the enrollment registered. Recorded so the log is
-    /// self-describing about what an enrollment actually did, and deliberately not projected: the
-    /// Registrar's key store is authoritative for keys (R4.16 rev.), and a second key registry
-    /// derived from this stream is a second answer to a question that already has one.
+    /// The payload member naming the key the enrollment registered -- the enrollment's binding,
+    /// which <c>EnrollmentBinding</c> reads so that a re-enrollment is honoured only for this
+    /// <c>kid</c> (R4.31, errata G14). Still not projected into standing: the Registrar's key store
+    /// is authoritative for key <i>material</i> (R4.16 rev.), and what this member settles is which
+    /// <c>kid</c> an identity began with, which the store can lose and the log cannot.
     /// </summary>
     public const string KeyIdField = "kid";
 

@@ -100,7 +100,7 @@ A seventh case is covered where the code lives rather than listed above. An `age
 | `src/Curia.Application/Credentials/EnrollmentBinding.cs` (new) | The `kid` the log bound, and when | 5 |
 | `src/Curia.Application/Credentials/EnrollIdentity.cs` (new) | CS-16's `Enroll`: log binding, key store, log record | 5 |
 | `src/Curia.Application/Credentials/EnrollAgent.cs` | Refuses a `kid` the log did not bind | 5 |
-| `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs` (new) | The use case, nine facts | 5 |
+| `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs` (new) | The use case, ten facts | 5 |
 | `src/Curia.Api/Program.cs` | Registers `EnrollIdentity` | 5 |
 | `src/Curia.Application/Projections/AgentStandingProjection.cs` | The `KeyIdField` remark | 5 |
 | `src/Curia.Domain/Search/HashedNGramEmbedding.cs` | `Words` reads a noncharacter or an unpaired surrogate as U+FFFD (D23) | 6 |
@@ -2467,9 +2467,12 @@ this:
     /// provisioning role, as a restore from a backup older than the enrollment would lose it; the
     /// application role cannot delete one. An attacker's new <c>kid</c> is still refused, because
     /// the log's enrollment names the victim's. The victim, re-presenting its own key an hour later,
-    /// is registered again under R4.31's one exception, dated from the enrollment: the Forum then
-    /// serves the key set it served before the loss, window and all, so the question the victim asked
-    /// before the loss is still inside its key's window (R6.31).
+    /// is registered again under R4.31's one exception, dated from the enrollment, so the question
+    /// the victim asked before the loss is still inside its key's window (R6.31). Under this fixture's
+    /// one clock the lost row was dated from that same instant, so the Forum serves the key set it
+    /// served before the loss, window and all. On a real clock the recovered window can start later,
+    /// by the moments between the lost row's insert and the log's append; no admitted post is stamped
+    /// inside them, because a post is admitted only once the log holds the enrollment.
     /// </summary>
     [Fact]
     public async Task R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment()
@@ -2526,9 +2529,10 @@ Failed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5, Duration:
 
 - [ ] **Step 2: The use case's tests**
 
-Nine facts. Every refusal is followed by a read of both stores.
+Ten facts. Every refusal is followed by a read of both stores.
 - Two facts fence the log's two halves separately (trap 13): the lost-row fact fences the use case's pre-check, and `R4_31_TheLogsRecordRefusesAKidItDidNotBind` fences `EnrollAgent`.
 - `R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound` fences R4.31's exception, and its date.
+- `R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt`, from Task 1's review, fences R4.31's "even one the store holds". A store written before G14 holds an unbound `kid` beside the bound one, and the pre-check must refuse it before the store is asked. The log's record behind the pre-check would refuse it too, so the fact counts the store's enrollments; case 19 is its falsifier.
 - `R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded` fences the order: the store before the log.
 - The race of eight fences the store's rule under a race. Its barrier accounts for a racer that finishes without reaching the store, so a use case that wrote the log first leaves it green rather than timing out; the order has its own fact, above.
 
@@ -2630,6 +2634,39 @@ public sealed class EnrollIdentityTests
             inner.KeysForAsync(agentId, cancellationToken);
     }
 
+    /// <summary>
+    /// A key store as one written before errata G14 can hold it: beside the key <paramref name="holder"/>'s
+    /// enrollment bound, a key no enrollment bound -- which is what G14's attack left behind. It
+    /// applies the shared rule (<see cref="KeyEnrollment.Decide"/>) to what it holds and never writes,
+    /// since an identity that holds a key is never told to register one. It counts every request to
+    /// enroll, because the log's binding is meant to refuse before the store is asked at all.
+    /// </summary>
+    private sealed class PreG14KeyStore(string holder, IReadOnlyList<RegisteredKey> held) : IAuthorKeyRegistry
+    {
+        private int _enrollments;
+
+        /// <summary>How many times enrollment asked this store to register a key.</summary>
+        public int Enrollments => Volatile.Read(ref _enrollments);
+
+        public Task<Result<RegisteredKey>> EnrollAsync(
+            string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _enrollments);
+
+            if (!KeyEnrollment.Decide(agentId, key, HeldBy(agentId)).TryGetValue(out var existing, out var refusal))
+                return Task.FromResult(Result<RegisteredKey>.Fail(refusal!));
+
+            return Task.FromResult(Result<RegisteredKey>.Ok(
+                existing ?? throw new InvalidOperationException($"this store never writes, and {agentId} holds no key in it")));
+        }
+
+        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(HeldBy(agentId));
+
+        private IReadOnlyList<RegisteredKey> HeldBy(string agentId) =>
+            string.Equals(agentId, holder, StringComparison.Ordinal) ? held : [];
+    }
+
     private static async Task<IReadOnlyList<AppendedEvent>> StreamAsync(InMemoryEventStore events, string agentId, CancellationToken ct) =>
         Require(await events.ReadByAggregateAsync(Require(AggregateId.Create(agentId)), ct).ConfigureAwait(false));
 
@@ -2717,6 +2754,31 @@ public sealed class EnrollIdentityTests
         var lost = new InMemoryAuthorKeyRegistry();
         Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, lost, clock).EnrollAsync(Alice, NewKey("mallory-1"), ct)).Type);
         Assert.Empty(await lost.KeysForAsync(Alice, ct));
+    }
+
+    /// <summary>
+    /// R4.31's "even one the store holds": the store holds, beside the key Alice's enrollment bound,
+    /// a second key no enrollment bound, as a store written before errata G14 can. Re-presenting that
+    /// second key, byte for byte, is refused by name -- and refused by the log's binding before the
+    /// store is asked, which would call the key held and leave the refusal to the log's record alone.
+    /// The log gains nothing, and the store, which never writes, is not asked to.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var bound = NewKey("alice-1");
+        var unbound = NewKey("mallory-1");
+
+        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, bound.Kid, ct));
+        var keys = new PreG14KeyStore(Alice, [new RegisteredKey(bound, Start, null), new RegisteredKey(unbound, Start.AddHours(1), null)]);
+
+        var again = new PublicKeyMaterial(unbound.Alg, unbound.Kid, unbound.Public.ToArray());
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, again, ct)).Type);
+        Assert.Equal(0, keys.Enrollments);
+        Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>
@@ -3042,8 +3104,10 @@ public sealed class EnrollIdentity
 
         // A fresh identity's key is valid from now. An enrolled one reaches the store only with its
         // bound kid, and the store registers it only if it lost the row: then the key is dated from
-        // the enrollment, as the lost row was, or every post signed before the loss would fall
-        // outside its window (R6.31). When the store still holds the key, the date is not read.
+        // the enrollment the log records, or every post signed before the loss would fall outside its
+        // window (R6.31). That instant can trail the lost row's start, a clock read taken before its
+        // insert, and no post's server_ts precedes it: a post is admitted only once the log holds the
+        // enrollment. When the store still holds the key, the date is not read.
         var notBefore = binding?.EnrolledAt ?? _clock.GetUtcNow();
 
         var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
@@ -3224,6 +3288,8 @@ Expected: 0 warnings, and both `Passed!`. As printed when this plan was build-ch
 Passed!  - Failed:     0, Passed:   273, Skipped:     0, Total:   273, Duration: … - Curia.Application.Tests.dll (net10.0)
 Passed!  - Failed:     0, Passed:   170, Skipped:     0, Total:   170, Duration: … - Curia.Api.Tests.dll (net10.0)
 ```
+
+Task 3's three carried rule facts, and Step 2's tenth fact from Task 1's review, make the Application suite 277.
 
 - [ ] **Step 8: Commit**
 
@@ -3546,6 +3612,8 @@ LAST_WRITE_WINS = ("               SET alg         = EXCLUDED.alg,\n"
                    "               WHERE existing.agent_id   = EXCLUDED.agent_id\n")
 PRECHECK = "        if (binding is not null && !binding.Binds(key.Kid))"
 PRECHECK_OFF = "        if (binding is not null && binding.Kid == \"no-such-kid\")"
+PRECHECK_EXEMPTS_HELD = ("        if (binding is not null && !binding.Binds(key.Kid)\n"
+                         "            && !(await _keys.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false)).Any(k => k.Key.Kid == key.Kid))")
 RECORD_CHECK = "                if (EnrollmentBinding.Find(history!, agentId) is not { } binding || !binding.Binds(keyId))"
 RECORD_CHECK_OFF = "                if (EnrollmentBinding.Find(history!, agentId) is not { } binding || binding.Kid == \"no-such-kid\")"
 STORE_THEN_LOG = ("        var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);\n"
@@ -3642,6 +3710,9 @@ CASES = [
     dict(id="18", what="the history primitive no longer compares the owner",
          cmds=[dotnet(INFRA, "FullyQualifiedName~PostgresAgentKeyStoreTests")],
          edits=[(STORE, "               WHERE existing.agent_id   = EXCLUDED.agent_id\n", "               WHERE TRUE\n")]),
+    dict(id="19", what="the use case exempts a kid the store holds from the log's binding",
+         cmds=[dotnet(APP, "FullyQualifiedName~EnrollIdentityTests")],
+         edits=[(USECASE, PRECHECK, PRECHECK_EXEMPTS_HELD)]),
 ]
 
 # What a failing xUnit test prints about itself, and nothing else: its name, then its message
@@ -3723,7 +3794,7 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 | 5 | the four rows of `AgentKeyMaterialGrantTests.R4_32_TheAppRoleCannotRewriteAKeysIdentityOrMaterial`, and `R4_32_TheIsolatedKeyStoreSchemasCarryTheSameGrant` (`Assert.Throws() Failure: No exception was thrown`) |
 | 6 | `R4_32_TheIsolatedKeyStoreSchemasCarryTheSameGrant` alone: the public schema's grant is right, and the per-test schemas are the ones the fixture forgot |
 | 7 | `PostgresAgentKeyStoreTests.AKidRegisteredAgainWithOtherBytesIsRefusedAndTheOriginalStands` and `AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands` (`Expected a failure, got RegisteredKey { … }`) |
-| 8 | `EnrollIdentityTests.R4_31_AnIdentityTheLogBoundIsRefusedAnotherKidEvenWhenTheStoreHoldsNothing` and `R4_31_AnEnrollmentThatNamesNoKidBindsNone` (`Assert.Empty() Failure: Collection was not empty`: the store registered the key before the log's record refused it); `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment`, at the attacker's token (`Assert.Null() Failure: Value is not null`) |
+| 8 | `EnrollIdentityTests.R4_31_AnIdentityTheLogBoundIsRefusedAnotherKidEvenWhenTheStoreHoldsNothing` and `R4_31_AnEnrollmentThatNamesNoKidBindsNone` (`Assert.Empty() Failure: Collection was not empty`: the store registered the key before the log's record refused it), and `R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt` (`Expected: 0`, `Actual: 1`: the store was asked); `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment`, at the attacker's token (`Assert.Null() Failure: Value is not null`) |
 | 9 | `EnrollIdentityTests.R4_31_TheLogsRecordRefusesAKidItDidNotBind` and `R4_31_AnEnrollmentThatNamesNoKidBindsNone` (`expected a refusal, got AgentEnrollment { … WasAlreadyEnrolled = True }`) |
 | 10 | `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment`, at the enrollment (`Expected: Conflict`, `Actual: Created`) |
 | 11 | `EnrollIdentityTests.R4_31_AKidAnotherIdentityHoldsIsRefusedAndNoEnrollmentIsRecorded` alone (`Assert.Empty() Failure: Collection was not empty`: Bob's stream holds an `agent.enrolled` bound to a `kid` he cannot register). The race of eight stays green, and it should: its barrier accounts for the seven racers the log refuses before the store, so the one that reaches the store is released at once and registers the one key |
@@ -3734,6 +3805,7 @@ Each case must print `RED` for every command it runs, followed by `restore clean
 | 16 | `PostgresAgentKeyStoreTests.AKidRegisteredAgainUnderAnotherAlgorithmIsRefusedAndTheOriginalStands` alone (`Expected a failure, got RegisteredKey { … }`) |
 | 17 | `EnrollIdentityTests.R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound` (`Assert.Equal() Failure: Values differ`: the key dated a day after the enrollment); `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment` (`Assert.Equal() Failure: Strings differ`: the served key set's `curia_not_before` an hour later than before the loss) |
 | 18 | `PostgresAgentKeyStoreTests.AnotherAgentPresentingTheExactKeyIsRefusedAndMovesNoWindow` alone (`Expected a failure, got RegisteredKey { … NotAfter = 3/1/2026 … }`: mallory is handed alice's row, with alice's window closed). `AKidAlreadyRegisteredToADifferentAgentIsRefused` stays green, and it should: its fresh bytes are refused by the material clauses, so only an exact copy of the key reaches the ownership clause alone |
+| 19 | `EnrollIdentityTests.R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt` alone (`Assert.Equal() Failure: Values differ`, `Expected: 0`, `Actual: 1`: the store was asked, called the key held, and only the log's record refused it). The lost-row fact stays green, and it should: an empty store holds nothing to exempt |
 
 Four things in this table are deliberate:
 - **Cases 8 and 9 each leave the two attack facts green.** Each half of the log's binding backs the other, so each half has a test of its own, and case 10, which breaks both, is the one the surface sees (trap 13).
@@ -3817,7 +3889,7 @@ with:
 Their entries are kept as the
 ```
 
-The two entries go before the moderation stage's observations, and this stage's observations follow them. Paste into each `Falsified` paragraph the lines `falsify.log` printed for that entry's cases, as the D20 and D21 entries quote theirs: cases 1–12, 4b and 15–18 under D22, and 13 and 14 under D23. That is all nineteen:
+The two entries go before the moderation stage's observations, and this stage's observations follow them. Paste into each `Falsified` paragraph the lines `falsify.log` printed for that entry's cases, as the D20 and D21 entries quote theirs: cases 1–12, 4b and 15–19 under D22, and 13 and 14 under D23. That is all twenty:
 
 In `IMPLEMENTATION_PLAN.md`, insert before:
 
@@ -3878,7 +3950,7 @@ the file restored with a plain copy, and the restore checked clean. After the la
 `--no-incremental` rebuild ran every gate green unpatched (trap 18). Test names and message lines are
 as the runner printed them:
 
-*(paste cases 1–12, 4b and 15–18 from `falsify.log`, as the D20 and D21 entries quote theirs)*
+*(paste cases 1–12, 4b and 15–19 from `falsify.log`, as the D20 and D21 entries quote theirs)*
 
 ### D23 — an anonymous search holding U+FFFE answered 500 *(carried from the moderation stage; opened and closed by the enrollment stage, 2026-09-26)*
 
@@ -4311,7 +4383,7 @@ Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's
 - the order of `EnrollIdentity` (log, store, log) and why;
 - what db/0005 grants and what it refuses;
 - D23, the search 500, and why no vector moved;
-- the falsification table from `falsify.log`, all nineteen cases;
+- the falsification table from `falsify.log`, all twenty cases;
 - the test plan, with the per-assembly lines Step 1 printed;
 - the observations recorded but not fixed, the moderation stage's parked residuals among them, and the one question left for the owner: whether a Forum whose history matters exists, and the audit query for it.
 

@@ -83,8 +83,11 @@ public sealed class EnrollAgent
     }
 
     /// <summary>
-    /// Records an enrollment, or -- when the log already holds one -- reports the standing the log
-    /// holds and appends nothing.
+    /// Records an enrollment, or -- when the log already holds one for <paramref name="keyId"/> --
+    /// reports the standing the log holds and appends nothing. When the log holds one for another
+    /// <c>kid</c>, refuses (<see cref="AuthorKeyErrors.AlreadyEnrolled"/>) and appends nothing
+    /// (R4.31). This is the log's half of enrollment; <see cref="EnrollIdentity"/> is the use case
+    /// that puts the key store's half in front of it.
     /// </summary>
     /// <param name="agentId">The enrolling agent; also the aggregate its credential events land in.</param>
     /// <param name="keyId">The <c>kid</c> this enrollment registered, recorded on the event.</param>
@@ -122,8 +125,16 @@ public sealed class EnrollAgent
                 .GetValueOrDefault(agentId);
 
             if (standing?.EnrolledAt is { } enrolledAt)
+            {
+                // R4.31 (errata G14): a re-announcement is honoured only for the kid this identity's
+                // enrollment bound. Reporting "already enrolled" for any other kid is how a second
+                // key under an enrolled identity used to be waved through as a success.
+                if (EnrollmentBinding.Find(history!, agentId) is not { } binding || !binding.Binds(keyId))
+                    return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+
                 return Result<AgentEnrollment>.Ok(
                     new AgentEnrollment(enrolledAt, standing.OwnerVerified, WasAlreadyEnrolled: true));
+            }
 
             var attempted = await AppendEnrollmentAsync(aggregate, actor, agentId, keyId, cancellationToken)
                 .ConfigureAwait(false);

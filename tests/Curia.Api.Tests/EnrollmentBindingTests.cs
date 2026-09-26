@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Npgsql;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -220,6 +221,54 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
         using var newcomersKeys = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(newcomer.AgentId)}", UriKind.Relative), ct);
         Assert.Equal(HttpStatusCode.NotFound, newcomersKeys.StatusCode);
         AssertServesOnlyTheVictimsKey(await JwksAsync(client, victim.Agent.AgentId, ct), victim.Agent);
+    }
+
+    /// <summary>
+    /// R4.31's log half at the surface. The victim's key row is lost from the store -- deleted by the
+    /// provisioning role, as a restore from a backup older than the enrollment would lose it; the
+    /// application role cannot delete one. An attacker's new <c>kid</c> is still refused, because
+    /// the log's enrollment names the victim's. The victim, re-presenting its own key an hour later,
+    /// is registered again under R4.31's one exception, dated from the enrollment, so the question
+    /// the victim asked before the loss is still inside its key's window (R6.31). Under this fixture's
+    /// one clock the lost row was dated from that same instant, so the Forum serves the key set it
+    /// served before the loss, window and all. On a real clock the recovered window can start later,
+    /// by the moments between the lost row's insert and the log's append; no admitted post is stamped
+    /// inside them, because a post is admitted only once the log holds the enrollment.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var victim = await EnrolledVictimAsync(client, ct);
+        var before = await JwksAsync(client, victim.Agent.AgentId, ct);
+        AssertServesOnlyTheVictimsKey(before, victim.Agent);
+
+        await using (var admin = new NpgsqlConnection(forum.ConnectionString))
+        {
+            await admin.OpenAsync(ct);
+            await using var lose = new NpgsqlCommand("DELETE FROM agent_keys WHERE agent_id = @agent;", admin);
+            lose.Parameters.AddWithValue("agent", victim.Agent.AgentId);
+            Assert.Equal(1, await lose.ExecuteNonQueryAsync(ct));
+        }
+
+        // An hour on, so a key re-registered from "now" would serve a later window than the one lost.
+        forum.Clock.Advance(TimeSpan.FromHours(1));
+
+        var attacker = ForumAgent.Create(victim.Agent.AgentId, "attacker-" + Guid.NewGuid().ToString("N")[..8]);
+        using (var enrolled = await attacker.EnrollAsync(client, ct))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, enrolled.StatusCode);
+            Assert.Contains("curia/enroll/already-enrolled", await enrolled.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+        }
+
+        Assert.Null(await TokenOrNullAsync(client, attacker, forum.Now, ct));
+
+        using (var recovered = await victim.Agent.EnrollAsync(client, ct))
+            Assert.Equal(HttpStatusCode.Created, recovered.StatusCode);
+
+        Assert.Equal(before.GetRawText(), (await JwksAsync(client, victim.Agent.AgentId, ct)).GetRawText());
+        Assert.NotNull(await TokenOrNullAsync(client, victim.Agent, forum.Now, ct));
     }
 
     /// <summary>

@@ -364,21 +364,25 @@ public static class ForumEndpoints
     /// no tier yet, and <see cref="AccessPolicy"/> reports that row as a failure rather than a
     /// denial precisely so a caller cannot mistake it for one.
     ///
-    /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication.
-    /// This endpoint trusts what it is told, which is acceptable because nothing downstream trusts
-    /// an agent's *claim* -- authorship is established by signature against the key registered
-    /// here, so a false enrollment can only impersonate an agent whose private key the caller
-    /// already holds. That sentence was false for as long as the request carried
-    /// <c>owner_verified</c>: Table 11's T1 row and every provenance envelope trusted it (errata
-    /// G5). The request no longer carries it, and R4.30 puts owner verification behind
-    /// <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route. The Registrar and
-    /// its owner-auth flow are still the next increment (plan D7).</para>
+    /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication,
+    /// and R4.11's proof of possession. This endpoint trusts what it is told, which is acceptable
+    /// because nothing downstream trusts an agent's *claim* -- authorship is established by
+    /// signature against the key registered here, so a false enrollment can only impersonate an
+    /// agent whose private key the caller already holds. Each half of that sentence has been false.
+    /// Its premise was false for as long as the request carried <c>owner_verified</c>, which Table
+    /// 11's T1 row and every provenance envelope trusted (errata G5); R4.30 puts owner verification
+    /// behind <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route. Its
+    /// conclusion was false until errata G14: the endpoint registered whatever key a request
+    /// carried, so anyone could add a key to an enrolled identity and post as it, or replace the
+    /// bytes behind its <c>kid</c> and unverify everything it had signed. R4.31 and R4.32 make it
+    /// true -- <see cref="EnrollIdentity"/> registers a key only for an identity that holds none,
+    /// and never changes one it holds -- except in two cases. An identifier nobody has enrolled
+    /// belongs to whoever enrolls it first (plan D4, D7). And a lost key row is bound again on its
+    /// <c>kid</c> alone, by whoever presents it first, unless another identity took it (R4.31).</para>
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
-        IAuthorKeyRegistry keys,
-        EnrollAgent enroll,
-        TimeProvider clock,
+        EnrollIdentity enroll,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
@@ -396,31 +400,25 @@ public static class ForumEndpoints
                 "curia/enroll/invalid-key", "public_key must be base64", null));
         }
 
-        var now = clock.GetUtcNow();
-
-        // R4.31 and R4.32 (errata G14): the store registers a key only for an identifier that holds
-        // none, re-announces one it already holds unchanged, and refuses everything else -- a second
-        // kid for an enrolled identity, other bytes under its kid, a kid another identity holds.
-        var registration = await keys
-            .EnrollAsync(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), now, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!registration.TryGetValue(out _, out var registrationError))
-            return Results.Conflict(new Problem(registrationError!.Type, registrationError.Title, registrationError.Detail));
-
-        // Standing goes into the event log, never into process memory. R4.21 already says what
-        // these facts are -- "state transitions SHALL be append-only events carrying actor, reason,
-        // and timestamp; the current state is a projection" -- and the in-process dictionary this
-        // replaced lost every agent's standing on restart, silently and in the direction that reads
-        // as policy rather than as an outage. EnrollAgent records nothing for a repeat enrollment,
-        // so Table 11's tenure clock cannot be restarted by re-announcing one -- and it records
-        // nothing about the owner at all; that is AttestOwner's, under an operator's actor (R4.30).
+        // R4.31 and R4.32 (errata G14), in EnrollIdentity: the log's binding, then the key store's,
+        // then the log's record. Standing goes into the event log, never into process memory -- a
+        // repeat enrollment appends nothing, so Table 11's tenure clock cannot be restarted by
+        // re-announcing one -- and nothing about the owner is recorded at all; that is AttestOwner's,
+        // under an operator's actor (R4.30).
         var enrolled = await enroll
-            .RecordAsync(request.AgentId, request.Kid, cancellationToken)
+            .EnrollAsync(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), cancellationToken)
             .ConfigureAwait(false);
 
         if (!enrolled.TryGetValue(out var enrollment, out var enrollError))
-            return Problem(StatusCodes.Status500InternalServerError, enrollError!);
+        {
+            // A refusal of the identity or the key is the caller's to act on, and says how; anything
+            // else -- the log refusing an append, the store unreachable -- is the Forum's.
+            return enrollError!.Type is AuthorKeyErrors.AlreadyEnrolledType
+                    or AuthorKeyErrors.MaterialImmutableType
+                    or AuthorKeyErrors.KidRegisteredToAnotherAgentType
+                ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))
+                : Problem(StatusCodes.Status500InternalServerError, enrollError);
+        }
 
         return Results.Created($"/v1/agents/{Uri.EscapeDataString(request.AgentId)}", new
         {
