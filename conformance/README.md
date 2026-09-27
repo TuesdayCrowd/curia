@@ -140,7 +140,7 @@ the mistake this section exists to prevent.
 | `admit-accept` | the ADMIT phase, then `CanonicalizeWithNfc` | Input must be **admitted**, and the same bytes must then canonicalize to `expected.canonical` (digest `expected.digest`). See "Saying that a document must be admitted" above. |
 | `envelope` | `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify` | End-to-end: canonicalize a full Table 9 envelope, digest it, and verify its detached JWS. See "The `envelope/` family" below — its directory shape is different from every other family's. |
 | `merkle-tree` | `MerkleTree` (RFC 9162 §2.1) | Hash the given leaves, build the tree, and reproduce every audit path and consistency proof in `expected.json`; then verify each with the RFC's verification procedures. See "The `merkle/` family" below.
-| `display-literal` | `DisplayLiteral.Of` (C#), `display::literal` (Rust) | The input is a list of Unicode scalar values; the display literal a reader writes for the string they spell must be exactly `expected.display` (R10.64). See "The `display/` family" below. |
+| `display-literal` | `DisplayLiteral.Of` (C#), `display::literal` (Rust) | The input is a list of Unicode scalar values; the display literal a reader writes for the string they spell must be exactly `expected.display` (R10.64). See "The `display/` family" below.
 | `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -408,8 +408,10 @@ Every expected file was computed by a Python implementation of the rule written 
 purpose, from the code points; neither implementation produced any of them.
 
 The family carries no version, unlike a profile whose output is stored. A literal is computed afresh
-whenever a reader prints, nothing signed, hashed or stored depends on one, and a literal decodes to
-the same well-formed value under any rule that writes a JSON string, so it is outside R15.1's frozen
-set. A change to R10.64 is an errata entry that changes both readers and rewrites these vectors with
-them, under the same profile name: the vectors pin the two readers' agreement, not a format kept
-across time. The C# runner also reads each expected literal back as its input (R10.66).
+whenever a reader prints, nothing signed, hashed or stored depends on one, and any JSON parser
+decodes it to the same well-formed value, so it is outside R15.1's frozen set. A change to R10.64 is
+an errata entry that changes both readers and rewrites these vectors with them, under the same
+profile name: the vectors pin the two readers' agreement, not a format kept across time. The C#
+runner also reads each expected literal back as its input (R10.66). That reader takes back only the
+literal the current rule writes, so after a change to R10.64 a literal printed before it is refused
+by name, never read as another value.

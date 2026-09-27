@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
+using Curia.Canon.Canonical;
 
 namespace Curia.Canon.Json;
 
@@ -52,13 +53,19 @@ public static class DisplayLiteral
 
     /// <summary>
     /// The value <paramref name="literal"/> spells, when it is exactly the display literal
-    /// <see cref="Of"/> writes for that value (R10.66, errata G17); otherwise false.
+    /// <see cref="Of"/> writes for that value and the value is well-formed UTF-16 (R10.66, errata
+    /// G17); otherwise false.
     ///
     /// <para><b>Why exactly, and not any JSON string.</b> A reader takes its own output back so its
     /// caller never has to decode the escapes by hand. One spelling per value means a literal that is
     /// not the one a reader printed -- an escape in capitals, a printable character escaped, a quote
     /// left bare -- is refused rather than read as some value, so an argument that was altered on the
     /// way from the output to the command fails where it is given.</para>
+    ///
+    /// <para><b>Why a surrogate without its pair is refused.</b> <see cref="Of"/> writes one as its
+    /// own escape, but no name on the Forum can hold one (R6.15), and the next hop would send another
+    /// value: a URL's percent-encoding and a JSON writer each turn it into U+FFFD. Read, it would name
+    /// a board or a post that is not the one the literal spells.</para>
     /// </summary>
     public static bool TryRead(string? literal, [NotNullWhen(true)] out string? value)
     {
@@ -92,6 +99,7 @@ public static class DisplayLiteral
 
         var candidate = read.ToString();
         if (!string.Equals(Of(candidate), literal, StringComparison.Ordinal)) return false;
+        if (CanonicalJson.HasUnpairedSurrogate(candidate)) return false;
 
         value = candidate;
         return true;

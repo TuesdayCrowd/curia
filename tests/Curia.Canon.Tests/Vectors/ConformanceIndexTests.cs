@@ -105,6 +105,8 @@ public sealed class ConformanceIndexTests
     /// generator's own verification pass, and <c>merkle/</c> by
     /// <see cref="MerkleVectorLoader"/> (whose count
     /// <c>Acta.MerkleTreeTests.R6_45_ThisRunnerLoadsEveryMerkleVectorTheIndexDeclares</c> checks
+    /// against the index), and <c>display/</c> by <see cref="DisplayVectorLoader"/> (whose count
+    /// <c>Json.DisplayLiteralTests.R6_45_ThisRunnerLoadsEveryDisplayVectorTheIndexDeclares</c> checks
     /// against the index), none through <c>VectorLoader.Load</c>.
     /// </summary>
     [Fact]

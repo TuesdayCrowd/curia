@@ -367,7 +367,12 @@ fn display() {
     let mut report = FamilyReport::new("display");
     for v in vectors {
         let actual = curia_testis::display::literal(&v.input);
-        let outcome = if actual == v.expected {
+        let outcome = if v.requirement != "R10.64" {
+            Err(format!(
+                "declares requirement {}, not R10.64",
+                v.requirement
+            ))
+        } else if actual == v.expected {
             Ok(())
         } else {
             Err(format!("expected {}, got {actual}", v.expected))

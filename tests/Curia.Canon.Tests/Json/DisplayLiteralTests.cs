@@ -109,8 +109,9 @@ public sealed class DisplayLiteralTests
 
     /// <summary>
     /// R10.66 (errata G17): a literal reads back as its value -- every vector's expected bytes as its
-    /// input, and every generated string's literal as the string -- so a reader can take its own
-    /// output as input.
+    /// input, and every generated well-formed string's literal as the string -- so a reader can take
+    /// its own output as input. A generated string holding a surrogate without its pair is the other
+    /// side: its literal is refused, since no name can hold one and the next hop would send U+FFFD.
     /// </summary>
     [Fact]
     public void R10_66_EveryLiteralReadsBackAsItsValue()
@@ -119,16 +120,30 @@ public sealed class DisplayLiteralTests
             DisplayLiteral.TryRead(v.Expected, out var value) && string.Equals(value, v.Input, StringComparison.Ordinal),
             v.Name));
 
+        long wellFormed = 0, unpaired = 0;
         GenText.Sample(
-            text => DisplayLiteral.TryRead(DisplayLiteral.Of(text), out var value) && string.Equals(value, text, StringComparison.Ordinal),
+            text =>
+            {
+                if (CanonicalJson.HasUnpairedSurrogate(text))
+                {
+                    Interlocked.Increment(ref unpaired);
+                    return !DisplayLiteral.TryRead(DisplayLiteral.Of(text), out _);
+                }
+
+                Interlocked.Increment(ref wellFormed);
+                return DisplayLiteral.TryRead(DisplayLiteral.Of(text), out var value) && string.Equals(value, text, StringComparison.Ordinal);
+            },
             iter: 5_000,
             print: Render);
+
+        Assert.True(wellFormed > 0 && unpaired > 0, $"the generator missed a side: well-formed={wellFormed} unpaired={unpaired}");
     }
 
     /// <summary>
     /// Only the literal a reader prints is read: one spelling per value, so a literal altered on its
     /// way back -- an escape in capitals, a printable character escaped, JSON's other escapes, a bare
-    /// quote, a character left unescaped -- is refused rather than read as some value.
+    /// quote, a character left unescaped -- is refused rather than read as some value. So is the
+    /// literal of a surrogate without its pair, which no name on the Forum can hold (R6.15).
     /// </summary>
     [Fact]
     public void R10_66_OnlyTheLiteralAReaderPrintsIsRead()
@@ -138,6 +153,7 @@ public sealed class DisplayLiteralTests
             null, "", "\"", "a", "\"a", "a\"", "\"a\"b\"", "(none)",
             "\"caf\\u" + "00E9\"", "\"\\u" + "0041\"", "\"\\n\"", "\"\\/\"", "\"\\u" + "00e\"",
             "\"caf" + (char)0xE9 + "\"", "\"a" + (char)0x0A + "b\"",
+            "\"b\\u" + "d800\"", "\"\\u" + "dc00a\"",
         ];
 
         foreach (var other in others)

@@ -43,7 +43,7 @@ internal enum VectorProfile
     ActaLeaf,
 
     /// <summary>
-    /// <c>display-literal</c> — <see cref="Json.DisplayLiteral.Of"/>: the code points in, the exact
+    /// <c>display-literal</c> — <see cref="Curia.Canon.Json.DisplayLiteral.Of"/>: the code points in, the exact
     /// literal a reader prints out (R10.64, errata G17).
     /// </summary>
     DisplayLiteral,
