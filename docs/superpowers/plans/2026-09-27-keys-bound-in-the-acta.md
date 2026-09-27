@@ -70,12 +70,12 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 4. **An identity enrolled before R4.34.** It must still post and obtain tokens, bound by its `kid` alone, and a reader must report its posts as *could not be checked*, never *verified*. Tests: `KeyBindingTests.R4_35_AnIdentityEnrolledBeforeKeyBindingIsHonouredByItsKidAlone`, `LogBoundKeysTests.R4_35_AnIdentityEnrolledBeforeR4_34IsBoundByItsKidAlone`, `PostVerifierTests.R6_54_AKeyTheLogNamesByKidAloneIsNotEstablished`, and the exit-3 half of `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone`; cases 21, 22 and 26.
 5. **The seam the enrollment stage left** (its spec's Decision 8). With two bindings, re-announcing the second key must be a re-announcement, as re-announcing the first is. Test: `EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs`; case 4.
 6. **A reader verifies under the key the log carries, not the one the key set serves.** When the log bound another key, the signature check (against the key set) verifies and the binding check must fail. Test: `PostVerifierTests.R6_54_ALogThatBoundAnotherKeyFailsTheBindingThoughTheSignatureVerifies`; case 19.
-7. **`curia-testis log author` reads no agent key set.** It takes two entries, two proofs, a head and the log's key set, and exits 0, 1 or 3. Tests: `tests/log_author.rs` and the end-to-end Acta fact; cases 24–26.
+7. **`curia-testis log author` reads no agent key set.** It takes two entries, two proofs, a head and the log's key set, and exits 0, 1 or 3. With no head it still makes every check that needs none, and a document that fails one exits 1, not 3 (cases 45 and 46). The binding's proof is held to the signed head (41); its `kid`, its stream and its type are each compared (42–44); and the post's envelope is ADMITted and its header parsed before either is read (47, 48). Tests: `tests/log_author.rs` and the end-to-end Acta fact; cases 24–26 and 41–48.
 8. **The renderer and the verifier agree, and the RFCs anchor the renderer.** `PublicJwkTests` derives the expected JWKs from RFC 8037's and RFC 7515's example keys, and holds the renderer to each adapter's rule on every `KeyMaterials` row. Case 18 is the one that shows why the RFC anchor matters: a renderer that swapped a P-256 key's coordinates would agree with itself on both sides of every Forum-side comparison.
 9. **R5.21.** A header naming the other allowed algorithm is refused by name at both validators. Tests: the two `R5_21_…` AuthN facts and `StoredKeyFormTests.R5_21_…`; cases 13 and 14.
 10. **D16.** A seven-case string switch in `Curia.Domain` fails CS-7 in Debug and passes in Release; the new CI step builds the solution in Debug and runs the architecture rules against it. Case 27, filtered to `LayeringTests` so that its red is CS-7's alone.
 11. **A binding after the post is the log's silence, not its contradiction** (the spec's Decision 11, amended). The author's own binding of the post's `kid` at a leaf not before the post must read *could not be checked* in both readers, never *failed* and never *verified*: an identity enrolled before `agent.enrolled` existed gains its first binding after all its history when anyone re-presents its public key. Tests: `PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished`, `log_author.rs`' `r6_54_a_key_bound_after_the_post_is_not_established`, and the `bound-late` control of `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone`; cases 20, 24, 28 and 29.
-12. **Each reader compares the binding with the post before it trusts the binding's key.** An entry for another identity or another `kid` fails, whatever its type. Tests: `PostVerifierTests.R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey`, `log_author.rs`' `r6_54_a_binding_for_another_identity_fails` and `r6_54_another_identitys_enrollment_fails`; cases 25 and 30.
+12. **Each reader compares the binding with the post before it trusts the binding's key.** An entry for another identity or another `kid` fails, whatever its type. Tests: `PostVerifierTests.R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey`, `log_author.rs`' `r6_54_a_binding_for_another_identity_fails`, `r6_54_another_identitys_enrollment_fails`, `r6_54_the_authors_enrollment_of_another_kid_fails` and `r6_54_a_binding_in_another_identitys_stream_fails`; cases 25, 30, 42 and 43.
 13. **An identifier the log never enrolled, whose key store holds several keys** (Task 2's review). A request presenting any of them must be refused `curia/enroll/keys-ambiguous` and write nothing, and with one stored key the same request must enroll the identifier and bind that key. Binding whichever key arrived would let anyone holding one row's public key make that key the identity's, and turn every post signed under its own key into a failure of the signature check: the demotion the pre-flight scan's B1 refused, reached another way. Tests: `EnrollIdentityTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundWhileTheStoreHoldsSeveralKeys` and `EnrollmentBindingTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundByWhicheverOfItsKeysIsPresented`; case 31.
 14. **The key's binding is proven under the head the client verified, and `curia_verify` reports the check on a line of its own** (Task 2's review). Tests: `PostVerifierTests.R6_54_AKeyBindingProvenUnderAnotherRootFails` and `PropertyP22ToolResultTests.R6_54_TheVerifyToolReportsTheKeyCheckSeparately`; cases 32 and 33.
 
@@ -112,7 +112,8 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 | `tests/Curia.Api.Tests/StoredKeyFormTests.cs`, `TokenSubjectBindingTests.cs` | Rows moved to pre-G16 identities; the orphan's refusal | 5 |
 | `src/Curia.AuthN/AuthNErrors.cs`, `ClientAssertionValidator.cs`, `AccessTokenValidator.cs` | R5.21 | 6 |
 | `tests/Curia.AuthN.Tests/ClientAssertionValidatorTests.cs`, `AccessTokenValidatorDpopTests.cs`, `tests/Curia.Api.Tests/StoredKeyFormTests.cs` | R5.21's facts | 6 |
-| `rust/curia-testis/src/acta.rs`, `src/bin/curia-testis.rs`, `tests/log_author.rs` (new) | `verify_author` and `log author` | 7 |
+| `rust/curia-testis/src/acta.rs`, `src/bin/curia-testis.rs`, `tests/log_author.rs` (new) | `verify_author`, `check_author_unanchored` and `log author` | 7 |
+| `rust/curia-testis/src/json.rs`, `src/canonical.rs` | Comments that still said `parse` keeps a name given twice | 7 |
 | `tests/Curia.Api.Tests/ActaEndpointTests.cs`, `tests/Curia.Api.Tests/ForumFixture.cs` | `log author` end to end; `BindKeyAfterItsPostsAsync` | 7 |
 | `src/Curia.Client/ForumDocuments.cs`, `ActaCheck.cs`, `PostVerifier.cs`; `src/Curia.Client.Cli/Program.cs`; `src/Curia.Mcp/ToolText.cs` | R6.54 in the reference client | 8 |
 | `tests/Shared/StubLog.cs`, `tests/Curia.Client.Tests/PostVerifierTests.cs`, `tests/Curia.Mcp.Tests/PropertyP22ToolResultTests.cs`, `tests/Curia.Api.Tests/StubFidelityTests.cs` | The stub's binding and knobs; seven client facts and one adapter fact; the stub held to the Forum's key set | 8 |
@@ -5078,10 +5079,11 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'R5.21: a client assertion and
 
 **Files:**
 - Create: `rust/curia-testis/tests/log_author.rs`
-- Modify: `rust/curia-testis/src/acta.rs`, `rust/curia-testis/src/bin/curia-testis.rs`, `tests/Curia.Api.Tests/ActaEndpointTests.cs`, `.github/workflows/ci.yml`
+- Modify: `rust/curia-testis/src/acta.rs`, `rust/curia-testis/src/bin/curia-testis.rs`, `tests/Curia.Api.Tests/ActaEndpointTests.cs`, `tests/Curia.Api.Tests/ForumFixture.cs`, `.github/workflows/ci.yml`
+- Modify (comments only): `rust/curia-testis/src/json.rs`, `rust/curia-testis/src/canonical.rs`
 
 **Interfaces:**
-- Produces: `curia_testis::acta::verify_author(post_entry, post_proof, key_entry, key_proof, &VerifiedHead) -> Result<VerifiedAuthor, ActaError>`, and `curia-testis log author --entry <path> --proof <path> --key-entry <path> --key-proof <path> [--head <path> --log-jwks <path>]`: exit 0 verified, 1 failed, 2 usage, 3 could not be checked (no head; the author's own `agent.enrolled` naming the post's `kid`, which carries no key; or the author's binding of that `kid` at a leaf not before the post).
+- Produces: `curia_testis::acta::verify_author(post_entry, post_proof, key_entry, key_proof, &VerifiedHead) -> Result<VerifiedAuthor, ActaError>`; `curia_testis::acta::check_author_unanchored(post_entry, post_proof, key_entry, key_proof) -> Result<(), ActaError>`, every one of its checks that needs no head; and `curia-testis log author --entry <path> --proof <path> --key-entry <path> --key-proof <path> [--head <path> --log-jwks <path>]`: exit 0 verified; 1 failed, with no head as with one for a document that fails a check needing none; 2 usage; 3 could not be checked (no head, where every check needing none held; the author's own `agent.enrolled` naming the post's `kid`, which carries no key; or the author's binding of that `kid` at a leaf not before the post).
 - Consumes: the served documents alone. No agent key set is an input.
 
 **Why before the reference client.** The leaf's payload becomes permanent in every log that writes it, and `curia-testis` shares no code with the Forum. An independent reader is what shows the shape is readable from its bytes alone, before anything depends on it.
@@ -5102,11 +5104,15 @@ Create `rust/curia-testis/tests/log_author.rs`:
 //! proves both, and asks [`verify_author`] whether the post was signed by the
 //! key its author's binding carries, bound first. The head is constructed, not
 //! signed: this crate never signs, and the head's signature is `log head`'s
-//! business, which `log_outcomes.rs` and the C# end-to-end test cover.
+//! business, which `log_outcomes.rs` and the C# end-to-end test cover. The
+//! tests with no head run the binary: whatever can be checked is checked
+//! before a missing head is reported, so only documents that pass every
+//! check needing no head exit 3.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
+use base64::Engine;
 use curia_testis::acta::{self, ActaError, VerifiedHead};
 use curia_testis::merkle::{self, Hash};
 
@@ -5130,6 +5136,11 @@ fn key_entry(edit: impl Fn(String) -> String) -> String {
 
 fn post_entry() -> String {
     vector("content-entry")
+}
+
+/// The post, with its text edited by `edit` before it is hashed.
+fn post_entry_with(edit: impl Fn(String) -> String) -> String {
+    edit(post_entry())
 }
 
 fn leaf_of(entry: &str) -> Hash {
@@ -5326,6 +5337,40 @@ fn r6_54_a_head_over_another_tree_fails() {
     assert_eq!(err.predicate(), "curia/acta/head-size-mismatch", "{err}");
 }
 
+/// Runs `log author` with no `--head` over four documents, written to a scratch
+/// directory of the test's own.
+fn log_author_without_a_head(name: &str, documents: [&[u8]; 4]) -> Output {
+    let dir = std::env::temp_dir().join(format!("curia-log-author-{name}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the scratch directory must be creatable");
+    let mut args = vec!["log".to_string(), "author".to_string()];
+    for (flag, bytes) in ["--entry", "--proof", "--key-entry", "--key-proof"]
+        .into_iter()
+        .zip(documents)
+    {
+        let path = dir.join(format!("{}.json", flag.trim_start_matches('-')));
+        std::fs::write(&path, bytes).expect("a scratch file must be writable");
+        args.push(flag.to_string());
+        args.push(
+            path.to_str()
+                .expect("the scratch path is UTF-8")
+                .to_string(),
+        );
+    }
+    Command::new(env!("CARGO_BIN_EXE_curia-testis"))
+        .args(&args)
+        .output()
+        .expect("failed to spawn the curia-testis binary")
+}
+
+/// The exit code, and whether stderr names `predicate`.
+fn exit_and_predicate(output: &Output, predicate: &str) -> (Option<i32>, bool) {
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).contains(predicate),
+    )
+}
+
 /// The CLI's third outcome: with no `--head`, nothing anchors the two proofs,
 /// and `log author` says so with exit 3 rather than 0.
 #[test]
@@ -5334,34 +5379,15 @@ fn r6_54_log_author_without_a_head_is_not_checked() {
     let post = post_entry();
     let log = log(&[Some(&key), None, Some(&post)]);
 
-    let dir = std::env::temp_dir().join("curia-log-author-unanchored");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the scratch directory must be creatable");
-    let files = [
-        ("entry.json", &log.documents[2].0),
-        ("proof.json", &log.documents[2].1),
-        ("key-entry.json", &log.documents[0].0),
-        ("key-proof.json", &log.documents[0].1),
-    ];
-    for (name, bytes) in files {
-        std::fs::write(dir.join(name), bytes).expect("a scratch file must be writable");
-    }
-
-    let output = Command::new(env!("CARGO_BIN_EXE_curia-testis"))
-        .args([
-            "log",
-            "author",
-            "--entry",
-            dir.join("entry.json").to_str().unwrap(),
-            "--proof",
-            dir.join("proof.json").to_str().unwrap(),
-            "--key-entry",
-            dir.join("key-entry.json").to_str().unwrap(),
-            "--key-proof",
-            dir.join("key-proof.json").to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to spawn the curia-testis binary");
+    let output = log_author_without_a_head(
+        "unanchored",
+        [
+            &log.documents[2].0,
+            &log.documents[2].1,
+            &log.documents[0].0,
+            &log.documents[0].1,
+        ],
+    );
 
     assert_eq!(
         output.status.code(),
@@ -5371,13 +5397,204 @@ fn r6_54_log_author_without_a_head_is_not_checked() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// R6.54 holds the binding's proof to the same signed head as the post's.
+/// Here the signed tree holds the post and no binding at all, and the key's
+/// proof comes from a tree of the same size that nobody signed: its root is
+/// not the head's, and the binding in it counts for nothing.
+#[test]
+fn r6_54_a_binding_proven_under_a_tree_the_head_does_not_cover_fails() {
+    let key = key_entry(|s| s);
+    let post = post_entry();
+    let signed = log(&[None, None, Some(&post)]);
+    let unsigned = log(&[Some(&key), None, Some(&post)]);
+
+    let err = acta::verify_author(
+        &signed.documents[2].0,
+        &signed.documents[2].1,
+        &unsigned.documents[0].0,
+        &unsigned.documents[0].1,
+        &signed.head,
+    )
+    .unwrap_err();
+    assert_eq!(err.predicate(), "curia/acta/head-root-mismatch", "{err}");
+}
+
+/// The author's own enrollment, before the post, of a `kid` the post does not
+/// name: it binds nothing the post names, so it fails, and is not the third
+/// outcome R6.54 keeps for the author's enrollment of the post's own `kid`.
+#[test]
+fn r6_54_the_authors_enrollment_of_another_kid_fails() {
+    let enrolled = r#"{"actor_id":"agent://curia.example/tuesdaycrowd/scriptor","aggregate_id":"agent://curia.example/tuesdaycrowd/scriptor","event_id":"01K4CQ1TZ0M2P4R6T8V0X2Z4B6","event_type":"agent.enrolled","payload":{"agent_id":"agent://curia.example/tuesdaycrowd/scriptor","kid":"another-kid","reason":"Enrollment accepted: agent key registered with the Registrar"},"server_ts":"2026-09-04T14:00:00.000000Z"}"#;
+    let post = post_entry();
+    let log = log(&[Some(enrolled), None, Some(&post)]);
+
+    let err = author(&log, 2, 0).unwrap_err();
+    assert_eq!(
+        (err.predicate(), err.not_established()),
+        ("curia/acta/binding-mismatch", false),
+        "{err}"
+    );
+}
+
+/// A binding appended to another identity's stream, though its payload names
+/// the post's author and carries the very key that signed: whoever watches the
+/// author's own stream never sees it, so it binds nothing for the author.
+#[test]
+fn r6_54_a_binding_in_another_identitys_stream_fails() {
+    let key = key_entry(|s| {
+        s.replace(
+            r#""aggregate_id":"agent://curia.example/tuesdaycrowd/scriptor""#,
+            r#""aggregate_id":"agent://curia.example/tuesdaycrowd/someone-else""#,
+        )
+    });
+    let post = post_entry();
+    let log = log(&[Some(&key), None, Some(&post)]);
+
+    let err = author(&log, 2, 0).unwrap_err();
+    assert_eq!(err.predicate(), "curia/acta/binding-mismatch", "{err}");
+}
+
+/// An entry of the author's stream, naming the post's `kid` and carrying the
+/// key that signed it, whose type is neither a binding nor an enrollment: a
+/// revocation carries the same members, and never reads as a binding.
+#[test]
+fn r6_54_an_entry_of_another_type_fails_though_it_carries_the_key() {
+    let key = key_entry(|s| {
+        s.replace(
+            r#""event_type":"agent.key-bound""#,
+            r#""event_type":"agent.key-revoked""#,
+        )
+    });
+    let post = post_entry();
+    let log = log(&[Some(&key), None, Some(&post)]);
+
+    let err = author(&log, 2, 0).unwrap_err();
+    assert_eq!(err.predicate(), "curia/acta/not-a-key-binding", "{err}");
+}
+
+/// Whatever can be checked is checked before a missing head is reported:
+/// documents that are not JSON fail with no head as they fail with one.
+#[test]
+fn r6_54_log_author_without_a_head_fails_what_is_not_json() {
+    let garbage: &[u8] = b"not json";
+    let output = log_author_without_a_head("not-json", [garbage, garbage, garbage, garbage]);
+
+    assert_eq!(
+        exit_and_predicate(&output, "curia/acta/malformed"),
+        (Some(1), true),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A post's entry altered after its leaf was proven fails its own leaf with no
+/// head, as `log inclusion` fails it with none.
+#[test]
+fn r6_54_log_author_without_a_head_fails_a_forged_entry() {
+    let key = key_entry(|s| s);
+    let post = post_entry();
+    let log = log(&[Some(&key), None, Some(&post)]);
+    let forged = String::from_utf8(log.documents[2].0.clone())
+        .expect("an entry document is UTF-8")
+        .replace("Minimal fixture", "Forged fixture");
+
+    let output = log_author_without_a_head(
+        "forged",
+        [
+            forged.as_bytes(),
+            &log.documents[2].1,
+            &log.documents[0].0,
+            &log.documents[0].1,
+        ],
+    );
+
+    assert_eq!(
+        exit_and_predicate(&output, "curia/acta/leaf-mismatch"),
+        (Some(1), true),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// With no head, the two proofs must still be against one tree: any head
+/// covering both would be that tree's, so proofs against two trees fail with
+/// no head as they fail with one.
+#[test]
+fn r6_54_without_a_head_proofs_against_two_trees_fail() {
+    let key = key_entry(|s| s);
+    let post = post_entry();
+    let three = log(&[Some(&key), None, Some(&post)]);
+    let four = log(&[Some(&key), None, Some(&post), None]);
+
+    let err = acta::check_author_unanchored(
+        &three.documents[2].0,
+        &three.documents[2].1,
+        &four.documents[0].0,
+        &four.documents[0].1,
+    )
+    .unwrap_err();
+    assert_eq!(err.predicate(), "curia/acta/tree-mismatch", "{err}");
+}
+
+/// An envelope no Forum could have accepted -- `author` twice, the second the
+/// binding's -- fails ADMIT, as the signature check would fail it, though the
+/// binding's order alone would have made the post read as not checked.
+#[test]
+fn r6_54_an_envelope_admit_refuses_fails_though_its_key_is_bound_after_it() {
+    let key = key_entry(|s| s);
+    let post = post_entry_with(|s| {
+        s.replacen(
+            r#"{\"author\":"#,
+            r#"{\"author\":\"agent://curia.example/tuesdaycrowd/someone-else\",\"author\":"#,
+            1,
+        )
+    });
+    let log = log(&[Some(&post), None, Some(&key)]);
+
+    let err = author(&log, 0, 2).unwrap_err();
+    assert_eq!(
+        (err.predicate(), err.not_established()),
+        ("curia/acta/malformed", false),
+        "{err}"
+    );
+}
+
+/// A protected header no Forum could have accepted -- `kid` twice, the second
+/// the binding's -- fails as the signature check would fail it, though the
+/// binding's order alone would have made the post read as not checked.
+#[test]
+fn r6_54_a_signature_header_naming_a_member_twice_fails_though_its_key_is_bound_after_it() {
+    let base64url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let original = post_entry();
+    let fields: serde_json::Value = serde_json::from_str(&original).expect("the vector parses");
+    let header = fields["payload"]["signature"]
+        .as_str()
+        .and_then(|s| s.split('.').next())
+        .expect("the vector's signature has a protected header");
+    let decoded = String::from_utf8(base64url.decode(header).expect("the header is base64url"))
+        .expect("the header is UTF-8");
+    let doubled = decoded.replacen(r#""kid":"#, r#""kid":"another-kid","kid":"#, 1);
+    let post = original.replace(header, &base64url.encode(doubled));
+    let key = key_entry(|s| s);
+    let log = log(&[Some(&post), None, Some(&key)]);
+
+    let err = author(&log, 0, 2).unwrap_err();
+    assert_eq!(
+        (err.predicate(), err.not_established()),
+        ("curia/acta/malformed", false),
+        "{err}"
+    );
+}
 ```
 
 ```bash
-cargo test --manifest-path rust/curia-testis/Cargo.toml --locked --test log_author 2>&1 | grep -E "^error|cannot find" | head -3
+cargo test --manifest-path rust/curia-testis/Cargo.toml --locked --test log_author 2>&1 | grep -E "^error"
 ```
 
-Expected: `error[E0425]: cannot find function `verify_author` in module `acta``, with E0425 for `VerifiedAuthor` and E0599 for `ActaError::Author`.
+Expected: five errors and `could not compile`: `error[E0425]` for `verify_author` (twice), for `VerifiedAuthor` and for `check_author_unanchored`, and `error[E0599]` for `ActaError::Author`.
 
 - [ ] **Step 2: `verify_author`**
 
@@ -5400,6 +5617,8 @@ with:
 //! key is carried by an `agent.key-bound` entry (R4.34). Both proven under one
 //! signed head, the binding first, and the signature verifying under the key
 //! the binding carries: no key set the Forum serves enters the check.
+//! [`check_author_unanchored`] makes every one of those checks that needs no
+//! head, for a reader that holds none.
 //!
 //! Every rejection is a typed [`ActaError`] with a predicate slug; nothing
 //! here panics on malformed input.
@@ -5490,6 +5709,10 @@ with:
     /// carries no key, so which key signed cannot be established from the
     /// log. Not a failure and not a pass (exit 3).
     KeyNotCarried { kid: String },
+    /// With no head, the post and its key's entry are proven against two
+    /// trees: no one head covers both, so they fail with no head as they
+    /// fail with one.
+    TreeMismatch { post: u64, key: u64 },
 }
 
 ```
@@ -5514,6 +5737,7 @@ with:
             ActaError::BoundAfterPost { .. } => "curia/acta/bound-after-post",
             ActaError::Author(err) => err.predicate(),
             ActaError::KeyNotCarried { .. } => "curia/acta/key-not-carried",
+            ActaError::TreeMismatch { .. } => "curia/acta/tree-mismatch",
         }
     }
 
@@ -5562,6 +5786,10 @@ with:
                 f,
                 "the log names kid `{kid}` only in the author's enrollment, which carries no key"
             ),
+            ActaError::TreeMismatch { post, key } => write!(
+                f,
+                "the post is proven in a tree of {post} leaves and the key's entry in a tree of {key}, or under another root: no one head covers both"
+            ),
         }
         .and_then(|()| write!(f, " [{}]", self.predicate()))
 ```
@@ -5598,9 +5826,11 @@ pub struct VerifiedAuthor {
 /// that key before it accepted the post, all under `head`.
 ///
 /// Both entries' leaves are recomputed and proven (R6.46, R6.48) and tied to
-/// the one head, so their order is the log's order. The key entry must bind
-/// the post's own author and `kid`, or it is [`ActaError::BindingMismatch`],
-/// whatever its type. The author's binding at a leaf not before the post is
+/// the one head, so their order is the log's order. The post's envelope is
+/// ADMITted and its protected header parsed before anything is read from
+/// either. The key entry must bind the post's own author and `kid`, in the
+/// author's own stream, or it is [`ActaError::BindingMismatch`], whatever its
+/// type. The author's binding at a leaf not before the post is
 /// [`ActaError::BoundAfterPost`], and the author's own `agent.enrolled`
 /// naming it is [`ActaError::KeyNotCarried`]: each says the log holds
 /// no key for the post from before it, and neither is a failure
@@ -5614,10 +5844,49 @@ pub fn verify_author(
     key_proof: &[u8],
     head: &VerifiedHead,
 ) -> Result<VerifiedAuthor, ActaError> {
+    author_under(post_entry, post_proof, key_entry, key_proof, Some(head))
+}
+
+/// R6.54 for a reader holding no head: every check [`verify_author`] makes
+/// that needs none, in the same order, so a document that fails one fails here
+/// exactly as it fails there. The two proofs must still be against one tree
+/// ([`ActaError::TreeMismatch`]), since a head covering both could cover no
+/// other. `Ok` is not a verdict: it says those checks held over a tree no
+/// signed head anchors, whose root, and so the order of its leaves, is the
+/// Forum's word.
+pub fn check_author_unanchored(
+    post_entry: &[u8],
+    post_proof: &[u8],
+    key_entry: &[u8],
+    key_proof: &[u8],
+) -> Result<(), ActaError> {
+    author_under(post_entry, post_proof, key_entry, key_proof, None).map(|_| ())
+}
+
+/// [`verify_author`]'s checks, under `head` when there is one.
+fn author_under(
+    post_entry: &[u8],
+    post_proof: &[u8],
+    key_entry: &[u8],
+    key_proof: &[u8],
+    head: Option<&VerifiedHead>,
+) -> Result<VerifiedAuthor, ActaError> {
     let post = verify_inclusion(post_entry, post_proof)?;
-    head_covers(head, post.tree_size, &post.root)?;
     let key = verify_inclusion(key_entry, key_proof)?;
-    head_covers(head, key.tree_size, &key.root)?;
+    match head {
+        Some(head) => {
+            head_covers(head, post.tree_size, &post.root)?;
+            head_covers(head, key.tree_size, &key.root)?;
+        }
+        None => {
+            if key.tree_size != post.tree_size || key.root != post.root {
+                return Err(ActaError::TreeMismatch {
+                    post: post.tree_size,
+                    key: key.tree_size,
+                });
+            }
+        }
+    }
 
     let post_fields = entry_fields(post_entry)?;
     let post_type = str_at(&post_fields, &["event_type"], "post entry")?;
@@ -5628,6 +5897,21 @@ pub fn verify_author(
     }
     let canonical = str_at(&post_fields, &["payload", "canonical"], "post entry")?;
     let signature = str_at(&post_fields, &["payload", "signature"], "post entry")?;
+
+    // The post's own entry carries the envelope as the Forum persisted it;
+    // the submission is rebuilt around it verbatim, never re-encoded.
+    let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
+        what: "post entry",
+        detail: e.to_string(),
+    })?;
+    let submission = format!("{{\"envelope\":{canonical},\"signature\":{signature_json}}}");
+    // ADMIT, as the signature check does: an envelope no Forum could have
+    // accepted fails here, before the binding's type or order is read.
+    crate::json::admit(submission.as_bytes()).map_err(|e| ActaError::Malformed {
+        what: "post entry",
+        detail: e.to_string(),
+    })?;
+    let (post_author, post_kid) = post_author_and_kid(canonical, signature)?;
 
     let key_fields = entry_fields(key_entry)?;
     let key_type = str_at(&key_fields, &["event_type"], "key entry")?;
@@ -5643,7 +5927,6 @@ pub fn verify_author(
     // Whose binding, of which kid, before anything about its key: an entry
     // for another identity or another kid binds nothing the post names,
     // whichever type it is.
-    let (post_author, post_kid) = post_author_and_kid(canonical, signature)?;
     if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {
         return Err(ActaError::BindingMismatch(format!(
             "the entry binds kid `{bound_kid}` to `{bound_agent}` in stream `{aggregate}`, and the post is `{post_author}`'s under kid `{post_kid}`"
@@ -5672,13 +5955,6 @@ pub fn verify_author(
             field: "jwk",
         })?;
 
-    // The post's own entry carries the envelope as the Forum persisted it;
-    // the submission is rebuilt around it verbatim, never re-encoded.
-    let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
-        what: "post entry",
-        detail: e.to_string(),
-    })?;
-    let submission = format!("{{\"envelope\":{canonical},\"signature\":{signature_json}}}");
     let jwks = serde_json::to_vec(&serde_json::json!({ "keys": [jwk] })).map_err(|e| {
         ActaError::Malformed {
             what: "key entry",
@@ -5700,7 +5976,10 @@ pub fn verify_author(
 /// The post's author, from its canonical envelope, and the `kid` its detached
 /// signature's protected header names; read before any key is chosen, so the
 /// binding can be compared with the post before it is trusted for anything.
-/// The signature itself is verified afterwards, over the same bytes.
+/// The envelope has been ADMITted by the caller; the header is parsed here
+/// by the parser the signature check uses, which refuses a member named twice,
+/// so neither is read from a document with two answers. The signature itself
+/// is verified afterwards, over the same bytes.
 fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, String), ActaError> {
     use base64::Engine;
     let malformed = |detail: String| ActaError::Malformed {
@@ -5712,7 +5991,7 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
         .get("author")
         .and_then(Value::as_str)
         .ok_or_else(|| malformed("the envelope names no author".to_string()))?;
-    let header = signature
+    let header_bytes = signature
         .split('.')
         .next()
         .and_then(|h| {
@@ -5720,8 +5999,11 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
                 .decode(h)
                 .ok()
         })
-        .and_then(|h| serde_json::from_slice::<Value>(&h).ok())
         .ok_or_else(|| malformed("the signature has no readable protected header".to_string()))?;
+    crate::json::parse(&header_bytes)
+        .map_err(|e| malformed(format!("the signature's protected header: {e}")))?;
+    let header: Value =
+        serde_json::from_slice(&header_bytes).map_err(|e| malformed(e.to_string()))?;
     let kid = header
         .get("kid")
         .and_then(Value::as_str)
@@ -5761,6 +6043,78 @@ fn str_at<'a>(
         field: path.last().copied().unwrap_or("value"),
     })
 }
+```
+
+The comments `json.rs` and `canonical.rs` carry about duplicate member names predate errata R6.38, which made `parse` refuse them; taken at their word, they say a leaf and the fields read from its entry can disagree, which cannot happen (the task's review):
+
+In `rust/curia-testis/src/json.rs`, replace:
+
+```rust
+//! - `parse`/`Parser` are not the ADMIT phase. They enforce JSON syntax
+//!   (RFC 8259) and nothing more — no duplicate-key rejection, no
+//!   member-count cap, no safe-integer bound on numbers (design spec §5.4:
+```
+
+with:
+
+```rust
+//! - `parse`/`Parser` are not the ADMIT phase. They enforce JSON syntax
+//!   (RFC 8259) and refuse a member name given twice in one object (see
+//!   below), and nothing more — no member-count cap, no safe-integer
+//!   bound on numbers (design spec §5.4:
+```
+
+In `rust/curia-testis/src/json.rs`, replace:
+
+```rust
+//! ## Why duplicate keys are out of scope for `parse` specifically
+//!
+//! No vector `parse`/`canonicalize` are exercised against (the vendored
+//! `rfc8785/` pairs, and the `ordering/`/`numbers/` inputs `canonicalize` is
+//! tested against directly per the Task 2 controller ruling) contains a
+//! duplicate object key. `parse` never deduplicates or rejects them —
+//! every occurrence is kept in [`Value::Object`], in input order — so that
+//! [`admit`] (below), which *does* reject them per errata D7 /
+//! `admit-reject/duplicate-keys`, can see the input exactly as written
+//! rather than through a parser that already discarded the evidence.
+//! `admit`'s duplicate check compares members' *wire* names — the strings
+```
+
+with:
+
+```rust
+//! ## Why `parse` itself refuses a duplicate key
+//!
+//! It once did not: `parse` kept every occurrence of a name in
+//! [`Value::Object`], in input order, so that [`admit`] (below), which
+//! rejects them per errata D7 / `admit-reject/duplicate-keys`, could see
+//! the input exactly as written. That left pure `canonicalize` emitting
+//! `{"a":1,"a":2}` where the C# implementation and the independent node
+//! oracle both refused it, which the differential harness found (errata
+//! R6.38). RFC 8785 defines no output for a name given twice, so `parse`
+//! now refuses one as [`ParseError::DuplicateMember`], on every path that
+//! parses, `admit`'s and `canonicalize`'s alike, and nothing downstream of
+//! it ever holds two members of one name.
+//! The duplicate check compares members' *wire* names — the strings
+```
+
+In `rust/curia-testis/src/canonical.rs`, replace:
+
+```rust
+/// This function does not deduplicate members with equal keys (see
+/// `src/json.rs`'s module doc comment on why duplicate-key rejection is
+/// Task 4's concern, not this pure function's) — `sort_by` is a stable
+/// sort, so any duplicates are preserved and simply rendered in their
+/// original relative order, adjacent to each other.
+```
+
+with:
+
+```rust
+/// This function does not deduplicate members with equal keys, and is never
+/// handed two: [`crate::json::parse`] refuses a name given twice (errata
+/// R6.38; see `src/json.rs`'s module doc comment), and the NFC path refuses
+/// two names that normalize alike, before any tree reaches it.
 ```
 
 - [ ] **Step 3: The verb**
@@ -5810,6 +6164,7 @@ EXIT CODES:
 In `rust/curia-testis/src/bin/curia-testis.rs`, replace:
 
 ```rust
+    1  failed: a check ran and did not hold (see stderr for the predicate)
     2  usage error (bad arguments, or a path that could not be read)
     3  could not be checked: the arithmetic held but nothing anchors it to a
        signed head. Pass --head/--log-jwks (inclusion) or --from-head/--to-head
@@ -5821,13 +6176,19 @@ In `rust/curia-testis/src/bin/curia-testis.rs`, replace:
 with:
 
 ```rust
+    1  failed: a check ran and did not hold (see stderr for the predicate).
+       The log verbs run every check that needs no head whether or not one is
+       given, so a malformed, non-canonical or unparseable document, a leaf
+       that does not match its entry, or a proof whose arithmetic fails exits
+       1 either way.
     2  usage error (bad arguments, or a path that could not be read)
-    3  could not be checked: the arithmetic held but nothing anchors it to a
-       signed head. Pass --head/--log-jwks (inclusion, author) or
-       --from-head/--to-head (consistency) to anchor it. For log author, also:
-       the log carries no key for the post's kid from before the post -- the
-       author's enrollment, which names the kid and no key, or the author's
-       binding made after the post. This is not a pass and not a failure.
+    3  could not be checked: every check that needs no head held, and what
+       remains needs a signed head that was not given. Pass --head/--log-jwks
+       (inclusion, author) or --from-head/--to-head (consistency). For log
+       author, also: the log carries no key for the post's kid from before the
+       post -- the author's enrollment, which names the kid and no key, or the
+       author's binding made after the post. This is not a pass and not a
+       failure.
 ";
 
 ```
@@ -5884,12 +6245,17 @@ with:
             let proof = read_flag(&flags, "--proof")?;
             let key_entry = read_flag(&flags, "--key-entry")?;
             let key_proof = read_flag(&flags, "--key-proof")?;
+            // Whatever can be checked is checked before a missing head is
+            // reported: with no head, a document that fails a check needing none
+            // fails (exit 1), as it would with one.
             let Some(head) = optional_head(&flags, "--head")? else {
+                acta::check_author_unanchored(&entry, &proof, &key_entry, &key_proof)
+                    .map_err(author_refusal)?;
                 println!("head: not checked");
                 return Err(CliError::NotAnchored(
-                    "no signed head was given, so neither proof is tied to a root the log's key \
-                     signed, and the order of the two leaves is the Forum's word. Pass --head and \
-                     --log-jwks."
+                    "every check that needs no head held, and no signed head was given, so \
+                     neither proof is tied to a root the log's key signed, and the order of the \
+                     two leaves is the Forum's word. Pass --head and --log-jwks."
                         .to_string(),
                 ));
             };
@@ -5903,16 +6269,25 @@ with:
                     print_head("head", &head);
                     Ok(())
                 }
-                // R6.54's third outcome: the log carries no key for the post's kid
-                // from before the post, and says nothing either way about it.
-                Err(err) if err.not_established() => Err(CliError::NotAnchored(format!(
-                    "{err}: the log carries no key for this post's kid from before the post, \
-                     so which key signed it cannot be established from the log"
-                ))),
-                Err(err) => Err(CliError::Acta(err)),
+                Err(err) => Err(author_refusal(err)),
             }
         }
         other => Err(CliError::Usage(format!("unknown log subcommand `{other}`"))),
+    }
+}
+
+/// A `log author` refusal as the CLI reports it. R6.54's third outcome -- the
+/// log carries no key for the post's kid from before the post, and says
+/// nothing either way about it -- is not a failure (exit 3); every other
+/// refusal is (exit 1).
+fn author_refusal(err: ActaError) -> CliError {
+    if err.not_established() {
+        CliError::NotAnchored(format!(
+            "{err}: the log carries no key for this post's kid from before the post, \
+             so which key signed it cannot be established from the log"
+        ))
+    } else {
+        CliError::Acta(err)
     }
 }
 
@@ -5949,7 +6324,7 @@ cargo clippy --manifest-path rust/curia-testis/Cargo.toml --all-targets --locked
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked 2>&1 | grep -E "^test result" | awk '{p+=$4; f+=$6} END {print "passed", p, "failed", f}'
 ```
 
-Expected: `fmt` prints nothing; `clippy` finishes with no warning; `passed 220 failed 0`, across eighteen binaries — 211 in seventeen before, and `log_author.rs`'s nine.
+Expected: `fmt` prints nothing; `clippy` finishes with no warning; `passed 229 failed 0`, across eighteen binaries — 211 in seventeen before, and `log_author.rs`'s eighteen.
 
 The CI job's comment states that count, so it moves with it:
 
@@ -5969,7 +6344,7 @@ with:
 ```yaml
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 220
+      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 229
       # tests across 18 binaries are not a secondary suite.
       #
       # Note what the two steps above are: `cargo fmt --check` and `cargo clippy -- -D warnings`
@@ -6147,7 +6522,7 @@ with:
 
         var notChecked = await AuthorAsync(beforePostId, before, "before");
         Assert.StartsWith("exit 3:", notChecked, StringComparison.Ordinal);
-        Assert.Contains("carries no key", notChecked, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/key-not-carried", notChecked, StringComparison.Ordinal);
 
         var boundLate = await AuthorAsync(latePostId, late, "late");
         Assert.StartsWith("exit 3:", boundLate, StringComparison.Ordinal);
@@ -6162,7 +6537,7 @@ cargo build --manifest-path rust/curia-testis/Cargo.toml --bin curia-testis
 dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~ActaEndpointTests" 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `Passed!  - Failed:     0, Passed:     7, …`. Before the verb existed the new fact failed at its first `log author`: the binary answered exit 2, `unknown log subcommand`.
+Expected: `Passed!  - Failed:     0, Passed:     7, …`. Before the verb existed the new fact failed at its first `log author`: the binary answered exit 2 with ``error: unrecognized argument `--key-entry` ``, because the flags are parsed before the verb is matched and `--key-entry` was not yet one of them.
 
 - [ ] **Step 6: Commit**
 
@@ -7367,7 +7742,7 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'R6.54 in the reference client
 
 **Preconditions:**
 - Tasks 1–8 are committed, and `git status --porcelain` is empty.
-- `CURIA_TEST_POSTGRES` is exported, and `CURIA_TESTIS_BIN` names this tree's `rust/curia-testis/target/debug/curia-testis`: cases 24–26 and 28 patch `curia-testis` and `cargo test` rebuilds that binary, which the Api runs of cases 26 and 28 then execute.
+- `CURIA_TEST_POSTGRES` is exported, and `CURIA_TESTIS_BIN` names this tree's `rust/curia-testis/target/debug/curia-testis`: cases 24–26, 28 and 41–48 patch `curia-testis` and `cargo test` rebuilds that binary, which the Api runs of cases 26 and 28 then execute.
 - The runner restores from a kept copy with a **plain copy** (`shutil.copyfile`, a fresh mtime), never `copy2` and never `git checkout`, in a `finally`, so an exception or an interrupt mid-case never leaves a file patched. It proves each restore twice: the bytes equal the kept copy's, and `git diff --quiet` sees no change.
 - A command is RED only when its output holds a test run's own failure line — `Failed!` from `dotnet test`, `test result: FAILED` from cargo. Any compiler error (`: error `, `error[E`, `error: could not compile`) is BUILD FAILED. A non-zero exit with neither is DID NOT RUN. Anything not RED — a mismatched patch, a failed build, a green suite, a suite that did not run, a dirty restore — fails the run, and the last line is the runner's own `runner exit: 0` or `runner exit: 1`.
 - No patch is a constant expression: where one disables a condition, it compares against a value that never occurs, so no analyzer rejects it and no residue scan mistakes it for code.
@@ -7383,7 +7758,7 @@ Usage, from the repository root:  python3 falsify.py <keep-dir> [case-id ...]
 Scratch only: this file is never committed.
 
 CURIA_TEST_POSTGRES must be exported, and CURIA_TESTIS_BIN must name the debug binary this tree's
-cargo builds (rust/curia-testis/target/debug/curia-testis), because cases 24-26 and 28 rebuild it.
+cargo builds (rust/curia-testis/target/debug/curia-testis), because cases 24-26, 28 and 41-48 rebuild it.
 """
 import filecmp, os, pathlib, re, shutil, subprocess, sys
 
@@ -7418,6 +7793,7 @@ PUBLIC_JWK = "src/Curia.Canon/Jws/PublicJwk.cs"
 ACTA_CHECK = "src/Curia.Client/ActaCheck.cs"
 VERIFIER = "src/Curia.Client/PostVerifier.cs"
 TESTIS_ACTA = "rust/curia-testis/src/acta.rs"
+TESTIS_BIN = "rust/curia-testis/src/bin/curia-testis.rs"
 POST_KIND = "src/Curia.Domain/Content/PostKind.cs"
 
 APP = "tests/Curia.Application.Tests"
@@ -7461,6 +7837,26 @@ TWO_APPENDS = ("            .AppendAsync(aggregate, AggregateVersion.New, [enrol
                "            .ConfigureAwait(false);\n"
                "        if (appended.TryGetValue(out var first, out _) && AggregateVersion.From(first!.Count).TryGetValue(out var next, out _))\n"
                "            appended = await _events.AppendAsync(aggregate, next!, [bound!], cancellationToken).ConfigureAwait(false);\n")
+
+TESTIS_TYPE_CHECK = ("    if key_type != KEY_BOUND && key_type != ENROLLED {\n"
+                     "        return Err(ActaError::NotAKeyBinding {\n"
+                     "            event_type: key_type.to_string(),\n"
+                     "        });\n"
+                     "    }\n")
+TESTIS_UNANCHORED_CHECKS = ("                acta::check_author_unanchored(&entry, &proof, &key_entry, &key_proof)\n"
+                            "                    .map_err(author_refusal)?;\n")
+TESTIS_ONE_TREE = ("            if key.tree_size != post.tree_size || key.root != post.root {\n"
+                   "                return Err(ActaError::TreeMismatch {\n"
+                   "                    post: post.tree_size,\n"
+                   "                    key: key.tree_size,\n"
+                   "                });\n"
+                   "            }\n")
+TESTIS_ADMIT = ("    crate::json::admit(submission.as_bytes()).map_err(|e| ActaError::Malformed {\n"
+                "        what: \"post entry\",\n"
+                "        detail: e.to_string(),\n"
+                "    })?;\n")
+TESTIS_HEADER_PARSE = ("    crate::json::parse(&header_bytes)\n"
+                       "        .map_err(|e| malformed(format!(\"the signature's protected header: {e}\")))?;\n")
 
 CASES = [
     dict(id="1", what="the enrollment appends its binding under a type no reader reads",
@@ -7624,6 +8020,32 @@ CASES = [
          cmds=[dotnet(API, "FullyQualifiedName~R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal")],
          edits=[(FORUM_ENDPOINTS, "if (failure is JsonHttpResult<Problem> { Value.Type: LogBoundKeys.LogUnreadableType })",
                                   "if (failure is JsonHttpResult<Problem> { Value.Type: \"no-such-type\" })")]),
+    dict(id="41", what="curia-testis holds the key's proof to its own root, not the signed head's",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_ACTA, "            head_covers(head, key.tree_size, &key.root)?;\n", "")]),
+    dict(id="42", what="curia-testis does not compare the binding's kid with the post's",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_ACTA, "    if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {",
+                              "    if aggregate != bound_agent || bound_agent != post_author {")]),
+    dict(id="43", what="curia-testis does not hold the binding to the author's own stream",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_ACTA, "    if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {",
+                              "    if bound_agent != post_author || bound_kid != post_kid {")]),
+    dict(id="44", what="curia-testis reads an entry of any type as the key's binding",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_ACTA, TESTIS_TYPE_CHECK, "")]),
+    dict(id="45", what="log author reports a missing head before it checks anything",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_BIN, TESTIS_UNANCHORED_CHECKS, "")]),
+    dict(id="46", what="with no head, curia-testis takes the two proofs from any two trees",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_ACTA, TESTIS_ONE_TREE, "")]),
+    dict(id="47", what="curia-testis reads the post's author from an envelope ADMIT never saw",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_ACTA, TESTIS_ADMIT, "")]),
+    dict(id="48", what="curia-testis reads the post's kid from a header no parser refused",
+         cmds=[cargo("log_author")],
+         edits=[(TESTIS_ACTA, TESTIS_HEADER_PARSE, "")]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -7746,7 +8168,7 @@ echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipesta
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped. The log's last line is the runner's own `runner exit: N`.
 
-Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are forty cases in fifty-four suite runs. When the plan was amended after Task 2's review, this runner ran exactly as printed here in a git-backed copy of the tree (a `git archive` of 38a21fa with bae4ec8's errata restored under it, Tasks 2–8 applied, `git init`, and one commit): every case printed what the table says, every restore printed `restore clean` with both proofs — the bytes equal to the kept copy, and a real `git diff --quiet` — and the last line was `runner exit: 0`; then Step 3 ran and printed what it states. Cases 34 and 35 were added after Task 3's review, and this runner, as printed here, ran them with case 15 in the repository at Task 3: each printed what the table says, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. Case 36 was added after Task 4's review, and this runner, as printed here, ran it with every case whose patch lands in a file that review changed (1–4, 10–12 and 31), in a git-backed copy of the tree (a `git archive` of c008fe1 with Tasks 4–8 applied from this plan, `git init`, `git add -A`): each printed what the table says, rows 1, 2, 3 and 10 now naming the review's facts they also turn red, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. Cases 37 to 40 were added after Task 5's review, and this runner, as printed here, ran them with cases 1–9 and 17, which include every case whose suites run a fact that review added or whose patch lands in a file it changed, in a git-backed copy of the tree (a `git archive` of d12e119 with Tasks 5–8 applied from this plan, `git init`, `git add -A`): each printed what the table says, rows 2, 3, 5, 6, 8, 9 and 17 now naming the review's facts they also turn red, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. The second proof is the one that sees a file the runner did not keep:
+Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are forty-eight cases in sixty-two suite runs. When the plan was amended after Task 2's review, this runner ran exactly as printed here in a git-backed copy of the tree (a `git archive` of 38a21fa with bae4ec8's errata restored under it, Tasks 2–8 applied, `git init`, and one commit): every case printed what the table says, every restore printed `restore clean` with both proofs — the bytes equal to the kept copy, and a real `git diff --quiet` — and the last line was `runner exit: 0`; then Step 3 ran and printed what it states. Cases 34 and 35 were added after Task 3's review, and this runner, as printed here, ran them with case 15 in the repository at Task 3: each printed what the table says, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. Case 36 was added after Task 4's review, and this runner, as printed here, ran it with every case whose patch lands in a file that review changed (1–4, 10–12 and 31), in a git-backed copy of the tree (a `git archive` of c008fe1 with Tasks 4–8 applied from this plan, `git init`, `git add -A`): each printed what the table says, rows 1, 2, 3 and 10 now naming the review's facts they also turn red, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. Cases 37 to 40 were added after Task 5's review, and this runner, as printed here, ran them with cases 1–9 and 17, which include every case whose suites run a fact that review added or whose patch lands in a file it changed, in a git-backed copy of the tree (a `git archive` of d12e119 with Tasks 5–8 applied from this plan, `git init`, `git add -A`): each printed what the table says, rows 2, 3, 5, 6, 8, 9 and 17 now naming the review's facts they also turn red, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. Cases 41 to 48 were added after Task 7's review, and this runner, as printed here, ran them with cases 24–26 and 28, every case whose patch lands in a file that review changed, in a git-backed copy of the tree (the repository's tracked files at 3ec1b76 with that review's fixes, `git init`, `git add -A`, one commit): each printed what the table says, row 25 now naming the review's two comparison facts it also turns red, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. The second proof is the one that sees a file the runner did not keep:
 
 | Case | Must fail, by name |
 |---|---|
@@ -7774,7 +8196,7 @@ Each case must print `RED` for every command it runs, then `restore clean`, and 
 | 22 | `PostVerifierTests.R6_54_AKeySetNamingNoLeafCannotBeChecked`, `R6_54_AKeyTheLogNamesByKidAloneIsNotEstablished` and `R6_54_AKeyBoundAfterThePostIsNotEstablished`, each at `Overall` (`Actual: Verified`) |
 | 23 | `PostVerifierTests.R6_54_AKeySetNamingNoLeafCannotBeChecked` |
 | 24 | `log_author.rs`' `r6_54_a_key_bound_after_the_post_is_not_established` (`called Result::unwrap_err() on an Ok value: VerifiedAuthor { … key_index: 2, post_index: 0 }`) |
-| 25 | `r6_54_a_binding_for_another_identity_fails` (`Ok` value: the other identity's binding carries the same key) and `r6_54_another_identitys_enrollment_fails` (`left: ("curia/acta/key-not-carried", true)`, `right: ("curia/acta/binding-mismatch", false)`): one comparison, whatever the entry's type |
+| 25 | `r6_54_a_binding_for_another_identity_fails` (`Ok` value: the other identity's binding carries the same key) and `r6_54_another_identitys_enrollment_fails` (`left: ("curia/acta/key-not-carried", true)`, `right: ("curia/acta/binding-mismatch", false)`): one comparison, whatever the entry's type; and the two facts Task 7's review added, `r6_54_the_authors_enrollment_of_another_kid_fails` and `r6_54_a_binding_in_another_identitys_stream_fails`, which cases 42 and 43 each turn red alone |
 | 26 | `r6_54_an_enrollment_that_names_the_kid_alone_is_not_checked` (`left: ("curia/acta/missing-field", false)`, `right: ("curia/acta/key-not-carried", true)`); `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone` (``String: "exit 1: error: key entry has no usable `jwk` [curi"···``, `Expected start: "exit 3:"`) |
 | 27 | `LayeringTests.CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives`, in Debug (`Failed!  - Failed:     1, Passed:     7`; `Offenders: Curia.Domain.Content.PostKinds`). The same patch passes the Release run (`Passed!  - Failed:     0, Passed:    30`, measured by the pre-flight scan), which is D16 exactly and why Task 1's step exists. The run is filtered to `LayeringTests` because unfiltered, on a tree with no Debug test assemblies, CS15 fails too, patch or no patch |
 | 28 | `r6_54_a_key_bound_after_the_post_is_not_established` (`left: ("curia/acta/bound-after-post", false)`, `right: ("curia/acta/bound-after-post", true)`); `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone` at its `bound-late` control (`String: "exit 1: error: the key is bound at leaf …, which "···`, `Expected start: "exit 3:"`) |
@@ -7790,8 +8212,16 @@ Each case must print `RED` for every command it runs, then `restore clean`, and 
 | 38 | `LogBoundKeysTests.R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid` (`Actual: "stored=1 bound=[alice-1@…"`); `StoredKeyFormTests.R4_35_AnotherHoldersKeyUnderABoundKidSignsNothingMintsNothingAndIsNotPublished` at the key set alone (`token request 401, question 401 …`: the key set published the other holder's key under the victim's `kid`). The resolver's own comparison is untouched, so both refusals stand |
 | 39 | `KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal`'s three `stream` rows: the token (`Actual: "401 {"error":"invalid_client",…`), the question (`Actual: "401 {"type":"test/log-unreadable",…`) and the key set (`Actual: "503 {"type":"test/log-unreadable",…`: the reader's refusal served as the Forum's). The `whole` row stays green, and should: that read is the fold's, not the resolver's |
 | 40 | The same fact's `whole` row alone (`Actual: "200 {"keys":[{"kty":"EC",…`: the keys served without the leaves that bind them) |
+| 41 | `log_author.rs`' `r6_54_a_binding_proven_under_a_tree_the_head_does_not_cover_fails` alone (`called Result::unwrap_err() on an Ok value: VerifiedAuthor { … key_index: 0, post_index: 2 }`: a binding the signed tree does not hold, proven under a tree the head does not sign, verifies) |
+| 42 | `r6_54_the_authors_enrollment_of_another_kid_fails` alone (`left: ("curia/acta/key-not-carried", true)`, `right: ("curia/acta/binding-mismatch", false)`: a failure read as not checked) |
+| 43 | `r6_54_a_binding_in_another_identitys_stream_fails` alone (`called Result::unwrap_err() on an Ok value: VerifiedAuthor { … key_index: 0, post_index: 2 }`: a binding in another identity's stream verifies) |
+| 44 | `r6_54_an_entry_of_another_type_fails_though_it_carries_the_key` alone (`called Result::unwrap_err() on an Ok value: VerifiedAuthor { … }`: an `agent.key-revoked` carrying the key verifies) |
+| 45 | `r6_54_log_author_without_a_head_fails_what_is_not_json` and `r6_54_log_author_without_a_head_fails_a_forged_entry` (each `left: (Some(3), false)`, `right: (Some(1), true)`: garbage and a forged entry read as not checked) |
+| 46 | `r6_54_without_a_head_proofs_against_two_trees_fail` alone (`called Result::unwrap_err() on an Ok value: ()`) |
+| 47 | `r6_54_an_envelope_admit_refuses_fails_though_its_key_is_bound_after_it` alone (`left: ("curia/acta/bound-after-post", true)`, `right: ("curia/acta/malformed", false)`) |
+| 48 | `r6_54_a_signature_header_naming_a_member_twice_fails_though_its_key_is_bound_after_it` alone (`left: ("curia/acta/bound-after-post", true)`, `right: ("curia/acta/malformed", false)`) |
 
-Eight things in this table are deliberate:
+Nine things in this table are deliberate:
 - **Cases 10 and 11 each leave the HTTP fact green,** and case 12 is the one the surface sees: each half of R4.31 (revised) backs the other, and R4.35 backs both at the token (trap 13).
 - **Cases 8 and 9 are one requirement on two paths.** Each wiring is broken alone, and the one fact shows which path opened.
 - **Case 18 is the RFC anchor's reason for being.** A renderer that swapped coordinates would have been consistent everywhere the Forum compares its own output with itself.
@@ -7800,6 +8230,7 @@ Eight things in this table are deliberate:
 - **Cases 34 and 35 came from Task 3's review.** Case 34 strips a P-256 coordinate's leading zeros, and only the fixed leading-zero point sees it: RFC 7515's key has no such coordinate, and a key a suite generates has one about once in 128, so no other fact is certain to meet one. Case 35 is errata D4's trap, an Ed25519 key in `EC`'s form, and the RFC 8037 fact is its only red, as case 18 is the P-256 fact's.
 - **Case 36 came from Task 4's review.** It writes the enrollment and its binding in two appends, the second at the version the first left, and every other fact stays green under it, because two appends under a frozen clock stamp one instant. Its one red is a store that takes one append and refuses the next, which is what a failed write between two appends looks like: an `agent.enrolled` without its binding, which binds the identity by its `kid` alone for good.
 - **Cases 37 to 40 came from Task 5's review.** Case 37 removes both of the key set's renderability guards. Since R4.35 only a pre-G16 identity's `kid`-bound row still reaches them, so `R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` is built on such identities, and it is the case's one red. Case 38 is the review's mutant: the key set matching a stored key to its binding by `kid` alone. Case 6 cannot show it, because it replaces the whole loop; only other bytes under a bound `kid` tell the two apart. Cases 39 and 40 are a log reader's refusal on the paths that read the log for a key. Handed on by the resolver as its own, it reads as a refusal of the key (39); ignored by the key set, it serves keys without positions (40). The Postgres reader throws rather than refusing, so only the fact's own reader reaches either.
+- **Cases 41 to 48 came from Task 7's review.** Case 41 holds the key's proof to its own root: the signed tree holds no binding at all, and only a key proof from a tree the head does not sign shows it, because `r6_54_a_head_over_another_tree_fails` trips the post's own head check first. Cases 42 to 44 take R6.54's comparisons one at a time, where case 25 removes them together: the `kid` (a failure read as not checked), the stream and the entry's type (each a forgery read as verified). Case 45 reports a missing head before anything is checked, which is what `log author` did for any input, garbage included, before the review. Case 46 is the one check with no head that stands in for the head's: two proofs against one tree. Cases 47 and 48 are the envelope's ADMIT and the header's parse, each seen only where the binding's order would otherwise let a document no Forum could have accepted read as not checked.
 
 If a case prints `PATCH MISMATCH`, `BUILD FAILED` or `GREEN`, the patch is wrong for the code as written: correct the **patch**, never the product code, and re-run that case alone (`python3 -u <scratchpad>/falsify.py <scratchpad>/falsify-keep <id>`). Record every correction. A patch that stays green on its first attempt is a finding until it is shown to be a bad patch (trap 13).
 
@@ -7813,7 +8244,7 @@ dotnet test Curia.sln -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Fai
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked 2>&1 | grep -E "^test result" | awk '{p+=$4; f+=$6} END {print "passed", p, "failed", f}'
 ```
 
-Expected: `git status --porcelain` prints nothing; `0 Warning(s)`; **eleven** `Passed!` lines and no `Failed!`; `passed 220 failed 0`. The `cargo build` is not optional: cases 24–26 and 28 left a patched binary behind until something rebuilt it, and the Api suite runs whatever `CURIA_TESTIS_BIN` names.
+Expected: `git status --porcelain` prints nothing; `0 Warning(s)`; **eleven** `Passed!` lines and no `Failed!`; `passed 229 failed 0`. The `cargo build` is not optional: cases 24–26, 28 and 41–48 left a patched binary behind until something rebuilt it, and the Api suite runs whatever `CURIA_TESTIS_BIN` names.
 
 Only now is `falsify.log` quotable. Keep it; Task 10 copies from it.
 
@@ -8018,7 +8449,7 @@ for it, after its whole history; one the store holds several keys for is refused
 back until R4.18's recovery exists (errata G16's fifth cost; see below). No identity can rotate,
 revoke or recover a key yet: see "What comes next".
 
-**Falsified:** the stage's Task 9, forty cases in fifty-four suite runs, each red by name, every
+**Falsified:** the stage's Task 9, forty-eight cases in sixty-two suite runs, each red by name, every
 restore proved by bytes and by `git diff`, and the gates re-run unpatched after a
 `--no-incremental` rebuild. Cases 10 and 11 each leave the HTTP fact green by design, and case 12,
 both halves of R4.31 (revised) off at once, is the one the surface sees: R4.35 still refuses the
@@ -8035,7 +8466,12 @@ came from Task 5's review: the key set rendering every key it lists and throwing
 which only a pre-G16 identity's row still reaches (37); the key set matching a stored key to its
 binding by `kid` alone, which publishes another holder's key under a bound `kid` (38); the
 resolver handing on the log reader's refusal as its own, a 401 for a server fault (39); and the key
-set serving its keys without positions when the log cannot be read (40).
+set serving its keys without positions when the log cannot be read (40). Cases 41 to 48 came from
+Task 7's review: `curia-testis` holding the key's proof to its own root rather than the signed
+head's (41); dropping, one at a time, its comparison of the binding's `kid` (42), its stream (43)
+and its type (44); `log author` reporting a missing head before it checks anything (45); taking
+the two proofs from two trees when there is no head (46); and reading the post's author and `kid`
+from an envelope ADMIT never saw (47) and a header no parser refused (48).
 
 ### Observed during the key-binding stage, not acted on
 
@@ -8366,8 +8802,10 @@ curia-testis log author --entry post-entry.json --proof post-proof.json \
 
 Exit 0 means the key entry binds a key to the post's author, at a lower index than the post, and
 the post verifies under that key. Exit 1 names what failed, a key entry that binds another identity
-or another `kid` among them. Exit 3 means it could not be checked: no head was given, or the log
-carries no key for the post's `kid` from before the post, because the key entry is the author's
+or another `kid` among them, and with no head a document that fails a check needing none exits 1
+all the same. Exit 3 means it could not be checked: no head was given and every check that needs
+none held, or the log carries no key for the post's `kid` from before the post, because the key
+entry is the author's
 enrollment, which names the `kid` and no key, or the author's binding made after the post.
 ````
 
@@ -8519,7 +8957,7 @@ Expected:
   The order of the lines varies from run to run; the counts do not. On `main` at 1dbe0ff they were 15, 30, 39, 66, 73, 106, 203, 215, 262, 279 and 608.
 - The Debug solution build: `0 Warning(s)`; the Debug architecture run: `Passed!  - Failed:     0, Passed:    30`.
 - `spec-checks: clean`, and the falsifier's four checks red, each naming its cell, as in Task 2's Step 4.
-- `fmt` prints nothing; `clippy` finishes with no warning; `passed 220 failed 0`.
+- `fmt` prints nothing; `clippy` finishes with no warning; `passed 229 failed 0`.
 - The differential exits 0. The build-check after Task 2's review ran it on Tasks 1–8 (`compared 22520 lines, found 0 divergence classes`, exit 0). This stage changes no canonicalization and no envelope verification, and Task 3's Step 6 holds the key set's bytes to what they were; but only running it here says whether the two implementations still agree, and a divergence is a release blocker (R14.6). If it exits non-zero, stop and report the report's path and its first divergence.
 
 Never `head` a gate's output. If a run regenerated a tracked file, `git status --porcelain` shows it: commit it only if it is the expected change, and say so.
@@ -8542,7 +8980,7 @@ Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's
 - why `LogBoundKeys` asks the store first (Decision 6);
 - that R15.1's frozen set does not move, and the conformance vector and `curia-testis log author` that ship with the new entry kind;
 - D16's CI line, with case 27 as its evidence;
-- the falsification table from `falsify.log`, all forty cases;
+- the falsification table from `falsify.log`, all forty-eight cases;
 - the test plan, with the per-assembly lines Step 1 printed and the differential's exit;
 - what is observed and not fixed, the rulings on the pre-flight scan's two design questions (the spec's §8) and on Task 2's review (the spec's §9), and the one question left for the owner (the spec's §2.1).
 

@@ -15,6 +15,8 @@
 //! key is carried by an `agent.key-bound` entry (R4.34). Both proven under one
 //! signed head, the binding first, and the signature verifying under the key
 //! the binding carries: no key set the Forum serves enters the check.
+//! [`check_author_unanchored`] makes every one of those checks that needs no
+//! head, for a reader that holds none.
 //!
 //! Every rejection is a typed [`ActaError`] with a predicate slug; nothing
 //! here panics on malformed input.
@@ -99,6 +101,10 @@ pub enum ActaError {
     /// carries no key, so which key signed cannot be established from the
     /// log. Not a failure and not a pass (exit 3).
     KeyNotCarried { kid: String },
+    /// With no head, the post and its key's entry are proven against two
+    /// trees: no one head covers both, so they fail with no head as they
+    /// fail with one.
+    TreeMismatch { post: u64, key: u64 },
 }
 
 impl ActaError {
@@ -122,6 +128,7 @@ impl ActaError {
             ActaError::BoundAfterPost { .. } => "curia/acta/bound-after-post",
             ActaError::Author(err) => err.predicate(),
             ActaError::KeyNotCarried { .. } => "curia/acta/key-not-carried",
+            ActaError::TreeMismatch { .. } => "curia/acta/tree-mismatch",
         }
     }
 
@@ -198,6 +205,10 @@ impl fmt::Display for ActaError {
             ActaError::KeyNotCarried { kid } => write!(
                 f,
                 "the log names kid `{kid}` only in the author's enrollment, which carries no key"
+            ),
+            ActaError::TreeMismatch { post, key } => write!(
+                f,
+                "the post is proven in a tree of {post} leaves and the key's entry in a tree of {key}, or under another root: no one head covers both"
             ),
         }
         .and_then(|()| write!(f, " [{}]", self.predicate()))
@@ -356,9 +367,11 @@ pub struct VerifiedAuthor {
 /// that key before it accepted the post, all under `head`.
 ///
 /// Both entries' leaves are recomputed and proven (R6.46, R6.48) and tied to
-/// the one head, so their order is the log's order. The key entry must bind
-/// the post's own author and `kid`, or it is [`ActaError::BindingMismatch`],
-/// whatever its type. The author's binding at a leaf not before the post is
+/// the one head, so their order is the log's order. The post's envelope is
+/// ADMITted and its protected header parsed before anything is read from
+/// either. The key entry must bind the post's own author and `kid`, in the
+/// author's own stream, or it is [`ActaError::BindingMismatch`], whatever its
+/// type. The author's binding at a leaf not before the post is
 /// [`ActaError::BoundAfterPost`], and the author's own `agent.enrolled`
 /// naming it is [`ActaError::KeyNotCarried`]: each says the log holds
 /// no key for the post from before it, and neither is a failure
@@ -372,10 +385,49 @@ pub fn verify_author(
     key_proof: &[u8],
     head: &VerifiedHead,
 ) -> Result<VerifiedAuthor, ActaError> {
+    author_under(post_entry, post_proof, key_entry, key_proof, Some(head))
+}
+
+/// R6.54 for a reader holding no head: every check [`verify_author`] makes
+/// that needs none, in the same order, so a document that fails one fails here
+/// exactly as it fails there. The two proofs must still be against one tree
+/// ([`ActaError::TreeMismatch`]), since a head covering both could cover no
+/// other. `Ok` is not a verdict: it says those checks held over a tree no
+/// signed head anchors, whose root, and so the order of its leaves, is the
+/// Forum's word.
+pub fn check_author_unanchored(
+    post_entry: &[u8],
+    post_proof: &[u8],
+    key_entry: &[u8],
+    key_proof: &[u8],
+) -> Result<(), ActaError> {
+    author_under(post_entry, post_proof, key_entry, key_proof, None).map(|_| ())
+}
+
+/// [`verify_author`]'s checks, under `head` when there is one.
+fn author_under(
+    post_entry: &[u8],
+    post_proof: &[u8],
+    key_entry: &[u8],
+    key_proof: &[u8],
+    head: Option<&VerifiedHead>,
+) -> Result<VerifiedAuthor, ActaError> {
     let post = verify_inclusion(post_entry, post_proof)?;
-    head_covers(head, post.tree_size, &post.root)?;
     let key = verify_inclusion(key_entry, key_proof)?;
-    head_covers(head, key.tree_size, &key.root)?;
+    match head {
+        Some(head) => {
+            head_covers(head, post.tree_size, &post.root)?;
+            head_covers(head, key.tree_size, &key.root)?;
+        }
+        None => {
+            if key.tree_size != post.tree_size || key.root != post.root {
+                return Err(ActaError::TreeMismatch {
+                    post: post.tree_size,
+                    key: key.tree_size,
+                });
+            }
+        }
+    }
 
     let post_fields = entry_fields(post_entry)?;
     let post_type = str_at(&post_fields, &["event_type"], "post entry")?;
@@ -386,6 +438,21 @@ pub fn verify_author(
     }
     let canonical = str_at(&post_fields, &["payload", "canonical"], "post entry")?;
     let signature = str_at(&post_fields, &["payload", "signature"], "post entry")?;
+
+    // The post's own entry carries the envelope as the Forum persisted it;
+    // the submission is rebuilt around it verbatim, never re-encoded.
+    let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
+        what: "post entry",
+        detail: e.to_string(),
+    })?;
+    let submission = format!("{{\"envelope\":{canonical},\"signature\":{signature_json}}}");
+    // ADMIT, as the signature check does: an envelope no Forum could have
+    // accepted fails here, before the binding's type or order is read.
+    crate::json::admit(submission.as_bytes()).map_err(|e| ActaError::Malformed {
+        what: "post entry",
+        detail: e.to_string(),
+    })?;
+    let (post_author, post_kid) = post_author_and_kid(canonical, signature)?;
 
     let key_fields = entry_fields(key_entry)?;
     let key_type = str_at(&key_fields, &["event_type"], "key entry")?;
@@ -401,7 +468,6 @@ pub fn verify_author(
     // Whose binding, of which kid, before anything about its key: an entry
     // for another identity or another kid binds nothing the post names,
     // whichever type it is.
-    let (post_author, post_kid) = post_author_and_kid(canonical, signature)?;
     if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {
         return Err(ActaError::BindingMismatch(format!(
             "the entry binds kid `{bound_kid}` to `{bound_agent}` in stream `{aggregate}`, and the post is `{post_author}`'s under kid `{post_kid}`"
@@ -430,13 +496,6 @@ pub fn verify_author(
             field: "jwk",
         })?;
 
-    // The post's own entry carries the envelope as the Forum persisted it;
-    // the submission is rebuilt around it verbatim, never re-encoded.
-    let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
-        what: "post entry",
-        detail: e.to_string(),
-    })?;
-    let submission = format!("{{\"envelope\":{canonical},\"signature\":{signature_json}}}");
     let jwks = serde_json::to_vec(&serde_json::json!({ "keys": [jwk] })).map_err(|e| {
         ActaError::Malformed {
             what: "key entry",
@@ -458,7 +517,10 @@ pub fn verify_author(
 /// The post's author, from its canonical envelope, and the `kid` its detached
 /// signature's protected header names; read before any key is chosen, so the
 /// binding can be compared with the post before it is trusted for anything.
-/// The signature itself is verified afterwards, over the same bytes.
+/// The envelope has been ADMITted by the caller; the header is parsed here
+/// by the parser the signature check uses, which refuses a member named twice,
+/// so neither is read from a document with two answers. The signature itself
+/// is verified afterwards, over the same bytes.
 fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, String), ActaError> {
     use base64::Engine;
     let malformed = |detail: String| ActaError::Malformed {
@@ -470,7 +532,7 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
         .get("author")
         .and_then(Value::as_str)
         .ok_or_else(|| malformed("the envelope names no author".to_string()))?;
-    let header = signature
+    let header_bytes = signature
         .split('.')
         .next()
         .and_then(|h| {
@@ -478,8 +540,11 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
                 .decode(h)
                 .ok()
         })
-        .and_then(|h| serde_json::from_slice::<Value>(&h).ok())
         .ok_or_else(|| malformed("the signature has no readable protected header".to_string()))?;
+    crate::json::parse(&header_bytes)
+        .map_err(|e| malformed(format!("the signature's protected header: {e}")))?;
+    let header: Value =
+        serde_json::from_slice(&header_bytes).map_err(|e| malformed(e.to_string()))?;
     let kid = header
         .get("kid")
         .and_then(Value::as_str)

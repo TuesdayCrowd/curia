@@ -141,7 +141,7 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
 
         var notChecked = await AuthorAsync(beforePostId, before, "before");
         Assert.StartsWith("exit 3:", notChecked, StringComparison.Ordinal);
-        Assert.Contains("carries no key", notChecked, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/key-not-carried", notChecked, StringComparison.Ordinal);
 
         var boundLate = await AuthorAsync(latePostId, late, "late");
         Assert.StartsWith("exit 3:", boundLate, StringComparison.Ordinal);
