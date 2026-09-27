@@ -38,6 +38,7 @@ use std::collections::HashSet;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
+use crate::display;
 use crate::json::{self, Value};
 
 /// A decoded public key, tagged by the algorithm family it verifies.
@@ -384,10 +385,13 @@ impl std::fmt::Display for JwkError {
             JwkError::UnsupportedKeyType(kty) => {
                 write!(
                     f,
-                    "unsupported `kty`: `{kty}` (only `OKP` and `EC` are supported)"
+                    "unsupported `kty`: {} (only `OKP` and `EC` are supported)",
+                    display::literal(kty)
                 )
             }
-            JwkError::UnsupportedCurve(crv) => write!(f, "unsupported `crv`: `{crv}`"),
+            JwkError::UnsupportedCurve(crv) => {
+                write!(f, "unsupported `crv`: {}", display::literal(crv))
+            }
             JwkError::CoordinateNotBase64(field) => {
                 write!(f, "`{field}` is not valid base64url")
             }

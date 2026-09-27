@@ -142,8 +142,8 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 233
-      # tests across 18 binaries are not a secondary suite.
+      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 240
+      # tests across 19 binaries are not a secondary suite.
       #
       # Note what the two steps above are: `cargo fmt --check` and `cargo clippy -- -D warnings`
       # ran here and were not in the command CLAUDE.md gave a developer, which was `cargo test`

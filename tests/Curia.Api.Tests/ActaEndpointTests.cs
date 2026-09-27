@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Curia.Canon.Json;
 using Curia.OperatorTool;
 using Xunit;
 
@@ -132,7 +133,8 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
 
         var verified = await AuthorAsync(postId, author, "own");
         Assert.StartsWith("exit 0:", verified, StringComparison.Ordinal);
-        Assert.Contains($"author: {author.AgentId}", verified, StringComparison.Ordinal);
+        Assert.Contains($"author: {DisplayLiteral.Of(author.AgentId)}", verified, StringComparison.Ordinal);
+        Assert.Contains($"kid: {DisplayLiteral.Of(author.Kid)}", verified, StringComparison.Ordinal);
         Assert.Contains($"key_index: {await KeyIndexAsync(author)}", verified, StringComparison.Ordinal);
 
         var refused = await AuthorAsync(postId, other, "other");

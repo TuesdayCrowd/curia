@@ -34,6 +34,7 @@ use std::process::ExitCode;
 use std::collections::HashMap;
 
 use curia_testis::acta::{self, ActaError, VerifiedHead};
+use curia_testis::display;
 use curia_testis::envelope::VerifyEnvelopeError;
 
 const USAGE: &str = "\
@@ -191,10 +192,13 @@ fn to_utf8_args(raw: &[OsString]) -> Result<Vec<String>, CliError> {
         .enumerate()
         .map(|(i, arg)| {
             arg.clone().into_string().map_err(|invalid| {
+                // R10.63: an argument is echoed as a display literal, its
+                // invalid bytes decoded as U+FFFD (R10.64), so none can begin
+                // a line of this refusal.
                 CliError::Usage(format!(
                     "argument {} is not valid UTF-8: {}",
                     i + 1,
-                    invalid.to_string_lossy()
+                    display::literal(&invalid.to_string_lossy())
                 ))
             })
         })
@@ -205,7 +209,10 @@ fn run(args: &[String]) -> Result<(), CliError> {
     match args.first().map(String::as_str) {
         Some("verify") => run_verify(&args[1..]),
         Some("log") => run_log(&args[1..]),
-        Some(other) => Err(CliError::Usage(format!("unknown subcommand `{other}`"))),
+        Some(other) => Err(CliError::Usage(format!(
+            "unknown subcommand {}",
+            display::literal(other)
+        ))),
         None => Err(CliError::Usage(
             "missing subcommand `verify` or `log`".to_string(),
         )),
@@ -320,10 +327,13 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
                 ));
             };
             match acta::verify_author(&entry, &proof, &key_entry, &key_proof, &head) {
+                // R10.64: an author, a kid and an algorithm are values an agent
+                // chose, so each is printed as a display literal and none can
+                // begin a line of this verdict.
                 Ok(verified) => {
-                    println!("author: {}", verified.author);
-                    println!("kid: {}", verified.kid);
-                    println!("alg: {}", verified.alg);
+                    println!("author: {}", display::literal(&verified.author));
+                    println!("kid: {}", display::literal(&verified.kid));
+                    println!("alg: {}", display::literal(&verified.alg));
                     println!("key_index: {}", verified.key_index);
                     println!("post_index: {}", verified.post_index);
                     print_head("head", &head);
@@ -332,7 +342,10 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
                 Err(err) => Err(author_refusal(err)),
             }
         }
-        other => Err(CliError::Usage(format!("unknown log subcommand `{other}`"))),
+        other => Err(CliError::Usage(format!(
+            "unknown log subcommand {}",
+            display::literal(other)
+        ))),
     }
 }
 
@@ -368,7 +381,10 @@ fn parse_path_flags(args: &[String]) -> Result<HashMap<String, PathBuf>, CliErro
     while i < args.len() {
         let name = args[i].as_str();
         if !LOG_FLAGS.contains(&name) {
-            return Err(CliError::Usage(format!("unrecognized argument `{name}`")));
+            return Err(CliError::Usage(format!(
+                "unrecognized argument {}",
+                display::literal(name)
+            )));
         }
         let value = args
             .get(i + 1)
@@ -417,9 +433,9 @@ fn print_head(label: &str, head: &VerifiedHead) {
         "{label}: tree_size={} root={} kid={} alg={} timestamp={}",
         head.tree_size,
         acta::format_digest(&head.root),
-        head.kid,
-        head.alg,
-        head.timestamp
+        display::literal(&head.kid),
+        display::literal(&head.alg),
+        display::literal(&head.timestamp)
     );
 }
 
@@ -449,7 +465,12 @@ fn parse_verify_args(args: &[String]) -> Result<VerifyArgs, CliError> {
                 jwks = Some(PathBuf::from(value));
                 i += 2;
             }
-            other => return Err(CliError::Usage(format!("unrecognized argument `{other}`"))),
+            other => {
+                return Err(CliError::Usage(format!(
+                    "unrecognized argument {}",
+                    display::literal(other)
+                )))
+            }
         }
     }
 
@@ -467,9 +488,7 @@ fn parse_verify_args(args: &[String]) -> Result<VerifyArgs, CliError> {
 /// misreport), only what `Read` actually delivers, capped by
 /// [`std::io::Read::take`].
 fn read_bounded(path: &Path, max_bytes: u64, what: &str) -> Result<Vec<u8>, CliError> {
-    let file = fs::File::open(path).map_err(|source| {
-        CliError::Usage(format!("cannot read {what} {}: {source}", path.display()))
-    })?;
+    let file = fs::File::open(path).map_err(|source| unreadable(what, path, &source))?;
     // `saturating_add`, not `+`: `max_bytes` is always one of this file's
     // own small `const`s today, so overflow can never actually happen, but
     // this function's whole point is to bound a `Read` against adversarial
@@ -478,16 +497,27 @@ fn read_bounded(path: &Path, max_bytes: u64, what: &str) -> Result<Vec<u8>, CliE
     // input was well-behaved" gap this function exists to close elsewhere.
     let mut limited = file.take(max_bytes.saturating_add(1));
     let mut buf = Vec::new();
-    limited.read_to_end(&mut buf).map_err(|source| {
-        CliError::Usage(format!("cannot read {what} {}: {source}", path.display()))
-    })?;
+    limited
+        .read_to_end(&mut buf)
+        .map_err(|source| unreadable(what, path, &source))?;
     if buf.len() as u64 > max_bytes {
         return Err(CliError::Usage(format!(
             "{what} {} exceeds the {max_bytes}-byte cap",
-            path.display()
+            display::literal(&path.display().to_string())
         )));
     }
     Ok(buf)
+}
+
+/// R10.63: the path is the caller's, and the reason is the platform's, so
+/// each is echoed as a display literal and neither can begin a line of this
+/// refusal. A path that is not UTF-8 is decoded with U+FFFD (R10.64).
+fn unreadable(what: &str, path: &Path, source: &std::io::Error) -> CliError {
+    CliError::Usage(format!(
+        "cannot read {what} {}: {}",
+        display::literal(&path.display().to_string()),
+        display::literal(&source.to_string())
+    ))
 }
 
 fn run_verify(args: &[String]) -> Result<(), CliError> {
@@ -503,10 +533,12 @@ fn run_verify(args: &[String]) -> Result<(), CliError> {
     let jwks = read_bounded(&parsed.jwks, CLI_MAX_JWKS_BYTES, "--jwks")?;
 
     match curia_testis::verify_envelope(&submission, &jwks) {
+        // R10.64: see `log author` above; the digest is this verifier's own
+        // computation and stays as it is.
         Ok(provenance) => {
-            println!("author: {}", provenance.author);
-            println!("kid: {}", provenance.kid);
-            println!("alg: {}", provenance.alg);
+            println!("author: {}", display::literal(&provenance.author));
+            println!("kid: {}", display::literal(&provenance.kid));
+            println!("alg: {}", display::literal(&provenance.alg));
             println!("digest: {}", provenance.digest);
             Ok(())
         }

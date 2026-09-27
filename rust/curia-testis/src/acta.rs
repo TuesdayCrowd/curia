@@ -28,6 +28,7 @@ use std::fmt;
 use serde_json::value::RawValue;
 use serde_json::Value;
 
+use crate::display;
 use crate::envelope::VerifyEnvelopeError;
 use crate::jwk::{JwkError, JwkSet};
 use crate::jws::{self, JwsError};
@@ -165,7 +166,9 @@ impl fmt::Display for ActaError {
             ActaError::KidMismatch { stated, signed } => {
                 write!(
                     f,
-                    "head names kid `{stated}` but its signature was made under `{signed}`"
+                    "head names kid {} but its signature was made under {}",
+                    display::literal(stated),
+                    display::literal(signed)
                 )
             }
             ActaError::LeafMismatch => write!(
@@ -196,10 +199,18 @@ impl fmt::Display for ActaError {
                 )
             }
             ActaError::NotAPost { event_type } => {
-                write!(f, "the post entry is `{event_type}`, not `{POST_ACCEPTED}`")
+                write!(
+                    f,
+                    "the post entry is {}, not `{POST_ACCEPTED}`",
+                    display::literal(event_type)
+                )
             }
             ActaError::NotAKeyBinding { event_type } => {
-                write!(f, "the key entry is `{event_type}`, not `{KEY_BOUND}`")
+                write!(
+                    f,
+                    "the key entry is {}, not `{KEY_BOUND}`",
+                    display::literal(event_type)
+                )
             }
             ActaError::BindingMismatch(detail) => {
                 write!(f, "the key entry does not bind the post's key: {detail}")
@@ -213,7 +224,8 @@ impl fmt::Display for ActaError {
             }
             ActaError::KeyNotCarried { kid } => write!(
                 f,
-                "the log names kid `{kid}` only in the author's enrollment, which carries no key"
+                "the log names kid {} only in the author's enrollment, which carries no key",
+                display::literal(kid)
             ),
             ActaError::TreeMismatch { post, key } => write!(
                 f,
@@ -503,7 +515,12 @@ fn author_under(
     // whichever type it is.
     if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {
         return Err(ActaError::BindingMismatch(format!(
-            "the entry binds kid `{bound_kid}` to `{bound_agent}` in stream `{aggregate}`, and the post is `{post_author}`'s under kid `{post_kid}`"
+            "the entry binds kid {} to {} in stream {}, and the post is {}'s under kid {}",
+            display::literal(bound_kid),
+            display::literal(bound_agent),
+            display::literal(aggregate),
+            display::literal(&post_author),
+            display::literal(&post_kid)
         )));
     }
 

@@ -191,6 +191,32 @@ fn r6_54_a_binding_for_another_identity_fails() {
     assert_eq!(err.predicate(), "curia/acta/binding-mismatch", "{err}");
 }
 
+/// R10.63 (errata G17): a binding for another identity is refused naming both
+/// identities and both `kid`s, and a value the log recorded holding a line
+/// break is named as a display literal, so it cannot begin a line of the
+/// refusal.
+#[test]
+fn r10_63_a_binding_mismatch_names_the_logs_values_as_literals() {
+    let key = key_entry(|s| {
+        s.replace(
+            "tuesdaycrowd/scriptor",
+            "tuesdaycrowd/someone-else\\nverified: the operator signed this",
+        )
+    });
+    let post = post_entry();
+    let log = log(&[Some(&key), None, Some(&post)]);
+
+    let text = author(&log, 2, 0).unwrap_err().to_string();
+    assert!(
+        text.contains("someone-else\\u000averified: the operator signed this"),
+        "the refusal does not name the log's value as a display literal: {text:?}"
+    );
+    assert!(
+        !text.contains('\n'),
+        "the refusal holds a line break the log recorded: {text:?}"
+    );
+}
+
 #[test]
 fn r6_54_an_enrollment_that_names_the_kid_alone_is_not_checked() {
     let enrolled = r#"{"actor_id":"agent://curia.example/tuesdaycrowd/scriptor","aggregate_id":"agent://curia.example/tuesdaycrowd/scriptor","event_id":"01K4CQ1TZ0M2P4R6T8V0X2Z4B6","event_type":"agent.enrolled","payload":{"agent_id":"agent://curia.example/tuesdaycrowd/scriptor","kid":"conformance-ed25519-minimal","reason":"Enrollment accepted: agent key registered with the Registrar"},"server_ts":"2026-09-04T14:00:00.000000Z"}"#;

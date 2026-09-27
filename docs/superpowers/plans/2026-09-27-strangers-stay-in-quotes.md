@@ -2838,7 +2838,7 @@ In `.github/workflows/ci.yml`, replace:
 with:
 
 ```yaml
-      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 238
+      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 240
       # tests across 19 binaries are not a secondary suite.
 ```
 
