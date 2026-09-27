@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Curia.Api.Adapters;
@@ -9,6 +10,7 @@ using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.AuthN;
 using Curia.AuthN.Ports;
+using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Authorization;
@@ -364,26 +366,63 @@ public static class ForumEndpoints
     /// no tier yet, and <see cref="AccessPolicy"/> reports that row as a failure rather than a
     /// denial precisely so a caller cannot mistake it for one.
     ///
-    /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication.
-    /// This endpoint trusts what it is told, which is acceptable because nothing downstream trusts
-    /// an agent's *claim* -- authorship is established by signature against the key registered
-    /// here, so a false enrollment can only impersonate an agent whose private key the caller
-    /// already holds. That sentence was false for as long as the request carried
-    /// <c>owner_verified</c>: Table 11's T1 row and every provenance envelope trusted it (errata
-    /// G5). The request no longer carries it, and R4.30 puts owner verification behind
-    /// <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route. The Registrar and
-    /// its owner-auth flow are still the next increment (plan D7).</para>
+    /// <para><b>What is missing and is not pretended otherwise:</b> §4.3's owner authentication,
+    /// and R4.11's proof of possession. This endpoint trusts what it is told, which is acceptable
+    /// because nothing downstream trusts an agent's *claim* -- authorship is established by
+    /// signature against the key registered here, so a false enrollment can only impersonate an
+    /// agent whose private key the caller already holds. Each half of that sentence has been false.
+    /// Its premise was false for as long as the request carried <c>owner_verified</c>, which Table
+    /// 11's T1 row and every provenance envelope trusted (errata G5); R4.30 puts owner verification
+    /// behind <see cref="AttestOwner"/>, under an operator's actor, with no HTTP route. Its
+    /// conclusion was false until errata G14: the endpoint registered whatever key a request
+    /// carried, so anyone could add a key to an enrolled identity and post as it, or replace the
+    /// bytes behind its <c>kid</c> and unverify everything it had signed; and, until errata G15, at
+    /// the token endpoint, which resolved an assertion's key by <c>kid</c> alone, so a key enrolled
+    /// under its holder's own identifier authenticated every enrolled identity. R4.31, R4.32 and
+    /// R5.20 make it true -- <see cref="EnrollIdentity"/> registers a key only for an identity that
+    /// holds none, and never changes one it holds, and the token endpoint honours a key only for the
+    /// identity it is registered to -- except in two cases. An identifier nobody has enrolled
+    /// belongs to whoever enrolls it first (plan D4, D7), unless R4.33 refuses it because the event
+    /// log keeps it for its own records. And a lost key row is bound again on its <c>kid</c> alone, by
+    /// whoever presents it first, unless another identity took it (R4.31).</para>
+    ///
+    /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
+    /// before anything is read or written, each refused 400 by name: the two identifiers' text
+    /// (R6.15's condition, and U+0000); their length, at most
+    /// <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8 bytes each; the algorithm, against the
+    /// allow-list the Forum verifies with (R4.15); and then the key, which must be present, base64,
+    /// and a key of that algorithm in R4.28's stored form (<see cref="Jwks.CanPublish"/>, the rule
+    /// that algorithm's verifier owns). Until these checks the route wrote whatever it was sent. A
+    /// noncharacter wrote a public leaf the reference client refuses to read. U+0000, an identifier
+    /// too long for the store's index, an algorithm the Forum does not verify and a missing key each
+    /// answered 500, which tells an agent to retry. And bytes that were not a key of their algorithm
+    /// were registered for good: junk the key set could not render, or a P-384 key the verifier
+    /// accepted as <c>ES256</c> and the key set published as P-256.</para>
     /// </summary>
     private static async Task<IResult> EnrollAsync(
         EnrollRequest request,
-        IAuthorKeyRegistry keys,
-        EnrollAgent enroll,
-        TimeProvider clock,
+        EnrollIdentity enroll,
+        IReadOnlyDictionary<string, IContentVerifier> verifiers,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
             return Results.BadRequest(new Problem(
                 "curia/enroll/invalid", "agent_id and kid are required", null));
+
+        if ((RefusedText(request.AgentId, "agent_id") ?? RefusedText(request.Kid, "kid")) is { } textError)
+            return Problem(StatusCodes.Status400BadRequest, textError);
+
+        if ((TooLong(request.AgentId, "agent_id") ?? TooLong(request.Kid, "kid")) is { } lengthError)
+            return Problem(StatusCodes.Status400BadRequest, lengthError);
+
+        // R4.15's algorithms: the allow-list DetachedJws verifies with, so no key is registered under
+        // an algorithm the Forum has no verifier for. The database's CHECK agrees, and answered 500.
+        // The key's own bytes are judged below, once decoded.
+        if (request.Alg is null || !verifiers.ContainsKey(request.Alg))
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.UnsupportedAlgorithm(request.Alg, verifiers.Keys));
+
+        if (request.PublicKeyBase64 is null)
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.PublicKeyMissing());
 
         byte[] publicKey;
         try
@@ -392,36 +431,35 @@ public static class ForumEndpoints
         }
         catch (FormatException)
         {
-            return Results.BadRequest(new Problem(
-                "curia/enroll/invalid-key", "public_key must be base64", null));
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.PublicKeyNotBase64());
         }
 
-        var now = clock.GetUtcNow();
+        // R4.15 against R4.28's stored forms: a key of the algorithm it names, judged by the rule that
+        // algorithm's verifier owns, which the key set publishes by too. A key the verifier cannot use
+        // and the key set cannot render would stay in the store for good (R4.19, R4.32).
+        if (!Jwks.CanPublish(request.Alg, publicKey))
+            return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.PublicKeyNotOfItsAlgorithm(request.Alg));
 
-        var registration = await keys
-            .RegisterAsync(
-                request.AgentId,
-                new PublicKeyMaterial(request.Alg, request.Kid, publicKey),
-                now,
-                cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!registration.TryGetValue(out _, out var registrationError))
-            return Results.Conflict(new Problem(registrationError!.Type, registrationError.Title, request.Kid));
-
-        // Standing goes into the event log, never into process memory. R4.21 already says what
-        // these facts are -- "state transitions SHALL be append-only events carrying actor, reason,
-        // and timestamp; the current state is a projection" -- and the in-process dictionary this
-        // replaced lost every agent's standing on restart, silently and in the direction that reads
-        // as policy rather than as an outage. EnrollAgent records nothing for a repeat enrollment,
-        // so Table 11's tenure clock cannot be restarted by re-announcing one -- and it records
-        // nothing about the owner at all; that is AttestOwner's, under an operator's actor (R4.30).
+        // R4.31 and R4.32 (errata G14), in EnrollIdentity: the log's binding, then the key store's,
+        // then the log's record. Standing goes into the event log, never into process memory -- a
+        // repeat enrollment appends nothing, so Table 11's tenure clock cannot be restarted by
+        // re-announcing one -- and nothing about the owner is recorded at all; that is AttestOwner's,
+        // under an operator's actor (R4.30).
         var enrolled = await enroll
-            .RecordAsync(request.AgentId, request.Kid, cancellationToken)
+            .EnrollAsync(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), cancellationToken)
             .ConfigureAwait(false);
 
         if (!enrolled.TryGetValue(out var enrollment, out var enrollError))
-            return Problem(StatusCodes.Status500InternalServerError, enrollError!);
+        {
+            // A refusal of the identity or the key is the caller's to act on, and says how; anything
+            // else -- the log refusing an append, the store unreachable -- is the Forum's.
+            return enrollError!.Type is AuthorKeyErrors.AlreadyEnrolledType
+                    or AuthorKeyErrors.MaterialImmutableType
+                    or AuthorKeyErrors.KidRegisteredToAnotherAgentType
+                    or EnrollmentErrors.IdentifierReservedType
+                ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))
+                : Problem(StatusCodes.Status500InternalServerError, enrollError);
+        }
 
         return Results.Created($"/v1/agents/{Uri.EscapeDataString(request.AgentId)}", new
         {
@@ -437,6 +475,31 @@ public static class ForumEndpoints
             // fresh enrollment's answer is always false, whatever the request body claimed.
             owner_verified = enrollment.OwnerVerified,
         });
+    }
+
+    /// <summary>
+    /// The refusal for an identifier an enrollment would carry into a public leaf, or null. First
+    /// ADMIT's own rules (<see cref="JsonReader.CheckString"/>): a noncharacter or an unpaired
+    /// surrogate, under ADMIT's slug, since the reference client refuses to read a leaf holding
+    /// either. Then U+0000, which ADMIT accepts written as an escape and Postgres <c>text</c> cannot
+    /// store. Each names the field and never echoes the value.
+    /// </summary>
+    private static Error? RefusedText(string value, string field)
+    {
+        if (!JsonReader.CheckString(value).TryGetValue(out _, out var textError))
+            return textError! with { Detail = "field=" + field };
+
+        return value.Contains('\0', StringComparison.Ordinal) ? EnrollmentErrors.NulCharacter(field) : null;
+    }
+
+    /// <summary>
+    /// The refusal for an identifier over <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8
+    /// bytes, or null. Asked after <see cref="RefusedText"/>, so the count never meets a lone surrogate.
+    /// </summary>
+    private static Error? TooLong(string value, string field)
+    {
+        var bytes = Encoding.UTF8.GetByteCount(value);
+        return bytes > EnrollmentErrors.MaxIdentifierBytes ? EnrollmentErrors.IdentifierTooLong(field, bytes) : null;
     }
 
     /// <summary>

@@ -1,0 +1,24 @@
+-- Migration 0005, forward-only, applied after db/0004_create_flag_details.sql: the key a kid names
+-- never changes (errata G14; R4.32).
+--
+-- __CURIA_APP_ROLE__ is the placeholder 0001 introduces, substituted by
+-- Curia.Infrastructure.Migrations.SchemaMigrations.RenderAll before execution. Every name below is
+-- unqualified on purpose, as in 0002: a test fixture renders this file under a search_path to put
+-- it in an isolated schema beside that schema's own agent_keys.
+--
+-- =========================================================================================
+-- WHY UPDATE IS NARROWED TO TWO COLUMNS, AND WHY IN THE GRANT
+-- =========================================================================================
+-- 0002 granted UPDATE on the whole of agent_keys, because revocation closes a key's validity
+-- window in place (R4.19) -- and the enrollment path used that grant to replace the bytes behind an
+-- existing kid on any request that named it (errata G14, confirmed by execution): the victim's key
+-- stopped verifying every post it had signed, and the caller's key verified everything signed after.
+-- R4.32 makes the material immutable, and R11.6's reasoning says where such a guarantee belongs:
+-- in the grant, "not merely in the code's intentions". So the application role keeps exactly the
+-- UPDATE the window needs -- valid_from, which may only move earlier, and valid_until, which
+-- revocation sets -- and loses it on kid, agent_id, alg and public_key. A statement that tries to
+-- change any of those is refused by Postgres whatever the adapter above it believes.
+--
+-- DELETE stays revoked (0002), and TRUNCATE was never granted.
+REVOKE UPDATE ON agent_keys FROM __CURIA_APP_ROLE__;
+GRANT UPDATE (valid_from, valid_until) ON agent_keys TO __CURIA_APP_ROLE__;   -- R4.19's window; R4.32 forbids the rest

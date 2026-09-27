@@ -102,9 +102,8 @@ internal static class Program
         var agentId = args.Value("agent-id")
             ?? $"urn:curia:agent:{slug}";
 
-        // kid must be globally unique on the Forum; a kid already registered to a different agent
-        // is a 409, because the assertion path resolves keys by kid alone and a shared one would
-        // authenticate the wrong agent intermittently. A random suffix by default makes that
+        // kid must be globally unique on the Forum: the Forum holds each kid for one identifier
+        // (R4.31), and another agent's kid is refused 409. A random suffix by default makes that
         // collision essentially impossible without asking the operator to invent one.
         var kid = args.Value("kid") ?? $"{slug}-{Guid.NewGuid().ToString("N")[..8]}";
 

@@ -18,8 +18,9 @@ namespace Curia.Infrastructure.Tests;
 /// they need UPDATE (R5.17's atomic compare-and-set over an expired entry) and DELETE (collecting
 /// what has expired). A reader who knows R11.6 should be able to see the difference asserted, not
 /// merely asserted about in a comment.</item>
-/// <item><c>agent_keys</c> is the third discipline: UPDATE yes -- revocation closes a validity
-/// window in place -- DELETE no, because R4.19 requires revoked <c>kid</c>s retained indefinitely
+/// <item><c>agent_keys</c> is the third discipline: UPDATE on the validity window's two columns only
+/// (db/0005, <see cref="AgentKeyMaterialGrantTests"/>) -- revocation closes that window in place --
+/// DELETE no, because R4.19 requires revoked <c>kid</c>s retained indefinitely
 /// with their interval, "because verifying a historical signature requires knowing what was valid
 /// when it was made."</item>
 /// </list>

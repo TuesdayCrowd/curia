@@ -267,7 +267,7 @@ public sealed class IngestPipelineTests
     /// private key is not available to borrow.
     ///
     /// <para>This fails at key resolution rather than at signature verification, and the
-    /// distinction is the point of scoping <see cref="IAuthorKeyResolver"/> by agent: "that
+    /// distinction is one point of scoping <see cref="IAuthorKeyResolver"/> by agent: "that
     /// <c>kid</c> is not yours" and "your signature does not verify" are different incidents, and
     /// an operator reading the log should not have to guess which one happened.</para>
     /// </summary>
@@ -289,7 +289,8 @@ public sealed class IngestPipelineTests
     /// <summary>
     /// And with the key genuinely registered to Mallory, the borrowed signature still fails --
     /// because it was made over Alice's private key, which Mallory does not have. The cryptography
-    /// is what carries the weight; the resolver scoping above only makes the failure legible.
+    /// defeats a borrowed signature; the resolver's scope defeats a signer's own key under another
+    /// author's name (R6.2, errata G15), and also makes this failure legible.
     /// </summary>
     [Fact]
     public async Task A_signature_made_with_another_agents_key_still_fails()

@@ -108,12 +108,38 @@ internal sealed class DpopClient
     /// </summary>
     internal async Task<string> GetTokenAsync(HttpClient client, string tokenEndpoint, DateTimeOffset now, CancellationToken ct)
     {
+        var (status, body) = await RequestTokenAsync(client, tokenEndpoint, now, AgentId, ct);
+
+        if ((int)status is < 200 or > 299)
+            throw new InvalidOperationException($"Token request failed ({(int)status}): {body}");
+
+        using var json = JsonDocument.Parse(body);
+        return json.RootElement.GetProperty("access_token").GetString()!;
+    }
+
+    /// <summary>
+    /// One token request, answered as the Forum answered it: the status and the body, a refusal
+    /// included. <paramref name="clientId"/> is the form's <c>client_id</c>, which a test can set to
+    /// another agent than the assertion's <c>iss</c> and <c>sub</c> (R5.20).
+    /// </summary>
+    internal Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenAsync(
+        HttpClient client, string tokenEndpoint, DateTimeOffset now, string clientId, CancellationToken ct) =>
+        RequestTokenAsync(client, tokenEndpoint, now, clientId, ClientAssertion(tokenEndpoint, now), ct);
+
+    /// <summary>
+    /// One token request carrying <paramref name="assertion"/> as written, with this client's DPoP
+    /// proof: for an assertion no honest client would sign, such as one whose header names another
+    /// algorithm than its key's.
+    /// </summary>
+    internal async Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenAsync(
+        HttpClient client, string tokenEndpoint, DateTimeOffset now, string clientId, string assertion, CancellationToken ct)
+    {
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "client_credentials",
-            ["client_id"] = AgentId,
+            ["client_id"] = clientId,
             ["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-            ["client_assertion"] = ClientAssertion(tokenEndpoint, now),
+            ["client_assertion"] = assertion,
             ["scope"] = "question:create answer:create",
         });
 
@@ -121,13 +147,7 @@ internal sealed class DpopClient
         request.Headers.Add("DPoP", Proof("POST", tokenEndpoint, now));
 
         using var response = await client.SendAsync(request, ct);
-        var body = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Token request failed ({(int)response.StatusCode}): {body}");
-
-        using var json = JsonDocument.Parse(body);
-        return json.RootElement.GetProperty("access_token").GetString()!;
+        return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
     }
 
     /// <summary>

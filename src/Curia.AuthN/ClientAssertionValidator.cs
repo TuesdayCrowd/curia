@@ -62,10 +62,12 @@ public static class ClientAssertionValidator
         var serverTimestamp = ServerTimestamp.At(context.Clock.GetUtcNow());
         var now = serverTimestamp.Value;
 
-        // R5.10's principle applied here: AgentKeyResolver is already scoped by the caller to one
-        // agent's Forum-served keys (see ClientAssertionValidationContext's remarks); this call
-        // only ever passes the kid string and server_ts, never a URL.
-        var keyResult = await context.AgentKeyResolver.ResolveAsync(header.Kid, serverTimestamp, cancellationToken).ConfigureAwait(false);
+        // R5.20 (errata G15): the key is resolved for the agent the request names as its client, by
+        // that agent and the kid together, never by the kid alone. A signature shows its signer holds
+        // some registered key, and only the store knows whose, so a key registered to another agent is
+        // refused here exactly as a kid registered to none is. R5.10's principle holds as well: this
+        // call passes an agent identifier, the kid and server_ts, never a URL.
+        var keyResult = await context.AgentKeyResolver.ResolveAsync(context.ExpectedSubject, header.Kid, serverTimestamp, cancellationToken).ConfigureAwait(false);
         if (!keyResult.TryGetValue(out var key, out var keyError))
             return Result<ClientAssertionClaims>.Fail(keyError!);
 
@@ -82,6 +84,8 @@ public static class ClientAssertionValidator
         if (claims.Iss != claims.Sub)
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.IssuerSubjectMismatch());
 
+        // R5.20's other half: the token goes only to the agent the key was resolved for, so sub must
+        // name that agent too.
         if (claims.Sub != context.ExpectedSubject)
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.SubjectMismatch());
 

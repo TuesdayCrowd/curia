@@ -188,6 +188,15 @@ public sealed class Program
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<TimeProvider>()));
 
+        // The enrollment use case the endpoint calls (R4.31, R4.32; errata G14): the log's binding,
+        // then the key store's, then the log's record. The endpoint holds this and nothing that
+        // writes keys, so no request writes to the key store except through enrollment's rule.
+        builder.Services.AddSingleton(sp => new EnrollIdentity(
+            sp.GetRequiredService<IEventReader>(),
+            sp.GetRequiredService<IAuthorKeyRegistry>(),
+            sp.GetRequiredService<EnrollAgent>(),
+            sp.GetRequiredService<TimeProvider>()));
+
         // R4.30's attestation path (errata G5), reached by no HTTP route: an operator endpoint would
         // need a Table 10 pair that does not exist, and ResourceActionModel reports an unmodelled
         // pair as a failure precisely so nobody invents one to reach a route. Registered so this

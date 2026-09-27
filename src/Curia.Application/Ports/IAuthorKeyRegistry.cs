@@ -42,32 +42,48 @@ public sealed record RegisteredKey(
 public interface IAuthorKeyRegistry
 {
     /// <summary>
-    /// Registers <paramref name="key"/> to <paramref name="agentId"/>, valid from
-    /// <paramref name="notBefore"/> until <paramref name="notAfter"/> (null: still valid).
+    /// Enrollment's one write (R4.31, R4.32): registers <paramref name="key"/> as
+    /// <paramref name="agentId"/>'s key, valid from <paramref name="notBefore"/>, when and only when
+    /// the identifier holds no key yet.
     ///
-    /// <para><b>Fails when the <c>kid</c> is already registered to a <i>different</i> agent.</b>
-    /// This store is asked for keys two ways: by (agent, kid) on the ingest path, and by
-    /// <c>kid</c> alone by <c>Curia.AuthN.Ports.IAgentKeyResolver</c> -- correctly, because a
-    /// client assertion names its key and the subject is established by <i>which key verified</i>,
-    /// not by a claim. That second question only has an answer if a <c>kid</c> identifies one
-    /// key. Two agents sharing one makes assertion resolution ambiguous, and an ambiguity
-    /// resolved by iteration order is the kind of defect that authenticates the wrong agent
-    /// intermittently. So the collision is refused at enrollment, where it is a clear error with
-    /// a name, rather than left to surface later as an authentication that succeeded for the
-    /// wrong subject.</para>
+    /// <para><b>Four outcomes, decided by <see cref="KeyEnrollment.Decide"/> and made atomic by the
+    /// adapter</b> against a concurrent enrollment of the same identifier:</para>
+    /// <list type="bullet">
+    /// <item>The identifier holds no key: the key is registered and returned.</item>
+    /// <item>The identifier already holds exactly this key -- the same <c>kid</c>, algorithm and
+    /// bytes: nothing is written, and the registered key is returned with its original window. A
+    /// client re-announcing its enrollment is not an error, and it must not move
+    /// <c>NotBefore</c>: R6.31 evaluates validity at each post's <c>server_ts</c>, so a later
+    /// <c>NotBefore</c> would declare last week's posts signed by a key that did not yet
+    /// exist.</item>
+    /// <item>The identifier holds this <c>kid</c> with different material: refused,
+    /// <see cref="AuthorKeyErrors.MaterialImmutable"/>. A kid whose bytes could be replaced is a
+    /// kid whose past signatures stop verifying and whose future ones someone else makes.</item>
+    /// <item>The identifier holds any other key: refused, <see cref="AuthorKeyErrors.AlreadyEnrolled"/>.
+    /// An enrolled identity gains a key only through R4.18: by rotation, signed by a key it already
+    /// holds, or by recovery on its owner's re-authorization. An enrollment that added one with
+    /// neither would be a rotation that proved nothing.</item>
+    /// </list>
     ///
-    /// <para>Re-registering the same (agent, <c>kid</c>) is permitted -- a repeat enrollment, not
-    /// a collision -- and SHALL NOT move <paramref name="notBefore"/> later than the instant
-    /// already recorded. Moving it forward would retroactively invalidate every signature the key
-    /// made in between, because R6.31 evaluates validity at each post's <c>server_ts</c>; the day
-    /// a key first became valid is a fact about the archive, not a field the latest enrollment
-    /// gets to overwrite.</para>
+    /// <para><b>And, as before, a <c>kid</c> registered to a different agent is refused</b>
+    /// (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>): a <c>kid</c> identifies one key
+    /// across every identifier (the table's primary key). Both resolvers ask by agent and <c>kid</c>
+    /// together: ingest for a post's author (R6.2), and the token endpoint for the agent named as the
+    /// client (R5.20). The token endpoint once asked by <c>kid</c> alone, on the premise that "the
+    /// subject is established by which key verified". A signature shows possession of <i>some</i>
+    /// registered key and not whose, so one enrolled key minted every identity's token (errata G15,
+    /// D26).</para>
+    ///
+    /// <para><b>Why the port has no general "register".</b> It had one, and the enrollment endpoint
+    /// called it for every request, so any caller could add a key to any identity or replace the
+    /// bytes behind one (errata G14). A port offering that write to the application layer is an
+    /// invitation to call it; rotation and revocation arrive as writes of their own, each proving
+    /// what it must.</para>
     /// </summary>
-    Task<Result<RegisteredKey>> RegisterAsync(
+    Task<Result<RegisteredKey>> EnrollAsync(
         string agentId,
         PublicKeyMaterial key,
         DateTimeOffset notBefore,
-        DateTimeOffset? notAfter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -86,13 +102,87 @@ public interface IAuthorKeyRegistry
 }
 
 /// <summary>
-/// Three distinct reasons a key does not resolve. Distinct because they mean different things to
-/// an operator: a <c>kid</c> that is not the agent's is a possible impersonation attempt; a key
-/// outside its window is ordinary lifecycle. Collapsing them would make the first invisible
-/// inside the second's noise.
+/// R4.31's decision, written once and applied by both adapters inside their own atomicity -- the
+/// shape <c>FlagDetailRules</c> set: the rule lives in the application layer, and an adapter
+/// contributes only the guarantee that nothing else touches the identifier while it applies it.
+/// </summary>
+public static class KeyEnrollment
+{
+    /// <summary>
+    /// What an enrollment of <paramref name="key"/> for <paramref name="agentId"/> does, given every
+    /// key the identifier already holds.
+    ///
+    /// <para><b>Two of enrollment's refusals are not decided here</b>, because
+    /// <paramref name="held"/> cannot show them. A <c>kid</c> registered to a different identifier is
+    /// the adapter's to refuse (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>), at its
+    /// write, since only the whole store holds that <c>kid</c>. The event log's binding, which refuses
+    /// a <c>kid</c> the identifier's <c>agent.enrolled</c> does not name, is <c>EnrollIdentity</c>'s,
+    /// applied before the store is asked (R4.31).</para>
+    /// </summary>
+    /// <returns>
+    /// <c>Ok(null)</c>: register it -- the identifier holds no key. The adapter's write still refuses
+    /// it when another identifier holds the <c>kid</c>. <c>Ok(existing)</c>: the identifier already
+    /// holds exactly this key, the same <c>kid</c>, algorithm and bytes; write nothing and return it,
+    /// window unmoved. A failure: <see cref="AuthorKeyErrors.MaterialImmutable"/> when it holds this
+    /// <c>kid</c> under another algorithm or with other bytes, and
+    /// <see cref="AuthorKeyErrors.AlreadyEnrolled"/> when it holds any other key; refuse, and write
+    /// nothing.
+    /// </returns>
+    public static Result<RegisteredKey?> Decide(string agentId, PublicKeyMaterial key, IReadOnlyList<RegisteredKey> held)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(held);
+
+        if (held.Count == 0) return Result<RegisteredKey?>.Ok(null);
+
+        foreach (var existing in held)
+        {
+            if (!string.Equals(existing.Key.Kid, key.Kid, StringComparison.Ordinal)) continue;
+
+            return SameMaterial(existing.Key, key)
+                ? Result<RegisteredKey?>.Ok(existing)
+                : Result<RegisteredKey?>.Fail(AuthorKeyErrors.MaterialImmutable(key.Kid));
+        }
+
+        return Result<RegisteredKey?>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+    }
+
+    /// <summary>
+    /// Same algorithm and same bytes. Compared by content: <see cref="PublicKeyMaterial"/> is a
+    /// record over a <see cref="ReadOnlyMemory{T}"/>, and a record's generated equality compares
+    /// that member by reference, which would call two identical keys read from two places different.
+    /// </summary>
+    public static bool SameMaterial(PublicKeyMaterial left, PublicKeyMaterial right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        return string.Equals(left.Alg, right.Alg, StringComparison.Ordinal)
+            && left.Public.Span.SequenceEqual(right.Public.Span);
+    }
+}
+
+/// <summary>
+/// The key store's refusals, each by name. Three say why a key does not resolve:
+/// <see cref="NotRegisteredToAgent"/>, <see cref="NotYetValid"/> and <see cref="NoLongerValid"/>.
+/// They are distinct because they mean different things to an operator: a <c>kid</c> that is not the
+/// agent's is a possible impersonation attempt; a key outside its window is ordinary lifecycle.
+/// Collapsing them would make the first invisible inside the second's noise. Three say why an
+/// enrollment registered nothing (R4.31, R4.32): <see cref="KidRegisteredToAnotherAgent"/>,
+/// <see cref="AlreadyEnrolled"/> and <see cref="MaterialImmutable"/>.
 /// </summary>
 public static class AuthorKeyErrors
 {
+    /// <summary>The slug of <see cref="KidRegisteredToAnotherAgent"/>, for callers that match on it.</summary>
+    public const string KidRegisteredToAnotherAgentType = "curia/enroll/kid-already-registered";
+
+    /// <summary>The slug of <see cref="AlreadyEnrolled"/>, for callers that match on it.</summary>
+    public const string AlreadyEnrolledType = "curia/enroll/already-enrolled";
+
+    /// <summary>The slug of <see cref="MaterialImmutable"/>, for callers that match on it.</summary>
+    public const string MaterialImmutableType = "curia/keys/material-immutable";
+
     public static Error NotRegisteredToAgent(string agentId, string kid) => new(
         "curia/keys/not-registered-to-agent",
         "No key with that identifier is registered to that agent",
@@ -109,13 +199,35 @@ public static class AuthorKeyErrors
         $"kid={kid} server_ts={at}");
 
     /// <summary>
-    /// The enrollment refusal <see cref="IAuthorKeyRegistry.RegisterAsync"/> describes. Its own
+    /// The enrollment refusal <see cref="IAuthorKeyRegistry.EnrollAsync"/> describes. Its own
     /// slug rather than a reuse of <see cref="NotRegisteredToAgent"/>: one is "you asked for a
     /// key that is not yours", the other is "you tried to claim an identifier that is someone
     /// else's", and only the second is an enrollment-time event an operator can act on.
     /// </summary>
     public static Error KidRegisteredToAnotherAgent(string agentId, string kid) => new(
-        "curia/enroll/kid-already-registered",
+        KidRegisteredToAnotherAgentType,
         "That key identifier is already registered to a different agent",
         $"agent={agentId} kid={kid}");
+
+    /// <summary>
+    /// R4.31: the identifier is enrolled, and not with this key. The detail says what to do,
+    /// because the commonest way to meet it is honest -- two agents that chose the same identifier --
+    /// and an agent told only "conflict" retries.
+    /// </summary>
+    public static Error AlreadyEnrolled(string agentId) => new(
+        AlreadyEnrolledType,
+        "That agent identifier is already enrolled with a different key",
+        $"agent={agentId}: nothing was registered. An enrolled identity gains a key only through " +
+        "R4.18, by rotation signed by a key it already holds or by recovery on its owner's " +
+        "re-authorization; a new identity needs an agent identifier of its own.");
+
+    /// <summary>
+    /// R4.32: this <c>kid</c> is registered with other material, under another algorithm or with
+    /// other bytes, and a registered key never changes. Names the kid and never the material, as
+    /// every refusal here names identifiers and nothing the request carried beyond them.
+    /// </summary>
+    public static Error MaterialImmutable(string kid) => new(
+        MaterialImmutableType,
+        "That key identifier is already registered with different key material",
+        $"kid={kid}: nothing was registered. The key registered under a kid never changes (R4.32).");
 }

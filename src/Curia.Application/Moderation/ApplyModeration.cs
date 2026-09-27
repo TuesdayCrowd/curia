@@ -272,10 +272,12 @@ public static class ModerationRecordErrors
 /// repaired (R10.26); nothing here is written anywhere. Each text is normalized the same way before
 /// comparing: every hidden character (<see cref="HiddenCharacters"/>) dropped, every character NFKC
 /// cannot take made U+FFFD, then NFKC, lower-cased invariantly, each run of white space collapsed to
-/// one space. So a change of case, of spacing or of compatibility form, or a zero-width character
-/// inside a raiser, does not get a repeat through; and a noncharacter in a flag, which reaches the
-/// append-only private store because a flag's body never passes ADMIT, cannot make every record on
-/// its post throw.</para>
+/// one space. So a change of case, of spacing or of compatibility form, or a character
+/// <see cref="HiddenCharacters"/> lists inside a raiser, does not get a repeat through. Other
+/// default-ignorable characters inside a raiser, a combining mark after or inside one, and a
+/// neighbour that NFKC folds into an ASCII letter or digit still can; the register records each.
+/// And a noncharacter in a flag, which reaches the append-only private store because a flag's body
+/// never passes ADMIT, cannot make every record on its post throw.</para>
 ///
 /// <para><b>A raiser is matched as a whole token, in a form of at least <see cref="RaiserFloor"/>
 /// characters without white space</b> — the raiser, and the raiser without its <c>scheme://</c>, each

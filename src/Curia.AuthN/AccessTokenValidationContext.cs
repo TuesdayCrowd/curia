@@ -23,21 +23,21 @@ public sealed record AccessTokenValidationContext(
 /// <summary>
 /// The corresponding trust material for <see cref="ClientAssertionValidator"/>, kept as a
 /// distinct type rather than reusing <see cref="AccessTokenValidationContext"/>: the key
-/// resolver here is scoped to one asserting agent's own registered keys, not a single
-/// issuer-wide namespace, and -- unlike <see cref="Ports.IJwsKeyResolver"/> -- must be asked "as
-/// of when" (errata A12/R6.31), so it is a different port, <see cref="Ports.IAgentKeyResolver"/>;
+/// resolver here answers for agents' own registered keys, not a single issuer-wide namespace,
+/// and -- unlike <see cref="Ports.IJwsKeyResolver"/> -- must be asked "whose" and "as of when"
+/// (R5.20; errata A12/R6.31), so it is a different port, <see cref="Ports.IAgentKeyResolver"/>;
 /// see that interface's remarks. There is also no resource-server audience, DPoP context, or
 /// DPoP nonce store at this artifact type at all.
 ///
-/// <see cref="AgentKeyResolver"/> is scoped by the <em>caller</em>, before
-/// <see cref="ClientAssertionValidator.ValidateAsync"/> ever runs: the caller reads the
-/// assertion's (unverified) <c>sub</c> claim to decide which agent's Forum-served key set to
-/// consult -- errata A16/R4.16 rev.'s "Forum serves JWKS," never a URL taken from the token --
-/// then builds a resolver scoped to that one agent's keys. <see cref="ExpectedSubject"/> records
-/// which agent that was, so Phase 3 can confirm the verified <c>sub</c> claim actually matches
-/// (AuthNErrors.SubjectMismatch): without that check, a resolver bug that silently returned a
-/// different agent's key material for a wrong or stale scoping decision would verify a signature
-/// against the wrong agent's key and nothing downstream would catch it. See the Stage C report.
+/// Nothing scopes <see cref="AgentKeyResolver"/> before
+/// <see cref="ClientAssertionValidator.ValidateAsync"/> runs. <see cref="ExpectedSubject"/> is the
+/// agent the request names as its client (the token request's <c>client_id</c>); it is the agent
+/// the key is resolved <em>for</em>, by that agent and the assertion's <c>kid</c> together, and the
+/// agent the verified <c>sub</c> claim must equal (R5.20, AuthNErrors.SubjectMismatch). Each half
+/// has a test of its own. The key set consulted is the one the Forum holds, never one fetched from
+/// a URL taken from the token (errata A16/R4.16 rev.). This remark once said the caller scoped the
+/// resolver to one agent's keys; the token endpoint passed the Registrar's store unscoped, and a
+/// key enrolled under its holder's own identifier authenticated every enrolled identity (errata G15).
 /// </summary>
 public sealed record ClientAssertionValidationContext(
     string TokenEndpoint,

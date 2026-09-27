@@ -67,6 +67,13 @@ public sealed class EnrollAgent
     /// re-read then finds the enrollment already present -- the loop exists to observe that, not to
     /// contend for a resource. A second conflict on the retry would mean something is appending to
     /// this agent's stream continuously, which is a caller to fix rather than a wait to lengthen.
+    ///
+    /// <para>That was incomplete. Before R4.33 (errata G15) the usual cause of a second conflict was
+    /// an identifier naming an aggregate that already held events and no enrollment -- a post's, as
+    /// the review enrolled one -- where the append at <see cref="AggregateVersion.New"/> can never
+    /// succeed however often it is retried. <see cref="EnrollIdentity"/> now refuses such an
+    /// identifier upstream, before the key store is asked, so a request reaching this loop names a
+    /// stream that holds nothing or holds its own enrollment.</para>
     /// </summary>
     private const int Attempts = 2;
 
@@ -83,8 +90,11 @@ public sealed class EnrollAgent
     }
 
     /// <summary>
-    /// Records an enrollment, or -- when the log already holds one -- reports the standing the log
-    /// holds and appends nothing.
+    /// Records an enrollment, or -- when the log already holds one for <paramref name="keyId"/> --
+    /// reports the standing the log holds and appends nothing. When the log holds one for another
+    /// <c>kid</c>, refuses (<see cref="AuthorKeyErrors.AlreadyEnrolled"/>) and appends nothing
+    /// (R4.31). This is the log's half of enrollment; <see cref="EnrollIdentity"/> is the use case
+    /// that puts the key store's half in front of it.
     /// </summary>
     /// <param name="agentId">The enrolling agent; also the aggregate its credential events land in.</param>
     /// <param name="keyId">The <c>kid</c> this enrollment registered, recorded on the event.</param>
@@ -122,8 +132,16 @@ public sealed class EnrollAgent
                 .GetValueOrDefault(agentId);
 
             if (standing?.EnrolledAt is { } enrolledAt)
+            {
+                // R4.31 (errata G14): a re-announcement is honoured only for the kid this identity's
+                // enrollment bound. Reporting "already enrolled" for any other kid is how a second
+                // key under an enrolled identity used to be waved through as a success.
+                if (EnrollmentBinding.Find(history!, agentId) is not { } binding || !binding.Binds(keyId))
+                    return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+
                 return Result<AgentEnrollment>.Ok(
                     new AgentEnrollment(enrolledAt, standing.OwnerVerified, WasAlreadyEnrolled: true));
+            }
 
             var attempted = await AppendEnrollmentAsync(aggregate, actor, agentId, keyId, cancellationToken)
                 .ConfigureAwait(false);
@@ -186,9 +204,100 @@ public sealed class EnrollAgent
     private const string EnrollmentReason = "Enrollment accepted: agent key registered with the Registrar";
 }
 
-/// <summary>RFC 9457 problem-type slugs the enrollment use case emits.</summary>
+/// <summary>RFC 9457 problem-type slugs the enrollment use case and the enrollment route emit.</summary>
 public static class EnrollmentErrors
 {
+    /// <summary>The slug of <see cref="IdentifierReserved"/>, matched by the route's 409 mapping.</summary>
+    public const string IdentifierReservedType = "curia/enroll/identifier-reserved";
+
+    /// <summary>The slug of <see cref="UnsupportedAlgorithm"/>.</summary>
+    public const string UnsupportedAlgorithmType = "curia/enroll/unsupported-algorithm";
+
+    /// <summary>The slug of <see cref="NulCharacter"/>.</summary>
+    public const string NulCharacterType = "curia/enroll/nul-character";
+
+    /// <summary>The slug of <see cref="PublicKeyMissing"/>, <see cref="PublicKeyNotBase64"/> and <see cref="PublicKeyNotOfItsAlgorithm"/>.</summary>
+    public const string InvalidKeyType = "curia/enroll/invalid-key";
+
+    /// <summary>The slug of <see cref="IdentifierTooLong"/>.</summary>
+    public const string IdentifierTooLongType = "curia/enroll/identifier-too-long";
+
+    /// <summary>
+    /// The most UTF-8 bytes an <c>agent_id</c> or a <c>kid</c> may hold. An implementation limit, not
+    /// R4.5's form (plan D4 stays open): it sits well under the 2,704-byte index row Postgres stores
+    /// for <c>agent_keys</c>' primary key, its per-agent index, and <c>events (aggregate_id, seq)</c>,
+    /// past which an enrollment answered 500; and it keeps <c>/v1/jwks?agent=</c> for any identifier
+    /// under a request line's usual limit once percent-encoded, so every agent's keys stay fetchable.
+    /// </summary>
+    public const int MaxIdentifierBytes = 1024;
+
+    /// <summary>One title for every reason a <c>public_key</c> is refused; the detail says which, and never echoes the key.</summary>
+    private const string InvalidKeyTitle = "That public key cannot be registered";
+
+    /// <summary>
+    /// R4.33 (errata G15): the identifier begins with a prefix the Forum's own writers mint aggregates
+    /// under (<see cref="ReservedIdentifiers"/>), or names an aggregate holding events and no enrollment
+    /// of it. One slug and one detail for both clauses, because the remedy is the same: nothing was
+    /// written, and the agent needs an identifier of its own.
+    /// </summary>
+    public static Error IdentifierReserved(string agentId) => new(
+        IdentifierReservedType,
+        "That identifier names records the Forum keeps for something other than an agent",
+        $"agent={agentId}: nothing was registered. The event log keeps this identifier for its own records; an agent needs an identifier of its own.");
+
+    /// <summary>
+    /// R4.15: the enrollment's algorithm is missing, or is not one the Forum verifies signatures with.
+    /// The list is <paramref name="verified"/>, sorted ordinally: the composition root's allow-list,
+    /// which <c>DetachedJws</c> uses too, so the refusal names what the Forum actually accepts.
+    /// </summary>
+    public static Error UnsupportedAlgorithm(string? alg, IEnumerable<string> verified)
+    {
+        ArgumentNullException.ThrowIfNull(verified);
+
+        return new Error(
+            UnsupportedAlgorithmType,
+            "That key algorithm is not one the Forum verifies",
+            $"alg={(string.IsNullOrEmpty(alg) ? "(none)" : alg)}: an agent key is {string.Join(" or ", verified.Order(StringComparer.Ordinal))} (R4.15)");
+    }
+
+    /// <summary>
+    /// The enrollment's <paramref name="field"/> holds U+0000. JSON carries it as an escape, and ADMIT
+    /// accepts it, but Postgres <c>text</c> cannot store it. The value is never echoed.
+    /// </summary>
+    public static Error NulCharacter(string field) => new(
+        NulCharacterType,
+        "That identifier holds U+0000, which the Forum cannot store",
+        $"field={field}");
+
+    /// <summary>The enrollment carries no <c>public_key</c>, or JSON null for it.</summary>
+    public static Error PublicKeyMissing() => new(InvalidKeyType, InvalidKeyTitle, "public_key is missing");
+
+    /// <summary>The enrollment's <c>public_key</c> is not base64.</summary>
+    public static Error PublicKeyNotBase64() => new(InvalidKeyType, InvalidKeyTitle, "public_key is not base64");
+
+    /// <summary>
+    /// R4.15 against R4.28's stored forms: the decoded <c>public_key</c> is not a key of
+    /// <paramref name="alg"/>. The detail names the form the algorithm takes, so an agent can see what
+    /// to send.
+    /// </summary>
+    public static Error PublicKeyNotOfItsAlgorithm(string alg) => new(
+        InvalidKeyType,
+        InvalidKeyTitle,
+        alg switch
+        {
+            "ES256" => "alg=ES256: public_key is not an ES256 key, which is the base64 of a P-256 key's DER SubjectPublicKeyInfo with nothing after it (R4.15, R4.28)",
+            "EdDSA" => "alg=EdDSA: public_key is not an EdDSA key, which is the base64 of the raw 32-byte Ed25519 public key (R4.15, R4.28)",
+            _ => $"alg={alg}: public_key is not a key the Forum can publish for that algorithm (R4.28)",
+        });
+
+    /// <summary>The enrollment's <paramref name="field"/> holds <paramref name="bytes"/> UTF-8 bytes, over <see cref="MaxIdentifierBytes"/>.</summary>
+    public static Error IdentifierTooLong(string field, int bytes) => new(
+        IdentifierTooLongType,
+        "That identifier is longer than the Forum stores",
+        string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"field={field} bytes={bytes}: at most {MaxIdentifierBytes} UTF-8 bytes"));
+
     /// <summary>
     /// The enrollment lost its optimistic-concurrency race on every attempt. Distinct from
     /// <see cref="DomainErrors.ConcurrencyConflict"/>, which the caller never sees here: a single

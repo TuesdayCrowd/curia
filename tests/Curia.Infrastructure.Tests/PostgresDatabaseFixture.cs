@@ -209,6 +209,10 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
     /// tables under test are therefore the ones a deployment gets, byte for byte, rather than a
     /// transcription of them. <c>RESET search_path</c> at the end, because the connection returns
     /// to Npgsql's pool and a leaked session setting would silently redirect the next borrower.</para>
+    ///
+    /// <para><b>db/0005 is rendered beside it</b>, because 0005 narrows 0002's grant on
+    /// <c>agent_keys</c> (R4.32): a schema holding 0002 alone would hold a key store no deployment
+    /// has, one whose key material the application role could still rewrite.</para>
     /// </summary>
     [SuppressMessage(
         "Security",
@@ -227,6 +231,7 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
             GRANT USAGE ON SCHEMA {quotedSchema} TO {QuoteIdentifier(_roleName)};
             SET search_path TO {quotedSchema};
             {SchemaMigrations.Render(SchemaMigrations.OperationalStateFile, _roleName)}
+            {SchemaMigrations.Render(SchemaMigrations.AgentKeyMaterialFile, _roleName)}
             RESET search_path;
             """;
 

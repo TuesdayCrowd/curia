@@ -84,7 +84,7 @@ public sealed class ClientAssertionValidatorTests
         var scenario = new ClientAssertionScenario();
         var validFrom = ServerTimestamp.At(scenario.Iat - TimeSpan.FromSeconds(10));
         var validUntil = ServerTimestamp.At(scenario.Iat + TimeSpan.FromSeconds(5));
-        var resolver = new InMemoryAgentKeyResolver(scenario.AgentKey.Kid, scenario.AgentKey.PublicKey, validFrom, validUntil);
+        var resolver = new InMemoryAgentKeyResolver(ClientAssertionScenario.AgentId, scenario.AgentKey.Kid, scenario.AgentKey.PublicKey, validFrom, validUntil);
         var context = scenario.Context with { AgentKeyResolver = resolver };
 
         var assertion = scenario.SignValid(); // iat falls inside [validFrom, validUntil): valid at signing time.
@@ -116,7 +116,8 @@ public sealed class ClientAssertionValidatorTests
     public async Task SubjectNotMatchingTheResolverScopeIsRejected()
     {
         // The signature verifies fine (still signed by the agent's own key) but claims a
-        // different subject than the one the caller resolved AgentKeyResolver against.
+        // different subject than the client the context names, the agent the key was resolved
+        // for (R5.20).
         var scenario = new ClientAssertionScenario();
         var payload = scenario.ValidPayload()
             .WithClaim("iss", "agent://curia.example/someone/else")
@@ -127,6 +128,43 @@ public sealed class ClientAssertionValidatorTests
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/authn/subject-mismatch", error!.Type);
+    }
+
+    /// <summary>
+    /// R5.20 (errata G15): a key registered to another agent does not authenticate the subject an
+    /// assertion names. Mallory's own key, under its own <c>kid</c>, asserting scriptor, is refused as
+    /// a <c>kid</c> registered to nobody is: the resolver is asked for scriptor's key under that
+    /// <c>kid</c>, and scriptor holds none. The same key asserting mallory is the positive control, so
+    /// a resolver that refused everything cannot pass.
+    /// </summary>
+    [Fact]
+    public async Task R5_20_AKeyRegisteredToAnotherAgentDoesNotAuthenticateTheAssertedSubject()
+    {
+        const string Mallory = "agent://curia.example/tuesdaycrowd/mallory";
+        var scenario = new ClientAssertionScenario();
+        var ct = TestContext.Current.CancellationToken;
+        var malloryKey = TestKeys.Ed25519("mallory-key");
+        var resolver = new InMemoryAgentKeyResolver(
+            (ClientAssertionScenario.AgentId, scenario.AgentKey.Kid, scenario.AgentKey.PublicKey),
+            (Mallory, malloryKey.Kid, malloryKey.PublicKey));
+        var asScriptor = scenario.Context with { AgentKeyResolver = resolver };
+        var asMallory = asScriptor with { ExpectedSubject = Mallory };
+        var malloryHeader = scenario.ValidHeader().With("kid", malloryKey.Kid);
+
+        var impersonation = scenario.SignValid(header: malloryHeader, key: malloryKey);
+        var refused = await ClientAssertionValidator.ValidateAsync(impersonation, asScriptor, ct);
+
+        Assert.False(refused.TryGetValue(out var claims, out var error), $"mallory's key authenticated sub={claims?.Sub}");
+        Assert.Equal("curia/authn/kid-not-found", error!.Type);
+
+        var own = scenario.SignValid(
+            header: malloryHeader,
+            payload: scenario.ValidPayload().WithClaim("iss", Mallory).WithClaim("sub", Mallory),
+            key: malloryKey);
+        var accepted = await ClientAssertionValidator.ValidateAsync(own, asMallory, ct);
+
+        Assert.True(accepted.TryGetValue(out var ownClaims, out var ownError), ownError?.Detail);
+        Assert.Equal(Mallory, ownClaims.Sub);
     }
 
     [Fact]

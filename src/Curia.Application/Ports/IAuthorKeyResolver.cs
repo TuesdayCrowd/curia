@@ -33,15 +33,18 @@ public interface IAuthorKeyResolver
     /// valid at <paramref name="at"/>, or a failure naming why not -- unknown, not that agent's,
     /// revoked, or not yet valid at that instant.
     ///
-    /// <para><b>Why the agent is a parameter and not just the <c>kid</c>.</b> Resolving by
-    /// <c>kid</c> alone is not exploitable on its own -- an attacker naming someone else's
-    /// <c>kid</c> cannot produce a signature that verifies under that someone's public key -- so
-    /// the cryptography already carries the weight. But it makes the *question* wrong: it asks
-    /// "what key is this?" when §4 registers keys per agent and the thing that matters is "is this
-    /// the author's key?". Scoping it here means a key that is not the author's is a resolution
-    /// failure with its own reason, rather than a signature failure that looks identical to a
-    /// corrupted body. Those are different incidents and an operator should be able to tell them
-    /// apart.</para>
+    /// <para><b>Why the agent is a parameter and not just the <c>kid</c>.</b> A lookup by
+    /// <c>kid</c> alone is exploitable wherever the identity comes from a claim, and a post's
+    /// <c>author</c> is a claim, as an assertion's <c>sub</c> is. A signature shows that its signer
+    /// holds <i>some</i> registered key and says nothing about whose: an agent that enrolled its own
+    /// key under its own identifier could sign an envelope naming another author, and a lookup by
+    /// <c>kid</c> alone would find the signer's key and verify it. This remark once called such a
+    /// lookup "not exploitable on its own", since "the cryptography already carries the weight". That
+    /// was false: at the token endpoint, which did ask by <c>kid</c> alone, one enrolled key obtained
+    /// every enrolled identity's token (errata G15, D26). R6.2 asks this of ingest, and the scope also
+    /// makes a key that is not the author's a resolution failure with its own reason, rather than a
+    /// signature failure that looks identical to a corrupted body. Those are different incidents and
+    /// an operator should be able to tell them apart.</para>
     /// </summary>
     Task<Result<PublicKeyMaterial>> ResolveAsync(
         string agentId,

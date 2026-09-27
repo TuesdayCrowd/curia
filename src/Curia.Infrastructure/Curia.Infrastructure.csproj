@@ -20,6 +20,14 @@
   </ItemGroup>
   <ItemGroup>
     <!--
+      CS-5: InternalsVisibleTo only to the matching test assembly. PostgresAgentKeyStore.RegisterAsync
+      is internal so that nothing outside this assembly can register a key for an identifier without
+      enrollment's rule (errata G14, R4.31); its tests still reach it.
+    -->
+    <InternalsVisibleTo Include="Curia.Infrastructure.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
       The single source of truth for the database schema: the checked-in forward-only migrations
       themselves, not a hand-synced C# string beside them. Embedded so both this production
       assembly and every test fixture read the exact same bytes regardless of the process's
