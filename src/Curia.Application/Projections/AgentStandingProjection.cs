@@ -189,13 +189,26 @@ public static class AgentStandingProjector
     public const string ReasonField = "reason";
 
     /// <summary>
-    /// The payload member naming the key the enrollment registered -- the enrollment's binding,
-    /// which <c>EnrollmentBinding</c> reads so that a re-enrollment is honoured only for this
-    /// <c>kid</c> (R4.31, errata G14). Still not projected into standing: the Registrar's key store
-    /// is authoritative for key <i>material</i> (R4.16 rev.), and what this member settles is which
-    /// <c>kid</c> an identity began with, which the store can lose and the log cannot.
+    /// The payload member naming a key's <c>kid</c>: on <see cref="EnrolledType"/>, the key the
+    /// enrollment registered; on <see cref="KeyBoundType"/>, the key that entry binds.
+    /// <c>EnrollmentBinding</c> reads both (R4.31 rev., R4.34; errata G14, G16). Not projected into
+    /// standing: what these members settle is which keys an identity holds, which the key store can
+    /// lose and the log cannot.
     /// </summary>
     public const string KeyIdField = "kid";
+
+    /// <summary>
+    /// The event <c>EnrollAgent</c> appends beside <see cref="EnrolledType"/>, in the same append:
+    /// R4.34's binding of a key to its identity, carrying the key's public JWK as the key set publishes
+    /// it (<see cref="JwkField"/>). Not a Table 6 transition, so the fold skips it, as it skips every
+    /// type it does not model. Resolvers honour a stored key only when an entry of this type binds it,
+    /// or, for an identity enrolled before R4.34, when its <see cref="EnrolledType"/> names the
+    /// <c>kid</c> and no entry of this type does (R4.35).
+    /// </summary>
+    public const string KeyBoundType = "agent.key-bound";
+
+    /// <summary>The payload member of <see cref="KeyBoundType"/> carrying the key as <c>PublicJwk.Of</c> rendered it.</summary>
+    public const string JwkField = "jwk";
 
     /// <summary>
     /// Folds a seq-ordered event list into one <see cref="AgentStanding"/> per agent the log knows

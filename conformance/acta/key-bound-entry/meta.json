@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R4.34",
+  "note": "An agent.key-bound event as an enrollment appends it beside agent.enrolled (R4.34, errata G16): the identity's key, bound in the log as the public JWK the key set publishes for it. The key is envelope/ed25519-minimal's, bound to that envelope's author an hour before content-entry's server_ts, so a tree over this vector and content-entry, the binding first, under a head over that tree, is a log from which R6.54's authorship check succeeds with no agent key set. Expected values were computed with python3's json and hashlib, outside both implementations; the leaf encoding is unchanged, and this vector is the evidence that both runners hash the new entry kind as they hash every other."
+}

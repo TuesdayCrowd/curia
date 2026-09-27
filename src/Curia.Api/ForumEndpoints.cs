@@ -457,6 +457,7 @@ public static class ForumEndpoints
                     or AuthorKeyErrors.MaterialImmutableType
                     or AuthorKeyErrors.KidRegisteredToAnotherAgentType
                     or EnrollmentErrors.IdentifierReservedType
+                    or EnrollmentErrors.KeysAmbiguousType
                 ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))
                 : Problem(StatusCodes.Status500InternalServerError, enrollError);
         }

@@ -402,7 +402,7 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
 
         Assert.Equal(
             expected == "201"
-                ? "201 enrolled; key rows 1, events 1"
+                ? "201 enrolled; key rows 1, events 2"
                 : $"400 curia/enroll/identifier-too-long field={field} bytes={bytes}: at most 1024 UTF-8 bytes; key rows 0, events 0",
             $"{answer}; {await WrittenAsync(suffix, ct)}");
     }

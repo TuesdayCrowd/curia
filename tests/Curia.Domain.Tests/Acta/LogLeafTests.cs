@@ -68,6 +68,7 @@ public sealed class LogLeafTests
     [InlineData("head-entry")]
     [InlineData("nfd-payload-stays-nfd")]
     [InlineData("flag-committed-entry")]
+    [InlineData("key-bound-entry")]
     public void R6_46_AnEventRendersToTheConformanceVectorsLeafInputAndLeaf(string vector)
     {
         var dir = Path.Combine(ConformanceRoot, "acta", vector);

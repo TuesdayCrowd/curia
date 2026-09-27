@@ -358,6 +358,16 @@ vector is the evidence, run by all four runners. Its values were computed with p
 `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)` and `hashlib`, which is
 RFC 8785 for an all-ASCII, number-free entry.
 
+`key-bound-entry` pins the entry kind errata G16 introduced (R4.34): an identity's key, bound in
+the log as the public JWK the key set publishes, on the identity's own aggregate. It binds
+`envelope/ed25519-minimal`'s key to that envelope's author an hour before `content-entry`'s
+`server_ts`, so a tree over the two, the binding first, under a head over that tree, is a log from
+which R6.54's authorship check succeeds with no agent key set -- `curia-testis`' `tests/log_author.rs`
+builds such a tree from exactly these two, with a filler leaf between them. The encoding is again
+unchanged, and its values were computed the same way as `flag-committed-entry`'s.
+`Curia.Application.Tests`' `EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload`
+holds the Forum's writer to the vector's payload, so the vector pins a shape the Forum writes.
+
 **Four runners consume this family, and the client's is why the pure/NFC vector earns its
 place twice over.** `Curia.Canon.Tests` pins the computation; `Curia.Domain.Tests`'
 `LogLeafTests` pins the domain's rendering of an event into the leaf input (`actor_id` as null,

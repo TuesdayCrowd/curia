@@ -1,10 +1,13 @@
+using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Application.Tests.InMemory;
+using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
@@ -155,6 +158,36 @@ public sealed class EnrollIdentityTests
     private static async Task<IReadOnlyList<AppendedEvent>> StreamAsync(InMemoryEventStore events, string agentId, CancellationToken ct) =>
         Require(await events.ReadByAggregateAsync(Require(AggregateId.Create(agentId)), ct).ConfigureAwait(false));
 
+    /// <summary>What a fresh enrollment appends, in order (R4.34): the record, and the key it binds.</summary>
+    private static readonly string[] EnrollmentEntries = [AgentStandingProjector.EnrolledType, AgentStandingProjector.KeyBoundType];
+
+    /// <summary>The type of each entry in <paramref name="stream"/>, in order.</summary>
+    private static List<string> Types(IReadOnlyList<AppendedEvent> stream) => [.. stream.Select(e => e.Event.Type.Value)];
+
+    /// <summary>
+    /// An <c>agent.key-bound</c> entry for <paramref name="key"/>, appended to Alice's stream after
+    /// whatever it holds -- the entry R4.18's rotation will append, written here by hand because no
+    /// writer in this solution produces a second one yet.
+    /// </summary>
+    private static async Task BindAnotherKeyAsync(InMemoryEventStore events, PublicKeyMaterial key, CancellationToken ct)
+    {
+        var stream = await StreamAsync(events, Alice, ct).ConfigureAwait(false);
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Alice)),
+            Require(AggregateVersion.From(stream.Count)),
+            [new DomainEvent(
+                Require(EventId.Create("rotation-shaped-binding-" + key.Kid)),
+                Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                Require(ActorId.Create(Alice)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(key.Kid)),
+                    new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(key))),
+                ]))],
+            ct).ConfigureAwait(false));
+    }
+
     /// <summary>The <c>kid</c> each <c>agent.enrolled</c> in <paramref name="stream"/> names, in order.</summary>
     private static List<string> EnrolledKids(IReadOnlyList<AppendedEvent> stream) =>
     [
@@ -201,7 +234,7 @@ public sealed class EnrollIdentityTests
         Assert.True(again.WasAlreadyEnrolled);
         Assert.Equal(Start, again.EnrolledAt);
         Assert.Equal(Start, Assert.Single(await keys.KeysForAsync(Alice, ct)).NotBefore);
-        Assert.Single(await StreamAsync(events, Alice, ct));
+        Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>The attack errata G14 records, at the use case: refused, and both stores are as they were.</summary>
@@ -267,7 +300,7 @@ public sealed class EnrollIdentityTests
         var rebound = Assert.Single(await lost.KeysForAsync(Alice, ct));
         Assert.Equal("alice-1", rebound.Key.Kid);
         Assert.Equal(Start, rebound.NotBefore);
-        Assert.Single(await StreamAsync(events, Alice, ct));
+        Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>
@@ -286,7 +319,7 @@ public sealed class EnrollIdentityTests
         var bound = NewKey("alice-1");
         var unbound = NewKey("mallory-1");
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, bound.Kid, ct));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, bound, ct));
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(bound, Start, null), new RegisteredKey(unbound, Start.AddHours(1), null)]);
 
         var again = new PublicKeyMaterial(unbound.Alg, unbound.Kid, unbound.Public.ToArray());
@@ -303,12 +336,34 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock);
         var log = new EnrollAgent(events, clock);
+        var alice = NewKey("alice-1");
 
-        Require(await log.RecordAsync(Alice, "alice-1", ct));
+        Require(await log.RecordAsync(Alice, alice, ct));
 
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await log.RecordAsync(Alice, "mallory-1", ct)).Type);
-        Assert.True(Require(await log.RecordAsync(Alice, "alice-1", ct)).WasAlreadyEnrolled);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await log.RecordAsync(Alice, NewKey("mallory-1"), ct)).Type);
+        Assert.True(Require(await log.RecordAsync(Alice, alice, ct)).WasAlreadyEnrolled);
         Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
+    }
+
+    /// <summary>
+    /// The log's record on its own, for R4.31 rev.'s second clause (errata G16): under the <c>kid</c>
+    /// it bound, it will not report success for other bytes, since the log now carries the key. The
+    /// same key, from a fresh byte array, is still a re-announcement.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var log = new EnrollAgent(events, clock);
+        var alice = NewKey("alice-1");
+
+        Require(await log.RecordAsync(Alice, alice, ct));
+
+        Assert.Equal("curia/keys/material-immutable", Refusal(await log.RecordAsync(Alice, NewKey("alice-1"), ct)).Type);
+        Assert.True(Require(await log.RecordAsync(Alice, new PublicKeyMaterial(alice.Alg, alice.Kid, alice.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>
@@ -340,7 +395,7 @@ public sealed class EnrollIdentityTests
 
         var keys = new InMemoryAuthorKeyRegistry();
         Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, clock).RecordAsync(Alice, "alice-1", ct)).Type);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, clock).RecordAsync(Alice, NewKey("alice-1"), ct)).Type);
         Assert.Empty(await keys.KeysForAsync(Alice, ct));
         Assert.Single(await StreamAsync(events, Alice, ct));
     }
@@ -390,6 +445,198 @@ public sealed class EnrollIdentityTests
 
         var held = Assert.Single(await keys.KeysForAsync(Alice, ct));
         Assert.Equal([held.Key.Kid], EnrolledKids(await StreamAsync(events, Alice, ct)));
+    }
+
+    /// <summary>
+    /// R4.34 (errata G16): a fresh enrollment appends the record and the key it binds, in that order,
+    /// in one append, and the binding carries the key as RFC 7518's <c>EC</c> JWK. The coordinates
+    /// are read out of the key's DER here, independently of the renderer the Forum uses.
+    /// </summary>
+    [Fact]
+    public async Task R4_34_AnEnrollmentBindsItsKeyInTheLogBesideItsRecord()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var key = NewKey("alice-1");
+
+        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Alice, key, ct));
+
+        var stream = await StreamAsync(events, Alice, ct);
+        Assert.Equal(EnrollmentEntries, Types(stream));
+        Assert.Equal(stream[0].ServerTimestamp, stream[1].ServerTimestamp);
+
+        using var ecdsa = ECDsa.Create();
+        ecdsa.ImportSubjectPublicKeyInfo(key.Public.Span, out _);
+        var q = ecdsa.ExportParameters(includePrivateParameters: false).Q;
+        var payload = (JsonValue.Object)stream[1].Event.Payload;
+        var jwk = (JsonValue.Object)payload.Members.Single(m => m.Key == AgentStandingProjector.JwkField).Value;
+
+        Assert.Equal(
+            $"agent_id={Alice} kid=alice-1 jwk=alg:ES256,crv:P-256,kid:alice-1,kty:EC,x:{Base64Url.EncodeToString(q.X)},y:{Base64Url.EncodeToString(q.Y)}",
+            $"agent_id={((JsonValue.String)payload.Members.Single(m => m.Key == AgentStandingProjector.AgentIdField).Value).Value}"
+            + $" kid={((JsonValue.String)payload.Members.Single(m => m.Key == AgentStandingProjector.KeyIdField).Value).Value}"
+            + " jwk=" + string.Join(",", jwk.Members.OrderBy(m => m.Key, StringComparer.Ordinal).Select(m => $"{m.Key}:{((JsonValue.String)m.Value).Value}")));
+    }
+
+    /// <summary>
+    /// The conformance vector <c>acta/key-bound-entry</c> pins the shape of R4.34's entry, and this
+    /// holds the writer to it: enrolling the vector's identity with <c>envelope/ed25519-minimal</c>'s
+    /// key, under that fixture's <c>kid</c>, writes the vector's payload byte for byte once
+    /// canonicalized. Without it the vector could pin a shape the Forum never writes (trap 1).
+    /// </summary>
+    [Fact]
+    public async Task R4_34_AnEnrollmentWritesTheConformanceVectorsPayload()
+    {
+        const string Scriptor = "agent://curia.example/tuesdaycrowd/scriptor";
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+
+        Require(await new EnrollAgent(events, clock).RecordAsync(
+            Scriptor,
+            new PublicKeyMaterial("EdDSA", "conformance-ed25519-minimal", Base64Url.DecodeFromChars("HRzJlnTufZYYTZyCDBpyP5ldQ38JlbCeDOQHgIozgg8")),
+            ct));
+
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "conformance")))
+            dir = dir.Parent;
+        var vector = (JsonValue.Object)Require(JsonReader.ParseUnrestricted(await File.ReadAllBytesAsync(Path.Combine(
+            dir?.FullName ?? throw new InvalidOperationException("conformance/ not found above " + AppContext.BaseDirectory),
+            "conformance", "acta", "key-bound-entry", "input.json"), ct)));
+        var expected = vector.Members.Single(m => m.Key == "payload").Value;
+
+        var written = Assert.Single(await StreamAsync(events, Scriptor, ct), e => e.Event.Type.Value == AgentStandingProjector.KeyBoundType);
+        Assert.Equal(
+            Encoding.UTF8.GetString(Require(CanonicalJson.Canonicalize(expected)).ToArray()),
+            Encoding.UTF8.GetString(Require(CanonicalJson.Canonicalize(written.Event.Payload)).ToArray()));
+    }
+
+    /// <summary>
+    /// R4.31 rev. (errata G16), the residual errata G14's fourth cost named: the store has lost Alice's
+    /// row, and a request presenting her bound <c>kid</c> with other bytes is refused by name, because
+    /// the log now carries her key. Nothing is registered and nothing is appended. Her own key, over
+    /// the same lost store, is then re-registered, so the refusal is about the bytes.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var key = NewKey("alice-1");
+
+        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Alice, key, ct));
+
+        clock.Advance(TimeSpan.FromDays(1));
+        var lost = new InMemoryAuthorKeyRegistry();
+        var enroll = Enroll(events, lost, clock);
+
+        Assert.Equal("curia/keys/material-immutable", Refusal(await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
+        Assert.Empty(await lost.KeysForAsync(Alice, ct));
+        Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
+
+        Assert.True(Require(await enroll.EnrollAsync(Alice, key, ct)).WasAlreadyEnrolled);
+        Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Alice, ct)).NotBefore);
+    }
+
+    /// <summary>
+    /// An identity enrolled before R4.34 has an <c>agent.enrolled</c> naming its <c>kid</c> and no
+    /// <c>agent.key-bound</c>, and the log binds that <c>kid</c> alone: after a lost row, whatever
+    /// bytes arrive under it are registered, as errata G14's fourth cost says, while any other
+    /// <c>kid</c> is still refused. Pinned so the kid-only branch is a decision a test holds, not an
+    /// accident of the code.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AnIdentityEnrolledBeforeR4_34IsBoundByItsKidAlone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Alice)),
+            AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create("enrolled-before-key-binding")),
+                Require(EventType.Create(AgentStandingProjector.EnrolledType)),
+                Require(ActorId.Create(Alice)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String("alice-1")),
+                    new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted")),
+                ]))],
+            ct));
+
+        clock.Advance(TimeSpan.FromDays(1));
+        var lost = new InMemoryAuthorKeyRegistry();
+        var enroll = Enroll(events, lost, clock);
+
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Alice, NewKey("mallory-1"), ct)).Type);
+        Assert.True(Require(await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct)).WasAlreadyEnrolled);
+        Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Alice, ct)).NotBefore);
+        Assert.Equal([AgentStandingProjector.EnrolledType], Types(await StreamAsync(events, Alice, ct)));
+    }
+
+    /// <summary>
+    /// The seam R4.31 rev. settles (errata G16): once the log binds a second key to an identity, as
+    /// R4.18's rotation will, re-announcing that key is a re-announcement, exactly as re-announcing
+    /// the first is, and writes nothing. A <c>kid</c> no entry binds is still refused. The second
+    /// binding is appended by hand, since nothing produces one yet; the store holds both keys, as it
+    /// will after a rotation.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var first = NewKey("alice-1");
+        var second = NewKey("alice-2");
+
+        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, first, ct));
+        await BindAnotherKeyAsync(events, second, ct);
+        var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
+        var enroll = Enroll(events, keys, clock);
+
+        Assert.True(Require(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.True(Require(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(first.Alg, first.Kid, first.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Alice, NewKey("alice-3"), ct)).Type);
+        Assert.Equal(
+            [AgentStandingProjector.EnrolledType, AgentStandingProjector.KeyBoundType, AgentStandingProjector.KeyBoundType],
+            Types(await StreamAsync(events, Alice, ct)));
+    }
+
+    /// <summary>
+    /// R4.31 rev. (errata G16, as its review amended it): an identifier the log never enrolled, as
+    /// every one enrolled before <c>agent.enrolled</c> existed is, for which the store holds two keys --
+    /// its own, and one errata G14's hole wrote beside it. Nothing in the log says which is its own, so
+    /// a request presenting either is refused by name before the store is asked to register, and
+    /// nothing is appended. Binding whichever arrived would let anyone holding the second key's public
+    /// half make it the identity's key and turn its history into failures. With one stored key the
+    /// same request enrolls the identifier and binds that key (errata G16's fifth cost), so the refusal
+    /// is about the count.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundWhileTheStoreHoldsSeveralKeys()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var own = NewKey("alice-1");
+        var hole = NewKey("hole-1");
+        var several = new PreG14KeyStore(Alice, [new RegisteredKey(own, Start, null), new RegisteredKey(hole, Start.AddHours(1), null)]);
+        var enroll = Enroll(events, several, clock);
+
+        Assert.Equal("curia/enroll/keys-ambiguous", Refusal(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(hole.Alg, hole.Kid, hole.Public.ToArray()), ct)).Type);
+        Assert.Equal("curia/enroll/keys-ambiguous", Refusal(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(own.Alg, own.Kid, own.Public.ToArray()), ct)).Type);
+        Assert.Equal(0, several.Enrollments);
+        Assert.Empty(await StreamAsync(events, Alice, ct));
+
+        var one = new PreG14KeyStore(Alice, [new RegisteredKey(own, Start, null)]);
+        Assert.False(Require(await Enroll(events, one, clock).EnrollAsync(Alice, new PublicKeyMaterial(own.Alg, own.Kid, own.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>
