@@ -511,7 +511,7 @@ fn read_bounded(path: &Path, max_bytes: u64, what: &str) -> Result<Vec<u8>, CliE
 
 /// R10.63: the path is the caller's, and the reason is the platform's, so
 /// each is echoed as a display literal and neither can begin a line of this
-/// refusal. A path that is not UTF-8 is decoded with U+FFFD (R10.64).
+/// refusal.
 fn unreadable(what: &str, path: &Path, source: &std::io::Error) -> CliError {
     CliError::Usage(format!(
         "cannot read {what} {}: {}",

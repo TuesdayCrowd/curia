@@ -65,6 +65,8 @@
 use std::collections::HashSet;
 use std::fmt;
 
+use crate::display;
+
 /// A parsed JSON value.
 ///
 /// `Object` is a `Vec` of key/value pairs, not a map: order is preserved
@@ -239,8 +241,9 @@ impl fmt::Display for ParseError {
             ParseError::DuplicateMember { name, pos } => {
                 write!(
                     f,
-                    "object member name {name:?} appears more than once (at byte {pos}); \
-                     RFC 8785 defines no canonical form for an object with duplicate names"
+                    "object member name {} appears more than once (at byte {pos}); \
+                     RFC 8785 defines no canonical form for an object with duplicate names",
+                    display::literal(name)
                 )
             }
             ParseError::DepthLimitExceeded { pos } => {
@@ -782,7 +785,7 @@ fn check_node(value: &Value, depth: usize) -> Result<(), AdmitError> {
                 if !seen.insert(key.as_str()) {
                     return Err(AdmitError::new(
                         "curia/admit/duplicate-key",
-                        format!("duplicate object member name `{key}`"),
+                        format!("duplicate object member name {}", display::literal(key)),
                     ));
                 }
             }

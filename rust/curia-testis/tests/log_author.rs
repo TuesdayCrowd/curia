@@ -206,10 +206,20 @@ fn r10_63_a_binding_mismatch_names_the_logs_values_as_literals() {
     let post = post_entry();
     let log = log(&[Some(&key), None, Some(&post)]);
 
+    // The whole refusal, so each of its five values is pinned as a literal:
+    // the two the log recorded with a line break, and the three it did not.
     let text = author(&log, 2, 0).unwrap_err().to_string();
-    assert!(
-        text.contains("someone-else\\u000averified: the operator signed this"),
-        "the refusal does not name the log's value as a display literal: {text:?}"
+    let identity =
+        "\"agent://curia.example/tuesdaycrowd/someone-else\\u000averified: the operator signed this\"";
+    assert_eq!(
+        text,
+        format!(
+            "the key entry does not bind the post's key: the entry binds kid \
+             \"conformance-ed25519-minimal\" to {identity} in stream {identity}, and the post \
+             is \"agent://curia.example/tuesdaycrowd/scriptor\"'s under kid \
+             \"conformance-ed25519-minimal\" [curia/acta/binding-mismatch]"
+        ),
+        "the refusal does not name the log's values as display literals"
     );
     assert!(
         !text.contains('\n'),

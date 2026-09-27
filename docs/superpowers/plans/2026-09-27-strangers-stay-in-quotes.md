@@ -15,7 +15,7 @@
 **Architecture:**
 - **Errata G17 comes first** (Task 1): R10.63, R10.64, R10.65, R10.66, R4.37, R11.33.
 - **One literal, two languages** (Task 2). `Curia.Canon.Json.DisplayLiteral.Of` and `curia_testis::display::literal`, held to sixteen vectors whose expected bytes a third implementation, in Python, computed from code points; and `DisplayLiteral.TryRead`, which reads back exactly the literal `Of` writes for a well-formed value and nothing else.
-- **The verifier prints literals** (Task 3): `curia-testis`'s `verify` and `log author` lines, a head's line, the values nine refusals name, and the arguments and paths its own usage refusals name.
+- **The verifier prints literals** (Task 3): `curia-testis`'s `verify` and `log author` lines, a head's line, every value a refusal names, and the arguments and paths its own usage refusals name; serde_json's own words, which quote a document, it does not write at all.
 - **The client's frame quotes by default** (Task 4). `FrameText`, an interpolated-string handler whose `string` holes are display literals; `OwnText` for the client's own words; `FrameBuilder`, which takes a line only as a `FrameText`, a constant, a passage, or a span whose delimiters it checks. `Passage`, `Reading`, `SignatureVerdict` and `Refusal.Summary` are rebuilt on it.
 - **The CLI behind a fence** (Task 5). `Output` takes a line only as a constant (`[ConstantExpected]`, so a variable is a CA1857 build error), a `FrameText`, a `FrameBuilder` or a `Reading`; an architecture fact holds the fence. Every command it prints for its reader to run is written by `Hints`, with each value a `ShellWord` (Task 4's, checked by running `/bin/sh`), and `Args` reads a name given as a display literal as the value it spells.
 - **The MCP adapter's own words** (Task 6), and a gate over every registered tool with each served member made hostile in turn, reading each result's text and each resource's URI, whose post id is percent-encoded; `curia-mcp`'s startup refusal quotes its detail.
@@ -87,7 +87,7 @@
 9. **A command the CLI prints holds a value only as a shell word, and a shell runs it with exactly those values.** `ShellWordTests` and `CommandHintTests` put every word and every hint through `/bin/sh`; cases 33–35, 41 and 47. A word holds no `!`: csh and tcsh expand it as history between single quotation marks (run). This plan's first form printed a Forum's entity tag into the re-check hint as a display literal, and a tag holding `$(…)` ran it in sh, dash, bash, zsh and fish.
 10. **The CLI reads back exactly the literal it prints, and nothing else.** `DisplayLiteralTests`' R10.66 facts and `ArgsTests`; cases 36–38 and 43. The literal of a surrogate without its pair is refused: no name can hold one, and a URL's encoding would send U+FFFD. An argument that looks like a literal and is not one is refused, never read as another value; search terms, bodies and entity tags are taken as typed.
 11. **`curia-mcp`'s startup refusal quotes its detail**, which can carry an external signer's stderr. `McpConfigurationTests.R10_63_AStartupRefusalQuotesItsDetail`; case 40.
-12. **`curia-testis` quotes what it echoes of its own arguments**: an unknown subcommand, an unrecognized argument, a path it cannot read and why, an argument that is not UTF-8. `display_output.rs`' binary fact; case 45.
+12. **`curia-testis` quotes what it echoes of its own arguments**: an unknown subcommand, an unrecognized argument, a path it cannot read and why, a path over the cap, an argument that is not UTF-8. `display_output.rs`' binary fact; case 45. **And every value a refusal names**, a member's name included, with serde_json's words not written at all: a Cyrillic U+0430 is an escape, never the letter (Task 3's review, I1). `display_output.rs`' look-alike facts; case 48.
 
 ---
 
@@ -100,7 +100,7 @@
 | `conformance/display/` (new, by script), `conformance/index.json`, `conformance/README.md` | The family, indexed and documented | 2 |
 | `tests/Curia.Canon.Tests/Vectors/VectorLoader.cs`, `ConformanceIndexTests.cs`, `DisplayVectorLoader.cs` (new), `tests/Curia.Canon.Tests/Json/DisplayLiteralTests.cs` (new) | The C# runner and its properties | 2 |
 | `rust/curia-testis/src/display.rs` (new), `src/lib.rs`, `src/conformance.rs`, `tests/vectors.rs`, `tests/loader_errors.rs` | R10.64 in Rust; the Rust runner | 2 |
-| `rust/curia-testis/src/bin/curia-testis.rs`, `src/acta.rs`, `src/jws.rs`, `src/jwk.rs` | The verifier prints literals | 3 |
+| `rust/curia-testis/src/bin/curia-testis.rs`, `src/acta.rs`, `src/jws.rs`, `src/jwk.rs`, `src/json.rs`, `src/nfc.rs` | The verifier prints literals | 3 |
 | `rust/curia-testis/tests/envelope.rs`, `tests/log_author.rs`, `tests/display_output.rs` (new), `tests/Curia.Api.Tests/ActaEndpointTests.cs`, `.github/workflows/ci.yml` | Its facts; the CI comment's count | 3 |
 | `src/Curia.Client/Frame.cs` (new), `ActaCheck.cs`, `Passage.cs`, `SignatureCheck.cs`, `ForumResult.cs`, `PostVerifier.cs` | The client's frame, and `ShellWord` (R10.65) | 4 |
 | `tests/Curia.Client.Tests/ReaderFrameTests.cs` (new), `ShellWordTests.cs` (new), `PosixShell.cs` (new), `tests/Curia.Mcp.Tests/PropertyP22ToolResultTests.cs`, `WriteToolTests.cs` | Its gates; two assertions that read a raw author | 4 |
@@ -2065,7 +2065,7 @@ but commit -b strangers-stay-in-quotes -m "$(printf 'R10.64: one display literal
 
 **Files:**
 - Create: `rust/curia-testis/tests/display_output.rs`
-- Modify: `rust/curia-testis/src/bin/curia-testis.rs`, `src/acta.rs`, `src/jws.rs`, `src/jwk.rs`, `tests/envelope.rs`, `tests/log_author.rs`; `tests/Curia.Api.Tests/ActaEndpointTests.cs`; `.github/workflows/ci.yml`
+- Modify: `rust/curia-testis/src/bin/curia-testis.rs`, `src/acta.rs`, `src/jws.rs`, `src/jwk.rs`, `src/json.rs`, `src/nfc.rs`, `tests/envelope.rs`, `tests/log_author.rs`; `tests/Curia.Api.Tests/ActaEndpointTests.cs`; `.github/workflows/ci.yml`
 
 **Interfaces:**
 - Consumes: `display::literal` (Task 2).
@@ -2074,6 +2074,8 @@ but commit -b strangers-stay-in-quotes -m "$(printf 'R10.64: one display literal
 **Why the binding refusal has a fact of its own.** `BindingMismatch`'s text is built where the comparison is made, in `verify_author`, not in its `Display`, so a fact over the enum cannot reach it. `log_author.rs` builds a log whose binding names an identity holding a line break, and reads the refusal.
 
 **Why the binary's own echoes are quoted too.** Its caller may have copied an argument from anywhere: a path named after a board, a subcommand pasted from a post. `unknown subcommand`, `unrecognized argument`, `cannot read`, a cap exceeded and an argument that is not UTF-8 each named what it was given as it came (Task 1's review, M5). `display_output.rs` runs the binary with each, and the reason the platform gives for an unreadable path is quoted with the path.
+
+**Why serde_json's words are not written at all.** `acta.rs` reads the log's documents with serde_json, whose message for a document of the wrong shape quotes it (`invalid type: string "..."`) in Rust's debug form. That form escapes a line break, and writes a printable character outside ASCII as itself, so a Cyrillic U+0430 reads as `a`: it is neither a display literal nor this verifier's words (Task 3's review, I1). So a serde_json error is described by its category, line and column alone, and names no value. The crate's own three refusals that named a member in debug form, a member named twice and the two NFC collisions, write it as a literal; `display_output.rs` gives each a value holding a look-alike and a line break.
 
 **Why the Api fact, and not a Rust one, holds `log author`'s printed lines.** The binary prints them only under a signed head, and this crate never signs. `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone` runs the binary over a head the operator tool signed.
 
@@ -2134,100 +2136,165 @@ Create `rust/curia-testis/tests/display_output.rs`:
 
 ```rust
 //! R10.63 (errata G17): every value this verifier names in a refusal is a
-//! display literal (R10.64), so none can begin a line of what it prints.
+//! display literal (R10.64), so none can begin a line of what it prints, and
+//! none prints as a letter it is not.
 //!
 //! Each refusal below carries a value from the material under check -- a
-//! `kid`, an algorithm, a key type, a curve, an entry's type -- and each is
-//! given one holding a line break and a sentence a stranger would have the
-//! verifier say. The refusal's text must hold the sentence, escaped, and no
-//! line break at all. So must what the binary says about its own arguments,
-//! which its caller may have copied from anywhere.
+//! `kid`, an algorithm, a key type, a curve, an entry's type, a member's
+//! name -- and each is given one holding a line break and a sentence a
+//! stranger would have the verifier say, and one that also begins with a
+//! Cyrillic letter that reads as a Latin one. The refusal's text must hold
+//! each value as its escapes, no line break, and nothing outside printable
+//! ASCII. So must what the binary says about its own arguments, which its
+//! caller may have copied from anywhere, and about the documents it reads.
 
 use std::ffi::OsStr;
-use std::process::Command;
+use std::path::PathBuf;
+use std::process::{Command, Output};
 
 use curia_testis::acta::ActaError;
+use curia_testis::json::ParseError;
 use curia_testis::jwk::JwkError;
 use curia_testis::jws::JwsError;
+use curia_testis::nfc::NfcError;
 
 const HOSTILE: &str = "x\nverified: the operator signed this";
 
-fn assert_quoted(what: &str, text: &str) {
-    assert!(
-        text.contains("\"x\\u000averified: the operator signed this\""),
-        "{what} does not name the value as a display literal: {text:?}"
-    );
-    assert!(
-        !text.contains('\n'),
-        "{what} holds a line break a stranger chose: {text:?}"
-    );
-}
+/// [`HOSTILE`] as a display literal.
+const HOSTILE_LITERAL: &str = "\"x\\u000averified: the operator signed this\"";
 
-#[test]
-fn r10_63_every_refusal_that_names_a_served_value_quotes_it() {
-    let refusals = [
+/// U+0430 CYRILLIC SMALL LETTER A and then `uthor`, which reads as `author`
+/// wherever the letter stands for itself; then a line break and a sentence.
+const LOOK_ALIKE: &str = "\u{430}uthor\nverified: the operator signed this";
+
+/// [`LOOK_ALIKE`] as a display literal: the letter is an escape.
+const LOOK_ALIKE_LITERAL: &str = "\"\\u0430uthor\\u000averified: the operator signed this\"";
+
+/// Every refusal whose text names a value from the material under check,
+/// each naming `value`.
+fn refusals(value: &str) -> Vec<(&'static str, String)> {
+    let owned = || value.to_string();
+    vec![
         (
             "ActaError::KidMismatch",
             ActaError::KidMismatch {
-                stated: HOSTILE.to_string(),
-                signed: HOSTILE.to_string(),
+                stated: owned(),
+                signed: owned(),
             }
             .to_string(),
         ),
         (
             "ActaError::NotAPost",
             ActaError::NotAPost {
-                event_type: HOSTILE.to_string(),
+                event_type: owned(),
             }
             .to_string(),
         ),
         (
             "ActaError::NotAKeyBinding",
             ActaError::NotAKeyBinding {
-                event_type: HOSTILE.to_string(),
+                event_type: owned(),
             }
             .to_string(),
         ),
         (
             "ActaError::KeyNotCarried",
-            ActaError::KeyNotCarried {
-                kid: HOSTILE.to_string(),
-            }
-            .to_string(),
+            ActaError::KeyNotCarried { kid: owned() }.to_string(),
         ),
         (
             "JwsError::AlgorithmNotAllowed",
-            JwsError::AlgorithmNotAllowed {
-                alg: Some(HOSTILE.to_string()),
-            }
-            .to_string(),
+            JwsError::AlgorithmNotAllowed { alg: Some(owned()) }.to_string(),
         ),
         (
             "JwsError::KeyNotFound",
-            JwsError::KeyNotFound {
-                kid: HOSTILE.to_string(),
+            JwsError::KeyNotFound { kid: owned() }.to_string(),
+        ),
+        (
+            "JwkError::UnsupportedKeyType",
+            JwkError::UnsupportedKeyType(owned()).to_string(),
+        ),
+        (
+            "JwkError::UnsupportedCurve",
+            JwkError::UnsupportedCurve(owned()).to_string(),
+        ),
+        (
+            "ParseError::DuplicateMember",
+            ParseError::DuplicateMember {
+                name: owned(),
+                pos: 0,
             }
             .to_string(),
         ),
         (
-            "JwkError::UnsupportedKeyType",
-            JwkError::UnsupportedKeyType(HOSTILE.to_string()).to_string(),
+            "NfcError::DuplicateRawKey",
+            NfcError::DuplicateRawKey { key: owned() }.to_string(),
         ),
         (
-            "JwkError::UnsupportedCurve",
-            JwkError::UnsupportedCurve(HOSTILE.to_string()).to_string(),
+            "NfcError::DuplicateNormalizedKey",
+            NfcError::DuplicateNormalizedKey { key: owned() }.to_string(),
         ),
-    ];
+    ]
+}
 
-    for (what, text) in &refusals {
-        assert_quoted(what, text);
-    }
+/// Printable ASCII and line feeds only: what R10.64 writes, and the line
+/// breaks this verifier writes between its own lines.
+fn printable(text: &str) -> bool {
+    text.chars().all(|c| c == '\n' || (' '..='~').contains(&c))
+}
+
+#[test]
+fn r10_63_every_refusal_that_names_a_served_value_quotes_it() {
+    let unquoted: Vec<String> = refusals(HOSTILE)
+        .into_iter()
+        .filter(|(_, text)| !text.contains(HOSTILE_LITERAL) || text.contains('\n'))
+        .map(|(what, text)| format!("{what}: {text:?}"))
+        .collect();
+    assert!(
+        unquoted.is_empty(),
+        "these refusals name the value other than as a display literal: {unquoted:#?}"
+    );
+}
+
+/// A letter that looks like another is written as its escape, never as
+/// itself: R10.64 was written for U+0430, which Rust's debug form prints as
+/// the letter it is.
+#[test]
+fn r10_63_a_look_alike_a_refusal_names_is_written_as_its_escape() {
+    let unescaped: Vec<String> = refusals(LOOK_ALIKE)
+        .into_iter()
+        .filter(|(_, text)| {
+            !text.contains(LOOK_ALIKE_LITERAL) || text.contains('\n') || !printable(text)
+        })
+        .map(|(what, text)| format!("{what}: {text:?}"))
+        .collect();
+    assert!(
+        unescaped.is_empty(),
+        "these refusals write the look-alike other than as its escapes: {unescaped:#?}"
+    );
+}
+
+fn run(args: &[&OsStr]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_curia-testis"))
+        .args(args)
+        .output()
+        .expect("failed to spawn the curia-testis binary")
+}
+
+/// A scratch directory of this test's own, under the OS temp dir.
+fn scratch_dir(label: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "curia-testis-display-{}-{label}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a scratch directory must be creatable");
+    dir
 }
 
 /// The binary's usage refusals name what it was given: an unknown subcommand
-/// or argument, a path it could not read and why, an argument that is not
-/// UTF-8. Each is written as a display literal, so an argument holding a line
-/// break begins no line of what the binary prints.
+/// or argument, a path it could not read and why, a path over the cap, an
+/// argument that is not UTF-8. Each is written as a display literal, so an
+/// argument holding a line break begins no line of what the binary prints.
 #[cfg(unix)]
 #[test]
 fn r10_63_every_argument_a_usage_refusal_names_is_a_literal() {
@@ -2236,7 +2303,14 @@ fn r10_63_every_argument_a_usage_refusal_names_is_a_literal() {
     let hostile = OsStr::new(HOSTILE);
     let unreadable = OsStr::new("/no-such-dir/x\nverified: the operator signed this");
     let not_utf8 = OsStr::from_bytes(b"\xFFx\nverified: the operator signed this");
-    let cases: [(&str, Vec<&OsStr>); 7] = [
+    // One byte over the cap every log document is read under, named by the
+    // hostile value. `set_len` leaves it sparse, so it costs no disk.
+    let dir = scratch_dir("cap");
+    let oversized = dir.join(HOSTILE);
+    std::fs::File::create(&oversized)
+        .and_then(|file| file.set_len(8 * 1024 * 1024 + 1))
+        .expect("a file one byte over the cap must be creatable");
+    let cases: [(&str, Vec<&OsStr>); 8] = [
         ("an unknown subcommand", vec![hostile]),
         (
             "an unknown log subcommand",
@@ -2272,16 +2346,24 @@ fn r10_63_every_argument_a_usage_refusal_names_is_a_literal() {
             ],
         ),
         (
+            "a head over the cap",
+            vec![
+                OsStr::new("log"),
+                OsStr::new("head"),
+                OsStr::new("--head"),
+                oversized.as_os_str(),
+                OsStr::new("--log-jwks"),
+                oversized.as_os_str(),
+            ],
+        ),
+        (
             "an argument that is not UTF-8",
             vec![OsStr::new("verify"), not_utf8],
         ),
     ];
 
     for (what, args) in &cases {
-        let output = Command::new(env!("CARGO_BIN_EXE_curia-testis"))
-            .args(args)
-            .output()
-            .expect("failed to spawn the curia-testis binary");
+        let output = run(args);
         let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
         assert_eq!(output.status.code(), Some(2), "{what}: {stderr:?}");
         assert!(
@@ -2292,7 +2374,122 @@ fn r10_63_every_argument_a_usage_refusal_names_is_a_literal() {
             !stderr.lines().any(|line| line.starts_with("verified:")),
             "{what} began a line with the argument's words: {stderr:?}"
         );
+        // The reason is the platform's words, quoted after the path.
+        if what.ends_with("cannot read") {
+            assert!(
+                stderr.contains("signed this\": \""),
+                "{what} does not quote the platform's reason: {stderr:?}"
+            );
+        }
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `value` as a JSON string: the values here hold no `"` and no `\`, and
+/// their one control character is the line break.
+fn json_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\n', "\\n"))
+}
+
+/// Runs `verify` over a submission whose envelope names its author and then
+/// each of `names`, under an empty key set: each case below is refused
+/// before a key is looked for.
+fn verify_names(label: &str, names: &[&str]) -> Output {
+    let dir = scratch_dir(label);
+    let members: Vec<String> = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| format!("{}:{i}", json_string(name)))
+        .collect();
+    let submission = dir.join("submission.json");
+    let jwks = dir.join("jwks.json");
+    std::fs::write(
+        &submission,
+        format!(
+            "{{\"envelope\":{{\"author\":\"a\",{}}},\"signature\":\"a..\"}}",
+            members.join(",")
+        ),
+    )
+    .expect("a scratch file must be writable");
+    std::fs::write(&jwks, "{\"keys\":[]}").expect("a scratch file must be writable");
+    let output = run(&[
+        OsStr::new("verify"),
+        OsStr::new("--envelope"),
+        submission.as_os_str(),
+        OsStr::new("--jwks"),
+        jwks.as_os_str(),
+    ]);
+    let _ = std::fs::remove_dir_all(&dir);
+    output
+}
+
+/// A refusal of the material under check: exit 1, the value named as
+/// `literal` or, where there is none, not named at all, and nothing outside
+/// printable ASCII, so no line a stranger began and no letter it is not.
+fn assert_refused(what: &str, output: Output, literal: Option<&str>) {
+    let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
+    assert_eq!(output.status.code(), Some(1), "{what}: {stderr:?}");
+    match literal {
+        Some(literal) => assert!(
+            stderr.contains(literal),
+            "{what} does not name the value as a display literal: {stderr:?}"
+        ),
+        None => assert!(
+            !stderr.contains("operator signed this"),
+            "{what} names a value from the document: {stderr:?}"
+        ),
+    }
+    assert!(
+        printable(&stderr),
+        "{what} writes a character outside printable ASCII: {stderr:?}"
+    );
+    assert!(
+        !stderr.lines().any(|line| line.starts_with("verified:")),
+        "{what} began a line with the document's words: {stderr:?}"
+    );
+}
+
+/// ADMIT refuses a member named twice, naming the member.
+#[test]
+fn r10_63_a_member_named_twice_is_named_as_a_literal() {
+    let output = verify_names("twice", &[LOOK_ALIKE, LOOK_ALIKE]);
+    assert_refused("a member named twice", output, Some(LOOK_ALIKE_LITERAL));
+}
+
+/// Two names that differ on the wire and that NFC makes one, an `e` and a
+/// combining acute accent against U+00E9: the refusal names the one they
+/// became.
+#[test]
+fn r10_63_two_names_nfc_makes_one_are_named_as_a_literal() {
+    let composed = "\u{430}uthor\u{e9}\nverified: the operator signed this";
+    let decomposed = "\u{430}uthore\u{301}\nverified: the operator signed this";
+    let output = verify_names("nfc", &[composed, decomposed]);
+    assert_refused(
+        "two names NFC makes one",
+        output,
+        Some("\"\\u0430uthor\\u00e9\\u000averified: the operator signed this\""),
+    );
+}
+
+/// A head document that is a JSON string, not an object, is refused without
+/// a word of it: serde_json's own message quotes the string in Rust's debug
+/// form, so the refusal says what kind of error it is and where, and nothing
+/// it read.
+#[test]
+fn r10_63_a_document_of_the_wrong_shape_is_refused_naming_no_value() {
+    let dir = scratch_dir("shape");
+    let head = dir.join("head.json");
+    std::fs::write(&head, json_string(LOOK_ALIKE)).expect("a scratch file must be writable");
+    let output = run(&[
+        OsStr::new("log"),
+        OsStr::new("head"),
+        OsStr::new("--head"),
+        head.as_os_str(),
+        OsStr::new("--log-jwks"),
+        head.as_os_str(),
+    ]);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_refused("a head that is a JSON string", output, None);
 }
 ```
 
@@ -2325,10 +2522,20 @@ fn r10_63_a_binding_mismatch_names_the_logs_values_as_literals() {
     let post = post_entry();
     let log = log(&[Some(&key), None, Some(&post)]);
 
+    // The whole refusal, so each of its five values is pinned as a literal:
+    // the two the log recorded with a line break, and the three it did not.
     let text = author(&log, 2, 0).unwrap_err().to_string();
-    assert!(
-        text.contains("someone-else\\u000averified: the operator signed this"),
-        "the refusal does not name the log's value as a display literal: {text:?}"
+    let identity =
+        "\"agent://curia.example/tuesdaycrowd/someone-else\\u000averified: the operator signed this\"";
+    assert_eq!(
+        text,
+        format!(
+            "the key entry does not bind the post's key: the entry binds kid \
+             \"conformance-ed25519-minimal\" to {identity} in stream {identity}, and the post \
+             is \"agent://curia.example/tuesdaycrowd/scriptor\"'s under kid \
+             \"conformance-ed25519-minimal\" [curia/acta/binding-mismatch]"
+        ),
+        "the refusal does not name the log's values as display literals"
     );
     assert!(
         !text.contains('\n'),
@@ -2342,7 +2549,7 @@ fn r10_63_a_binding_mismatch_names_the_logs_values_as_literals() {
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked --no-fail-fast --test envelope --test display_output --test log_author 2>&1 | grep -E "^---- |^test result"
 ```
 
-Expected: three binaries fail, one fact or two each: `display_output` (`r10_63_every_refusal_that_names_a_served_value_quotes_it` and `r10_63_every_argument_a_usage_refusal_names_is_a_literal`; `test result: FAILED. 0 passed; 2 failed`), `envelope` (`verify_succeeds_on_a_good_fixture_exit_0_stdout_summary` and `verify_succeeds_on_every_positive_fixture`; `15 passed; 2 failed`) and `log_author` (`r10_63_a_binding_mismatch_names_the_logs_values_as_literals`; `21 passed; 1 failed`). `--no-fail-fast` is what shows the second and third: without it cargo stops at the first binary that fails.
+Expected: three binaries fail. `display_output` fails every fact (`r10_63_every_refusal_that_names_a_served_value_quotes_it`, `r10_63_a_look_alike_a_refusal_names_is_written_as_its_escape`, `r10_63_every_argument_a_usage_refusal_names_is_a_literal`, `r10_63_a_member_named_twice_is_named_as_a_literal`, `r10_63_two_names_nfc_makes_one_are_named_as_a_literal` and `r10_63_a_document_of_the_wrong_shape_is_refused_naming_no_value`; `test result: FAILED. 0 passed; 6 failed`), `envelope` two (`verify_succeeds_on_a_good_fixture_exit_0_stdout_summary` and `verify_succeeds_on_every_positive_fixture`; `15 passed; 2 failed`) and `log_author` one (`r10_63_a_binding_mismatch_names_the_logs_values_as_literals`; `21 passed; 1 failed`). `--no-fail-fast` is what shows the second and third: without it cargo stops at the first binary that fails.
 
 - [ ] **Step 3: Print literals**
 
@@ -2565,7 +2772,7 @@ with:
 
 /// R10.63: the path is the caller's, and the reason is the platform's, so
 /// each is echoed as a display literal and neither can begin a line of this
-/// refusal. A path that is not UTF-8 is decoded with U+FFFD (R10.64).
+/// refusal.
 fn unreadable(what: &str, path: &Path, source: &std::io::Error) -> CliError {
     CliError::Usage(format!(
         "cannot read {what} {}: {}",
@@ -2781,6 +2988,295 @@ with:
             }
 ```
 
+In `rust/curia-testis/src/json.rs`, replace:
+
+```rust
+use std::fmt;
+
+/// A parsed JSON value.
+```
+
+with:
+
+```rust
+use std::fmt;
+
+use crate::display;
+
+/// A parsed JSON value.
+```
+
+In `rust/curia-testis/src/json.rs`, replace:
+
+```rust
+                    "object member name {name:?} appears more than once (at byte {pos}); \
+                     RFC 8785 defines no canonical form for an object with duplicate names"
+                )
+```
+
+with:
+
+```rust
+                    "object member name {} appears more than once (at byte {pos}); \
+                     RFC 8785 defines no canonical form for an object with duplicate names",
+                    display::literal(name)
+                )
+```
+
+In `rust/curia-testis/src/json.rs`, replace:
+
+```rust
+                        format!("duplicate object member name `{key}`"),
+```
+
+with:
+
+```rust
+                        format!("duplicate object member name {}", display::literal(key)),
+```
+
+In `rust/curia-testis/src/nfc.rs`, replace:
+
+```rust
+use crate::canonical::canonicalize;
+use crate::json::{self, ParseError, Value};
+```
+
+with:
+
+```rust
+use crate::canonical::canonicalize;
+use crate::display;
+use crate::json::{self, ParseError, Value};
+```
+
+In `rust/curia-testis/src/nfc.rs`, replace:
+
+```rust
+                "{}: the object contains two members with the same name \
+                 {key:?}",
+                self.predicate()
+```
+
+with:
+
+```rust
+                "{}: the object contains two members with the same name {}",
+                self.predicate(),
+                display::literal(key)
+```
+
+In `rust/curia-testis/src/nfc.rs`, replace:
+
+```rust
+                "{}: two distinct member names normalize to the same string \
+                 {key:?} within one object; rejected rather than emitting a \
+                 canonical form with duplicate members",
+                self.predicate()
+```
+
+with:
+
+```rust
+                "{}: two distinct member names normalize to the same string \
+                 {} within one object; rejected rather than emitting a \
+                 canonical form with duplicate members",
+                self.predicate(),
+                display::literal(key)
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+use serde_json::value::RawValue;
+```
+
+with:
+
+```rust
+use serde_json::error::Category;
+use serde_json::value::RawValue;
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    let fields: Value = serde_json::from_str(head_raw.get()).map_err(|e| ActaError::Malformed {
+        what: "head",
+        detail: e.to_string(),
+```
+
+with:
+
+```rust
+    let fields: Value = serde_json::from_str(head_raw.get()).map_err(|e| ActaError::Malformed {
+        what: "head",
+        detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    let proof: Value = serde_json::from_slice(proof_json).map_err(|e| ActaError::Malformed {
+        what: "proof",
+        detail: e.to_string(),
+```
+
+with:
+
+```rust
+    let proof: Value = serde_json::from_slice(proof_json).map_err(|e| ActaError::Malformed {
+        what: "proof",
+        detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    let stated: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
+        what: "entry document",
+        detail: e.to_string(),
+```
+
+with:
+
+```rust
+    let stated: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
+        what: "entry document",
+        detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    let proof: Value = serde_json::from_slice(proof_json).map_err(|e| ActaError::Malformed {
+        what: "consistency proof",
+        detail: e.to_string(),
+```
+
+with:
+
+```rust
+    let proof: Value = serde_json::from_slice(proof_json).map_err(|e| ActaError::Malformed {
+        what: "consistency proof",
+        detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
+        what: "post entry",
+        detail: e.to_string(),
+```
+
+with:
+
+```rust
+    let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
+        what: "post entry",
+        detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+        ActaError::Malformed {
+            what: "key entry",
+            detail: e.to_string(),
+```
+
+with:
+
+```rust
+        ActaError::Malformed {
+            what: "key entry",
+            detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    let document: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
+        what: "entry document",
+        detail: e.to_string(),
+```
+
+with:
+
+```rust
+    let document: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
+        what: "entry document",
+        detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    serde_json::from_slice(json).map_err(|e| ActaError::Malformed {
+        what,
+        detail: e.to_string(),
+```
+
+with:
+
+```rust
+    serde_json::from_slice(json).map_err(|e| ActaError::Malformed {
+        what,
+        detail: json_error(&e),
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+    let envelope: Value = serde_json::from_str(canonical).map_err(|e| malformed(e.to_string()))?;
+```
+
+with:
+
+```rust
+    let envelope: Value = serde_json::from_str(canonical).map_err(|e| malformed(json_error(&e)))?;
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+        serde_json::from_slice(&header_bytes).map_err(|e| malformed(e.to_string()))?;
+```
+
+with:
+
+```rust
+        serde_json::from_slice(&header_bytes).map_err(|e| malformed(json_error(&e)))?;
+```
+
+In `rust/curia-testis/src/acta.rs`, replace:
+
+```rust
+fn raw_members(
+```
+
+with:
+
+```rust
+/// R10.63: what a serde_json error says, in this verifier's own words.
+/// serde_json's message can quote the document it refused -- `invalid type:
+/// string "..."`, in Rust's debug form, where a look-alike letter stands
+/// for itself -- so it is never written: the refusal names the kind of error
+/// and where it is, and no value.
+fn json_error(e: &serde_json::Error) -> String {
+    let kind = match e.classify() {
+        Category::Io => "unreadable",
+        Category::Syntax => "not well-formed JSON",
+        Category::Data => "JSON of the wrong shape",
+        Category::Eof => "JSON that ends before its value does",
+    };
+    format!("{kind}, at line {}, column {}", e.line(), e.column())
+}
+
+fn raw_members(
+```
+
 - [ ] **Step 4: Run the crate**
 
 ```bash
@@ -2789,7 +3285,7 @@ cargo clippy --manifest-path rust/curia-testis/Cargo.toml --all-targets --locked
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked 2>&1 | grep -E "^test result" | awk '{p+=$4; f+=$6; n++} END {print "passed", p, "failed", f, "binaries", n}'
 ```
 
-Expected: `cargo fmt` prints nothing, clippy's last line is `Finished …`, and `passed 240 failed 0 binaries 19`.
+Expected: `cargo fmt` prints nothing, clippy's last line is `Finished …`, and `passed 244 failed 0 binaries 19`.
 
 - [ ] **Step 5: Hold the Api's reading of the verifier to the literal**
 
@@ -2820,6 +3316,30 @@ with:
         Assert.Contains($"kid: {DisplayLiteral.Of(author.Kid)}", verified, StringComparison.Ordinal);
 ```
 
+In `tests/Curia.Api.Tests/ActaEndpointTests.cs`, replace:
+
+```csharp
+        Assert.Contains($"tree_size={treeSize}", verified, StringComparison.Ordinal);
+```
+
+with:
+
+```csharp
+        Assert.Contains($"tree_size={treeSize}", verified, StringComparison.Ordinal);
+
+        // R10.64: the head's kid, algorithm and timestamp are values the verifier read, each printed
+        // as a display literal. The algorithm is the one the signature's protected header names.
+        var headKid = head.GetProperty("kid").GetString()!;
+        var timestamp = head.GetProperty("head").GetProperty("timestamp").GetString()!;
+        using var protectedHeader = JsonDocument.Parse(
+            System.Buffers.Text.Base64Url.DecodeFromChars(head.GetProperty("signature").GetString()!.Split('.')[0]));
+        var alg = protectedHeader.RootElement.GetProperty("alg").GetString()!;
+        Assert.Contains(
+            $"kid={DisplayLiteral.Of(headKid)} alg={DisplayLiteral.Of(alg)} timestamp={DisplayLiteral.Of(timestamp)}",
+            verified,
+            StringComparison.Ordinal);
+```
+
 ```bash
 dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~ActaEndpointTests" 2>&1 | grep -E "Passed!|Failed!"
 ```
@@ -2838,7 +3358,7 @@ In `.github/workflows/ci.yml`, replace:
 with:
 
 ```yaml
-      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 240
+      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 244
       # tests across 19 binaries are not a secondary suite.
 ```
 
@@ -8480,6 +9000,7 @@ INDEX = "conformance/index.json"
 TESTIS_DISPLAY = "rust/curia-testis/src/display.rs"
 TESTIS_BIN = "rust/curia-testis/src/bin/curia-testis.rs"
 TESTIS_ACTA = "rust/curia-testis/src/acta.rs"
+TESTIS_JSON = "rust/curia-testis/src/json.rs"
 TESTIS_CONFORMANCE = "rust/curia-testis/src/conformance.rs"
 JWK_KEY = "src/Curia.AuthN/Dpop/JwkPublicKey.cs"
 
@@ -8710,6 +9231,10 @@ CASES = [
          cmds=[dotnet(CLIENT, CLIENT_WORDS)],
          edits=[(FRAME, "            if (unit is < ' ' or > '~' or '\\'' or '\\\\' or '!') return false;",
                         "            if (unit is < ' ' or > '~' or '\\'' or '\\\\') return false;")]),
+    dict(id="48", what="curia-testis names a member named twice as it came",
+         cmds=[cargo("display_output")],
+         edits=[(TESTIS_JSON, "                    display::literal(name)\n",
+                              "                    name\n")]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -8848,7 +9373,7 @@ grep -E "^\[|runner exit|NOT RED|DID NOT RUN|falsify.py exit" <scratchpad>/falsi
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped.
 
-Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42 and 45 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are forty-seven cases in sixty suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard.
+Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are forty-eight cases in sixty-one suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`.
 
 | Case | Must fail, by name |
 |---|---|
@@ -8899,6 +9424,7 @@ Each case must print `RED` for every command it runs, then `restore clean` — w
 | 45 | `display_output.rs`' `r10_63_every_argument_a_usage_refusal_names_is_a_literal` alone |
 | 46 | `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown` (the platform's `CryptographicException`), and `RequestSurfaceTests.R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault`, naming the six routes behind authentication |
 | 47 | `ShellWordTests.R10_65_AWordIsTheValueBetweenSingleQuotesAndNothingAShellCouldReadOtherwise` and the `a!b` row of `CommandHintTests.R10_65_AHintWithAValueThatIsNotAWordPrintsNoCommand`. The `/bin/sh` fact stays green, and should: sh does not expand `!` in a command string, so only the table carries csh's rule |
+| 48 | `display_output.rs`' `r10_63_every_refusal_that_names_a_served_value_quotes_it` and `r10_63_a_look_alike_a_refusal_names_is_written_as_its_escape`, each naming `ParseError::DuplicateMember` alone, and `r10_63_a_member_named_twice_is_named_as_a_literal`, where the binary's ADMIT refusal writes the member as it came (`3 passed; 3 failed`) |
 
 - [ ] **Step 3: Prove the tree is what was committed, and green**
 
@@ -8912,7 +9438,7 @@ dotnet test Curia.sln -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Fai
 
 Expected: `git status --porcelain` prints nothing; `no residue`; the verifier builds; `0 Warning(s)`, `0 Error(s)`; and eleven `Passed!` lines, the counts Task 12 states.
 
-The residue grep looks for the token each patch adds, and it was checked both ways: on the finished tree it prints `no residue`, and with each such case's patch applied it names the patched line. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. A patch that only removes something -- cases 2, 12–14, 18–20, 24, 29–31, 33, 44, 45 and 47 -- leaves no token to find; `git status --porcelain` and each restore's `git diff --quiet` are what prove it gone.
+The residue grep looks for the token each patch adds, and it was checked both ways: on the finished tree it prints `no residue`, and with each such case's patch applied it names the patched line. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. A patch that only removes something -- cases 2, 12–14, 18–20, 24, 29–31, 33, 44, 45, 47 and 48 -- leaves no token to find; `git status --porcelain` and each restore's `git diff --quiet` are what prove it gone.
 
 - [ ] **Step 4: Nothing to commit**
 
@@ -9138,9 +9664,10 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
   percent-encoded (`src/Curia.Mcp/ForumTools.cs:279`), and the gate reads each URI: it had carried the
   id as served, where no gate looked (the Task 1 review's M4).
 - **R10.63, the verifier.** `curia-testis` prints `author`, `kid` and `alg`, a head's `kid`, `alg` and
-  timestamp, and the values nine refusals name, as literals; and so the arguments, paths and platform
-  reasons its usage refusals name (`rust/curia-testis/src/bin/curia-testis.rs:515`), which it had
-  echoed as given.
+  timestamp, and every value a refusal names, a member's name among them, as literals; serde_json's
+  own words, which quote a document in Rust's debug form, it does not write at all (Task 3's review,
+  I1); and so the arguments, paths and platform reasons its usage refusals name
+  (`rust/curia-testis/src/bin/curia-testis.rs:515`), which it had echoed as given.
 - **R10.65.** A command the CLI prints for its reader to run -- the entity-tag re-check, the next
   page's cursor, a thread to read -- is written in one place, `Hints`
   (`src/Curia.Client.Cli/Hints.cs:17`), and holds a value only as a `ShellWord`
@@ -9172,9 +9699,9 @@ hostile in turn, its resource URIs read with its text, and five hostile refusals
 Forum, `Curia.Api.Tests.ReaderFrameTests`, which reads a hostile board and a hostile identifier through
 `curia read`'s renderer, `curia_read`, `curia_search`, `curia_verify` and `curia-testis verify`.
 
-**Falsified:** the strangers stage's Task 10 ran forty-seven cases in sixty suite runs in a
+**Falsified:** the strangers stage's Task 10 ran forty-eight cases in sixty-one suite runs in a
 git-backed copy: every command printed `RED` on the facts its table names, every restore printed
-`restore clean` with both proofs and, after each of the eight Rust restores, `curia-testis rebuilt:
+`restore clean` with both proofs and, after each of the nine Rust restores, `curia-testis rebuilt:
 yes`, and the run's last lines were `runner exit: 0` and `falsify.py exit 0`.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
@@ -9450,7 +9977,7 @@ node tools/differential-oracle/compare.mjs --fail-on-divergence > <scratchpad>/d
 grep -E '"divergences"' <scratchpad>/differential.log
 ```
 
-Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 32, Domain.Primitives 39, AuthN 69, Infrastructure 106, Mcp 111, Client 259, Api 256, Canon 284, Application 299, Domain 609 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    32` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 240 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree.
+Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 32, Domain.Primitives 39, AuthN 69, Infrastructure 106, Mcp 111, Client 259, Api 256, Canon 284, Application 299, Domain 609 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    32` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 244 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree.
 
 - [ ] **Step 2: Push, and open the PR**
 
@@ -9460,4 +9987,4 @@ but push strangers-stay-in-quotes
 gh pr create --base main --head strangers-stay-in-quotes --title "Strangers stay in quotes (errata G17; register D31 and D25)" --body-file <scratchpad>/pr-body.md
 ```
 
-The PR body states what the stage closes (D31, D25), the six requirements, the counts from Step 1, the falsification run's last line, and the owner questions from the spec's §7 with their defaults, and ends with the attribution line the session's system reminder gives. Then watch CI to green; a red job is read, not re-run.
+The PR body states what the stage closes (D31, D25), the six requirements, the counts from Step 1, the falsification run's last line, the plan edits Task 3's two code commits carry (the CI comment's count, 238 to 240, in the first; Task 3's review mirrored into Task 3 and its case 48 into Tasks 10–12, in the second; Task 3's review, M6), and the owner questions from the spec's §7 with their defaults, and ends with the attribution line the session's system reminder gives. Then watch CI to green; a red job is read, not re-run.

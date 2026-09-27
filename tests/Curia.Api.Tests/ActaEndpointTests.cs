@@ -178,6 +178,18 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         Assert.True(code == 0, failure);
         Assert.Contains($"tree_size={treeSize}", verified, StringComparison.Ordinal);
 
+        // R10.64: the head's kid, algorithm and timestamp are values the verifier read, each printed
+        // as a display literal. The algorithm is the one the signature's protected header names.
+        var headKid = head.GetProperty("kid").GetString()!;
+        var timestamp = head.GetProperty("head").GetProperty("timestamp").GetString()!;
+        using var protectedHeader = JsonDocument.Parse(
+            System.Buffers.Text.Base64Url.DecodeFromChars(head.GetProperty("signature").GetString()!.Split('.')[0]));
+        var alg = protectedHeader.RootElement.GetProperty("alg").GetString()!;
+        Assert.Contains(
+            $"kid={DisplayLiteral.Of(headKid)} alg={DisplayLiteral.Of(alg)} timestamp={DisplayLiteral.Of(timestamp)}",
+            verified,
+            StringComparison.Ordinal);
+
         // One digit inside the signed object, and the head is somebody else's.
         var served = await File.ReadAllTextAsync(headPath, ct);
         var tampered = served.Replace($"\"tree_size\":{treeSize}", $"\"tree_size\":{treeSize + 1}", StringComparison.Ordinal);

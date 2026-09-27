@@ -193,6 +193,7 @@ use std::fmt;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::canonical::canonicalize;
+use crate::display;
 use crate::json::{self, ParseError, Value};
 
 /// An error from [`canonicalize_with_nfc`]: either the input did not parse
@@ -286,16 +287,17 @@ impl fmt::Display for NfcError {
             NfcError::Parse(e) => write!(f, "{e}"),
             NfcError::DuplicateRawKey { key } => write!(
                 f,
-                "{}: the object contains two members with the same name \
-                 {key:?}",
-                self.predicate()
+                "{}: the object contains two members with the same name {}",
+                self.predicate(),
+                display::literal(key)
             ),
             NfcError::DuplicateNormalizedKey { key } => write!(
                 f,
                 "{}: two distinct member names normalize to the same string \
-                 {key:?} within one object; rejected rather than emitting a \
+                 {} within one object; rejected rather than emitting a \
                  canonical form with duplicate members",
-                self.predicate()
+                self.predicate(),
+                display::literal(key)
             ),
         }
     }
