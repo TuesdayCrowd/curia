@@ -272,7 +272,8 @@ public static class ActaEndpoints
         _ => null,
     };
 
-    private static JsonObject ToObject(CanonJson.JsonValue.Object o)
+    /// <summary>Canon's JSON object as a System.Text.Json node, member order preserved. Also renders the agents' key set (<see cref="Jwks"/>).</summary>
+    internal static JsonObject ToObject(CanonJson.JsonValue.Object o)
     {
         var node = new JsonObject();
         foreach (var m in o.Members)
