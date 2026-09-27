@@ -69,8 +69,7 @@ A prepared directory containing everything the work needs and nothing it must no
   rust/          empty — the crate goes here
 ```
 
-The previous session's copy is at
-`/private/tmp/claude-501/-Users-lawls-Development-TuesdayCrowd-Projects-curia/8e45c852-2053-4ee1-96db-0b8e0a7cd0fd/cleanroom`,
+The previous session's copy was in that session's scratch space (`<scratchpad>/cleanroom`),
 which will not survive. **Rebuild it in your own scratch space** from a merged `main`:
 
 ```bash
