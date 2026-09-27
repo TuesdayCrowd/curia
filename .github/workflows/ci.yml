@@ -107,6 +107,17 @@ jobs:
           CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
         run: dotnet test Curia.sln --no-build --configuration Release
 
+      # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
+      # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in
+      # Debug and passes it in Release, so this job, running Release alone, was green while every
+      # developer's Debug run was red. The whole solution is built in Debug first: CS-15 reads
+      # Curia.Domain.Tests and Curia.Application.Tests from their Debug output, and neither is a
+      # reference of the architecture project, so `dotnet test` on that project alone never builds them.
+      - name: Architecture rules (Debug)
+        run: |
+          dotnet build Curia.sln --no-restore --configuration Debug
+          dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug
+
   rust:
     name: Rust — curia-testis
     runs-on: ubuntu-latest
