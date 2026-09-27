@@ -705,6 +705,28 @@ public sealed class PublicJwkTests
     }
 
     /// <summary>
+    /// A P-256 point whose coordinates each begin with two zero bytes, fixed here as its DER
+    /// SubjectPublicKeyInfo: the point was found from the curve equation outside .NET, and the expected
+    /// coordinates are its own 32 bytes each, in base64url. RFC 7518's sections 6.2.1.2 and 6.2.1.3
+    /// give each coordinate the full size of the curve, leading zeros included, and
+    /// <c>curia-testis</c> refuses a coordinate of any other length. About one P-256 key in 128 has a
+    /// coordinate that begins with a zero byte; RFC 7515's key, above, has none.
+    /// </summary>
+    [Fact]
+    public void R4_28_AP256CoordinateThatBeginsWithZeroIsRenderedAtFullWidth()
+    {
+        var spki = Convert.FromHexString(
+            "3059301306072a8648ce3d020106082a8648ce3d030107034200"
+            + "04"
+            + "00007ee5f88c1092295e6fdcf64870796cedb829bf50d271fa10f000db931661"
+            + "0000bb79c7f0e1d3db8d104a4e5959d9092c37ca3a777adbedd70414e81346d4");
+
+        Assert.Equal(
+            """{"alg":"ES256","crv":"P-256","kid":"leading-zeros","kty":"EC","x":"AAB-5fiMEJIpXm_c9khweWztuCm_UNJx-hDwANuTFmE","y":"AAC7ecfw4dPbjRBKTllZ2QksN8o6d3rb7dcEFOgTRtQ"}""",
+            Canonical(new PublicKeyMaterial("ES256", "leading-zeros", spki)));
+    }
+
+    /// <summary>
     /// The renderer and the rule the verifying adapter owns give one answer on every material
     /// <c>KeyMaterials</c> names, under each algorithm it is asked about. The rows include both
     /// answers for both algorithms, so an agreement that held only because both sides refused
@@ -779,8 +801,8 @@ namespace Curia.Canon.Jws;
 /// <para><b>Members, in the order the key set has always served them:</b> <c>kty</c>, <c>crv</c>,
 /// <c>alg</c>, <c>kid</c>, <c>x</c>, and for <c>ES256</c> <c>y</c>. RFC 8037 §2 gives Ed25519 the
 /// octet-key-pair form with one coordinate; RFC 7518 §6.2.1 gives P-256 the <c>EC</c> form with two.
-/// Order carries no meaning once a leaf is canonicalized (R6.46); it is kept so the key set's bytes
-/// do not move.</para>
+/// Order carries no meaning once a leaf is canonicalized (R6.46). The key set's served bytes were
+/// compared with 05f56f4's bytes by a review probe; no test pins them.</para>
 ///
 /// <para><b>What this does not decide.</b> Whether material is a key of its algorithm is the rule
 /// the adapter that verifies with it owns (<c>Es256Adapter.IsPublicKey</c>,
@@ -802,6 +824,7 @@ public static class PublicJwk
     public static Result<JsonValue.Object> Of(PublicKeyMaterial key)
     {
         ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(key.Kid);
 
         return key.Alg switch
         {
@@ -888,7 +911,7 @@ public static class PublicJwk
 dotnet test tests/Curia.Canon.Sodium.Tests -c Release --nologo 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `Passed!  - Failed:     0, Passed:    31, …  - Curia.Canon.Sodium.Tests.dll (net10.0)` — fifteen before, and sixteen here: two RFC facts, thirteen agreement rows and the comparison fact. The RFC facts pass on the first run, which is the point of deriving them from the RFCs: the renderer's output is held to a value the renderer did not produce. Case 18 in Task 9 is their red.
+Expected: `Passed!  - Failed:     0, Passed:    32, …  - Curia.Canon.Sodium.Tests.dll (net10.0)` — fifteen before, and seventeen here: two RFC facts, the leading-zero fact, thirteen agreement rows and the comparison fact. The three renderings pass on the first run, which is the point of deriving them from the RFCs and from the curve equation: the renderer's output is held to a value the renderer did not produce. Their reds are Task 9's: case 18 for the P-256 RFC fact, case 34 for the leading-zero fact, and case 35 for the Ed25519 RFC fact.
 
 - [ ] **Step 5: Render the key set through it**
 
@@ -1008,7 +1031,7 @@ with:
         var node = new JsonObject();
 ```
 
-- [ ] **Step 6: Hold the key set to its old bytes**
+- [ ] **Step 6: Run the key set's suite**
 
 ```bash
 export CURIA_TEST_POSTGRES="Host=localhost;Port=5432;Username=$(whoami);Database=postgres"
@@ -1018,7 +1041,7 @@ dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s
 dotnet test tests/Curia.Api.Tests -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `0 Warning(s)`, and `Passed!  - Failed:     0, Passed:   215, …  - Curia.Api.Tests.dll (net10.0)`. The key set's bytes do not move: `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment` compares a served key set with one served earlier byte for byte, `AssertServesOnlyTheVictimsKey` compares coordinates with the key's own, and `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` holds the omissions.
+Expected: `0 Warning(s)`, and `Passed!  - Failed:     0, Passed:   215, …  - Curia.Api.Tests.dll (net10.0)`. The key set's served bytes were compared with 05f56f4's bytes by a review probe; no test pins them. `EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment` compares two key sets served by one build byte for byte, `AssertServesOnlyTheVictimsKey` compares coordinates with the key's own, and `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` holds the omissions.
 
 - [ ] **Step 7: Commit**
 
@@ -6994,6 +7017,14 @@ CASES = [
     dict(id="33", what="curia_verify's result drops the key check's line",
          cmds=[dotnet(MCP, "FullyQualifiedName~PropertyP22ToolResultTests")],
          edits=[(VERIFIER, "        builder.Append(culture, $\"key         {KeyBinding.Describe}\\n\");\n", "")]),
+    dict(id="34", what="the renderer strips a P-256 coordinate's leading zeros",
+         cmds=[dotnet(SODIUM, "FullyQualifiedName~PublicJwkTests")],
+         edits=[(PUBLIC_JWK, "Render(\"EC\", \"P-256\", key, parameters.Q.X!, parameters.Q.Y!)",
+                             "Render(\"EC\", \"P-256\", key, parameters.Q.X!.AsSpan().TrimStart((byte)0), parameters.Q.Y!.AsSpan().TrimStart((byte)0).ToArray())")]),
+    dict(id="35", what="the renderer publishes an Ed25519 key in EC's form (errata D4's trap)",
+         cmds=[dotnet(SODIUM, "FullyQualifiedName~PublicJwkTests")],
+         edits=[(PUBLIC_JWK, "Render(\"OKP\", \"Ed25519\", key, key.Public.Span, null)",
+                             "Render(\"EC\", \"Ed25519\", key, key.Public.Span, null)")]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -7116,7 +7147,7 @@ echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipesta
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped. The log's last line is the runner's own `runner exit: N`.
 
-Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are thirty-three cases in forty-six suite runs. When the plan was amended after Task 2's review, this runner ran exactly as printed here in a git-backed copy of the tree (a `git archive` of 38a21fa with bae4ec8's errata restored under it, Tasks 2–8 applied, `git init`, and one commit): every case printed what the table says, every restore printed `restore clean` with both proofs — the bytes equal to the kept copy, and a real `git diff --quiet` — and the last line was `runner exit: 0`; then Step 3 ran and printed what it states. The second proof is the one that sees a file the runner did not keep:
+Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are thirty-five cases in forty-eight suite runs. When the plan was amended after Task 2's review, this runner ran exactly as printed here in a git-backed copy of the tree (a `git archive` of 38a21fa with bae4ec8's errata restored under it, Tasks 2–8 applied, `git init`, and one commit): every case printed what the table says, every restore printed `restore clean` with both proofs — the bytes equal to the kept copy, and a real `git diff --quiet` — and the last line was `runner exit: 0`; then Step 3 ran and printed what it states. Cases 34 and 35 were added after Task 3's review, and this runner, as printed here, ran them with case 15 in the repository at Task 3: each printed what the table says, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. The second proof is the one that sees a file the runner did not keep:
 
 | Case | Must fail, by name |
 |---|---|
@@ -7153,13 +7184,16 @@ Each case must print `RED` for every command it runs, then `restore clean`, and 
 | 31 | `EnrollIdentityTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundWhileTheStoreHoldsSeveralKeys` (`expected a refusal, got AgentEnrollment { … WasAlreadyEnrolled = False }`); `EnrollmentBindingTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundByWhicheverOfItsKeysIsPresented` (`presenting the second stored key of https://agents.example/never-enrolled-… was answered 201, and the identity's own key then 409`) |
 | 32 | `PostVerifierTests.R6_54_AKeyBindingProvenUnderAnotherRootFails` (`Expected: Failed`, `Actual: Verified`). The patch's first form passed `head.RootHash` alone and did not build (`CS8604`: the head's root is nullable); it was corrected to what the runner prints, and the case re-run alone |
 | 33 | `PropertyP22ToolResultTests.R6_54_TheVerifyToolReportsTheKeyCheckSeparately` (`Not found: "key         verified: "`) |
+| 34 | `PublicJwkTests.R4_28_AP256CoordinateThatBeginsWithZeroIsRenderedAtFullWidth` alone (`Actual: ···"g-zeros","kty":"EC","x":"fuX4jBCSKV5v3PZIcHls7bgpv"···`: the coordinate without its two zero bytes, 30 of its 32) |
+| 35 | `PublicJwkTests.R4_28_AnEd25519KeyIsRenderedAsRfc8037sOctetKeyPair` alone (`Actual: ···""kid":"rfc8037-a","kty":"EC","x":"11qYAYKxCrfVS_7T"···`) |
 
-Five things in this table are deliberate:
+Six things in this table are deliberate:
 - **Cases 10 and 11 each leave the HTTP fact green,** and case 12 is the one the surface sees: each half of R4.31 (revised) backs the other, and R4.35 backs both at the token (trap 13).
 - **Cases 8 and 9 are one requirement on two paths.** Each wiring is broken alone, and the one fact shows which path opened.
 - **Case 18 is the RFC anchor's reason for being.** A renderer that swapped coordinates would have been consistent everywhere the Forum compares its own output with itself.
 - **Cases 20 and 29, and 24 and 28, are one rule twice in each reader.** Ignoring the order lets a binding after the post verify; reading it as a failure is the defect the pre-flight scan found (its B1). Each reader needs both cases, and case 28's Api run is what shows the exit code, not only the library's classification, carries it.
 - **Cases 31 to 33 came from Task 2's review.** Case 31's patch counts another identifier's keys, the mistake a refactor of the lookup would make, and both of its facts then see the second key bound. Case 32 leaves the post's own inclusion check red as well, because the head commits to the wrong root for both proofs; its fact asserts the key check alone, the one line the patch moves. Case 33 is the only probe on `curia_verify`'s fourth line: no client fact reads the rendering's lines.
+- **Cases 34 and 35 came from Task 3's review.** Case 34 strips a P-256 coordinate's leading zeros, and only the fixed leading-zero point sees it: RFC 7515's key has no such coordinate, and a key a suite generates has one about once in 128, so no other fact is certain to meet one. Case 35 is errata D4's trap, an Ed25519 key in `EC`'s form, and the RFC 8037 fact is its only red, as case 18 is the P-256 fact's.
 
 If a case prints `PATCH MISMATCH`, `BUILD FAILED` or `GREEN`, the patch is wrong for the code as written: correct the **patch**, never the product code, and re-run that case alone (`python3 -u <scratchpad>/falsify.py <scratchpad>/falsify-keep <id>`). Record every correction. A patch that stays green on its first attempt is a finding until it is shown to be a bad patch (trap 13).
 
@@ -7376,7 +7410,7 @@ for it, after its whole history; one the store holds several keys for is refused
 back until R4.18's recovery exists (errata G16's fifth cost; see below). No identity can rotate,
 revoke or recover a key yet: see "What comes next".
 
-**Falsified:** the stage's Task 9, thirty-three cases in forty-six suite runs, each red by name, every
+**Falsified:** the stage's Task 9, thirty-five cases in forty-eight suite runs, each red by name, every
 restore proved by bytes and by `git diff`, and the gates re-run unpatched after a
 `--no-incremental` rebuild. Cases 10 and 11 each leave the HTTP fact green by design, and case 12,
 both halves of R4.31 (revised) off at once, is the one the surface sees: R4.35 still refuses the
@@ -7385,7 +7419,8 @@ binding after the post as a failure (28, `curia-testis`; 29, the client), and th
 comparing the binding with the post (30). Cases 31 to 33 came from errata G16's review: the
 refusal of several stored keys counting another identifier's (31), the client holding the key's
 proof to its own root rather than the signed head's (32), and `curia_verify` dropping the key
-check's line (33).
+check's line (33). Cases 34 and 35 came from Task 3's review: the renderer stripping a P-256
+coordinate's leading zeros (34), and rendering an Ed25519 key in `EC`'s form, errata D4's trap (35).
 
 ### Observed during the key-binding stage, not acted on
 
@@ -7853,7 +7888,7 @@ Expected:
 - **Eleven** `Passed!` lines and no `Failed!`, read from the `grep` output as printed. When this plan was build-checked, the eleven were:
 
   ```
-  Passed!  - Failed:     0, Passed:    31, … - Curia.Canon.Sodium.Tests.dll (net10.0)
+  Passed!  - Failed:     0, Passed:    32, … - Curia.Canon.Sodium.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:    30, … - Curia.Architecture.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:    39, … - Curia.Domain.Primitives.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:    68, … - Curia.AuthN.Tests.dll (net10.0)
@@ -7892,7 +7927,7 @@ Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's
 - why `LogBoundKeys` asks the store first (Decision 6);
 - that R15.1's frozen set does not move, and the conformance vector and `curia-testis log author` that ship with the new entry kind;
 - D16's CI line, with case 27 as its evidence;
-- the falsification table from `falsify.log`, all thirty-three cases;
+- the falsification table from `falsify.log`, all thirty-five cases;
 - the test plan, with the per-assembly lines Step 1 printed and the differential's exit;
 - what is observed and not fixed, the rulings on the pre-flight scan's two design questions (the spec's §8) and on Task 2's review (the spec's §9), and the one question left for the owner (the spec's §2.1).
 

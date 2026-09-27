@@ -14,8 +14,8 @@ namespace Curia.Canon.Jws;
 /// <para><b>Members, in the order the key set has always served them:</b> <c>kty</c>, <c>crv</c>,
 /// <c>alg</c>, <c>kid</c>, <c>x</c>, and for <c>ES256</c> <c>y</c>. RFC 8037 §2 gives Ed25519 the
 /// octet-key-pair form with one coordinate; RFC 7518 §6.2.1 gives P-256 the <c>EC</c> form with two.
-/// Order carries no meaning once a leaf is canonicalized (R6.46); it is kept so the key set's bytes
-/// do not move.</para>
+/// Order carries no meaning once a leaf is canonicalized (R6.46). The key set's served bytes were
+/// compared with 05f56f4's bytes by a review probe; no test pins them.</para>
 ///
 /// <para><b>What this does not decide.</b> Whether material is a key of its algorithm is the rule
 /// the adapter that verifies with it owns (<c>Es256Adapter.IsPublicKey</c>,
@@ -37,6 +37,7 @@ public static class PublicJwk
     public static Result<JsonValue.Object> Of(PublicKeyMaterial key)
     {
         ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(key.Kid);
 
         return key.Alg switch
         {

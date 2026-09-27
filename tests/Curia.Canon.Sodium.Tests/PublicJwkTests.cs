@@ -70,6 +70,28 @@ public sealed class PublicJwkTests
     }
 
     /// <summary>
+    /// A P-256 point whose coordinates each begin with two zero bytes, fixed here as its DER
+    /// SubjectPublicKeyInfo: the point was found from the curve equation outside .NET, and the expected
+    /// coordinates are its own 32 bytes each, in base64url. RFC 7518's sections 6.2.1.2 and 6.2.1.3
+    /// give each coordinate the full size of the curve, leading zeros included, and
+    /// <c>curia-testis</c> refuses a coordinate of any other length. About one P-256 key in 128 has a
+    /// coordinate that begins with a zero byte; RFC 7515's key, above, has none.
+    /// </summary>
+    [Fact]
+    public void R4_28_AP256CoordinateThatBeginsWithZeroIsRenderedAtFullWidth()
+    {
+        var spki = Convert.FromHexString(
+            "3059301306072a8648ce3d020106082a8648ce3d030107034200"
+            + "04"
+            + "00007ee5f88c1092295e6fdcf64870796cedb829bf50d271fa10f000db931661"
+            + "0000bb79c7f0e1d3db8d104a4e5959d9092c37ca3a777adbedd70414e81346d4");
+
+        Assert.Equal(
+            """{"alg":"ES256","crv":"P-256","kid":"leading-zeros","kty":"EC","x":"AAB-5fiMEJIpXm_c9khweWztuCm_UNJx-hDwANuTFmE","y":"AAC7ecfw4dPbjRBKTllZ2QksN8o6d3rb7dcEFOgTRtQ"}""",
+            Canonical(new PublicKeyMaterial("ES256", "leading-zeros", spki)));
+    }
+
+    /// <summary>
     /// The renderer and the rule the verifying adapter owns give one answer on every material
     /// <c>KeyMaterials</c> names, under each algorithm it is asked about. The rows include both
     /// answers for both algorithms, so an agreement that held only because both sides refused
