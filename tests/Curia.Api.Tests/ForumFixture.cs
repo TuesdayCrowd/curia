@@ -4,6 +4,7 @@ using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
@@ -161,6 +162,39 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
                     new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
                     new(AgentStandingProjector.KeyIdField, new JsonValue.String(kid)),
                     new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
+                ]))],
+            ct));
+    }
+
+    /// <summary>
+    /// Appends an <c>agent.key-bound</c> for <paramref name="agentId"/>'s <c>ES256</c> key at the end of
+    /// its stream, now, through the host's own event store, with exactly the members
+    /// <c>EnrollAgent</c> writes (R4.34). For an identity that has already posted, this is the binding
+    /// that lands after its history: the one an identity enrolled before <c>agent.enrolled</c> existed
+    /// receives when anyone re-announces its public key, and the one an operator's binding would append
+    /// (the key-binding stage's spec, §2.1). No route appends it for an identity already enrolled.
+    /// </summary>
+    internal async Task BindKeyAfterItsPostsAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
+        var aggregate = Require(AggregateId.Create(agentId));
+        var stream = Require(await store.ReadByAggregateAsync(aggregate, ct));
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(stream.Count)),
+            [new DomainEvent(
+                Require(EventId.Create(Require(new UlidGenerator(Clock).Next()).ToString())),
+                Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                Require(ActorId.Create(agentId)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(kid)),
+                    new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(new PublicKeyMaterial("ES256", kid, publicKey)))),
                 ]))],
             ct));
     }

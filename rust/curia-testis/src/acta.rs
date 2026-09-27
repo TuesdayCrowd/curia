@@ -10,6 +10,12 @@
 //! states a `leaf_hash`, it is compared and a disagreement is a failure in
 //! its own right.
 //!
+//! [`verify_author`] is R6.54 (errata G16): authorship from the log alone.
+//! A post's entry carries its canonical envelope and signature; its author's
+//! key is carried by an `agent.key-bound` entry (R4.34). Both proven under one
+//! signed head, the binding first, and the signature verifying under the key
+//! the binding carries: no key set the Forum serves enters the check.
+//!
 //! Every rejection is a typed [`ActaError`] with a predicate slug; nothing
 //! here panics on malformed input.
 
@@ -19,12 +25,25 @@ use std::fmt;
 use serde_json::value::RawValue;
 use serde_json::Value;
 
+use crate::envelope::VerifyEnvelopeError;
 use crate::jwk::{JwkError, JwkSet};
 use crate::jws::{self, JwsError};
 use crate::merkle::{self, Hash};
 
 /// The `typ` of a signed tree head; a head is not a post and must not verify as one.
 pub const HEAD_TYP: &str = "curia-head+jws";
+
+/// The entry a post's acceptance is (R6.46): its payload carries the
+/// canonical envelope and the detached signature.
+pub const POST_ACCEPTED: &str = "post.accepted";
+
+/// The entry that binds a key to an identity (R4.34): its payload carries
+/// `agent_id`, `kid` and the public `jwk`.
+pub const KEY_BOUND: &str = "agent.key-bound";
+
+/// The enrollment record. Before R4.34 it was the only entry naming a key,
+/// and it names the `kid` alone.
+pub const ENROLLED: &str = "agent.enrolled";
 
 #[derive(Debug)]
 pub enum ActaError {
@@ -58,6 +77,28 @@ pub enum ActaError {
     HeadSizeMismatch { head: u64, proof: u64 },
     /// The head's root is not the proof's root at that size.
     HeadRootMismatch,
+    /// The entry offered as a post is not a `post.accepted` entry.
+    NotAPost { event_type: String },
+    /// The entry offered as the key's binding is not an `agent.key-bound`
+    /// entry (nor an `agent.enrolled` one).
+    NotAKeyBinding { event_type: String },
+    /// The binding does not name the post's author and the post's `kid`.
+    BindingMismatch(String),
+    /// The author's binding of the post's `kid` is not earlier in the log
+    /// than the post, so the log says nothing about which key was the
+    /// author's when the post was accepted. Not a failure and not a pass
+    /// (exit 3): a forger binds first at no cost, and what lands here is
+    /// history older than its binding.
+    BoundAfterPost { key: u64, post: u64 },
+    /// The post's signature does not verify under the key the binding
+    /// carries (the inner predicate says why).
+    Author(VerifyEnvelopeError),
+    /// The binding is the author's own `agent.enrolled`, earlier than the
+    /// post and naming its `kid` (all an identity enrolled before R4.34 has;
+    /// a reader cannot tell when one was made): the log names the `kid` and
+    /// carries no key, so which key signed cannot be established from the
+    /// log. Not a failure and not a pass (exit 3).
+    KeyNotCarried { kid: String },
 }
 
 impl ActaError {
@@ -75,7 +116,23 @@ impl ActaError {
             ActaError::ConsistencyInvalid => "curia/acta/consistency-invalid",
             ActaError::HeadSizeMismatch { .. } => "curia/acta/head-size-mismatch",
             ActaError::HeadRootMismatch => "curia/acta/head-root-mismatch",
+            ActaError::NotAPost { .. } => "curia/acta/not-a-post",
+            ActaError::NotAKeyBinding { .. } => "curia/acta/not-a-key-binding",
+            ActaError::BindingMismatch(_) => "curia/acta/binding-mismatch",
+            ActaError::BoundAfterPost { .. } => "curia/acta/bound-after-post",
+            ActaError::Author(err) => err.predicate(),
+            ActaError::KeyNotCarried { .. } => "curia/acta/key-not-carried",
         }
+    }
+
+    /// R6.54's third outcome: the log carries no key for the post's `kid`
+    /// from before the post. Neither a pass nor a failure, and `log author`
+    /// exits 3 for exactly these.
+    pub fn not_established(&self) -> bool {
+        matches!(
+            self,
+            ActaError::KeyNotCarried { .. } | ActaError::BoundAfterPost { .. }
+        )
     }
 }
 
@@ -122,6 +179,26 @@ impl fmt::Display for ActaError {
                     "the head's root is not the root the proof verifies against"
                 )
             }
+            ActaError::NotAPost { event_type } => {
+                write!(f, "the post entry is `{event_type}`, not `{POST_ACCEPTED}`")
+            }
+            ActaError::NotAKeyBinding { event_type } => {
+                write!(f, "the key entry is `{event_type}`, not `{KEY_BOUND}`")
+            }
+            ActaError::BindingMismatch(detail) => {
+                write!(f, "the key entry does not bind the post's key: {detail}")
+            }
+            ActaError::BoundAfterPost { key, post } => write!(
+                f,
+                "the key is bound at leaf {key}, which is not before the post at leaf {post}"
+            ),
+            ActaError::Author(err) => {
+                write!(f, "the post does not verify under the bound key: {err}")
+            }
+            ActaError::KeyNotCarried { kid } => write!(
+                f,
+                "the log names kid `{kid}` only in the author's enrollment, which carries no key"
+            ),
         }
         .and_then(|()| write!(f, " [{}]", self.predicate()))
     }
@@ -261,6 +338,185 @@ pub fn verify_consistency(proof_json: &[u8]) -> Result<VerifiedConsistency, Acta
         to_size,
         from_root,
         to_root,
+    })
+}
+
+/// Authorship established from the log alone (R6.54).
+#[derive(Debug, Clone)]
+pub struct VerifiedAuthor {
+    pub author: String,
+    pub kid: String,
+    pub alg: String,
+    pub key_index: u64,
+    pub post_index: u64,
+}
+
+/// R6.54 (errata G16): the post in `post_entry` was signed by the key its
+/// author's `agent.key-bound` entry (`key_entry`) carries, and the log bound
+/// that key before it accepted the post, all under `head`.
+///
+/// Both entries' leaves are recomputed and proven (R6.46, R6.48) and tied to
+/// the one head, so their order is the log's order. The key entry must bind
+/// the post's own author and `kid`, or it is [`ActaError::BindingMismatch`],
+/// whatever its type. The author's binding at a leaf not before the post is
+/// [`ActaError::BoundAfterPost`], and the author's own `agent.enrolled`
+/// naming it is [`ActaError::KeyNotCarried`]: each says the log holds
+/// no key for the post from before it, and neither is a failure
+/// ([`ActaError::not_established`]). Only then is the signature checked, over
+/// the envelope the post's own entry carries, under a key set holding only
+/// the key the binding carries: nothing a key set endpoint serves is read.
+pub fn verify_author(
+    post_entry: &[u8],
+    post_proof: &[u8],
+    key_entry: &[u8],
+    key_proof: &[u8],
+    head: &VerifiedHead,
+) -> Result<VerifiedAuthor, ActaError> {
+    let post = verify_inclusion(post_entry, post_proof)?;
+    head_covers(head, post.tree_size, &post.root)?;
+    let key = verify_inclusion(key_entry, key_proof)?;
+    head_covers(head, key.tree_size, &key.root)?;
+
+    let post_fields = entry_fields(post_entry)?;
+    let post_type = str_at(&post_fields, &["event_type"], "post entry")?;
+    if post_type != POST_ACCEPTED {
+        return Err(ActaError::NotAPost {
+            event_type: post_type.to_string(),
+        });
+    }
+    let canonical = str_at(&post_fields, &["payload", "canonical"], "post entry")?;
+    let signature = str_at(&post_fields, &["payload", "signature"], "post entry")?;
+
+    let key_fields = entry_fields(key_entry)?;
+    let key_type = str_at(&key_fields, &["event_type"], "key entry")?;
+    if key_type != KEY_BOUND && key_type != ENROLLED {
+        return Err(ActaError::NotAKeyBinding {
+            event_type: key_type.to_string(),
+        });
+    }
+    let bound_kid = str_at(&key_fields, &["payload", "kid"], "key entry")?;
+    let bound_agent = str_at(&key_fields, &["payload", "agent_id"], "key entry")?;
+    let aggregate = str_at(&key_fields, &["aggregate_id"], "key entry")?;
+
+    // Whose binding, of which kid, before anything about its key: an entry
+    // for another identity or another kid binds nothing the post names,
+    // whichever type it is.
+    let (post_author, post_kid) = post_author_and_kid(canonical, signature)?;
+    if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {
+        return Err(ActaError::BindingMismatch(format!(
+            "the entry binds kid `{bound_kid}` to `{bound_agent}` in stream `{aggregate}`, and the post is `{post_author}`'s under kid `{post_kid}`"
+        )));
+    }
+
+    // R6.54: a binding after the post is the log's silence about the key
+    // the post was accepted under, not a contradiction of it.
+    if key.log_index >= post.log_index {
+        return Err(ActaError::BoundAfterPost {
+            key: key.log_index,
+            post: post.log_index,
+        });
+    }
+    if key_type == ENROLLED {
+        return Err(ActaError::KeyNotCarried {
+            kid: bound_kid.to_string(),
+        });
+    }
+    let jwk = key_fields
+        .get("payload")
+        .and_then(|p| p.get("jwk"))
+        .filter(|j| j.is_object())
+        .ok_or(ActaError::MissingField {
+            what: "key entry",
+            field: "jwk",
+        })?;
+
+    // The post's own entry carries the envelope as the Forum persisted it;
+    // the submission is rebuilt around it verbatim, never re-encoded.
+    let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
+        what: "post entry",
+        detail: e.to_string(),
+    })?;
+    let submission = format!("{{\"envelope\":{canonical},\"signature\":{signature_json}}}");
+    let jwks = serde_json::to_vec(&serde_json::json!({ "keys": [jwk] })).map_err(|e| {
+        ActaError::Malformed {
+            what: "key entry",
+            detail: e.to_string(),
+        }
+    })?;
+    let provenance =
+        crate::verify_envelope(submission.as_bytes(), &jwks).map_err(ActaError::Author)?;
+
+    Ok(VerifiedAuthor {
+        author: provenance.author,
+        kid: provenance.kid,
+        alg: provenance.alg,
+        key_index: key.log_index,
+        post_index: post.log_index,
+    })
+}
+
+/// The post's author, from its canonical envelope, and the `kid` its detached
+/// signature's protected header names; read before any key is chosen, so the
+/// binding can be compared with the post before it is trusted for anything.
+/// The signature itself is verified afterwards, over the same bytes.
+fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, String), ActaError> {
+    use base64::Engine;
+    let malformed = |detail: String| ActaError::Malformed {
+        what: "post entry",
+        detail,
+    };
+    let envelope: Value = serde_json::from_str(canonical).map_err(|e| malformed(e.to_string()))?;
+    let author = envelope
+        .get("author")
+        .and_then(Value::as_str)
+        .ok_or_else(|| malformed("the envelope names no author".to_string()))?;
+    let header = signature
+        .split('.')
+        .next()
+        .and_then(|h| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(h)
+                .ok()
+        })
+        .and_then(|h| serde_json::from_slice::<Value>(&h).ok())
+        .ok_or_else(|| malformed("the signature has no readable protected header".to_string()))?;
+    let kid = header
+        .get("kid")
+        .and_then(Value::as_str)
+        .ok_or_else(|| malformed("the signature's header names no kid".to_string()))?;
+    Ok((author.to_string(), kid.to_string()))
+}
+
+/// The `entry` member of an entry document, parsed.
+fn entry_fields(entry_json: &[u8]) -> Result<Value, ActaError> {
+    let document: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
+        what: "entry document",
+        detail: e.to_string(),
+    })?;
+    document
+        .get("entry")
+        .cloned()
+        .ok_or(ActaError::MissingField {
+            what: "entry document",
+            field: "entry",
+        })
+}
+
+/// The string at `path` inside `value`, or which member is missing.
+fn str_at<'a>(
+    value: &'a Value,
+    path: &[&'static str],
+    what: &'static str,
+) -> Result<&'a str, ActaError> {
+    let mut at = value;
+    for field in path {
+        at = at
+            .get(*field)
+            .ok_or(ActaError::MissingField { what, field })?;
+    }
+    at.as_str().ok_or(ActaError::MissingField {
+        what,
+        field: path.last().copied().unwrap_or("value"),
     })
 }
 
