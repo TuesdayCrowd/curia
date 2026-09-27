@@ -109,9 +109,17 @@ public sealed class Program
         // satisfies all of them). No TimeProvider: R6.31 evaluates key validity at the caller's
         // server_ts, so this adapter has no business knowing what time it is.
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().AgentKeys);
-        builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
         builder.Services.AddSingleton<IAuthorKeyRegistry>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
-        builder.Services.AddSingleton<IAgentKeyResolver>(sp => sp.GetRequiredService<PostgresAgentKeyStore>());
+
+        // R4.35 (errata G16): every key the Forum honours is a key the event log binds. Ingest, the
+        // token endpoint and the key set all read through this one rule; the store alone answers
+        // only enrollment, whose own rule (R4.31) reads the log's binding itself.
+        builder.Services.AddSingleton(sp => new LogBoundKeys(
+            sp.GetRequiredService<PostgresAgentKeyStore>(),
+            sp.GetRequiredService<PostgresAgentKeyStore>(),
+            sp.GetRequiredService<IEventReader>()));
+        builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
+        builder.Services.AddSingleton<IAgentKeyResolver>(sp => new LogBoundAgentKeyResolver(sp.GetRequiredService<LogBoundKeys>()));
 
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventStore);
 

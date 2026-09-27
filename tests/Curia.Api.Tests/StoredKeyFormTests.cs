@@ -24,6 +24,14 @@ namespace Curia.Api.Tests;
 /// under the same <c>kid</c>, agent and <c>valid_from</c> by the material under test. The key set
 /// must omit what it cannot publish, and the token endpoint must answer such a key as it answers
 /// any signature that does not verify.</para>
+///
+/// <para><b>Since errata G16 the log carries an enrollment's key (R4.34)</b>, and a replaced row is
+/// not the key it carries, so for an identity enrolled since then the row is refused before any
+/// signature is checked (R4.35), which <see cref="R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken"/>
+/// holds. The rows R4.15's rule still decides are those of identities enrolled before G16, whose log
+/// binds the <c>kid</c> alone; the token theory's two replaced rows are made under such identities
+/// (<see cref="ForumFixture.EnrollBeforeKeyBindingAsync"/>), so the verifier's rule is still what
+/// refuses them.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -40,7 +48,19 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
 
     private static readonly byte[] Message = Encoding.UTF8.GetBytes("stored key form");
 
+    /// <summary>What the token endpoint answers a stored key the log does not bind to the agent named (R4.35).</summary>
+    private const string NotBoundByTheLog =
+        "{\"error\":\"invalid_client\",\"error_description\":\"The event log binds no such key to that agent\",\"detail\":\"curia/keys/not-bound-by-the-log\"}";
+
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
+
+    /// <summary>An identity enrolled as before errata G16: the log binds its <c>kid</c> alone, so a row replaced under it still reaches the verifier.</summary>
+    private async Task<ForumAgent> EnrolledBeforeKeyBindingAsync(string name, CancellationToken ct)
+    {
+        var agent = ForumAgent.Create($"https://agents.example/{name}", name);
+        await forum.EnrollBeforeKeyBindingAsync(agent.AgentId, agent.Kid, agent.AssertionKey.ExportSubjectPublicKeyInfo(), ct);
+        return agent;
+    }
 
     private async Task<ForumAgent> EnrolledAsync(string name, CancellationToken ct)
     {
@@ -144,9 +164,10 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     /// byte for byte as the control is: an honest agent's own <c>kid</c> under an assertion signed by
     /// a stranger's key, which is a signature that does not verify.
     /// <list type="bullet">
-    /// <item><c>es256-32-raw-bytes</c>: the row holds 32 raw bytes. It answered 500.</item>
-    /// <item><c>es256-p384-spki</c>: the row holds a P-384 key, and the assertion is genuinely signed
-    /// by it under <c>ES256</c>. It was issued a token.</item>
+    /// <item><c>es256-32-raw-bytes</c>: the row holds 32 raw bytes, under an identity enrolled before
+    /// errata G16. It answered 500.</item>
+    /// <item><c>es256-p384-spki</c>: the row holds a P-384 key, under an identity enrolled before errata
+    /// G16, and the assertion is genuinely signed by it under <c>ES256</c>. It was issued a token.</item>
     /// <item><c>eddsa-header-over-an-es256-key</c>: an honest agent's row, and an assertion whose
     /// header says <c>EdDSA</c> over 64 zero bytes. Anyone could send it, naming any agent. It
     /// answered 500.</item>
@@ -168,7 +189,9 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, honest.AgentId, ct);
         Assert.Equal($"401 {SignatureDoesNotVerify}", $"{(int)controlStatus} {controlBody}");
 
-        var agent = await EnrolledAsync($"stored-{row}-{suffix}", ct);
+        var agent = row is "es256-32-raw-bytes" or "es256-p384-spki"
+            ? await EnrolledBeforeKeyBindingAsync($"stored-{row}-{suffix}", ct)
+            : await EnrolledAsync($"stored-{row}-{suffix}", ct);
         HttpStatusCode status;
         string body;
         switch (row)
@@ -215,5 +238,30 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
 
         var line = body.Split('\n')[0];
         Assert.Equal($"{(int)controlStatus} {controlBody}", $"{(int)status} {line[..Math.Min(line.Length, 200)]}");
+    }
+
+    /// <summary>
+    /// R4.35 (errata G16): the same replaced rows under an identity enrolled since G16, whose log entry
+    /// carries its key (R4.34). The row is not the key the log bound, so the token endpoint refuses it
+    /// before any signature is checked, and says why. Before R4.35 the P-384 row was issued a token and
+    /// the raw-bytes row answered as a bad signature.
+    /// </summary>
+    [Theory]
+    [InlineData("32-raw-bytes")]
+    [InlineData("p384-spki")]
+    public async Task R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(string material)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var agent = await EnrolledAsync($"stored-bound-{material}-{Suffix()}", ct);
+
+        using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        var replaced = material == "p384-spki" ? p384.ExportSubjectPublicKeyInfo() : KeyMaterials.Build(material, Message).Material;
+        await ReplaceAsync(agent.Kid, "ES256", replaced, ct);
+
+        var (status, body) = await DpopClient.For(agent, material == "p384-spki" ? p384 : agent.AssertionKey)
+            .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
+
+        Assert.Equal($"401 {NotBoundByTheLog}", $"{(int)status} {body}");
     }
 }

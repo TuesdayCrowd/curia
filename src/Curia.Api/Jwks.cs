@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Canon.Jws;
 using Curia.Canon.Sodium;
@@ -25,8 +26,9 @@ namespace Curia.Api;
 public static class Jwks
 {
     /// <summary>
-    /// Renders one agent's registered keys as an RFC 7517 <c>{"keys": [...]}</c> document, omitting
-    /// any stored key it cannot publish (<see cref="CanPublish"/>).
+    /// Renders one agent's keys the log binds (R4.35) as an RFC 7517 <c>{"keys": [...]}</c> document,
+    /// omitting any it cannot publish (<see cref="CanPublish"/>), and naming for each the leaf that
+    /// binds it (<paramref name="logIndexOf"/>, R6.54) where it is known.
     ///
     /// <para><b>Omitted, not failed.</b> Key rows written before the enrollment route checked a key's
     /// bytes stay in the store for good (R4.19 forbids the delete, R4.32 the repair). Rendering one
@@ -37,20 +39,27 @@ public static class Jwks
     /// and the second looks like a signature problem. An agent whose only key is omitted gets an
     /// empty set, not a 404, which still means that the store holds no row.</para>
     /// </summary>
-    public static JsonObject ForAgent(IReadOnlyList<RegisteredKey> keys)
+    /// <param name="keys">The keys, each with the binding the log holds for it.</param>
+    /// <param name="logIndexOf">The leaf index of an event, by its id; <see langword="null"/> when the log could not say.</param>
+    public static JsonObject ForAgent(IReadOnlyList<BoundKey> keys, Func<string, long?> logIndexOf)
     {
         ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(logIndexOf);
 
         var array = new JsonArray();
-        foreach (var registered in keys)
+        foreach (var bound in keys)
         {
+            var registered = bound.Key;
+
             // Two refusals, one outcome: the rule the key's verifier owns, and the renderer the log's
             // key-binding entries use too (R4.34). PublicJwkTests holds them to the same answer on
             // every material KeyMaterials names, so the second omits nothing the first admits there.
             if (!CanPublish(registered.Key.Alg, registered.Key.Public.Span)) continue;
             if (!PublicJwk.Of(registered.Key).TryGetValue(out var jwk, out _)) continue;
 
-            array.Add(Annotate(ActaEndpoints.ToObject(jwk!), registered));
+            var node = Annotate(ActaEndpoints.ToObject(jwk!), registered);
+            if (logIndexOf(bound.Binding.EventId) is { } index) node["curia_log_index"] = index;
+            array.Add(node);
         }
 
         return new JsonObject { ["keys"] = array };

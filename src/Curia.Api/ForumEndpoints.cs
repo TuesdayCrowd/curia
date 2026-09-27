@@ -1201,20 +1201,41 @@ public static class ForumEndpoints
     /// slash in a path segment is rejected or silently decoded depending on the host, which is
     /// exactly the kind of routing detail that works locally and 404s in production. A query
     /// parameter has no such ambiguity.</para>
+    ///
+    /// <para><b>Only the keys the log binds (R4.35, errata G16), each with where (R6.54).</b> A key the
+    /// store holds and the log does not bind is honoured nowhere, so it is not published either: a
+    /// post signed under one fails a reader's signature check, as it should. Each published key names
+    /// the leaf that binds it (<c>curia_log_index</c>), so a reader can check the binding against a
+    /// signed head instead of trusting this key set. An identity the store holds no row for is 404, as
+    /// before; one whose every row the log refuses gets an empty set.</para>
     /// </summary>
     private static async Task<IResult> GetJwks(
-        string agent, IAuthorKeyRegistry keys, CancellationToken cancellationToken)
+        string agent, LogBoundKeys keys, IEventReader events, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(agent))
             return Results.BadRequest(new Problem(
                 "curia/keys/agent-required", "The 'agent' query parameter is required", null));
 
         var agentId = agent;
-        var registered = await keys.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false);
+        var read = await keys.KeySetAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var keySet, out var readError))
+        {
+            return Results.Json(
+                new Problem("curia/log/unreadable", "The event log could not be read", readError!.Type),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
 
-        return registered.Count == 0
-            ? Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId))
-            : Results.Ok(Jwks.ForAgent(registered));
+        if (keySet!.Stored == 0)
+            return Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId));
+
+        // The leaf that binds each key, from the Acta folded once, as every route that serves a post
+        // or a log document folds it: no index of the key set's own, which would be a second
+        // computation of R6.47's leaf index that must agree with the fold forever (the spec's
+        // Decision 8). A log that will not fold into a tree publishes the keys without positions
+        // rather than no keys: a reader then cannot check the binding, and says so (R6.54's absence
+        // is an absence).
+        var (acta, _) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
+        return Results.Ok(Jwks.ForAgent(keySet.Bound, acta is null ? _ => null : acta.IndexOf));
     }
 
     /// <summary>

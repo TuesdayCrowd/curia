@@ -164,13 +164,15 @@ public static class KeyEnrollment
 }
 
 /// <summary>
-/// The key store's refusals, each by name. Three say why a key does not resolve:
-/// <see cref="NotRegisteredToAgent"/>, <see cref="NotYetValid"/> and <see cref="NoLongerValid"/>.
-/// They are distinct because they mean different things to an operator: a <c>kid</c> that is not the
-/// agent's is a possible impersonation attempt; a key outside its window is ordinary lifecycle.
-/// Collapsing them would make the first invisible inside the second's noise. Three say why an
-/// enrollment registered nothing (R4.31, R4.32): <see cref="KidRegisteredToAnotherAgent"/>,
-/// <see cref="AlreadyEnrolled"/> and <see cref="MaterialImmutable"/>.
+/// The key store's refusals, each by name. Four say why a key does not resolve:
+/// <see cref="NotRegisteredToAgent"/>, <see cref="NotYetValid"/>, <see cref="NoLongerValid"/> and,
+/// since errata G16, <see cref="NotBoundByTheLog"/>. They are distinct because they mean different
+/// things to an operator: a <c>kid</c> that is not the agent's is a possible impersonation attempt; a
+/// key outside its window is ordinary lifecycle; a key the store holds and the log does not bind is a
+/// store that has diverged from the log. Collapsing them would make the first and the last invisible
+/// inside the second's noise. Three say why an enrollment registered nothing (R4.31, R4.32):
+/// <see cref="KidRegisteredToAnotherAgent"/>, <see cref="AlreadyEnrolled"/> and
+/// <see cref="MaterialImmutable"/>.
 /// </summary>
 public static class AuthorKeyErrors
 {
@@ -183,6 +185,9 @@ public static class AuthorKeyErrors
     /// <summary>The slug of <see cref="MaterialImmutable"/>, for callers that match on it.</summary>
     public const string MaterialImmutableType = "curia/keys/material-immutable";
 
+    /// <summary>The slug of <see cref="NotBoundByTheLog"/>, for callers that match on it.</summary>
+    public const string NotBoundByTheLogType = "curia/keys/not-bound-by-the-log";
+
     public static Error NotRegisteredToAgent(string agentId, string kid) => new(
         "curia/keys/not-registered-to-agent",
         "No key with that identifier is registered to that agent",
@@ -192,6 +197,16 @@ public static class AuthorKeyErrors
         "curia/keys/not-yet-valid",
         "The key was not yet valid at the receipt instant",
         $"kid={kid} server_ts={at}");
+
+    /// <summary>
+    /// R4.35 (errata G16): the store holds a key under this <c>kid</c> for this agent, and the event
+    /// log binds no such key to it -- a row added through errata G14's hole, or bytes the store holds
+    /// that are not the ones the log bound. Names the agent and the <c>kid</c>, never material.
+    /// </summary>
+    public static Error NotBoundByTheLog(string agentId, string kid) => new(
+        NotBoundByTheLogType,
+        "The event log binds no such key to that agent",
+        $"agent={agentId} kid={kid}");
 
     public static Error NoLongerValid(string kid, ServerTimestamp at) => new(
         "curia/keys/no-longer-valid",

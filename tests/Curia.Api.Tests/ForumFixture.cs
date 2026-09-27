@@ -1,6 +1,9 @@
 using Curia.Api.Issuer;
 using Curia.Application.Credentials;
 using Curia.Application.Moderation;
+using Curia.Application.Ports;
+using Curia.Application.Projections;
+using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
@@ -113,6 +116,52 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
             OwnerVerificationMethod.Manual,
             "attested by the test fixture",
             Require(ActorId.Create("operator:fixture")),
+            ct));
+    }
+
+    /// <summary>
+    /// An identity as every enrollment before errata G16 left it: its key row, written as the
+    /// provisioning role, and an <c>agent.enrolled</c> naming its <c>kid</c> and no key, appended
+    /// through the host's own event store -- and no <c>agent.key-bound</c>. <c>EnrollAgent</c> no longer
+    /// writes this shape, so it is built here, with exactly the members <c>EnrollAgent</c> wrote until
+    /// G16: <c>agent_id</c>, <c>kid</c> and <c>reason</c>. Such an identity is bound by its <c>kid</c>
+    /// alone (R4.35).
+    /// </summary>
+    internal async Task EnrollBeforeKeyBindingAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        await using (var admin = new NpgsqlConnection(ConnectionString))
+        {
+            await admin.OpenAsync(ct);
+            await using var insert = new NpgsqlCommand(
+                "INSERT INTO agent_keys (kid, agent_id, alg, public_key, valid_from, valid_until) " +
+                "VALUES (@kid, @agent, 'ES256', @key, @from, NULL);",
+                admin);
+            insert.Parameters.AddWithValue("kid", kid);
+            insert.Parameters.AddWithValue("agent", agentId);
+            insert.Parameters.AddWithValue("key", publicKey);
+            insert.Parameters.AddWithValue("from", Now);
+            if (await insert.ExecuteNonQueryAsync(ct) != 1)
+                throw new InvalidOperationException($"the key row for {agentId} was not written");
+        }
+
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
+        Require(await store.AppendAsync(
+            Require(AggregateId.Create(agentId)),
+            AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create(Require(new UlidGenerator(Clock).Next()).ToString())),
+                Require(EventType.Create(AgentStandingProjector.EnrolledType)),
+                Require(ActorId.Create(agentId)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(kid)),
+                    new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
+                ]))],
             ct));
     }
 
