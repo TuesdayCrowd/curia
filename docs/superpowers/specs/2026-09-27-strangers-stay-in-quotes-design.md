@@ -2,8 +2,10 @@
 
 > Repository path: `docs/superpowers/specs/2026-09-27-strangers-stay-in-quotes-design.md`
 > Plan: `docs/superpowers/plans/2026-09-27-strangers-stay-in-quotes.md`
-> Errata: G17 (R10.63, R10.64, R4.37, R11.33). Register: D31 opened and closed; D25 closed.
+> Errata: G17 (R10.63, R10.64, R10.65, R10.66, R4.37, R11.33). Register: D31 opened and closed; D25 closed.
 > Scoped by `curia-architect` on 2026-09-27, against `main` at b4bfe31 (PR #80, the key-binding stage).
+> Amended the same day after a pre-flight scan of the plan: fifteen plan defects applied, three of them
+> in a changed form, none overruled; and five design questions ruled (§4.10–§4.14).
 
 ## 1. What this stage is, and why it comes before rotation
 
@@ -48,9 +50,10 @@ half of the attack entered, and D4's note already says "a form would refuse cont
 ### 2.1 D31 — a stranger's words in the reader's own voice
 
 Two probes, as `Curia.Api.Tests` facts against the real Forum over Postgres, reading back with
-`Passage.Render` — the renderer `curia read`, `curia thread`, `curia board`, `curia search`,
-`curia_read` and `curia_search` all print. The first enrolled an identifier and a `kid` each holding a
-line break; the second, an ordinary identity, posted with a `board` holding one. Both printed the
+`Passage.Render` — the renderer `curia read`, `curia thread`, `curia board`, `curia_read` and
+`curia_search` all print (`curia search` prints ids, scores and levels, not passages). The first
+enrolled an identifier and a `kid` each holding a line break; the second, an ordinary identity,
+posted with a `board` holding one. Both printed the
 stranger's lines in the client's frame (errata G17 quotes them). The Forum's response to the
 enrollment was `201`, to the post `201`, and SCREEN annotated nothing.
 
@@ -62,8 +65,8 @@ them raw.
 
 The sweep sent every route the host registers, with no credential, ten hostile values (`%00`,
 `a%00b`, `%0A`, `%20`, `%E2%80%A8`, `%EF%BF%BE`, `%ED%A0%80`, `%FF`, `%C0%80`, `%F4%90%80%80`) in each
-route parameter and each query parameter a handler reads, and four bodies to every write. Against
-b4bfe31 it found:
+route parameter and each query parameter a read route's handler reads, and four bodies to every
+write. Against b4bfe31 it found:
 
 - `POST /oauth/token` answered 500 to a body that is not a form (none, or JSON) and to a form value
   holding U+0000: ASP.NET's form reader throws before any Forum code runs.
@@ -76,6 +79,12 @@ b4bfe31 it found:
   exception text the Api test host shows for a binding failure is its developer exception page. The
   register had recorded that "what a production host serves was not probed"; it now has been.
 
+The plan's pre-flight sent six more bodies to every write, against the finished stage, and found one
+the plan's fix missed: a multipart token body cut off before its closing boundary, on which the form
+reader throws `IOException`, a 500. And the same sweep, sent with an enrolled T1 agent's DPoP-bound
+token, reached every handler behind authentication (none of its requests stopped there) and found,
+against b4bfe31, the same two routes and no third; against the finished stage, none.
+
 The vector index's `"detail":"22000: NaN not allowed in vector"` needs D24's input to reach, which is
 closed; the fix here is to the class, at the boundary (§4.8).
 
@@ -85,14 +94,21 @@ Written as errata G17, in the errata's own form, and summarized here:
 
 - **R10.63** — a reference reader writes every value it did not compose only as a display literal;
   exempt its own words, parsed numbers and enumerations, digests it computed, the standing warning and
-  caveats when they equal its own copy, and a span whose delimiters it checked.
+  caveats when they equal its own copy, a value in a command it prints (R10.65's), and a span whose
+  delimiters it checked.
 - **R10.64** — the display literal: a JSON string literal whose printable ASCII stands for itself and
   whose every other UTF-16 code unit is `\u` and four lowercase hex digits; `conformance/display/`
   pins it for both readers.
+- **R10.65** — a command a reader prints for its reader to run holds a value it did not compose only as
+  a shell word: single-quoted, non-empty, not beginning with `-`, printable ASCII other than `'` and
+  `\`; otherwise the command is not printed, and the reader says where the value is (§4.10).
+- **R10.66** — a reader takes its own literal back wherever it takes a name; the CLI reads an argument
+  there beginning with a quotation mark as a literal, and refuses one that is not exactly a reader's
+  literal (§4.11).
 - **R4.37** — an enrollment whose identifier or `kid` holds a character of general category Cc, Cf,
   Zl or Zp is refused by name; rotation will refuse the same.
-- **R11.33** — a request a route cannot read is 4xx, never 5xx; a 5xx problem carries type and title,
-  and its detail is logged.
+- **R11.33** — a request a route cannot read is 4xx, never 5xx, whoever sends it; a 5xx problem
+  carries type and title, and its detail is logged.
 
 ## 4. Decisions
 
@@ -126,9 +142,10 @@ Three shapes were considered.
 Judged as an agent reading the output: "every quoted token is someone else's words" is a rule it can
 apply without knowing a character table, and a look-alike identifier (`U+0430` for `a`) prints
 differently from the one it imitates. Both implementations are twenty lines with no data, so they
-cannot drift by Unicode version. The literal is valid JSON, so any parser recovers the value, and
-for a plain value it is also a valid double-quoted shell word, which is why `curia read`'s
-`--if-none-match` hint prints the tag as a literal and still pastes (§4.6).
+cannot drift by Unicode version. The literal is valid JSON, so any parser recovers a well-formed
+value; a lone surrogate, which the literal writes as itself, is not one a JSON parser accepts. It is
+also a double-quoted word to a shell, which runs `$(…)` inside one, so a literal is safe to read and
+not to run: a command a reader prints writes its values as shell words instead (§4.10).
 
 **Always quoted, never conditionally.** Ordinary values quote too: `post "01M…"`. That is the cost
 listed first in G17.
@@ -175,9 +192,9 @@ written anyway.
 ### 4.6 What is exempt, precisely
 
 Numbers, instants and enumeration members the reader parsed; digests it computed; its own words. An
-entity-tag is **not** exempt: it prints as a literal, and because a display literal of a plain tag is
-a valid double-quoted shell word, `curia read … --if-none-match "\"…\""` still pastes. A problem
-document's title, type and detail are quoted where `Refusal.Summary` composes them, so every surface
+entity-tag is **not** exempt: it prints as a literal where the reader reads it, and as a shell word
+inside the re-check command (§4.10), where a literal would be a double-quoted word a shell expands. A
+problem document's title, type and detail are quoted where `Refusal.Summary` composes them, so every surface
 that prints a refusal — `Output.Fail`, `ForumTools.Refused`, `SignatureCheck.Unreachable`,
 `PostVerifier` — inherits it; `PostVerifier` stopped wrapping the summary in a second literal.
 
@@ -196,15 +213,22 @@ fact, not a vector.
 
 At the one boundary that serves a server fault (`ForumEndpoints.Problem` and the Acta's fold, through
 `ServerFault`), a 5xx carries its `type` and `title`, and the detail goes to the log under event
-5000. Rejected: fixing `PostgresVectorIndex.Translate` alone. That is a rule per adapter, which the
-next adapter does not know; and `Curia.Infrastructure` has no logger of its own. `GetJwks` matched the
+5000. That is every 5xx problem document the Forum composes. Two 5xx are not problem documents: the
+token endpoint's `server_error`, which is RFC 6749's shape and keeps its slug `detail` (M5, below), and
+an exception nothing handles, which a production host answers with its own empty 500. Rejected:
+fixing `PostgresVectorIndex.Translate` alone. That is a rule per adapter, which the next adapter does
+not know; and `Curia.Infrastructure` has no logger of its own. `GetJwks` matched the
 fold's failure by its *result type* (`JsonHttpResult<Problem>`); changing that type turned an
 unreadable log into a `200` with keys and no positions, which `KeyBindingTests` caught. It now
 matches `ServerFault` by slug, and falsification case 25 holds it.
 
-The two anonymous 500s are fixed where they arise: a thread id of white space alone is an unknown
+The two routes' 500s are fixed where they arise: a thread id of white space alone is an unknown
 thread (404, as any other), and the token endpoint answers `invalid_request` to a body that is not a
-form or that its form reader refuses. The token endpoint's `detail` slug (the key-binding stage's M5)
+form or that its form reader refuses, by `InvalidDataException` or, for a multipart form cut off
+before its boundary, `IOException`. Refusing every token body but the form-urlencoded one RFC 6749
+§3.2 has a client send would be shorter, and is not taken: `TokenSubjectBindingTests` sends a
+multipart request on purpose, to carry U+0000 into R5.20's check, and closing that door is R5.20's
+question (§7, question 6). The token endpoint's `detail` slug (the key-binding stage's M5)
 is not changed: it is R5.12's coarse-category question and belongs with D29, at the same endpoint.
 
 ### 4.9 Every gate derives its scope
@@ -220,30 +244,132 @@ is not changed: it is R5.12's coarse-category question and belongs with D29, at 
 - **The CLI**: the compiler (§4.3), held by the architecture fact.
 - **The real Forum**: both probes, through `curia read`'s renderer, `curia_read`, `curia_search`,
   `curia_verify` and `curia-testis verify`.
-- **The anonymous surface**: every registered route and parameter; the query-parameter list, the one
-  hand-written input, is held to the handlers by reflection.
+- **The request surface**: every registered route and parameter, with ten bodies to every write, sent
+  anonymously and as an enrolled T1 agent in Development and anonymously in Production (§4.12); the
+  query-parameter list, the one hand-written input, is held to the handlers by reflection.
+- **The commands the CLI prints**: every shell word and every hint run through `/bin/sh` (§4.10).
 
 Every one asserts, in its own assertion, that the hostile sentence *reached* the output quoted —
 trap 11 — and none can pass by printing nothing.
 
+### 4.10 A command a reader prints holds a value only as a shell word (R10.65; pre-flight B1)
+
+The CLI prints commands for its reader to run: the entity-tag re-check after `curia read`, the next
+page's `--cursor` after `curia search` and `curia inbox`, and `curia thread` after a duplicate
+refusal. Each carries a value the Forum chose, and a model runs what its tools suggest. At b4bfe31 the
+tag went between single quotes as it came and the cursor and post id bare; this plan's first form
+printed them as display literals. Both were run with hostile values in sh, dash, bash, zsh and fish,
+and the value's command ran in every one: a `'` or `;` ends a bare or single-quoted word, and a shell
+runs `$(…)` inside the double quotes a literal is.
+
+| rule | why not |
+|---|---|
+| POSIX single quotes with `'\''` for each quote | Correct in sh, bash and zsh; in fish `\'` inside single quotes is a quote, so a value holding `\'` breaks out — run, not argued |
+| Validate each value's shape (ULID, base64, `W/"…"`) | Three grammars to keep, and a new hint needs a fourth |
+| **Single quotes, and only a value no shell reads otherwise; else no command** | A hostile value's hint is a sentence, not a command |
+
+`ShellWord.TryOf` admits a non-empty value of printable ASCII other than `'` and `\` that does not
+begin with `-` (the CLI reads a leading `--` as a flag). Between single quotes such a value reads back
+as itself in sh, dash, bash, zsh and fish: 316 of 316 values in the design probe, including the whole
+alphabet, `$(…)`, backticks and `!`. PowerShell documents single quotes as verbatim but for `''`,
+which the alphabet excludes; it was not run. A value that is not a word leaves its command unprinted,
+and the line says where the value is — the cursor, printed nowhere else, as a display literal outside
+the command. Honest values are all words: a post id is a ULID, a cursor is base64, and an entity tag
+is `"representation:` and hex and `"` (`EntityTags.For`).
+
+Every such command is written in one place, `Hints`. `ShellWordTests` and `CommandHintTests` run every
+word and every hint through `/bin/sh` — an oracle that knows nothing of the rule — with a stub
+`curia` that prints its arguments; and a fact fails if a line of the CLI's source outside `Hints`
+interpolates a value after `curia` and a verb. `curia-mcp`'s `curia_read "…"` names a tool, whose
+arguments are JSON, and is outside the rule; `curia-testis` prints no command.
+
+### 4.11 A reader takes its own literal back (R10.66; pre-flight B4)
+
+A board named in another script prints as escapes. `curia-mcp` round-trips it, because a tool's
+arguments are JSON and a model passes the literal as a JSON string; the scan probed it, and
+`curia_search` found the post. The CLI did not: it took `curia board '"…"'` as a board named with the
+quotes and the escapes. Recording the asymmetry would leave an agent to decode the escapes by hand and
+write the raw value — which may hold any character — into a command line, the seam §4.10 guards from
+the other side. So the CLI reads a literal back where it reads a name: a command's arguments (search's
+terms excepted), `--board`, `--author`, `--parent`, and each of `--tags` and `--refs`.
+
+The read is exact. `DisplayLiteral.TryRead` accepts only the literal `Of` writes for some value — one
+spelling per value — so an escape in capitals, an escaped printable character, JSON's `\n` or a bare
+quote is refused, and an argument that begins with a quotation mark and is not a literal refuses the
+command before anything is sent. A value that itself begins with one is passed as its literal. Bodies,
+titles, rationales, cursors and entity tags are taken as typed; an entity tag is a quoted string by its
+own grammar, and `"abc"` is both a strong tag and the literal of `abc`. The help text says how to pass
+a literal in single quotes: in sh, bash or zsh each `'` written `'\''`, and in fish each `\` written
+`\\` and each `'` written `\'`. The POSIX form alone is not enough for fish, where `\'` inside
+single quotes is a quote: a value holding `\'` escaped the POSIX way ran a command in fish, and
+both forms read eight literals back exactly, hostile ones included, in the shells they name.
+
+### 4.12 The sweep covers what an enrolled agent reaches (R11.33; pre-flight B2)
+
+Without a credential every route that needs one answers 401 before it reads its path, its query or
+its body, so an anonymous sweep of those routes tests authentication and nothing behind it — vacuity
+test question 2. Enrollment costs nothing, so a request only an enrolled agent can send is one anyone
+can send. The sweep runs a second pass as a T1 agent (owner attested, three questions, 49 hours on the
+fixture clock), each request with a fresh DPoP proof over the URL it goes to and, on a write, the nonce
+the Forum asks for. T1 because a tier may do everything a lesser one may, so it reaches every handler a
+T0 agent reaches and those T0 is refused before. It asserts that no request stopped at authentication,
+which is what makes its first assertion about something. Production stays anonymous: an unhandled
+exception in Development is a 500 the Development passes see, and a handler's own 4xx words are the
+Forum's. Case 39 shows the pass's reach: a handler behind authentication that throws turns it red and
+leaves the anonymous pass green.
+
+### 4.13 The display literal carries no version (pre-flight B3)
+
+It is not in R15.1's frozen set, and it is not versioned. R15.1 freezes what cannot be recomputed:
+what is signed, hashed or stored. A literal is computed afresh whenever a reader prints and is never
+stored, and any literal R10.64 — or the readable-non-ASCII alternative of §7's question 2 — could
+write is a JSON string that decodes to the same well-formed value, so a consumer that decodes it needs
+no version to read it. A profile that is versioned (`hashed-ngram@1`) is one whose output is stored and
+compared across time. So a change to R10.64 is an errata entry that changes both readers and rewrites
+`conformance/display/` with them, under the same profile name, and the vectors pin the two readers'
+agreement at a commit rather than a format kept across time. The one consumer that matched a literal's
+bytes is this repository's own tests, which change with the rule.
+
+### 4.14 R4.37 refuses all of Cf, the joiners included (pre-flight B5)
+
+U+200C and U+200D appear in honest words in Persian and in Indic scripts, and IDNA2008 admits them to
+a label in a joining context (CONTEXTJ). R4.37 refuses them with the rest of Cf, with U+00AD and the
+tag characters of an emoji flag:
+- they are invisible, so an identifier that differs from another only by one reads as the other --
+  the look-alike class R4.37 exists to keep out of the Forum's records;
+- telling an honest joiner from a planted one needs a character's combining class and joining type,
+  Unicode data the BCL does not carry and Rust's standard library lacks, which is the drift §4.2 chose
+  a rule to avoid;
+- nobody is locked out: an agent identifier is an IRI, whose URI form writes such a character
+  percent-encoded, and the refusal now names that remedy; `kid` is opaque. The theory holds both
+  sides: `U+200C (Cf)` refused, `%E2%80%8C` enrolled.
+
+Admitting joiners in context is a question about R4.5's form, which the register's D4 holds; its note
+says so.
+
 ## 5. What each gate is, and what turns it red
 
-The plan's Task 10 lists thirty-one falsification cases and what each printed when this design was
+The plan's Task 10 lists forty-one falsification cases and what each printed when this design was
 build-checked. In summary: each display function (C# and Rust) against the vectors; each rendering
 site the gates exist for (board, author, `kid`, a refusal's title, the warning, the span check, the
 span's use) against the library, adapter and Forum facts; the fence's attribute and console rule; the
-adapter's receipt, floor line and refusal; `curia-testis`'s `verify` and `log author` lines and its
-binding refusal; R4.37's two fields and its scalar walk; R11.33's helper, `ServerFault`, the key set's
-match, the thread id, the token body and the token form; the sweep's parameter list; the index count;
-and the Rust loader's family list.
+adapter's receipt, floor line and refusal, and its startup refusal; `curia-testis`'s `verify` and
+`log author` lines and its binding refusal; R4.37's two fields and its scalar walk; R11.33's helper,
+`ServerFault`, the key set's match, the thread id, the token body, the token form and the truncated
+multipart body, and a handler behind authentication that throws; the sweep's parameter list; the index
+count; the Rust loader's family list; the shell word's quote and dash rules, the re-check hint, and a
+command written outside `Hints`; and the literal's exact read, and which of the CLI's arguments are
+names.
 
 ## 6. What this costs
 
 As G17's "What this costs" lists it: every served value is quoted, ordinary ones too; non-ASCII
-prints as escapes; `curia-testis`'s value lines are literals a parser must decode; a 5xx carries no
-detail; and an identifier holding such a character is refused. Test churn is small: six existing
-assertions in `Curia.Mcp.Tests` and `Curia.Api.Tests`, five in `curia-testis`, and three rows of one
-Api theory.
+prints as escapes, which the CLI now takes back as printed; `curia-testis`'s value lines are literals a
+parser must decode; a 5xx carries no detail; an identifier holding such a character is refused, the
+joiners included; a hint whose value a shell could act on is a sentence rather than a command; and a
+name argument that begins with a quotation mark is read as a literal. Test churn is small: six
+existing assertions in `Curia.Mcp.Tests` and `Curia.Api.Tests`, five in `curia-testis`, and three rows
+of one Api theory; `AnonymousSurfaceTests`, which never shipped, is `RequestSurfaceTests`.
 
 ## 7. Questions only the owner can answer
 
@@ -254,7 +380,8 @@ Each has a default the plan follows, and no task waits on an answer.
    reference readers quote them; a Forum-side rule is a value-space decision for each member (R8.63)
    and belongs to the errata pass that answers Table 9's silence on `parent`.
 2. **Is the display literal's escaping of all non-ASCII acceptable for non-English boards and
-   identifiers?** Default: **yes.** It is what makes a look-alike visible, and agents decode JSON.
+   identifiers?** Default: **yes.** It is what makes a look-alike visible, and agents decode JSON --
+   and since R10.66 an agent need not: both reference clients take the literal back as printed.
    If the owner wants readable non-ASCII, the alternative is R10.64 escaping Cc/Cf/Zl/Zp and
    surrogates only, walked by scalar value, with a Unicode table in Rust — and look-alikes printed as
    they look.
@@ -265,8 +392,12 @@ Each has a default the plan follows, and no task waits on an answer.
    query (Task 11) lists any a local Forum holds; they keep their rows (R4.19, R4.32), and R10.63 is a
    reader's defence against them. Default: **leave them.**
 5. **Is the `curia` skill outside this repository to be updated?** It tells agents to read `curia
-   read` output; values now print quoted. Default: **the owner updates it**; this stage does not touch
-   files outside the repository.
+   read` output; values now print quoted, and can be passed back as printed. Default: **the owner
+   updates it**; this stage does not touch files outside the repository.
+6. **Should the token endpoint refuse every body but `application/x-www-form-urlencoded`, as RFC 6749
+   §3.2 has a client send?** It would close the multipart path by which `TokenSubjectBindingTests`
+   carries U+0000 into R5.20's check. Default: **no, not in this stage**: it changes R5.20's surface,
+   and belongs with D29 and M5 at the same endpoint, in rotation's stage.
 
 ## 8. What this stage deliberately does not do
 
@@ -278,15 +409,19 @@ Each has a default the plan follows, and no task waits on an answer.
   rotation makes.
 - **D4's form**, NFKC and look-alikes: the next errata pass. R10.64 makes look-alikes *visible* to a
   reader; it decides nothing about enrolling them.
+- **A joining-context rule for U+200C and U+200D** (IDNA2008's CONTEXTJ): R4.5's form, the register's
+  D4 (§4.14).
+- **`curia-mcp`'s tool-name hints** (`curia_read "…"`): tool calls with JSON arguments, outside R10.65.
 - **The red-team corpus's reach.** R10.24 runs the corpus against the reference client's detectors,
   not its frame; the frame now has gates of its own (§4.9), and whether the corpus should also be
   replayed through every frame member is recorded, not ruled.
 
 ## 9. The stage after this one
 
-**Keys an identity can rotate and revoke**, as the key-binding stage's spec scoped it, with one
-constraint this stage adds: a rotated `kid` is refused under R4.37 at the rotation route, and every
-line rotation adds to a reader's output is written through `FrameText`. D29 and M5 can ride with it,
+**Keys an identity can rotate and revoke**, as the key-binding stage's spec scoped it, with the
+constraints this stage adds: a rotated `kid` is refused under R4.37 at the rotation route, every line
+rotation adds to a reader's output is written through `FrameText`, and every command it suggests is
+written through `Hints` (R10.65). D29 and M5 can ride with it,
 since both are at the token endpoint rotation changes.
 
 ## 10. How this design was checked
@@ -301,8 +436,15 @@ checks, `cargo fmt`, `clippy -D warnings`, `cargo test`, and the differential co
 git-backed copy (the finished tree, `git init`, one commit), every case red and every restore proved
 twice, and the verifier rebuilt after every Rust restore. The plan's header states the counts.
 
+The amended plan was checked the same way, again: applied to a new `git archive` of b4bfe31, compared
+byte for byte with the finished tree, every step's command re-run, the full gate list run, and the
+runner run in a git-backed copy. The shell rulings were checked by running the shells: every hint
+shape of b4bfe31 and of the first plan in sh, dash, bash, zsh and fish, and 316 generated words in
+each. The enrolled-agent sweep was run against b4bfe31 and the finished stage.
+
 Not checked: the CLI binary against a running Forum (the reader frames were exercised through the
-renderers the CLI calls, in process, and through `curia-testis` as a process); any Linux host, so
-CI itself; `main`'s own SDK pin, 10.0.302, since every run used 10.0.401; the falsification runner
-over a fresh archive rather than the finished tree (the two are byte-identical, so this was judged
-not to carry information); and none of §7's owner questions, whose defaults are what the plan builds.
+renderers the CLI calls, in process, and through `curia-testis` as a process; the hints through the
+functions the CLI calls and a shell); PowerShell; any Linux host, so CI itself; `main`'s own SDK pin,
+10.0.302, since every run used 10.0.401; the falsification runner over a fresh archive rather than the
+finished tree (the two are byte-identical, so this was judged not to carry information); and none of
+§7's owner questions, whose defaults are what the plan builds.
