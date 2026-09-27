@@ -1,7 +1,9 @@
 # Keys bound in the Acta (§4.4, §6.5, §6.6)
 
-**Date:** 2026-09-26. **Status:** proposed. The plan is
-`docs/superpowers/plans/2026-09-27-keys-bound-in-the-acta.md`.
+**Date:** 2026-09-26. **Status:** implemented by
+`docs/superpowers/plans/2026-09-27-keys-bound-in-the-acta.md`. The stage opened and closed **D28**
+under errata **G16**, carried out **D16**'s decided CI change, and opened **D29**, the token
+endpoint's unverified DPoP proof, which its Task 6's review found.
 
 **Register:** this stage opens and closes one entry, numbered when it is written. On this reading the
 highest entry is D27, so it would be **D28**: *the key store alone decided which key an identity held,
@@ -144,8 +146,10 @@ compared the two. It is recorded as trap 22.
      RFCs, not from the renderer. And the enrollment stage's Decision 20 keeps the rule for what is a
      key of each algorithm with the adapter that verifies with it, so a theory holds the renderer to
      each adapter's verdict on every `KeyMaterials` row: a key the key set would omit is never bound.
-     Falsification case 18 shows why the RFC anchor matters: a renderer that swapped a P-256 key's
-     coordinates agrees with itself on both sides of every Forum-side comparison.
+     Falsification case 18 shows why an anchor outside the renderer matters: a renderer that swapped
+     a P-256 key's coordinates agrees with itself on both sides of every Forum-side comparison, and
+     only facts that derive the coordinates independently go red under it, the RFC 7515 fact and the
+     fixed leading-zero point among them.
 
 6. **One rule, where keys are read: `LogBoundKeys`.**
    - An `IAuthorKeyResolver` over the store's resolver, the store's registry and `IEventReader`. It
@@ -306,9 +310,10 @@ compared the two. It is recorded as trap 22.
       pre-G16 identities, the only ones whose replaced row still reaches the verifier, and R4.35's own
       rows are added for identities enrolled since, which are refused before the verifier.
     - `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish`: its rows move to pre-G16
-      identities too, each identity's own `kid`-bound row, the only rows that still reach the
-      renderer. Under an identity enrolled since, R4.35 refuses the row first and the renderer's
-      guard goes untested. The since-G16 shape becomes R4.35's own fact, with another holder's valid
+      identities too, each identity's own `kid`-bound row, the only rows that can still reach the
+      renderer without being a key it renders: a row under an identity enrolled since reaches it
+      only when it is the key the log bound, which renders. Under such an identity, R4.35 refuses
+      the unrenderable row first and the renderer's guard goes untested. The since-G16 shape becomes R4.35's own fact, with another holder's valid
       key under the bound `kid`, which only the key set's comparison of bytes refuses.
     - The row whose header says `EdDSA` over an honest `ES256` key leaves the R4.15 theory, which
       asserts a bad signature, for R5.21's own fact, which asserts the refusal by name.
@@ -420,13 +425,13 @@ small stage of its own, out of band like `attest-owner`, with its own entry.
 | 6 | R5.21 | built and run |
 | 7 | `curia-testis log author` | built; `fmt`, `clippy`, `cargo test` |
 | 8 | R6.54 in the reference client; the stub held to the Forum | built and run |
-| 9 | Falsification: thirty-three cases | run in a git-backed copy: all red, restores clean by bytes and by `git diff` |
+| 9 | Falsification: sixty-one cases in seventy-seven suite runs | run in a git-backed copy: all red, restores clean by bytes and by `git diff` |
 | 10 | Register D28, D16, trap 22; `CLAUDE.md`, README | anchors checked, not built |
 | 11 | Every gate in `CLAUDE.md`; the PR | not run as a whole (see §7) |
 
 ## 4. What gets falsified
 
-Thirty-three cases (the plan's Task 9), each a patch to production code that one or more named facts must
+Sixty-one cases in seventy-seven suite runs (the plan's Task 9), each a patch to production code that one or more named facts must
 turn red: the binding written under another type (1); a binding that carries a key answering on
 the `kid` alone (2); the `kid`-only binding standing beside a carried key (3); the first binding alone
 (4, the seam); the resolver honouring whatever the store resolves (5); the key set listing every row
@@ -439,7 +444,10 @@ pre-flight scan's findings added: `curia-testis` (28) and the client (29) readin
 after the post as a failure, and the client not comparing the binding with the post's author and
 `kid` (30); and three Task 2's review added: the refusal of several stored keys counting another
 identifier's (31), the client holding the binding's proof to its own root rather than the signed
-head's (32), and `curia_verify` dropping the key check's line (33).
+head's (32), and `curia_verify` dropping the key check's line (33); and twenty-eight the later reviews
+added: Task 3's (34, 35), Task 4's (36), Task 5's (37–40), Task 7's (41–48), Task 8's agreement probe
+(49–57, §10) and Task 8's review (58–61). The register's D28 names each, and quotes what every case
+printed in Task 9's run on 40df319.
 
 ## 5. Out of scope
 
@@ -625,7 +633,7 @@ Found while ruling, and recorded:
   the register (the plan's Task 10) record it.
 - **The counts move.** Application 286 after Task 4 and 292 after Task 5; Api 217 after Task 4, 227
   after Tasks 5 and 6, and 229 after Task 8; Client 211 and Mcp 74 after Task 8. Task 9 runs
-  thirty-three cases in forty-six suite runs.
+  thirty-three cases in forty-six suite runs. *It ran sixty-one in seventy-seven in the end (§3).*
 
 ## 10. Amendments after Task 8's agreement probe
 
@@ -676,6 +684,7 @@ What changed:
   index (53); reading an unparseable key entry as failed (54); `curia-testis` ignoring the route's
   leaf hash (55) and index (56); and the client reporting a key set naming no leaf before the post's
   record (57). The carried count for §3 and §4 becomes fifty-seven cases in seventy-three suite runs.
+  *Task 8's review added four more (58–61), so §3 and §4 carry sixty-one in seventy-seven.*
 
 Found while ruling, and recorded:
 
@@ -820,7 +829,8 @@ from the instant the event log recorded that binding. A refused enrollment SHALL
 store and the event log unchanged; R4.14's record of every failed attempt is a separate enrollment
 log, not built, and this clause does not forbid it. Deciding that an identifier holds no key, and
 registering one for it, SHALL be a single act with respect to any concurrent enrollment of the same
-identifier. The reason is G14's, with one sentence corrected and three added. G14's "It cannot check
+identifier. The reason is G14's, with one sentence corrected and eight added, and G14's last
+sentence still ends it. G14's "It cannot check
 the bytes it registers, because the event log binds the `kid` and not the key" now holds only for an
 identifier enrolled before R4.34, for which G14's fourth cost stands: for one enrolled since, the log
 carries the key, and a lost row's recovery registers that key and no other bytes. An identifier the
@@ -855,9 +865,16 @@ the key its signature is to be verified under — for an assertion the agent key
 proof its embedded `jwk` — and a header naming any other algorithm SHALL be refused by name before a
 verifier is chosen. The reason: both validators chose the verifier by the header's `alg`, so a header
 naming the other allowed algorithm handed a key to a verifier it is not a key of. The answer read as a
-bad signature; before G15's key rule it was a 500 any caller could cause against any agent. R5.9 pins
-the access token's own algorithm, and the Forum's detached-JWS verifier already refuses a post whose
-header algorithm is not its key's.
+bad signature; before G15's key rule it was a 500 any caller could cause against any agent. R5.9
+already forbids choosing the access token's verifier by its header; as built, that validator checks
+the header's `alg` only against the allowed algorithms and then chooses by it, under the Forum's own
+issuer key, which the implementation plan's register records. The Forum's detached-JWS verifier
+already refuses a post whose header algorithm is not its key's. The pin itself holds at the two
+validators: a client assertion's at the token endpoint, and a DPoP proof's at the resource server.
+The token endpoint verifies nothing of the proof a token request carries, and reads only its `jwk`,
+for the token's binding, against RFC 9449 §5 and R5.14; R5.21's DPoP clause is unmet there until it
+does. The requirement is not narrowed for that, and the implementation plan's register records the
+gap as D29.
 
 **R6.54** A client that reports a served post as verified SHALL also have established from the log
 that the key the post's signature verifies under is the key the log bound to its author before the
@@ -969,7 +986,7 @@ separates could not be checked from failed, and never makes a post verified.
    history as could not be checked, as it reports a pre-R4.34 identity's, and never as failed; and the
    binding says only that the key is the one the store held, not that it is the one the identity began
    with. Where the store holds more than one key for such an identity, as a store G14's hole reached
-   may, R4.31 (revised) refuses every such request: the identity mints no token (G15), nothing binds
+   may, R4.31 (revised) refuses every such request: the identity mints no token (R4.35), nothing binds
    any of its keys, and it has no path back until R4.18's recovery exists. Until it is bound its key
    set is empty, and readers disagree about its posts, which this entry does not settle: `curia_verify`
    reports them as could not be checked, because the Forum published no key for the author, while

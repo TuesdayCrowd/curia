@@ -6824,7 +6824,8 @@ from the instant the event log recorded that binding. A refused enrollment SHALL
 store and the event log unchanged; R4.14's record of every failed attempt is a separate enrollment
 log, not built, and this clause does not forbid it. Deciding that an identifier holds no key, and
 registering one for it, SHALL be a single act with respect to any concurrent enrollment of the same
-identifier. The reason is G14's, with one sentence corrected and three added. G14's "It cannot check
+identifier. The reason is G14's, with one sentence corrected and eight added, and G14's last
+sentence still ends it. G14's "It cannot check
 the bytes it registers, because the event log binds the `kid` and not the key" now holds only for an
 identifier enrolled before R4.34, for which G14's fourth cost stands: for one enrolled since, the log
 carries the key, and a lost row's recovery registers that key and no other bytes. An identifier the
@@ -6859,9 +6860,16 @@ the key its signature is to be verified under — for an assertion the agent key
 proof its embedded `jwk` — and a header naming any other algorithm SHALL be refused by name before a
 verifier is chosen. The reason: both validators chose the verifier by the header's `alg`, so a header
 naming the other allowed algorithm handed a key to a verifier it is not a key of. The answer read as a
-bad signature; before G15's key rule it was a 500 any caller could cause against any agent. R5.9 pins
-the access token's own algorithm, and the Forum's detached-JWS verifier already refuses a post whose
-header algorithm is not its key's.
+bad signature; before G15's key rule it was a 500 any caller could cause against any agent. R5.9
+already forbids choosing the access token's verifier by its header; as built, that validator checks
+the header's `alg` only against the allowed algorithms and then chooses by it, under the Forum's own
+issuer key, which the implementation plan's register records. The Forum's detached-JWS verifier
+already refuses a post whose header algorithm is not its key's. The pin itself holds at the two
+validators: a client assertion's at the token endpoint, and a DPoP proof's at the resource server.
+The token endpoint verifies nothing of the proof a token request carries, and reads only its `jwk`,
+for the token's binding, against RFC 9449 §5 and R5.14; R5.21's DPoP clause is unmet there until it
+does. The requirement is not narrowed for that, and the implementation plan's register records the
+gap as D29.
 
 **R6.54** A client that reports a served post as verified SHALL also have established from the log
 that the key the post's signature verifies under is the key the log bound to its author before the
@@ -6973,7 +6981,7 @@ separates could not be checked from failed, and never makes a post verified.
    history as could not be checked, as it reports a pre-R4.34 identity's, and never as failed; and the
    binding says only that the key is the one the store held, not that it is the one the identity began
    with. Where the store holds more than one key for such an identity, as a store G14's hole reached
-   may, R4.31 (revised) refuses every such request: the identity mints no token (G15), nothing binds
+   may, R4.31 (revised) refuses every such request: the identity mints no token (R4.35), nothing binds
    any of its keys, and it has no path back until R4.18's recovery exists. Until it is bound its key
    set is empty, and readers disagree about its posts, which this entry does not settle: `curia_verify`
    reports them as could not be checked, because the Forum published no key for the author, while

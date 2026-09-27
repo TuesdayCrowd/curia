@@ -152,6 +152,23 @@ set; SP scores recorded even if not yet weighted.*
 > log keeps for something other than an agent is refused (R4.33), and so are text the log cannot
 > carry, an algorithm or key the Forum cannot verify with, and an identifier longer than it stores.
 >
+> **The key-binding stage** (`docs/superpowers/plans/2026-09-27-keys-bound-in-the-acta.md`, errata
+> G16) closes **D28**, which `curia-architect` opened while scoping it. The key store was the only
+> record of which key an identity held, and every path that honoured a key took its word: a key row
+> no enrollment bound minted a token and signed a question as the identity it was filed under, and
+> every reader verified posts under whatever key the store's key set served. Every enrollment now
+> binds its key in the log, as the public JWK the key set publishes (R4.34). The Forum honours and
+> publishes a stored key only as the log binds it, naming the leaf that binds it (R4.35). A lost
+> row's recovery registers only the key the log carries, and an identifier the log never enrolled is
+> not bound while the store holds several keys for it (R4.31, revised); a header's `alg` must name
+> its key's (R5.21). The reference client and `curia-testis log author` establish from the log
+> alone that the key behind a post was bound to its author before it (R6.54). Identities enrolled
+> before the stage stay bound by their `kid` alone, and readers report their posts as *could not be
+> checked*. The stage also carries out **D16**'s decided CI change: the architecture rules run in
+> Debug in CI as well as in Release. And it opens **D29**, which its Task 6's review found: the
+> token endpoint verifies nothing of the DPoP proof a token request carries, so R5.21's pin holds at
+> the two validators and not there.
+>
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
 > and the Phase 4 one inherit from this one. This document stays as the Phase 3 record and the
@@ -289,15 +306,17 @@ project's documented failure mode is a claim that was true when written.
 
 **Closed:** D1, D2, D3 and D5 by Stage 1 (PR #61); D9 and D15 by the MCP plan's Stage 3 (PR #74),
 which also closed **D16**'s code half — its CI-configuration question was left open deliberately,
-and is now decided but not carried out (see its entry); D17 and D19 by the screener stage
-(2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22, D23, D24, D26 and D27 by the
-enrollment stage (2026-09-26), the last two in its final wave. Their entries are kept as the record
+then decided, and is carried out by the key-binding stage (see its entry); D17 and D19 by the
+screener stage (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22, D23, D24, D26
+and D27 by the enrollment stage (2026-09-26), the last two in its final wave; D28 by the key-binding
+stage. Their entries are kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
 history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D25 (opened by the enrollment stage).
+Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D25 (opened by the enrollment stage); D29
+(opened by the key-binding stage).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -347,7 +366,12 @@ fixtures use `https://agents.example/…`, and nothing validates any of them. Si
 route refuses an identifier that begins `log:` or `flag:` or names an aggregate that holds events
 and no enrollment of it, a post's for example (R4.33), one holding a noncharacter, an unpaired
 surrogate or U+0000, and one over 1,024 UTF-8 bytes. None of that is a form, so this entry stays
-open; the erratum that closes it should state a maximum length at or under that cap.
+open; the erratum that closes it should state a maximum length at or under that cap. *The
+key-binding stage found a line break admitted too. `KeyId.Create` refuses only a blank value
+(`src/Curia.Domain/Keys/KeyId.cs:18-21`), and the enrollment route enrolls an `agent_id` or a `kid`
+holding U+000A, 201 (probed by that stage's Task 10 on f4c8f75). Such an identifier begins a new
+line wherever a reader prints it raw; `curia_verify` quotes it since D28, and the other places are
+listed under "Observed during the key-binding stage". A form would refuse control characters.*
 
 This is what makes "fetch the agent's JWKS" expressible at all — an identifier that is also a
 *location* turns A16/R4.16's prohibition on runtime key fetching from a rule nothing can break into
@@ -582,9 +606,17 @@ one CI uses, or to state that CS-7 is a Release-only property and mean it. **Lef
 choosing between them is a CI-policy decision, and making it silently inside a stage about
 `curia_verify` is how the disagreement arose in the first place.** *Decided on 2026-09-26 as the
 first option — run `Curia.Architecture.Tests` in both configurations in CI — by Decision 23 of
-`docs/superpowers/specs/2026-09-26-moderation-that-can-act-design.md`, to be carried out as its own
-one-line CI change. Until that lands, CI still checks Release only; the moderation stage ran the
-architecture project in both configurations locally.*
+`docs/superpowers/specs/2026-09-26-moderation-that-can-act-design.md`, and carried out by the
+key-binding stage's Task 1: CI's .NET job builds the solution in Debug after the Release run and runs
+the architecture project against it (`.github/workflows/ci.yml`, the step "Architecture rules
+(Debug)"). The solution build is part of the step because CS-15 reads the Debug output of two test
+assemblies, which testing the architecture project alone never builds: without it the step failed
+on every fresh checkout, and in a used tree it read whatever stale test assemblies were on disk.
+That stage's falsification case 27 is the evidence the step carries information: a seven-case string
+switch put back into `PostKinds.TryParse` fails the Debug run (`Offenders:
+Curia.Domain.Content.PostKinds`, in its Task 9's run on 40df319, which D28 quotes) and passes the
+Release one (measured by that stage's pre-flight scan, on 1dbe0ff). The command-list half below is
+not touched by it.*
 
 **It has since recurred in the other language, and cost a red run.** CI's Rust job runs
 `cargo fmt --check` and `cargo clippy --all-targets --locked -- -D warnings` before `cargo test`;
@@ -2565,6 +2597,1201 @@ the one that shows the `EdDSA`-header row carries information.
 [36] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
 ```
 
+### D28 — the key store alone decided which key an identity held, and every verifier took its word *(opened by `curia-architect` on 2026-09-26 and closed by the key-binding stage; errata G16)*
+
+The event log recorded which `kid` an identity enrolled with (`agent.enrolled`, R4.31) and never
+which key. The key store held the key. At 1dbe0ff every path that honoured a key read the store and
+nothing else: ingest's `IAuthorKeyResolver` and the token endpoint's `IAgentKeyResolver` were both
+the store (`Program.cs:112`, `:114`), and the key set every reader verifies with listed whatever the
+store held (`ForumEndpoints.cs:1209`). R6.52's first check verifies a post under a key that key set
+serves. So a row counted as the identity's key because the store held it.
+
+Two kinds of row the store can hold under an enrolled identity were never bound by any enrollment.
+The key-binding stage's facts printed each, on the unchanged code, through the real Forum over
+Postgres (the build-check's run, recorded in the stage's spec, §1.2; the suffixes are random per
+run, and cases 5 and 1 below print the same lines again under a patch that restores the old
+behaviour):
+
+- **A second key**, as D22's hole added them and as any store written before the enrollment stage
+  may still hold them. R4.19 forbids deleting such a row and R4.32 changing it, so every one in any
+  store stays. The fact writes one as the provisioning role:
+
+  ```
+  a key the log never bound acted as https://agents.example/bound-16404ed9: token request 200, question 201 {"post_id":"01M0572TG068D3GQRVKBD6MSCG", …
+  ```
+- **Other bytes under the identity's own `kid`**, registered by a lost row's recovery (errata G14's
+  fourth cost; "R4.31's one exception cannot check bytes", under "Observed during the enrollment
+  stage"):
+
+  ```
+  other bytes under victim-f4f953ce were answered 201, and their holder obtained the victim's token
+  ```
+
+A reader holding the key set could not tell either from the identity's own key: the key set served
+it, and the signature verified under it. **The log's record constrained nothing**, and every test
+that asserted an identity's key was its own had enrolled that identity through the one route that
+writes both records, so the two never disagreed where a test could see it (trap 22).
+
+Two smaller findings rode with it. **The seam the enrollment stage left** (its spec's Decision 8,
+and "What comes next" as it stood): `EnrollmentBinding` read the identity's first `agent.enrolled`
+and nothing else, so a key bound any other way, as R4.18's rotation will bind one, would be refused
+`curia/enroll/already-enrolled` when re-announced, while re-announcing the enrolled key succeeds and
+the API test helper does it on every authentication. And **one of D27's two
+leftovers**: both validators chose the verifier by the header's `alg` and never compared it with the
+key's, so a header naming the other allowed algorithm read as a bad signature
+(`Actual: "curia/authn/signature-invalid "`, both AuthN facts on the unchanged validators).
+
+**Closed** by errata G16:
+- **R4.34.** `EnrollAgent` appends `agent.key-bound`, `{ agent_id, kid, jwk }`, in the same append as
+  `agent.enrolled`, which `EnrollIdentityTests.R4_34_AnEnrollmentAndItsBindingAreOneAppend` holds
+  against a store that takes one append and refuses the next (case 36). The JWK is exactly what
+  `PublicJwk.Of` renders for the key set, so the key published and the key bound are one
+  computation; `EnrollIdentity` renders it before the key store is asked, so a key the log cannot
+  carry leaves no row. `conformance/acta/key-bound-entry` pins the entry kind in both runners, and
+  `EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload` holds the writer to it.
+- **R4.35.** `LogBoundKeys` asks the store first and then holds its answer to the log's bindings.
+  Ingest, the token endpoint (through `LogBoundAgentKeyResolver`) and the key set all read through
+  it, and each published key names `curia_log_index`, the leaf that binds it. A key the log does not
+  bind is refused `curia/keys/not-bound-by-the-log` and is not published. Facts:
+  `KeyBindingTests.R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindSignsNothingAndMintsNothing`, which
+  asserts the damage first; `LogBoundKeysTests`' facts, among them
+  `R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid`, which holds the key set to the binding's bytes
+  and not its `kid` alone (case 38); both rows of
+  `StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken`.
+- **R4.31 (revised).** `EnrollmentBinding` reads every binding an identity holds. A bound `kid` whose
+  binding carries a key admits only that key, in `EnrollIdentity` before the store is asked and again
+  in `EnrollAgent` at the log's record. Facts:
+  `EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName`, and three in
+  `EnrollIdentityTests`: `R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused`,
+  `R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound` and, for the seam,
+  `R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs`. An identifier the log never enrolled is
+  refused `curia/enroll/keys-ambiguous` while the store holds more than one key for it, whichever it
+  presents: binding the one presented would let anyone holding a stored key's public half make that
+  key the identity's, and turn every post signed under its own key into a failure of the signature check (the
+  entry's review found it). Facts:
+  `EnrollIdentityTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundWhileTheStoreHoldsSeveralKeys`
+  and `EnrollmentBindingTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundByWhicheverOfItsKeysIsPresented`.
+- **R5.21.** Both validators refuse `curia/authn/alg-key-mismatch` before a verifier is chosen
+  (`ClientAssertionValidatorTests.R5_21_AHeaderNamingAnotherAlgorithmThanTheKeysIsRefusedByName`,
+  `AccessTokenValidatorDpopTests.R5_21_AProofWhoseHeaderNamesAnotherAlgorithmThanItsJwkIsRefusedByName`,
+  and over HTTP
+  `StoredKeyFormTests.R5_21_AnAssertionWhoseHeaderNamesAnotherAlgorithmThanItsKeyIsRefusedByName`).
+  The pin holds at those two alone: a client assertion's at the token endpoint, and a DPoP proof's at
+  the resource server. The token endpoint verifies nothing of the DPoP proof a token request carries,
+  so no pin runs there (D29).
+- **R6.54.** `PostVerifier`'s fourth check, `key`, and `curia-testis log author`, which reads no agent
+  key set. The overall verdict needs the fourth check verified. Each reader compares the binding with
+  the post's author and `kid` before it trusts the binding's key
+  (`PostVerifierTests.R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey`), and reads the
+  author's binding after the post as *could not be checked*, never *failed*
+  (`PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished`). The client holds the binding's
+  proof to the head it verified (`PostVerifierTests.R6_54_AKeyBindingProvenUnderAnotherRootFails`),
+  and `curia_verify` reports the check on a line of its own
+  (`PropertyP22ToolResultTests.R6_54_TheVerifyToolReportsTheKeyCheckSeparately`), as errata G16's
+  cross-reference of R11.29 requires. Both readers read the post's author, `kid` and signature from its
+  own `post.accepted` entry and not from the read
+  (`PostVerifierTests.R6_54_ThePostsKidIsTheOneItsLogEntryHolds`,
+  `PostVerifierTests.R6_54_AnEntryOfAnotherTypeCarryingThePostsBytesIsNotItsAcceptance`), and the
+  client also fails a post the Forum served as another author's
+  (`PostVerifierTests.R6_54_APostServedAsAnotherAuthorsFailsWhateverTheLogBinds`). Where the two
+  differ, R6.54 says so: a key document the client could not parse, and a missing head, are *could
+  not be checked* for the client, which fetches, and a failure where `curia-testis` can see one, since
+  it is handed files (`PostVerifierTests.R6_54_AKeyDocumentThatDoesNotParseIsNotChecked`,
+  `PostVerifierTests.R6_54_WithNoSignedHeadTheKeyIsNotCheckedAndNoLogMaterialIsFetched`). A proof the
+  head does not commit to fails even where its entry is withheld
+  (`PostVerifierTests.R6_54_AKeyProofOffTheHeadFailsThoughItsEntryIsWithheld`,
+  `PostVerifierTests.R6_54_APostProofOffTheHeadFailsThoughThePostsEntryIsWithheld`), and every value
+  `curia_verify`'s result names that the client did not write is quoted as a JSON string, so none can
+  begin a line (`PostVerifierTests.R11_29_AValueTheLogRecordedCannotBeginALineOfTheResult`).
+
+**What it does not close.** An identity enrolled before G16 is bound by its `kid` alone. A key under
+that `kid` is still honoured whatever its bytes, because nothing recorded the original, and a reader
+reports that identity's posts as *could not be checked*, never *verified*. A key under any other
+`kid` is no longer honoured for it (`LogBoundKeysTests.R4_35_AnIdentityEnrolledBeforeR4_34IsBoundByItsKidAlone`).
+Nothing appends a binding for such an identity; whether an operator should is the owner's question
+(the stage's spec, §2.1). An identity the log never enrolled at all, one enrolled before
+`agent.enrolled` existed, is bound by the first request that re-presents the one key the store holds
+for it, after its whole history; one the store holds several keys for is refused, and has no path
+back until R4.18's recovery exists (errata G16's fifth cost; see below). No identity can rotate,
+revoke or recover a key yet: see "What comes next".
+
+**Falsified:** the stage's Task 9, sixty-one cases in seventy-seven suite runs, each red by name, every
+restore proved by bytes and by `git diff`, and the gates re-run unpatched after a
+`--no-incremental` rebuild. Cases 10 and 11 each turn off one half of R4.31 (revised)'s material
+check and run the application facts alone: by design the other half keeps the HTTP fact green
+(traced, not run in this pass). Case 12, both halves off at once, is the one the surface sees, and
+R4.35 still refuses the impostor's token. Cases 28 and 29 came from the pre-flight scan's finding
+B1: each reader reading the author's binding after the post as a failure (28, `curia-testis`; 29,
+the client). Case 30 came from the amendments that answered the scan: the client not comparing the
+binding with the post (30). Cases 31 to 33 came from errata G16's review: the
+refusal of several stored keys counting another identifier's (31), the client holding the key's
+proof to its own root rather than the signed head's (32), and `curia_verify` dropping the key
+check's line (33). Cases 34 and 35 came from Task 3's review: the renderer stripping a P-256
+coordinate's leading zeros (34), and rendering an Ed25519 key in `EC`'s form, errata D4's trap (35).
+Case 36 came from Task 4's review: the enrollment and its binding written in two appends, which
+only a store that takes one append and refuses the next can tell from one (36). Cases 37 to 40
+came from Task 5's review: the key set rendering every key it lists and throwing on one it cannot,
+which only a pre-G16 identity's row still reaches (37); the key set matching a stored key to its
+binding by `kid` alone, which publishes another holder's key under a bound `kid` (38); the
+resolver handing on the log reader's refusal as its own, a 401 for a server fault (39); and the key
+set serving its keys without positions when the log cannot be read (40). Cases 41 to 48 came from
+Task 7's review: `curia-testis` holding the key's proof to its own root rather than the signed
+head's (41); dropping, one at a time, its comparison of the binding's `kid` (42), its stream (43)
+and its type (44); `log author` reporting a missing head before it checks anything (45); taking
+the two proofs from two trees when there is no head (46); and reading the post's author and `kid`
+from an envelope ADMIT never saw (47) and a header no parser refused (48). Cases 49 to 57 came
+from Task 8's agreement probe: the client verifying a post the Forum served as another author's
+(49), reading an entry of another type carrying the post's bytes as its acceptance (50), and
+taking the read's `kid` and signature in place of the log's (51); holding the key's proof to the
+head only after its entry's order and type (52); ignoring the index the key's entry route states,
+in the client (53) and in `curia-testis` (56), and the leaf hash it states in `curia-testis` (55);
+reading a key entry the client could not parse as failed (54); and reporting a key set naming no
+leaf before the post's own record (57). Cases 58 to 61 came from Task 8's review: the client
+reporting a key proof the signed head does not commit to as *could not be checked* when the key's
+entry is withheld (58), the same of the post's own proof (59) and of the key line that inherits the
+post's failure (60), and the one helper that quotes what `curia_verify` did not write leaving a
+control character raw (61).
+
+The lines below are that run's, as printed in `falsify.log` (Task 9's run on 40df319): every case,
+case 27's included, which is D16's evidence. The plan's Task 9 table says what each case must fail,
+and why the facts that stay green should.
+
+```
+[1] the enrollment appends its binding under a type no reader reads
+[1] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     9, Passed:    14, Skipped:     0, Total:    23, Duration: 99 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundWhileTheStoreHoldsSeveralKeys
+      Assert.Equal() Failure: Collections differ at index 1
+      Expected: "agent.key-bound"
+      Actual:   "agent.key-bound-unread"
+      ↑ (pos 15)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_ReEnrollingTheBoundKeyWritesNothing
+      Assert.Equal() Failure: Collections differ at index 1
+      Expected: "agent.key-bound"
+      Actual:   "agent.key-bound-unread"
+      ↑ (pos 15)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs
+      Assert.Equal() Failure: Collections differ at index 1
+      Expected: "agent.key-bound"
+      Actual:   "agent.key-bound-unread"
+      ↑ (pos 15)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_34_AnEnrollmentAndItsBindingAreOneAppend
+      Assert.Equal() Failure: Strings differ
+      Expected: "enrolled; agent.enrolled, agent.key-bound"
+      Actual:   "enrolled; agent.enrolled, agent.key-bound-unread"
+      ↑ (pos 41)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_34_AnEnrollmentBindsItsKeyInTheLogBesideItsRecord
+      Assert.Equal() Failure: Collections differ at index 1
+      Expected: "agent.key-bound"
+      Actual:   "agent.key-bound-unread"
+      ↑ (pos 15)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AnIdentityWhoseKeyRowWasLostCanReRegisterTheKeyItsEnrollmentBound
+      Assert.Equal() Failure: Collections differ at index 1
+      Expected: "agent.key-bound"
+      Actual:   "agent.key-bound-unread"
+      ↑ (pos 15)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload
+      Assert.Single() Failure: The collection did not contain any matching items
+      Expected:   (predicate expression)
+      Collection: [AppendedEvent { Seq = EventSequence { Value = 1 }, AggregateId = AggregateId { Value = agent://curia.example/tuesdaycrowd/scriptor }, ServerTimestamp = 2026-09-26T12:00:00.0000000+00:00, Event = DomainEvent { Id = EventId { Val
+[1] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     2, Passed:    18, Skipped:     0, Total:    20, Duration: 1 s - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName
+      other bytes under victim-1639354a were answered 201, and their holder obtained the victim's token
+  FAILED Curia.Api.Tests.KeyBindingTests.R6_54_EachPublishedKeyNamesTheLeafThatBindsIt
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 6)
+      Expected: "agent.key-bound https://agents.example/positioned-"···
+      Actual:   "agent.enrolled https://agents.example/positioned-7"···
+      ↑ (pos 6)
+[1] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[2] a binding that carries the key answers on the kid alone
+[2] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     5, Passed:    25, Skipped:     0, Total:    30, Duration: 80 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 16)
+      Expected: "stored=1 bound=[]"
+      Actual:   "stored=1 bound=[alice-1@01M3ESC9G0M4Y41EJNA4AKNT6T"···
+      ↑ (pos 16)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_OtherBytesUnderTheBoundKidAreRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "curia/keys/not-bound-by-the-log"
+      Actual:   "resolved"
+      ↑ (pos 0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+[2] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     4, Passed:    11, Skipped:     0, Total:    15, Duration: 1 s - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName
+      other bytes under victim-31b317af were answered 201, and their holder obtained the victim's token
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_AnotherHoldersKeyUnderABoundKidSignsNothingMintsNothingAndIsNotPublished
+      another holder's key under stored-victim-fed567e6 acted as https://agents.example/stored-victim-fed567e6: token request 200, question 201 {"post_id":"01M0572TG053GWGN50P2JPT1N4","digest":"sha256:dfdaffb3808996e0da59bf9819e0b3f4233d915e5e247
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(material: "32-raw-bytes")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 51)
+      Expected: ···"nt","error_description":"The event log binds no su"···
+      Actual:   ···"nt","error_description":"Signature does not verify"···
+      ↑ (pos 51)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(material: "p384-spki")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 51)
+      Expected: ···"nt","error_description":"The event log binds no su"···
+      Actual:   ···"nt","error_description":"Signature does not verify"···
+      ↑ (pos 51)
+[2] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[3] the kid-only binding stands beside a binding that carries the key
+[3] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     7, Passed:    23, Skipped:     0, Total:    30, Duration: 84 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 16)
+      Expected: "stored=1 bound=[]"
+      Actual:   "stored=1 bound=[alice-1@01M3ESC9G0502SZ6XXAH3DTJ0N"···
+      ↑ (pos 16)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_OtherBytesUnderTheBoundKidAreRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "curia/keys/not-bound-by-the-log"
+      Actual:   "resolved"
+      ↑ (pos 0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_TheKeySetListsOnlyTheKeysTheLogBinds
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 49)
+      Expected: ···"tored=2 bound=[alice-1@01M3ESC9G0MPRH8FWVDJM8ETDC]"
+      Actual:   ···"tored=2 bound=[alice-1@01M3ESC9G0MPRH8FWVDJM8ETDB]"
+      ↑ (pos 49)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_34_OnlyTheIdentitysOwnStreamBindsItsKeys
+      Assert.Equal() Failure: Strings differ
+      Expected: "alice-1"
+      Actual:   "alice-1,alice-1"
+      ↑ (pos 7)
+[3] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     7, Skipped:     0, Total:     8, Duration: 607 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName
+      other bytes under victim-8504ca2f were answered 201, and their holder obtained the victim's token
+[3] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[4] the binding set is its first binding alone
+[4] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     1, Passed:    22, Skipped:     0, Total:    23, Duration: 91 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs
+      System.InvalidOperationException : curia/enroll/already-enrolled: That agent identifier is already enrolled with a different key
+[4] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[5] the resolver honours whatever the store resolves
+[5] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     3, Passed:     4, Skipped:     0, Total:     7, Duration: 46 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_AnIdentityEnrolledBeforeR4_34IsBoundByItsKidAlone
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 27)
+      Expected: ···"ice-1: resolved; hole-1: curia/keys/not-bound-by-t"···
+      Actual:   ···"ice-1: resolved; hole-1: resolved"
+      ↑ (pos 27)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_OtherBytesUnderTheBoundKidAreRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "curia/keys/not-bound-by-the-log"
+      Actual:   "resolved"
+      ↑ (pos 0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindIsRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "curia/keys/not-bound-by-the-log agent=https://agen"···
+      Actual:   "resolved"
+      ↑ (pos 0)
+[5] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     5, Passed:    18, Skipped:     0, Total:    23, Duration: 1 s - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.TokenSubjectBindingTests.R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "curia/keys/not-bound-by-the-log"
+      Actual:   "That agent is not enrolled"
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_AnotherHoldersKeyUnderABoundKidSignsNothingMintsNothingAndIsNotPublished
+      another holder's key under stored-victim-7b482d8f acted as https://agents.example/stored-victim-7b482d8f: token request 200, question 201 {"post_id":"01M0572TG04YHK3WSNMND9J8WG","digest":"sha256:cd809ade8a1498b6156f22ce8f545ec1a5b6e6abeb50d
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(material: "32-raw-bytes")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 51)
+      Expected: ···"nt","error_description":"The event log binds no su"···
+      Actual:   ···"nt","error_description":"Signature does not verify"···
+      ↑ (pos 51)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(material: "p384-spki")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 51)
+      Expected: ···"nt","error_description":"The event log binds no su"···
+      Actual:   ···"nt","error_description":"Signature does not verify"···
+      ↑ (pos 51)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindSignsNothingAndMintsNothing
+      a key the log never bound acted as https://agents.example/bound-120ab148: token request 200, question 201 {"post_id":"01M0572TG09YSHS6CSNWGAVVS2","digest":"sha256:c57fc02ef79f96a205fb2bef146e938a880c9ec7427740c7d6058d0acfbe78ec","server_ts"
+[5] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[6] the key set lists every key the store holds
+[6] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     2, Passed:     5, Skipped:     0, Total:     7, Duration: 51 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 16)
+      Expected: "stored=1 bound=[]"
+      Actual:   "stored=1 bound=[alice-1@unbound]"
+      ↑ (pos 16)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_TheKeySetListsOnlyTheKeysTheLogBinds
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 50)
+      Expected: ···"alice-1@01M3ESC9G0ZKXZAXS9GE8F7B6R]"
+      Actual:   ···"alice-1@01M3ESC9G0ZKXZAXS9GE8F7B6R,hole-1@unbound]"
+      ↑ (pos 50)
+[6] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:    11, Skipped:     0, Total:    12, Duration: 810 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindSignsNothingAndMintsNothing
+      a key the log never bound acted as https://agents.example/bound-46ddc5d5: token request 401, question 401 {"type":"curia/keys/not-bound-by-the-log","title":"The event log binds no such key to that agent","detail":"agent=https://agents.examp
+[6] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[7] the key set reads the log before the store
+[7] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     2, Passed:     3, Skipped:     0, Total:     5, Duration: 250 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_TheKeySetAnswersEveryAgentWithoutA500(encoded: "https%3A%2F%2Fagents.example%2Fnul%00")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "404 curia/keys/unknown-agent"
+      Actual:   "500 Npgsql.PostgresException (0x80004005): 22021: "···
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_TheKeySetAnswersEveryAgentWithoutA500(encoded: "%00")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "404 curia/keys/unknown-agent"
+      Actual:   "500 Npgsql.PostgresException (0x80004005): 22021: "···
+      ↑ (pos 0)
+[7] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[8] the token endpoint resolves through the store alone
+[8] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     6, Passed:    17, Skipped:     0, Total:    23, Duration: 1 s - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.TokenSubjectBindingTests.R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "curia/keys/not-bound-by-the-log"
+      Actual:   "That agent is not enrolled"
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_AnotherHoldersKeyUnderABoundKidSignsNothingMintsNothingAndIsNotPublished
+      another holder's key under stored-victim-81d92b6c acted as https://agents.example/stored-victim-81d92b6c: token request 200, question 401 {"type":"curia/keys/not-bound-by-the-log","title":"The event log binds no such key to that agent","det
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(material: "32-raw-bytes")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 51)
+      Expected: ···"nt","error_description":"The event log binds no su"···
+      Actual:   ···"nt","error_description":"Signature does not verify"···
+      ↑ (pos 51)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(material: "p384-spki")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 51)
+      Expected: ···"nt","error_description":"The event log binds no su"···
+      Actual:   ···"nt","error_description":"Signature does not verify"···
+      ↑ (pos 51)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindSignsNothingAndMintsNothing
+      a key the log never bound acted as https://agents.example/bound-93af7a8b: token request 200, question 401 {"type":"curia/keys/not-bound-by-the-log","title":"The event log binds no such key to that agent","detail":"agent=https://agents.examp
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(path: "token", refuses: "stream", expected: "500 {\"error\":\"server_error\",\"error_descriptio"···)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "500 {"error":"server_error","error_description":"T"···
+      Actual:   "200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6I"···
+      ↑ (pos 0)
+[8] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[9] ingest resolves through the store alone
+[9] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     2, Passed:    10, Skipped:     0, Total:    12, Duration: 834 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindSignsNothingAndMintsNothing
+      a key the log never bound acted as https://agents.example/bound-358e8863: token request 401, question 201 {"post_id":"01M0572TG0GK40F7FQF1M1KA4C","digest":"sha256:c9b72eac33b8e63b0aefa0b9ac241ec1d5e98ea8ef704561573db39cf6e7e379","server_ts"
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(path: "question", refuses: "stream", expected: "503 {\"type\":\"curia/log/unreadable\",\"title\":\"···)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "503 {"type":"curia/log/unreadable","title":"The ev"···
+      Actual:   "201 {"post_id":"01M0572TG09QS6TRJYTN84EBF6","diges"···
+      ↑ (pos 0)
+[9] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[10] the use case's material check off
+[10] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     2, Passed:    21, Skipped:     0, Total:    23, Duration: 99 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid
+      Assert.Empty() Failure: Collection was not empty
+      Collection: [RegisteredKey { Key = PublicKeyMaterial { Alg = ES256, Kid = alice-1, Public = System.ReadOnlyMemory<Byte>[91] }, NotBefore = 9/26/2026 12:00:00 PM +00:00, NotAfter =  }]
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused
+      Assert.Empty() Failure: Collection was not empty
+      Collection: [RegisteredKey { Key = PublicKeyMaterial { Alg = ES256, Kid = alice-1, Public = System.ReadOnlyMemory<Byte>[91] }, NotBefore = 9/26/2026 12:00:00 PM +00:00, NotAfter =  }]
+[10] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[11] the log's record material check off
+[11] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     1, Passed:    22, Skipped:     0, Total:    23, Duration: 94 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+[11] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[12] both material checks off
+[12] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     7, Skipped:     0, Total:     8, Duration: 611 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName
+      other bytes under victim-12a22e77 were answered 201, and their holder obtained no token
+[12] restore clean (bytes equal to the kept copy: 2/2; git diff --quiet: yes)
+[13] a client assertion's alg is not pinned to its key's
+[13] tests/Curia.AuthN.Tests RED
+    Failed!  - Failed:     1, Passed:    14, Skipped:     0, Total:    15, Duration: 157 ms - Curia.AuthN.Tests.dll (net10.0)
+  FAILED Curia.AuthN.Tests.ClientAssertionValidatorTests.R5_21_AHeaderNamingAnotherAlgorithmThanTheKeysIsRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 12)
+      Expected: "curia/authn/alg-key-mismatch header=ES256 key=EdDS"···
+      Actual:   "curia/authn/signature-invalid "
+      ↑ (pos 12)
+[13] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 291 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R5_21_AnAssertionWhoseHeaderNamesAnotherAlgorithmThanItsKeyIsRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 51)
+      Expected: ···"nt","error_description":"The header names another "···
+      Actual:   ···"nt","error_description":"Signature does not verify"···
+      ↑ (pos 51)
+[13] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[14] a DPoP proof's alg is not pinned to its jwk's
+[14] tests/Curia.AuthN.Tests RED
+    Failed!  - Failed:     1, Passed:    11, Skipped:     0, Total:    12, Duration: 56 ms - Curia.AuthN.Tests.dll (net10.0)
+  FAILED Curia.AuthN.Tests.AccessTokenValidatorDpopTests.R5_21_AProofWhoseHeaderNamesAnotherAlgorithmThanItsJwkIsRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 12)
+      Expected: "curia/authn/alg-key-mismatch header=ES256 key=EdDS"···
+      Actual:   "curia/authn/signature-invalid "
+      ↑ (pos 12)
+[14] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[15] the renderer publishes an ES256 key on any named curve
+[15] tests/Curia.Canon.Sodium.Tests RED
+    Failed!  - Failed:     1, Passed:    16, Skipped:     0, Total:    17, Duration: 188 ms - Curia.Canon.Sodium.Tests.dll (net10.0)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_34_TheRendererRefusesExactlyWhatTheVerifierRefuses(alg: "ES256", material: "p384-spki", isKey: False)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 23)
+      Expected: "adapter=False rendered=False"
+      Actual:   "adapter=False rendered=True"
+      ↑ (pos 23)
+[15] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[16] the renderer publishes an EdDSA key of any length
+[16] tests/Curia.Canon.Sodium.Tests RED
+    Failed!  - Failed:     3, Passed:    14, Skipped:     0, Total:    17, Duration: 181 ms - Curia.Canon.Sodium.Tests.dll (net10.0)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_34_TheRendererRefusesExactlyWhatTheVerifierRefuses(alg: "EdDSA", material: "33-bytes", isKey: False)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 23)
+      Expected: "adapter=False rendered=False"
+      Actual:   "adapter=False rendered=True"
+      ↑ (pos 23)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_34_TheRendererRefusesExactlyWhatTheVerifierRefuses(alg: "EdDSA", material: "p256-spki", isKey: False)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 23)
+      Expected: "adapter=False rendered=False"
+      Actual:   "adapter=False rendered=True"
+      ↑ (pos 23)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_34_TheRendererRefusesExactlyWhatTheVerifierRefuses(alg: "EdDSA", material: "31-bytes", isKey: False)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 23)
+      Expected: "adapter=False rendered=False"
+      Actual:   "adapter=False rendered=True"
+      ↑ (pos 23)
+[16] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[17] two public JWKs compared by length
+[17] tests/Curia.Canon.Sodium.Tests RED
+    Failed!  - Failed:     1, Passed:    16, Skipped:     0, Total:    17, Duration: 115 ms - Curia.Canon.Sodium.Tests.dll (net10.0)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_34_SameKeyComparesTheKeyNotTheReference
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 20)
+      Expected: "same=True different=False"
+      Actual:   "same=True different=True"
+      ↑ (pos 20)
+[17] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     4, Passed:    26, Skipped:     0, Total:    30, Duration: 87 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 16)
+      Expected: "stored=1 bound=[]"
+      Actual:   "stored=1 bound=[alice-1@01M3ESC9G0E04TCP5CH01AD3JT"···
+      ↑ (pos 16)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_OtherBytesUnderTheBoundKidAreRefusedByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "curia/keys/not-bound-by-the-log"
+      Actual:   "resolved"
+      ↑ (pos 0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = True }
+[17] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     7, Skipped:     0, Total:     8, Duration: 620 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName
+      other bytes under victim-70cbf136 were answered 201, and their holder obtained the victim's token
+[17] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[18] the renderer swaps a P-256 key's coordinates
+[18] tests/Curia.Canon.Sodium.Tests RED
+    Failed!  - Failed:     2, Passed:    15, Skipped:     0, Total:    17, Duration: 108 ms - Curia.Canon.Sodium.Tests.dll (net10.0)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_28_AP256CoordinateThatBeginsWithZeroIsRenderedAtFullWidth
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 69)
+      Expected: ···"zeros","kty":"EC","x":"AAB-5fiMEJIpXm_c9khweWztuCm"···
+      Actual:   ···"zeros","kty":"EC","x":"AAC7ecfw4dPbjRBKTllZ2QksN8o"···
+      ↑ (pos 69)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_28_AP256KeyIsRenderedAsRfc7518sEcForm
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 64)
+      Expected: ···"7515-a3","kty":"EC","x":"f83OJ3D2xF1Bg8vub9tLe1gHM"···
+      Actual:   ···"7515-a3","kty":"EC","x":"x_FEzRu9m36HLN_tue659LNpX"···
+      ↑ (pos 64)
+[18] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     1, Passed:    22, Skipped:     0, Total:    23, Duration: 98 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_34_AnEnrollmentBindsItsKeyInTheLogBesideItsRecord
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 95)
+      Expected: ···"256,kid:alice-1,kty:EC,x:7g1n5OfeL8_UE88SYuLM8L4RV"···
+      Actual:   ···"256,kid:alice-1,kty:EC,x:v14P9KDkPE-i0vRbBtb0Nb_O5"···
+      ↑ (pos 95)
+[18] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     5, Passed:     3, Skipped:     0, Total:     8, Duration: 513 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_EnrollingAnEnrolledIdentityWithANewKeyRegistersNothing
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "xANgzBrpcN-ZweIIkyf4rJZVLOzv6yX0RXnco7t2wiw"
+      Actual:   "U0wyZr1qg0a55M_UvSi17oF3VZMr5UDH5TzZmYUtfOk"
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_AnIdentityWhoseKeyRowWasLostIsStillBoundByItsEnrollment
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "RCN0dxAmTa5_02GzYW6Pz3Bi97cTpbpDUF1SSxEyib8"
+      Actual:   "ng9mcUjBS12OaRZM6KYdfjx0OouCAy0zYgNA6aHtNAg"
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_ReEnrollingTheEnrolledKeyIsAcceptedAndChangesNothing
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "llBTcCEQj3J8KDeaKT0FhzWqoONQGcGzUuyG2ANx7jk"
+      Actual:   "fakz1wpWmv4XdUu0Sac5lNepyPCH9KHkxdymQlAYygk"
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_AKidAnotherIdentityHoldsIsRefusedNamingBoth
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "mI9kW0WCe15QnnM_4Uz4wcWRCruFmnpqaFj0yn08XzM"
+      Actual:   "uWA5h3jR0ky5dM-bCLsRfpVmW8J3cybObS3itOIF7S4"
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "y0W-ApngPha7cDeTH8VPHNPyuul_8rsJNjb8Y3oVsbM"
+      Actual:   "s-taiy22uBkhskP2_gw_o8tkkEmvAFZzll5nJpjpU7w"
+      ↑ (pos 0)
+[18] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[19] the client's binding check verifies nothing under the bound key
+[19] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 349 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_ALogThatBoundAnotherKeyFailsTheBindingThoughTheSignatureVerifies
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+[19] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[20] the client's binding check ignores the order of the leaves
+[20] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 353 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+[20] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[21] the client reads a kid-only enrollment as a verified binding
+[21] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 360 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyTheLogNamesByKidAloneIsNotEstablished
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+[21] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[22] the overall verdict ignores the binding
+[22] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     5, Passed:    39, Skipped:     0, Total:    44, Duration: 352 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeySetNamingNoLeafCannotBeChecked
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyTheLogNamesByKidAloneIsNotEstablished
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyDocumentThatDoesNotParseIsNotChecked(route: "entry")
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyDocumentThatDoesNotParseIsNotChecked(route: "proof")
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+[22] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[23] a key set naming no leaf is read as a verified binding
+[23] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 362 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeySetNamingNoLeafCannotBeChecked
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Verified
+[23] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[24] curia-testis ignores the order of the leaves
+[24] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+  FAILED r6_54_a_key_bound_after_the_post_is_not_established
+      thread 'r6_54_a_key_bound_after_the_post_is_not_established' (4953299) panicked at tests/log_author.rs:155:34:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 2, post_index: 0 }
+[24] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[25] curia-testis does not compare the binding with the post
+[25] cargo log_author RED
+    test result: FAILED. 16 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+  FAILED r6_54_another_identitys_enrollment_fails
+      thread 'r6_54_another_identitys_enrollment_fails' (4954024) panicked at tests/log_author.rs:216:5:
+      assertion `left == right` failed: the log names kid `conformance-ed25519-minimal` only in the author's enrollment, which carries no key [curia/acta/key-not-carried]
+      left: ("curia/acta/key-not-carried", true)
+      right: ("curia/acta/binding-mismatch", false)
+  FAILED r6_54_a_binding_for_another_identity_fails
+      thread 'r6_54_a_binding_for_another_identity_fails' (4954011) panicked at tests/log_author.rs:188:34:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 0, post_index: 2 }
+  FAILED r6_54_a_binding_in_another_identitys_stream_fails
+      thread 'r6_54_a_binding_in_another_identitys_stream_fails' (4954012) panicked at tests/log_author.rs:357:34:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 0, post_index: 2 }
+  FAILED r6_54_the_authors_enrollment_of_another_kid_fails
+      thread 'r6_54_the_authors_enrollment_of_another_kid_fails' (4954028) panicked at tests/log_author.rs:336:5:
+      assertion `left == right` failed: the log names kid `another-kid` only in the author's enrollment, which carries no key [curia/acta/key-not-carried]
+      left: ("curia/acta/key-not-carried", true)
+      right: ("curia/acta/binding-mismatch", false)
+[25] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[26] curia-testis reads a kid-only enrollment as not a binding at all
+[26] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+  FAILED r6_54_an_enrollment_that_names_the_kid_alone_is_not_checked
+      thread 'r6_54_an_enrollment_that_names_the_kid_alone_is_not_checked' (4954724) panicked at tests/log_author.rs:199:5:
+      assertion `left == right` failed: key entry has no usable `jwk` [curia/acta/missing-field]
+      left: ("curia/acta/missing-field", false)
+      right: ("curia/acta/key-not-carried", true)
+[26] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 582 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone
+      Assert.StartsWith() Failure: String start does not match
+      String:         "exit 1: error: key entry has no usable `jwk` [curi"···
+      Expected start: "exit 3:"
+[26] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[27] Curia.Domain regains a seven-case string switch (D16)
+[27] tests/Curia.Architecture.Tests RED
+    Failed!  - Failed:     1, Passed:     7, Skipped:     0, Total:     8, Duration: 136 ms - Curia.Architecture.Tests.dll (net10.0)
+  FAILED Curia.Architecture.Tests.LayeringTests.CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives
+      Curia.Domain must depend on nothing beyond the BCL, Curia.Canon, and Curia.Domain.Primitives (CS-7, R11.1-R11.2). Offenders: Curia.Domain.Content.PostKinds
+[27] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[28] curia-testis reports the author's binding after the post as a failure
+[28] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+  FAILED r6_54_a_key_bound_after_the_post_is_not_established
+      thread 'r6_54_a_key_bound_after_the_post_is_not_established' (4956897) panicked at tests/log_author.rs:156:5:
+      assertion `left == right` failed: the key is bound at leaf 2, which is not before the post at leaf 0 [curia/acta/bound-after-post]
+      left: ("curia/acta/bound-after-post", false)
+      right: ("curia/acta/bound-after-post", true)
+[28] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 628 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone
+      Assert.StartsWith() Failure: String start does not match
+      String:         "exit 1: error: the key is bound at leaf 10, which "···
+      Expected start: "exit 3:"
+[28] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[29] the client reports the author's binding after the post as a failure
+[29] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 354 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Failed
+[29] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[30] the client does not compare the binding with the post's author and kid
+[30] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     2, Passed:    42, Skipped:     0, Total:    44, Duration: 357 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_ThePostsKidIsTheOneItsLogEntryHolds
+      Assert.Contains() Failure: Sub-string not found
+      String:    "the post, as the log holds it, does not verify und"···
+      Not found: "under kid="alice-2""
+[30] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[31] an identifier the log never enrolled is bound whatever the store holds for it
+[31] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     1, Passed:    22, Skipped:     0, Total:    23, Duration: 96 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundWhileTheStoreHoldsSeveralKeys
+      System.InvalidOperationException : expected a refusal, got AgentEnrollment { EnrolledAt = 9/26/2026 12:00:00 PM +00:00, OwnerVerified = False, WasAlreadyEnrolled = False }
+[31] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     7, Skipped:     0, Total:     8, Duration: 636 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundByWhicheverOfItsKeysIsPresented
+      presenting the second stored key of https://agents.example/never-enrolled-5c9df2b2 was answered 201, and the identity's own key then 409
+[31] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[32] the client holds the key's proof to its own root, not the signed head's
+[32] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     3, Passed:    41, Skipped:     0, Total:    44, Duration: 349 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyBindingProvenUnderAnotherRootFails
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AnUnestablishedBindingUnderAnotherRootFailsRatherThanGoingUnchecked(enrolledBeforeR4_34: False)
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AnUnestablishedBindingUnderAnotherRootFailsRatherThanGoingUnchecked(enrolledBeforeR4_34: True)
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+[32] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[33] curia_verify's result drops the key check's line
+[33] tests/Curia.Mcp.Tests RED
+    Failed!  - Failed:     1, Passed:    14, Skipped:     0, Total:    15, Duration: 240 ms - Curia.Mcp.Tests.dll (net10.0)
+  FAILED Curia.Mcp.Tests.PropertyP22ToolResultTests.R6_54_TheVerifyToolReportsTheKeyCheckSeparately
+      Assert.Contains() Failure: Sub-string not found
+      String:    "subject     WARNING: no read in this session serve"···
+      Not found: "key         verified: "
+[33] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[34] the renderer strips a P-256 coordinate's leading zeros
+[34] tests/Curia.Canon.Sodium.Tests RED
+    Failed!  - Failed:     1, Passed:    16, Skipped:     0, Total:    17, Duration: 85 ms - Curia.Canon.Sodium.Tests.dll (net10.0)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_28_AP256CoordinateThatBeginsWithZeroIsRenderedAtFullWidth
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 67)
+      Expected: ···"g-zeros","kty":"EC","x":"AAB-5fiMEJIpXm_c9khweWztu"···
+      Actual:   ···"g-zeros","kty":"EC","x":"fuX4jBCSKV5v3PZIcHls7bgpv"···
+      ↑ (pos 67)
+[34] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[35] the renderer publishes an Ed25519 key in EC's form (errata D4's trap)
+[35] tests/Curia.Canon.Sodium.Tests RED
+    Failed!  - Failed:     1, Passed:    16, Skipped:     0, Total:    17, Duration: 120 ms - Curia.Canon.Sodium.Tests.dll (net10.0)
+  FAILED Curia.Canon.Sodium.Tests.PublicJwkTests.R4_28_AnEd25519KeyIsRenderedAsRfc8037sOctetKeyPair
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 56)
+      Expected: ···""kid":"rfc8037-a","kty":"OKP","x":"11qYAYKxCrfVS_7"···
+      Actual:   ···""kid":"rfc8037-a","kty":"EC","x":"11qYAYKxCrfVS_7T"···
+      ↑ (pos 56)
+[35] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[36] the enrollment and its binding written in two appends
+[36] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     1, Passed:    22, Skipped:     0, Total:    23, Duration: 99 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.EnrollIdentityTests.R4_34_AnEnrollmentAndItsBindingAreOneAppend
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "enrolled; agent.enrolled, agent.key-bound"
+      Actual:   "test/append-failed; agent.enrolled"
+      ↑ (pos 0)
+[36] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[37] the key set renders every key it lists, and throws on one it cannot
+[37] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 433 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 58)
+      Expected: ···"3795321] x=32 y=32; raw: 200 kids=[] x= y=; p384: "···
+      Actual:   ···"3795321] x=32 y=32; raw: 500 System.InvalidOperati"···
+      ↑ (pos 58)
+[37] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[38] the key set matches a stored key to its binding by kid alone
+[38] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 50 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Credentials.LogBoundKeysTests.R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 16)
+      Expected: "stored=1 bound=[]"
+      Actual:   "stored=1 bound=[alice-1@01M3ESC9G04VBQSHG7A3D64S92"···
+      ↑ (pos 16)
+[38] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 414 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.StoredKeyFormTests.R4_35_AnotherHoldersKeyUnderABoundKidSignsNothingMintsNothingAndIsNotPublished
+      another holder's key under stored-victim-b2b2aed9 acted as https://agents.example/stored-victim-b2b2aed9: token request 401, question 401 {"type":"curia/keys/not-bound-by-the-log","title":"The event log binds no such key to that agent","det
+[38] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[39] the resolver hands on the log reader's refusal as its own
+[39] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: 725 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(path: "question", refuses: "stream", expected: "503 {\"type\":\"curia/log/unreadable\",\"title\":\"···)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "503 {"type":"curia/log/unreadable","title":"The ev"···
+      Actual:   "401 {"type":"test/log-unreadable","title":"The tes"···
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(path: "token", refuses: "stream", expected: "500 {\"error\":\"server_error\",\"error_descriptio"···)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "500 {"error":"server_error","error_description":"T"···
+      Actual:   "401 {"error":"invalid_client","error_description":"···
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(path: "key set", refuses: "stream", expected: "503 {\"type\":\"curia/log/unreadable\",\"title\":\"···)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 13)
+      Expected: "503 {"type":"curia/log/unreadable","title":"The ev"···
+      Actual:   "503 {"type":"test/log-unreadable","title":"The tes"···
+      ↑ (pos 13)
+[39] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[40] the key set serves its keys without positions when the log cannot be read
+[40] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 730 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(path: "key set", refuses: "whole", expected: "503 {\"type\":\"curia/log/unreadable\",\"title\":\"···)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "503 {"type":"curia/log/unreadable","title":"The ev"···
+      Actual:   "200 {"keys":[{"kty":"EC","crv":"P-256","alg":"ES25"···
+      ↑ (pos 0)
+[40] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[41] curia-testis holds the key's proof to its own root, not the signed head's
+[41] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+  FAILED r6_54_a_binding_proven_under_a_tree_the_head_does_not_cover_fails
+      thread 'r6_54_a_binding_proven_under_a_tree_the_head_does_not_cover_fails' (4965967) panicked at tests/log_author.rs:322:6:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 0, post_index: 2 }
+[41] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[42] curia-testis does not compare the binding's kid with the post's
+[42] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+  FAILED r6_54_the_authors_enrollment_of_another_kid_fails
+      thread 'r6_54_the_authors_enrollment_of_another_kid_fails' (4966704) panicked at tests/log_author.rs:336:5:
+      assertion `left == right` failed: the log names kid `another-kid` only in the author's enrollment, which carries no key [curia/acta/key-not-carried]
+      left: ("curia/acta/key-not-carried", true)
+      right: ("curia/acta/binding-mismatch", false)
+[42] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[43] curia-testis does not hold the binding to the author's own stream
+[43] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+  FAILED r6_54_a_binding_in_another_identitys_stream_fails
+      thread 'r6_54_a_binding_in_another_identitys_stream_fails' (4967466) panicked at tests/log_author.rs:357:34:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 0, post_index: 2 }
+[43] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[44] curia-testis reads an entry of any type as the key's binding
+[44] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+  FAILED r6_54_an_entry_of_another_type_fails_though_it_carries_the_key
+      thread 'r6_54_an_entry_of_another_type_fails_though_it_carries_the_key' (4968168) panicked at tests/log_author.rs:375:34:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 0, post_index: 2 }
+[44] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[45] log author reports a missing head before it checks anything
+[45] cargo log_author RED
+    test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+  FAILED r6_54_log_author_without_a_head_fails_what_is_not_json
+      thread 'r6_54_log_author_without_a_head_fails_what_is_not_json' (4968883) panicked at tests/log_author.rs:386:5:
+      assertion `left == right` failed: stdout:
+      head: not checked
+      stderr:
+      not checked: every check that needs no head held, and no signed head was given, so neither proof is tied to a root the log's key signed, and the order of the two leaves is the Forum's word. Pass --head and --log-jwks.
+      left: (Some(3), false)
+      right: (Some(1), true)
+  FAILED r6_54_log_author_without_a_head_fails_a_forged_entry
+      thread 'r6_54_log_author_without_a_head_fails_a_forged_entry' (4968882) panicked at tests/log_author.rs:416:5:
+      assertion `left == right` failed: stdout:
+      head: not checked
+      stderr:
+      not checked: every check that needs no head held, and no signed head was given, so neither proof is tied to a root the log's key signed, and the order of the two leaves is the Forum's word. Pass --head and --log-jwks.
+      left: (Some(3), false)
+      right: (Some(1), true)
+[45] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[46] with no head, curia-testis takes the two proofs from any two trees
+[46] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+  FAILED r6_54_without_a_head_proofs_against_two_trees_fail
+      thread 'r6_54_without_a_head_proofs_against_two_trees_fail' (4969676) panicked at tests/log_author.rs:441:6:
+      called `Result::unwrap_err()` on an `Ok` value: ()
+[46] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[47] curia-testis reads the post's author from an envelope ADMIT never saw
+[47] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+  FAILED r6_54_an_envelope_admit_refuses_fails_though_its_key_is_bound_after_it
+      thread 'r6_54_an_envelope_admit_refuses_fails_though_its_key_is_bound_after_it' (4970397) panicked at tests/log_author.rs:461:5:
+      assertion `left == right` failed: the key is bound at leaf 2, which is not before the post at leaf 0 [curia/acta/bound-after-post]
+      left: ("curia/acta/bound-after-post", true)
+      right: ("curia/acta/malformed", false)
+[47] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[48] curia-testis reads the post's kid from a header no parser refused
+[48] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+  FAILED r6_54_a_signature_header_naming_a_member_twice_fails_though_its_key_is_bound_after_it
+      thread 'r6_54_a_signature_header_naming_a_member_twice_fails_though_its_key_is_bound_after_it' (4971175) panicked at tests/log_author.rs:488:5:
+      assertion `left == right` failed: the key is bound at leaf 2, which is not before the post at leaf 0 [curia/acta/bound-after-post]
+      left: ("curia/acta/bound-after-post", true)
+      right: ("curia/acta/malformed", false)
+[48] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[49] the client does not compare the Forum's attribution with the signed author
+[49] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     3, Passed:    41, Skipped:     0, Total:    44, Duration: 359 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostServedWithNoAuthorFailsAndSaysSo
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostServedAsAnotherAuthorsFailsWhateverTheLogBinds(logBindsTheKeyToMallory: False)
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostServedAsAnotherAuthorsFailsWhateverTheLogBinds(logBindsTheKeyToMallory: True)
+      Assert.Contains() Failure: Sub-string not found
+      String:    "the entry at leaf 0 ("agent.key-bound") is an entr"···
+      Not found: "served this post as written by "https://agents.exa"···
+[49] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[50] the client reads an entry of any type as the post's acceptance
+[50] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     3, Passed:    41, Skipped:     0, Total:    44, Duration: 356 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostsOwnRecordFailsEvenWhereTheKeySetNamesNoLeaf
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AnEntryOfAnotherTypeCarryingThePostsBytesIsNotItsAcceptance
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+  FAILED Curia.Client.Tests.PostVerifierTests.R11_29_AValueTheLogRecordedCannotBeginALineOfTheResult
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+[50] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[51] the client takes the post's kid and signature from the read, not the log
+[51] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 359 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_ThePostsKidIsTheOneItsLogEntryHolds
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+[51] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[52] the client holds the key's proof to the head only after its order and type
+[52] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     2, Passed:    42, Skipped:     0, Total:    44, Duration: 355 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AnUnestablishedBindingUnderAnotherRootFailsRatherThanGoingUnchecked(enrolledBeforeR4_34: False)
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AnUnestablishedBindingUnderAnotherRootFailsRatherThanGoingUnchecked(enrolledBeforeR4_34: True)
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+[52] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[53] the client ignores the index the key's entry route states
+[53] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 354 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_TheKeyEntryRoutesOwnStatementsAreComparedNotTaken(member: "log_index")
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   Verified
+[53] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[54] the client reports a key entry it could not parse as failed
+[54] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 356 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyDocumentThatDoesNotParseIsNotChecked(route: "entry")
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Failed
+[54] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[55] curia-testis ignores the leaf hash the entry route states
+[55] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+  FAILED r6_54_a_key_entry_route_stating_another_leaf_hash_fails
+      thread 'r6_54_a_key_entry_route_stating_another_leaf_hash_fails' (4975022) panicked at tests/log_author.rs:522:6:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 0, post_index: 2 }
+[55] cargo log_outcomes RED
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+  FAILED r6_52_an_entry_route_misstating_its_leaf_or_index_fails
+      thread 'r6_52_an_entry_route_misstating_its_leaf_or_index_fails' (4975206) panicked at tests/log_outcomes.rs:226:9:
+      assertion `left == right` failed: leaf: not checked: the audit path verifies, and no signed head was given to tie its root to. Pass --head and --log-jwks. A root nobody signed is a root the Forum can have invented.
+      left: (3, false)
+      right: (1, true)
+[55] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[56] curia-testis ignores the index the entry route states
+[56] cargo log_author RED
+    test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+  FAILED r6_54_a_key_entry_route_naming_another_index_fails
+      thread 'r6_54_a_key_entry_route_naming_another_index_fails' (4975947) panicked at tests/log_author.rs:545:6:
+      called `Result::unwrap_err()` on an `Ok` value: VerifiedAuthor { author: "agent://curia.example/tuesdaycrowd/scriptor", kid: "conformance-ed25519-minimal", alg: "EdDSA", key_index: 0, post_index: 2 }
+[56] cargo log_outcomes RED
+    test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+  FAILED r6_52_an_entry_route_misstating_its_leaf_or_index_fails
+      thread 'r6_52_an_entry_route_misstating_its_leaf_or_index_fails' (4976170) panicked at tests/log_outcomes.rs:226:9:
+      assertion `left == right` failed: index: not checked: the audit path verifies, and no signed head was given to tie its root to. Pass --head and --log-jwks. A root nobody signed is a root the Forum can have invented.
+      left: (3, false)
+      right: (1, true)
+[56] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[57] the client reports a key set naming no leaf before it checks the post's own record
+[57] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     2, Passed:    42, Skipped:     0, Total:    44, Duration: 348 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostServedWithNoAuthorFailsAndSaysSo
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostsOwnRecordFailsEvenWhereTheKeySetNamesNoLeaf
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+[57] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[58] the client reports a key proof off the head as not checked when the key's entry is withheld
+[58] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     2, Passed:    42, Skipped:     0, Total:    44, Duration: 358 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyProofOffTheHeadFailsThoughItsEntryIsWithheld(withheld: "garbage")
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_AKeyProofOffTheHeadFailsThoughItsEntryIsWithheld(withheld: "unavailable")
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+[58] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[59] the client reports the post's proof off the head as not checked when the post's entry is withheld
+[59] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 350 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostProofOffTheHeadFailsThoughThePostsEntryIsWithheld
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+[59] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[60] the key line reports the post's entry as not in hand where the inclusion line failed
+[60] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 357 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_54_APostProofOffTheHeadFailsThoughThePostsEntryIsWithheld
+      Assert.Equal() Failure: Values differ
+      Expected: Failed
+      Actual:   CouldNotCheck
+[60] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[61] the helper that quotes what curia_verify did not write leaves a control character raw
+[61] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    43, Skipped:     0, Total:    44, Duration: 352 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R11_29_AValueTheLogRecordedCannotBeginALineOfTheResult
+      Assert.StartsWith() Failure: String start does not match
+      String:         "key         verified: FORGED LINE"
+      Expected start: "key         FAILED: "
+[61] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+runner exit: 0
+```
+
+### D29 — the token endpoint verifies nothing of the DPoP proof a token request carries *(pre-existing; found by the key-binding stage's Task 6 review, 2026-09-27; opened by that stage)*
+
+**Found by the review of R5.21's task, and confirmed by execution.**
+`src/Curia.Api/Issuer/TokenEndpoint.cs:80` takes the proof's thumbprint through `DpopThumbprintOf`
+(`:158`), which reads the header's `jwk` and nothing else, as its summary says: "read without
+verifying the proof" (`:150`). The token is bound to that thumbprint (`:133-135`). No `typ`,
+algorithm, signature, `htm`, `htu`, `iat` or `jti` of the proof is checked. The review probed it on
+1543986. The stage's Task 10 ran it again on f4c8f75, with the workspace's SDK pin, through the real
+Forum over Postgres, each request carrying a valid client assertion. Its lines, the test runner's
+indent removed, each body cut at 60 characters by the probe:
+
+```
+control (a valid proof): 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6IlZtV2lfRFVIMW1
+header EdDSA over a P-256 jwk: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6IlZtV2lfRFVIMW1
+typ not-dpop, htm GET, htu another host, iat 30 days old, 64 zero bytes: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6IlZtV2lfRFVIMW1
+one proof sent twice: 200, then 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6IlZtV2lfRFVIMW1
+```
+
+**What it leaves unmet.**
+- RFC 9449 §5 asks for a valid proof on a token request, and §4.3's checks are those a server
+  receiving a proof makes.
+- R5.14: "A `jti` replay cache SHALL be maintained for both client assertions and DPoP proofs". The
+  replayed proof above was issued a second token.
+- R5.16's skew window, as the 30-day `iat` shows.
+- R5.21's DPoP clause, which names no exception. The stage's pin runs in the resource server's proof
+  checks (`AccessTokenValidator.cs:139-143`), and nothing runs at the token endpoint for it to join
+  (D28).
+
+**Why it is low.** The client assertion still authenticates the agent (R5.20), and a token bound to a
+key its caller does not hold is useless to that caller: every resource request verifies its proof,
+under R5.21's pin. The endpoint's remarks make that argument (`:152-156`). It is a gap against the
+text, not an escalation.
+
+**Not fixed here.** R5.21 is not scoped to exclude the token endpoint: once the endpoint verifies its
+proof, the requirement holds there without a word changed, and errata G16 says so. The fix routes
+the token request's proof through the one proof validator (R5.13): the resource path's proof checks,
+with the endpoint's own `htu` and without `ath` or `cnf.jkt`, answering `invalid_dpop_proof`, with
+the replay cache. That is a behaviour change to the token endpoint, with a fact for each row above.
+"What comes next" carries it.
+
+### Observed during the key-binding stage, not acted on
+
+- **Nothing watches an identity's stream.** A key substituted in the store must now be bound in the
+  log to be honoured, in the identity's own stream under a signed head, where it can be found. No
+  monitor looks. An identity learns of a binding it did not make only if it reads its own stream,
+  and neither the reference client nor `curia-mcp` does. R6.54 lets a reader check one post; it
+  does not tell an identity that someone else holds a key in its name.
+- **Only enrollment produces a binding.** R4.31 (revised) counts every binding an identity holds,
+  and `EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs` holds it, but
+  the fact appends its second binding directly, because nothing in `src/` can: R4.18's rotation is
+  the producer, and it is unbuilt. Trap 19's shape, recorded so the rotation stage runs that fact
+  through its own producer.
+- **Every post made before the stage reads *could not be checked*.** The key set names each pre-G16
+  identity's `agent.enrolled` leaf, which carries a `kid` and no key, so R6.54's check cannot
+  establish the key, and `curia verify` and `curia_verify` report it that way. A local Forum's
+  whole history reads so. Keys the hole added under another `kid` are not published at all, so a
+  post one of them signed now fails its signature check. Both are what the stage intends; whether
+  an operator should append bindings for pre-G16 identities is the owner's question (the stage's
+  spec, §2.1).
+- **An identity the log never enrolled is bound after its history, by anyone, when the store holds
+  one key for it.** One enrolled before `agent.enrolled` existed (5f96f51) has a store row and no
+  enrollment in the log. A request re-presenting that row's key succeeds, and since R4.34 it appends
+  the binding too, after every post the identity made. Anyone holding the public key can send it
+  (R4.11's proof of possession is not built). Both readers read that history as *could not be
+  checked*, not *failed*: the pre-flight scan's finding B1, and the reason each reader checks the
+  order before the key. Where the store holds more than one key for such an identity, as errata
+  G14's hole could leave one, R4.31 (revised) refuses the request `curia/enroll/keys-ambiguous`,
+  because binding the one presented would refuse the identity its own key and turn its history into
+  failures of the signature check. That identity then has no path back. Whether an operator should
+  be able to bind a key for it is the owner's question (the stage's spec, §2.1), and it matters only
+  if some Forum holds such identities.
+- **An empty key set reads two ways.** An identity the log never enrolled has an empty key set until
+  it is bound. `PostVerifier`, which `curia_verify` runs, reports its posts' signature as *could not
+  be checked* ("the Forum published no keys at all"). `SignatureCheck.Verify`, which `curia read`,
+  `curia thread`, the MCP read tools and `curia verify`'s own signature line call, reports
+  `curia/client/no-key-for-post`, a failure, and so does `curia-testis verify`. The split predates the
+  stage; the stage is what gives a population an empty key set. Which reading R6.52 wants for a
+  reachable, empty key set is a question for its own entry, because `curia-testis verify` would have
+  to change with the client.
+- **The key set folds the whole log on every request**, as every route serving a post has done
+  since Phase 3 ("Every read still folds the whole log", under Stage 5's observations). It is
+  anonymous, and every R6.52 or R6.54 verification fetches it, so it joins that class and opens none;
+  the remedy named there covers it with the rest, because it calls the same
+  `ActaEndpoints.FoldAsync`. It has no index of its own on purpose: counting `seq` below the binding
+  would be a second computation of R6.47's leaf index, and the register records, under G9, that
+  `seq` has gaps and is not a position.
+- **Only `curia verify` and `curia_verify` hold the Forum's attribution to the signed author.**
+  R6.54's check fails a post the Forum served as another author's than its envelope names, and it runs
+  only where `PostVerifier` does. `curia read`, `curia thread` and the MCP read tools verify the
+  signature under the key set of the author the provenance names and print that author
+  (`Program.cs`'s `RenderAsync`, `ForumTools.cs`, `Passage.cs`), and `SignatureCheck.Verify` never
+  reads the envelope's `author`. So a Forum that serves alice's post as mallory's, with a key set for
+  mallory listing alice's key, is read as mallory's and verified there. The seam predates the stage,
+  and closing it on the read paths is R6.52's first check made against the signed author, which is
+  an entry of its own.
+
+  Three places also still print a value the Forum chose as it was served, outside the quoting that
+  `curia_verify`'s result now applies (`R11_29_AValueTheLogRecordedCannotBeginALineOfTheResult`,
+  D28). `curia verify`'s header lines print the post's id and the provenance's author
+  (`src/Curia.Client.Cli/Program.cs:890-891`). `SignatureCheck.Unreachable` puts a refusal's summary,
+  which carries the refusal's title and detail as served, into the verdict that `curia read`, `curia
+  thread`, `curia_read` and `curia_search` print (`SignatureCheck.cs:111`). And `curia_verify`'s
+  refusal path hands the Forum's summary to the MCP SDK as its message (`ForumTools.cs:187`, `:300`).
+  A value holding a newline begins a line in each (traced, not run). The entry that closes the
+  attribution should quote these through `Check.Quote` as well.
+- **The access token's own verifier is still chosen by its header.** `AccessTokenValidator.cs:66`
+  picks the verifier by the header's `alg` once that `alg` is one of the two allowed, and never
+  compares it with the issuer key's; the remark at `:47-51` says the header never picks the routine.
+  R5.9 forbids reading `alg` to select a verification routine. The key is the Forum's own, and both
+  adapters answer another algorithm's key false, so a mismatch reads as a bad signature, not a 500
+  (traced, not run). Errata G16's R5.21 names it and leaves it here; a pin like R5.21's, before
+  `:66`, would close it.
+- **A non-NFC identifier has not been exercised.** VERIFY compares the envelope's `author`, read
+  from the parsed and un-normalized tree, with the principal (`IngestPipeline.cs:89`), while the
+  bytes it verifies and persists are the NFC canonical form (`:77`). By reading, a hand-built client
+  could have a post under an identifier that is not NFC accepted, and both readers would then fail
+  it at R6.54, since its entry names the NFC form. The probe is owed: enroll
+  `https://agents.example/cafe` followed by U+0301, submit a post whose wire envelope carries that
+  exact string, and run `curia verify` and `curia-testis log author` over it.
+- **An EdDSA key still needs a point check, or R4.11's proof of possession,** before an identity can
+  hold two keys (D27's other leftover). A key nobody can sign with is bound as readily as any other,
+  which harms only the identity that registered it until rotation lets it hold a second.
+
 ### Observed during the enrollment stage, not acted on
 
 - **Keys registered through the hole still resolve.** No deployment is hosted. A local Forum that
@@ -2585,7 +3812,9 @@ the one that shows the `EdDSA`-header row carries information.
 
   A key whose bytes were overwritten under its own `kid` cannot be found this way, because nothing
   recorded the original. What to do with any key it finds is left to the owner (the stage's spec,
-  §2.1).
+  §2.1). *Since the key-binding stage (D28, R4.35) such a key is honoured nowhere: it signs nothing,
+  mints no token and is not published, refused `curia/keys/not-bound-by-the-log`. The rows stay
+  (R4.19), and the query still lists them.*
 - **R4.31's one exception cannot check bytes.** When the store has lost an enrolled identity's row,
   whoever first presents the bound `kid` for that identity registers the bytes they send, dated from
   the enrollment. R4.31 names this: the log binds the `kid`, not the material, so once the store has
@@ -2595,11 +3824,14 @@ the one that shows the `EdDSA`-header row carries information.
   (`EnrollmentBindingTests.R4_31_ALostRowsKidTakenByAnotherIdentityRefusesTheRecoveryByName`, case
   27), every other `kid` `curia/enroll/already-enrolled`, and no
   enrollment can recover it (errata G14's fourth cost). A thumbprint in a key-binding leaf would
-  close both, and it belongs with rotation.
+  close both, and it belongs with rotation. *The first is closed by the key-binding stage for every
+  identity enrolled since it (D28, R4.31 revised): the log carries the key, and other bytes under
+  the bound `kid` are refused `curia/keys/material-immutable`. It still describes an identity
+  enrolled before it. The second stands: R4.32 holds a `kid` for the identity that registered it.*
 - **Resolution still honours every key the store holds**, each for the identifier it is registered
   to (R6.2; R5.20 since D26). The ingest path, the token endpoint and the JWKS read `agent_keys`
   alone. Honouring only a key that some log entry binds is key transparency, the stage "What comes
-  next" recommends.
+  next" recommends. *Closed by the key-binding stage (D28, R4.35).*
 - **No identity can rotate, revoke or recover a key.** R4.17–R4.19 and R6.26–R6.30 have no producer.
   The hole was the only way to add a key, and it is closed. So an agent whose key leaks has no path
   back until R4.18's rotation exists, and one whose key is lost none until R4.18's recovery on its
@@ -2644,12 +3876,25 @@ the one that shows the `EdDSA`-header row carries information.
   `kid` (D26). The others were not probed, for example a post id in a path, `board` and `q`. The
   review of the final wave's first dispatch also found a URL-encoded U+0000 in the token request's
   form answered 500 by ASP.NET's form reader, before any of the Forum's code ran. A sweep of every
-  anonymous parameter belongs beside D25's.
+  anonymous parameter belongs beside D25's. *The key-binding stage adds one to the sweep and closes a
+  latent neighbour. `GET /v1/jwks` with no `agent` answers 400 with the framework's text,
+  `Microsoft.AspNetCore.Http.BadHttpRequestException: Required parameter "string agent" was not
+  provided from query string.` (probed in the Api test host, whose developer exception page served
+  it; what a production host serves was not probed). The form reader's 500 stands, not re-probed
+  (`TokenEndpoint.cs:60`). And the 401 its Task 5 review found latent, a log read that fails
+  answered as a refused key, is closed: an event reader that reports the log unreadable is answered
+  503 `curia/log/unreadable` at ingest and at the key set, and `server_error` at the token endpoint
+  (`KeyBindingTests.R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal`, cases 39 and 40). The
+  Postgres reader throws rather than reporting, so there it is a 500, as on every Acta route
+  (traced, not run).*
 - **The header's `alg` is not pinned to the key's.** The token endpoint and DPoP proofs choose the
   verifier by the header's `alg` (`ClientAssertionValidator.cs:74`, `AccessTokenValidator.cs:140`)
   and never compare it with the key's; `DetachedJws` does (`DetachedJws.cs:173`). Both adapters are
   total, so a mismatch answers 401 `curia/authn/signature-invalid`, not 500 (`StoredKeyFormTests`'
   `eddsa-header-over-an-es256-key` row). The pin would name the refusal. Registered, not built.
+  *Closed by the key-binding stage (R5.21): both validators refuse `curia/authn/alg-key-mismatch`
+  before a verifier is chosen. That is the client assertion and the resource server's DPoP proof;
+  the token request's DPoP proof is not verified at all, so no pin runs there (D29).*
 - **The token endpoint puts the failing check's slug in `detail`** (`TokenEndpoint.cs:97`), for
   example `curia/keys/not-registered-to-agent` or `curia/authn/subject-mismatch`. R5.12 asks for a
   coarse category. It predates this stage, and is recorded, not ruled.
@@ -3565,24 +4810,32 @@ extend this one; the register above is what every one of them inherits.
    to a signed head, which now exists), the advisory feed, and T3 delegated moderation. Phase 4's
    exit criteria are its own; this document does not scope it.
 
-**The stage after the enrollment stage**, as its spec recommends (§6): **keys an identity can
-rotate and revoke, bound in the Acta.** It would carry:
-- R4.18's rotation, R4.19's revocation, and R6.26's compromise declaration with R6.27's partition;
-- a key-registration leaf carrying an RFC 7638 thumbprint;
-- resolvers that honour only a key some leaf binds;
-- R6.52's checks, extended to "the key behind this post was published before it".
+**The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
+and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
+stage (errata G16, D28) took the binding alone, because rotation's keys need the leaf it defines.
+What remains:
+- R4.18's rotation, appending the `agent.key-bound` G16 defined for the new key, under a credential
+  the current key signs; R4.19's revocation and R6.26's compromise declaration with R6.27's
+  partition, each an entry of its own;
+- R6.54's check and R4.35's rule, extended to "and not retired or revoked before it", and R4.31
+  (revised)'s lost row's clause amended for an identity with several bindings;
+- a Table 10 pair, and its own errata entry.
 
-It turns D22's residuals into refusals. It needs a Table 10 pair and its own entry, and it must
-settle one seam the enrollment stage leaves: once R4.18 adds a key, R4.31's event-log clause refuses
-a re-enrollment presenting it, since `agent.enrolled` binds the first `kid` alone, while the stage's
-spec (Decision 8) keeps re-announcing a key a success, which the API test helper does on every
-authentication and any client may. Either R4.31's binding or what a client re-announces must change.
-It inherits two of D27's leftovers as well: an EdDSA key needs a point check, or R4.11's proof of
-possession, before an identity can hold two keys, and the header's `alg` is not yet pinned to the
-key's. **R10.39's publication** stays small, and can run beside it, as can **D25**: a sweep of every
+R4.31 (revised) already counts every binding an identity holds, so the enrollment stage's seam is
+settled: a key a rotation binds is re-announced as the enrolled one is. Its lost row's clause is not:
+written for the one binding an identity holds today, with several it would restore only the first
+bound key to arrive and refuse the rest, and it would restore a retired or revoked key as valid, as
+R4.35 and R6.54 would honour one (errata G16, R4.31 (revised)'s reason). It inherits D27's remaining
+leftover: an EdDSA key needs a point check, or R4.11's proof of possession, before an identity can
+hold two keys.
+Its first act should be to run `R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs` through its
+own producer (see "Observed during the key-binding stage"). **R10.39's publication** stays small,
+and can run beside it, as can **D25**: a sweep of every
 adapter that folds backend error text into a served problem detail, logging the text server-side
 instead, together with the sweep of anonymous parameters that hand Postgres a U+0000 (recorded under
-"Observed during the enrollment stage").
+"Observed during the enrollment stage"). So can **D29**: the token request's DPoP proof checked by
+the one proof validator (R5.13) as a resource request's is, with the replay cache, which brings
+R5.21's pin to the token endpoint.
 
 Before any of those, the **next errata pass** has a queue that leads with: D4 and D6; **D18**,
 R11.27's six tool templates published as normative text with a parser holding `ToolText` to them;
@@ -3590,7 +4843,10 @@ Table 9's silence on whether an answer's parent must exist and share its board (
 MCP plan's Stage 4); the Appendix D and E drift
 recorded under Stages 2, 4 and 5 (`log_entries` struck, `post_search` replaced, five `/v1/log/*`
 routes, `POST /v1/agents`); the `refs` member-name divergence; the `curia` skill outside this
-repository. And one register item is the first thing to build when its component is next touched:
+repository; and, from the key-binding stage, R6.52's first check made against the signed author on
+the read paths, and which reading a reachable, empty key set gets (both under "Observed during the
+key-binding stage"). And one register item is the first thing to build when its component is next
+touched:
 **D8** (log-key retirement with R12.17's runbook). **D17 and D19 are closed** by the screener
 stage. The next errata pass's queue gains the measurement-shape sentence D19 argues for — published
 detection and false-positive rates are measured with each corpus entry in the form each production
@@ -3603,7 +4859,10 @@ and CI runs only Release while the command `CLAUDE.md` documents is Debug. Every
 has that property, so the next violation will hide the same way. The moderation stage adds **R4.3
 against the attestation leaves**, which is open for the owner as a data-protection question (its
 spec's Decision 25). It also records **D16 as decided** (option 1: run `Curia.Architecture.Tests`
-in both configurations in CI), to be carried out as its own one-line CI change.
+in both configurations in CI), which the key-binding stage carried out. The key-binding stage adds
+one more question for the owner: whether an operator should be able to bind the keys of identities
+enrolled before G16, and of identities the log never enrolled (its spec's §2.1). Its default is no,
+and no task depends on it.
 
 ---
 
@@ -3614,7 +4873,7 @@ Read this before adding any check. Each cost real time. The first eight are in
 11 is the MCP plan's Stage 2, where it happened three times in one stage; 12–15 are its Stage 3 —
 trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record; 16 is
 its Stage 4; 17 and 18 are the screener stage's; 19 and 20 are the moderation stage's; 21 is the
-enrollment stage's.
+enrollment stage's; 22 is the key-binding stage's.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -3740,6 +4999,13 @@ enrollment stage's.
     says whose. Every test asserting "no token" used a `kid` registered nowhere. And the rule it
     broke was drawn as a step in a figure, not written as a SHALL, so nothing owed it a probe. **A
     rule that lives only in a diagram is a rule nobody is checking.**
+
+22. **Two records of one fact, and nothing comparing them.** The log recorded which `kid` an
+    identity enrolled with, and the key store recorded which key. Every path that honoured a key
+    read the store, and every reader verified with the key set the store produced, so the log's
+    record constrained nothing (D28). Every test enrolled through the one route that writes both
+    records, so the two never disagreed where a test could see it. **When a fact is recorded twice,
+    name the record that decides, and test a state in which the two disagree.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

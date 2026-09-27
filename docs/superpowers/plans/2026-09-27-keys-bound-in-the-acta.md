@@ -71,7 +71,7 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 5. **The seam the enrollment stage left** (its spec's Decision 8). With two bindings, re-announcing the second key must be a re-announcement, as re-announcing the first is. Test: `EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs`; case 4.
 6. **A reader verifies under the key the log carries, not the one the key set serves.** When the log bound another key, the signature check (against the key set) verifies and the binding check must fail. Test: `PostVerifierTests.R6_54_ALogThatBoundAnotherKeyFailsTheBindingThoughTheSignatureVerifies`; case 19.
 7. **`curia-testis log author` reads no agent key set.** It takes two entries, two proofs, a head and the log's key set, and exits 0, 1 or 3. With no head it still makes every check that needs none, and a document that fails one exits 1, not 3 (cases 45 and 46). The binding's proof is held to the signed head (41); its `kid`, its stream and its type are each compared (42–44); and the post's envelope is ADMITted and its header parsed before either is read (47, 48). What an entry route states beside its entry, its leaf hash and index, is compared (55, 56). Tests: `tests/log_author.rs` and the end-to-end Acta fact; cases 24–26, 41–48, 55 and 56.
-8. **The renderer and the verifier agree, and the RFCs anchor the renderer.** `PublicJwkTests` derives the expected JWKs from RFC 8037's and RFC 7515's example keys, and holds the renderer to each adapter's rule on every `KeyMaterials` row. Case 18 is the one that shows why the RFC anchor matters: a renderer that swapped a P-256 key's coordinates would agree with itself on both sides of every Forum-side comparison.
+8. **The renderer and the verifier agree, and the RFCs anchor the renderer.** `PublicJwkTests` derives the expected JWKs from RFC 8037's and RFC 7515's example keys, and holds the renderer to each adapter's rule on every `KeyMaterials` row. Case 18, a renderer that swaps a P-256 key's coordinates, shows why an anchor outside the renderer matters: such a renderer agrees with itself on both sides of every Forum-side comparison, and only facts that derive the coordinates independently go red under it, the RFC 7515 fact and the fixed leading-zero point in `PublicJwkTests` among them.
 9. **R5.21.** A header naming the other allowed algorithm is refused by name at both validators. Tests: the two `R5_21_…` AuthN facts and `StoredKeyFormTests.R5_21_…`; cases 13 and 14.
 10. **D16.** A seven-case string switch in `Curia.Domain` fails CS-7 in Debug and passes in Release; the new CI step builds the solution in Debug and runs the architecture rules against it. Case 27, filtered to `LayeringTests` so that its red is CS-7's alone.
 11. **A binding after the post is the log's silence, not its contradiction** (the spec's Decision 11, amended). The author's own binding of the post's `kid` at a leaf not before the post must read *could not be checked* in both readers, never *failed* and never *verified*: an identity enrolled before `agent.enrolled` existed gains its first binding after all its history when anyone re-presents its public key. Tests: `PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished`, `log_author.rs`' `r6_54_a_key_bound_after_the_post_is_not_established`, and the `bound-late` control of `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone`; cases 20, 24, 28 and 29.
@@ -374,7 +374,8 @@ from the instant the event log recorded that binding. A refused enrollment SHALL
 store and the event log unchanged; R4.14's record of every failed attempt is a separate enrollment
 log, not built, and this clause does not forbid it. Deciding that an identifier holds no key, and
 registering one for it, SHALL be a single act with respect to any concurrent enrollment of the same
-identifier. The reason is G14's, with one sentence corrected and three added. G14's "It cannot check
+identifier. The reason is G14's, with one sentence corrected and eight added, and G14's last
+sentence still ends it. G14's "It cannot check
 the bytes it registers, because the event log binds the `kid` and not the key" now holds only for an
 identifier enrolled before R4.34, for which G14's fourth cost stands: for one enrolled since, the log
 carries the key, and a lost row's recovery registers that key and no other bytes. An identifier the
@@ -409,9 +410,16 @@ the key its signature is to be verified under — for an assertion the agent key
 proof its embedded `jwk` — and a header naming any other algorithm SHALL be refused by name before a
 verifier is chosen. The reason: both validators chose the verifier by the header's `alg`, so a header
 naming the other allowed algorithm handed a key to a verifier it is not a key of. The answer read as a
-bad signature; before G15's key rule it was a 500 any caller could cause against any agent. R5.9 pins
-the access token's own algorithm, and the Forum's detached-JWS verifier already refuses a post whose
-header algorithm is not its key's.
+bad signature; before G15's key rule it was a 500 any caller could cause against any agent. R5.9
+already forbids choosing the access token's verifier by its header; as built, that validator checks
+the header's `alg` only against the allowed algorithms and then chooses by it, under the Forum's own
+issuer key, which the implementation plan's register records. The Forum's detached-JWS verifier
+already refuses a post whose header algorithm is not its key's. The pin itself holds at the two
+validators: a client assertion's at the token endpoint, and a DPoP proof's at the resource server.
+The token endpoint verifies nothing of the proof a token request carries, and reads only its `jwk`,
+for the token's binding, against RFC 9449 §5 and R5.14; R5.21's DPoP clause is unmet there until it
+does. The requirement is not narrowed for that, and the implementation plan's register records the
+gap as D29.
 
 **R6.54** A client that reports a served post as verified SHALL also have established from the log
 that the key the post's signature verifies under is the key the log bound to its author before the
@@ -523,7 +531,7 @@ separates could not be checked from failed, and never makes a post verified.
    history as could not be checked, as it reports a pre-R4.34 identity's, and never as failed; and the
    binding says only that the key is the one the store held, not that it is the one the identity began
    with. Where the store holds more than one key for such an identity, as a store G14's hole reached
-   may, R4.31 (revised) refuses every such request: the identity mints no token (G15), nothing binds
+   may, R4.31 (revised) refuses every such request: the identity mints no token (R4.35), nothing binds
    any of its keys, and it has no path back until R4.18's recovery exists. Until it is bound its key
    set is empty, and readers disagree about its posts, which this entry does not settle: `curia_verify`
    reports them as could not be checked, because the Forum published no key for the author, while
@@ -9912,7 +9920,7 @@ Eleven things in this table are deliberate:
 - **Case 18 is the RFC anchor's reason for being.** A renderer that swapped coordinates would have been consistent everywhere the Forum compares its own output with itself.
 - **Cases 20 and 29, and 24 and 28, are one rule twice in each reader.** Ignoring the order lets a binding after the post verify; reading it as a failure is the defect the pre-flight scan found (its B1). Each reader needs both cases, and case 28's Api run is what shows the exit code, not only the library's classification, carries it.
 - **Cases 31 to 33 came from Task 2's review.** Case 31's patch counts another identifier's keys, the mistake a refactor of the lookup would make, and both of its facts then see the second key bound. Case 32 leaves the post's own inclusion check red as well, because the head commits to the wrong root for both proofs; its fact asserts the key check alone, the one line the patch moves. Case 33 is the only probe on `curia_verify`'s fourth line: no client fact reads the rendering's lines.
-- **Cases 34 and 35 came from Task 3's review.** Case 34 strips a P-256 coordinate's leading zeros, and only the fixed leading-zero point sees it: RFC 7515's key has no such coordinate, and a key a suite generates has one about once in 128, so no other fact is certain to meet one. Case 35 is errata D4's trap, an Ed25519 key in `EC`'s form, and the RFC 8037 fact is its only red, as case 18 is the P-256 fact's.
+- **Cases 34 and 35 came from Task 3's review.** Case 34 strips a P-256 coordinate's leading zeros, and only the fixed leading-zero point sees it: RFC 7515's key has no such coordinate, and a key a suite generates has one about once in 128, so no other fact is certain to meet one. Case 35 is errata D4's trap, an Ed25519 key in `EC`'s form, and the RFC 8037 fact is its only red. Case 18, its P-256 counterpart, has two in `PublicJwkTests`: the RFC 7515 fact and the fixed leading-zero point, since a swap moves every P-256 key's coordinates.
 - **Case 36 came from Task 4's review.** It writes the enrollment and its binding in two appends, the second at the version the first left, and every other fact stays green under it, because two appends under a frozen clock stamp one instant. Its one red is a store that takes one append and refuses the next, which is what a failed write between two appends looks like: an `agent.enrolled` without its binding, which binds the identity by its `kid` alone for good.
 - **Cases 37 to 40 came from Task 5's review.** Case 37 removes both of the key set's renderability guards. Since R4.35 only a pre-G16 identity's `kid`-bound row still reaches them, so `R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish` is built on such identities, and it is the case's one red. Case 38 is the review's mutant: the key set matching a stored key to its binding by `kid` alone. Case 6 cannot show it, because it replaces the whole loop; only other bytes under a bound `kid` tell the two apart. Cases 39 and 40 are a log reader's refusal on the paths that read the log for a key. Handed on by the resolver as its own, it reads as a refusal of the key (39); ignored by the key set, it serves keys without positions (40). The Postgres reader throws rather than refusing, so only the fact's own reader reaches either.
 - **Cases 41 to 48 came from Task 7's review.** Case 41 holds the key's proof to its own root: the signed tree holds no binding at all, and only a key proof from a tree the head does not sign shows it, because `r6_54_a_head_over_another_tree_fails` trips the post's own head check first. Cases 42 to 44 take R6.54's comparisons one at a time, where case 25 removes them together: the `kid` (a failure read as not checked), the stream and the entry's type (each a forgery read as verified). Case 45 reports a missing head before anything is checked, which is what `log author` did for any input, garbage included, before the review. Case 46 is the one check with no head that stands in for the head's: two proofs against one tree. Cases 47 and 48 are the envelope's ADMIT and the header's parse, each seen only where the binding's order would otherwise let a document no Forum could have accepted read as not checked.

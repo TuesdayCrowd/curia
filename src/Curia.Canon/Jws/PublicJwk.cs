@@ -19,8 +19,9 @@ namespace Curia.Canon.Jws;
 ///
 /// <para><b>What this does not decide.</b> Whether material is a key of its algorithm is the rule
 /// the adapter that verifies with it owns (<c>Es256Adapter.IsPublicKey</c>,
-/// <c>Ed25519Adapter.IsPublicKey</c>), and every caller that publishes or binds a key asks that rule
-/// first. This method refuses what it cannot render -- anything but 32 bytes under <c>EdDSA</c>,
+/// <c>Ed25519Adapter.IsPublicKey</c>), and both routes that publish or bind a key ask that rule
+/// first (<c>Jwks.CanPublish</c>): the key set before it renders, and the enrollment route before
+/// its use case binds. This method refuses what it cannot render -- anything but 32 bytes under <c>EdDSA</c>,
 /// and anything but a whole DER SubjectPublicKeyInfo on the curve named P-256 under <c>ES256</c> --
 /// and <c>PublicJwkTests</c> holds the two to the same answer on every material
 /// <c>KeyMaterials</c> names.</para>

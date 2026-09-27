@@ -164,12 +164,11 @@ public sealed class DetachedJws
 
         // Algorithm confusion, refused before any adapter sees a byte. The header is the attacker's
         // and the key is the key set's, so without this the attacker chooses which primitive
-        // interprets somebody else's key material -- an ES256 header over an OKP key hands 32 raw
-        // bytes to ImportSubjectPublicKeyInfo, and an EdDSA header over an EC key hands an SPKI
-        // blob to Ed25519. Both THROW (`ASN1 corrupted data`, `The key BLOB is not in the correct
-        // format`), out through a method whose whole contract is that a bad signature is a value
-        // rather than an exception (CS-10). A verifier that crashes on a chosen input is a verifier
-        // an untrusted Forum can turn off.
+        // interprets somebody else's key material -- an ES256 header over an OKP key would hand 32
+        // raw bytes to an SPKI import, and an EdDSA header over an EC key an SPKI blob to Ed25519.
+        // Curia.Canon.Sodium's two adapters answer such material false rather than throwing, so
+        // without this check the mismatch would read as a signature that does not verify; with it,
+        // the refusal names the mismatch, and no verifier is handed a key named for another algorithm.
         if (!string.Equals(header.Alg, key.Alg, StringComparison.Ordinal))
             return Result<VerifiedContent>.Fail(JwsErrors.AlgMismatch(header.Alg, key.Alg));
 
