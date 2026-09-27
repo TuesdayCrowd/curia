@@ -420,7 +420,7 @@ small stage of its own, out of band like `attest-owner`, with its own entry.
 | Task | What | Build-checked |
 |---|---|---|
 | 1 | D16: the architecture rules in Debug in CI | the step's command run; case 27 |
-| 2 | Errata G16 and six index rows | applied; `check-spec` clean; `falsify-spec-checks` all four red |
+| 2 | Errata G16 and eight index rows | applied; `check-spec` clean; `falsify-spec-checks` all four red |
 | 3 | `PublicJwk`; the key set renders through it | built and run |
 | 4 | R4.34 and R4.31 (revised); the conformance vector | built and run |
 | 5 | R4.35: `LogBoundKeys`, the token endpoint, the key set | built and run |
@@ -449,8 +449,9 @@ while amending after it (§8): the client not comparing the binding with the pos
 identifier's (31), the client holding the binding's proof to its own root rather than the signed
 head's (32), and `curia_verify` dropping the key check's line (33); and thirty-two the later
 reviews added: Task 3's (34, 35), Task 4's (36), Task 5's (37–40), Task 7's (41–48), Task 8's
-agreement probe (49–57, §10), Task 8's review (58–61) and the final review (62–65, §11). The register's D28 names each, and quotes
-what every case printed in Task 9's run on 40df319.
+agreement probe (49–57, §10), Task 8's review (58–61) and the final review (62–65, §11). The
+register's D28 names each, and quotes what cases 1–61 printed in Task 9's run on 40df319 and what
+cases 62–65 printed in the final wave's run.
 
 ## 5. Out of scope
 
@@ -636,7 +637,8 @@ Found while ruling, and recorded:
   the register (the plan's Task 10) record it.
 - **The counts move.** Application 286 after Task 4 and 292 after Task 5; Api 217 after Task 4, 227
   after Tasks 5 and 6, and 229 after Task 8; Client 211 and Mcp 74 after Task 8. Task 9 runs
-  thirty-three cases in forty-six suite runs. *It ran sixty-one in seventy-seven in the end (§3).*
+  thirty-three cases in forty-six suite runs. *It ran sixty-one in seventy-seven before the final
+  review, and sixty-five in eighty-two after it (§3, §11).*
 
 ## 10. Amendments after Task 8's agreement probe
 
@@ -687,7 +689,8 @@ What changed:
   index (53); reading an unparseable key entry as failed (54); `curia-testis` ignoring the route's
   leaf hash (55) and index (56); and the client reporting a key set naming no leaf before the post's
   record (57). The carried count for §3 and §4 becomes fifty-seven cases in seventy-three suite runs.
-  *Task 8's review added four more (58–61), so §3 and §4 carry sixty-one in seventy-seven.*
+  *Task 8's review added four more (58–61), and the final review four after those (62–65,
+  §11), so §3 and §4 carry sixty-five in eighty-two.*
 
 Found while ruling, and recorded:
 
@@ -994,7 +997,7 @@ then resolved the signing key for that `author`. An identifier NFC changes there
 comparison as itself and was signed, verified and stored as another. The stage's final review
 enrolled a victim under an identifier holding U+00E9 and, beside it, the same identifier with `e`
 followed by U+0301, and sent a question from the second whose envelope named it as written. The
-Forum printed, each identifier's accented letter written as a JSON escape and each body cut:
+probe printed, each identifier's accented letter written as a JSON escape and each body cut:
 
 ```
 victim NFC? True  attacker NFC? False  attacker NFC form == victim: True

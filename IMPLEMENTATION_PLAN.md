@@ -161,13 +161,17 @@ set; SP scores recorded even if not yet weighted.*
 > publishes a stored key only as the log binds it, naming the leaf that binds it (R4.35). A lost
 > row's recovery registers only the key the log carries, and an identifier the log never enrolled is
 > not bound while the store holds several keys for it (R4.31, revised); a header's `alg` must name
-> its key's (R5.21). The reference client and `curia-testis log author` establish from the log
-> alone that the key behind a post was bound to its author before it (R6.54). Identities enrolled
-> before the stage stay bound by their `kid` alone, and readers report their posts as *could not be
-> checked*. The stage also carries out **D16**'s decided CI change: the architecture rules run in
+> its key's (R5.21). `curia verify`, `curia_verify` and `curia-testis log author` establish from the
+> log alone that the key behind a post was bound to its author before it (R6.54); the read tools
+> verify under the key set the Forum serves. Identities enrolled before the stage stay bound by
+> their `kid` alone, and those three report their posts as *could not be checked*. The stage also
+> carries out **D16**'s decided CI change: the architecture rules run in
 > Debug in CI as well as in Release. And it opens **D29**, which its Task 6's review found: the
 > token endpoint verifies nothing of the DPoP proof a token request carries, so R5.21's pin holds at
-> the two validators and not there.
+> the two validators and not there. Its final wave closes **D30**, which the stage's final review
+> found (errata G16): an identifier NFC maps onto another enrolled identity's had a post accepted
+> signed in that identity's name. VERIFY now reads the envelope from the canonical form the
+> signature covers (R6.55), and the enrollment route refuses an agent identifier outside NFC (R4.36).
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -309,7 +313,7 @@ which also closed **D16**'s code half — its CI-configuration question was left
 then decided, and is carried out by the key-binding stage (see its entry); D17 and D19 by the
 screener stage (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22, D23, D24, D26
 and D27 by the enrollment stage (2026-09-26), the last two in its final wave; D28 by the key-binding
-stage. Their entries are kept as the record
+stage, and D30 in its final wave. Their entries are kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
 history, not as pointers.**
@@ -378,7 +382,7 @@ thread` and the MCP read tools still print an `agent_id` or `kid` raw, as do the
 look-alikes NFC does not map. The review of the key-binding stage's final wave's first dispatch
 probed three, with 58d2b43's code and with c9c9da0's (its P5 to P7): a U+FB01 ligature and
 fullwidth letters (U+FF43, U+FF41, U+FF46, U+FF45), which NFKC folds and NFC leaves alone, and
-Cyrillic U+0441 and U+0435 standing for `c` and `e`, which neither folds. Each enrolled 201 and
+Cyrillic U+0430 and U+0435 standing for `a` and `e`, which neither folds. Each enrolled 201 and
 posted 201, and its post was signed, verified and recorded under its own identifier. No signature
 names another identity, so neither R6.55 nor R4.36 reaches them, and neither should: they are
 confusable only as they render, and a form is what would decide them.*
@@ -2725,7 +2729,7 @@ binding for such an identity; whether an operator should is the owner's question
 bound by the first request that re-presents the one key the store holds for it, after its whole
 history; one the store holds several keys for is refused, and has no path back until R4.18's
 recovery exists (errata G16's fifth cost; see below). No identity can rotate, revoke or recover a
-key yet: see "What comes next". Here and throughout this entry "a reader" means the three that run
+key yet: see "What comes next". Here and below "a reader" means the three that run
 R6.54: `curia verify`, `curia_verify` and `curia-testis log author`. `curia read`, `curia thread`,
 `curia_read` and `curia_search` verify a post's signature under the key set the Forum serves and
 print it "verified locally against kid=…" (`src/Curia.Client/SignatureCheck.cs:63`) with no binding
@@ -3887,7 +3891,9 @@ R4.32) and its tokens; it may flag and read, authors nothing, and cannot re-anno
 deployment is hosted. An identifier that only looks like another, a letter from another script for
 instance, is a different string under NFC and is D4's. `curia-operator attest-owner` names an
 identity by the string an operator types, so two identities that render alike are told apart only
-by their bytes; R4.36 keeps new ones of this kind from being enrolled.
+by their bytes. R4.36 keeps new pairs that NFC maps onto one identifier from being enrolled;
+look-alikes NFC leaves distinct, compatibility forms and another script's letters among them, still
+enroll (D4).
 
 Nor does it rewrite a post accepted before R6.55. PERSIST recorded beside the canonical bytes the
 `author` VERIFY had matched against the submission as it arrived, and the `board` and `parent` read
@@ -3895,10 +3901,12 @@ from that arrival (`IngestPipeline.cs:171-174` at 58d2b43); since R6.55 all thre
 ones (`:182-185`). The log is append-only, so such an event keeps them, and replay reproduces them:
 `PostProjector` serves the recorded fields
 (`src/Curia.Application/Projections/PostProjection.cs:160-164`) to every read that folds the log,
-the provenance's `author` (`ForumEndpoints.cs:1926`) and accepting an answer (`:1351-1355`) among
-them, while search re-derives each post from its canonical bytes
-(`src/Curia.Application/Projections/SearchProjection.cs:115`). In a log holding the probe's post,
-the post's own view names the look-alike and search names the victim, and the look-alike may accept
+the provenance's `author` (`ForumEndpoints.cs:1926`), search's results (`:1529`, `:1562-1565`) and
+accepting an answer (`:1351-1355`) among them. Search's index alone re-derives each post from its
+canonical bytes (`src/Curia.Application/Projections/SearchProjection.cs:115`) and matches on the
+author that form names (`:136`). In a log holding the probe's post, every view of the post, search
+results included, names the look-alike, while search matches it under the victim's name (an
+`author=` query, `src/Curia.Domain/Search/LexicalSearch.cs:293`), and the look-alike may accept
 answers on a thread whose root's signature names the victim. R6.54's readers fail the author half:
 the reference client compares the author the Forum served with the one the signed envelope names
 (`src/Curia.Client/ActaCheck.cs:352`), and `curia-testis log author` fails the key's binding as
@@ -3912,9 +3920,9 @@ submission in scope after VERIFY (`src/Curia.Api/ForumEndpoints.cs:574-583`). A 
 reads a member from `Document.Root` rather than from the verified envelope reopens this seam for
 that member, compiles, and leaves every fact green: case 62 fences the one argument at
 `IngestPipeline.cs:91`. Nothing in `src/` reads the arrival tree after VERIFY today; its one reader
-is the canonicalizer's input (`:77`). A fence of CS-15's shape would make it a compile error:
-`Document` visible only inside `Curia.Application`, whose `InternalsVisibleTo` names
-`Curia.Application.Tests` alone, or an architecture fact that nothing outside `IngestPipeline`
+is the canonicalizer's input (`:77`). A fence of CS-15's shape would catch it: a compile error,
+with `Document` visible only inside `Curia.Application`, whose `InternalsVisibleTo` names
+`Curia.Application.Tests` alone; or a red architecture fact, that nothing outside `IngestPipeline`
 reads it. The review of the final wave's first dispatch raised it (Mi1); it is recorded, not ruled.
 
 ### Observed during the key-binding stage, not acted on
@@ -4028,8 +4036,11 @@ reads it. The review of the final wave's first dispatch raised it (Mi1); it is r
   which harms only the identity that registered it until rotation lets it hold a second.
 - **No conformance vector pins the P-256 binding.** `conformance/acta/key-bound-entry` binds an
   Ed25519 key. The ES256 rendering every reference-client enrollment writes, SPKI to fixed-width `x`
-  and `y` (RFC 7518 §6.2.1.2) in Appendix D's member order, is pinned only by `PublicJwkTests`: the
-  RFC 7515 example key and the fixed leading-zero point. Readers never re-render a key, so nothing is
+  and `y` (RFC 7518 §6.2.1.2) in Appendix D's member order, is pinned only by C# facts:
+  `PublicJwkTests`' RFC 7515 example key and fixed leading-zero point, and
+  `EnrollIdentityTests.R4_34_AnEnrollmentBindsItsKeyInTheLogBesideItsRecord`, which reads a
+  generated key's coordinates from its DER independently of the renderer (the stage plan's cases 18
+  and 34; only the leading-zero point sees 34). Readers never re-render a key, so nothing is
   ambiguous for them; a second Forum implementation reading an existing log would have to render its
   store rows byte for byte for R4.35's comparison. An `acta/key-bound-entry-es256` vector, with the
   SPKI beside the entry and a coordinate whose first byte is zero, run by both runners and counted in
@@ -5259,10 +5270,10 @@ enrollment stage's; 22 is the key-binding stage's.
 
     **Found again by the same stage's final review (D30).** The author was recorded twice as well:
     as the submission carried it, and as the canonical form the signature covers. VERIFY compared
-    the first with the principal, and the log holds the second. Every fixture rendered its wire in
-    NFC, so the two never differed where a test could see them, and the two remarks that said VERIFY
-    read the canonical form were believed. **Read every signed field from the form the signature
-    covers.**
+    the first with the principal, and the signed bytes in the log hold the second. Every fixture
+    rendered its wire in NFC, so the two never differed where a test could see them, and the two
+    remarks that said VERIFY read the canonical form were believed. **Read every signed field from
+    the form the signature covers.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

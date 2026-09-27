@@ -88,7 +88,7 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 | File | Responsibility | Task |
 |---|---|---|
 | `.github/workflows/ci.yml` | The Debug architecture step (1); the Rust suite's count (7) | 1, 7 |
-| `curia-whitepaper-ERRATA-AND-ADDENDUM.md` | Entry G16; six index rows | 2 |
+| `curia-whitepaper-ERRATA-AND-ADDENDUM.md` | Entry G16; eight index rows | 2 |
 | `src/Curia.Canon/Jws/PublicJwk.cs` (new) | The one rendering of a stored key as its public JWK | 3 |
 | `src/Curia.Api/Jwks.cs` | Renders through `PublicJwk` (3); publishes bound keys with `curia_log_index` (5) | 3, 5 |
 | `src/Curia.Api/ActaEndpoints.cs` | `ToObject` internal, shared with the key set | 3 |
@@ -193,7 +193,7 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'CI: the architecture rules ru
 ### Task 2: Errata entry G16
 
 **Files:**
-- Modify: `curia-whitepaper-ERRATA-AND-ADDENDUM.md`. Insert the entry immediately before `# Consolidated proposed-requirements index`, and six rows at the end of that index's table, after the `R4.33 | … | G15` row.
+- Modify: `curia-whitepaper-ERRATA-AND-ADDENDUM.md`. Insert the entry immediately before `# Consolidated proposed-requirements index`, and eight rows at the end of that index's table, after the `R4.33 | … | G15` row.
 
 **Interfaces:**
 - Consumes: nothing.
@@ -505,7 +505,7 @@ then resolved the signing key for that `author`. An identifier NFC changes there
 comparison as itself and was signed, verified and stored as another. The stage's final review
 enrolled a victim under an identifier holding U+00E9 and, beside it, the same identifier with `e`
 followed by U+0301, and sent a question from the second whose envelope named it as written. The
-Forum printed, each identifier's accented letter written as a JSON escape and each body cut:
+probe printed, each identifier's accented letter written as a JSON escape and each body cut:
 
 ```
 victim NFC? True  attacker NFC? False  attacker NFC form == victim: True
@@ -692,7 +692,7 @@ each printed.
 
 ````
 
-- [ ] **Step 3: Index the six requirements**
+- [ ] **Step 3: Index the eight requirements**
 
 In `curia-whitepaper-ERRATA-AND-ADDENDUM.md`, insert after:
 
@@ -9454,7 +9454,7 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'R6.54: a proof the head does 
 
 **Preconditions:**
 - Tasks 1–8 are committed, and `git status --porcelain` is empty.
-- `CURIA_TEST_POSTGRES` is exported, and `CURIA_TESTIS_BIN` names this tree's `rust/curia-testis/target/debug/curia-testis`: cases 24–26, 28, 41–48, 55 and 56 patch `curia-testis` and `cargo test` rebuilds that binary, which the Api runs of cases 26 and 28 then execute.
+- `CURIA_TEST_POSTGRES` is exported, and `CURIA_TESTIS_BIN` names this tree's `rust/curia-testis/target/debug/curia-testis`: cases 24–26, 28, 41–48, 55, 56 and 65 patch `curia-testis` and `cargo test` rebuilds that binary, which the Api runs of cases 26 and 28 then execute.
 - The runner restores from a kept copy with a **plain copy** (`shutil.copyfile`, a fresh mtime), never `copy2` and never `git checkout`, in a `finally`, so an exception or an interrupt mid-case never leaves a file patched. It proves each restore twice: the bytes equal the kept copy's, and `git diff --quiet` sees no change.
 - A command is RED only when its output holds a test run's own failure line — `Failed!` from `dotnet test`, `test result: FAILED` from cargo. Any compiler error (`: error `, `error[E`, `error: could not compile`) is BUILD FAILED. A non-zero exit with neither is DID NOT RUN. Anything not RED — a mismatched patch, a failed build, a green suite, a suite that did not run, a dirty restore — fails the run, and the last line is the runner's own `runner exit: 0` or `runner exit: 1`.
 - No patch is a constant expression: where one disables a condition, it compares against a value that never occurs, so no analyzer rejects it and no residue scan mistakes it for code.
@@ -9470,8 +9470,8 @@ Usage, from the repository root:  python3 falsify.py <keep-dir> [case-id ...]
 Scratch only: this file is never committed.
 
 CURIA_TEST_POSTGRES must be exported, and CURIA_TESTIS_BIN must name the debug binary this tree's
-cargo builds (rust/curia-testis/target/debug/curia-testis), because cases 24-26, 28, 41-48, 55 and 56
-rebuild it.
+cargo builds (rust/curia-testis/target/debug/curia-testis), because cases 24-26, 28, 41-48, 55, 56
+and 65 rebuild it.
 """
 import filecmp, os, pathlib, re, shutil, subprocess, sys
 
@@ -10047,7 +10047,7 @@ dotnet test Curia.sln -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Fai
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked 2>&1 | grep -E "^test result" | awk '{p+=$4; f+=$6} END {print "passed", p, "failed", f}'
 ```
 
-Expected: `git status --porcelain` prints nothing; `0 Warning(s)`; **eleven** `Passed!` lines and no `Failed!`; `passed 232 failed 0`. The `cargo build` is not optional: cases 24–26, 28, 41–48, 55 and 56 left a patched binary behind until something rebuilt it, and the Api suite runs whatever `CURIA_TESTIS_BIN` names.
+Expected: `git status --porcelain` prints nothing; `0 Warning(s)`; **eleven** `Passed!` lines and no `Failed!`; `passed 233 failed 0`. The `cargo build` is not optional: cases 24–26, 28, 41–48, 55, 56 and 65 left a patched binary behind until something rebuilt it, and the Api suite runs whatever `CURIA_TESTIS_BIN` names.
 
 Only now is `falsify.log` quotable. Keep it; Task 10 copies from it.
 
@@ -10799,7 +10799,7 @@ Expected:
   The order of the lines varies from run to run; the counts do not. On `main` at 1dbe0ff they were 15, 30, 39, 66, 73, 106, 203, 215, 262, 279 and 608.
 - The Debug solution build: `0 Warning(s)`; the Debug architecture run: `Passed!  - Failed:     0, Passed:    30`.
 - `spec-checks: clean`, and the falsifier's four checks red, each naming its cell, as in Task 2's Step 4.
-- `fmt` prints nothing; `clippy` finishes with no warning; `passed 232 failed 0`.
+- `fmt` prints nothing; `clippy` finishes with no warning; `passed 233 failed 0`.
 - The differential exits 0. The build-check after Task 2's review ran it on Tasks 1–8 (`compared 22520 lines, found 0 divergence classes`, exit 0). This stage changes no canonicalization and no envelope verification, and Task 3's Step 6 holds the key set's bytes to what they were; but only running it here says whether the two implementations still agree, and a divergence is a release blocker (R14.6). If it exits non-zero, stop and report the report's path and its first divergence.
 
 Never `head` a gate's output. If a run regenerated a tracked file, `git status --porcelain` shows it: commit it only if it is the expected change, and say so.
@@ -10815,16 +10815,16 @@ Expected: `git status --porcelain` is empty, and `but status` shows every commit
 
 - [ ] **Step 3: Open the PR**
 
-Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's first line as the title, so line 1 is the title, `Keys bound in the Acta (errata G16; register D28; D16's CI line)`, and a blank line follows it. The body covers:
-- the finding, with both probe lines quoted from D28;
-- the six requirements, one line each, and what a pre-G16 identity keeps and loses;
+Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's first line as the title, so line 1 is the title, `Keys bound in the Acta (errata G16; register D28 and D30; D16's CI line)`, and a blank line follows it. The body covers:
+- the two findings, with the probe lines quoted from D28 and D30;
+- the eight requirements, one line each, and what a pre-G16 identity, and one enrolled outside NFC before R4.36, keeps and loses;
 - why the leaf carries a JWK and not a thumbprint, and why the binding is its own event type (the spec's Decisions 3 and 4);
 - why `LogBoundKeys` asks the store first (Decision 6);
 - that R15.1's frozen set does not move, and the conformance vector and `curia-testis log author` that ship with the new entry kind;
 - D16's CI line, with case 27 as its evidence;
 - the falsification table from `falsify.log`, all sixty-five cases;
 - the test plan, with the per-assembly lines Step 1 printed and the differential's exit;
-- what is observed and not fixed, the rulings on the pre-flight scan's two design questions (the spec's §8) and on Task 2's review (the spec's §9), and the one question left for the owner (the spec's §2.1).
+- what is observed and not fixed, the rulings on the pre-flight scan's two design questions (the spec's §8), on Task 2's review (the spec's §9), on Task 8's agreement probe (§10) and on the final review (§11), and the one question left for the owner (the spec's §2.1).
 
 End the body with the attribution line your session's instructions give for pull requests.
 

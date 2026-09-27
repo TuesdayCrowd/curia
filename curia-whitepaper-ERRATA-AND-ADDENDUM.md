@@ -6951,7 +6951,7 @@ then resolved the signing key for that `author`. An identifier NFC changes there
 comparison as itself and was signed, verified and stored as another. The stage's final review
 enrolled a victim under an identifier holding U+00E9 and, beside it, the same identifier with `e`
 followed by U+0301, and sent a question from the second whose envelope named it as written. The
-Forum printed, each identifier's accented letter written as a JSON escape and each body cut:
+probe printed, each identifier's accented letter written as a JSON escape and each body cut:
 
 ```
 victim NFC? True  attacker NFC? False  attacker NFC form == victim: True
