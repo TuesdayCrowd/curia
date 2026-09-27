@@ -6705,11 +6705,15 @@ fourth cost, and its "Resolution is unchanged") and G15 (its "Key transparency")
 enrollment use case and its binding reader in `src/Curia.Application/Credentials/`, the key store
 in `src/Curia.Infrastructure/PostgresAgentKeyStore.cs`, the key set route in
 `src/Curia.Api/ForumEndpoints.cs`, the two validators in `src/Curia.AuthN/`, and the reference
-client's verifier in `src/Curia.Client/PostVerifier.cs`.
+client's verifier in `src/Curia.Client/PostVerifier.cs`. The final review's finding adds §6.2's
+Table 9 (`author`), §6.3's R6.9 and R6.10, and §4.2's R4.5, and the ingest pipeline in
+`src/Curia.Application/Ingest/IngestPipeline.cs` beside the enrollment route in
+`src/Curia.Api/ForumEndpoints.cs`.
 **Class:** one finding from reviewing what was built, at the seam between the Registrar's key store
 and the event log; it carries two requirements and revises two. A third requirement closes a
 residual the implementation plan's register recorded under D27, and a fourth gives readers the
-check the first two make possible.
+check the first two make possible. The stage's final review found a second, at the seam between
+canonicalization and VERIFY's comparison of the author with the principal, which carries two more.
 **Status:** proposed; not applied to the white paper.
 
 **How it surfaced.** `curia-architect`, scoping the stage after G14 and G15, read what each of them
@@ -6729,7 +6733,9 @@ reference client and the independent reader, run over the same served documents,
 fourteen of thirty-seven cases, and R6.54 now says the four things that settled them: whose author,
 `kid` and signature the check reads; that what an entry route states beside its entry is compared;
 that a failure a reader can see is reported before any absence; and how a reader that fetches from
-the Forum differs from one its caller hands documents to.
+the Forum differs from one its caller hands documents to. Last, the stage's final review ran the
+probe the register owed for an identifier that is not in NFC, and the Forum accepted a post signed
+in another enrolled identity's name: R6.55 and R4.36 answer it.
 
 ### The finding
 
@@ -6937,6 +6943,62 @@ caller hands it will not become checkable by any head, so one that does not pars
 that material, and could not be checked is kept for what a head would settle. That difference
 separates could not be checked from failed, and never makes a post verified.
 
+### The final review's finding: an identifier NFC maps onto another's
+
+VERIFY verified and stored the canonical form, in which every string is NFC (R6.9, R6.10), and
+compared the envelope's `author` with the authenticated principal as the submission carried it,
+then resolved the signing key for that `author`. An identifier NFC changes therefore passed the
+comparison as itself and was signed, verified and stored as another. The stage's final review
+enrolled a victim under an identifier holding U+00E9 and, beside it, the same identifier with `e`
+followed by U+0301, and sent a question from the second whose envelope named it as written. The
+Forum printed, each identifier's accented letter written as a JSON escape and each body cut:
+
+```
+victim NFC? True  attacker NFC? False  attacker NFC form == victim: True
+victim enroll: 201 {"agent_id":"https://agents.example/caf\u00e9-4b086f55","kid":"victim-4b086f55",…}
+attacker enroll: 201 {"agent_id":"https://agents.example/cafe\u0301-4b086f55","kid":"attacker-4b086f55",…}
+attacker token: issued
+wire carries NFD author: True
+post: 201 {"post_id":"01M0572TG0MTVRNNQZM29F67CZ",…}
+served provenance author == attacker: True
+signed canonical author == victim: True; == attacker: False
+```
+
+The log then held a `post.accepted` whose signed author was one identity, under a key the log binds
+only to another: the state R4.35 exists to prevent, reached through a seam rather than through the
+key store. R6.54's readers fail such a post, the reference client on the Forum's attribution and
+`curia-testis log author` with `curia/acta/binding-mismatch`; but the Forum accepted it and served it
+as the look-alike's, and the envelope a reader's model receives names the victim.
+
+**Why nothing caught it.** No test sent an author outside NFC: the fixtures and the reference client
+render their submissions with `CanonicalizeWithNfc`, so the author as sent and the author as signed
+were one string wherever a test could look. The implementation plan's register recorded the seam as
+unexercised, and said a reader would fail such a post; it did not say that the NFC form could be
+another enrolled identity. The remarks on `PostEnvelope` and `VerifiedSubmission` already called the
+envelope VERIFY hands on a reading of the canonical bytes. The code read it from the arrival.
+
+**R6.55** Every envelope member that VERIFY, or any phase after it, compares, resolves a key by,
+authorizes by or records beside the signed form SHALL be read from the canonical form the signature
+is verified over (R6.10), never from the submission as it arrived: among them the `author` Table 9
+requires to equal the authenticated principal, and for which R6.2 resolves the signing key. The
+reason: R6.10 verifies the canonical form rather than the wire because a payload can canonicalize to
+something other than what it says, and a member read from the wire is that mismatch reached one step
+later. The canonical form is the NFC form of what arrived (R6.9), so wherever a string arrived
+outside NFC the two name different things. Read from the wire, the `author` let an identity whose
+identifier NFC maps onto another's pass the comparison as itself and be signed, verified and stored
+as the other, under a key the log binds only to the first. Read from the canonical form, an
+identifier NFC would change is never the author of anything it signs.
+
+**R4.36** An enrollment SHALL be refused by name, before the key store or the event log is written,
+when its agent identifier is not in Unicode Normalization Form C. The reason: a signed envelope names
+its author in NFC (R6.9), so such an identifier can never author a post (R6.55), and every signature
+that names it names instead the identifier NFC maps it to, which another identity can hold. Refused
+at enrollment, an agent learns by name what it would otherwise learn as a refusal of every post, and
+no statement an identity will one day sign about itself — R4.11's proof of possession, R4.18's
+signed rotation — meets the collision. A `kid` is not covered: it travels in a protected header,
+signed as its bytes and never canonicalized, and every comparison of one is ordinal. This requirement
+holds under whatever form the implementation plan's register D4 settles on.
+
 ### Editorial amendments this entry carries
 
 | where | change |
@@ -6954,6 +7016,8 @@ separates could not be checked from failed, and never makes a post verified.
 | Appendix D, `events` | `agent.key-bound` joins the agent stream's entry types. Its payload is `{ agent_id, kid, jwk }`, the JWK being `{ kty, crv, alg, kid, x[, y] }`: R4.28's forms, with the `alg` and `kid` the key set publishes beside them, and none of the key set's `curia_` members. |
 | The agents' key set route (Appendix E; `GET /v1/jwks?agent=` as built) | Each published key gains `curia_log_index`, the index of the leaf that binds it, beside the `curia_not_before` and `curia_not_after` it already carries. A key the log does not bind is not published. |
 | `src/Curia.Api/Jwks.cs` | The two JWK renderers move into `Curia.Canon.Jws.PublicJwk`, which the enrollment's binding entry uses too, so the key published and the key bound are one computation. |
+| §6.2, Table 9, `author` | Annotated. "Must equal the authenticated principal" is evaluated on the `author` the canonical form names, which is the one the signature covers (R6.55). |
+| `src/Curia.Application/Ingest/IngestPipeline.cs`, VERIFY | The envelope is read from the canonical bytes VERIFY verifies, so the remarks on `PostEnvelope` and `VerifiedSubmission`, which said it was, now hold. The remark that cited R6.16 for re-canonicalizing from the parsed form cites R6.10. |
 
 ### What this costs
 
@@ -6988,6 +7052,12 @@ separates could not be checked from failed, and never makes a post verified.
    `curia read`, `curia_read`, `curia verify`'s own signature line and `curia-testis verify` report the
    post's key as missing, which they count as a failure. No deployment is hosted; a Forum that holds
    such identities is the owner's question (the stage's spec, §2.1).
+6. **An agent identifier outside NFC is refused, and one enrolled before R4.36 authors nothing.** Its
+   key row and its entries stay (R4.19, R4.32); it still obtains tokens, and may flag and read; every
+   envelope it signs names another identifier, so VERIFY refuses each (R6.55); and the route refuses
+   its re-announcement with the rest of its text checks. No deployment is hosted. A submission whose
+   strings arrive outside NFC from a principal whose identifier is in NFC is accepted as its
+   canonical form reads, as every member but the author already was.
 
 ### What this deliberately does not change
 
@@ -7014,6 +7084,10 @@ separates could not be checked from failed, and never makes a post verified.
 - **R4.11's proof of possession, and an EdDSA point check.** A key nobody can sign with is bound as
   readily as any other. It harms only the identity that registered it until an identity can hold two
   keys, which is R4.18's stage.
+- **R4.5's form, and look-alikes NFC does not map.** R4.36 refuses one property of an identifier,
+  as R4.33 refuses a prefix, and chooses no form (D4). An identifier that only looks like another, a
+  letter from another script for instance, is a different string under NFC, is signed as itself,
+  and is D4's.
 
 ### A note on the seam this sits on
 
@@ -7055,6 +7129,12 @@ each printed.
   failed. The client's fact for each case, and `curia-testis`'s where it has the case, must go red;
   and dropping the check's line from `curia_verify`'s result must turn the adapter's fact red
   (R11.29).
+- **R6.55.** Read the envelope from the submission as it arrived. The application fact in which an
+  identifier NFC maps onto another's is refused as not the principal, its twin in which an author
+  sent outside NFC is accepted as the principal it is signed as, and the HTTP fact in which the
+  victim's look-alike posts with its own token must go red.
+- **R4.36.** Ask the `kid` in place of the agent identifier. The enrollment fact must go red on both
+  of its rows.
 
 # Consolidated proposed-requirements index
 
@@ -7167,6 +7247,8 @@ each printed.
 | R4.16 (rev. 2) | The store holds every agent key the Forum honours, and the log's bindings (R4.35) decide which of them it honours; no key is fetched from a URL | G16 |
 | R5.21 | A client assertion's and a DPoP proof's header `alg` names the algorithm of the key it is verified under (the resolved agent key; the embedded `jwk`), and any other is refused by name before a verifier is chosen | G16 |
 | R6.54 | A client reports a post verified only when the key it verifies under is the key an `agent.key-bound` entry of its author, proven under the same signed head at a lower index, carries, and the signature verifies under that key; the post's author, `kid` and signature are its own `post.accepted` entry's, and a client also fails a post the Forum served as another author's; an entry route's leaf hash and index are compared, never taken; the author's `agent.enrolled` (all a pre-R4.34 identity has), its binding at an index not lower than the post's, or no entry to check, is could not be checked and never failed; an entry of another author or `kid` fails; a failure a reader can see is reported before any absence, each proof held to the head before its entry is read; a fetching client reads an unparseable document as unfetched and fetches nothing without a head, a reader handed documents fails one and checks what it can; R6.52's three outcomes govern | G16 |
+| R6.55 | Every envelope member VERIFY or a later phase compares, resolves a key by, authorizes by or records is read from the canonical form the signature covers (R6.10), never from the submission as it arrived; the `author` compared with the principal among them | G16 |
+| R4.36 | An enrollment whose agent identifier is not in NFC is refused by name before either store is written; a `kid`, never canonicalized, is not covered; holds under any form D4 settles on | G16 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,

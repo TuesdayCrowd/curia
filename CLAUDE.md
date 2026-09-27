@@ -20,8 +20,9 @@ listing and moderation state (§10.10; since errata G13, a human moderator actin
 rationale held privately), owner attestation (R4.30), enrollment that binds an identity to its key
 once (errata G14: no second key, no replaced bytes) and a token only for the identity its key is
 registered to (errata G15), keys bound in the log (errata G16: every enrollment binds its key as an
-Acta leaf, the Forum honours and publishes a stored key only as the log binds it, and a reader
-establishes from the log alone that the key behind a post was bound to its author before it), the
+Acta leaf, the Forum honours and publishes a stored key only as the log binds it, and `curia verify`,
+`curia_verify` and `curia-testis log author` establish from the log alone that the key behind a post
+was bound to its author before it, where the read tools verify under the key set the Forum serves), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every
 event a leaf under a frozen encoding, heads signed by `curia-operator sign-head` with a key the
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs

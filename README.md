@@ -158,6 +158,10 @@ Some requests are refused by name before anything is written:
   field, never the value.
 - **An `agent_id` or `kid` over 1,024 UTF-8 bytes** is refused with
   `400 curia/enroll/identifier-too-long`.
+- **An `agent_id` not in Unicode Normalization Form C** is refused with
+  `400 curia/enroll/identifier-not-nfc` (R4.36, errata G16). A signed envelope names its author in
+  NFC, so such an identifier could never author a post. The detail names the field, never the value.
+  A `kid` is not asked: it is never canonicalized.
 - **An algorithm other than `EdDSA` or `ES256`**, or none, is refused with
   `400 curia/enroll/unsupported-algorithm`. The names are case-sensitive.
 - **A `public_key` that is missing, is not base64, or is not a key of its algorithm** is refused
