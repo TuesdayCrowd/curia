@@ -3691,6 +3691,78 @@ and why the facts that stay green should.
 runner exit: 0
 ```
 
+**The final wave's run.** After the final review's fixes (errata G16's R6.55 and R4.36, register
+D30), the final wave ran every case on bb19cad, with the workspace's `global.json` (SDK 10.0.401),
+using Task 9's runner extracted from the plan as committed and given no case ids: sixty-five cases
+in eighty-two suite runs, each red by its own failure line, every restore clean by both proofs, and
+`runner exit: 0`. `curia-testis` was then rebuilt from the restored `acta.rs`, and Step 3's gates
+ran unpatched and green: the Release build with `--no-incremental`, 0 warnings; eleven `Passed!`
+lines and no `Failed!` (Primitives 39, AuthN 68, Sodium 32, Architecture 30, Application 299,
+Domain 609, Mcp 74, Client 230, Infrastructure 106, Canon 262, Api 237); the Debug build, 0
+warnings, and the architecture rules in Debug, 30; `cargo fmt --check`, `clippy -D warnings`, and
+`cargo test`, 233 in 18 binaries; the differential, 0 divergence classes over 22,520 lines; and
+`check-spec` clean, with its falsifier red on 4 of 4. Compared mechanically, case by case, the set
+of `FAILED` names each of cases 1 to 61 printed is the set the run above printed for it in 60 of
+the 61, and no name the run above printed is missing from the new run. The one difference is case
+46's: deleting the whole check that, with no head, holds the two proofs to one tree also turns red
+`r6_54_without_a_head_proofs_against_two_trees_of_one_size_fail`, the fact the final wave added,
+which case 65 falsifies by narrowing that check to the tree sizes. The comparison is of names, not
+of lines: the status lines' counts and durations, and the messages' thread ids and line numbers,
+which change with the suites, the files and the run, were not compared. Cases 62 to 65, as the run
+printed them:
+
+```
+[62] VERIFY reads the envelope from the submission as it arrived, not from the form the signature covers
+[62] tests/Curia.Application.Tests RED
+    Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 64 ms - Curia.Application.Tests.dll (net10.0)
+  FAILED Curia.Application.Tests.Ingest.IngestPipelineTests.R6_55_AnAuthorSentOutsideNfcIsTheAuthorItsSignatureCovers
+      curia/content/author-principal-mismatch
+  FAILED Curia.Application.Tests.Ingest.IngestPipelineTests.R6_55_AnAuthorWhoseSignedFormIsAnotherIdentifierIsNotThePrincipal
+      Assert.False() Failure
+      Expected: False
+      Actual:   True
+[62] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 418 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.SignedAuthorTests.R6_55_AnIdentifierNfcMapsOntoAnothersCannotPostSignedInTheOthersName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "401 curia/content/author-principal-mismatch; posts"···
+      Actual:   "201 ; posts on the board 1"
+      ↑ (pos 0)
+[62] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[63] the enrollment route asks the kid, not the agent identifier, whether it is in NFC
+[63] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 309 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentIdentifierTests.R4_36_AnAgentIdentifierNfcWouldChangeIsRefusedBeforeAnythingIsWritten(field: "kid", expected: "201 enrolled; key rows 1, events 2")
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "201 enrolled; key rows 1, events 2"
+      Actual:   "400 curia/enroll/identifier-not-nfc field=agent_id"···
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.EnrollmentIdentifierTests.R4_36_AnAgentIdentifierNfcWouldChangeIsRefusedBeforeAnythingIsWritten(field: "agent_id", expected: "400 curia/enroll/identifier-not-nfc field=agent_id"···)
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "400 curia/enroll/identifier-not-nfc field=agent_id"···
+      Actual:   "201 enrolled; key rows 1, events 2"
+      ↑ (pos 0)
+[63] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[64] the client reports an honest post whose own entry cannot be fetched as failed
+[64] tests/Curia.Client.Tests RED
+    Failed!  - Failed:     1, Passed:    44, Skipped:     0, Total:    45, Duration: 361 ms - Curia.Client.Tests.dll (net10.0)
+  FAILED Curia.Client.Tests.PostVerifierTests.R6_52_AnHonestPostWhoseOwnEntryCannotBeFetchedIsNotCheckedNeverFailed
+      Assert.Equal() Failure: Values differ
+      Expected: CouldNotCheck
+      Actual:   Failed
+[64] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+[65] with no head, curia-testis compares the two proofs' tree sizes and not their roots
+[65] cargo log_author RED
+    test result: FAILED. 20 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+  FAILED r6_54_without_a_head_proofs_against_two_trees_of_one_size_fail
+      thread 'r6_54_without_a_head_proofs_against_two_trees_of_one_size_fail' (5363048) panicked at tests/log_author.rs:467:6:
+      called `Result::unwrap_err()` on an `Ok` value: ()
+[65] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
+```
+
 ### D29 — the token endpoint verifies nothing of the DPoP proof a token request carries *(pre-existing; found by the key-binding stage's Task 6 review, 2026-09-27; opened by that stage)*
 
 **Found by the review of R5.21's task, and confirmed by execution.**
