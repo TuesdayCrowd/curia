@@ -145,10 +145,11 @@ set; SP scores recorded even if not yet weighted.*
 > closes **D24**, which a review found during it: a text whose hashed features cancel embedded as
 > NaN, which pgvector refuses, so one T0 question could stop the Forum restarting. And it opens
 > **D25**: the vector index serves Postgres's own error text to an anonymous caller. Its final wave
-> closes **D26** and **D27**, which the stage's final review found (errata G15). Any enrolled key
-> could obtain a token as any enrolled identity; now an assertion's key is resolved for the client
-> it names (R5.20). And an enrollment wrote whatever identifier, algorithm and key it was sent; now
-> an identifier that names the log's own records is refused (R4.33), and so are text the log cannot
+> closes **D26** and **D27**, which the stage's final review and the review of its final wave's
+> second dispatch found (errata G15). Any enrolled key could obtain a token as any enrolled
+> identity; now an assertion's key is resolved for the client it names (R5.20). And an enrollment
+> wrote whatever identifier, algorithm and key it was sent; now an identifier that names records the
+> log keeps for something other than an agent is refused (R4.33), and so are text the log cannot
 > carry, an algorithm or key the Forum cannot verify with, and an identifier longer than it stores.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
@@ -291,9 +292,9 @@ which also closed **D16**'s code half — its CI-configuration question was left
 and is now decided but not carried out (see its entry); D17 and D19 by the screener stage
 (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22, D23, D24, D26 and D27 by the
 enrollment stage (2026-09-26), the last two in its final wave. Their entries are kept as the record
-of what was wrong; their file:line
-citations point at the pre-fix files and mostly no longer resolve (D1's `:40`, D2's `:261`, D3's
-`:262`, D5's `:29-31` all land elsewhere today). **Read those as history, not as pointers.**
+of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
+(D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
+history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
 Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D25 (opened by the enrollment stage).
@@ -343,10 +344,10 @@ R4.5 (`curia-agent-forum-WHITEPAPER.md:635`) says an agent identifier SHALL be
 `agent://curia.example/<owner-slug>/<agent-slug>`. **Three shapes are in circulation and none is
 enforced**: the CLI emits `urn:curia:agent:<slug>` (`src/Curia.Client.Cli/Program.cs:103`), the test
 fixtures use `https://agents.example/…`, and nothing validates any of them. Since D27 the enrollment
-route refuses an identifier that begins `log:` or `flag:` or names an aggregate the log already uses
-(R4.33), one holding a noncharacter, an unpaired surrogate or U+0000, and one over 1,024 UTF-8
-bytes. None of that is a form, so this entry stays open; the erratum that closes it should state a
-maximum length at or under that cap.
+route refuses an identifier that begins `log:` or `flag:` or names an aggregate that holds events
+and no enrollment of it, a post's for example (R4.33), one holding a noncharacter, an unpaired
+surrogate or U+0000, and one over 1,024 UTF-8 bytes. None of that is a form, so this entry stays
+open; the erratum that closes it should state a maximum length at or under that cap.
 
 This is what makes "fetch the agent's JWKS" expressible at all — an identifier that is also a
 *location* turns A16/R4.16's prohibition on runtime key fetching from a rule nothing can break into
@@ -1590,11 +1591,36 @@ should:
 [19] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
 ```
 
-Two of this entry's cases read differently in the final wave's full run. Case 18 now shows the
-backdated window as well, since the ownership fact asserts it, and case 27 is new: the store
-reporting a `kid` another identity holds as registered. They printed:
+Three of this entry's cases read differently in the final wave's full run. Case 15 also turns the
+lost-row fact red, `R4_31_ALostRowsKidTakenByAnotherIdentityRefusesTheRecoveryByName`, at its
+detail. Case 18 now shows the backdated window as well, since the ownership fact asserts it. And
+case 27 is new: the store reporting a `kid` another identity holds as registered. They printed:
 
 ```
+[15] the endpoint serves the bare kid as a refusal's detail, as before this stage
+[15] tests/Curia.Api.Tests RED
+    Failed!  - Failed:     4, Passed:     2, Skipped:     0, Total:     6, Duration: 468 ms - Curia.Api.Tests.dll (net10.0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_EnrollingAnEnrolledIdentityWithANewKeyRegistersNothing
+      Assert.StartsWith() Failure: String start does not match
+      String:         "attacker-79d5bb29"
+      Expected start: "agent=https://agents.example/victim-195e6c9c: noth"···
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_AKidAnotherIdentityHoldsIsRefusedNamingBoth
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "agent=https://agents.example/newcomer-98525feb kid"···
+      Actual:   "victim-e597bcf7"
+      ↑ (pos 0)
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_32_ReEnrollingAKidWithOtherBytesReplacesNothing
+      Assert.StartsWith() Failure: String start does not match
+      String:         "victim-b85c50d1"
+      Expected start: "kid=victim-b85c50d1: nothing was registered."
+  FAILED Curia.Api.Tests.EnrollmentBindingTests.R4_31_ALostRowsKidTakenByAnotherIdentityRefusesTheRecoveryByName
+      Assert.Equal() Failure: Strings differ
+      ↓ (pos 0)
+      Expected: "agent=https://agents.example/victim-947be888 kid=v"···
+      Actual:   "victim-947be888"
+      ↑ (pos 0)
+[15] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
 [18] the history primitive no longer compares the owner
 [18] tests/Curia.Infrastructure.Tests RED
     Failed!  - Failed:     1, Passed:    15, Skipped:     0, Total:    16, Duration: 174 ms - Curia.Infrastructure.Tests.dll (net10.0)
@@ -1930,7 +1956,7 @@ falsified, goes red.
 [22] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
 ```
 
-### D27 — an enrollment wrote whatever identifier, algorithm and key it was sent *(pre-existing; found by the enrollment stage's final review, 2026-09-26; closed by that stage's final wave; errata G15, R4.33; R4.5's form stays open as D4)*
+### D27 — an enrollment wrote whatever identifier, algorithm and key it was sent *(pre-existing; found by the enrollment stage's final review and by the review of its final wave's second dispatch, 2026-09-26; closed by that stage's final wave; errata G15, R4.33; R4.5's form stays open as D4)*
 
 `POST /v1/agents` needs no credential. Before the final wave it asked only that `agent_id` and `kid`
 were not blank and that `public_key` decoded as base64, and it registered the rest as it was sent.
@@ -1974,11 +2000,13 @@ version its fold of the log expects.
   the signed head before the refusals.
 
 **(b) The characters.**
-- `agent_id` or `kid` holding U+FFFE answered 201. The log then served the entry, and the reference
-  client refused to read it; the control entry read. A lone surrogate was refused 400 by ASP.NET's
-  JSON binder, before the route ran. Four of the final review's lines, abridged:
+- `agent_id` or `kid` holding U+FFFE answered 201. The log served the entry of an `agent_id` holding
+  one, and the reference client refused to read it; the control entry read. A `kid`'s entry was not
+  read back. A lone surrogate was refused 400 by ASP.NET's JSON binder, before the route ran. Five
+  of the final review's lines, abridged:
 
   ```
+  first enroll: 201 {"agent_id":"https://agents.example/probe-a7c99da1\uFFFE","kid":"probe1-a7c99da1", …}
   kid with U+FFFE: 201 {"agent_id":"https://agents.example/probe2-fda4160e","kid":"probe2-fda4160e\uFFFE", …}
   ForumClient entry 0 (noncharacter agent): ok=False The Forum's response could not be parsed: curia/admit/noncharacter
   ForumClient entry 1 (control): ok=True
@@ -2006,9 +2034,9 @@ version its fold of the log expects.
 
 **(c) The algorithm and the key.**
 - **The algorithm.** A missing `alg` answered 500 (Npgsql's null parameter), and `RS256` answered
-  500 (the `agent_keys` CHECK). Both failed at the key store, before the log is asked, and the
-  dispatch that fixed them counted 0 key rows after `RS256`. Two of the final review's lines,
-  abridged:
+  500 (the `agent_keys` CHECK). Both failed at the key store, before the log was asked to record the
+  enrollment, and the dispatch that fixed them counted 0 key rows after `RS256`. Two of the final
+  review's lines, abridged:
 
   ```
   no alg: 500 System.InvalidOperationException: Parameter 'alg' cannot be null, DBNull.Value should be used instead.
@@ -2017,7 +2045,9 @@ version its fold of the log expects.
 
   The second dispatch refused both 400 `curia/enroll/unsupported-algorithm`, against the verifier
   dictionary `DetachedJws` uses as its allow-list. But that theory tested the label, not the key:
-  every row sent an honest P-256 key.
+  every row sent an honest P-256 key. The theory carried R4.15's number, and the route's remark said
+  the Forum "never registers a key it could not check a signature against"
+  (`ForumEndpoints.cs:408-409` at a83577d).
 - **The key**, probed at a83577d by that dispatch's review.
   - `""`, `AAAA`, 32 raw bytes, an RSA-2048 SubjectPublicKeyInfo and 5 MB of zeros, each as ES256,
     answered 201. The key set of each one probed (the 32 raw bytes, the RSA key, the empty key) then

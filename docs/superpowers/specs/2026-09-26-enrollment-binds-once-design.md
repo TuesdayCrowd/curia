@@ -4,8 +4,8 @@
 `docs/superpowers/plans/2026-09-26-enrollment-binds-once.md`. The stage also closed **D24**, which a
 review found during it (features that cancel embedded as NaN), and opened **D25** (the vector index
 serves Postgres's own error text to an anonymous caller); the register holds both. Its final wave
-closed **D26** and **D27**, which the stage's final review found, under errata **G15** (R5.20 and
-R4.33; Decisions 17–20, Increment 6).
+closed **D26** and **D27**, which the stage's final review and the review of its final wave's second
+dispatch found, under errata **G15** (R5.20 and R4.33; Decisions 17–20, Increment 6).
 
 **Register:** this stage opens and closes two entries, numbered when they are written. On this reading
 the highest entry is D21, so the new ones would be **D22**: *an enrollment could add a key to any
@@ -489,15 +489,20 @@ in order, each reviewed.
 
 - **Errata G15** (no code): R5.20 and R4.33, with G14 amended in place where its sentences were
   false. `check-spec.py` clean, and `falsify-spec-checks.py` red on all four checks.
-- **R5.20** (Decision 17). *Red first:* `TokenSubjectBindingTests`, four facts;
-  `ClientAssertionValidatorTests`' R5.20 fact; `PostgresAgentKeyStoreTests`' R5.20 fact, replacing
-  the one that resolved by `kid` alone.
+- **R5.20** (Decision 17). *Red first:* three of `TokenSubjectBindingTests`' four facts. The subject
+  fact passed before the fix, since the existing `sub` check already refused it, and case 22 is its
+  red. Also `ClientAssertionValidatorTests`' R5.20 fact, and `PostgresAgentKeyStoreTests`' R5.20
+  fact, which replaces the one that resolved by `kid` alone.
 - **R4.33 and the route's text and algorithm** (Decisions 18 and 19, and Decision 20's first
   bullet). *Red first:* `EnrollIdentityTests`' two R4.33 facts; `JsonReaderCheckStringTests`, two
   facts; `EnrollmentIdentifierTests`; `ActaNamespaceTests`, one fact on a database of its own.
-- **The key and the length** (Decision 20). *Red first:* `AdapterTests`' three R4.15 facts;
-  `StoredKeyFormTests`, two facts; `EnrollmentIdentifierTests`' key, Ed25519, missing-key and length
-  facts.
+- **The key and the length** (Decision 20). *Red first:* `AdapterTests`' two R4.15 theories;
+  `StoredKeyFormTests`, two facts; and `EnrollmentIdentifierTests`' key, missing-key and length
+  facts. The two positive controls,
+  `AdapterTests.R4_15_AnHonestKeyOfEachAlgorithmIsAPublicKeyAndVerifies` and
+  `EnrollmentIdentifierTests.R4_28_AnEd25519KeyIsRegisteredAndPublishedAsTheOctetKeyPairItIs`,
+  passed before the fix by design, and case 31 is their red. So did the length theory's two
+  1,024-byte rows, which are its boundary controls.
 - **The minors** (Decision 20): the lost-row HTTP fact, the dedupe fact, the ownership fact's
   backdated window, and comment corrections.
 - **The record:** D26 and D27, and a full run of all thirty-eight falsification cases.
@@ -532,10 +537,10 @@ patches, and the register's D22, D23, D24, D26 and D27 quote what each printed.
 | 12 | The verifier's negative control substitutes nothing | The HTTP overwrite fact, at its control |
 | 13 | The embedding normalizes the text as given (D23 undone) | Three Domain facts (`ArgumentException`); the HTTP search fact (500). The pin stays green |
 | 14 | The embedding drops a noncharacter instead of reading it as U+FFFD | The separation fact and the pin |
-| 15 | The endpoint serves the bare `kid` as a refusal's detail | The three HTTP refusal facts, at their details |
+| 15 | The endpoint serves the bare `kid` as a refusal's detail | The four HTTP refusal facts, the lost-row fact among them, at their details |
 | 16 | The history primitive ignores the algorithm | The algorithm fact alone |
 | 17 | A lost row's key dated from now | The use-case lost-row re-registration fact; the HTTP lost-row fact, at the served key set |
-| 18 | The history primitive ignores the owner | The exact-copy fact alone: another agent is handed the victim's row, its window closed. The fresh-bytes fact stays green, since the material clauses refuse it |
+| 18 | The history primitive ignores the owner | The exact-copy fact alone, at the backdated window: another agent is handed the victim's row, its window closed. The fresh-bytes fact stays green, since the material clauses refuse it |
 | 19 | The use case exempts a `kid` the store holds from the log's binding | `R4_31_AKidTheLogDidNotBindIsRefusedEvenWhenTheStoreHoldsIt` alone. The lost-row fact stays green: an empty store holds nothing to exempt |
 | 20 | The embedding divides a zero vector by its zero norm (D24 undone) | The Domain cancelling-features fact; the HTTP search (503), question (500), restart and dedupe (503) facts. Both digest pins stay green |
 | 21 | Both adapters of the authentication port answer by `kid` alone | The AuthN R5.20 fact; the two Infra resolver facts; the two HTTP token facts, at the damage (a flag recorded as the victim's). The subject fact and the U+0000 fact stay green |
