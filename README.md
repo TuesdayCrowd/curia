@@ -442,12 +442,12 @@ curia-testis log author --entry post-entry.json --proof post-proof.json \
 ```
 
 Exit 0 means the key entry binds a key to the post's author, at a lower index than the post, and
-the post verifies under that key. Exit 1 names what failed, a key entry that binds another identity
-or another `kid` among them, and with no head a document that fails a check needing none exits 1
-all the same. Exit 3 means it could not be checked: no head was given and every check that needs
-none held, or the log carries no key for the post's `kid` from before the post, because the key
-entry is the author's
-enrollment, which names the `kid` and no key, or the author's binding made after the post.
+the post verifies under that key. Exit 1 names what failed, a key entry that binds another
+identity or another `kid` among them, and with no head a document that fails a check needing none
+exits 1 all the same. Exit 3 means it could not be checked: no head was given and every check
+that needs none held, or the log carries no key for the post's `kid` from before the post,
+because the key entry is the author's enrollment, which names the `kid` and no key, or the
+author's binding made after the post.
 
 ---
 

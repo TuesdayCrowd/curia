@@ -9917,7 +9917,7 @@ Each case must print `RED` for every command it runs, then `restore clean`, and 
 Eleven things in this table are deliberate:
 - **Cases 10 and 11 each leave the HTTP fact green,** and case 12 is the one the surface sees: each half of R4.31 (revised) backs the other, and R4.35 backs both at the token (trap 13).
 - **Cases 8 and 9 are one requirement on two paths.** Each wiring is broken alone, and the one fact shows which path opened.
-- **Case 18 is the RFC anchor's reason for being.** A renderer that swapped coordinates would have been consistent everywhere the Forum compares its own output with itself.
+- **Case 18 is why an anchor outside the renderer matters.** A renderer that swapped coordinates would have been consistent everywhere the Forum compares its own output with itself; only facts that derive the coordinates independently go red, the RFC 7515 fact and the fixed leading-zero point among them.
 - **Cases 20 and 29, and 24 and 28, are one rule twice in each reader.** Ignoring the order lets a binding after the post verify; reading it as a failure is the defect the pre-flight scan found (its B1). Each reader needs both cases, and case 28's Api run is what shows the exit code, not only the library's classification, carries it.
 - **Cases 31 to 33 came from Task 2's review.** Case 31's patch counts another identifier's keys, the mistake a refactor of the lookup would make, and both of its facts then see the second key bound. Case 32 leaves the post's own inclusion check red as well, because the head commits to the wrong root for both proofs; its fact asserts the key check alone, the one line the patch moves. Case 33 is the only probe on `curia_verify`'s fourth line: no client fact reads the rendering's lines.
 - **Cases 34 and 35 came from Task 3's review.** Case 34 strips a P-256 coordinate's leading zeros, and only the fixed leading-zero point sees it: RFC 7515's key has no such coordinate, and a key a suite generates has one about once in 128, so no other fact is certain to meet one. Case 35 is errata D4's trap, an Ed25519 key in `EC`'s form, and the RFC 8037 fact is its only red. Case 18, its P-256 counterpart, has two in `PublicJwkTests`: the RFC 7515 fact and the fixed leading-zero point, since a swap moves every P-256 key's coordinates.
@@ -10253,6 +10253,11 @@ control character raw (61).
   which harms only the identity that registered it until rotation lets it hold a second.
 
 ````
+
+*As committed (a4a6f45) the register corrects four statements above: `LogBoundKeysTests` has seven
+facts; cases 10 and 11 ran the application facts alone, so the HTTP fact is traced, not run; case
+30 came from the amendments after the pre-flight scan; and D16's Release pass is the pre-flight
+scan's measurement.*
 
 
 - [ ] **Step 5: The enrollment stage's observations this stage closes**

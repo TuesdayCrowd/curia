@@ -21,9 +21,9 @@ namespace Curia.Canon.Jws;
 /// the adapter that verifies with it owns (<c>Es256Adapter.IsPublicKey</c>,
 /// <c>Ed25519Adapter.IsPublicKey</c>), and both routes that publish or bind a key ask that rule
 /// first (<c>Jwks.CanPublish</c>): the key set before it renders, and the enrollment route before
-/// its use case binds. This method refuses what it cannot render -- anything but 32 bytes under <c>EdDSA</c>,
-/// and anything but a whole DER SubjectPublicKeyInfo on the curve named P-256 under <c>ES256</c> --
-/// and <c>PublicJwkTests</c> holds the two to the same answer on every material
+/// its use case binds. This method refuses what it cannot render -- anything but 32 bytes under
+/// <c>EdDSA</c>, and anything but a whole DER SubjectPublicKeyInfo on the curve named P-256 under
+/// <c>ES256</c> -- and <c>PublicJwkTests</c> holds the two to the same answer on every material
 /// <c>KeyMaterials</c> names.</para>
 /// </summary>
 public static class PublicJwk

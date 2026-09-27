@@ -309,12 +309,13 @@ compared the two. It is recorded as trap 22.
     - `StoredKeyFormTests`' theory of replaced rows reaching the verifier: its two rows move to
       pre-G16 identities, the only ones whose replaced row still reaches the verifier, and R4.35's own
       rows are added for identities enrolled since, which are refused before the verifier.
-    - `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish`: its rows move to pre-G16
-      identities too, each identity's own `kid`-bound row, the only rows that can still reach the
-      renderer without being a key it renders: a row under an identity enrolled since reaches it
-      only when it is the key the log bound, which renders. Under such an identity, R4.35 refuses
-      the unrenderable row first and the renderer's guard goes untested. The since-G16 shape becomes R4.35's own fact, with another holder's valid
-      key under the bound `kid`, which only the key set's comparison of bytes refuses.
+    - `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish`: its rows move to
+      pre-G16 identities too, each identity's own `kid`-bound row, the only rows that can still
+      reach the renderer without being a key it renders: a row under an identity enrolled since
+      reaches it only when it is the key the log bound, which renders. Under such an identity, R4.35
+      refuses the unrenderable row first and the renderer's guard goes untested. The since-G16 shape
+      becomes R4.35's own fact, with another holder's valid key under the bound `kid`, which only
+      the key set's comparison of bytes refuses.
     - The row whose header says `EdDSA` over an honest `ES256` key leaves the R4.15 theory, which
       asserts a bad signature, for R5.21's own fact, which asserts the refusal by name.
     - `TokenSubjectBindingTests`' key row no enrollment recorded is now refused by R4.35 before the
@@ -383,8 +384,9 @@ No deployment is hosted, but a local Forum that agents used before this stage ha
   in R6.54's check. A key the hole added under another `kid` is honoured nowhere, so every post it
   signed fails its signature check, since the identity's own key is published. And a lost row still
   recovers on the `kid` alone.
-- **Identities enrolled before 5f96f51**: key rows and no `agent.enrolled`. Tokens are refused, as
-  since G15, and the key set publishes none of their keys, so readers disagree about their posts:
+- **Identities enrolled before 5f96f51**: key rows and no `agent.enrolled`. Tokens are refused, by
+  R4.35 since G16 and by the token endpoint's enrollment check before it, and the key set publishes
+  none of their keys, so readers disagree about their posts:
   `curia_verify` reports them as *could not be checked*, because the Forum published no key, while
   `curia read`, `curia_read`, `curia verify`'s own signature line and `curia-testis verify` report the
   key missing, which they count as a failure (§9, "An empty key set reads two ways"). Where the store holds one key
@@ -426,28 +428,29 @@ small stage of its own, out of band like `attest-owner`, with its own entry.
 | 7 | `curia-testis log author` | built; `fmt`, `clippy`, `cargo test` |
 | 8 | R6.54 in the reference client; the stub held to the Forum | built and run |
 | 9 | Falsification: sixty-one cases in seventy-seven suite runs | run in a git-backed copy: all red, restores clean by bytes and by `git diff` |
-| 10 | Register D28, D16, trap 22; `CLAUDE.md`, README | anchors checked, not built |
+| 10 | Register D28, D29, D16, trap 22; G16's text fixes; `CLAUDE.md`, README; two comments | anchors checked; Release built, 0 warnings |
 | 11 | Every gate in `CLAUDE.md`; the PR | not run as a whole (see §7) |
 
 ## 4. What gets falsified
 
-Sixty-one cases in seventy-seven suite runs (the plan's Task 9), each a patch to production code that one or more named facts must
-turn red: the binding written under another type (1); a binding that carries a key answering on
-the `kid` alone (2); the `kid`-only binding standing beside a carried key (3); the first binding alone
-(4, the seam); the resolver honouring whatever the store resolves (5); the key set listing every row
-(6); the key set reading the log before the store (7); the token endpoint (8) and ingest (9) wired to
-the store directly; each half of R4.31 (revised)'s material check (10, 11) and both (12); each R5.21
-pin (13, 14); the renderer accepting what an adapter refuses (15, 16); `SameKey` comparing lengths
-(17); the renderer swapping P-256 coordinates (18); five R6.54 breaks in the client (19–23) and
-three in `curia-testis` (24–26); D16's seven-case switch back in `Curia.Domain` (27); and three the
-pre-flight scan's findings added: `curia-testis` (28) and the client (29) reading the author's binding
-after the post as a failure, and the client not comparing the binding with the post's author and
-`kid` (30); and three Task 2's review added: the refusal of several stored keys counting another
+Sixty-one cases in seventy-seven suite runs (the plan's Task 9), each a patch to production code
+that one or more named facts must turn red: the binding written under another type (1); a binding
+that carries a key answering on the `kid` alone (2); the `kid`-only binding standing beside a
+carried key (3); the first binding alone (4, the seam); the resolver honouring whatever the store
+resolves (5); the key set listing every row (6); the key set reading the log before the store (7);
+the token endpoint (8) and ingest (9) wired to the store directly; each half of R4.31 (revised)'s
+material check (10, 11) and both (12); each R5.21 pin (13, 14); the renderer accepting what an
+adapter refuses (15, 16); `SameKey` comparing lengths (17); the renderer swapping P-256 coordinates
+(18); five R6.54 breaks in the client (19–23) and three in `curia-testis` (24–26); D16's seven-case
+switch back in `Curia.Domain` (27); and two the pre-flight scan's finding B1 added: `curia-testis`
+(28) and the client (29) reading the author's binding after the post as a failure; and one found
+while amending after it (§8): the client not comparing the binding with the post's author and `kid`
+(30); and three Task 2's review added: the refusal of several stored keys counting another
 identifier's (31), the client holding the binding's proof to its own root rather than the signed
-head's (32), and `curia_verify` dropping the key check's line (33); and twenty-eight the later reviews
-added: Task 3's (34, 35), Task 4's (36), Task 5's (37–40), Task 7's (41–48), Task 8's agreement probe
-(49–57, §10) and Task 8's review (58–61). The register's D28 names each, and quotes what every case
-printed in Task 9's run on 40df319.
+head's (32), and `curia_verify` dropping the key check's line (33); and twenty-eight the later
+reviews added: Task 3's (34, 35), Task 4's (36), Task 5's (37–40), Task 7's (41–48), Task 8's
+agreement probe (49–57, §10) and Task 8's review (58–61). The register's D28 names each, and quotes
+what every case printed in Task 9's run on 40df319.
 
 ## 5. Out of scope
 
