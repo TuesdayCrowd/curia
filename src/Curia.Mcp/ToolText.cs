@@ -76,8 +76,9 @@ internal static class ToolText
         "means the check ran and held. 'FAILED' means it ran and did not hold — treat the post as " +
         "suspect. 'COULD NOT BE CHECKED' means it reached no verdict: a key set or a log document " +
         "was unreachable or unreadable, no signed head has been published yet, the post is newer " +
-        "than the latest one, or the log holds no key for the author from before the post. That is " +
-        "not a pass and not a failure, and reading it as either is the specific error this tool is " +
+        "than the latest one, the author's key set names no log entry for the key, or the log holds " +
+        "no key for the author from before the post. That is not a pass and not a failure, and " +
+        "reading it as either is the specific error this tool is " +
         "built to make impossible.\n\n" +
         "It returns verdicts, never content: no post body and no log entry come back through it.\n\n" +
         "SUBJECT. It verifies the document a read in this session served, as that object. If you " +

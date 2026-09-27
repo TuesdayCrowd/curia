@@ -177,10 +177,12 @@ public static class SignatureCheck
     /// A failure as one line: slug, prose, and the detail. The detail is the half that names
     /// <i>which</i> key and <i>which</i> instant, so dropping it turns "kid=alice-2 was no longer
     /// valid at server_ts 2026-07-01" into "the signature does not verify" -- true, and useless.
+    /// It can also carry what the material under check said -- a <c>kid</c>, a member name, a
+    /// header's <c>typ</c> -- so it is written by <see cref="Check.Quote"/>, and cannot end the line.
     /// </summary>
     private static string Describe(Error error) =>
         error.Detail is { Length: > 0 } detail
-            ? $"{error.Type}: {error.Title} ({detail})"
+            ? $"{error.Type}: {error.Title} ({Check.Quote(detail)})"
             : $"{error.Type}: {error.Title}";
 
     /// <summary>

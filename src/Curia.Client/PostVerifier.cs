@@ -65,25 +65,27 @@ public sealed record PostVerification(
     /// <summary>
     /// The four checks as four lines, plus the summary.
     ///
-    /// <para><b>No agent-authored content appears here, and none may.</b> This renders verdicts
+    /// <para><b>No post body and no log entry appears here, and none may.</b> This renders verdicts
     /// about a post, not the post: R6.51 forbids surfacing a log entry, and this method is the one
     /// place a fetched entry could have leaked into a result.</para>
     ///
     /// <para><b>Not every string here is this client's own, and saying otherwise would be the
-    /// project's own failure mode.</b> A <see cref="Check.Detail"/> can embed a
-    /// <see cref="Refusal.Summary"/>, which carries the Forum's problem document — Forum-authored
-    /// text, reaching the reader inside a sentence this client framed. That is the same category as
-    /// every other refusal this client relays and is deliberately passed through unaltered, because
-    /// a client that rewrote a <c>curia/</c> slug into its own vocabulary would leave its reader
-    /// unable to search the specification for what happened. What is excluded is the thing P22 is
-    /// about: no post body, no log entry, nothing an <i>agent</i> wrote.</para>
+    /// project's own failure mode.</b> The lines name values from the material under check -- the
+    /// post's id, an identifier or <c>kid</c> an agent chose, an entry type or digest the log holds,
+    /// a <see cref="Refusal.Summary"/> carrying the Forum's problem document -- each inside a
+    /// sentence this client framed. Each such value is written by <see cref="Check.Quote"/> as a JSON
+    /// string literal, so none can end its line or begin another: this text is read line by line, by
+    /// a model through <c>curia_verify</c> (R11.29), and a value that began a line could forge one of
+    /// this client's verdicts. The Forum's slugs are otherwise passed through unaltered, because a
+    /// client that rewrote a <c>curia/</c> slug into its own vocabulary would leave its reader unable
+    /// to search the specification for what happened.</para>
     /// </summary>
     public string Render()
     {
         var builder = new StringBuilder();
         var culture = CultureInfo.InvariantCulture;
 
-        builder.Append(culture, $"post       {PostId}\n");
+        builder.Append(culture, $"post       {Check.Quote(PostId)}\n");
         builder.Append(culture, $"digest     {Digest ?? "(no canonical form)"}   (computed here, from the served document)\n");
         builder.Append(culture, $"log_index  {(LogIndex is { } index ? index.ToString(culture) : "(not served)")}\n");
         builder.Append(culture, $"anchor     {(AnchorTreeSize is { } size ? $"signed head at tree size {size}" : "(none reached)")}\n");
@@ -180,7 +182,7 @@ public sealed class PostVerifier
         var head = await AnchorAsync(ct).ConfigureAwait(false);
         var inclusion = await InclusionAsync(post, head, ct).ConfigureAwait(false);
         var consistency = await ConsistencyAsync(head, ct).ConfigureAwait(false);
-        var keyBinding = await KeyBindingAsync(post, head, inclusion, signingKey, ct).ConfigureAwait(false);
+        var keyBinding = await KeyBindingAsync(post, head, inclusion, signature, signingKey, ct).ConfigureAwait(false);
 
         return new PostVerification(
             post.PostId,
@@ -212,16 +214,16 @@ public sealed class PostVerifier
         var fetched = await _forum.GetJwksAsync(author, ct).ConfigureAwait(false);
         if (!fetched.TryGetValue(out var keys, out var refusal))
             return (Check.CouldNotCheck(
-                $"the author's key set could not be fetched ({refusal!.Error.Type}): {refusal.Summary}. "
+                $"the author's key set could not be fetched ({Check.Quote(refusal!.Error.Type)}): {Check.Quote(refusal.Summary)}. "
                 + "This is a fault reaching the keys, not a statement about the signature."), unkeyed.PrefixedDigest, null);
 
         if (keys.IsDefaultOrEmpty)
-            return (Check.CouldNotCheck($"the Forum published no keys at all for {author}"), unkeyed.PrefixedDigest, null);
+            return (Check.CouldNotCheck($"the Forum published no keys at all for {Check.Quote(author)}"), unkeyed.PrefixedDigest, null);
 
         var verdict = SignatureCheck.Verify(post, keys);
         var signingKey = keys.FirstOrDefault(k => string.Equals(k.Kid, verdict.Kid, StringComparison.Ordinal));
         return (verdict.Verified
-            ? Check.Verified(verdict.Detail + $" (kid={verdict.Kid})")
+            ? Check.Verified(verdict.Detail + $" (kid={Check.Quote(verdict.Kid)})")
             : Check.Failed(verdict.Detail), verdict.PrefixedDigest, signingKey);
     }
 
@@ -243,38 +245,57 @@ public sealed class PostVerifier
     /// receive, as R6.52's other lines already treat it -- a truncated body and a proxy's page parse
     /// no better than a forgery, and R6.52 exists so that a network fault never reads as an attack.
     /// Everything this client does hold is checked before any absence is reported: the post's own
-    /// record before the key set is consulted, and every proof before any entry is read.</para>
+    /// record before the key set is consulted; each proof held to the signed head before its entry's
+    /// type, identity or order is read; and a proof in hand held to the head before its entry's
+    /// absence is reported, so a proof the head does not commit to is failed whatever else is
+    /// absent.</para>
     /// </summary>
     private async Task<Check> KeyBindingAsync(
-        ProvenancePost post, Anchor anchor, PostInclusion inclusion, ForumJwk? signingKey, CancellationToken ct)
+        ProvenancePost post, Anchor anchor, PostInclusion inclusion, Check signature, ForumJwk? signingKey, CancellationToken ct)
     {
         // No head, or one that did not verify: the inclusion line's verdict, for the same reason.
         if (anchor.Head is not { } head) return anchor.Verdict;
 
         // The post's author, kid and signature are read from the log's own record of it, which the
-        // inclusion check fetched. Where it could not, neither can this check.
+        // inclusion check fetched. Where it could not, neither can this check -- unless what the
+        // inclusion check did hold already failed, as a proof the head does not commit to does,
+        // which fails this check too.
         if (inclusion.Entry is not { } postEntry || inclusion.Proof is not { } postProof)
-            return Check.CouldNotCheck(
-                "the post's own log entry and proof were not in hand under the signed head (the "
-                + "inclusion line says why), and this check reads the post's author, kid and "
-                + "signature from them");
+            return inclusion.Check is { Outcome: CheckOutcome.Failed }
+                ? inclusion.Check
+                : Check.CouldNotCheck(
+                    "the post's own log entry and proof were not in hand under the signed head (the "
+                    + "inclusion line says why), and this check reads the post's author, kid and "
+                    + "signature from them");
 
         var record = ActaCheck.PostOfRecord(post, postEntry, postProof, head);
         if (record.Outcome is not CheckOutcome.Verified) return record;
 
-        if (signingKey?.LogIndex is not { } keyIndex)
+        // No key resolved from the key set at all: say why the binding cannot be looked for, and not
+        // that the key set names no leaf, which would describe a key set that may never have arrived.
+        if (signingKey is null)
+            return Check.CouldNotCheck(signature.Outcome is CheckOutcome.CouldNotCheck
+                ? "the author's key set did not arrive, or held no keys (the signature line says which), so the key's binding cannot be looked for"
+                : "no key in the author's key set answers to the kid the served signature names (the signature line says why), so the key's binding cannot be looked for");
+
+        if (signingKey.LogIndex is not { } keyIndex)
             return Check.CouldNotCheck(
                 "the author's key set names no log leaf for the key this post names, so the key's binding cannot be found (R6.54)");
 
         var proof = await _forum.GetInclusionProofAsync(keyIndex, head.TreeSize, ct).ConfigureAwait(false);
         if (!proof.TryGetValue(out var keyProof, out var proofRefusal))
             return Check.CouldNotCheck(Invariant(
-                $"a proof for the key's binding at leaf {keyIndex} could not be fetched: {proofRefusal!.Summary}"));
+                $"a proof for the key's binding at leaf {keyIndex} could not be fetched: {Check.Quote(proofRefusal!.Summary)}"));
 
+        // The proof in hand is held to the head before the entry's absence is reported: a proof the
+        // head does not commit to is the Forum contradicting its own head, failed whatever else is
+        // absent (R6.54), and the comparison needs nothing the missing entry would supply.
         var entry = await _forum.GetLogEntryAsync(keyIndex, ct).ConfigureAwait(false);
         if (!entry.TryGetValue(out var keyEntry, out var entryRefusal))
-            return Check.CouldNotCheck(Invariant(
-                $"the key's binding entry at leaf {keyIndex} could not be fetched: {entryRefusal!.Summary}"));
+            return ActaCheck.HeadCovers(head, keyProof!.TreeSize, keyProof.RootHash) is { Outcome: CheckOutcome.Failed } keyOffHead
+                ? keyOffHead
+                : Check.CouldNotCheck(Invariant(
+                    $"the key's binding entry at leaf {keyIndex} could not be fetched: {Check.Quote(entryRefusal!.Summary)}"));
 
         return ActaCheck.KeyBinding(post, postEntry, postProof, keyEntry!, keyProof!, head);
     }
@@ -292,12 +313,12 @@ public sealed class PostVerifier
                 ? "this log has published no signed head yet, so there is nothing to anchor a proof "
                   + "to. The Forum holds no log key (R11.7); an operator publishes heads with "
                   + "'curia-operator sign-head'."
-                : $"the signed head could not be fetched: {refusal.Summary}"));
+                : $"the signed head could not be fetched: {Check.Quote(refusal.Summary)}"));
         }
 
         var keys = await _forum.GetLogJwksAsync(ct).ConfigureAwait(false);
         if (!keys.TryGetValue(out var published, out var keysRefusal))
-            return new Anchor(null, Check.CouldNotCheck($"the log's key set could not be fetched: {keysRefusal!.Summary}"));
+            return new Anchor(null, Check.CouldNotCheck($"the log's key set could not be fetched: {Check.Quote(keysRefusal!.Summary)}"));
 
         var verified = ActaCheck.HeadSignature(head!, published);
         return new Anchor(verified.Outcome is CheckOutcome.Verified ? head : null, verified);
@@ -335,15 +356,20 @@ public sealed class PostVerifier
             var reproven = await _forum.GetInclusionProofAsync(logIndex, head.TreeSize, ct).ConfigureAwait(false);
             if (!reproven.TryGetValue(out var against, out var refusal))
                 return new(Check.CouldNotCheck(Invariant(
-                    $"the post's proof is against tree size {proof.TreeSize} and the signed head covers {head.TreeSize}; a proof against the head's size could not be fetched: {refusal!.Summary}")));
+                    $"the post's proof is against tree size {proof.TreeSize} and the signed head covers {head.TreeSize}; a proof against the head's size could not be fetched: {Check.Quote(refusal!.Summary)}")));
 
             proof = against;
         }
 
+        // The proof in hand, at the head's size, is held to the head before the entry's absence is
+        // reported, as R6.54 holds the key's: a root the head does not sign is failed whatever else
+        // is absent.
         var entry = await _forum.GetLogEntryAsync(logIndex, ct).ConfigureAwait(false);
         if (!entry.TryGetValue(out var leaf, out var entryRefusal))
-            return new(Check.CouldNotCheck(
-                $"the log entry the leaf is computed from could not be fetched: {entryRefusal!.Summary}"));
+            return ActaCheck.HeadCovers(head, proof!.TreeSize, proof.RootHash) is { Outcome: CheckOutcome.Failed } postOffHead
+                ? new(postOffHead)
+                : new(Check.CouldNotCheck(
+                    $"the log entry the leaf is computed from could not be fetched: {Check.Quote(entryRefusal!.Summary)}"));
 
         // Handed on whatever the verdict: R6.54's check reads the post from this entry, and derives
         // this verdict again before it reads anything else.
@@ -399,7 +425,7 @@ public sealed class PostVerifier
                 ? Check.Verified(Invariant(
                     $"the served head is the one this client retained, at tree size {head.TreeSize}"))
                 : Check.Failed(Invariant(
-                    $"two different roots at tree size {head.TreeSize}: this client retained {retained.RootHash} and the Forum now serves {head.RootHash}. The log has equivocated (R6.24). The retained head is kept."));
+                    $"two different roots at tree size {head.TreeSize}: this client retained {Check.Quote(retained.RootHash)} and the Forum now serves {Check.Quote(head.RootHash)}. The log has equivocated (R6.24). The retained head is kept."));
         }
 
         var (from, to) = retained.TreeSize < head.TreeSize ? (retained, head) : (head, retained);
@@ -407,7 +433,7 @@ public sealed class PostVerifier
         var fetched = await _forum.GetConsistencyProofAsync(from.TreeSize, to.TreeSize, ct).ConfigureAwait(false);
         if (!fetched.TryGetValue(out var proof, out var refusal))
             return Check.CouldNotCheck(Invariant(
-                $"a consistency proof from {from.TreeSize} to {to.TreeSize} could not be fetched: {refusal!.Summary}. The retained head is kept."));
+                $"a consistency proof from {from.TreeSize} to {to.TreeSize} could not be fetched: {Check.Quote(refusal!.Summary)}. The retained head is kept."));
 
         var consistent = ActaCheck.Consistency(from, to, proof!);
         if (consistent.Outcome is not CheckOutcome.Verified) return consistent;

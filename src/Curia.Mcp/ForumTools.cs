@@ -202,8 +202,8 @@ internal sealed partial class ForumTools(
         if (string.IsNullOrWhiteSpace(expectedDigest)) return string.Empty;
 
         return string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal)
-            ? $"pinned      to the digest you supplied, {expectedDigest}\n"
-            : $"pinned      FAILED. You asked about {expectedDigest} and the Forum served "
+            ? $"pinned      to the digest you supplied, {Check.Quote(expectedDigest)}\n"
+            : $"pinned      FAILED. You asked about {Check.Quote(expectedDigest)} and the Forum served "
               + $"{verification.Digest ?? "(no canonical form)"} under this id. These are different "
               + "documents. Nothing below is about the one you asked about.\n";
     }

@@ -60,6 +60,58 @@ public sealed record Check(CheckOutcome Outcome, string Detail)
         CheckOutcome.CouldNotCheck => "COULD NOT BE CHECKED: " + Detail,
         _ => "COULD NOT BE CHECKED: " + Detail,
     };
+
+    /// <summary>
+    /// A value this client did not write -- a string the Forum served, or one an agent put in the
+    /// log -- as a detail carries it: a JSON string literal, so nothing inside it can end the line it
+    /// sits on or begin another.
+    ///
+    /// <para><b>Why every such value, and why one helper.</b> A detail is a line a reader reads, often
+    /// a model through <c>curia_verify</c> (R11.29), and the values it names come from the material
+    /// under check: an entry type, an agent's identifier, a <c>kid</c>, a digest, a Forum problem
+    /// document. Printed raw, a value holding a newline begins a line that reads as this client's
+    /// own, a forged <c>verified:</c> or <c>VERIFIED.</c>. Quoted, it stays inside the literal:
+    /// <c>"</c> and <c>\</c> are escaped with a backslash, and every control or format character,
+    /// both Unicode separators and half a surrogate pair as <c>\u</c> and four hex digits. One helper,
+    /// so no site escapes less than another. A null value is the absence <c>(none)</c>, unquoted,
+    /// which no quoted value can be mistaken for.</para>
+    /// </summary>
+    public static string Quote(string? value)
+    {
+        if (value is null) return "(none)";
+
+        var quoted = new StringBuilder(value.Length + 2).Append('"');
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c is '"' or '\\')
+                quoted.Append('\\').Append(c);
+            else if (Escaped(value, i))
+                quoted.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:x4}");
+            else
+                quoted.Append(c);
+        }
+
+        return quoted.Append('"').ToString();
+    }
+
+    /// <summary>
+    /// Whether <see cref="Quote"/> writes the character at <paramref name="i"/> as an escape: a
+    /// control or format character, a line or paragraph separator, or a surrogate without its pair.
+    /// </summary>
+    private static bool Escaped(string value, int i)
+    {
+        var category = char.GetUnicodeCategory(value[i]);
+        if (category is UnicodeCategory.Control or UnicodeCategory.Format
+            or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator)
+            return true;
+
+        if (category is not UnicodeCategory.Surrogate) return false;
+
+        return char.IsHighSurrogate(value[i])
+            ? !char.IsSurrogatePair(value, i)
+            : i == 0 || !char.IsHighSurrogate(value[i - 1]);
+    }
 }
 
 /// <summary>
@@ -226,33 +278,33 @@ public static class ActaCheck
         var enrolled = string.Equals(type, EnrolledType, StringComparison.Ordinal);
         if (!enrolled && !string.Equals(type, KeyBoundType, StringComparison.Ordinal))
             return Check.Failed(Text(
-                $"the entry at leaf {keyEntry.LogIndex} is of type {type ?? "(none)"}, not {KeyBoundType} or {EnrolledType}, so it binds no key"));
+                $"the entry at leaf {keyEntry.LogIndex} is of type {Check.Quote(type)}, not {KeyBoundType} or {EnrolledType}, so it binds no key"));
 
         if (!string.Equals(aggregate, logged.Author, StringComparison.Ordinal)
             || !string.Equals(boundAgent, logged.Author, StringComparison.Ordinal)
             || !string.Equals(boundKid, logged.Kid, StringComparison.Ordinal))
             return Check.Failed(Text(
-                $"the entry at leaf {keyEntry.LogIndex} ({type}) is an entry for {boundAgent ?? "(no agent)"} kid={boundKid ?? "(none)"} in stream {aggregate ?? "(none)"}, and the log holds this post as {logged.Author}'s under kid={logged.Kid}"));
+                $"the entry at leaf {keyEntry.LogIndex} ({Check.Quote(type)}) is an entry for {Check.Quote(boundAgent)} kid={Check.Quote(boundKid)} in stream {Check.Quote(aggregate)}, and the log holds this post as written by {Check.Quote(logged.Author)} under kid={Check.Quote(logged.Kid)}"));
 
         if (keyEntry.LogIndex >= logged.Index)
             return Check.CouldNotCheck(Text(
-                $"kid={boundKid} is bound to {logged.Author} at leaf {keyEntry.LogIndex}, which is not before this post at leaf {logged.Index}, so the log holds no key for it from before the post"));
+                $"kid={Check.Quote(boundKid)} is bound to {Check.Quote(logged.Author)} at leaf {keyEntry.LogIndex}, which is not before this post at leaf {logged.Index}, so the log holds no key for it from before the post"));
 
         if (enrolled)
             return Check.CouldNotCheck(Text(
-                $"leaf {keyEntry.LogIndex} is {logged.Author}'s enrollment naming kid={boundKid}, which carries no key (all an identity enrolled before R4.34 has), so which key signed cannot be established from the log"));
+                $"leaf {keyEntry.LogIndex} is the enrollment of {Check.Quote(logged.Author)} naming kid={Check.Quote(boundKid)}, which carries no key (all an identity enrolled before R4.34 has), so which key signed cannot be established from the log"));
 
         if ((payload is null ? null : ClientJson.Object(payload, "jwk")) is not { } jwk
             || ForumDocuments.ReadJwk(jwk) is not { } bound
             || !string.Equals(bound.Kid, boundKid, StringComparison.Ordinal))
-            return Check.Failed(Text($"leaf {keyEntry.LogIndex} binds kid={boundKid} and carries no usable key under it"));
+            return Check.Failed(Text($"leaf {keyEntry.LogIndex} binds kid={Check.Quote(boundKid)} and carries no usable key under it"));
 
         var verdict = SignatureCheck.Verify(post with { Signature = logged.Signature }, [bound]);
         return verdict.Verified
             ? Check.Verified(Text(
-                $"kid={boundKid} is the key the log bound to {logged.Author} at leaf {keyEntry.LogIndex}, before this post at leaf {logged.Index}, the post as the log holds it verifies under the key that leaf carries, and {keyCovers.Detail}"))
+                $"kid={Check.Quote(boundKid)} is the key the log bound to {Check.Quote(logged.Author)} at leaf {keyEntry.LogIndex}, before this post at leaf {logged.Index}, the post as the log holds it verifies under the key that leaf carries, and {keyCovers.Detail}"))
             : Check.Failed(Text(
-                $"the post, as the log holds it, does not verify under the key the log bound to {logged.Author} at leaf {keyEntry.LogIndex}: {verdict.Detail}"));
+                $"the post, as the log holds it, does not verify under the key the log bound to {Check.Quote(logged.Author)} at leaf {keyEntry.LogIndex}: {verdict.Detail}"));
     }
 
     private const string PostAcceptedType = "post.accepted";
@@ -278,7 +330,7 @@ public static class ActaCheck
         var type = ClientJson.String(postEntry.Entry, LogLeaf.EventTypeMember);
         if (!string.Equals(type, PostAcceptedType, StringComparison.Ordinal))
             return (Check.Failed(Text(
-                $"the post's own leaf {postProof.LogIndex} is of type {type ?? "(none)"}, not {PostAcceptedType}: it carries the post's bytes and is not the log's record of the post's acceptance")), null);
+                $"the post's own leaf {postProof.LogIndex} is of type {Check.Quote(type)}, not {PostAcceptedType}: it carries the post's bytes and is not the log's record of the post's acceptance")), null);
 
         var payload = ClientJson.Object(postEntry.Entry, LogLeaf.PayloadMember);
         var canonical = payload is null ? null : ClientJson.String(payload, "canonical");
@@ -299,10 +351,13 @@ public static class ActaCheck
 
         if (!string.Equals(post.Provenance.Author, author, StringComparison.Ordinal))
             return (Check.Failed(Text(
-                $"the Forum served this post as {post.Provenance.Author}'s, and the envelope its log entry carries, which the signature covers, names {author}")), null);
+                (string.IsNullOrEmpty(post.Provenance.Author)
+                    ? "the Forum served this post with no author"
+                    : $"the Forum served this post as written by {Check.Quote(post.Provenance.Author)}")
+                + $", and the envelope its log entry carries, which the signature covers, names {Check.Quote(author)}")), null);
 
         return (Check.Verified(Text(
-            $"leaf {postProof.LogIndex} is the log's record of this post's acceptance: {author}'s envelope, signed under kid={header!.Kid}")),
+            $"leaf {postProof.LogIndex} is the log's record of this post's acceptance: the envelope of {Check.Quote(author)}, signed under kid={Check.Quote(header!.Kid)}")),
             new LoggedPost(author, header.Kid, signature, postProof.LogIndex));
     }
 
@@ -320,29 +375,29 @@ public static class ActaCheck
 
         if (!string.Equals(recomputed, proof.LeafHash, StringComparison.Ordinal))
             return Check.Failed(
-                $"the entry hashes to {recomputed} and the proof is about {proof.LeafHash}");
+                $"the entry hashes to {recomputed} and the proof is about {Check.Quote(proof.LeafHash)}");
 
         if (!string.Equals(recomputed, entry.LeafHash, StringComparison.Ordinal))
             return Check.Failed(
-                $"the entry hashes to {recomputed} and the log-entry route reported {entry.LeafHash}");
+                $"the entry hashes to {recomputed} and the log-entry route reported {Check.Quote(entry.LeafHash)}");
 
         if (LogEntries.Unprefixed(proof.RootHash) is not { } root)
-            return Check.Failed($"the proof's root is not a sha256 digest: {proof.RootHash}");
+            return Check.Failed($"the proof's root is not a sha256 digest: {Check.Quote(proof.RootHash)}");
 
         var path = ImmutableArray.CreateBuilder<ImmutableArray<byte>>(proof.AuditPath.Length);
         foreach (var node in proof.AuditPath)
         {
             if (LogEntries.Unprefixed(node) is not { } decoded)
-                return Check.Failed($"the audit path holds something that is not a sha256 digest: {node}");
+                return Check.Failed($"the audit path holds something that is not a sha256 digest: {Check.Quote(node)}");
 
             path.Add(decoded);
         }
 
         return MerkleTree.VerifyInclusion(leaf.AsSpan(), proof.LogIndex, proof.TreeSize, path.ToImmutable(), root.AsSpan())
             ? Check.Verified(Text(
-                $"leaf {proof.LogIndex} of {proof.TreeSize}, recomputed from the log entry, is under root {proof.RootHash}"))
+                $"leaf {proof.LogIndex} of {proof.TreeSize}, recomputed from the log entry, is under root {Check.Quote(proof.RootHash)}"))
             : Check.Failed(Text(
-                $"the audit path does not carry leaf {proof.LogIndex} to root {proof.RootHash}"));
+                $"the audit path does not carry leaf {proof.LogIndex} to root {Check.Quote(proof.RootHash)}"));
     }
 
     /// <summary>
@@ -362,10 +417,10 @@ public static class ActaCheck
 
         var match = keys.LastOrDefault(k => string.Equals(k.Key.Kid, head.Kid, StringComparison.Ordinal));
         if (match is null)
-            return Check.Failed($"the log publishes no key with kid={head.Kid}");
+            return Check.Failed($"the log publishes no key with kid={Check.Quote(head.Kid)}");
 
         if (!SignatureCheck.Material(match.Key).TryGetValue(out var material, out var keyError))
-            return Check.Failed($"the log's key kid={head.Kid} is unusable: {keyError!.Type}");
+            return Check.Failed($"the log's key kid={Check.Quote(head.Kid)} is unusable: {keyError!.Type}");
 
         if (!LogEntries.HeadCanonical(head.Head).TryGetValue(out var canonical, out var canonError))
             return Check.Failed($"the head has no canonical form: {canonError!.Type}");
@@ -376,7 +431,7 @@ public static class ActaCheck
             DetachedJws.HeadTyp);
 
         return jws.Verify(canonical, new JwsSignature(head.Signature), material!).TryGetValue(out _, out var verifyError)
-            ? Check.Verified(Text($"signed by the log's kid={head.Kid} over tree size {head.TreeSize}"))
+            ? Check.Verified(Text($"signed by the log's kid={Check.Quote(head.Kid)} over tree size {head.TreeSize}"))
             : Check.Failed($"the head's signature does not verify: {verifyError!.Type}");
     }
 
@@ -390,8 +445,8 @@ public static class ActaCheck
                 $"the signed head covers {head.TreeSize} leaves and the proof is against {treeSize}"));
 
         return string.Equals(head.RootHash, rootHash, StringComparison.Ordinal)
-            ? Check.Verified(Text($"the signed head commits to root {rootHash} at tree size {treeSize}"))
-            : Check.Failed($"the signed head's root is {head.RootHash} and the proof climbs to {rootHash}");
+            ? Check.Verified(Text($"the signed head commits to root {Check.Quote(rootHash)} at tree size {treeSize}"))
+            : Check.Failed($"the signed head's root is {Check.Quote(head.RootHash)} and the proof climbs to {Check.Quote(rootHash)}");
     }
 
     /// <summary>
@@ -416,10 +471,10 @@ public static class ActaCheck
                 $"{from.TreeSize} -> {to.TreeSize}"));
 
         if (!string.Equals(proof.FromRoot, from.RootHash, StringComparison.Ordinal))
-            return Check.Failed($"the proof's from_root is {proof.FromRoot} and the retained head's is {from.RootHash}");
+            return Check.Failed($"the proof's from_root is {Check.Quote(proof.FromRoot)} and the retained head's is {Check.Quote(from.RootHash)}");
 
         if (!string.Equals(proof.ToRoot, to.RootHash, StringComparison.Ordinal))
-            return Check.Failed($"the proof's to_root is {proof.ToRoot} and the served head's is {to.RootHash}");
+            return Check.Failed($"the proof's to_root is {Check.Quote(proof.ToRoot)} and the served head's is {Check.Quote(to.RootHash)}");
 
         if (LogEntries.Unprefixed(proof.FromRoot) is not { } fromRoot
             || LogEntries.Unprefixed(proof.ToRoot) is not { } toRoot)
@@ -429,7 +484,7 @@ public static class ActaCheck
         foreach (var node in proof.Path)
         {
             if (LogEntries.Unprefixed(node) is not { } decoded)
-                return Check.Failed($"the consistency path holds something that is not a sha256 digest: {node}");
+                return Check.Failed($"the consistency path holds something that is not a sha256 digest: {Check.Quote(node)}");
 
             path.Add(decoded);
         }

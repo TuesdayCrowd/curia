@@ -217,6 +217,19 @@ internal sealed class StubLog : IDisposable
     /// <summary>Serve the key's proof route truncated mid-document: a body that does not parse.</summary>
     internal bool KeyProofRouteServesGarbage { get; set; }
 
+    /// <summary>Answer the key's entry route with 503: an entry this client could not fetch, and nothing else wrong.</summary>
+    internal bool KeyEntryRouteUnavailable { get; set; }
+
+    /// <summary>
+    /// Embed in the post's read a proof of its leaf from a tree of the same size that is not this
+    /// log's (<see cref="ProofFromAnotherTreeAt"/>): the leaf and its path are sound, and the root is
+    /// one the head does not sign.
+    /// </summary>
+    internal bool PostProofFromAnotherTree { get; set; }
+
+    /// <summary>Answer the post's entry route with 503: an entry this client could not fetch, and nothing else wrong.</summary>
+    internal bool PostEntryRouteUnavailable { get; set; }
+
     /// <summary>
     /// The author the post's read names in its provenance, when it is not the one the envelope signs:
     /// the Forum's attribution, which nothing but a comparison with the signed envelope can refute.
@@ -639,7 +652,7 @@ internal sealed class StubLog : IDisposable
         var against = PostIndex < HeadTreeSize && !PostProofIsAgainstTheWholeLog
             ? HeadTreeSize
             : Leaves.Length;
-        var proof = ProofAt(PostIndex, against);
+        var proof = PostProofFromAnotherTree ? ProofFromAnotherTreeAt(PostIndex, against) : ProofAt(PostIndex, against);
 
         return $$"""
         {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
@@ -1084,7 +1097,12 @@ internal sealed class StubLog : IDisposable
             if (path.StartsWith("/v1/log/entries/", StringComparison.Ordinal))
             {
                 var index = int.Parse(path["/v1/log/entries/".Length..], CultureInfo.InvariantCulture);
-                return (HttpStatusCode.OK, log.EntryJson(index));
+                var withheld = (index == log.KeyIndex && log.KeyEntryRouteUnavailable)
+                    || (index == log.PostIndex && log.PostEntryRouteUnavailable);
+                return withheld
+                    ? (HttpStatusCode.ServiceUnavailable,
+                        """{"type":"curia/stub/unavailable","title":"The stub withholds this entry"}""")
+                    : (HttpStatusCode.OK, log.EntryJson(index));
             }
 
             if (path.StartsWith("/v1/log/proof/", StringComparison.Ordinal))
