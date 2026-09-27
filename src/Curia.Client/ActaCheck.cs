@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
 using Curia.Canon.Acta;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
@@ -133,6 +134,185 @@ public static class ActaCheck
                 "the log entry does not carry this post's canonical bytes, so the proof is about " +
                 "some other leaf (R11.29)");
 
+        return ProofHolds(entry, proof);
+    }
+
+    /// <summary>
+    /// R6.54 (errata G16), the post's half: the log's own record of the served post, from which the
+    /// check reads the post's author, <c>kid</c> and signature -- never from what the Forum served
+    /// beside it.
+    ///
+    /// <para><b>Everything here needs no key material, and all of it is checked before the key's
+    /// binding is looked for</b>, so a post whose own record fails is reported failed even where the
+    /// key set names no leaf. In order: the entry is bound to the served post and proven under
+    /// <paramref name="head"/> (R6.52, R11.29); it is a <c>post.accepted</c>, the log's record of an
+    /// acceptance rather than some other entry carrying the same bytes; its envelope passes ADMIT and
+    /// its signature's protected header parses; and the author the Forum served the post as is the
+    /// author that envelope names, which the signature covers. The last is the one check a reader
+    /// holding log documents alone cannot make, and the reason a client can report a post failed
+    /// where <c>curia-testis log author</c>, handed the same log, reports it verified: a Forum that
+    /// served alice's post as mallory's has misattributed it, whoever the log says holds the key.</para>
+    /// </summary>
+    public static Check PostOfRecord(
+        ProvenancePost post, LogEntryDocument postEntry, InclusionProofDocument postProof, SignedHeadDocument head)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+        ArgumentNullException.ThrowIfNull(postEntry);
+        ArgumentNullException.ThrowIfNull(postProof);
+        ArgumentNullException.ThrowIfNull(head);
+
+        return ReadPostOfRecord(post, postEntry, postProof, head).Verdict;
+    }
+
+    /// <summary>
+    /// R6.54 (errata G16): the key that signed <paramref name="post"/>, as the log records it, is the
+    /// key the log bound to its author at a leaf before the post's -- checked against the key the
+    /// binding entry carries, never against a key a key set serves, and with both leaves proven under
+    /// <paramref name="head"/>.
+    ///
+    /// <para><b>The post's author, <c>kid</c> and signature are the log's</b> (<see cref="PostOfRecord"/>):
+    /// the envelope and signature <paramref name="postEntry"/> carries, which R11.29 binds to the
+    /// served post by its canonical bytes. The provenance's <c>author</c> and the served signature are
+    /// the Forum's word beside the log, as the key set is; a check that took either could be steered
+    /// by a Forum that served one post and logged another's key.</para>
+    ///
+    /// <para><b>What each outcome means.</b> <i>Verified</i>: the post's record holds, and
+    /// <paramref name="keyEntry"/> is an <c>agent.key-bound</c> entry of the post's author naming the
+    /// post's <c>kid</c>, proven under the same head, before the post, and the post as the log holds
+    /// it verifies under the key it carries. <i>Could not be checked</i>: every check that needs no
+    /// more held, and the log holds no key for the post from before it -- the author's binding of the
+    /// <c>kid</c> sits at or after the post, or it is the author's <c>agent.enrolled</c>, which names
+    /// the <c>kid</c> and carries no key: all an identity enrolled before R4.34 has, and a reader
+    /// cannot tell when one was made. That is the log's silence about the key the post was accepted
+    /// under, not a contradiction of it: a forger binds first at no cost, and what lands here is
+    /// history older than its binding. <i>Failed</i>: anything else, and it is decided first -- a
+    /// proof that does not hold or that the head does not commit to, an entry of another type,
+    /// author, stream or <c>kid</c>, an entry that binds no usable key, or a signature that does not
+    /// verify under the bound key -- because each is the served material disagreeing with itself or
+    /// with the head. An entry's order or type is read only once its leaf is proven under the head,
+    /// because a leaf the head does not hold says nothing about the log. The absent-material cases
+    /// are decided above this method, where the fetching happens.</para>
+    /// </summary>
+    public static Check KeyBinding(
+        ProvenancePost post, LogEntryDocument postEntry, InclusionProofDocument postProof,
+        LogEntryDocument keyEntry, InclusionProofDocument keyProof, SignedHeadDocument head)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+        ArgumentNullException.ThrowIfNull(postEntry);
+        ArgumentNullException.ThrowIfNull(postProof);
+        ArgumentNullException.ThrowIfNull(keyEntry);
+        ArgumentNullException.ThrowIfNull(keyProof);
+        ArgumentNullException.ThrowIfNull(head);
+
+        var (record, logged) = ReadPostOfRecord(post, postEntry, postProof, head);
+        if (logged is null) return record;
+
+        if (keyEntry.LogIndex != keyProof.LogIndex)
+            return Check.Failed(Text(
+                $"the key's entry is leaf {keyEntry.LogIndex} and its proof is about leaf {keyProof.LogIndex}"));
+
+        var proven = ProofHolds(keyEntry, keyProof);
+        if (proven.Outcome is not CheckOutcome.Verified) return proven;
+
+        var keyCovers = HeadCovers(head, keyProof.TreeSize, keyProof.RootHash);
+        if (keyCovers.Outcome is not CheckOutcome.Verified) return keyCovers;
+
+        var type = ClientJson.String(keyEntry.Entry, LogLeaf.EventTypeMember);
+        var aggregate = ClientJson.String(keyEntry.Entry, LogLeaf.AggregateIdMember);
+        var payload = ClientJson.Object(keyEntry.Entry, LogLeaf.PayloadMember);
+        var boundAgent = payload is null ? null : ClientJson.String(payload, "agent_id");
+        var boundKid = payload is null ? null : ClientJson.String(payload, "kid");
+
+        var enrolled = string.Equals(type, EnrolledType, StringComparison.Ordinal);
+        if (!enrolled && !string.Equals(type, KeyBoundType, StringComparison.Ordinal))
+            return Check.Failed(Text(
+                $"the entry at leaf {keyEntry.LogIndex} is of type {type ?? "(none)"}, not {KeyBoundType} or {EnrolledType}, so it binds no key"));
+
+        if (!string.Equals(aggregate, logged.Author, StringComparison.Ordinal)
+            || !string.Equals(boundAgent, logged.Author, StringComparison.Ordinal)
+            || !string.Equals(boundKid, logged.Kid, StringComparison.Ordinal))
+            return Check.Failed(Text(
+                $"the entry at leaf {keyEntry.LogIndex} ({type}) is an entry for {boundAgent ?? "(no agent)"} kid={boundKid ?? "(none)"} in stream {aggregate ?? "(none)"}, and the log holds this post as {logged.Author}'s under kid={logged.Kid}"));
+
+        if (keyEntry.LogIndex >= logged.Index)
+            return Check.CouldNotCheck(Text(
+                $"kid={boundKid} is bound to {logged.Author} at leaf {keyEntry.LogIndex}, which is not before this post at leaf {logged.Index}, so the log holds no key for it from before the post"));
+
+        if (enrolled)
+            return Check.CouldNotCheck(Text(
+                $"leaf {keyEntry.LogIndex} is {logged.Author}'s enrollment naming kid={boundKid}, which carries no key (all an identity enrolled before R4.34 has), so which key signed cannot be established from the log"));
+
+        if ((payload is null ? null : ClientJson.Object(payload, "jwk")) is not { } jwk
+            || ForumDocuments.ReadJwk(jwk) is not { } bound
+            || !string.Equals(bound.Kid, boundKid, StringComparison.Ordinal))
+            return Check.Failed(Text($"leaf {keyEntry.LogIndex} binds kid={boundKid} and carries no usable key under it"));
+
+        var verdict = SignatureCheck.Verify(post with { Signature = logged.Signature }, [bound]);
+        return verdict.Verified
+            ? Check.Verified(Text(
+                $"kid={boundKid} is the key the log bound to {logged.Author} at leaf {keyEntry.LogIndex}, before this post at leaf {logged.Index}, the post as the log holds it verifies under the key that leaf carries, and {keyCovers.Detail}"))
+            : Check.Failed(Text(
+                $"the post, as the log holds it, does not verify under the key the log bound to {logged.Author} at leaf {keyEntry.LogIndex}: {verdict.Detail}"));
+    }
+
+    private const string PostAcceptedType = "post.accepted";
+    private const string KeyBoundType = "agent.key-bound";
+    private const string EnrolledType = "agent.enrolled";
+
+    /// <summary>The post as the log records it: its envelope's author, its signature's <c>kid</c>, the signature, and its leaf.</summary>
+    private sealed record LoggedPost(string Author, string Kid, string Signature, long Index);
+
+    /// <summary>
+    /// <see cref="PostOfRecord"/>'s checks, in its order, and the post they establish; the post is
+    /// null exactly when the verdict is not verified.
+    /// </summary>
+    private static (Check Verdict, LoggedPost? Post) ReadPostOfRecord(
+        ProvenancePost post, LogEntryDocument postEntry, InclusionProofDocument postProof, SignedHeadDocument head)
+    {
+        var included = Inclusion(postEntry, postProof, post);
+        if (included.Outcome is not CheckOutcome.Verified) return (included, null);
+
+        var covers = HeadCovers(head, postProof.TreeSize, postProof.RootHash);
+        if (covers.Outcome is not CheckOutcome.Verified) return (covers, null);
+
+        var type = ClientJson.String(postEntry.Entry, LogLeaf.EventTypeMember);
+        if (!string.Equals(type, PostAcceptedType, StringComparison.Ordinal))
+            return (Check.Failed(Text(
+                $"the post's own leaf {postProof.LogIndex} is of type {type ?? "(none)"}, not {PostAcceptedType}: it carries the post's bytes and is not the log's record of the post's acceptance")), null);
+
+        var payload = ClientJson.Object(postEntry.Entry, LogLeaf.PayloadMember);
+        var canonical = payload is null ? null : ClientJson.String(payload, "canonical");
+        var signature = payload is null ? null : ClientJson.String(payload, "signature");
+        if (canonical is null || signature is null)
+            return (Check.Failed("the post's own log entry carries no envelope or no signature"), null);
+
+        // ADMIT, as the signature check does, so no author is read from a document with two answers.
+        if (!JsonReader.Parse(Encoding.UTF8.GetBytes(canonical), AdmitLimits.Default).TryGetValue(out var tree, out var admitError)
+            || tree is not JsonValue.Object envelope)
+            return (Check.Failed($"the envelope the post's own log entry carries is not one ADMIT accepts: {admitError?.Type ?? "not an object"}"), null);
+
+        if (ClientJson.String(envelope, "author") is not { Length: > 0 } author)
+            return (Check.Failed("the envelope the post's own log entry carries names no author"), null);
+
+        if (!DetachedJws.ReadProtectedHeader(new JwsSignature(signature)).TryGetValue(out var header, out var headerError))
+            return (Check.Failed($"the signature the post's own log entry carries has no readable protected header: {headerError!.Type}"), null);
+
+        if (!string.Equals(post.Provenance.Author, author, StringComparison.Ordinal))
+            return (Check.Failed(Text(
+                $"the Forum served this post as {post.Provenance.Author}'s, and the envelope its log entry carries, which the signature covers, names {author}")), null);
+
+        return (Check.Verified(Text(
+            $"leaf {postProof.LogIndex} is the log's record of this post's acceptance: {author}'s envelope, signed under kid={header!.Kid}")),
+            new LoggedPost(author, header.Kid, signature, postProof.LogIndex));
+    }
+
+    /// <summary>
+    /// R6.48's audit path, over a leaf recomputed from <paramref name="entry"/>: the leaf the proof
+    /// and the entry route each state must be the recomputed one, and the path must carry it to the
+    /// proof's root. Shared by the post's check and the key's, so the two cannot come apart.
+    /// </summary>
+    private static Check ProofHolds(LogEntryDocument entry, InclusionProofDocument proof)
+    {
         if (!RecomputeLeaf(entry.Entry).TryGetValue(out var leaf, out var error))
             return Check.Failed($"the entry has no canonical form: {error!.Type}");
 

@@ -62,7 +62,7 @@ internal sealed class StubLog : IDisposable
     private HttpClient? _http;
     private StubHandler? _handler;
 
-    internal StubLog(int treeSize = 5, int postIndex = 2)
+    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 0)
     {
         _root = Directory.CreateTempSubdirectory("curia-stub-log-").FullName;
 
@@ -121,8 +121,21 @@ internal sealed class StubLog : IDisposable
         AnswerEntry = BuildEntry(
             AnswerPostId, "answer", PostId, Encoding.UTF8.GetString(Answer.Canonical.Span), Answer.Signature, Answer.PrefixedDigest);
 
-        // The post's leaf is real; the rest are filler, distinct and in no particular relation to
-        // it. A verifier only ever fetches the entry it is proving, so the others need only exist.
+        // R4.34's binding of alice's key, as an enrollment appends it: the public JWK the Forum's key
+        // set publishes, rendered by the same PublicJwk.Of the Forum uses. By default it sits before the
+        // post, as every binding the Forum writes does; a later index is the bound-after-post case.
+        if (keyIndex == postIndex || keyIndex == AnswerIndex || keyIndex < 0 || keyIndex >= treeSize)
+            throw new ArgumentOutOfRangeException(nameof(keyIndex), "the key's binding needs a leaf of its own");
+
+        KeyIndex = keyIndex;
+        KeyEntry = BuildKeyEntry(PublicJwk.Of(new PublicKeyMaterial("ES256", AgentKid, PublicSubjectPublicKeyInfo()))
+            .TryGetValue(out var jwk, out _)
+            ? jwk!
+            : throw new InvalidOperationException("the stub's key has no public JWK"));
+
+        // The post's leaf is real, and so is its key's binding; the rest are filler, distinct and in
+        // no particular relation to either. A verifier only ever fetches the entries it is proving, so
+        // the others need only exist.
         var leaves = ImmutableArray.CreateBuilder<ImmutableArray<byte>>(treeSize);
         for (var i = 0; i < treeSize; i++)
         {
@@ -130,7 +143,9 @@ internal sealed class StubLog : IDisposable
                 ? LeafOf(Entry)
                 : i == AnswerIndex
                     ? LeafOf(AnswerEntry)
-                    : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
+                    : i == KeyIndex
+                        ? LeafOf(KeyEntry)
+                        : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
         }
 
         Leaves = leaves.MoveToImmutable();
@@ -166,6 +181,12 @@ internal sealed class StubLog : IDisposable
 
     internal JsonValue.Object Entry { get; private set; }
 
+    /// <summary>The leaf that binds alice's key (R4.34), and the one the key set names for it (R6.54).</summary>
+    internal int KeyIndex { get; }
+
+    /// <summary>R6.46's six members for alice's <c>agent.key-bound</c>.</summary>
+    internal JsonValue.Object KeyEntry { get; private set; }
+
     /// <summary>The size the served head covers. Set below the post's index to strand it (R6.48).</summary>
     internal int HeadTreeSize { get; set; }
 
@@ -173,6 +194,146 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>Answer <c>/v1/jwks</c> with a transport failure: the "could not check" case for R6.52's first check.</summary>
     internal bool JwksUnreachable { get; set; }
+
+    /// <summary>Serve the key set with no <c>curia_log_index</c>: R6.54's check has nowhere to look.</summary>
+    internal bool KeySetNamesNoLogIndex { get; set; }
+
+    /// <summary>
+    /// Serve the proof of the key's binding from a tree of the same size that is not this log's: one
+    /// filler leaf differs, so the binding and its audit path are sound and the root is not the one the
+    /// head signs. The post's own proof is untouched, so only the key's is held to the wrong root.
+    /// </summary>
+    internal bool KeyProofFromAnotherTree { get; set; }
+
+    /// <summary>Serve the key's entry route with a <c>leaf_hash</c> that is not its leaf's, and nothing else wrong.</summary>
+    internal bool KeyEntryRouteReportsAWrongLeafHash { get; set; }
+
+    /// <summary>Serve the key's entry route naming a <c>log_index</c> that is not the one requested, and nothing else wrong.</summary>
+    internal bool KeyEntryRouteNamesAnotherIndex { get; set; }
+
+    /// <summary>Serve the key's entry route truncated mid-document: a body that does not parse.</summary>
+    internal bool KeyEntryRouteServesGarbage { get; set; }
+
+    /// <summary>Serve the key's proof route truncated mid-document: a body that does not parse.</summary>
+    internal bool KeyProofRouteServesGarbage { get; set; }
+
+    /// <summary>
+    /// The author the post's read names in its provenance, when it is not the one the envelope signs:
+    /// the Forum's attribution, which nothing but a comparison with the signed envelope can refute.
+    /// </summary>
+    internal string? ServedAs { get; set; }
+
+    /// <summary>
+    /// Record the post's leaf as an entry of <paramref name="type"/> carrying the same payload, and
+    /// rebuild the tree around it: the log holds the post's bytes, and not as the post's acceptance.
+    /// </summary>
+    internal void RecordThePostAs(string type)
+    {
+        Entry = new JsonValue.Object(
+        [
+            .. Entry.Members.Select(m => m.Key == LogLeaf.EventTypeMember
+                ? new KeyValuePair<string, JsonValue>(LogLeaf.EventTypeMember, new JsonValue.String(type))
+                : m),
+        ]);
+        Rebuild();
+    }
+
+    /// <summary>
+    /// Log the post under a signature by a second key of alice's, <c>alice-2</c>, which nothing binds,
+    /// over the same canonical bytes, and rebuild the tree around it. The read still serves the
+    /// signature under <c>alice-1</c>, which the log binds, so only a check that reads the post's
+    /// <c>kid</c> from the log's own record sees that the log accepted it under another key.
+    /// </summary>
+    internal void LogThePostUnderAnotherKey()
+    {
+        using var other = new ProfileStore(_root).Create("alice-other", Author, "alice-2", Forum)
+            .TryGetValue(out var agent, out _)
+            ? agent!
+            : throw new InvalidOperationException("the stub could not create a second key");
+
+        var jws = new DetachedJws(
+            new Dictionary<string, IContentSigner>(StringComparer.Ordinal) { ["ES256"] = new Es256Adapter() },
+            new Dictionary<string, IContentVerifier>(StringComparer.Ordinal));
+        var canonical = JsonReader.Parse(Submission.Canonical.Span, AdmitLimits.Default).TryGetValue(out var tree, out _)
+            && CanonicalJson.CanonicalizeWithNfc(tree!).TryGetValue(out var bytes, out _)
+            ? bytes
+            : throw new InvalidOperationException("the stub's own post has no canonical form");
+        var signature = jws.Sign(canonical, other.Signer).TryGetValue(out var signed, out _)
+            ? signed!.Compact
+            : throw new InvalidOperationException("the second key would not sign");
+
+        var payload = (JsonValue.Object)Entry.Members.First(m => m.Key == LogLeaf.PayloadMember).Value;
+        var resigned = new JsonValue.Object(
+        [
+            .. payload.Members.Select(m => m.Key == "signature"
+                ? new KeyValuePair<string, JsonValue>("signature", new JsonValue.String(signature))
+                : m),
+        ]);
+
+        Entry = new JsonValue.Object(
+        [
+            .. Entry.Members.Select(m => m.Key == LogLeaf.PayloadMember
+                ? new KeyValuePair<string, JsonValue>(LogLeaf.PayloadMember, resigned)
+                : m),
+        ]);
+        Rebuild();
+    }
+
+    /// <summary>
+    /// Bind another key under alice's <c>kid</c>, and rebuild the tree around it, so the binding is
+    /// proven and the post does not verify under what it carries: a key set that served one key while
+    /// the log bound another, or a log that bound a substitute.
+    /// </summary>
+    internal void BindAnotherKey()
+    {
+        using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        KeyEntry = BuildKeyEntry(PublicJwk.Of(new PublicKeyMaterial("ES256", AgentKid, other.ExportSubjectPublicKeyInfo()))
+            .TryGetValue(out var jwk, out _)
+            ? jwk!
+            : throw new InvalidOperationException("the substitute key has no public JWK"));
+        RebuildKey();
+    }
+
+    /// <summary>
+    /// Replace the binding with a pre-R4.34 <c>agent.enrolled</c> naming alice's <c>kid</c> and no key,
+    /// as an identity enrolled before errata G16 has, and rebuild the tree around it.
+    /// </summary>
+    internal void EnrollBeforeKeyBinding()
+    {
+        KeyEntry = new JsonValue.Object(
+        [
+            new(LogLeaf.ActorIdMember, new JsonValue.String(Author)),
+            new(LogLeaf.AggregateIdMember, new JsonValue.String(Author)),
+            new(LogLeaf.EventIdMember, new JsonValue.String("01TESTENROLLMENT0000000000")),
+            new(LogLeaf.EventTypeMember, new JsonValue.String("agent.enrolled")),
+            new(LogLeaf.PayloadMember, new JsonValue.Object(
+            [
+                new("agent_id", new JsonValue.String(Author)),
+                new("kid", new JsonValue.String(AgentKid)),
+                new("reason", new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
+            ])),
+            new(LogLeaf.ServerTimestampMember, new JsonValue.String("1970-01-01T00:00:00.000000Z")),
+        ]);
+        RebuildKey();
+    }
+
+    /// <summary>
+    /// Replace the binding with another agent's <c>agent.key-bound</c>, in that agent's stream, carrying
+    /// alice's own key under alice's <c>kid</c>, and rebuild the tree around it: a key set that points
+    /// alice's key at a leaf binding it to someone else. The key is the one that signed, so the
+    /// signature verifies under what the leaf carries, and only comparing the binding with the post's
+    /// author refuses it.
+    /// </summary>
+    internal void BindToAnotherAgent()
+    {
+        KeyEntry = BuildKeyEntry(
+            PublicJwk.Of(new PublicKeyMaterial("ES256", AgentKid, PublicSubjectPublicKeyInfo()))
+                .TryGetValue(out var jwk, out _)
+                ? jwk!
+                : throw new InvalidOperationException("the stub's key has no public JWK"),
+            "https://agents.example/mallory");
+        RebuildKey();
+    }
 
     /// <summary>Answer <c>/v1/log/head</c> with 404 <c>curia/log/no-head</c>: a log whose operator has never signed.</summary>
     internal bool NoSignedHead { get; set; }
@@ -482,7 +643,7 @@ internal sealed class StubLog : IDisposable
 
         return $$"""
         {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
-        "author":"{{Author}}","owner_verified":true,"signature_valid":true,
+        "author":"{{ServedAs ?? Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
         "owner":null,"reproductions":[],"contradictions":[]},
@@ -512,9 +673,11 @@ internal sealed class StubLog : IDisposable
         if (JwksIsEmpty) return """{"keys":[]}""";
 
         var p = PublicSigningParameters();
+        var logIndex = KeySetNamesNoLogIndex ? string.Empty : $$""","curia_log_index":{{KeyIndex}}""";
         return $$"""
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
-        "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}"}]}
+        "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}",
+        "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}}}]}
         """.ReplaceLineEndings(string.Empty);
     }
 
@@ -568,18 +731,21 @@ internal sealed class StubLog : IDisposable
 
     internal string EntryJson(int index)
     {
-        var entry = index == PostIndex ? Entry : index == AnswerIndex ? AnswerEntry : null;
+        var entry = index == PostIndex ? Entry : index == AnswerIndex ? AnswerEntry : index == KeyIndex ? KeyEntry : null;
         var body = entry is null
             ? "{\"actor_id\":null,\"aggregate_id\":\"x\",\"event_id\":\"x\",\"event_type\":\"filler\",\"payload\":{},\"server_ts\":\"1970-01-01T00:00:00.000000Z\"}"
             : Render(entry);
 
-        var leafHash = EntryRouteReportsAWrongLeafHash
+        var key = index == KeyIndex;
+        var leafHash = EntryRouteReportsAWrongLeafHash || (key && KeyEntryRouteReportsAWrongLeafHash)
             ? LogEntries.Prefixed(MerkleTree.LeafHash("a hash this entry does not have"u8))
             : LogEntries.Prefixed(Leaves[index]);
+        var stated = key && KeyEntryRouteNamesAnotherIndex ? index + 1 : index;
 
-        return $$"""
-        {"log_index":{{index}},"leaf_hash":"{{leafHash}}","entry":{{body}}}
+        var document = $$"""
+        {"log_index":{{stated}},"leaf_hash":"{{leafHash}}","entry":{{body}}}
         """.ReplaceLineEndings(string.Empty);
+        return key && KeyEntryRouteServesGarbage ? document[..(document.Length / 2)] : document;
     }
 
     internal string ProofAt(int index, int treeSize)
@@ -594,6 +760,25 @@ internal sealed class StubLog : IDisposable
         {"log_index":{{index}},"tree_size":{{treeSize}},"leaf_hash":"{{leafHash}}",
         "audit_path":[{{string.Join(",", path.Select(n => $"\"{LogEntries.Prefixed(n)}\""))}}],
         "root_hash":"{{LogEntries.Prefixed(MerkleTree.Root(prefix))}}","head_signed":true}
+        """.ReplaceLineEndings(string.Empty);
+    }
+
+    /// <summary>
+    /// A proof of <paramref name="index"/> from a tree of <paramref name="treeSize"/> leaves that is not
+    /// this log's: the last filler leaf below that size is replaced, so the leaf and its path are sound
+    /// and the root is one no head of this log signs.
+    /// </summary>
+    internal string ProofFromAnotherTreeAt(int index, int treeSize)
+    {
+        var filler = Enumerable.Range(0, treeSize)
+            .Last(i => i != PostIndex && i != AnswerIndex && i != KeyIndex);
+        var other = Leaves[..treeSize].SetItem(filler, MerkleTree.LeafHash("a leaf this log never held"u8));
+        var path = MerkleTree.InclusionPath(other, index);
+
+        return $$"""
+        {"log_index":{{index}},"tree_size":{{treeSize}},"leaf_hash":"{{LogEntries.Prefixed(Leaves[index])}}",
+        "audit_path":[{{string.Join(",", path.Select(n => $"\"{LogEntries.Prefixed(n)}\""))}}],
+        "root_hash":"{{LogEntries.Prefixed(MerkleTree.Root(other))}}","head_signed":true}
         """.ReplaceLineEndings(string.Empty);
     }
 
@@ -649,6 +834,29 @@ internal sealed class StubLog : IDisposable
         leaves[PostIndex] = LeafOf(Entry);
         Leaves = leaves.ToImmutable();
     }
+
+    private void RebuildKey()
+    {
+        var leaves = Leaves.ToBuilder();
+        leaves[KeyIndex] = LeafOf(KeyEntry);
+        Leaves = leaves.ToImmutable();
+    }
+
+    /// <summary>R6.46's six members, as an enrollment appends <paramref name="agent"/>'s <c>agent.key-bound</c> (R4.34): alice's, unless another is named.</summary>
+    private static JsonValue.Object BuildKeyEntry(JsonValue.Object jwk, string agent = Author) => new(
+    [
+        new(LogLeaf.ActorIdMember, new JsonValue.String(agent)),
+        new(LogLeaf.AggregateIdMember, new JsonValue.String(agent)),
+        new(LogLeaf.EventIdMember, new JsonValue.String("01TESTKEYBINDING0000000000")),
+        new(LogLeaf.EventTypeMember, new JsonValue.String("agent.key-bound")),
+        new(LogLeaf.PayloadMember, new JsonValue.Object(
+        [
+            new("agent_id", new JsonValue.String(agent)),
+            new("kid", new JsonValue.String(AgentKid)),
+            new("jwk", jwk),
+        ])),
+        new(LogLeaf.ServerTimestampMember, new JsonValue.String("1970-01-01T00:00:00.000000Z")),
+    ]);
 
     private static ImmutableArray<byte> LeafOf(JsonValue.Object entry) =>
         CanonicalJson.Canonicalize(entry).TryGetValue(out var bytes, out _)
@@ -885,7 +1093,9 @@ internal sealed class StubLog : IDisposable
                 var size = query.Contains("tree_size=", StringComparison.Ordinal)
                     ? int.Parse(Value(query, "tree_size"), CultureInfo.InvariantCulture)
                     : log.HeadTreeSize;
-                return (HttpStatusCode.OK, log.ProofAt(index, size));
+                var key = index == log.KeyIndex;
+                var proof = key && log.KeyProofFromAnotherTree ? log.ProofFromAnotherTreeAt(index, size) : log.ProofAt(index, size);
+                return (HttpStatusCode.OK, key && log.KeyProofRouteServesGarbage ? proof[..(proof.Length / 2)] : proof);
             }
 
             if (path == "/v1/log/consistency")
@@ -925,6 +1135,13 @@ internal sealed class StubLog : IDisposable
     {
         using var key = _agent.ExportPublicKey();
         return key.ExportParameters(includePrivateParameters: false);
+    }
+
+    /// <summary>The registered key as R4.28 stores an <c>ES256</c> key: its DER SubjectPublicKeyInfo.</summary>
+    private byte[] PublicSubjectPublicKeyInfo()
+    {
+        using var key = _agent.ExportPublicKey();
+        return key.ExportSubjectPublicKeyInfo();
     }
 
 }

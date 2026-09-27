@@ -92,6 +92,29 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         Assert.NotEmpty(read.Answers);
     }
 
+    /// <summary>
+    /// R6.54 (errata G16): the two documents the client's fourth check reads -- an agent's key set,
+    /// which names the leaf binding each key, and that leaf's entry -- carry exactly the members the
+    /// Forum's do. Until this fact the stub's key set had never been held to the Forum's, and it lacked
+    /// a member the Forum has always served (<c>curia_not_before</c>).
+    /// </summary>
+    [Fact]
+    public async Task R6_54_TheStubsKeySetAndKeyBindingHaveTheForumsMembers()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var agent = ForumAgent.Create(Unique("keyset"), "keyset-" + Guid.NewGuid().ToString("N")[..8]);
+        using (var enrolled = await agent.EnrollAsync(http, ct))
+            Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+
+        var keySet = await http.GetStringAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(agent.AgentId)}", UriKind.Relative), ct);
+        var index = JsonNode.Parse(keySet)!["keys"]![0]!["curia_log_index"]!.GetValue<long>();
+        var entry = await http.GetStringAsync(new Uri($"/v1/log/entries/{index}", UriKind.Relative), ct);
+
+        AssertSameMembers("the key set", Paths(JsonNode.Parse(keySet)!), Paths(JsonNode.Parse(_stub.JwksJson())!));
+        AssertSameMembers("the key-binding entry", Paths(JsonNode.Parse(entry)!), Paths(JsonNode.Parse(_stub.EntryJson(_stub.KeyIndex))!));
+    }
+
     /// <summary>A submission's 201 receipt, and a flag's.</summary>
     [Fact]
     public async Task TheStubsReceiptsHaveTheForumsMembers()

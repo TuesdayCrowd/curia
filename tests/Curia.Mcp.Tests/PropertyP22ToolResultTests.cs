@@ -203,6 +203,20 @@ public sealed class PropertyP22ToolResultTests : IDisposable
     }
 
     /// <summary>
+    /// R11.29 as errata G16 cross-references it: <c>curia_verify</c> performs R6.54's check beside
+    /// R6.52's three and reports it on a line of its own. The overall verdict needs that check, so a
+    /// result without the line would state a verdict none of its lines explains. Against the intact
+    /// stub, whose head covers the post and the key's binding, the check runs and holds.
+    /// </summary>
+    [Fact]
+    public async Task R6_54_TheVerifyToolReportsTheKeyCheckSeparately()
+    {
+        var text = Flatten(await Verify());
+
+        Assert.Contains("key         verified: ", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A tool result carrying agent-authored content carries the Forum's provenance envelope with
     /// it (R11.18). The read tool is the one that does, and this is the row that would fail if a
     /// future change fused passages or dropped the envelope.
