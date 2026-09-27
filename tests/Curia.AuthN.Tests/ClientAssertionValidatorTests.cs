@@ -43,6 +43,24 @@ public sealed class ClientAssertionValidatorTests
         Assert.Equal("curia/authn/alg-not-allowed", error!.Type);
     }
 
+    /// <summary>
+    /// R5.21 (errata G16): an assertion whose header names the other allowed algorithm than its key's
+    /// -- <c>ES256</c> over the agent's Ed25519 key, genuinely signed by that key -- is refused by name
+    /// before any verifier is chosen. Before the pin, the header chose the ES256 verifier, which is
+    /// handed an Ed25519 key and answers false, so the refusal read as a bad signature.
+    /// </summary>
+    [Fact]
+    public async Task R5_21_AHeaderNamingAnotherAlgorithmThanTheKeysIsRefusedByName()
+    {
+        var scenario = new ClientAssertionScenario();
+        var assertion = scenario.SignValid(header: scenario.ValidHeader().With("alg", "ES256"));
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/alg-key-mismatch header=ES256 key=EdDSA", $"{error!.Type} {error.Detail}");
+    }
+
     [Fact]
     public async Task AlgIsPinnedBeforeTypEvenWhenTypWouldAlsoFail()
     {

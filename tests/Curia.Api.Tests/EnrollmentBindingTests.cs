@@ -294,6 +294,100 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
     }
 
     /// <summary>
+    /// R4.31 rev. (errata G16), the residual errata G14's fourth cost named. The victim's key row is
+    /// lost, and a request presents the victim's own <c>kid</c> with other bytes. Before G16 it was
+    /// registered, dated from the victim's enrollment, and its sender held the identity: a token, and
+    /// every later post. The log now carries the victim's key (R4.34), so the request is refused by
+    /// name and registers nothing, and the victim, re-presenting its own key, is served the key set it
+    /// was served before the loss, byte for byte.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var victim = await EnrolledVictimAsync(client, ct);
+        var before = await JwksAsync(client, victim.Agent.AgentId, ct);
+
+        await LoseKeyRowAsync(victim.Agent.AgentId, ct);
+
+        var impostor = ForumAgent.Create(victim.Agent.AgentId, victim.Agent.Kid);
+        using var refused = await impostor.EnrollAsync(client, ct);
+        var (type, detail) = await ProblemAsync(refused, ct);
+        var impostorToken = await TokenOrNullAsync(client, impostor, forum.Now, ct);
+
+        Assert.True(
+            refused.StatusCode == HttpStatusCode.Conflict && impostorToken is null,
+            $"other bytes under {victim.Agent.Kid} were answered {(int)refused.StatusCode}, and their holder {(impostorToken is null ? "obtained no token" : "obtained the victim's token")}");
+        Assert.Equal("curia/keys/material-immutable", type);
+        Assert.Equal($"kid={victim.Agent.Kid}: nothing was registered. The key registered under a kid never changes (R4.32).", detail);
+
+        using (var recovered = await victim.Agent.EnrollAsync(client, ct))
+            Assert.Equal(HttpStatusCode.Created, recovered.StatusCode);
+
+        Assert.Equal(before.GetRawText(), (await JwksAsync(client, victim.Agent.AgentId, ct)).GetRawText());
+    }
+
+    /// <summary>
+    /// R4.31 rev. (errata G16, as its review amended it), at the surface. An identifier the log never
+    /// enrolled -- as every one enrolled before <c>agent.enrolled</c> existed is -- whose key store
+    /// holds its own key and a second one beside it, as errata G14's hole wrote them. Before this
+    /// clause, a request presenting the second key's public half enrolled the identifier and bound that
+    /// key: its holder held the identity from then on, and the identity's own key was refused. The
+    /// request is now refused by name, whichever key it presents, and nothing is recorded. The damage
+    /// is asserted first. An identifier holding one such row is the control: the same request enrolls
+    /// it, which is how an enrollment whose log append failed recovers.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AnIdentifierTheLogNeverEnrolledIsNotBoundByWhicheverOfItsKeysIsPresented()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var own = ForumAgent.Create($"https://agents.example/never-enrolled-{suffix}", $"own-{suffix}");
+        var hole = ForumAgent.Create(own.AgentId, $"hole-{suffix}");
+        await WriteKeyRowAsync(own, ct);
+        await WriteKeyRowAsync(hole, ct);
+
+        using var holePresented = await hole.EnrollAsync(client, ct);
+        using var ownPresented = await own.EnrollAsync(client, ct);
+        var (type, _) = await ProblemAsync(holePresented, ct);
+
+        Assert.True(
+            holePresented.StatusCode == HttpStatusCode.Conflict,
+            $"presenting the second stored key of {own.AgentId} was answered {(int)holePresented.StatusCode}, and the identity's own key then {(int)ownPresented.StatusCode}");
+        Assert.Equal("curia/enroll/keys-ambiguous", type);
+        Assert.Equal("409 curia/enroll/keys-ambiguous", $"{(int)ownPresented.StatusCode} {(await ProblemAsync(ownPresented, ct)).Type}");
+        Assert.Equal(0, await EnrollmentsRecordedAsync(own.AgentId, ct));
+
+        var single = ForumAgent.Create($"https://agents.example/append-failed-{suffix}", $"single-{suffix}");
+        await WriteKeyRowAsync(single, ct);
+        using (var recovered = await single.EnrollAsync(client, ct))
+            Assert.Equal(HttpStatusCode.Created, recovered.StatusCode);
+        Assert.Equal(1, await EnrollmentsRecordedAsync(single.AgentId, ct));
+    }
+
+    /// <summary>
+    /// A key row holding <paramref name="agent"/>'s key under its identifier, written as the
+    /// provisioning role: what errata G14's hole wrote beside an identity's own, or what a store's
+    /// write leaves when the log's append after it fails.
+    /// </summary>
+    private async Task WriteKeyRowAsync(ForumAgent agent, CancellationToken ct)
+    {
+        await using var admin = new NpgsqlConnection(forum.ConnectionString);
+        await admin.OpenAsync(ct);
+        await using var insert = new NpgsqlCommand(
+            "INSERT INTO agent_keys (kid, agent_id, alg, public_key, valid_from, valid_until) " +
+            "VALUES (@kid, @agent, 'ES256', @key, @from, NULL);",
+            admin);
+        insert.Parameters.AddWithValue("kid", agent.Kid);
+        insert.Parameters.AddWithValue("agent", agent.AgentId);
+        insert.Parameters.AddWithValue("key", agent.AssertionKey.ExportSubjectPublicKeyInfo());
+        insert.Parameters.AddWithValue("from", forum.Now);
+        Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
+    }
+
+    /// <summary>
     /// Where R4.31's one exception stops. The victim's key row is lost, and before the victim
     /// recovers, a fresh identifier enrolls the victim's <c>kid</c>, which the store no longer holds:
     /// that enrollment is registered. The victim, re-presenting the key its enrollment bound, is then

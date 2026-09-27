@@ -84,11 +84,10 @@ fn render(value: &Value, out: &mut Vec<u8>) {
 /// when one is a prefix of the other), which is exactly `strcmp()`
 /// semantics over code units — no intermediate `Vec<u16>` needed.
 ///
-/// This function does not deduplicate members with equal keys (see
-/// `src/json.rs`'s module doc comment on why duplicate-key rejection is
-/// Task 4's concern, not this pure function's) — `sort_by` is a stable
-/// sort, so any duplicates are preserved and simply rendered in their
-/// original relative order, adjacent to each other.
+/// This function does not deduplicate members with equal keys, and is never
+/// handed two: [`crate::json::parse`] refuses a name given twice (errata
+/// R6.38; see `src/json.rs`'s module doc comment), and the NFC path refuses
+/// two names that normalize alike, before any tree reaches it.
 fn render_object(members: &[(String, Value)], out: &mut Vec<u8>) {
     let mut entries: Vec<&(String, Value)> = members.iter().collect();
     entries.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));

@@ -44,19 +44,33 @@ USAGE:
     curia-testis log head        --head <path> --log-jwks <path>
     curia-testis log inclusion   --entry <path> --proof <path> [--head <path> --log-jwks <path>]
     curia-testis log consistency --proof <path> [--from-head <path>] [--to-head <path>] [--log-jwks <path>]
+    curia-testis log author      --entry <path> --proof <path> --key-entry <path> --key-proof <path>
+                                 [--head <path> --log-jwks <path>]
 
     The log verbs take the JSON bodies of GET /v1/log/head, /v1/log/entries/{i},
     /v1/log/proof/{i}, /v1/log/consistency and /v1/log/jwks, saved to files. The
     leaf is recomputed from the entry; a head, when given, must cover the exact
     size and root the proof verifies against.
 
+    log author is R6.54: the post in --entry was signed by the key the
+    agent.key-bound entry in --key-entry carries, bound earlier in the log,
+    with both proofs under one signed head. No agent key set is read.
+
 EXIT CODES:
     0  verified: every check ran and held
-    1  failed: a check ran and did not hold (see stderr for the predicate)
+    1  failed: a check ran and did not hold (see stderr for the predicate).
+       The log verbs run every check that needs no head whether or not one is
+       given, so a malformed, non-canonical or unparseable document, a leaf
+       that does not match its entry, or a proof whose arithmetic fails exits
+       1 either way.
     2  usage error (bad arguments, or a path that could not be read)
-    3  could not be checked: the arithmetic held but nothing anchors it to a
-       signed head. Pass --head/--log-jwks (inclusion) or --from-head/--to-head
-       (consistency) to anchor it. This is not a pass and not a failure.
+    3  could not be checked: every check that needs no head held, and what
+       remains needs a signed head that was not given. Pass --head/--log-jwks
+       (inclusion, author) or --from-head/--to-head (consistency). For log
+       author, also: the log carries no key for the post's kid from before the
+       post -- the author's enrollment, which names the kid and no key, or the
+       author's binding made after the post. This is not a pass and not a
+       failure.
 ";
 
 /// Deliberate, documented bound on `--jwks`, per the Task 6 brief's ruling
@@ -198,10 +212,12 @@ fn run(args: &[String]) -> Result<(), CliError> {
     }
 }
 
-/// `curia-testis log <head|inclusion|consistency> --flag <path> ...`
+/// `curia-testis log <head|inclusion|consistency|author> --flag <path> ...`
 fn run_log(args: &[String]) -> Result<(), CliError> {
     let verb = args.first().map(String::as_str).ok_or_else(|| {
-        CliError::Usage("missing log subcommand: head, inclusion or consistency".to_string())
+        CliError::Usage(
+            "missing log subcommand: head, inclusion, consistency or author".to_string(),
+        )
     })?;
     let flags = parse_path_flags(&args[1..])?;
 
@@ -284,17 +300,66 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
 
             Ok(())
         }
+        "author" => {
+            let entry = read_flag(&flags, "--entry")?;
+            let proof = read_flag(&flags, "--proof")?;
+            let key_entry = read_flag(&flags, "--key-entry")?;
+            let key_proof = read_flag(&flags, "--key-proof")?;
+            // Whatever can be checked is checked before a missing head is
+            // reported: with no head, a document that fails a check needing none
+            // fails (exit 1), as it would with one.
+            let Some(head) = optional_head(&flags, "--head")? else {
+                acta::check_author_unanchored(&entry, &proof, &key_entry, &key_proof)
+                    .map_err(author_refusal)?;
+                println!("head: not checked");
+                return Err(CliError::NotAnchored(
+                    "every check that needs no head held, and no signed head was given, so \
+                     neither proof is tied to a root the log's key signed, and the order of the \
+                     two leaves is the Forum's word. Pass --head and --log-jwks."
+                        .to_string(),
+                ));
+            };
+            match acta::verify_author(&entry, &proof, &key_entry, &key_proof, &head) {
+                Ok(verified) => {
+                    println!("author: {}", verified.author);
+                    println!("kid: {}", verified.kid);
+                    println!("alg: {}", verified.alg);
+                    println!("key_index: {}", verified.key_index);
+                    println!("post_index: {}", verified.post_index);
+                    print_head("head", &head);
+                    Ok(())
+                }
+                Err(err) => Err(author_refusal(err)),
+            }
+        }
         other => Err(CliError::Usage(format!("unknown log subcommand `{other}`"))),
     }
 }
 
-const LOG_FLAGS: [&str; 6] = [
+/// A `log author` refusal as the CLI reports it. R6.54's third outcome -- the
+/// log carries no key for the post's kid from before the post, and says
+/// nothing either way about it -- is not a failure (exit 3); every other
+/// refusal is (exit 1).
+fn author_refusal(err: ActaError) -> CliError {
+    if err.not_established() {
+        CliError::NotAnchored(format!(
+            "{err}: the log carries no key for this post's kid from before the post, \
+             so which key signed it cannot be established from the log"
+        ))
+    } else {
+        CliError::Acta(err)
+    }
+}
+
+const LOG_FLAGS: [&str; 8] = [
     "--head",
     "--log-jwks",
     "--entry",
     "--proof",
     "--from-head",
     "--to-head",
+    "--key-entry",
+    "--key-proof",
 ];
 
 fn parse_path_flags(args: &[String]) -> Result<HashMap<String, PathBuf>, CliError> {

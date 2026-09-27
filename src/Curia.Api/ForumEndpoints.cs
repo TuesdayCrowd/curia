@@ -23,6 +23,7 @@ using Curia.Application.Retrieval;
 using Curia.Domain.Search;
 using Curia.Domain.Serving;
 using Curia.Domain.Verification;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 
 namespace Curia.Api;
@@ -383,12 +384,16 @@ public static class ForumEndpoints
     /// holds none, and never changes one it holds, and the token endpoint honours a key only for the
     /// identity it is registered to -- except in two cases. An identifier nobody has enrolled
     /// belongs to whoever enrolls it first (plan D4, D7), unless R4.33 refuses it because the event
-    /// log keeps it for its own records. And a lost key row is bound again on its <c>kid</c> alone, by
-    /// whoever presents it first, unless another identity took it (R4.31).</para>
+    /// log keeps it for its own records, or R4.31 because the key store holds several keys for it and
+    /// the log binds none (<c>curia/enroll/keys-ambiguous</c>, errata G16). And a lost key row is
+    /// registered again only with the key the log binds (R4.31 rev., R4.34), unless another identity
+    /// took its <c>kid</c>; for an identity enrolled before R4.34, whose log binds the <c>kid</c>
+    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first.</para>
     ///
     /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
     /// before anything is read or written, each refused 400 by name: the two identifiers' text
-    /// (R6.15's condition, and U+0000); their length, at most
+    /// (R6.15's condition, and U+0000); the agent identifier's normalization form, NFC (R4.36);
+    /// their length, at most
     /// <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8 bytes each; the algorithm, against the
     /// allow-list the Forum verifies with (R4.15); and then the key, which must be present, base64,
     /// and a key of that algorithm in R4.28's stored form (<see cref="Jwks.CanPublish"/>, the rule
@@ -411,6 +416,13 @@ public static class ForumEndpoints
 
         if ((RefusedText(request.AgentId, "agent_id") ?? RefusedText(request.Kid, "kid")) is { } textError)
             return Problem(StatusCodes.Status400BadRequest, textError);
+
+        // R4.36 (errata G16): an agent identifier NFC would change names, in every envelope it signs,
+        // the identifier NFC maps it to, which another identity can hold (R6.9, R6.55). Asked after
+        // RefusedText, so it never meets a lone surrogate or a noncharacter. A kid is not asked: it
+        // travels in a protected header signed as its bytes, and is never canonicalized.
+        if (NotInNfc(request.AgentId, "agent_id") is { } formError)
+            return Problem(StatusCodes.Status400BadRequest, formError);
 
         if ((TooLong(request.AgentId, "agent_id") ?? TooLong(request.Kid, "kid")) is { } lengthError)
             return Problem(StatusCodes.Status400BadRequest, lengthError);
@@ -457,6 +469,7 @@ public static class ForumEndpoints
                     or AuthorKeyErrors.MaterialImmutableType
                     or AuthorKeyErrors.KidRegisteredToAnotherAgentType
                     or EnrollmentErrors.IdentifierReservedType
+                    or EnrollmentErrors.KeysAmbiguousType
                 ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))
                 : Problem(StatusCodes.Status500InternalServerError, enrollError);
         }
@@ -491,6 +504,13 @@ public static class ForumEndpoints
 
         return value.Contains('\0', StringComparison.Ordinal) ? EnrollmentErrors.NulCharacter(field) : null;
     }
+
+    /// <summary>
+    /// The refusal for an identifier that is not in Unicode Normalization Form C, or null (R4.36).
+    /// Names the field and never echoes the value.
+    /// </summary>
+    private static Error? NotInNfc(string value, string field) =>
+        value.IsNormalized(NormalizationForm.FormC) ? null : EnrollmentErrors.IdentifierNotNfc(field);
 
     /// <summary>
     /// The refusal for an identifier over <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8
@@ -558,9 +578,17 @@ public static class ForumEndpoints
         // VERIFY against the authenticated subject. Table 9's "author must equal the authenticated
         // principal" is now a comparison against a token the client proved possession of, rather
         // than against the envelope's own claim about itself -- which is the difference PEP-1 makes.
+        // A log that could not be read decides nothing about the key (R4.35), so it is a 503, never
+        // the 401 that tells an agent its key was refused.
         var verified = await pipeline.VerifyAsync(a!, subject, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
-            return Problem(StatusCodes.Status401Unauthorized, verifyError!);
+        {
+            return Problem(
+                string.Equals(verifyError!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
+                    ? StatusCodes.Status503ServiceUnavailable
+                    : StatusCodes.Status401Unauthorized,
+                verifyError);
+        }
 
         // AUTHORIZE. R7.7: tier from live state, never from a claim -- and "live state" now means
         // the log rather than a process's memory. One forward scan yields both halves of Table 11's
@@ -1197,20 +1225,40 @@ public static class ForumEndpoints
     /// slash in a path segment is rejected or silently decoded depending on the host, which is
     /// exactly the kind of routing detail that works locally and 404s in production. A query
     /// parameter has no such ambiguity.</para>
+    ///
+    /// <para><b>Only the keys the log binds (R4.35, errata G16), each with where (R6.54).</b> A key the
+    /// store holds and the log does not bind is honoured nowhere, so it is not published either: a
+    /// post signed under one fails a reader's signature check, as it should. Each published key names
+    /// the leaf that binds it (<c>curia_log_index</c>), so a reader can check the binding against a
+    /// signed head instead of trusting this key set. An identity the store holds no row for is 404, as
+    /// before; one whose every row the log refuses gets an empty set.</para>
     /// </summary>
     private static async Task<IResult> GetJwks(
-        string agent, IAuthorKeyRegistry keys, CancellationToken cancellationToken)
+        string agent, LogBoundKeys keys, IEventReader events, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(agent))
             return Results.BadRequest(new Problem(
                 "curia/keys/agent-required", "The 'agent' query parameter is required", null));
 
         var agentId = agent;
-        var registered = await keys.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false);
+        var read = await keys.KeySetAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var keySet, out var readError))
+            return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
-        return registered.Count == 0
-            ? Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId))
-            : Results.Ok(Jwks.ForAgent(registered));
+        if (keySet!.Stored == 0)
+            return Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId));
+
+        // The leaf that binds each key, from the Acta folded once, as every route that serves a post
+        // or a log document folds it: no index of the key set's own, which would be a second
+        // computation of R6.47's leaf index that must agree with the fold forever (the spec's
+        // Decision 8). A log that cannot be read is 503, as FoldAsync answers it. A log that reads
+        // but will not fold into a tree publishes the keys without positions rather than no keys: a
+        // reader then cannot check the binding, and says so (R6.54's absence is an absence).
+        var (acta, failure) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
+        if (failure is JsonHttpResult<Problem> { Value.Type: LogBoundKeys.LogUnreadableType })
+            return failure;
+
+        return Results.Ok(Jwks.ForAgent(keySet.Bound, acta is null ? _ => null : acta.IndexOf));
     }
 
     /// <summary>

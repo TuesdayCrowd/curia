@@ -1,6 +1,10 @@
 using Curia.Api.Issuer;
 using Curia.Application.Credentials;
 using Curia.Application.Moderation;
+using Curia.Application.Ports;
+using Curia.Application.Projections;
+using Curia.Canon.Json;
+using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
@@ -113,6 +117,99 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
             OwnerVerificationMethod.Manual,
             "attested by the test fixture",
             Require(ActorId.Create("operator:fixture")),
+            ct));
+    }
+
+    /// <summary>
+    /// An identity as every enrollment before errata G16 left it: its key row, written as the
+    /// provisioning role, and an <c>agent.enrolled</c> naming its <c>kid</c> and no key, appended
+    /// through the host's own event store -- and no <c>agent.key-bound</c>. <c>EnrollAgent</c> no longer
+    /// writes this shape, so it is built here, with exactly the members <c>EnrollAgent</c> wrote until
+    /// G16: <c>agent_id</c>, <c>kid</c> and <c>reason</c>. Such an identity is bound by its <c>kid</c>
+    /// alone (R4.35).
+    /// </summary>
+    internal async Task EnrollBeforeKeyBindingAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        await using (var admin = new NpgsqlConnection(ConnectionString))
+        {
+            await admin.OpenAsync(ct);
+            await using var insert = new NpgsqlCommand(
+                "INSERT INTO agent_keys (kid, agent_id, alg, public_key, valid_from, valid_until) " +
+                "VALUES (@kid, @agent, 'ES256', @key, @from, NULL);",
+                admin);
+            insert.Parameters.AddWithValue("kid", kid);
+            insert.Parameters.AddWithValue("agent", agentId);
+            insert.Parameters.AddWithValue("key", publicKey);
+            insert.Parameters.AddWithValue("from", Now);
+            if (await insert.ExecuteNonQueryAsync(ct) != 1)
+                throw new InvalidOperationException($"the key row for {agentId} was not written");
+        }
+
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
+        Require(await store.AppendAsync(
+            Require(AggregateId.Create(agentId)),
+            AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create(Require(new UlidGenerator(Clock).Next()).ToString())),
+                Require(EventType.Create(AgentStandingProjector.EnrolledType)),
+                Require(ActorId.Create(agentId)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(kid)),
+                    new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
+                ]))],
+            ct));
+    }
+
+    /// <summary>
+    /// An identity as the enrollment route enrolled it before R4.36: the enrollment use case run
+    /// directly, so none of the route's text checks is asked. It writes what the route writes: the key
+    /// row, and the <c>agent.enrolled</c> and <c>agent.key-bound</c> of one append (R4.34). The route
+    /// refuses an identifier outside NFC now; a Forum that enrolled one earlier still holds it.
+    /// </summary>
+    internal async Task EnrollPastTheRouteAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        var enrolled = await Services.GetRequiredService<EnrollIdentity>()
+            .EnrollAsync(agentId, new PublicKeyMaterial("ES256", kid, publicKey), ct);
+        if (!enrolled.TryGetValue(out _, out var error))
+            throw new InvalidOperationException($"{error!.Type}: {error.Title} ({error.Detail})");
+    }
+
+    /// <summary>
+    /// Appends an <c>agent.key-bound</c> for <paramref name="agentId"/>'s <c>ES256</c> key at the end of
+    /// its stream, now, through the host's own event store, with exactly the members
+    /// <c>EnrollAgent</c> writes (R4.34). For an identity that has already posted, this is the binding
+    /// that lands after its history: the one an identity enrolled before <c>agent.enrolled</c> existed
+    /// receives when anyone re-announces its public key, and the one an operator's binding would append
+    /// (the key-binding stage's spec, §2.1). No route appends it for an identity already enrolled.
+    /// </summary>
+    internal async Task BindKeyAfterItsPostsAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
+        var aggregate = Require(AggregateId.Create(agentId));
+        var stream = Require(await store.ReadByAggregateAsync(aggregate, ct));
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(stream.Count)),
+            [new DomainEvent(
+                Require(EventId.Create(Require(new UlidGenerator(Clock).Next()).ToString())),
+                Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                Require(ActorId.Create(agentId)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(kid)),
+                    new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(new PublicKeyMaterial("ES256", kid, publicKey)))),
+                ]))],
             ct));
     }
 

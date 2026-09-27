@@ -136,6 +136,12 @@ public static class AccessTokenValidator
         if (!FixedTimeEquals(thumbprint, claims.CnfJkt))
             return Result<ValidatedRequest>.Fail(AuthNErrors.BindingMismatch());
 
+        // R5.21 (errata G16): the proof's alg names the embedded key's algorithm, which its jwk's type
+        // fixes, before any key material is built or any verifier chosen by the header.
+        var keyAlg = jwk!.Match(okpEd25519: _ => "EdDSA", ecP256: _ => "ES256");
+        if (!string.Equals(proofHeader.Alg, keyAlg, StringComparison.Ordinal))
+            return Result<ValidatedRequest>.Fail(AuthNErrors.AlgKeyMismatch(proofHeader.Alg, keyAlg));
+
         var proofKey = jwk.ToPublicKeyMaterial(kid: "");
         if (!context.VerifiersByAlg.TryGetValue(proofHeader.Alg, out var proofVerifier))
             return Result<ValidatedRequest>.Fail(AuthNErrors.AlgNotAllowed(proofHeader.Alg));

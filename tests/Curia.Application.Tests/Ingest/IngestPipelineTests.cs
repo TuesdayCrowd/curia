@@ -87,7 +87,8 @@ public sealed class IngestPipelineTests
         string? parent = null,
         string body = "How does JCS order object members?",
         string? title = "Member ordering in JCS",
-        string author = Agent)
+        string author = Agent,
+        bool wireInNfc = true)
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
@@ -122,7 +123,10 @@ public sealed class IngestPipelineTests
             new("signature", new JsonValue.String(signature!.Compact)),
         ]);
 
-        Assert.True(CanonicalJson.CanonicalizeWithNfc(submission).TryGetValue(out var wire, out _));
+        // A hand-built client may send its strings as it wrote them; the signature still covers the
+        // NFC canonical form, which is what the Forum verifies.
+        var rendered = wireInNfc ? CanonicalJson.CanonicalizeWithNfc(submission) : CanonicalJson.Canonicalize(submission);
+        Assert.True(rendered.TryGetValue(out var wire, out _));
         return wire.ToArray();
     }
 
@@ -324,6 +328,76 @@ public sealed class IngestPipelineTests
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/content/author-principal-mismatch", error!.Type);
+    }
+
+    /// <summary>An identifier in NFC: <c>e</c> precomposed with its acute accent, U+00E9.</summary>
+    private const string Precomposed = "https://agents.example/caf\u00E9";
+
+    /// <summary>Another identifier, which NFC maps onto <see cref="Precomposed"/>: <c>e</c>, then U+0301.</summary>
+    private const string Decomposed = "https://agents.example/cafe\u0301";
+
+    /// <summary>
+    /// R6.55 (errata G16), as the key-binding stage's final review probed it through the Forum. An
+    /// identity whose identifier is not in NFC sends an envelope naming that identifier as written.
+    /// The signature covers the canonical form, where the author is NFC, and so another identifier.
+    /// Compared as it arrived, the author matched the principal, the key resolved for the principal,
+    /// and the post was accepted signed in the other identifier's name. Compared as it is signed, it
+    /// is not the principal.
+    /// </summary>
+    [Fact]
+    public async Task R6_55_AnAuthorWhoseSignedFormIsAnotherIdentifierIsNotThePrincipal()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+        harness.Keys.Register(Decomposed, Kid, new PublicKeyMaterial(TestEs256.Alg, Kid, harness.Crypto.PublicKey));
+        var wire = Wire(harness, author: Decomposed, wireInNfc: false);
+
+        // Non-vacuity: two identifiers, NFC maps the one onto the other, and the submission carries
+        // the one that is not NFC, as sent.
+        Assert.NotEqual(Precomposed, Decomposed);
+        Assert.Equal(Precomposed, Decomposed.Normalize(NormalizationForm.FormC));
+        Assert.Contains(Decomposed, Encoding.UTF8.GetString(wire), StringComparison.Ordinal);
+
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Decomposed, ct).ConfigureAwait(true);
+
+        Assert.False(verified.TryGetValue(out _, out var error));
+        Assert.Equal("curia/content/author-principal-mismatch", error!.Type);
+    }
+
+    /// <summary>
+    /// R6.55's other side. An author sent outside NFC is the author the canonical form names, as
+    /// every other member already is (R6.10): a principal holding that NFC identifier is the author,
+    /// the post is accepted, and the author the Forum records beside the canonical bytes is the one
+    /// they name. Refusing any author sent outside NFC would pass the fact above and fail this one.
+    /// </summary>
+    [Fact]
+    public async Task R6_55_AnAuthorSentOutsideNfcIsTheAuthorItsSignatureCovers()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+        harness.Keys.Register(Precomposed, Kid, new PublicKeyMaterial(TestEs256.Alg, Kid, harness.Crypto.PublicKey));
+        var wire = Wire(harness, author: Decomposed, wireInNfc: false);
+
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Precomposed, ct).ConfigureAwait(true);
+        Assert.True(verified.TryGetValue(out var v, out var verifyError), verifyError?.Type);
+
+        var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
+        Assert.True(screened.TryGetValue(out var s, out _));
+        Assert.True((await harness.Pipeline.PersistAsync(s!, ct).ConfigureAwait(true)).TryGetValue(out _, out _));
+
+        var stored = await harness.Store.ReadForwardAsync(EventSequence.Zero, 100, ct).ConfigureAwait(true);
+        Assert.True(stored.TryGetValue(out var events, out _));
+        var payload = Assert.IsType<JsonValue.Object>(Assert.Single(events!).Event.Payload);
+        var recorded = Assert.IsType<JsonValue.String>(payload.Members.Single(m => m.Key == "author").Value).Value;
+        var canonical = Assert.IsType<JsonValue.String>(payload.Members.Single(m => m.Key == "canonical").Value).Value;
+        Assert.True(JsonReader.ParseUnrestricted(Encoding.UTF8.GetBytes(canonical)).TryGetValue(out var signedTree, out _));
+        var signedAuthor = Assert.IsType<JsonValue.String>(
+            Assert.IsType<JsonValue.Object>(signedTree).Members.Single(m => m.Key == "author").Value).Value;
+
+        Assert.Equal(Precomposed, signedAuthor);
+        Assert.Equal(signedAuthor, recorded);
     }
 
     /// <summary>

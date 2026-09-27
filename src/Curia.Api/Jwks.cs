@@ -1,8 +1,7 @@
-using System.Buffers.Text;
-using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Text.Json.Nodes;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
+using Curia.Canon.Jws;
 using Curia.Canon.Sodium;
 
 namespace Curia.Api;
@@ -20,14 +19,16 @@ namespace Curia.Api;
 /// them. RFC 8037 §2 gives Ed25519 an octet-key-pair form (<c>kty: "OKP"</c>, <c>crv:
 /// "Ed25519"</c>, single coordinate <c>x</c>); RFC 7518 §6.2.1 gives ES256 the two-coordinate
 /// <c>EC</c> form. Reusing <c>EC</c> for an Ed25519 key produces JSON that looks plausible and is
-/// wrong -- <c>curia-testis</c>'s own JWK module records that exact trap -- so each family is
-/// built from its own code path below rather than from a shared one with a switch in it.</para>
+/// wrong -- <c>curia-testis</c>'s own JWK module records that exact trap. Both forms are rendered by
+/// <see cref="PublicJwk.Of"/>, which the log's key-binding entries use too (R4.34, errata G16), so
+/// the key a reader is served and the key the log bound are one computation.</para>
 /// </summary>
 public static class Jwks
 {
     /// <summary>
-    /// Renders one agent's registered keys as an RFC 7517 <c>{"keys": [...]}</c> document, omitting
-    /// any stored key it cannot publish (<see cref="CanPublish"/>).
+    /// Renders one agent's keys the log binds (R4.35) as an RFC 7517 <c>{"keys": [...]}</c> document,
+    /// omitting any it cannot publish (<see cref="CanPublish"/>), and naming for each the leaf that
+    /// binds it (<paramref name="logIndexOf"/>, R6.54) where it is known.
     ///
     /// <para><b>Omitted, not failed.</b> Key rows written before the enrollment route checked a key's
     /// bytes stay in the store for good (R4.19 forbids the delete, R4.32 the repair). Rendering one
@@ -38,22 +39,27 @@ public static class Jwks
     /// and the second looks like a signature problem. An agent whose only key is omitted gets an
     /// empty set, not a 404, which still means that the store holds no row.</para>
     /// </summary>
-    public static JsonObject ForAgent(IReadOnlyList<RegisteredKey> keys)
+    /// <param name="keys">The keys, each with the binding the log holds for it.</param>
+    /// <param name="logIndexOf">The leaf index of an event, by its id; <see langword="null"/> when the log could not say.</param>
+    public static JsonObject ForAgent(IReadOnlyList<BoundKey> keys, Func<string, long?> logIndexOf)
     {
         ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(logIndexOf);
 
         var array = new JsonArray();
-        foreach (var registered in keys)
+        foreach (var bound in keys)
         {
-            // The one guard: neither renderer below checks the material again.
-            if (!CanPublish(registered.Key.Alg, registered.Key.Public.Span)) continue;
+            var registered = bound.Key;
 
-            array.Add(registered.Key.Alg switch
-            {
-                "EdDSA" => OkpEd25519(registered),
-                "ES256" => EcP256(registered),
-                _ => throw new UnreachableException($"CanPublish admitted alg={registered.Key.Alg}, which has no JWK shape here"),
-            });
+            // Two refusals, one outcome: the rule the key's verifier owns, and the renderer the log's
+            // key-binding entries use too (R4.34). PublicJwkTests holds them to the same answer on
+            // every material KeyMaterials names, so the second omits nothing the first admits there.
+            if (!CanPublish(registered.Key.Alg, registered.Key.Public.Span)) continue;
+            if (!PublicJwk.Of(registered.Key).TryGetValue(out var jwk, out _)) continue;
+
+            var node = Annotate(ActaEndpoints.ToObject(jwk!), registered);
+            if (logIndexOf(bound.Binding.EventId) is { } index) node["curia_log_index"] = index;
+            array.Add(node);
         }
 
         return new JsonObject { ["keys"] = array };
@@ -73,44 +79,6 @@ public static class Jwks
         _ => false,
     };
 
-    /// <summary>RFC 8037 §2: <c>kty: "OKP"</c>, <c>crv: "Ed25519"</c>, <c>x</c> = the raw 32-byte key.</summary>
-    private static JsonObject OkpEd25519(RegisteredKey registered) => Annotate(
-        new JsonObject
-        {
-            ["kty"] = "OKP",
-            ["crv"] = "Ed25519",
-            ["alg"] = "EdDSA",
-            ["kid"] = registered.Key.Kid,
-            ["x"] = Base64UrlEncode(registered.Key.Public.Span),
-        },
-        registered);
-
-    /// <summary>
-    /// RFC 7518 §6.2.1: <c>kty: "EC"</c>, <c>crv: "P-256"</c>, and the two coordinates.
-    ///
-    /// <para>The stored form is SubjectPublicKeyInfo, so the coordinates are recovered by importing
-    /// it rather than by slicing the DER by offset. Offset arithmetic over DER works until an
-    /// encoder emits a legal variation, and then it silently produces a wrong key.</para>
-    /// </summary>
-    private static JsonObject EcP256(RegisteredKey registered)
-    {
-        using var ecdsa = ECDsa.Create();
-        ecdsa.ImportSubjectPublicKeyInfo(registered.Key.Public.Span, out _);
-        var parameters = ecdsa.ExportParameters(includePrivateParameters: false);
-
-        return Annotate(
-            new JsonObject
-            {
-                ["kty"] = "EC",
-                ["crv"] = "P-256",
-                ["alg"] = "ES256",
-                ["kid"] = registered.Key.Kid,
-                ["x"] = Base64UrlEncode(parameters.Q.X!),
-                ["y"] = Base64UrlEncode(parameters.Q.Y!),
-            },
-            registered);
-    }
-
     /// <summary>
     /// Adds the validity window as non-standard members.
     ///
@@ -126,6 +94,4 @@ public static class Jwks
         if (registered.NotAfter is { } notAfter) jwk["curia_not_after"] = notAfter.ToString("O");
         return jwk;
     }
-
-    private static string Base64UrlEncode(ReadOnlySpan<byte> bytes) => Base64Url.EncodeToString(bytes);
 }

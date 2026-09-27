@@ -107,6 +107,17 @@ jobs:
           CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
         run: dotnet test Curia.sln --no-build --configuration Release
 
+      # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
+      # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in
+      # Debug and passes it in Release, so this job, running Release alone, was green while every
+      # developer's Debug run was red. The whole solution is built in Debug first: CS-15 reads
+      # Curia.Domain.Tests and Curia.Application.Tests from their Debug output, and neither is a
+      # reference of the architecture project, so `dotnet test` on that project alone never builds them.
+      - name: Architecture rules (Debug)
+        run: |
+          dotnet build Curia.sln --no-restore --configuration Debug
+          dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug
+
   rust:
     name: Rust — curia-testis
     runs-on: ubuntu-latest
@@ -131,13 +142,14 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 211
-      # tests across 17 binaries are not a secondary suite.
+      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 233
+      # tests across 18 binaries are not a secondary suite.
       #
       # Note what the two steps above are: `cargo fmt --check` and `cargo clippy -- -D warnings`
-      # run here and are not in the command CLAUDE.md gives a developer, which is `cargo test`
-      # alone. That is D16's shape in the other language -- CI and the developer running
-      # different command sets over the same tree -- and it has now cost one red run.
+      # ran here and were not in the command CLAUDE.md gave a developer, which was `cargo test`
+      # alone. That was D16's shape in the other language -- CI and the developer running
+      # different command sets over the same tree -- and it cost one red run, on 2026-09-09.
+      # CLAUDE.md has listed all three since.
       - name: Test
         run: cargo test --locked
 

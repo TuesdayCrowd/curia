@@ -226,9 +226,14 @@ public sealed record ProvenancePost(
 /// month. A client that filtered the set down to currently-valid keys would be unable to verify
 /// most of the archive.
 /// </remarks>
+/// <param name="LogIndex">
+/// The leaf that binds the key to its agent (<c>curia_log_index</c>, R6.54, errata G16), where the
+/// key set names one: where a reader goes to check the key without trusting this key set. Null when
+/// absent, which the check reports as could-not-be-checked.
+/// </param>
 public sealed record ForumJwk(
     string Kty, string? Crv, string Alg, string Kid, string X, string? Y,
-    string? NotBefore, string? NotAfter);
+    string? NotBefore, string? NotAfter, long? LogIndex = null);
 
 /// <summary>§10.7's contract as served, clause by clause.</summary>
 public sealed record ReaderContractClause(int Number, string Force, string Text, bool ClientMustImplement);
@@ -608,7 +613,8 @@ internal static class ForumDocuments
         && ClientJson.String(k, "x") is { } x
             ? new ForumJwk(
                 kty, ClientJson.String(k, "crv"), alg, kid, x, ClientJson.String(k, "y"),
-                ClientJson.String(k, "curia_not_before"), ClientJson.String(k, "curia_not_after"))
+                ClientJson.String(k, "curia_not_before"), ClientJson.String(k, "curia_not_after"),
+                ClientJson.WholeNumber(k, "curia_log_index"))
             : null;
 
     internal static Result<ReaderContractDocument> ReadContract(JsonValue value)

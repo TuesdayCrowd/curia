@@ -9,8 +9,9 @@
 //! Two things this module is *not* trying to be, on purpose:
 //!
 //! - `parse`/`Parser` are not the ADMIT phase. They enforce JSON syntax
-//!   (RFC 8259) and nothing more — no duplicate-key rejection, no
-//!   member-count cap, no safe-integer bound on numbers (design spec §5.4:
+//!   (RFC 8259) and refuse a member name given twice in one object (see
+//!   below), and nothing more — no member-count cap, no safe-integer
+//!   bound on numbers (design spec §5.4:
 //!   "the canonicalizer still implements ECMAScript number serialization in
 //!   full ... the envelope schema simply never produces input that reaches
 //!   the fractional path" — i.e. `canonicalize` must handle *any* valid
@@ -30,17 +31,19 @@
 //!   panic" than an ordinary panic would be). It is not a stand-in for
 //!   ADMIT's depth-32 rule, which is a business limit Task 4 owns.
 //!
-//! ## Why duplicate keys are out of scope for `parse` specifically
+//! ## Why `parse` itself refuses a duplicate key
 //!
-//! No vector `parse`/`canonicalize` are exercised against (the vendored
-//! `rfc8785/` pairs, and the `ordering/`/`numbers/` inputs `canonicalize` is
-//! tested against directly per the Task 2 controller ruling) contains a
-//! duplicate object key. `parse` never deduplicates or rejects them —
-//! every occurrence is kept in [`Value::Object`], in input order — so that
-//! [`admit`] (below), which *does* reject them per errata D7 /
-//! `admit-reject/duplicate-keys`, can see the input exactly as written
-//! rather than through a parser that already discarded the evidence.
-//! `admit`'s duplicate check compares members' *wire* names — the strings
+//! It once did not: `parse` kept every occurrence of a name in
+//! [`Value::Object`], in input order, so that [`admit`] (below), which
+//! rejects them per errata D7 / `admit-reject/duplicate-keys`, could see
+//! the input exactly as written. That left pure `canonicalize` emitting
+//! `{"a":1,"a":2}` where the C# implementation and the independent node
+//! oracle both refused it, which the differential harness found (errata
+//! R6.38). RFC 8785 defines no output for a name given twice, so `parse`
+//! now refuses one as [`ParseError::DuplicateMember`], on every path that
+//! parses, `admit`'s and `canonicalize`'s alike, and nothing downstream of
+//! it ever holds two members of one name.
+//! The duplicate check compares members' *wire* names — the strings
 //! as `parse` decoded them from the input, with no Unicode normalization
 //! applied — never a normalized form; see [`admit`]'s doc comment for why
 //! that boundary is exact, not incidental.

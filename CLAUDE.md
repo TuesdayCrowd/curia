@@ -19,7 +19,11 @@ listing and moderation state (§10.10; since errata G13, a human moderator actin
 `curia-operator moderate`, and flags that enter the log as a commitment, with their raiser and
 rationale held privately), owner attestation (R4.30), enrollment that binds an identity to its key
 once (errata G14: no second key, no replaced bytes) and a token only for the identity its key is
-registered to (errata G15), the append-only event store (§11), and the Acta (§6.6, errata G9): every
+registered to (errata G15), keys bound in the log (errata G16: every enrollment binds its key as an
+Acta leaf, the Forum honours and publishes a stored key only as the log binds it, and `curia verify`,
+`curia_verify` and `curia-testis log author` establish from the log alone that the key behind a post
+was bound to its author before it, where the read tools verify under the key set the Forum serves), the
+append-only event store (§11), and the Acta (§6.6, errata G9): every
 event a leaf under a frozen encoding, heads signed by `curia-operator sign-head` with a key the
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs
 offline; and hybrid retrieval (§9.2, §10.3, errata G10): pgvector, reciprocal rank fusion, a
@@ -182,9 +186,11 @@ here is Debug while CI runs `-c Release` and `NetArchTest` rules read IL that di
 was **left open on purpose** and is recorded in `IMPLEMENTATION_PLAN.md`: choosing among the three
 options there is a CI-policy decision, not an edit, so it was not to be closed by quietly adding
 `-c Release` to this block. It has since been chosen — option 1, `Curia.Architecture.Tests` in both
-configurations in CI (the moderation stage's spec, Decision 23) — and waits on that one-line CI
-change. Until it lands, also run the architecture project in Debug, after a Debug build of the
-solution, before trusting a green CI.
+configurations in CI (the moderation stage's spec, Decision 23) — and CI now carries it out: its
+.NET job builds `Curia.sln` in Debug after the Release run and then runs `dotnet test
+tests/Curia.Architecture.Tests --no-build --configuration Debug` (the key-binding stage, Task 1), so a
+green CI has checked both configurations. Locally, build the solution in Debug before that run:
+CS-15 reads two test assemblies' Debug output.
 
 The differential run needs its two endpoints built first — `dotnet build
 tools/Curia.Differential/Curia.Differential.csproj -c Release` and `cargo build --release

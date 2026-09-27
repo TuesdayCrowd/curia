@@ -62,6 +62,92 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
 
     private static string Scratch() => Directory.CreateTempSubdirectory("curia-acta-").FullName;
 
+    /// <summary>An agent, enrolled through the route or as before errata G16, that has asked one question; and that question's id.</summary>
+    private async Task<(ForumAgent Agent, string PostId)> AskAsync(HttpClient http, string name, bool beforeKeyBinding, CancellationToken ct)
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create($"https://agents.example/{name}-{suffix}", $"{name}-{suffix}");
+        if (beforeKeyBinding)
+        {
+            await forum.EnrollBeforeKeyBindingAsync(agent.AgentId, agent.Kid, agent.AssertionKey.ExportSubjectPublicKeyInfo(), ct);
+        }
+        else
+        {
+            using var enrolled = await agent.EnrollAsync(http, ct);
+            Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+        }
+
+        var dpop = DpopClient.For(agent, agent.AssertionKey);
+        var token = await dpop.GetTokenAsync(http, TokenEndpoint, forum.Now, ct);
+        using var posted = await dpop.PostAsync(
+            http, PostsUrl, token, agent.SignQuestion("board-" + suffix, "Whose key does the log say signed this?", "R6.54 " + suffix, forum.Now), forum.Now, ct);
+        Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
+        return (agent, (await posted.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("post_id").GetString()!);
+    }
+
+    /// <summary>
+    /// R6.54 (errata G16), offline: <c>curia-testis log author</c> establishes from served log documents
+    /// alone -- the post's entry and proof, its key's binding entry and proof, one signed head -- that
+    /// the post was signed by the key its author's enrollment bound, earlier in the log. No agent key
+    /// set is handed to it. Three controls: another identity's binding offered as the key's is refused
+    /// (it binds another identity's <c>kid</c>, exit 1); an identity enrolled before G16, whose log names
+    /// its <c>kid</c> and no key, is reported as not checked (exit 3), never as verified; and so is a
+    /// post whose author's key the log bound only after it (exit 3), never as failed.
+    /// </summary>
+    [Fact]
+    public async Task R6_54_TestisEstablishesAuthorshipFromTheLogAlone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var dir = Scratch();
+
+        var (author, postId) = await AskAsync(http, "author", beforeKeyBinding: false, ct);
+        var (other, _) = await AskAsync(http, "other", beforeKeyBinding: false, ct);
+        var (before, beforePostId) = await AskAsync(http, "before-g16", beforeKeyBinding: true, ct);
+        var (late, latePostId) = await AskAsync(http, "bound-late", beforeKeyBinding: true, ct);
+        await forum.BindKeyAfterItsPostsAsync(late.AgentId, late.Kid, late.AssertionKey.ExportSubjectPublicKeyInfo(), ct);
+        var (exit, _, stderr) = await SignHeadAsync(ct);
+        Assert.True(exit == ExitCode.Ok, stderr);
+
+        async Task<long> KeyIndexAsync(ForumAgent agent) =>
+            (await http.GetFromJsonAsync<JsonElement>($"/v1/jwks?agent={Uri.EscapeDataString(agent.AgentId)}", ct))
+                .GetProperty("keys")[0].TryGetProperty("curia_log_index", out var index)
+                ? index.GetInt64()
+                : throw new InvalidOperationException($"the key set names no leaf for {agent.AgentId}'s key");
+
+        async Task<string> AuthorAsync(string post, ForumAgent keyOf, string label)
+        {
+            var postIndex = (await http.GetFromJsonAsync<JsonElement>($"/v1/posts/{post}", ct)).GetProperty("log_index").GetInt64();
+            var keyIndex = await KeyIndexAsync(keyOf);
+            var args =
+                $"log author --entry \"{await SaveAsync(http, $"/v1/log/entries/{postIndex}", dir, label + "-entry.json", ct)}\"" +
+                $" --proof \"{await SaveAsync(http, $"/v1/log/proof/{postIndex}", dir, label + "-proof.json", ct)}\"" +
+                $" --key-entry \"{await SaveAsync(http, $"/v1/log/entries/{keyIndex}", dir, label + "-key-entry.json", ct)}\"" +
+                $" --key-proof \"{await SaveAsync(http, $"/v1/log/proof/{keyIndex}", dir, label + "-key-proof.json", ct)}\"" +
+                $" --head \"{await SaveAsync(http, "/v1/log/head", dir, label + "-head.json", ct)}\"" +
+                $" --log-jwks \"{await SaveAsync(http, "/v1/log/jwks", dir, label + "-log-jwks.json", ct)}\"";
+            var (code, stdout, failure) = TestisBinary.Run(TestisBinary.Locate(), args);
+            return $"exit {code}: {stdout}{failure}";
+        }
+
+        var verified = await AuthorAsync(postId, author, "own");
+        Assert.StartsWith("exit 0:", verified, StringComparison.Ordinal);
+        Assert.Contains($"author: {author.AgentId}", verified, StringComparison.Ordinal);
+        Assert.Contains($"key_index: {await KeyIndexAsync(author)}", verified, StringComparison.Ordinal);
+
+        var refused = await AuthorAsync(postId, other, "other");
+        Assert.StartsWith("exit 1:", refused, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/binding-mismatch", refused, StringComparison.Ordinal);
+
+        var notChecked = await AuthorAsync(beforePostId, before, "before");
+        Assert.StartsWith("exit 3:", notChecked, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/key-not-carried", notChecked, StringComparison.Ordinal);
+
+        var boundLate = await AuthorAsync(latePostId, late, "late");
+        Assert.StartsWith("exit 3:", boundLate, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/bound-after-post", boundLate, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task R6_24_R6_49_TheOperatorSignsAHeadTheForumServesItAndTestisVerifiesItOffline()
     {

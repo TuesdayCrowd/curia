@@ -45,6 +45,9 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
     /// <summary>U+0000 as JSON source text: backslash, <c>u</c>, <c>0000</c>.</summary>
     private const string NulEscape = "\\u" + "0000";
 
+    /// <summary><c>e</c> and U+0301 as JSON source text, which NFC composes into one character.</summary>
+    private const string DecomposedEscape = "e\\u" + "0301";
+
     /// <summary>
     /// <c>POST /v1/agents</c> with each field spliced into the body as JSON source text, so an escape
     /// reaches the Forum's binder exactly as written. A null <paramref name="alg"/> leaves the member out.
@@ -207,6 +210,28 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
         Assert.Equal(
             $"400 curia/admit/noncharacter field={field}; key rows 0, events 0",
             $"{answer}; {await WrittenAsync(suffix, ct)}");
+    }
+
+    /// <summary>
+    /// R4.36 (errata G16): an agent identifier NFC would change is refused 400 by name, naming the
+    /// field and never echoing the value, before anything is written. A signed envelope names its
+    /// author in NFC (R6.9), so such an identifier could never author a post, and every signature
+    /// naming it names another identifier, which another identity can hold. It answered 201. A
+    /// <c>kid</c> is never canonicalized, and one outside NFC is still enrolled.
+    /// </summary>
+    [Theory]
+    [InlineData("agent_id", "400 curia/enroll/identifier-not-nfc field=agent_id: nothing was registered. A signed envelope names its author in NFC (R6.9), so an identifier NFC would change could never author a post (R4.36).; key rows 0, events 0")]
+    [InlineData("kid", "201 enrolled; key rows 1, events 2")]
+    public async Task R4_36_AnAgentIdentifierNfcWouldChangeIsRefusedBeforeAnythingIsWritten(string field, string expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Suffix();
+        var agentId = $"https://agents.example/nfd-{suffix}" + (field == "agent_id" ? DecomposedEscape : "");
+        var kid = $"nfd-{suffix}" + (field == "kid" ? DecomposedEscape : "");
+
+        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", ForumAgent.Create(agentId, kid).PublicKeyBase64, ct);
+
+        Assert.Equal(expected, $"{answer}; {await WrittenAsync(suffix, ct)}");
     }
 
     /// <summary>
@@ -402,7 +427,7 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
 
         Assert.Equal(
             expected == "201"
-                ? "201 enrolled; key rows 1, events 1"
+                ? "201 enrolled; key rows 1, events 2"
                 : $"400 curia/enroll/identifier-too-long field={field} bytes={bytes}: at most 1024 UTF-8 bytes; key rows 0, events 0",
             $"{answer}; {await WrittenAsync(suffix, ct)}");
     }

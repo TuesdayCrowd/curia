@@ -249,8 +249,9 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
 
     /// <summary>
     /// What one response discloses, judged leaf by leaf whichever route served it: the rationale or the
-    /// salt anywhere; the raiser anywhere but its own <c>agent.enrolled</c> leaf; and the post inside
-    /// any flag's own leaf.
+    /// salt anywhere; the raiser anywhere but its own enrollment's two leaves, <c>agent.enrolled</c> and,
+    /// since errata G16, <c>agent.key-bound</c> (R4.34), each in the raiser's own stream and neither
+    /// saying anything about a flag; and the post inside any flag's own leaf.
     /// </summary>
     private static IEnumerable<string> Disclosures(List<Leaf> leaves, Flagged flagged)
     {
@@ -264,7 +265,8 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
             if (flagged.Salt is not null && leaf.Mentions(flagged.Salt))
                 yield return "served the flag's salt";
 
-            var ownEnrolment = string.Equals(leaf.EventType, AgentStandingProjector.EnrolledType, StringComparison.Ordinal)
+            var ownEnrolment = (string.Equals(leaf.EventType, AgentStandingProjector.EnrolledType, StringComparison.Ordinal)
+                    || string.Equals(leaf.EventType, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal))
                 && string.Equals(leaf.AggregateId, raiser, StringComparison.Ordinal);
             if (leaf.Mentions(raiser) && !ownEnrolment)
                 yield return "served the raiser's identity";

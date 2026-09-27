@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Curia.Api.Adapters;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.AuthN;
@@ -93,8 +94,14 @@ public static class TokenEndpoint
             .ValidateAsync(assertion, context, cancellationToken)
             .ConfigureAwait(false);
 
+        // A log that could not be read decides nothing about the key (R4.35): the server's fault, as
+        // the read of the log below answers it, and never invalid_client.
         if (!validated.TryGetValue(out var claims, out var error))
-            return OAuthError("invalid_client", error!.Title, error.Type);
+        {
+            return string.Equals(error!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
+                ? OAuthError("server_error", error.Title, error.Type)
+                : OAuthError("invalid_client", error.Title, error.Type);
+        }
 
         // Who is enrolled is a projection of the event log (R4.21), not something this process
         // remembers -- so a host that has just come up knows exactly as much as one that has been

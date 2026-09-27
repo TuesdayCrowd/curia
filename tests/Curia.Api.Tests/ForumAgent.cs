@@ -141,7 +141,8 @@ internal sealed class ForumAgent
         string? authorOverride = null,
         string? prev = null,
         string[]? tags = null,
-        KeyValuePair<string, JsonValue>[]? extra = null)
+        KeyValuePair<string, JsonValue>[]? extra = null,
+        bool wireInNfc = true)
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         if (extra is not null) members.AddRange(extra);
@@ -161,10 +162,15 @@ internal sealed class ForumAgent
         members.Add(new("created_at", new JsonValue.String(createdAt.ToString("o", CultureInfo.InvariantCulture))));
         members.Add(new("nonce", new JsonValue.String(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)))));
 
-        return SignEnvelope(new JsonValue.Object(members.ToImmutable()));
+        return SignEnvelope(new JsonValue.Object(members.ToImmutable()), wireInNfc);
     }
 
-    private byte[] SignEnvelope(JsonValue.Object envelope)
+    /// <summary>
+    /// Signs the NFC canonical form, as every client must. The wire is NFC too unless
+    /// <paramref name="wireInNfc"/> is false, when every string is sent as written, as a hand-built
+    /// client may send it.
+    /// </summary>
+    private byte[] SignEnvelope(JsonValue.Object envelope, bool wireInNfc = true)
     {
         Assert.True(CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out _));
 
@@ -180,7 +186,8 @@ internal sealed class ForumAgent
             new("signature", new JsonValue.String(signature!.Compact)),
         ]);
 
-        Assert.True(CanonicalJson.CanonicalizeWithNfc(submission).TryGetValue(out var wire, out _));
+        var rendered = wireInNfc ? CanonicalJson.CanonicalizeWithNfc(submission) : CanonicalJson.Canonicalize(submission);
+        Assert.True(rendered.TryGetValue(out var wire, out _));
         return wire.ToArray();
     }
 

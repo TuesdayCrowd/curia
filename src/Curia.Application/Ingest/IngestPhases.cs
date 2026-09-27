@@ -38,7 +38,8 @@ public sealed record AdmittedSubmission(EnvelopeDocument Document, JwsSignature 
 /// forward.</para>
 ///
 /// <para><see cref="Envelope"/> is a <i>derived reading</i> of those same bytes, for code that
-/// needs to know the board or the parent. It is deliberately not a route to the bytes: there is no
+/// needs to know the board or the parent: VERIFY parses it from them, never from the submission as
+/// it arrived (R6.55). It is deliberately not a route to the bytes: there is no
 /// serializer on <see cref="PostEnvelope"/>, so nothing can accidentally persist the reading
 /// instead of the reading's source.</para>
 /// </summary>

@@ -98,6 +98,26 @@ public sealed class AccessTokenValidatorDpopTests
         Assert.Equal("curia/authn/binding-mismatch", error!.Type);
     }
 
+    /// <summary>
+    /// R5.21 (errata G16): a proof whose header names <c>ES256</c> over an embedded Ed25519
+    /// <c>jwk</c>, genuinely signed by that key, is refused by name. The binding holds -- the jwk is the
+    /// token's -- so only the pin can refuse it; before the pin the header chose the ES256 verifier,
+    /// and the refusal read as a bad signature.
+    /// </summary>
+    [Fact]
+    public async Task R5_21_AProofWhoseHeaderNamesAnotherAlgorithmThanItsJwkIsRefusedByName()
+    {
+        var scenario = new AccessTokenScenario();
+        var token = scenario.SignAccessToken();
+        var proof = scenario.SignDpopProof(token, header: scenario.ValidDpopHeader().With("alg", "ES256"));
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/alg-key-mismatch header=ES256 key=EdDSA", $"{error!.Type} {error.Detail}");
+    }
+
     [Fact]
     public async Task DpopProofWithTamperedSignatureIsRejected()
     {

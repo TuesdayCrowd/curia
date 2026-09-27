@@ -1,6 +1,7 @@
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
@@ -90,22 +91,24 @@ public sealed class EnrollAgent
     }
 
     /// <summary>
-    /// Records an enrollment, or -- when the log already holds one for <paramref name="keyId"/> --
-    /// reports the standing the log holds and appends nothing. When the log holds one for another
-    /// <c>kid</c>, refuses (<see cref="AuthorKeyErrors.AlreadyEnrolled"/>) and appends nothing
-    /// (R4.31). This is the log's half of enrollment; <see cref="EnrollIdentity"/> is the use case
-    /// that puts the key store's half in front of it.
+    /// Records an enrollment -- <c>agent.enrolled</c> and <c>agent.key-bound</c>, in one append
+    /// (R4.34) -- or, when the log already binds <paramref name="key"/> to the identity, reports the
+    /// standing the log holds and appends nothing. When the log binds no key under that <c>kid</c>,
+    /// refuses (<see cref="AuthorKeyErrors.AlreadyEnrolled"/>); when it binds another key under it,
+    /// refuses (<see cref="AuthorKeyErrors.MaterialImmutable"/>); and appends nothing (R4.31 rev.). This
+    /// is the log's half of enrollment; <see cref="EnrollIdentity"/> is the use case that puts the key
+    /// store's half in front of it.
     /// </summary>
     /// <param name="agentId">The enrolling agent; also the aggregate its credential events land in.</param>
-    /// <param name="keyId">The <c>kid</c> this enrollment registered, recorded on the event.</param>
+    /// <param name="key">The key this enrollment registered: its <c>kid</c> on <c>agent.enrolled</c>, its public JWK on <c>agent.key-bound</c>.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<AgentEnrollment>> RecordAsync(
         string agentId,
-        string keyId,
+        PublicKeyMaterial key,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(keyId);
+        ArgumentNullException.ThrowIfNull(key);
 
         // One aggregate per agent, for the reason IngestPipeline gives for one aggregate per post:
         // a single shared "agents" stream would make every concurrent enrollment an
@@ -133,17 +136,22 @@ public sealed class EnrollAgent
 
             if (standing?.EnrolledAt is { } enrolledAt)
             {
-                // R4.31 (errata G14): a re-announcement is honoured only for the kid this identity's
-                // enrollment bound. Reporting "already enrolled" for any other kid is how a second
-                // key under an enrolled identity used to be waved through as a success.
-                if (EnrollmentBinding.Find(history!, agentId) is not { } binding || !binding.Binds(keyId))
+                // R4.31 rev. (errata G14, G16): a re-announcement is honoured only for a key the log
+                // binds to this identity. Reporting "already enrolled" for any other kid is how a
+                // second key under an enrolled identity used to be waved through as a success; and
+                // for other bytes under a bound kid, how a lost row's recovery registered whatever it
+                // was sent.
+                if (EnrollmentBinding.Find(history!, agentId)?.For(key.Kid) is not { } bound)
                     return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+
+                if (!bound.Holds(key))
+                    return Result<AgentEnrollment>.Fail(AuthorKeyErrors.MaterialImmutable(key.Kid));
 
                 return Result<AgentEnrollment>.Ok(
                     new AgentEnrollment(enrolledAt, standing.OwnerVerified, WasAlreadyEnrolled: true));
             }
 
-            var attempted = await AppendEnrollmentAsync(aggregate, actor, agentId, keyId, cancellationToken)
+            var attempted = await AppendEnrollmentAsync(aggregate, actor, agentId, key, cancellationToken)
                 .ConfigureAwait(false);
 
             if (attempted.TryGetValue(out var enrollment, out var attemptError))
@@ -160,37 +168,63 @@ public sealed class EnrollAgent
         AggregateId aggregate,
         ActorId actor,
         string agentId,
-        string keyId,
+        PublicKeyMaterial key,
         CancellationToken cancellationToken)
     {
-        if (!_ids.Next().TryGetValue(out var ulid, out var idError))
-            return Result<AgentEnrollment>.Fail(idError!);
+        // R4.34: the key as the key set publishes it. EnrollIdentity refuses a key that renders to none
+        // before the key store is asked, so through the use case this refuses nothing; a caller that
+        // records alone, skipping the route's check and the use case's, is refused here, and nothing
+        // is appended.
+        if (!PublicJwk.Of(key).TryGetValue(out var jwk, out var jwkError))
+            return Result<AgentEnrollment>.Fail(jwkError!);
 
-        if (!EventId.Create(ulid.ToString()).TryGetValue(out var eventId, out var eventIdError))
-            return Result<AgentEnrollment>.Fail(eventIdError!);
+        if (!NewEvent(AgentStandingProjector.EnrolledType, actor, new JsonValue.Object(
+            [
+                new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
+                new(AgentStandingProjector.KeyIdField, new JsonValue.String(key.Kid)),
 
-        if (!EventType.Create(AgentStandingProjector.EnrolledType).TryGetValue(out var type, out var typeError))
-            return Result<AgentEnrollment>.Fail(typeError!);
+                // R4.21's "reason", carried on the event rather than supplied by whatever reads it
+                // back. The trigger is Table 6's SuccessfulEnrollment and is implied by the event type;
+                // this is the free-text elaboration TransitionReason exists for.
+                new(AgentStandingProjector.ReasonField, new JsonValue.String(EnrollmentReason)),
+            ])).TryGetValue(out var enrolled, out var enrolledError))
+            return Result<AgentEnrollment>.Fail(enrolledError!);
 
-        var payload = new JsonValue.Object(
-        [
-            new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
-            new(AgentStandingProjector.KeyIdField, new JsonValue.String(keyId)),
+        // R4.34: the key itself, bound to the identity in the log. Appended with the enrollment, in
+        // the same call and so the same transaction, so no enrollment is ever recorded whose key the
+        // log does not carry: a crash between two appends would leave an identity bound by kid alone.
+        if (!NewEvent(AgentStandingProjector.KeyBoundType, actor, new JsonValue.Object(
+            [
+                new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
+                new(AgentStandingProjector.KeyIdField, new JsonValue.String(key.Kid)),
+                new(AgentStandingProjector.JwkField, jwk!),
+            ])).TryGetValue(out var bound, out var boundError))
+            return Result<AgentEnrollment>.Fail(boundError!);
 
-            // R4.21's "reason", carried on the event rather than supplied by whatever reads it
-            // back. The trigger is Table 6's SuccessfulEnrollment and is implied by the event type;
-            // this is the free-text elaboration TransitionReason exists for.
-            new(AgentStandingProjector.ReasonField, new JsonValue.String(EnrollmentReason)),
-        ]);
-
-        // No server_ts in the payload. The store stamps the event, and R6.5 makes that the Forum's
-        // observation; a second instant in the payload would be a claim that could disagree with it.
+        // No server_ts in either payload. The store stamps the events, one instant for the append, and
+        // R6.5 makes that the Forum's observation; a second instant in a payload would be a claim that
+        // could disagree with it.
         var appended = await _events
-            .AppendAsync(aggregate, AggregateVersion.New, [new DomainEvent(eventId, type, actor, payload)], cancellationToken)
+            .AppendAsync(aggregate, AggregateVersion.New, [enrolled!, bound!], cancellationToken)
             .ConfigureAwait(false);
 
         return appended.Map(events => new AgentEnrollment(
             events[0].ServerTimestamp.Value, OwnerVerified: false, WasAlreadyEnrolled: false));
+    }
+
+    /// <summary>One event of <paramref name="type"/>, under a fresh ULID.</summary>
+    private Result<DomainEvent> NewEvent(string type, ActorId actor, JsonValue.Object payload)
+    {
+        if (!_ids.Next().TryGetValue(out var ulid, out var idError))
+            return Result<DomainEvent>.Fail(idError!);
+
+        if (!EventId.Create(ulid.ToString()).TryGetValue(out var eventId, out var eventIdError))
+            return Result<DomainEvent>.Fail(eventIdError!);
+
+        if (!EventType.Create(type).TryGetValue(out var eventType, out var typeError))
+            return Result<DomainEvent>.Fail(typeError!);
+
+        return Result<DomainEvent>.Ok(new DomainEvent(eventId, eventType, actor, payload));
     }
 
     /// <summary>
@@ -222,6 +256,12 @@ public static class EnrollmentErrors
     /// <summary>The slug of <see cref="IdentifierTooLong"/>.</summary>
     public const string IdentifierTooLongType = "curia/enroll/identifier-too-long";
 
+    /// <summary>The slug of <see cref="KeysAmbiguous"/>, matched by the route's 409 mapping.</summary>
+    public const string KeysAmbiguousType = "curia/enroll/keys-ambiguous";
+
+    /// <summary>The slug of <see cref="IdentifierNotNfc"/>.</summary>
+    public const string IdentifierNotNfcType = "curia/enroll/identifier-not-nfc";
+
     /// <summary>
     /// The most UTF-8 bytes an <c>agent_id</c> or a <c>kid</c> may hold. An implementation limit, not
     /// R4.5's form (plan D4 stays open): it sits well under the 2,704-byte index row Postgres stores
@@ -246,6 +286,16 @@ public static class EnrollmentErrors
         $"agent={agentId}: nothing was registered. The event log keeps this identifier for its own records; an agent needs an identifier of its own.");
 
     /// <summary>
+    /// R4.31 rev. (errata G16): the event log records no enrollment of the identifier, and the key
+    /// store holds more than one key for it, so nothing says which is its own and no enrollment
+    /// request can choose. Names the identifier; never a key, nor how many the store holds.
+    /// </summary>
+    public static Error KeysAmbiguous(string agentId) => new(
+        KeysAmbiguousType,
+        "The key store holds several keys for that agent, and the event log binds none of them",
+        $"agent={agentId}: nothing was registered or recorded. The event log records no enrollment of this identifier, so nothing says which of the keys the store holds for it is its own, and an enrollment request cannot choose one (R4.31). A new identity needs an agent identifier of its own.");
+
+    /// <summary>
     /// R4.15: the enrollment's algorithm is missing, or is not one the Forum verifies signatures with.
     /// The list is <paramref name="verified"/>, sorted ordinally: the composition root's allow-list,
     /// which <c>DetachedJws</c> uses too, so the refusal names what the Forum actually accepts.
@@ -268,6 +318,17 @@ public static class EnrollmentErrors
         NulCharacterType,
         "That identifier holds U+0000, which the Forum cannot store",
         $"field={field}");
+
+    /// <summary>
+    /// R4.36 (errata G16): the enrollment's <paramref name="field"/> is not in Unicode Normalization
+    /// Form C. A signed envelope names its author in NFC (R6.9), so an identifier NFC would change
+    /// could never author a post, and every signature naming it names another identifier. Names the
+    /// field; the value is never echoed.
+    /// </summary>
+    public static Error IdentifierNotNfc(string field) => new(
+        IdentifierNotNfcType,
+        "That identifier is not in Unicode Normalization Form C",
+        $"field={field}: nothing was registered. A signed envelope names its author in NFC (R6.9), so an identifier NFC would change could never author a post (R4.36).");
 
     /// <summary>The enrollment carries no <c>public_key</c>, or JSON null for it.</summary>
     public static Error PublicKeyMissing() => new(InvalidKeyType, InvalidKeyTitle, "public_key is missing");

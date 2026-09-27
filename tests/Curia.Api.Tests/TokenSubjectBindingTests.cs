@@ -166,7 +166,9 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     /// never enrolled. The provisioning role writes such a row directly, so this fact does not depend
     /// on the route still leaving one, which R4.33 forbids. Asserting the victim with that key is
     /// refused as the control is, and asserting the row's own identifier is refused because nothing in
-    /// the log enrolled it. So such a row, written before the fix, authenticates nothing.
+    /// the log binds the key to it (R4.35, errata G16) -- a refusal that, before G16, came one step
+    /// later, when the endpoint found no enrollment. So such a row, written before the fix,
+    /// authenticates nothing.
     /// </summary>
     [Fact]
     public async Task R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity()
@@ -205,7 +207,10 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
         var (orphanStatus, orphanBody) = await Asserting(victim.PostId, keyHolder)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.PostId, ct);
         Assert.Equal(HttpStatusCode.Unauthorized, orphanStatus);
-        Assert.Equal("That agent is not enrolled", JsonNode.Parse(orphanBody)!["error_description"]!.GetValue<string>());
+        var orphanRefusal = JsonNode.Parse(orphanBody)!;
+        Assert.Equal(
+            "curia/keys/not-bound-by-the-log",
+            orphanRefusal["detail"]?.GetValue<string>() ?? orphanRefusal["error_description"]?.GetValue<string>());
     }
 
     /// <summary>

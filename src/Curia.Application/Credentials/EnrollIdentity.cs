@@ -15,16 +15,21 @@ namespace Curia.Application.Credentials;
 /// identifier's enrollment: a post's, for instance. An agent's stream always begins with its own
 /// <c>agent.enrolled</c>, so any other first event means the log keeps the aggregate for something
 /// else, and the record could never be appended to it.</item>
-/// <item><b>The log's binding.</b> An identity whose <c>agent.enrolled</c> names another <c>kid</c>
-/// is refused before the key store is touched. This is what holds when the store has lost the
-/// identity's rows, or was written before G14 and holds keys no enrollment bound.</item>
-/// <item><b>The key store's enrollment</b> (<see cref="IAuthorKeyRegistry.EnrollAsync"/>): registers
-/// only for an identity holding no key, atomically against a concurrent enrollment of the same
+/// <item><b>The log's binding.</b> An enrolled identity is refused, before the key store is touched,
+/// any <c>kid</c> the log binds no key under for it, and, under a <c>kid</c> whose binding carries
+/// the key (R4.34), any other key. This is what holds when the store has lost the identity's rows,
+/// or was written before G14 and holds keys no enrollment bound (R4.31 rev., errata G16). An
+/// identifier the log has not enrolled is refused, before the store is asked to register, while the
+/// store holds more than one key for it: nothing in the log says which is its own.</item>
+/// <item><b>The key store's enrollment</b> (<see cref="IAuthorKeyRegistry.EnrollAsync"/>), asked only
+/// for a key the log can carry as a public JWK (R4.34): registers only for an identity holding no
+/// key, atomically against a concurrent enrollment of the same
 /// identity, and refuses other bytes under a held <c>kid</c>. For an identity the log has already
-/// enrolled, "holding no key" means the store lost its row, and the bound <c>kid</c> is registered
-/// again from the enrollment's instant -- R4.31's one exception -- unless another identity has
+/// enrolled, "holding no key" means the store lost its row, and the bound key is registered again
+/// from the instant the log bound it -- R4.31's one exception -- unless another identity has
 /// registered that <c>kid</c> since, which the store refuses as it refuses any <c>kid</c> held
-/// elsewhere.</item>
+/// elsewhere. For an identity enrolled before R4.34 the log binds the <c>kid</c> alone, and the
+/// exception registers whatever bytes arrive under it.</item>
 /// <item><b>The log's record</b> (<see cref="EnrollAgent"/>): appended once, and re-read and
 /// reported thereafter. A refusal at any earlier step appends nothing.</item>
 /// </list>
@@ -84,21 +89,45 @@ public sealed class EnrollIdentity
         if (binding is null && history!.Count > 0)
             return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId));
 
-        if (binding is not null && !binding.Binds(key.Kid))
+        // R4.31 rev. (errata G16): an identifier the log records no enrollment of is bound by the first
+        // request that re-presents a key the store holds for it, and only while the store holds one.
+        // More than one is held only where errata G14's hole wrote them: since G14 the store registers
+        // a key only for an identifier holding none, so no enrollment, concurrent or not, raises this
+        // count past one, and the read needs no lock. Nothing in the log says which of several is the
+        // identity's own. Binding the one a request presents would let anyone holding its public key
+        // make it the identity's key, and refuse the identity its own (R4.35).
+        if (binding is null && (await _keys.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false)).Count > 1)
+            return Result<AgentEnrollment>.Fail(EnrollmentErrors.KeysAmbiguous(agentId));
+
+        var bound = binding?.For(key.Kid);
+        if (binding is not null && bound is null)
             return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
 
-        // A fresh identity's key is valid from now. An enrolled one reaches the store only with its
-        // bound kid, and the store registers it only if it lost the row: then the key is dated from
-        // the enrollment the log records, or every post signed before the loss would fall outside its
-        // window (R6.31). That instant can trail the lost row's start, a clock read taken before its
-        // insert, and no post's server_ts precedes it: a post is admitted only once the log holds the
-        // enrollment. When the store still holds the key, the date is not read.
-        var notBefore = binding?.EnrolledAt ?? _clock.GetUtcNow();
+        // R4.31 rev. (errata G16): where the log carries the key, only that key. This is what refuses
+        // other bytes under a bound kid after the store lost its row, which the store cannot see.
+        if (bound is not null && !bound.Holds(key))
+            return Result<AgentEnrollment>.Fail(AuthorKeyErrors.MaterialImmutable(key.Kid));
+
+        // A fresh identity's key is valid from now. An enrolled one reaches the store only with a key
+        // the log binds, and the store registers it only if it lost the row: then the key is dated
+        // from the instant the log bound it, or every post signed before the loss would fall outside
+        // its window (R6.31). That instant can trail the lost row's start, a clock read taken before
+        // its insert, and no post's server_ts precedes it: a post is admitted only once the log holds
+        // the binding. When the store still holds the key, the date is not read.
+        var notBefore = bound?.BoundAt ?? _clock.GetUtcNow();
+
+        // R4.34: the log's record binds the key as its public JWK, and refuses a key that renders to
+        // none. Asked after the store, that refusal would leave a row no enrollment binds, and every
+        // re-send would re-present the row and meet the same refusal. So it is asked here, before
+        // anything is written. The route admits only a key its verifier calls a key, and that rule and
+        // the renderer agree (PublicJwkTests), so only a caller that skips the route meets it.
+        if (!PublicJwk.Of(key).TryGetValue(out _, out var renderError))
+            return Result<AgentEnrollment>.Fail(renderError!);
 
         var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
         if (!registered.TryGetValue(out _, out var keyError))
             return Result<AgentEnrollment>.Fail(keyError!);
 
-        return await _log.RecordAsync(agentId, key.Kid, cancellationToken).ConfigureAwait(false);
+        return await _log.RecordAsync(agentId, key, cancellationToken).ConfigureAwait(false);
     }
 }

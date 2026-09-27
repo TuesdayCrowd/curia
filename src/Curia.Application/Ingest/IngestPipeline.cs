@@ -70,7 +70,7 @@ public sealed class IngestPipeline : IIngestPipeline
         ArgumentNullException.ThrowIfNull(admitted);
         ArgumentException.ThrowIfNullOrWhiteSpace(principalAgentId);
 
-        // R6.16: re-canonicalize from the *parsed* form rather than trusting the wire bytes to
+        // R6.10: re-canonicalize from the *parsed* form rather than trusting the wire bytes to
         // already be canonical. A submitter who sends nearly-canonical bytes must not have their
         // signature checked against what they sent; it is checked against what the rules say their
         // document canonicalizes to, and if those differ the signature fails -- correctly.
@@ -78,14 +78,25 @@ public sealed class IngestPipeline : IIngestPipeline
         if (!canonical.TryGetValue(out var canonicalBytes, out var canonicalError))
             return Result<VerifiedSubmission>.Fail(canonicalError!);
 
-        var read = PostEnvelope.Read(admitted.Document.Root);
+        // R6.55 (errata G16): the envelope every later check reads is read from the canonical form
+        // the signature is verified over, never from the submission as it arrived. The two differ
+        // wherever a string arrived outside NFC (R6.9). The author was read from the arrival: an
+        // identifier whose NFC form is another enrolled identity's matched its own principal, its key
+        // resolved, and the post was accepted signed in the other identity's name. The canonical form
+        // of an object is an object, so the cast cannot fail on anything CanonicalizeWithNfc returns.
+        var signed = JsonReader.ParseUnrestricted(canonicalBytes.Span);
+        if (!signed.TryGetValue(out var signedTree, out var signedError))
+            return Result<VerifiedSubmission>.Fail(signedError!);
+
+        var read = PostEnvelope.Read((JsonValue.Object)signedTree!);
         if (!read.TryGetValue(out var envelope, out var schemaError))
             return Result<VerifiedSubmission>.Fail(schemaError!);
 
-        // Table 9: `author` "must equal the authenticated principal". A valid signature over
-        // another agent's name is a valid signature by the wrong agent, so this is checked before
-        // the signature rather than after -- there is no reason to spend a verification on a
-        // document that is already disqualified.
+        // Table 9: `author` "must equal the authenticated principal", and the author is the one the
+        // signature covers (R6.55). A valid signature over another agent's name is a valid signature
+        // by the wrong agent, so this is checked before the signature rather than after -- there is
+        // no reason to spend a verification on a document that is already disqualified. An
+        // identifier NFC would change never equals the author of anything it signs.
         if (!string.Equals(envelope.Author, principalAgentId, StringComparison.Ordinal))
             return Result<VerifiedSubmission>.Fail(ContentErrors.AuthorIsNotThePrincipal());
 
