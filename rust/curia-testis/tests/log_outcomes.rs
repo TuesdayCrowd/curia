@@ -186,6 +186,52 @@ fn r6_52_a_tampered_entry_still_fails_rather_than_reporting_not_checked() {
     );
 }
 
+/// **Failed (1)**, for what the entry route states beside an intact entry: a
+/// `leaf_hash` that is not the entry's leaf, or a `log_index` that is not the
+/// proof's. Each is the Forum's word, compared and never used in place of the
+/// recomputation, and each fails with no head, as a tampered entry does.
+#[test]
+fn r6_52_an_entry_route_misstating_its_leaf_or_index_fails() {
+    let dir = scratch("misstated");
+    let (entry, proof) = inclusion_fixture(&dir);
+    let body = std::fs::read_to_string(&entry).unwrap();
+    let leaf = std::fs::read_to_string(conformance_dir().join("acta/content-entry/expected.leaf"))
+        .unwrap();
+
+    for (name, stated, predicate) in [
+        (
+            "leaf",
+            body.replacen(leaf.trim(), &"0".repeat(64), 1),
+            "leaf-mismatch",
+        ),
+        (
+            "index",
+            body.replacen("\"log_index\":0", "\"log_index\":1", 1),
+            "index-mismatch",
+        ),
+    ] {
+        assert_ne!(stated, body, "the {name} fixture must actually differ");
+        let path = dir.join(format!("entry-{name}.json"));
+        std::fs::write(&path, &stated).unwrap();
+
+        let output = run_cli(&[
+            "log",
+            "inclusion",
+            "--entry",
+            path.to_str().unwrap(),
+            "--proof",
+            proof.to_str().unwrap(),
+        ]);
+
+        assert_eq!(
+            (code(&output), stderr_of(&output).contains(predicate)),
+            (1, true),
+            "{name}: {}",
+            stderr_of(&output)
+        );
+    }
+}
+
 /// **Usage (2).** Still distinct from all three verification outcomes: a path
 /// that cannot be read is not a verdict about a log.
 #[test]

@@ -7,8 +7,9 @@
 //! leaf itself (R6.46). It never takes a leaf digest the Forum computed,
 //! because a verifier that checks the Forum's arithmetic against the Forum's
 //! own input passes a leaf that corresponds to nothing. Where the Forum also
-//! states a `leaf_hash`, it is compared and a disagreement is a failure in
-//! its own right.
+//! states a `leaf_hash` -- on the proof, or on the entry route beside the
+//! entry -- it is compared, as is the index the entry route states, and a
+//! disagreement is a failure in its own right.
 //!
 //! [`verify_author`] is R6.54 (errata G16): authorship from the log alone.
 //! A post's entry carries its canonical envelope and signature; its author's
@@ -69,8 +70,11 @@ pub enum ActaError {
     Jws(JwsError),
     /// The head names one `kid` beside the signature and another inside it.
     KidMismatch { stated: String, signed: String },
-    /// The leaf recomputed from the entry is not the leaf the proof states.
+    /// The leaf recomputed from the entry is not the leaf the proof, or the
+    /// entry route, states.
     LeafMismatch,
+    /// The entry route names one leaf index and the proof another.
+    IndexMismatch { entry: u64, proof: u64 },
     /// The audit path does not lead from the leaf to the root.
     InclusionInvalid,
     /// The proof does not connect the two roots.
@@ -118,6 +122,7 @@ impl ActaError {
             ActaError::Jws(err) => err.predicate(),
             ActaError::KidMismatch { .. } => "curia/acta/kid-mismatch",
             ActaError::LeafMismatch => "curia/acta/leaf-mismatch",
+            ActaError::IndexMismatch { .. } => "curia/acta/index-mismatch",
             ActaError::InclusionInvalid => "curia/acta/inclusion-invalid",
             ActaError::ConsistencyInvalid => "curia/acta/consistency-invalid",
             ActaError::HeadSizeMismatch { .. } => "curia/acta/head-size-mismatch",
@@ -165,7 +170,11 @@ impl fmt::Display for ActaError {
             }
             ActaError::LeafMismatch => write!(
                 f,
-                "the leaf recomputed from the entry is not the leaf the proof states"
+                "the leaf recomputed from the entry is not the leaf the proof, or the entry route, states"
+            ),
+            ActaError::IndexMismatch { entry, proof } => write!(
+                f,
+                "the entry route names leaf {entry} and the proof is about leaf {proof}"
             ),
             ActaError::InclusionInvalid => {
                 write!(
@@ -283,7 +292,10 @@ pub struct VerifiedInclusion {
 
 /// Verifies `GET /v1/log/proof/{index}`'s body for the entry in
 /// `GET /v1/log/entries/{index}`'s body. The leaf is recomputed from the
-/// entry (R6.46); the proof's own `leaf_hash`, when present, must agree.
+/// entry (R6.46). What the Forum states beside it is compared with it, never
+/// used in its place: the proof's own `leaf_hash` and the entry route's, when
+/// present, must be that leaf, and the entry route's `log_index`, when
+/// present, must be the proof's.
 pub fn verify_inclusion(
     entry_json: &[u8],
     proof_json: &[u8],
@@ -306,6 +318,27 @@ pub fn verify_inclusion(
     let root = digest_member(&proof, "root_hash", "proof")?;
     if proof.get("leaf_hash").is_some() && digest_member(&proof, "leaf_hash", "proof")? != leaf {
         return Err(ActaError::LeafMismatch);
+    }
+    // The entry route's own statements about the leaf it serves: the Forum's
+    // word, like the proof's `leaf_hash`, and a disagreement is the served
+    // material contradicting itself.
+    let stated: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
+        what: "entry document",
+        detail: e.to_string(),
+    })?;
+    if stated.get("leaf_hash").is_some()
+        && digest_member(&stated, "leaf_hash", "entry document")? != leaf
+    {
+        return Err(ActaError::LeafMismatch);
+    }
+    if stated.get("log_index").is_some() {
+        let entry_index = u64_member(&stated, "log_index", "entry document")?;
+        if entry_index != log_index {
+            return Err(ActaError::IndexMismatch {
+                entry: entry_index,
+                proof: log_index,
+            });
+        }
     }
     let path = digest_array(&proof, "audit_path", "proof")?;
 
@@ -745,23 +778,40 @@ mod tests {
             .map(|e| merkle::leaf_hash(&crate::canonicalize(e.as_bytes()).unwrap()))
             .collect();
 
-        let wire_entry = r#"{ "log_index": 5, "leaf_hash": "x", "entry": { "server_ts": "2026-09-04T16:00:05.000000Z", "payload": {}, "event_type": "t", "event_id": "e5", "aggregate_id": "a5", "actor_id": null } }"#.to_string();
+        let wire_entry = format!(
+            r#"{{ "log_index": 5, "leaf_hash": "{}", "entry": {{ "server_ts": "2026-09-04T16:00:05.000000Z", "payload": {{}}, "event_type": "t", "event_id": "e5", "aggregate_id": "a5", "actor_id": null }} }}"#,
+            format_digest(&leaves[5])
+        );
         let proof = proof_json(5, &leaves, &leaves[5]);
 
         let verified = verify_inclusion(wire_entry.as_bytes(), &proof).expect("verifies");
         assert_eq!(verified.log_index, 5);
         assert_eq!(verified.root, merkle::root(&leaves));
 
+        // What the entry route states beside the entry is compared, not taken:
+        // another leaf hash, or another index, fails an entry that is itself
+        // intact.
+        let other_leaf = wire_entry.replace(&format_digest(&leaves[5]), &format_digest(&leaves[4]));
+        let err = verify_inclusion(other_leaf.as_bytes(), &proof).unwrap_err();
+        assert_eq!(err.predicate(), "curia/acta/leaf-mismatch");
+        let other_index = wire_entry.replace("\"log_index\": 5", "\"log_index\": 4");
+        let err = verify_inclusion(other_index.as_bytes(), &proof).unwrap_err();
+        assert_eq!(err.predicate(), "curia/acta/index-mismatch");
+
         // A tampered entry recomputes to a different leaf: the proof's stated
-        // leaf disagrees first, and without that member the path itself fails.
+        // leaf disagrees first, and without that member, and without the entry
+        // route's, the path itself fails.
         let tampered = wire_entry.replace("\"a5\"", "\"a9\"");
         let err = verify_inclusion(tampered.as_bytes(), &proof).unwrap_err();
         assert_eq!(err.predicate(), "curia/acta/leaf-mismatch");
         let without_leaf: Value = serde_json::from_slice(&proof).unwrap();
         let mut without_leaf = without_leaf.as_object().unwrap().clone();
         without_leaf.remove("leaf_hash");
+        let bare: Value = serde_json::from_str(&tampered).unwrap();
+        let mut bare = bare.as_object().unwrap().clone();
+        bare.remove("leaf_hash");
         let err = verify_inclusion(
-            tampered.as_bytes(),
+            &serde_json::to_vec(&bare).unwrap(),
             &serde_json::to_vec(&without_leaf).unwrap(),
         )
         .unwrap_err();

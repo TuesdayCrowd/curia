@@ -491,3 +491,57 @@ fn r6_54_a_signature_header_naming_a_member_twice_fails_though_its_key_is_bound_
         "{err}"
     );
 }
+
+/// The key's entry route states a leaf hash that is not its entry's. The entry
+/// is intact and proven; the hash beside it is the Forum's word about the leaf
+/// it serves, compared and never used, so the disagreement fails, as the
+/// reference client fails it.
+#[test]
+fn r6_54_a_key_entry_route_stating_another_leaf_hash_fails() {
+    let key = key_entry(|s| s);
+    let post = post_entry();
+    let log = log(&[Some(&key), None, Some(&post)]);
+    let stated = String::from_utf8(log.documents[0].0.clone())
+        .expect("an entry document is UTF-8")
+        .replacen(
+            '{',
+            &format!(
+                r#"{{"leaf_hash":"{}","#,
+                acta::format_digest(&leaf_of(&post))
+            ),
+            1,
+        );
+
+    let err = acta::verify_author(
+        &log.documents[2].0,
+        &log.documents[2].1,
+        stated.as_bytes(),
+        &log.documents[0].1,
+        &log.head,
+    )
+    .unwrap_err();
+    assert_eq!(err.predicate(), "curia/acta/leaf-mismatch", "{err}");
+}
+
+/// The key's entry route names another index than the proof's: the same
+/// comparison, of the other statement the route makes about its leaf.
+#[test]
+fn r6_54_a_key_entry_route_naming_another_index_fails() {
+    let key = key_entry(|s| s);
+    let post = post_entry();
+    let log = log(&[Some(&key), None, Some(&post)]);
+    let stated = String::from_utf8(log.documents[0].0.clone())
+        .expect("an entry document is UTF-8")
+        .replacen(r#""log_index":0"#, r#""log_index":1"#, 1);
+    assert_ne!(stated.as_bytes(), log.documents[0].0.as_slice());
+
+    let err = acta::verify_author(
+        &log.documents[2].0,
+        &log.documents[2].1,
+        stated.as_bytes(),
+        &log.documents[0].1,
+        &log.head,
+    )
+    .unwrap_err();
+    assert_eq!(err.predicate(), "curia/acta/index-mismatch", "{err}");
+}
