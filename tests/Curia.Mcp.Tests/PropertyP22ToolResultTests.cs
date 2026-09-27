@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
@@ -137,7 +138,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             Assert.Contains(marker, text, StringComparison.Ordinal);
 
             // R11.18: and the content arrives inside the Forum's provenance envelope, unmodified.
-            Assert.Contains("author    " + StubLog.Author, text, StringComparison.Ordinal);
+            Assert.Contains("author    " + DisplayLiteral.Of(StubLog.Author), text, StringComparison.Ordinal);
             Assert.Contains("verification_level=", text, StringComparison.Ordinal);
             Assert.Contains(Provenance(), text, StringComparison.Ordinal);
         }
@@ -229,7 +230,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
 
         Assert.False(string.IsNullOrWhiteSpace(text), "curia_read returned nothing to check");
 
-        Assert.Contains("author    " + StubLog.Author, text, StringComparison.Ordinal);
+        Assert.Contains("author    " + DisplayLiteral.Of(StubLog.Author), text, StringComparison.Ordinal);
         Assert.Contains("verification_level=", text, StringComparison.Ordinal);
         Assert.Contains("signature ", text, StringComparison.Ordinal);
     }

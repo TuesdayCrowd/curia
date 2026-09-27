@@ -58,13 +58,20 @@ public sealed record SignatureVerdict(
         : CouldNotCheck ? CheckOutcome.CouldNotCheck
         : CheckOutcome.Failed;
 
+    /// <summary>
+    /// The verdict as a line of a frame. The <c>kid</c> is the signature's header's, which an agent
+    /// chose, so it is a display literal (R10.63, errata G17); the detail is this client's own
+    /// sentence, and any value inside it was quoted where the sentence was written.
+    /// </summary>
     public string Describe => Outcome switch
     {
-        CheckOutcome.Verified => $"verified locally against kid={Kid} ({Detail})",
-        CheckOutcome.CouldNotCheck => $"COULD NOT BE CHECKED: {Detail}",
-        CheckOutcome.Failed => $"NOT VERIFIED: {Detail}",
-        _ => $"NOT VERIFIED: {Detail}",
+        CheckOutcome.Verified => Said($"verified locally against kid={Kid} ({new OwnText(Detail)})"),
+        CheckOutcome.CouldNotCheck => Said($"COULD NOT BE CHECKED: {new OwnText(Detail)}"),
+        CheckOutcome.Failed => Said($"NOT VERIFIED: {new OwnText(Detail)}"),
+        _ => Said($"NOT VERIFIED: {new OwnText(Detail)}"),
     };
+
+    private static string Said(FrameText text) => text.ToString();
 }
 
 /// <summary>
@@ -105,11 +112,15 @@ public static class SignatureCheck
         // on any key, so it stays reportable when the keys do not arrive.
         var unkeyed = Verify(post, []);
 
+        // The refusal's type is the Forum's, so it is quoted; its summary quoted the Forum's words
+        // where it was composed (R10.63, errata G17).
         return new SignatureVerdict(
             false,
             unkeyed.Kid,
-            $"the author's key set could not be fetched ({refusal.Error.Type}): {refusal.Summary}. "
-            + "This is a fault reaching the keys, not a statement about the signature.",
+            new FrameBuilder()
+                .Append($"the author's key set could not be fetched ({refusal.Error.Type}): {new OwnText(refusal.Summary)}. ")
+                .Append($"This is a fault reaching the keys, not a statement about the signature.")
+                .ToString(),
             unkeyed.Digest,
             unkeyed.PrefixedDigest,
             CouldNotCheck: true);
