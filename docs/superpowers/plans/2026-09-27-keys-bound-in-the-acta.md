@@ -20,9 +20,9 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 
 **Tech Stack:** .NET 10, C# 14, xUnit v3, Npgsql + Postgres 18 with pgvector, `curia-testis` (Rust, gains `log author`), GitButler (`but`).
 
-**Spec:** `docs/superpowers/specs/2026-09-27-keys-bound-in-the-acta-design.md`. Read it first; this plan argues from it. Commit the spec and this plan on the branch before Task 1, as `Spec: keys bound in the Acta` and `Plan: keys bound in the Acta — eleven tasks, CI line and errata first`.
+**Spec:** `docs/superpowers/specs/2026-09-27-keys-bound-in-the-acta-design.md`. Read it first; this plan argues from it. Commit the spec and this plan on the branch before Task 1, as `Spec: keys bound in the Acta` and `Plan: keys bound in the Acta — eleven tasks, CI line and errata first`. Both are committed; the amendments after the pre-flight scan replace the two files in one further commit before Task 1.
 
-**Branch:** `keys-bound-in-the-acta`, opened from `main` at 1dbe0ff (the enrollment stage, PR #79). This plan was build-checked against a `git archive` of the workspace at dc17a3c — 1dbe0ff plus the unmerged SDK pin, which touches `global.json` alone. Every code block below was produced from that build-checked tree, applied in task order to a fresh archive by a script, and compared with it byte for byte; the register and document edits of Task 10 were checked to anchor exactly once. On that fresh archive, step by step, every compile error, red fact and count this plan states for Tasks 2–8 was reproduced by running the step's own command. If `main` has moved past 1dbe0ff, an anchor may no longer match exactly once: stop at the first that does not, and report it rather than improvising a match.
+**Branch:** `keys-bound-in-the-acta`, opened from `main` at 1dbe0ff (the enrollment stage, PR #79). This plan was build-checked against a `git archive` of the workspace at dc17a3c — 1dbe0ff plus the unmerged SDK pin, which touches `global.json` alone. Every code block below was produced from that build-checked tree, applied in task order to a fresh archive by a script, and compared with it byte for byte; the register and document edits of Task 10 were checked to anchor exactly once. On that fresh archive, step by step, every compile error, red fact and count this plan states for Tasks 2–8 was reproduced by running the step's own command. **Amended after the pre-flight scan** (the spec's §8 lists each finding and what was done with it): every code block the amendments touch was produced from a `git archive` of 1dbe0ff with the workspace's `global.json` copied in, built and run there; the amended plan was then applied in task order to a second fresh archive by an anchor-exact script and compared with that tree byte for byte; and Task 9's runner ran in a git-backed copy (the archive, `git init`, a commit), so its `git diff --quiet` proof ran for real. If `main` has moved past 1dbe0ff, an anchor may no longer match exactly once: stop at the first that does not, and report it rather than improvising a match.
 
 ## Global Constraints
 
@@ -42,12 +42,12 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 
 **Lessons the enrollment stage paid for, built in**
 - **The falsification runner** (Task 9) calls a suite RED only on its own failure line (`Failed!`, or cargo's `test result: FAILED`), never on an exit code; counts any compiler error as BUILD FAILED; exits non-zero on anything not RED; restores in a `finally` by plain copy (`shutil.copyfile`, never `copy2`, never `git checkout`); and proves each restore twice, by `filecmp.cmp` against the kept copy and by `git diff --quiet`, which must run inside the repository: outside one, `git diff` exits 129 with a usage message, and a runner that reads that as anything but DIRTY proves nothing.
-- **Nothing that falsifies a patch is a constant expression.** Every patch compares against a value that never occurs (`"no-such-kid"`, `-postIndex - 1`), so no analyzer can prove it dead and no residue scan can mistake it for code.
+- **No falsification patch is a constant expression.** Where a patch disables a condition, it compares against a value that never occurs (`"no-such-kid"`, `-postIndex - 1`) rather than writing `true` or `false`, so no analyzer can prove it dead and no residue scan can mistake it for code; the other patches change a value, a call, a pattern or a type name.
 - **Every claim in the register is verified against the tree** at the moment it is written: each file:line, test name and count is re-read, never carried from a reviewer, the controller, or this plan.
 - **Comments state only what the code enforces.** Task 10's scan lists every comment this stage touched; each is re-read against the code under it.
 - **Every anonymous route answers no 500.** The key set now reads the log; `R4_35_TheKeySetAnswersEveryAgentWithoutA500` holds it, and falsification case 7 shows the order that keeps it so.
 - **Escapes are written so they land as escapes.** Every non-ASCII test character in C# is a `\u` escape; in Python heredocs, `\\n` where the file must hold `\n`. Task 10 scans every added line for invisible characters.
-- **The full gate list** in `CLAUDE.md` runs in Task 11, cargo and the differential included, and the architecture project in Debug.
+- **The full gate list** in `CLAUDE.md` runs in Task 11, cargo and the differential included, and the architecture project in Debug after a Debug build of the solution.
 - **The leaf's content changes, so a conformance vector and a `curia-testis` implementation ship with it** (Tasks 4 and 7).
 
 **Numbering and test data**
@@ -73,7 +73,9 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 7. **`curia-testis log author` reads no agent key set.** It takes two entries, two proofs, a head and the log's key set, and exits 0, 1 or 3. Tests: `tests/log_author.rs` and the end-to-end Acta fact; cases 24–26.
 8. **The renderer and the verifier agree, and the RFCs anchor the renderer.** `PublicJwkTests` derives the expected JWKs from RFC 8037's and RFC 7515's example keys, and holds the renderer to each adapter's rule on every `KeyMaterials` row. Case 18 is the one that shows why the RFC anchor matters: a renderer that swapped a P-256 key's coordinates would agree with itself on both sides of every Forum-side comparison.
 9. **R5.21.** A header naming the other allowed algorithm is refused by name at both validators. Tests: the two `R5_21_…` AuthN facts and `StoredKeyFormTests.R5_21_…`; cases 13 and 14.
-10. **D16.** A seven-case string switch in `Curia.Domain` fails CS-7 in Debug and passes in Release; the new CI step runs the Debug half. Case 27.
+10. **D16.** A seven-case string switch in `Curia.Domain` fails CS-7 in Debug and passes in Release; the new CI step builds the solution in Debug and runs the architecture rules against it. Case 27, filtered to `LayeringTests` so that its red is CS-7's alone.
+11. **A binding after the post is the log's silence, not its contradiction** (the spec's Decision 11, amended). The author's own binding of the post's `kid` at a leaf not before the post must read *could not be checked* in both readers, never *failed* and never *verified*: an identity enrolled before `agent.enrolled` existed gains its first binding after all its history when anyone re-presents its public key. Tests: `PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished`, `log_author.rs`' `r6_54_a_key_bound_after_the_post_is_not_established`, and the `bound-late` control of `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone`; cases 20, 24, 28 and 29.
+12. **Each reader compares the binding with the post before it trusts the binding's key.** An entry for another identity or another `kid` fails, whatever its type. Tests: `PostVerifierTests.R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey`, `log_author.rs`' `r6_54_a_binding_for_another_identity_fails` and `r6_54_another_identitys_enrollment_fails`; cases 25 and 30.
 
 ---
 
@@ -109,9 +111,9 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 | `src/Curia.AuthN/AuthNErrors.cs`, `ClientAssertionValidator.cs`, `AccessTokenValidator.cs` | R5.21 | 6 |
 | `tests/Curia.AuthN.Tests/ClientAssertionValidatorTests.cs`, `AccessTokenValidatorDpopTests.cs`, `tests/Curia.Api.Tests/StoredKeyFormTests.cs` | R5.21's facts | 6 |
 | `rust/curia-testis/src/acta.rs`, `src/bin/curia-testis.rs`, `tests/log_author.rs` (new) | `verify_author` and `log author` | 7 |
-| `tests/Curia.Api.Tests/ActaEndpointTests.cs` | `log author` end to end | 7 |
+| `tests/Curia.Api.Tests/ActaEndpointTests.cs`, `tests/Curia.Api.Tests/ForumFixture.cs` | `log author` end to end; `BindKeyAfterItsPostsAsync` | 7 |
 | `src/Curia.Client/ForumDocuments.cs`, `ActaCheck.cs`, `PostVerifier.cs`; `src/Curia.Client.Cli/Program.cs`; `src/Curia.Mcp/ToolText.cs` | R6.54 in the reference client | 8 |
-| `tests/Shared/StubLog.cs`, `tests/Curia.Client.Tests/PostVerifierTests.cs`, `tests/Curia.Api.Tests/StubFidelityTests.cs` | The stub's binding and knobs; five facts; the stub held to the Forum's key set | 8 |
+| `tests/Shared/StubLog.cs`, `tests/Curia.Client.Tests/PostVerifierTests.cs`, `tests/Curia.Api.Tests/StubFidelityTests.cs` | The stub's binding and knobs; six facts; the stub held to the Forum's key set | 8 |
 | `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `README.md`, the spec | Register, trap 22, what comes next | 10 |
 
 ---
@@ -121,7 +123,7 @@ It also carries out **D16**'s decided CI change: the architecture rules run in D
 **Files:**
 - Modify: `.github/workflows/ci.yml`
 
-**Why first.** It is the one-line change the moderation stage decided (its spec's Decision 23) and nobody made, and every later task's architecture rules then run in both configurations in CI rather than only on a developer's machine. No task depends on it; it depends on nothing.
+**Why first.** It is the CI change the moderation stage decided (its spec's Decision 23) and nobody made, and every later task's architecture rules then run in both configurations in CI rather than only on a developer's machine. No task depends on it; it depends on nothing.
 
 - [ ] **Step 1: Confirm the branch**
 
@@ -152,10 +154,13 @@ with:
       # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
       # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in
       # Debug and passes it in Release, so this job, running Release alone, was green while every
-      # developer's Debug run was red. `dotnet test` without --no-build compiles the project and
-      # every assembly it inspects in Debug first.
+      # developer's Debug run was red. The whole solution is built in Debug first: CS-15 reads
+      # Curia.Domain.Tests and Curia.Application.Tests from their Debug output, and neither is a
+      # reference of the architecture project, so `dotnet test` on that project alone never builds them.
       - name: Architecture rules (Debug)
-        run: dotnet test tests/Curia.Architecture.Tests --no-restore --configuration Debug
+        run: |
+          dotnet build Curia.sln --no-restore --configuration Debug
+          dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug
 
   rust:
     name: Rust — curia-testis
@@ -165,16 +170,17 @@ with:
 
 ```bash
 dotnet restore Curia.sln --locked-mode
-dotnet test tests/Curia.Architecture.Tests --no-restore --configuration Debug --nologo 2>&1 | grep -E "Passed!|Failed!"
+dotnet build Curia.sln --no-restore --configuration Debug --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
+dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug --nologo 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `Passed!  - Failed:     0, Passed:    30, …  - Curia.Architecture.Tests.dll (net10.0)`. The command compiles every assembly the project inspects in Debug first, which is the point: `--no-build` would inspect whatever Debug binaries happen to be on disk. Task 9's case 27 is the evidence that this step carries information — a seven-case string switch in `Curia.Domain` fails it and passes the Release run above it.
+Expected: `0 Warning(s)`, then `Passed!  - Failed:     0, Passed:    30, …  - Curia.Architecture.Tests.dll (net10.0)`. The solution build is what puts `Curia.Domain.Tests` and `Curia.Application.Tests` where CS-15 reads them: neither is a reference of the architecture project, so `dotnet test` on that project alone never builds them. Without it a fresh checkout, which is CI's state, prints `Failed!  - Failed:     1, Passed:    29` (CS15: `Expected Curia.Domain.Tests.dll at …/bin/Debug/…`), and a used tree reads whatever stale Debug test assemblies are on disk. Task 9's case 27 is the evidence that this step carries information — a seven-case string switch in `Curia.Domain` fails it and passes the Release run above it.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 but status -fv
-but commit -b keys-bound-in-the-acta -m "$(printf 'CI: the architecture rules run in Debug as well (D16, option 1)\n\nNetArchTest reads IL, and IL differs by configuration: a seven-case string\nswitch in Curia.Domain fails CS-7 in Debug and passes it in Release, so CI,\nrunning Release alone, was green while every developer Debug run was red.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+but commit -b keys-bound-in-the-acta -m "$(printf 'CI: the architecture rules run in Debug as well (D16, option 1)\n\nNetArchTest reads IL, and IL differs by configuration: a seven-case string\nswitch in Curia.Domain fails CS-7 in Debug and passes it in Release, so CI,\nrunning Release alone, was green while every developer Debug run was red. The\nsolution is built in Debug first: CS-15 reads the Debug output of two test\nassemblies, which testing the architecture project alone never builds.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
 ```
 
 ---
@@ -252,7 +258,9 @@ unchanged", and G15's "Key transparency" — three statements that the key store
 key an identity holds. The claim was then executed on 2026-09-26 against a `git archive` of the
 workspace at dc17a3c (main at 1dbe0ff, plus an unmerged SDK pin touching `global.json` alone),
 through the real Forum over Postgres, with this entry's HTTP facts added and no production code
-changed.
+changed. Two clauses of R6.54 were settled after a pre-flight scan applied the implementation plan to
+a fresh tree: its first cut read the author's binding after a post as failed, and its independent
+reader answered could-not-be-checked for any `agent.enrolled`, whoever's it was.
 
 ### The finding
 
@@ -313,7 +321,9 @@ log binds that key to the same identity: an `agent.key-bound` entry of that iden
 `agent.key-bound` entry names the `kid`, the identity's `agent.enrolled` entry naming it. A key the
 store holds and the log does not so bind SHALL be refused by name, as a key the log does not bind,
 after every refusal the store itself gives, and SHALL NOT be published. Each key the key set publishes
-SHALL name the log index of the entry that binds it. The reason: rows the store holds and no
+SHALL name the log index of the entry that binds it, unless the log cannot be folded into its tree,
+when the key is published without one and a reader reports the binding as could not be checked
+(R6.54). The reason: rows the store holds and no
 enrollment bound cannot be removed (R4.19) or repaired (R4.32), so the only place they can stop
 counting is where a key is read; and a reader handed a key set needs to know where the log says each
 key came from, or it has only the key set's word. The store's own refusals come first so that
@@ -367,17 +377,25 @@ post: it SHALL find the entry the author's key set names for the post's `kid` (R
 entry's leaf (R6.46) and verify its inclusion under the same signed head as the post's own proof,
 require an `agent.key-bound` entry of the post's author naming the post's `kid`, at a lower log index
 than the post, and verify the post's signature under the key that entry carries rather than under
-the key the key set serves. An entry that is the author's `agent.enrolled` naming the `kid`, made
-before R4.34, establishes the `kid` and no key, and SHALL be reported as could not be checked. R6.52's
-three outcomes, and its prohibition on collapsing them, govern this check, and a post whose key's
-binding is not verified SHALL NOT be reported as verified. The reason: every check before this one
-verified the signature under a key the Forum's key set served, which is the Forum's word, and §6.5's
-reader "does not need to trust the Forum's operators, its database … or its backups". A key the store
-holds and the log binds, and a post signed under it, are both committed to by a head the operator
-signs: a key substituted in the store must be bound in the log to be honoured, in the identity's own
-stream, where the identity and any monitor can find it. The Forum's key set only says where to look,
-so a key set that names the wrong leaf, or none, can make the check impossible and never makes it
-pass.
+the key the key set serves. An entry of the post's author naming the post's `kid` that establishes
+no key for the post — the author's `agent.enrolled`, made before R4.34, which names the `kid` and
+carries no key, or the author's binding at a log index not lower than the post's — SHALL be reported
+as could not be checked, and never as failed. An entry that is not a binding of the post's author and
+`kid`, and a binding before the post carrying a key the post does not verify under, SHALL be reported
+as failed. R6.52's three outcomes, and its prohibition on collapsing them, govern this check, and a
+post whose key's binding is not verified SHALL NOT be reported as verified. The reason: every check
+before this one verified the signature under a key the Forum's key set served, which is the Forum's
+word, and §6.5's reader "does not need to trust the Forum's operators, its database … or its
+backups". A key the store holds and the log binds, and a post signed under it, are both committed to
+by a head the operator signs: a key substituted in the store must be bound in the log to be honoured,
+in the identity's own stream, where the identity and any monitor can find it. The Forum's key set only
+says where to look: one that names no leaf makes the check impossible, one that names a leaf binding
+something else makes it fail, and neither makes it pass. A binding after the post is the log's silence
+about the key the post was accepted under, not a contradiction of it. A forger binds first, at no
+cost; a binding that lands after a history is an honest identity's, such as one enrolled before
+`agent.enrolled` existed, which gains its first binding when a request re-presents its key — a
+request anyone holding its public key can send, since R4.11's proof of possession is not built. Reporting that as failed
+would let any caller turn an identity's whole history into a failure.
 
 ### Editorial amendments this entry carries
 
@@ -407,9 +425,21 @@ pass.
    merged into another identity under the reference client's default identifier loses that key; it
    was never its identity's.
 3. **The key set reads the log.** Serving an agent's keys reads that agent's stream and folds the log
-   once for the leaf indices, the fold every read path already performs. Resolving a key reads the
-   stream too.
+   once for the leaf indices: the whole-log read and fold that every route serving a post already
+   performs on every request, anonymous ones included, and every Acta route performs too. The
+   anonymous key set joins that class and opens none. Resolving a key reads the stream too.
 4. **An enrollment appends two entries,** and every count of a stream's entries moves by one.
+5. **An identity the store holds and the log never enrolled is bound when a request re-presents its
+   key.** Such an identity was enrolled before `agent.enrolled` existed, or its enrollment's log append
+   failed after the store's write. R4.31 (revised) enrolls it as it enrolls any identifier the log does
+   not record, so a request re-presenting a key the store holds for it succeeds and registers nothing,
+   and R4.34 then binds that key, as of that request. For a failed append that is the recovery, and
+   there is no history. For an identity with history, the binding sits after all of it, and R6.54
+   reports that history as could not be checked, as it reports a pre-R4.34 identity's, and never as
+   failed. The binding is of whichever key the request re-presents, and nothing in the log can say
+   which key the identity began with: a store written before errata G14 closed its hole may hold a
+   second key under such an identity, and a re-presentation of that key binds it. No deployment is
+   hosted; a Forum that holds such identities is the owner's question (the stage's spec, §2.1).
 
 ### What this deliberately does not change
 
@@ -419,8 +449,9 @@ pass.
 - **No rotation, revocation or compromise.** R4.17–R4.19 and R6.26–R6.30 remain unbuilt; nothing
   appends a second `agent.key-bound` for an identity yet. R4.31 (revised) is written for the set of
   bindings an identity will hold, so rotation's keys need no amendment to it.
-- **No backfill.** No binding is appended for an identity enrolled before R4.34, by the Forum or by an
-  operator tool.
+- **No backfill.** No binding is appended for an identity whose `agent.enrolled` predates R4.34, by
+  the Forum or by an operator tool. An identity with no `agent.enrolled` at all is enrolled, and
+  bound, as the fifth cost above describes.
 - **No monitor.** Nothing watches an identity's stream for a binding the identity did not make. A
   substituted key is now committed to under a signed head, in the identity's own stream, where it can
   be found; finding it is a monitor's work, and none exists.
@@ -453,8 +484,9 @@ each printed.
 - **R5.21.** Remove either pin. The fact whose assertion, or proof, names the other algorithm must read
   as a bad signature.
 - **R6.54.** Verify the post under the key set's key and not the binding's, ignore the leaves' order,
-  or read a `kid`-only enrollment as a binding. The client's fact for each case, and `curia-testis`'s,
-  must go red.
+  read a `kid`-only enrollment as a binding, report the author's binding after the post as failed, or
+  skip comparing the binding with the post's author and `kid`. The client's fact for each case, and
+  `curia-testis`'s, must go red.
 
 ````
 
@@ -470,11 +502,11 @@ this:
 
 ```markdown
 | R4.34 | Every key the store registers is bound to its identity by an `agent.key-bound` entry in that identity's stream, carrying the `kid` and the key as the key set's public JWK, appended in the same act that registers it: for an enrollment, in the same append as `agent.enrolled` | G16 |
-| R4.35 | A stored key is honoured — for a post, a client assertion, the key set — only when the log binds it: an `agent.key-bound` of that identity carrying exactly that key, or, before R4.34 and while none names the `kid`, the `agent.enrolled` naming it; otherwise refused by name after the store's own refusals, and not published; each published key names the index of its binding | G16 |
+| R4.35 | A stored key is honoured — for a post, a client assertion, the key set — only when the log binds it: an `agent.key-bound` of that identity carrying exactly that key, or, before R4.34 and while none names the `kid`, the `agent.enrolled` naming it; otherwise refused by name after the store's own refusals, and not published; each published key names the index of its binding where the log folds | G16 |
 | R4.31 (rev.) | An enrolled identifier is enrolled only with a key the log binds to it: an unbound `kid` is refused, even one the store holds; a bound `kid` whose binding carries a key admits only that key; every binding counts, not the first alone; a lost row's recovery registers the bound key, dated from its binding; the rest stands as G14 wrote it | G16 |
 | R4.16 (rev. 2) | The store holds every agent key the Forum honours, and the log's key-binding entries decide which of them it honours; no key is fetched from a URL | G16 |
 | R5.21 | A client assertion's and a DPoP proof's header `alg` names the algorithm of the key it is verified under (the resolved agent key; the embedded `jwk`), and any other is refused by name before a verifier is chosen | G16 |
-| R6.54 | A client reports a post verified only when the key it verifies under is the key an `agent.key-bound` entry of its author, proven under the same signed head at a lower index, carries, and the signature verifies under that key; a pre-R4.34 `agent.enrolled` is could not be checked; R6.52's three outcomes govern | G16 |
+| R6.54 | A client reports a post verified only when the key it verifies under is the key an `agent.key-bound` entry of its author, proven under the same signed head at a lower index, carries, and the signature verifies under that key; the author's pre-R4.34 `agent.enrolled`, or its binding at an index not lower than the post's, is could not be checked and never failed; an entry binding another author or `kid` fails; R6.52's three outcomes govern | G16 |
 ```
 
 - [ ] **Step 4: Check the documents, and falsify the checker over the new entry**
@@ -2003,8 +2035,8 @@ public sealed record KeyBinding(string Kid, JsonValue.Object? Jwk, DateTimeOffse
 {
     /// <summary>
     /// Whether <paramref name="key"/> is the key this binding names: the same <c>kid</c>, and, where
-    /// the binding carries the key, the same public key. Material that has no public JWK is no bound
-    /// key's.
+    /// the binding carries the key, the same public key, so material with no public JWK is not it. A
+    /// kid-only binding (<see cref="Jwk"/> null) answers on the <c>kid</c> alone, whatever the material.
     /// </summary>
     public bool Holds(PublicKeyMaterial key)
     {
@@ -2785,8 +2817,8 @@ public sealed class LogBoundKeysTests
 
     /// <summary>
     /// A key store that holds exactly what it is given, for anyone, and resolves by agent and
-    /// <c>kid</c> within each key's window as the Postgres store does. It never checks the log: that
-    /// is the rule under test.
+    /// <c>kid</c> from each key's <c>NotBefore</c>; no row here has a <c>NotAfter</c>, so it closes no
+    /// window. It never checks the log: that is the rule under test.
     /// </summary>
     private sealed class HeldKeys(params (string AgentId, RegisteredKey Key)[] rows) : IAuthorKeyResolver, IAuthorKeyRegistry
     {
@@ -3737,9 +3769,12 @@ with:
         if (keySet!.Stored == 0)
             return Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId));
 
-        // The leaf that binds each key, from the Acta folded once, as every read path folds it. A log
-        // that will not fold into a tree publishes the keys without positions rather than no keys: a
-        // reader then cannot check the binding, and says so (R6.54's absence is an absence).
+        // The leaf that binds each key, from the Acta folded once, as every route that serves a post
+        // or a log document folds it: no index of the key set's own, which would be a second
+        // computation of R6.47's leaf index that must agree with the fold forever (the spec's
+        // Decision 8). A log that will not fold into a tree publishes the keys without positions
+        // rather than no keys: a reader then cannot check the binding, and says so (R6.54's absence
+        // is an absence).
         var (acta, _) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
         return Results.Ok(Jwks.ForAgent(keySet.Bound, acta is null ? _ => null : acta.IndexOf));
     }
@@ -4223,7 +4258,7 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'R5.21: a client assertion and
 - Modify: `rust/curia-testis/src/acta.rs`, `rust/curia-testis/src/bin/curia-testis.rs`, `tests/Curia.Api.Tests/ActaEndpointTests.cs`, `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Produces: `curia_testis::acta::verify_author(post_entry, post_proof, key_entry, key_proof, &VerifiedHead) -> Result<VerifiedAuthor, ActaError>`, and `curia-testis log author --entry <path> --proof <path> --key-entry <path> --key-proof <path> [--head <path> --log-jwks <path>]`: exit 0 verified, 1 failed, 2 usage, 3 could not be checked (no head, or a pre-R4.34 `agent.enrolled` naming the `kid` and no key).
+- Produces: `curia_testis::acta::verify_author(post_entry, post_proof, key_entry, key_proof, &VerifiedHead) -> Result<VerifiedAuthor, ActaError>`, and `curia-testis log author --entry <path> --proof <path> --key-entry <path> --key-proof <path> [--head <path> --log-jwks <path>]`: exit 0 verified, 1 failed, 2 usage, 3 could not be checked (no head; the author's own pre-R4.34 `agent.enrolled` naming the post's `kid` and no key; or the author's binding of that `kid` at a leaf not before the post).
 - Consumes: the served documents alone. No agent key set is an input.
 
 **Why before the reference client.** The leaf's payload becomes permanent in every log that writes it, and `curia-testis` shares no code with the Forum. An independent reader is what shows the shape is readable from its bytes alone, before anything depends on it.
@@ -4369,14 +4404,23 @@ fn r6_54_a_post_signed_under_the_key_its_author_bound_before_it_verifies() {
     );
 }
 
+/// The author's own binding, after the post: the log says nothing about
+/// which key was the author's when the post was accepted. R6.54's third
+/// outcome, never a failure: an identity whose first binding came after its
+/// history (it enrolled before the log recorded enrollments, and anyone
+/// re-announced its public key) would otherwise read as forged throughout.
 #[test]
-fn r6_54_a_key_bound_after_the_post_fails() {
+fn r6_54_a_key_bound_after_the_post_is_not_established() {
     let key = key_entry(|s| s);
     let post = post_entry();
     let log = log(&[Some(&post), None, Some(&key)]);
 
     let err = author(&log, 0, 2).unwrap_err();
-    assert_eq!(err.predicate(), "curia/acta/bound-after-post", "{err}");
+    assert_eq!(
+        (err.predicate(), err.not_established()),
+        ("curia/acta/bound-after-post", true),
+        "{err}"
+    );
 }
 
 #[test]
@@ -4415,7 +4459,28 @@ fn r6_54_an_enrollment_that_names_the_kid_alone_is_not_checked() {
     let log = log(&[Some(enrolled), None, Some(&post)]);
 
     let err = author(&log, 2, 0).unwrap_err();
-    assert_eq!(err.predicate(), "curia/acta/key-not-carried", "{err}");
+    assert_eq!(
+        (err.predicate(), err.not_established()),
+        ("curia/acta/key-not-carried", true),
+        "{err}"
+    );
+}
+
+/// R6.54 reports only the author's own enrollment naming the post's kid as
+/// could-not-be-checked; another identity's enrollment, naming the same kid,
+/// binds nothing the post names and fails.
+#[test]
+fn r6_54_another_identitys_enrollment_fails() {
+    let enrolled = r#"{"actor_id":"agent://curia.example/tuesdaycrowd/someone-else","aggregate_id":"agent://curia.example/tuesdaycrowd/someone-else","event_id":"01K4CQ1TZ0M2P4R6T8V0X2Z4B6","event_type":"agent.enrolled","payload":{"agent_id":"agent://curia.example/tuesdaycrowd/someone-else","kid":"conformance-ed25519-minimal","reason":"Enrollment accepted: agent key registered with the Registrar"},"server_ts":"2026-09-04T14:00:00.000000Z"}"#;
+    let post = post_entry();
+    let log = log(&[Some(enrolled), None, Some(&post)]);
+
+    let err = author(&log, 2, 0).unwrap_err();
+    assert_eq!(
+        (err.predicate(), err.not_established()),
+        ("curia/acta/binding-mismatch", false),
+        "{err}"
+    );
 }
 
 #[test]
@@ -4587,14 +4652,19 @@ with:
     NotAKeyBinding { event_type: String },
     /// The binding does not name the post's author and the post's `kid`.
     BindingMismatch(String),
-    /// The binding is not earlier in the log than the post.
+    /// The author's binding of the post's `kid` is not earlier in the log
+    /// than the post, so the log says nothing about which key was the
+    /// author's when the post was accepted. Not a failure and not a pass
+    /// (exit 3): a forger binds first at no cost, and what lands here is
+    /// history older than its binding.
     BoundAfterPost { key: u64, post: u64 },
     /// The post's signature does not verify under the key the binding
     /// carries (the inner predicate says why).
     Author(VerifyEnvelopeError),
-    /// The binding is a pre-R4.34 `agent.enrolled`: the log names the `kid`
-    /// and carries no key, so which key signed cannot be established from
-    /// the log. Not a failure and not a pass (exit 3).
+    /// The binding is the author's own pre-R4.34 `agent.enrolled`, earlier
+    /// than the post and naming its `kid`: the log names the `kid` and
+    /// carries no key, so which key signed cannot be established from the
+    /// log. Not a failure and not a pass (exit 3).
     KeyNotCarried { kid: String },
 }
 
@@ -4621,6 +4691,16 @@ with:
             ActaError::Author(err) => err.predicate(),
             ActaError::KeyNotCarried { .. } => "curia/acta/key-not-carried",
         }
+    }
+
+    /// R6.54's third outcome: the log carries no key for the post's `kid`
+    /// from before the post. Neither a pass nor a failure, and `log author`
+    /// exits 3 for exactly these.
+    pub fn not_established(&self) -> bool {
+        matches!(
+            self,
+            ActaError::KeyNotCarried { .. } | ActaError::BoundAfterPost { .. }
+        )
     }
 ```
 
@@ -4694,11 +4774,15 @@ pub struct VerifiedAuthor {
 /// that key before it accepted the post, all under `head`.
 ///
 /// Both entries' leaves are recomputed and proven (R6.46, R6.48) and tied to
-/// the one head, so their order is the log's order. The signature is checked
-/// over the envelope the post's own entry carries, under a key set holding
-/// only the key the binding carries: nothing a key set endpoint serves is
-/// read. A binding that is a pre-R4.34 `agent.enrolled` naming the `kid`
-/// establishes nothing about the key, and is [`ActaError::KeyNotCarried`].
+/// the one head, so their order is the log's order. The key entry must bind
+/// the post's own author and `kid`, or it is [`ActaError::BindingMismatch`],
+/// whatever its type. The author's binding at a leaf not before the post is
+/// [`ActaError::BoundAfterPost`], and the author's own pre-R4.34
+/// `agent.enrolled` is [`ActaError::KeyNotCarried`]: each says the log holds
+/// no key for the post from before it, and neither is a failure
+/// ([`ActaError::not_established`]). Only then is the signature checked, over
+/// the envelope the post's own entry carries, under a key set holding only
+/// the key the binding carries: nothing a key set endpoint serves is read.
 pub fn verify_author(
     post_entry: &[u8],
     post_proof: &[u8],
@@ -4723,19 +4807,38 @@ pub fn verify_author(
 
     let key_fields = entry_fields(key_entry)?;
     let key_type = str_at(&key_fields, &["event_type"], "key entry")?;
+    if key_type != KEY_BOUND && key_type != ENROLLED {
+        return Err(ActaError::NotAKeyBinding {
+            event_type: key_type.to_string(),
+        });
+    }
     let bound_kid = str_at(&key_fields, &["payload", "kid"], "key entry")?;
+    let bound_agent = str_at(&key_fields, &["payload", "agent_id"], "key entry")?;
+    let aggregate = str_at(&key_fields, &["aggregate_id"], "key entry")?;
+
+    // Whose binding, of which kid, before anything about its key: an entry
+    // for another identity or another kid binds nothing the post names,
+    // whichever type it is.
+    let (post_author, post_kid) = post_author_and_kid(canonical, signature)?;
+    if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {
+        return Err(ActaError::BindingMismatch(format!(
+            "the entry binds kid `{bound_kid}` to `{bound_agent}` in stream `{aggregate}`, and the post is `{post_author}`'s under kid `{post_kid}`"
+        )));
+    }
+
+    // R6.54: a binding after the post is the log's silence about the key
+    // the post was accepted under, not a contradiction of it.
+    if key.log_index >= post.log_index {
+        return Err(ActaError::BoundAfterPost {
+            key: key.log_index,
+            post: post.log_index,
+        });
+    }
     if key_type == ENROLLED {
         return Err(ActaError::KeyNotCarried {
             kid: bound_kid.to_string(),
         });
     }
-    if key_type != KEY_BOUND {
-        return Err(ActaError::NotAKeyBinding {
-            event_type: key_type.to_string(),
-        });
-    }
-    let bound_agent = str_at(&key_fields, &["payload", "agent_id"], "key entry")?;
-    let aggregate = str_at(&key_fields, &["aggregate_id"], "key entry")?;
     let jwk = key_fields
         .get("payload")
         .and_then(|p| p.get("jwk"))
@@ -4761,19 +4864,6 @@ pub fn verify_author(
     let provenance =
         crate::verify_envelope(submission.as_bytes(), &jwks).map_err(ActaError::Author)?;
 
-    if aggregate != bound_agent || provenance.author != bound_agent || provenance.kid != bound_kid {
-        return Err(ActaError::BindingMismatch(format!(
-            "the entry binds kid `{bound_kid}` to `{bound_agent}` in stream `{aggregate}`, and the post was signed by `{}` under kid `{}`",
-            provenance.author, provenance.kid
-        )));
-    }
-    if key.log_index >= post.log_index {
-        return Err(ActaError::BoundAfterPost {
-            key: key.log_index,
-            post: post.log_index,
-        });
-    }
-
     Ok(VerifiedAuthor {
         author: provenance.author,
         kid: provenance.kid,
@@ -4781,6 +4871,38 @@ pub fn verify_author(
         key_index: key.log_index,
         post_index: post.log_index,
     })
+}
+
+/// The post's author, from its canonical envelope, and the `kid` its detached
+/// signature's protected header names; read before any key is chosen, so the
+/// binding can be compared with the post before it is trusted for anything.
+/// The signature itself is verified afterwards, over the same bytes.
+fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, String), ActaError> {
+    use base64::Engine;
+    let malformed = |detail: String| ActaError::Malformed {
+        what: "post entry",
+        detail,
+    };
+    let envelope: Value = serde_json::from_str(canonical).map_err(|e| malformed(e.to_string()))?;
+    let author = envelope
+        .get("author")
+        .and_then(Value::as_str)
+        .ok_or_else(|| malformed("the envelope names no author".to_string()))?;
+    let header = signature
+        .split('.')
+        .next()
+        .and_then(|h| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(h)
+                .ok()
+        })
+        .and_then(|h| serde_json::from_slice::<Value>(&h).ok())
+        .ok_or_else(|| malformed("the signature has no readable protected header".to_string()))?;
+    let kid = header
+        .get("kid")
+        .and_then(Value::as_str)
+        .ok_or_else(|| malformed("the signature's header names no kid".to_string()))?;
+    Ok((author.to_string(), kid.to_string()))
 }
 
 /// The `entry` member of an entry document, parsed.
@@ -4879,8 +5001,10 @@ with:
     3  could not be checked: the arithmetic held but nothing anchors it to a
        signed head. Pass --head/--log-jwks (inclusion, author) or
        --from-head/--to-head (consistency) to anchor it. For log author, also:
-       the log binds the post's kid by an enrollment made before key-binding
-       entries, and carries no key. This is not a pass and not a failure.
+       the log carries no key for the post's kid from before the post -- the
+       author's enrollment made before key-binding entries, which names the
+       kid and no key, or the author's binding made after the post. This is
+       not a pass and not a failure.
 ";
 
 ```
@@ -4956,11 +5080,11 @@ with:
                     print_head("head", &head);
                     Ok(())
                 }
-                // R6.54's third outcome: the log names the kid and not the key.
-                Err(ActaError::KeyNotCarried { kid }) => Err(CliError::NotAnchored(format!(
-                    "the log binds kid `{kid}` by an enrollment made before key-binding \
-                     entries (R4.34) and carries no key, so which key signed this post cannot \
-                     be established from the log"
+                // R6.54's third outcome: the log carries no key for the post's kid
+                // from before the post, and says nothing either way about it.
+                Err(err) if err.not_established() => Err(CliError::NotAnchored(format!(
+                    "{err}: the log carries no key for this post's kid from before the post, \
+                     so which key signed it cannot be established from the log"
                 ))),
                 Err(err) => Err(CliError::Acta(err)),
             }
@@ -5002,7 +5126,7 @@ cargo clippy --manifest-path rust/curia-testis/Cargo.toml --all-targets --locked
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked 2>&1 | grep -E "^test result" | awk '{p+=$4; f+=$6} END {print "passed", p, "failed", f}'
 ```
 
-Expected: `fmt` prints nothing; `clippy` finishes with no warning; `passed 219 failed 0`, across eighteen binaries — 211 in seventeen before, and `log_author.rs`'s eight.
+Expected: `fmt` prints nothing; `clippy` finishes with no warning; `passed 220 failed 0`, across eighteen binaries — 211 in seventeen before, and `log_author.rs`'s nine.
 
 The CI job's comment states that count, so it moves with it:
 
@@ -5022,7 +5146,7 @@ with:
 ```yaml
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 219
+      # The independent verifier is the evidence behind Phase 1's exit criterion. Its 220
       # tests across 18 binaries are not a secondary suite.
       #
       # Note what the two steps above are: `cargo fmt --check` and `cargo clippy -- -D warnings`
@@ -5030,7 +5154,81 @@ with:
 
 - [ ] **Step 5: End to end, against the Forum's own documents**
 
-The author's own binding verifies (exit 0); another identity's binding offered as the key's is refused, because its key is not the one that signed (exit 1, `curia/jws/key-not-found`); and a pre-G16 identity is reported as not checked (exit 3), never as verified:
+The author's own binding verifies (exit 0); another identity's binding offered as the key's is refused, because it binds another identity's `kid` (exit 1, `curia/acta/binding-mismatch`); a pre-G16 identity is reported as not checked (exit 3), never as verified; and so is a pre-G16 identity whose key the log bound only after its post (exit 3, `curia/acta/bound-after-post`), never as failed. That last needs a binding no route appends for an enrolled identity, so the fixture appends it, with exactly the members `EnrollAgent` writes:
+
+In `tests/Curia.Api.Tests/ForumFixture.cs`, replace:
+
+```csharp
+using Curia.Canon.Json;
+using Curia.Domain;
+using Curia.Domain.Credentials;
+```
+
+with:
+
+```csharp
+using Curia.Canon.Json;
+using Curia.Canon.Jws;
+using Curia.Domain;
+using Curia.Domain.Credentials;
+```
+
+In `tests/Curia.Api.Tests/ForumFixture.cs`, replace:
+
+```csharp
+                    new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
+                ]))],
+            ct));
+    }
+
+    private static string AdminConnectionString =>
+```
+
+with:
+
+```csharp
+                    new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
+                ]))],
+            ct));
+    }
+
+    /// <summary>
+    /// Appends an <c>agent.key-bound</c> for <paramref name="agentId"/>'s <c>ES256</c> key at the end of
+    /// its stream, now, through the host's own event store, with exactly the members
+    /// <c>EnrollAgent</c> writes (R4.34). For an identity that has already posted, this is the binding
+    /// that lands after its history: the one an identity enrolled before <c>agent.enrolled</c> existed
+    /// receives when anyone re-announces its public key, and the one an operator's binding would append
+    /// (the key-binding stage's spec, §2.1). No route appends it for an identity already enrolled.
+    /// </summary>
+    internal async Task BindKeyAfterItsPostsAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
+        var aggregate = Require(AggregateId.Create(agentId));
+        var stream = Require(await store.ReadByAggregateAsync(aggregate, ct));
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(stream.Count)),
+            [new DomainEvent(
+                Require(EventId.Create(Require(new UlidGenerator(Clock).Next()).ToString())),
+                Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                Require(ActorId.Create(agentId)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(agentId)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(kid)),
+                    new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(new PublicKeyMaterial("ES256", kid, publicKey)))),
+                ]))],
+            ct));
+    }
+
+    private static string AdminConnectionString =>
+```
+
+And the fact:
 
 In `tests/Curia.Api.Tests/ActaEndpointTests.cs`, replace:
 
@@ -5074,9 +5272,10 @@ with:
     /// R6.54 (errata G16), offline: <c>curia-testis log author</c> establishes from served log documents
     /// alone -- the post's entry and proof, its key's binding entry and proof, one signed head -- that
     /// the post was signed by the key its author's enrollment bound, earlier in the log. No agent key
-    /// set is handed to it. Two controls: another identity's binding offered as the key's is refused
-    /// (its key is not the one that signed), and an identity enrolled before G16, whose log names its
-    /// <c>kid</c> and no key, is reported as not checked (exit 3), never as verified.
+    /// set is handed to it. Three controls: another identity's binding offered as the key's is refused
+    /// (it binds another identity's <c>kid</c>, exit 1); an identity enrolled before G16, whose log names
+    /// its <c>kid</c> and no key, is reported as not checked (exit 3), never as verified; and so is a
+    /// post whose author's key the log bound only after it (exit 3), never as failed.
     /// </summary>
     [Fact]
     public async Task R6_54_TestisEstablishesAuthorshipFromTheLogAlone()
@@ -5088,6 +5287,8 @@ with:
         var (author, postId) = await AskAsync(http, "author", beforeKeyBinding: false, ct);
         var (other, _) = await AskAsync(http, "other", beforeKeyBinding: false, ct);
         var (before, beforePostId) = await AskAsync(http, "before-g16", beforeKeyBinding: true, ct);
+        var (late, latePostId) = await AskAsync(http, "bound-late", beforeKeyBinding: true, ct);
+        await forum.BindKeyAfterItsPostsAsync(late.AgentId, late.Kid, late.AssertionKey.ExportSubjectPublicKeyInfo(), ct);
         var (exit, _, stderr) = await SignHeadAsync(ct);
         Assert.True(exit == ExitCode.Ok, stderr);
 
@@ -5119,11 +5320,15 @@ with:
 
         var refused = await AuthorAsync(postId, other, "other");
         Assert.StartsWith("exit 1:", refused, StringComparison.Ordinal);
-        Assert.Contains("curia/jws/key-not-found", refused, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/binding-mismatch", refused, StringComparison.Ordinal);
 
         var notChecked = await AuthorAsync(beforePostId, before, "before");
         Assert.StartsWith("exit 3:", notChecked, StringComparison.Ordinal);
         Assert.Contains("carries no key", notChecked, StringComparison.Ordinal);
+
+        var boundLate = await AuthorAsync(latePostId, late, "late");
+        Assert.StartsWith("exit 3:", boundLate, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/bound-after-post", boundLate, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -5140,7 +5345,7 @@ Expected: `Passed!  - Failed:     0, Passed:     7, …`. Before the verb existe
 
 ```bash
 but status -fv
-but commit -b keys-bound-in-the-acta -m "$(printf 'curia-testis log author: authorship from the log alone (R6.54)\n\nTwo entries, two proofs, one signed head, and the post verified under the key\nits binding carries, bound before it. No agent key set is read. Exit 3 for a\nhead not given, and for an enrollment that names the kid and carries no key.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+but commit -b keys-bound-in-the-acta -m "$(printf 'curia-testis log author: authorship from the log alone (R6.54)\n\nTwo entries, two proofs, one signed head, and the post verified under the key\nits binding carries, bound before it. No agent key set is read. Exit 3 for a\nhead not given, and where the log carries no key for the post from before it:\nan enrollment that names the kid alone, or a binding after the post.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
 ```
 
 ---
@@ -5156,10 +5361,10 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'curia-testis log author: auth
   - `ForumJwk` gains `long? LogIndex = null`, read from `curia_log_index`.
   - `ActaCheck.KeyBinding(LogEntryDocument keyEntry, InclusionProofDocument keyProof, ProvenancePost post, long postIndex) : Check` — pure, no I/O; `ActaCheck.Inclusion` and it share one private `ProofHolds`.
   - `PostVerification` gains `Check KeyBinding` (fourth positional member) and renders it as the `key` line; `Overall` is *verified* only when signature, inclusion and key binding all are.
-  - `StubLog(treeSize, postIndex, keyIndex = 0)`, with `KeyIndex`, `KeyEntry`, `KeySetNamesNoLogIndex`, `BindAnotherKey()` and `EnrollBeforeKeyBinding()`.
+  - `StubLog(treeSize, postIndex, keyIndex = 0)`, with `KeyIndex`, `KeyEntry`, `KeySetNamesNoLogIndex`, `BindAnotherKey()`, `EnrollBeforeKeyBinding()` and `BindToAnotherAgent()`.
 - Consumes: `curia_log_index` (Task 5), the binding's shape (Task 4).
 
-**The key set only says where to look.** The check proves the leaf the key set names under the head this client verified, and checks the post under the key that leaf carries. A key set that names the wrong leaf, or none, can make the check impossible — *could not be checked* — and never makes it pass (the spec's Decision 11).
+**The key set only says where to look.** The check proves the leaf the key set names under the head this client verified, and checks the post under the key that leaf carries. A key set that names no leaf makes the check impossible (*could not be checked*); one that names a leaf binding another agent or another `kid` makes it fail; neither makes it pass. And the author's own binding at a leaf after the post is the log's silence about the key the post was accepted under, not a contradiction of it: *could not be checked*, never *failed* (the spec's Decision 11, amended).
 
 - [ ] **Step 1: Give the stub a real binding, and the knobs that break it**
 
@@ -5322,6 +5527,24 @@ with:
         RebuildKey();
     }
 
+    /// <summary>
+    /// Replace the binding with another agent's <c>agent.key-bound</c>, in that agent's stream, carrying
+    /// alice's own key under alice's <c>kid</c>, and rebuild the tree around it: a key set that points
+    /// alice's key at a leaf binding it to someone else. The key is the one that signed, so the
+    /// signature verifies under what the leaf carries, and only comparing the binding with the post's
+    /// author refuses it.
+    /// </summary>
+    internal void BindToAnotherAgent()
+    {
+        KeyEntry = BuildKeyEntry(
+            PublicJwk.Of(new PublicKeyMaterial("ES256", AgentKid, PublicSubjectPublicKeyInfo()))
+                .TryGetValue(out var jwk, out _)
+                ? jwk!
+                : throw new InvalidOperationException("the stub's key has no public JWK"),
+            "https://agents.example/mallory");
+        RebuildKey();
+    }
+
     /// <summary>Answer <c>/v1/log/head</c> with 404 <c>curia/log/no-head</c>: a log whose operator has never signed.</summary>
 ```
 
@@ -5393,16 +5616,16 @@ with:
         Leaves = leaves.ToImmutable();
     }
 
-    /// <summary>R6.46's six members, as an enrollment appends alice's <c>agent.key-bound</c> (R4.34).</summary>
-    private static JsonValue.Object BuildKeyEntry(JsonValue.Object jwk) => new(
+    /// <summary>R6.46's six members, as an enrollment appends <paramref name="agent"/>'s <c>agent.key-bound</c> (R4.34): alice's, unless another is named.</summary>
+    private static JsonValue.Object BuildKeyEntry(JsonValue.Object jwk, string agent = Author) => new(
     [
-        new(LogLeaf.ActorIdMember, new JsonValue.String(Author)),
-        new(LogLeaf.AggregateIdMember, new JsonValue.String(Author)),
+        new(LogLeaf.ActorIdMember, new JsonValue.String(agent)),
+        new(LogLeaf.AggregateIdMember, new JsonValue.String(agent)),
         new(LogLeaf.EventIdMember, new JsonValue.String("01TESTKEYBINDING0000000000")),
         new(LogLeaf.EventTypeMember, new JsonValue.String("agent.key-bound")),
         new(LogLeaf.PayloadMember, new JsonValue.Object(
         [
-            new("agent_id", new JsonValue.String(Author)),
+            new("agent_id", new JsonValue.String(agent)),
             new("kid", new JsonValue.String(AgentKid)),
             new("jwk", jwk),
         ])),
@@ -5494,14 +5717,40 @@ with:
         Assert.Equal(CheckOutcome.Failed, result.Overall);
     }
 
-    /// <summary>A key the log binds only after the post signed nothing that came before it.</summary>
+    /// <summary>
+    /// The author's own key, bound only after the post. The log says nothing about which key was the
+    /// author's when the post was accepted, so the post is not established, and not failed either: an
+    /// identity whose first binding came after its history -- it enrolled before the log recorded
+    /// enrollments, and anyone re-announced its public key -- would otherwise read as forged
+    /// throughout, while a forger avoids this case by binding first.
+    /// </summary>
     [Fact]
-    public async Task R6_54_AKeyBoundAfterThePostFails()
+    public async Task R6_54_AKeyBoundAfterThePostIsNotEstablished()
     {
         var result = await VerifyAsync(Log(treeSize: 6, postIndex: 2, keyIndex: 4));
 
-        Assert.Equal(CheckOutcome.Failed, result.KeyBinding.Outcome);
+        Assert.Equal(CheckOutcome.CouldNotCheck, result.KeyBinding.Outcome);
         Assert.Contains("at leaf 4, which is not before this post at leaf 2", result.KeyBinding.Detail, StringComparison.Ordinal);
+        Assert.Equal(CheckOutcome.CouldNotCheck, result.Overall);
+    }
+
+    /// <summary>
+    /// A binding the log proves, before the post, of the post's own key under its own <c>kid</c> -- to
+    /// another agent. The signature verifies under the key the leaf carries, so only the comparison of
+    /// the binding with the post's author refuses it; without that, a key set could point a reader at
+    /// anyone's binding of the key and be believed.
+    /// </summary>
+    [Fact]
+    public async Task R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey()
+    {
+        var log = Log();
+        log.BindToAnotherAgent();
+
+        var result = await VerifyAsync(log);
+
+        Assert.Equal(CheckOutcome.Verified, result.Signature.Outcome);
+        Assert.Equal(CheckOutcome.Failed, result.KeyBinding.Outcome);
+        Assert.Contains("entry for https://agents.example/mallory", result.KeyBinding.Detail, StringComparison.Ordinal);
         Assert.Equal(CheckOutcome.Failed, result.Overall);
     }
 
@@ -5634,11 +5883,15 @@ with:
     /// <c>agent.key-bound</c> entry the proof carries to its root, it binds the post's <c>kid</c> to
     /// the post's author, it sits before <paramref name="postIndex"/>, and the post's signature
     /// verifies under the key it carries. <i>Could not be checked</i>: the entry is the author's
-    /// pre-R4.34 <c>agent.enrolled</c>, which names the <c>kid</c> and carries no key, so the log
-    /// cannot say which key signed. <i>Failed</i>: anything else -- a proof that does not hold, a
-    /// binding after the post, a binding of another agent or another <c>kid</c>, or a signature that
-    /// does not verify under the bound key -- because each is the served material disagreeing with
-    /// itself. The absent-material cases are decided above this method, where the fetching happens.</para>
+    /// binding of the post's <c>kid</c> and the log holds no key for it from before the post --
+    /// the binding sits at or after <paramref name="postIndex"/>, or it is the author's pre-R4.34
+    /// <c>agent.enrolled</c>, which names the <c>kid</c> and carries no key. That is the log's
+    /// silence about the key the post was accepted under, not a contradiction of it: a forger binds
+    /// first at no cost, and what lands here is history older than its binding. <i>Failed</i>:
+    /// anything else -- a proof that does not hold, an entry for another agent or another
+    /// <c>kid</c>, an entry that binds no key, or a signature that does not verify under the bound
+    /// key -- because each is the served material disagreeing with itself. The absent-material cases
+    /// are decided above this method, where the fetching happens.</para>
     /// </summary>
     public static Check KeyBinding(LogEntryDocument keyEntry, InclusionProofDocument keyProof, ProvenancePost post, long postIndex)
     {
@@ -5667,16 +5920,17 @@ with:
             return Check.Failed(Text(
                 $"leaf {keyEntry.LogIndex} is a {type ?? "(untyped)"} entry for {boundAgent ?? "(no agent)"} kid={boundKid ?? "(none)"}, and the post is {author}'s under kid={signed ?? "(unreadable)"}"));
 
-        if (keyEntry.LogIndex >= postIndex)
-            return Check.Failed(Text(
-                $"kid={boundKid} is bound to {author} at leaf {keyEntry.LogIndex}, which is not before this post at leaf {postIndex}"));
+        var enrolled = string.Equals(type, "agent.enrolled", StringComparison.Ordinal);
+        if (!enrolled && !string.Equals(type, "agent.key-bound", StringComparison.Ordinal))
+            return Check.Failed(Text($"leaf {keyEntry.LogIndex} is a {type ?? "(untyped)"} entry, not a key binding"));
 
-        if (string.Equals(type, "agent.enrolled", StringComparison.Ordinal))
+        if (keyEntry.LogIndex >= postIndex)
+            return Check.CouldNotCheck(Text(
+                $"kid={boundKid} is bound to {author} at leaf {keyEntry.LogIndex}, which is not before this post at leaf {postIndex}, so the log holds no key for it from before the post"));
+
+        if (enrolled)
             return Check.CouldNotCheck(Text(
                 $"the log binds kid={boundKid} to {author} at leaf {keyEntry.LogIndex} by an enrollment made before key-binding entries (R4.34), and carries no key, so which key signed cannot be established from the log"));
-
-        if (!string.Equals(type, "agent.key-bound", StringComparison.Ordinal))
-            return Check.Failed(Text($"leaf {keyEntry.LogIndex} is a {type ?? "(untyped)"} entry, not a key binding"));
 
         if ((payload is null ? null : ClientJson.Object(payload, "jwk")) is not { } jwk
             || ForumDocuments.ReadJwk(jwk) is not { } bound
@@ -6051,8 +6305,9 @@ with:
     /// <para><b>The key set only says where to look.</b> A Forum that names the wrong leaf, or none,
     /// cannot make this pass: the leaf is recomputed from the entry the log serves, proven to the
     /// head this client verified, and the post's signature is checked under the key that leaf
-    /// carries. What a lying key set can do is make the check impossible, and that is reported as
-    /// could-not-be-checked.</para>
+    /// carries. What a lying key set can do is make the check impossible, by naming no leaf, which is
+    /// reported as could-not-be-checked, or make it fail, by naming a leaf that binds something
+    /// else.</para>
     /// </summary>
     private async Task<Check> KeyBindingAsync(ProvenancePost post, Anchor anchor, ForumJwk? signingKey, CancellationToken ct)
     {
@@ -6218,13 +6473,13 @@ dotnet test tests/Curia.Mcp.Tests -c Release --nologo --no-build 2>&1 | grep -E 
 dotnet test tests/Curia.Api.Tests -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `0 Warning(s)`; Client 209, Mcp 73, Api 228. Every existing fact that asserts an overall *verified* — against the stub and, in `ClientVerificationTests`, against the Forum — now passes through the fourth check as well, which is how it shows the check verifies what it should and not only refuses.
+Expected: `0 Warning(s)`; Client 210, Mcp 73, Api 228. Every existing fact that asserts an overall *verified* — against the stub and, in `ClientVerificationTests`, against the Forum — now passes through the fourth check as well, which is how it shows the check verifies what it should and not only refuses.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 but status -fv
-but commit -b keys-bound-in-the-acta -m "$(printf 'R6.54 in the reference client: the key behind a post, bound before it\n\nThe fourth check proves the leaf the key set names under the same head as the\npost and verifies the post under the key that leaf carries. The overall verdict\nneeds it; a pre-G16 identity is could not be checked. The stub key set is held\nto the Forum key set for the first time.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
+but commit -b keys-bound-in-the-acta -m "$(printf 'R6.54 in the reference client: the key behind a post, bound before it\n\nThe fourth check proves the leaf the key set names under the same head as the\npost and verifies the post under the key that leaf carries. The overall verdict\nneeds it; a pre-G16 identity, or a key bound after the post, is could not be\nchecked. The stub key set is held\nto the Forum key set for the first time.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>')" <change-ids>
 ```
 
 ---
@@ -6237,10 +6492,10 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'R6.54 in the reference client
 
 **Preconditions:**
 - Tasks 1–8 are committed, and `git status --porcelain` is empty.
-- `CURIA_TEST_POSTGRES` is exported, and `CURIA_TESTIS_BIN` names this tree's `rust/curia-testis/target/debug/curia-testis`: cases 24–26 patch `curia-testis` and `cargo test` rebuilds that binary, which case 26's Api run then executes.
+- `CURIA_TEST_POSTGRES` is exported, and `CURIA_TESTIS_BIN` names this tree's `rust/curia-testis/target/debug/curia-testis`: cases 24–26 and 28 patch `curia-testis` and `cargo test` rebuilds that binary, which the Api runs of cases 26 and 28 then execute.
 - The runner restores from a kept copy with a **plain copy** (`shutil.copyfile`, a fresh mtime), never `copy2` and never `git checkout`, in a `finally`, so an exception or an interrupt mid-case never leaves a file patched. It proves each restore twice: the bytes equal the kept copy's, and `git diff --quiet` sees no change.
 - A command is RED only when its output holds a test run's own failure line — `Failed!` from `dotnet test`, `test result: FAILED` from cargo. Any compiler error (`: error `, `error[E`, `error: could not compile`) is BUILD FAILED. A non-zero exit with neither is DID NOT RUN. Anything not RED — a mismatched patch, a failed build, a green suite, a suite that did not run, a dirty restore — fails the run, and the last line is the runner's own `runner exit: 0` or `runner exit: 1`.
-- Every patch compares against a value that never occurs; none is a constant expression, so no analyzer rejects it and no residue scan mistakes it for code.
+- No patch is a constant expression: where one disables a condition, it compares against a value that never occurs, so no analyzer rejects it and no residue scan mistakes it for code.
 - No case is quoted until the unpatched gates have been rebuilt with `--no-incremental` and run green (Step 3).
 
 - [ ] **Step 1: Write the runner in the scratchpad**
@@ -6253,7 +6508,7 @@ Usage, from the repository root:  python3 falsify.py <keep-dir> [case-id ...]
 Scratch only: this file is never committed.
 
 CURIA_TEST_POSTGRES must be exported, and CURIA_TESTIS_BIN must name the debug binary this tree's
-cargo builds (rust/curia-testis/target/debug/curia-testis), because cases 24-26 rebuild it.
+cargo builds (rust/curia-testis/target/debug/curia-testis), because cases 24-26 and 28 rebuild it.
 """
 import filecmp, os, pathlib, re, shutil, subprocess, sys
 
@@ -6265,8 +6520,12 @@ def dotnet(project, flt):
     return ["dotnet", "test", project, "-c", "Release", "--nologo", "--filter", flt]
 
 def arch_debug():
-    # No --no-build: this compiles the project and every assembly it inspects in Debug.
-    return ["dotnet", "test", "tests/Curia.Architecture.Tests", "-c", "Debug", "--nologo"]
+    # No --no-build: this compiles the project and the src assemblies it references in Debug.
+    # Filtered to LayeringTests, where CS-7 lives: CS-15 reads Curia.Domain.Tests and
+    # Curia.Application.Tests from their Debug output, which this command does not build, so
+    # unfiltered it goes red on a fresh tree whatever the patch, and reads stale DLLs on a used one.
+    return ["dotnet", "test", "tests/Curia.Architecture.Tests", "-c", "Debug", "--nologo",
+            "--filter", "FullyQualifiedName~LayeringTests"]
 
 def cargo(test):
     return ["cargo", "test", "--manifest-path", "rust/curia-testis/Cargo.toml", "--locked", "--test", test]
@@ -6401,8 +6660,8 @@ CASES = [
          edits=[(ACTA_CHECK, "        if (keyEntry.LogIndex >= postIndex)", "        if (keyEntry.LogIndex == -postIndex - 1)")]),
     dict(id="21", what="the client reads a kid-only enrollment as a verified binding",
          cmds=[dotnet(CLIENT, "FullyQualifiedName~PostVerifierTests")],
-         edits=[(ACTA_CHECK, "        if (string.Equals(type, \"agent.enrolled\", StringComparison.Ordinal))\n            return Check.CouldNotCheck(Text(",
-                             "        if (string.Equals(type, \"agent.enrolled\", StringComparison.Ordinal))\n            return Check.Verified(Text(")]),
+         edits=[(ACTA_CHECK, "        if (enrolled)\n            return Check.CouldNotCheck(Text(",
+                             "        if (enrolled)\n            return Check.Verified(Text(")]),
     dict(id="22", what="the overall verdict ignores the binding",
          cmds=[dotnet(CLIENT, "FullyQualifiedName~PostVerifierTests")],
          edits=[(VERIFIER, "              && KeyBinding.Outcome is CheckOutcome.Verified\n", "")]),
@@ -6415,7 +6674,7 @@ CASES = [
          edits=[(TESTIS_ACTA, "    if key.log_index >= post.log_index {", "    if key.log_index >= post.log_index + 1000 {")]),
     dict(id="25", what="curia-testis does not compare the binding with the post",
          cmds=[cargo("log_author")],
-         edits=[(TESTIS_ACTA, "    if aggregate != bound_agent || provenance.author != bound_agent || provenance.kid != bound_kid {",
+         edits=[(TESTIS_ACTA, "    if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {",
                               "    if aggregate == \"no-such-agent\" {")]),
     dict(id="26", what="curia-testis reads a kid-only enrollment as not a binding at all",
          cmds=[cargo("log_author"),
@@ -6424,7 +6683,29 @@ CASES = [
     dict(id="27", what="Curia.Domain regains a seven-case string switch (D16)",
          cmds=[arch_debug()],
          edits=[(POST_KIND, TABLE_PARSE, SWITCH_PARSE)]),
+    dict(id="28", what="curia-testis reports the author's binding after the post as a failure",
+         cmds=[cargo("log_author"),
+               dotnet(API, "FullyQualifiedName~R6_54_TestisEstablishesAuthorshipFromTheLogAlone")],
+         edits=[(TESTIS_ACTA, "            ActaError::KeyNotCarried { .. } | ActaError::BoundAfterPost { .. }",
+                              "            ActaError::KeyNotCarried { .. }")]),
+    dict(id="29", what="the client reports the author's binding after the post as a failure",
+         cmds=[dotnet(CLIENT, "FullyQualifiedName~PostVerifierTests")],
+         edits=[(ACTA_CHECK, "        if (keyEntry.LogIndex >= postIndex)\n            return Check.CouldNotCheck(Text(",
+                             "        if (keyEntry.LogIndex >= postIndex)\n            return Check.Failed(Text(")]),
+    dict(id="30", what="the client does not compare the binding with the post's author and kid",
+         cmds=[dotnet(CLIENT, "FullyQualifiedName~PostVerifierTests")],
+         edits=[(ACTA_CHECK, "        if (!string.Equals(aggregate, author, StringComparison.Ordinal)\n"
+                             "            || !string.Equals(boundAgent, author, StringComparison.Ordinal)\n"
+                             "            || !string.Equals(boundKid, signed, StringComparison.Ordinal))",
+                             "        if (string.Equals(aggregate, \"no-such-agent\", StringComparison.Ordinal))")]),
 ]
+
+# A case id that names no case would otherwise run nothing and still end "runner exit: 0".
+unknown = ONLY - {case["id"] for case in CASES}
+if unknown:
+    print("unknown case id(s): " + ", ".join(sorted(unknown)) + " -- nothing was run")
+    print("runner exit: 1")
+    sys.exit(1)
 
 # What a failing test prints about itself, and nothing else. xUnit: its name, then its message block
 # up to the stack trace, which carries Expected:/Actual: and exception lines. cargo: its name, then
@@ -6539,7 +6820,7 @@ echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipesta
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped. The log's last line is the runner's own `runner exit: N`.
 
-Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are twenty-seven cases in thirty-eight suite runs. When this task was build-checked, on the tree this plan was built from, every case printed what the table says, every restored file's bytes equalled its kept copy, and nothing else failed. That tree was a `git archive`, not a repository, so the build-check's copy of the runner replaced the `git diff --quiet` proof with `yes`, and its log's `git diff --quiet: yes` measured nothing; the byte comparison ran, and so did Step 3. In the repository both proofs run, and the second is the one that sees a file the runner did not keep:
+Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are thirty cases in forty-two suite runs. When the amended plan was build-checked, this runner ran exactly as printed here in a git-backed copy of the tree (a `git archive` of 1dbe0ff, `git init`, and Tasks 1–8 committed): every case printed what the table says, every restore printed `restore clean` with both proofs — the bytes equal to the kept copy, and a real `git diff --quiet` — and the last line was `runner exit: 0`; then Step 3 ran and printed what it states. The second proof is the one that sees a file the runner did not keep:
 
 | Case | Must fail, by name |
 |---|---|
@@ -6562,19 +6843,23 @@ Each case must print `RED` for every command it runs, then `restore clean`, and 
 | 17 | `PublicJwkTests.R4_34_SameKeyComparesTheKeyNotTheReference` (`different=True`); the use case's and the log's refusals of other bytes, and `LogBoundKeysTests.R4_35_OtherBytesUnderTheBoundKidAreRefusedByName`; the lost-row HTTP fact. Two P-256 keys render to JWKs of equal length |
 | 18 | `PublicJwkTests.R4_28_AP256KeyIsRenderedAsRfc7518sEcForm` (`Actual: ···"x":"x_FEzRu9m36HLN_tue659LNpX"···`: RFC 7515's `y`); `EnrollIdentityTests.R4_34_AnEnrollmentBindsItsKeyInTheLogBesideItsRecord` (its coordinates are read from the DER independently); five `EnrollmentBindingTests` facts at `AssertServesOnlyTheVictimsKey`. No Forum-side comparison could see it: the renderer agrees with itself on both sides of every one |
 | 19 | `PostVerifierTests.R6_54_ALogThatBoundAnotherKeyFailsTheBindingThoughTheSignatureVerifies` (`Expected: Failed`, `Actual: Verified`) |
-| 20 | `PostVerifierTests.R6_54_AKeyBoundAfterThePostFails` |
+| 20 | `PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished` (`Expected: CouldNotCheck`, `Actual: Verified`) |
 | 21 | `PostVerifierTests.R6_54_AKeyTheLogNamesByKidAloneIsNotEstablished` (`Expected: CouldNotCheck`, `Actual: Verified`) |
-| 22 | `PostVerifierTests.R6_54_AKeySetNamingNoLeafCannotBeChecked` and `R6_54_AKeyTheLogNamesByKidAloneIsNotEstablished`, each at `Overall` |
+| 22 | `PostVerifierTests.R6_54_AKeySetNamingNoLeafCannotBeChecked`, `R6_54_AKeyTheLogNamesByKidAloneIsNotEstablished` and `R6_54_AKeyBoundAfterThePostIsNotEstablished`, each at `Overall` (`Actual: Verified`) |
 | 23 | `PostVerifierTests.R6_54_AKeySetNamingNoLeafCannotBeChecked` |
-| 24 | `log_author.rs`' `r6_54_a_key_bound_after_the_post_fails` (`called Result::unwrap_err() on an Ok value: VerifiedAuthor { … key_index: 2, post_index: 0 }`) |
-| 25 | `r6_54_a_binding_for_another_identity_fails` (`Ok` value): the other identity's binding carries the same key |
-| 26 | `r6_54_an_enrollment_that_names_the_kid_alone_is_not_checked` (`left: "curia/acta/not-a-key-binding"`, `right: "curia/acta/key-not-carried"`); `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone` (`String: "exit 1: error: the key entry is agent.enrolled…"`, `Expected start: "exit 3:"`) |
-| 27 | `LayeringTests.CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives`, in Debug (`Offenders: Curia.Domain.Content.PostKinds`). The same patch passes the Release run: measured when this plan was build-checked (`Passed!  - Failed:     0, Passed:    30`), which is D16 exactly and why Task 1's step exists |
+| 24 | `log_author.rs`' `r6_54_a_key_bound_after_the_post_is_not_established` (`called Result::unwrap_err() on an Ok value: VerifiedAuthor { … key_index: 2, post_index: 0 }`) |
+| 25 | `r6_54_a_binding_for_another_identity_fails` (`Ok` value: the other identity's binding carries the same key) and `r6_54_another_identitys_enrollment_fails` (`left: ("curia/acta/key-not-carried", true)`, `right: ("curia/acta/binding-mismatch", false)`): one comparison, whatever the entry's type |
+| 26 | `r6_54_an_enrollment_that_names_the_kid_alone_is_not_checked` (`left: ("curia/acta/missing-field", false)`, `right: ("curia/acta/key-not-carried", true)`); `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone` (``String: "exit 1: error: key entry has no usable `jwk` [curi"···``, `Expected start: "exit 3:"`) |
+| 27 | `LayeringTests.CS7_DomainOnlyDependsOnBclCanonAndDomainPrimitives`, in Debug (`Failed!  - Failed:     1, Passed:     7`; `Offenders: Curia.Domain.Content.PostKinds`). The same patch passes the Release run (`Passed!  - Failed:     0, Passed:    30`, measured by the pre-flight scan), which is D16 exactly and why Task 1's step exists. The run is filtered to `LayeringTests` because unfiltered, on a tree with no Debug test assemblies, CS15 fails too, patch or no patch |
+| 28 | `r6_54_a_key_bound_after_the_post_is_not_established` (`left: ("curia/acta/bound-after-post", false)`, `right: ("curia/acta/bound-after-post", true)`); `ActaEndpointTests.R6_54_TestisEstablishesAuthorshipFromTheLogAlone` at its `bound-late` control (`String: "exit 1: error: the key is bound at leaf …, which "···`, `Expected start: "exit 3:"`) |
+| 29 | `PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished` (`Expected: CouldNotCheck`, `Actual: Failed`) |
+| 30 | `PostVerifierTests.R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey` (`Expected: Failed`, `Actual: Verified`): no other client fact reaches the comparison |
 
-Three things in this table are deliberate:
+Four things in this table are deliberate:
 - **Cases 10 and 11 each leave the HTTP fact green,** and case 12 is the one the surface sees: each half of R4.31 (revised) backs the other, and R4.35 backs both at the token (trap 13).
 - **Cases 8 and 9 are one requirement on two paths.** Each wiring is broken alone, and the one fact shows which path opened.
 - **Case 18 is the RFC anchor's reason for being.** A renderer that swapped coordinates would have been consistent everywhere the Forum compares its own output with itself.
+- **Cases 20 and 29, and 24 and 28, are one rule twice in each reader.** Ignoring the order lets a binding after the post verify; reading it as a failure is the defect the pre-flight scan found (its B1). Each reader needs both cases, and case 28's Api run is what shows the exit code, not only the library's classification, carries it.
 
 If a case prints `PATCH MISMATCH`, `BUILD FAILED` or `GREEN`, the patch is wrong for the code as written: correct the **patch**, never the product code, and re-run that case alone (`python3 -u <scratchpad>/falsify.py <scratchpad>/falsify-keep <id>`). Record every correction. A patch that stays green on its first attempt is a finding until it is shown to be a bad patch (trap 13).
 
@@ -6588,7 +6873,7 @@ dotnet test Curia.sln -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Fai
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked 2>&1 | grep -E "^test result" | awk '{p+=$4; f+=$6} END {print "passed", p, "failed", f}'
 ```
 
-Expected: `git status --porcelain` prints nothing; `0 Warning(s)`; **eleven** `Passed!` lines and no `Failed!`; `passed 219 failed 0`. The `cargo build` is not optional: cases 24–26 left a patched binary behind until something rebuilt it, and the Api suite runs whatever `CURIA_TESTIS_BIN` names.
+Expected: `git status --porcelain` prints nothing; `0 Warning(s)`; **eleven** `Passed!` lines and no `Failed!`; `passed 220 failed 0`. The `cargo build` is not optional: cases 24–26 and 28 left a patched binary behind until something rebuilt it, and the Api suite runs whatever `CURIA_TESTIS_BIN` names.
 
 Only now is `falsify.log` quotable. Keep it; Task 10 copies from it.
 
@@ -6675,11 +6960,14 @@ with:
 
 ```markdown
 `docs/superpowers/specs/2026-09-26-moderation-that-can-act-design.md`, and carried out by the
-key-binding stage's Task 1: CI's .NET job runs the architecture project in Debug after the Release
-run (`.github/workflows/ci.yml`, the step "Architecture rules (Debug)"). That stage's falsification
-case 27 is the evidence the step carries information: a seven-case string switch put back into
-`PostKinds.TryParse` fails the Debug run and passes the Release one. The command-list half below is
-not touched by it.*
+key-binding stage's Task 1: CI's .NET job builds the solution in Debug after the Release run and runs
+the architecture project against it (`.github/workflows/ci.yml`, the step "Architecture rules
+(Debug)"). The solution build is part of the step because CS-15 reads the Debug output of two test
+assemblies, which testing the architecture project alone never builds: without it the step failed
+on every fresh checkout, and in a used tree it read whatever stale test assemblies were on disk.
+That stage's falsification case 27 is the evidence the step carries information: a seven-case string
+switch put back into `PostKinds.TryParse` fails the Debug run and passes the Release one. The
+command-list half below is not touched by it.*
 ```
 
 
@@ -6760,20 +7048,29 @@ key's, so a header naming the other allowed algorithm read as a bad signature
   `R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs`.
 - **R5.21.** Both validators refuse `curia/authn/alg-key-mismatch` before a verifier is chosen.
 - **R6.54.** `PostVerifier`'s fourth check, `key`, and `curia-testis log author`, which reads no agent
-  key set. The overall verdict needs the fourth check verified.
+  key set. The overall verdict needs the fourth check verified. Each reader compares the binding with
+  the post's author and `kid` before it trusts the binding's key
+  (`PostVerifierTests.R6_54_ABindingToAnotherAgentFailsThoughItCarriesTheSigningKey`), and reads the
+  author's binding after the post as *could not be checked*, never *failed*
+  (`PostVerifierTests.R6_54_AKeyBoundAfterThePostIsNotEstablished`).
 
 **What it does not close.** An identity enrolled before G16 is bound by its `kid` alone. A key under
 that `kid` is still honoured whatever its bytes, because nothing recorded the original, and a reader
 reports that identity's posts as *could not be checked*, never *verified*. A key under any other
 `kid` is no longer honoured for it (`LogBoundKeysTests.R4_35_AnIdentityEnrolledBeforeR4_34IsBoundByItsKidAlone`).
 Nothing appends a binding for such an identity; whether an operator should is the owner's question
-(the stage's spec, §7). No identity can rotate, revoke or recover a key yet: see "What comes next".
+(the stage's spec, §2.1). An identity the log never enrolled at all, one enrolled before
+`agent.enrolled` existed, is bound by the first request that re-presents a key the store holds for
+it, after its whole history, and of whichever key was re-presented (errata G16's fifth cost; see
+below). No identity can rotate, revoke or recover a key yet: see "What comes next".
 
-**Falsified:** the stage's Task 9, twenty-seven cases in thirty-eight suite runs, each red by name,
-every restore proved by bytes and by `git diff`, and the gates re-run unpatched after a
+**Falsified:** the stage's Task 9, thirty cases in forty-two suite runs, each red by name, every
+restore proved by bytes and by `git diff`, and the gates re-run unpatched after a
 `--no-incremental` rebuild. Cases 10 and 11 each leave the HTTP fact green by design, and case 12,
 both halves of R4.31 (revised) off at once, is the one the surface sees: R4.35 still refuses the
-impostor's token.
+impostor's token. Cases 28 to 30 came from the pre-flight scan: each reader reading the author's
+binding after the post as a failure (28, `curia-testis`; 29, the client), and the client not
+comparing the binding with the post (30).
 
 ### Observed during the key-binding stage, not acted on
 
@@ -6793,7 +7090,24 @@ impostor's token.
   whole history reads so. Keys the hole added under another `kid` are not published at all, so a
   post one of them signed now fails its signature check. Both are what the stage intends; whether
   an operator should append bindings for pre-G16 identities is the owner's question (the stage's
-  spec, §7).
+  spec, §2.1).
+- **An identity the log never enrolled is bound after its history, by anyone.** One enrolled before
+  `agent.enrolled` existed (5f96f51) has a store row and no enrollment in the log. A request
+  re-presenting a key the store holds for it succeeds, as R4.31 lets any identifier the log does not
+  record re-present a key the store holds, and since R4.34 it appends the binding too, after every
+  post the identity made. Anyone holding the public key can send it (R4.11's proof of possession is not
+  built), and it binds whichever row is re-presented, including a second key errata G14's hole added
+  before G14 closed it. Both readers read such history as *could not be checked*, not *failed*: that
+  was the pre-flight scan's finding B1, and the reason each reader checks the order before the key.
+  Whether to refuse that re-presentation, or give an operator the binding, is the owner's question
+  (the stage's spec, §2.1), and it matters only if some Forum holds such identities.
+- **The key set folds the whole log on every request**, as every route serving a post has done
+  since Phase 3 ("Every read still folds the whole log", under Stage 5's observations). It is
+  anonymous, and every R6.52 or R6.54 verification fetches it, so it joins that class and opens none;
+  the remedy named there covers it with the rest, because it calls the same
+  `ActaEndpoints.FoldAsync`. It has no index of its own on purpose: counting `seq` below the binding
+  would be a second computation of R6.47's leaf index, and the register records, under G9, that
+  `seq` has gaps and is not a position.
 - **An EdDSA key still needs a point check, or R4.11's proof of possession,** before an identity can
   hold two keys (D27's other leftover). A key nobody can sign with is bound as readily as any other,
   which harms only the identity that registered it until rotation lets it hold a second.
@@ -6991,8 +7305,10 @@ with:
 
 ```markdown
 configurations in CI (the moderation stage's spec, Decision 23) — and CI now carries it out: its
-.NET job runs `dotnet test tests/Curia.Architecture.Tests --no-restore --configuration Debug` after
-the Release run (the key-binding stage, Task 1), so a green CI has checked both configurations.
+.NET job builds `Curia.sln` in Debug after the Release run and then runs `dotnet test
+tests/Curia.Architecture.Tests --no-build --configuration Debug` (the key-binding stage, Task 1), so a
+green CI has checked both configurations. Locally, build the solution in Debug before that run:
+CS-15 reads two test assemblies' Debug output.
 ```
 
 
@@ -7070,9 +7386,11 @@ curia-testis log author --entry post-entry.json --proof post-proof.json \
 ```
 
 Exit 0 means the key entry binds a key to the post's author, at a lower index than the post, and
-the post verifies under that key. Exit 1 names what failed. Exit 3 means it could not be checked:
-no head was given, or the key entry is an enrollment made before the log carried keys, which names
-the `kid` and no key.
+the post verifies under that key. Exit 1 names what failed, a key entry that binds another identity
+or another `kid` among them. Exit 3 means it could not be checked: no head was given, or the log
+carries no key for the post's `kid` from before the post, because the key entry is the author's
+enrollment made before the log carried keys, which names the `kid` and no key, or the author's
+binding made after the post.
 ````
 
 In `README.md`, replace:
@@ -7187,7 +7505,8 @@ dotnet build Curia.sln -c Release --no-restore --no-incremental --nologo 2>&1 | 
 cargo build --manifest-path rust/curia-testis/Cargo.toml --bin curia-testis
 export CURIA_TESTIS_BIN="$PWD/rust/curia-testis/target/debug/curia-testis"
 dotnet test Curia.sln -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
-dotnet test tests/Curia.Architecture.Tests --no-restore --configuration Debug --nologo 2>&1 | grep -E "Passed!|Failed!"
+dotnet build Curia.sln --no-restore --configuration Debug --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
+dotnet test tests/Curia.Architecture.Tests --no-build --configuration Debug --nologo 2>&1 | grep -E "Passed!|Failed!"
 python3 tools/spec-checks/check-spec.py
 python3 tools/spec-checks/falsify-spec-checks.py
 cargo fmt --manifest-path rust/curia-testis/Cargo.toml --check
@@ -7198,7 +7517,7 @@ cargo build --manifest-path rust/curia-testis/Cargo.toml --release --bin curia-d
 node tools/differential-oracle/compare.mjs --fail-on-divergence; echo "compare exit $?"
 ```
 
-The Debug architecture command is CI's new step, word for word: without `--no-build` it compiles the project and every assembly it inspects in Debug first.
+The two Debug commands are CI's new step, word for word; the solution build is what puts the two test assemblies CS-15 reads where it reads them.
 
 Expected:
 - `git status --porcelain` prints nothing, before and after.
@@ -7212,7 +7531,7 @@ Expected:
   Passed!  - Failed:     0, Passed:    68, … - Curia.AuthN.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:    73, … - Curia.Mcp.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   106, … - Curia.Infrastructure.Tests.dll (net10.0)
-  Passed!  - Failed:     0, Passed:   209, … - Curia.Client.Tests.dll (net10.0)
+  Passed!  - Failed:     0, Passed:   210, … - Curia.Client.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   228, … - Curia.Api.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   262, … - Curia.Canon.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   291, … - Curia.Application.Tests.dll (net10.0)
@@ -7220,10 +7539,10 @@ Expected:
   ```
 
   The order of the lines varies from run to run; the counts do not. On `main` at 1dbe0ff they were 15, 30, 39, 66, 73, 106, 203, 215, 262, 279 and 608.
-- The Debug architecture run: `Passed!  - Failed:     0, Passed:    30`.
+- The Debug solution build: `0 Warning(s)`; the Debug architecture run: `Passed!  - Failed:     0, Passed:    30`.
 - `spec-checks: clean`, and the falsifier's four checks red, each naming its cell, as in Task 2's Step 4.
-- `fmt` prints nothing; `clippy` finishes with no warning; `passed 219 failed 0`.
-- The differential exits 0. **The build-check did not run it.** This stage changes no canonicalization and no envelope verification, and Task 3's Step 6 holds the key set's bytes to what they were; but only running it says whether the two implementations still agree, and a divergence is a release blocker (R14.6). If it exits non-zero, stop and report the report's path and its first divergence.
+- `fmt` prints nothing; `clippy` finishes with no warning; `passed 220 failed 0`.
+- The differential exits 0. The amended build-check ran it on Tasks 1–8 (`compared 22520 lines, found 0 divergence classes`). This stage changes no canonicalization and no envelope verification, and Task 3's Step 6 holds the key set's bytes to what they were; but only running it here says whether the two implementations still agree, and a divergence is a release blocker (R14.6). If it exits non-zero, stop and report the report's path and its first divergence.
 
 Never `head` a gate's output. If a run regenerated a tracked file, `git status --porcelain` shows it: commit it only if it is the expected change, and say so.
 
@@ -7245,9 +7564,9 @@ Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's
 - why `LogBoundKeys` asks the store first (Decision 6);
 - that R15.1's frozen set does not move, and the conformance vector and `curia-testis log author` that ship with the new entry kind;
 - D16's CI line, with case 27 as its evidence;
-- the falsification table from `falsify.log`, all twenty-seven cases;
+- the falsification table from `falsify.log`, all thirty cases;
 - the test plan, with the per-assembly lines Step 1 printed and the differential's exit;
-- what is observed and not fixed, and the one question left for the owner (the spec's §2.1).
+- what is observed and not fixed, the rulings on the pre-flight scan's two design questions (the spec's §8), and the one question left for the owner (the spec's §2.1).
 
 End the body with the attribution line your session's instructions give for pull requests.
 
