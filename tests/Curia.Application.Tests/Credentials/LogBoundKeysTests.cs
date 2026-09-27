@@ -163,4 +163,22 @@ public sealed class LogBoundKeysTests
             $"stored=2 bound=[alice-1@{bindingEvent}]",
             $"stored={set.Stored} bound=[{string.Join(",", set.Bound.Select(b => $"{b.Key.Key.Kid}@{b.Binding.EventId}"))}]");
     }
+
+    /// <summary>
+    /// The key set compares the key, not the <c>kid</c> alone: the store holds other bytes under the
+    /// <c>kid</c> the log bound, as a lost row's recovery registered them before R4.31 rev., and the set
+    /// lists nothing, though the store holds a row and the log binds its <c>kid</c>.
+    /// </summary>
+    [Fact]
+    public async Task R4_35_TheKeySetOmitsOtherBytesUnderTheBoundKid()
+    {
+        var key = TestKeys.Es256("alice-1");
+        var (keys, _) = await EnrolledAsync(key, (Alice, new RegisteredKey(TestKeys.Es256("alice-1"), Start, null)));
+
+        var set = Require(await keys.KeySetAsync(Alice, TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "stored=1 bound=[]",
+            $"stored={set.Stored} bound=[{string.Join(",", set.Bound.Select(b => $"{b.Key.Key.Kid}@{b.Binding.EventId}"))}]");
+    }
 }

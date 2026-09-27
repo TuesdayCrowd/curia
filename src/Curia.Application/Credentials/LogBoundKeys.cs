@@ -33,9 +33,17 @@ public sealed record AgentKeySet(int Stored, IReadOnlyList<BoundKey> Bound);
 /// log at all; what it answers is then held to the log's binding. So every refusal the store gave
 /// before R4.35 is unchanged, byte for byte, and R5.20's refusal still does not say whose a
 /// <c>kid</c> is.</para>
+///
+/// <para><b>A log that cannot be read refuses nothing.</b> Whether it binds the key is then unknown,
+/// so the answer is <see cref="LogUnreadable"/>, a server fault, and never the reader's refusal
+/// handed on as if it were the key's: ingest answers it 503 and the token endpoint
+/// <c>server_error</c>, where a 401 would tell an agent its key had been refused.</para>
 /// </summary>
 public sealed class LogBoundKeys : IAuthorKeyResolver
 {
+    /// <summary>The slug of <see cref="LogUnreadable"/>, for callers that match on it.</summary>
+    public const string LogUnreadableType = "curia/log/unreadable";
+
     private readonly IAuthorKeyResolver _store;
     private readonly IAuthorKeyRegistry _registry;
     private readonly IEventReader _events;
@@ -87,13 +95,30 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
         return Result<AgentKeySet>.Ok(new AgentKeySet(held.Count, bound));
     }
 
-    /// <summary>What the log binds to <paramref name="agentId"/>, or <see langword="null"/> when it records no enrollment of it.</summary>
+    /// <summary>
+    /// The log could not be read, so whether it binds a key is unknown. Names the reader's refusal by
+    /// its slug, never its text.
+    /// </summary>
+    public static Error LogUnreadable(Error readError)
+    {
+        ArgumentNullException.ThrowIfNull(readError);
+
+        return new Error(LogUnreadableType, "The event log could not be read", readError.Type);
+    }
+
+    /// <summary>
+    /// What the log binds to <paramref name="agentId"/>, or <see langword="null"/> when it records no
+    /// enrollment of it; <see cref="LogUnreadable"/> when the log cannot be read.
+    /// </summary>
     private async Task<Result<EnrollmentBinding?>> BindingAsync(string agentId, CancellationToken cancellationToken)
     {
         if (!AggregateId.Create(agentId).TryGetValue(out var aggregate, out _))
             return Result<EnrollmentBinding?>.Ok(null);
 
         var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
-        return read.Map(history => EnrollmentBinding.Find(history, agentId));
+        if (!read.TryGetValue(out var history, out var readError))
+            return Result<EnrollmentBinding?>.Fail(LogUnreadable(readError!));
+
+        return Result<EnrollmentBinding?>.Ok(EnrollmentBinding.Find(history!, agentId));
     }
 }

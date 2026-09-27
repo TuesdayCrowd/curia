@@ -3,6 +3,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Curia.Application.Ports;
+using Curia.Domain;
+using Curia.Domain.Primitives;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Xunit;
 
@@ -197,5 +202,89 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
         }
 
         Assert.Equal("404 curia/keys/unknown-agent", $"{(int)response.StatusCode} {type}");
+    }
+
+    /// <summary>
+    /// A log that cannot be read decides nothing about a key, so it is the server's fault and never a
+    /// refusal of the key (R4.35; the spec's Decision 8). With a reader that refuses the identity's
+    /// stream, the token endpoint answers <c>server_error</c>, as it answers its own read of the log's
+    /// failure, and ingest and the key set answer 503 <c>curia/log/unreadable</c>, where a 401 would
+    /// tell an agent its key had been refused. With a reader that refuses the whole-log read the key
+    /// set's positions are folded from, the key set answers 503 too, rather than serving its keys
+    /// without the leaves that bind them. Each names the reader's refusal by its slug, never its text.
+    /// </summary>
+    [Theory]
+    [InlineData("token", "stream", "500 {\"error\":\"server_error\",\"error_description\":\"The event log could not be read\",\"detail\":\"curia/log/unreadable\"}")]
+    [InlineData("question", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":\"test/log-unreadable\"}")]
+    [InlineData("key set", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":\"test/log-unreadable\"}")]
+    [InlineData("key set", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":\"test/log-unreadable\"}")]
+    public async Task R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(string path, string refuses, string expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Suffix();
+        var agent = ForumAgent.Create($"https://agents.example/unreadable-{suffix}", $"unreadable-{suffix}");
+        var (dpop, token) = await agent.AuthenticateAsync(forum.Client, TokenEndpoint, forum.Now, ct);
+
+        // The reader refuses only once the host is up: a host reconciles its vector index from the whole
+        // log as it starts, and does not start on a log it cannot read.
+        var started = false;
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton<IEventReader>(sp => new UnreadableLog(sp.GetRequiredService<IEventStore>(), refuses, () => started))));
+        using var client = host.CreateClient();
+        started = true;
+
+        string answer;
+        switch (path)
+        {
+            case "token":
+            {
+                var (status, body) = await DpopClient.For(agent, agent.AssertionKey)
+                    .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
+                answer = $"{(int)status} {body}";
+                break;
+            }
+
+            case "question":
+            {
+                using var asked = await dpop.PostAsync(
+                    client, PostsUrl, token,
+                    agent.SignQuestion("board-" + suffix, "Asked while the log cannot be read.", "Unreadable " + suffix, forum.Now),
+                    forum.Now, ct);
+                answer = $"{(int)asked.StatusCode} {await asked.Content.ReadAsStringAsync(ct)}";
+                break;
+            }
+
+            default:
+            {
+                using var served = await client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(agent.AgentId)}", UriKind.Relative), ct);
+                answer = $"{(int)served.StatusCode} {await served.Content.ReadAsStringAsync(ct)}";
+                break;
+            }
+        }
+
+        Assert.Equal(expected, answer);
+    }
+
+    /// <summary>
+    /// A log reader that, once <paramref name="refusing"/> says so, refuses one kind of read and hands
+    /// the other to the host's own store: an identity's stream, which <c>LogBoundKeys</c> reads
+    /// (<c>stream</c>), or the forward read the Acta is folded from (<c>whole</c>). The Postgres reader
+    /// throws rather than refusing, so only a reader such as this one reaches the refusal.
+    /// </summary>
+    private sealed class UnreadableLog(IEventReader store, string refuses, Func<bool> refusing) : IEventReader
+    {
+        private static readonly Error Refused = new("test/log-unreadable", "The test's reader refused the read");
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
+            AggregateId aggregateId, CancellationToken cancellationToken = default) =>
+            refuses is "stream" && refusing()
+                ? Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(Refused))
+                : store.ReadByAggregateAsync(aggregateId, cancellationToken);
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(
+            EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
+            refuses is "whole" && refusing()
+                ? Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(Refused))
+                : store.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 }

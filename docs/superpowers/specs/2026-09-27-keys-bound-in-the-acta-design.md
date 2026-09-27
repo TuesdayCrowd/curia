@@ -278,11 +278,20 @@ compared the two. It is recorded as trap 22.
       identifiers, never key material, and comes after every refusal the store gives (Decision 6).
     - The token endpoint puts the failing check's slug in `detail` (an observation the enrollment
       stage recorded and did not rule on); this slug joins the others there.
+    - A log that cannot be read is not this refusal: whether it binds the key is then unknown.
+      `LogBoundKeys` answers it `curia/log/unreadable`, which ingest and the key set serve as 503 and
+      the token endpoint as `server_error`, as it serves its own read of the log's failure; never
+      401, which would tell an agent its key had been refused.
 
 14. **Tests that move, and why each move is not a weakening.**
     - `StoredKeyFormTests`' theory of replaced rows reaching the verifier: its two rows move to
       pre-G16 identities, the only ones whose replaced row still reaches the verifier, and R4.35's own
       rows are added for identities enrolled since, which are refused before the verifier.
+    - `StoredKeyFormTests.R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish`: its rows move to pre-G16
+      identities too, each identity's own `kid`-bound row, the only rows that still reach the
+      renderer. Under an identity enrolled since, R4.35 refuses the row first and the renderer's
+      guard goes untested. The since-G16 shape becomes R4.35's own fact, with another holder's valid
+      key under the bound `kid`, which only the key set's comparison of bytes refuses.
     - The row whose header says `EdDSA` over an honest `ES256` key leaves the R4.15 theory, which
       asserts a bad signature, for R5.21's own fact, which asserts the refusal by name.
     - `TokenSubjectBindingTests`' key row no enrollment recorded is now refused by R4.35 before the

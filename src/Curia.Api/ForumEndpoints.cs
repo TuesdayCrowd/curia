@@ -23,6 +23,7 @@ using Curia.Application.Retrieval;
 using Curia.Domain.Search;
 using Curia.Domain.Serving;
 using Curia.Domain.Verification;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 
 namespace Curia.Api;
@@ -562,9 +563,17 @@ public static class ForumEndpoints
         // VERIFY against the authenticated subject. Table 9's "author must equal the authenticated
         // principal" is now a comparison against a token the client proved possession of, rather
         // than against the envelope's own claim about itself -- which is the difference PEP-1 makes.
+        // A log that could not be read decides nothing about the key (R4.35), so it is a 503, never
+        // the 401 that tells an agent its key was refused.
         var verified = await pipeline.VerifyAsync(a!, subject, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
-            return Problem(StatusCodes.Status401Unauthorized, verifyError!);
+        {
+            return Problem(
+                string.Equals(verifyError!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
+                    ? StatusCodes.Status503ServiceUnavailable
+                    : StatusCodes.Status401Unauthorized,
+                verifyError);
+        }
 
         // AUTHORIZE. R7.7: tier from live state, never from a claim -- and "live state" now means
         // the log rather than a process's memory. One forward scan yields both halves of Table 11's
@@ -1219,11 +1228,7 @@ public static class ForumEndpoints
         var agentId = agent;
         var read = await keys.KeySetAsync(agentId, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var keySet, out var readError))
-        {
-            return Results.Json(
-                new Problem("curia/log/unreadable", "The event log could not be read", readError!.Type),
-                statusCode: StatusCodes.Status503ServiceUnavailable);
-        }
+            return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
         if (keySet!.Stored == 0)
             return Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId));
@@ -1231,10 +1236,13 @@ public static class ForumEndpoints
         // The leaf that binds each key, from the Acta folded once, as every route that serves a post
         // or a log document folds it: no index of the key set's own, which would be a second
         // computation of R6.47's leaf index that must agree with the fold forever (the spec's
-        // Decision 8). A log that will not fold into a tree publishes the keys without positions
-        // rather than no keys: a reader then cannot check the binding, and says so (R6.54's absence
-        // is an absence).
-        var (acta, _) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
+        // Decision 8). A log that cannot be read is 503, as FoldAsync answers it. A log that reads
+        // but will not fold into a tree publishes the keys without positions rather than no keys: a
+        // reader then cannot check the binding, and says so (R6.54's absence is an absence).
+        var (acta, failure) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
+        if (failure is JsonHttpResult<Problem> { Value.Type: LogBoundKeys.LogUnreadableType })
+            return failure;
+
         return Results.Ok(Jwks.ForAgent(keySet.Bound, acta is null ? _ => null : acta.IndexOf));
     }
 

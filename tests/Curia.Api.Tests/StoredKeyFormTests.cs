@@ -28,10 +28,10 @@ namespace Curia.Api.Tests;
 /// <para><b>Since errata G16 the log carries an enrollment's key (R4.34)</b>, and a replaced row is
 /// not the key it carries, so for an identity enrolled since then the row is refused before any
 /// signature is checked (R4.35), which <see cref="R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken"/>
-/// holds. The rows R4.15's rule still decides are those of identities enrolled before G16, whose log
-/// binds the <c>kid</c> alone; the token theory's two replaced rows are made under such identities
-/// (<see cref="ForumFixture.EnrollBeforeKeyBindingAsync"/>), so the verifier's rule is still what
-/// refuses them.</para>
+/// holds. The rows R4.15's and R4.28's rules still decide are those of identities enrolled before
+/// G16, whose log binds the <c>kid</c> alone; the token theory's two replaced rows and the key set's
+/// three are made under such identities (<see cref="ForumFixture.EnrollBeforeKeyBindingAsync"/>), so
+/// the verifier's rule is still what refuses the first and the renderer's what omits the second.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -41,6 +41,7 @@ namespace Curia.Api.Tests;
 public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<ForumFixture>
 {
     private const string TokenEndpoint = "http://localhost/oauth/token";
+    private const string PostsUrl = "http://localhost/v1/posts";
 
     /// <summary>What the token endpoint answers an assertion that does not verify under the named agent's own key.</summary>
     private const string SignatureDoesNotVerify =
@@ -89,23 +90,6 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
         Assert.Equal(1, await replace.ExecuteNonQueryAsync(ct));
     }
 
-    /// <summary>A further row for <paramref name="agentId"/>, as the provisioning role.</summary>
-    private async Task InsertAsync(string agentId, string kid, string alg, byte[] material, CancellationToken ct)
-    {
-        await using var admin = new NpgsqlConnection(forum.ConnectionString);
-        await admin.OpenAsync(ct);
-        await using var insert = new NpgsqlCommand(
-            "INSERT INTO agent_keys (kid, agent_id, alg, public_key, valid_from, valid_until) " +
-            "VALUES (@kid, @agent, @alg, @material, @from, NULL);",
-            admin);
-        insert.Parameters.AddWithValue("kid", kid);
-        insert.Parameters.AddWithValue("agent", agentId);
-        insert.Parameters.AddWithValue("alg", alg);
-        insert.Parameters.AddWithValue("material", material);
-        insert.Parameters.AddWithValue("from", forum.Now);
-        Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
-    }
-
     /// <summary>
     /// The served key set as one line: the status, then for a 200 the kids served and each key's
     /// coordinate lengths in bytes (<c>-</c> for a key with no <c>y</c>); otherwise the body's first line.
@@ -130,32 +114,71 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     }
 
     /// <summary>
-    /// R4.28: the key set publishes a stored key only in its algorithm's form. Agent X is enrolled
-    /// honestly, and then gains three rows that are not keys of their algorithms: 32 raw bytes and a
-    /// P-384 key under <c>ES256</c>, and a P-256 key under <c>EdDSA</c>. X's key set serves the honest
-    /// key alone, on P-256's 32-byte coordinates. Agent Y's only row is replaced by 32 raw bytes, and
-    /// Y's key set is empty: the store holds a row, so it is not 404. Both key sets answered 500.
+    /// R4.28: the key set publishes a stored key only in its algorithm's form. Since errata G16 the
+    /// rows that reach the renderer are those of identities enrolled before it, which the log binds
+    /// by <c>kid</c> alone, whatever the stored bytes (R4.35); a row the log does not bind is refused
+    /// before it is rendered. So each row under test is such an identity's own, replaced as the
+    /// provisioning role: 32 raw bytes and a P-384 key under <c>ES256</c>, and a P-256 key under
+    /// <c>EdDSA</c>. Each key set is empty, not 404, because the store holds a row; before R4.28 each
+    /// answered 500. An honest identity enrolled the same way is the control: its key is served, on
+    /// P-256's 32-byte coordinates.
     /// </summary>
     [Fact]
     public async Task R4_28_AKeySetServesOnlyTheStoredKeysItCanPublish()
     {
         var ct = TestContext.Current.CancellationToken;
         var suffix = Suffix();
-        var x = await EnrolledAsync($"stored-x-{suffix}", ct);
-        var y = await EnrolledAsync($"stored-y-{suffix}", ct);
+        var honest = await EnrolledBeforeKeyBindingAsync($"stored-honest-{suffix}", ct);
+        var raw = await EnrolledBeforeKeyBindingAsync($"stored-raw-{suffix}", ct);
+        var p384 = await EnrolledBeforeKeyBindingAsync($"stored-p384-{suffix}", ct);
+        var spkiAsEddsa = await EnrolledBeforeKeyBindingAsync($"stored-spki-as-eddsa-{suffix}", ct);
 
-        await InsertAsync(x.AgentId, $"x-raw-{suffix}", "ES256", KeyMaterials.Build("32-raw-bytes", Message).Material, ct);
-        await InsertAsync(x.AgentId, $"x-p384-{suffix}", "ES256", KeyMaterials.Build("p384-spki", Message).Material, ct);
-        await InsertAsync(x.AgentId, $"x-spki-as-eddsa-{suffix}", "EdDSA", KeyMaterials.Build("p256-spki", Message).Material, ct);
-        await ReplaceAsync(y.Kid, "ES256", KeyMaterials.Build("32-raw-bytes", Message).Material, ct);
-
-        using var yResponse = await forum.Client.GetAsync(new Uri($"/v1/jwks?agent={Uri.EscapeDataString(y.AgentId)}", UriKind.Relative), ct);
-        var yBody = await yResponse.Content.ReadAsStringAsync(ct);
-        var yLine = $"{(int)yResponse.StatusCode} {yBody.Split('\n')[0][..Math.Min(yBody.Split('\n')[0].Length, 160)]}";
+        await ReplaceAsync(raw.Kid, "ES256", KeyMaterials.Build("32-raw-bytes", Message).Material, ct);
+        await ReplaceAsync(p384.Kid, "ES256", KeyMaterials.Build("p384-spki", Message).Material, ct);
+        await ReplaceAsync(spkiAsEddsa.Kid, "EdDSA", KeyMaterials.Build("p256-spki", Message).Material, ct);
 
         Assert.Equal(
-            $"X: 200 kids=[{x.Kid}] x=32 y=32; Y: 200 {{\"keys\":[]}}",
-            $"X: {await KeySetAsync(x.AgentId, ct)}; Y: {yLine}");
+            $"honest: 200 kids=[{honest.Kid}] x=32 y=32; raw: 200 kids=[] x= y=; p384: 200 kids=[] x= y=; spki-as-eddsa: 200 kids=[] x= y=",
+            $"honest: {await KeySetAsync(honest.AgentId, ct)}; raw: {await KeySetAsync(raw.AgentId, ct)}; "
+            + $"p384: {await KeySetAsync(p384.AgentId, ct)}; spki-as-eddsa: {await KeySetAsync(spkiAsEddsa.AgentId, ct)}");
+    }
+
+    /// <summary>
+    /// R4.35 (errata G16), the second kind of row G16 found: another holder's valid P-256 key under the
+    /// <c>kid</c> an identity enrolled since G16 bound, as a lost row's recovery registered it before
+    /// R4.31 (revised). The log carries the identity's own key, and this is not it, so its holder mints
+    /// no token as the identity, a question signed under it in the identity's name is refused, and the
+    /// key set does not publish it, which only a comparison of the key's bytes, not its <c>kid</c>, can
+    /// tell. The damage is asserted first, then each refusal by name.
+    /// </summary>
+    [Fact]
+    public async Task R4_35_AnotherHoldersKeyUnderABoundKidSignsNothingMintsNothingAndIsNotPublished()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Suffix();
+        var victim = ForumAgent.Create($"https://agents.example/stored-victim-{suffix}", $"stored-victim-{suffix}");
+        var (dpop, token) = await victim.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var impostor = ForumAgent.Create(victim.AgentId, victim.Kid);
+        await ReplaceAsync(victim.Kid, "ES256", impostor.AssertionKey.ExportSubjectPublicKeyInfo(), ct);
+
+        var (tokenStatus, tokenBody) = await DpopClient.For(impostor, impostor.AssertionKey)
+            .RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.AgentId, ct);
+        using var forged = await dpop.PostAsync(
+            client, PostsUrl, token,
+            impostor.SignQuestion("board-" + suffix, "Signed under another holder's key.", "Impostor " + suffix, forum.Now),
+            forum.Now, ct);
+        var forgedBody = await forged.Content.ReadAsStringAsync(ct);
+        var keySet = await KeySetAsync(victim.AgentId, ct);
+
+        Assert.True(
+            tokenStatus != HttpStatusCode.OK && forged.StatusCode != HttpStatusCode.Created && keySet == "200 kids=[] x= y=",
+            $"another holder's key under {victim.Kid} acted as {victim.AgentId}: token request {(int)tokenStatus}, question {(int)forged.StatusCode} {forgedBody}, key set {keySet}");
+        Assert.Equal($"401 {NotBoundByTheLog}", $"{(int)tokenStatus} {tokenBody}");
+        Assert.Equal(
+            "401 curia/keys/not-bound-by-the-log",
+            $"{(int)forged.StatusCode} {JsonNode.Parse(forgedBody)!["type"]!.GetValue<string>()}");
     }
 
     /// <summary>
