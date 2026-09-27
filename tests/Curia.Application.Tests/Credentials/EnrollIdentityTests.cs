@@ -188,6 +188,30 @@ public sealed class EnrollIdentityTests
             ct).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// An event store that takes one append and refuses every later one, changing nothing, as a store
+    /// does when a write fails after the first of two appends. What it tells apart is R4.34's "same
+    /// append": an enrollment written in one append is taken whole, and one written in two is not.
+    /// </summary>
+    private sealed class OneAppendEventStore(InMemoryEventStore inner) : IEventStore
+    {
+        private int _appends;
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+            AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken = default) =>
+            Interlocked.Increment(ref _appends) == 1
+                ? inner.AppendAsync(aggregateId, expectedVersion, events, cancellationToken)
+                : Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
+                    new Error("test/append-failed", "This store takes one append", "a write failed after the first append")));
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default) =>
+            inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(
+            EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
+            inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
+    }
+
     /// <summary>The <c>kid</c> each <c>agent.enrolled</c> in <paramref name="stream"/> names, in order.</summary>
     private static List<string> EnrolledKids(IReadOnlyList<AppendedEvent> stream) =>
     [
@@ -449,8 +473,10 @@ public sealed class EnrollIdentityTests
 
     /// <summary>
     /// R4.34 (errata G16): a fresh enrollment appends the record and the key it binds, in that order,
-    /// in one append, and the binding carries the key as RFC 7518's <c>EC</c> JWK. The coordinates
-    /// are read out of the key's DER here, independently of the renderer the Forum uses.
+    /// under one instant, and the binding carries the key as RFC 7518's <c>EC</c> JWK. The coordinates
+    /// are read out of the key's DER here, independently of the renderer the Forum uses. Under this
+    /// frozen clock two appends would share an instant too; that the two are one append is
+    /// <see cref="R4_34_AnEnrollmentAndItsBindingAreOneAppend"/>'s to show.
     /// </summary>
     [Fact]
     public async Task R4_34_AnEnrollmentBindsItsKeyInTheLogBesideItsRecord()
@@ -477,6 +503,86 @@ public sealed class EnrollIdentityTests
             $"agent_id={((JsonValue.String)payload.Members.Single(m => m.Key == AgentStandingProjector.AgentIdField).Value).Value}"
             + $" kid={((JsonValue.String)payload.Members.Single(m => m.Key == AgentStandingProjector.KeyIdField).Value).Value}"
             + " jwk=" + string.Join(",", jwk.Members.OrderBy(m => m.Key, StringComparer.Ordinal).Select(m => $"{m.Key}:{((JsonValue.String)m.Value).Value}")));
+    }
+
+    /// <summary>
+    /// R4.34 (errata G16): the enrollment and its binding are one append, so a write that fails
+    /// between two appends leaves both entries or neither, and never <c>agent.enrolled</c> without its
+    /// binding: an identity the log would bind by its <c>kid</c> alone, for good. The store here takes
+    /// one append and refuses every later one.
+    /// </summary>
+    [Fact]
+    public async Task R4_34_AnEnrollmentAndItsBindingAreOneAppend()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var oneAppend = new OneAppendEventStore(events);
+        var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, clock), clock);
+
+        var answer = await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct);
+
+        Assert.Equal(
+            "enrolled; agent.enrolled, agent.key-bound",
+            $"{(answer.TryGetValue(out _, out var error) ? "enrolled" : error!.Type)}; {string.Join(", ", Types(await StreamAsync(events, Alice, ct)))}");
+    }
+
+    /// <summary>
+    /// R4.34 (errata G16): the log's record carries the key as its public JWK, so a key the renderer
+    /// refuses is refused before anything is written. Refused after the store, it would leave a key
+    /// row no enrollment binds, which every re-send would re-present and meet the same refusal. The
+    /// route never lets such a key through; this holds the use case to it on its own.
+    /// </summary>
+    [Fact]
+    public async Task R4_34_AKeyTheLogCannotCarryIsRefusedBeforeAnythingIsWritten()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var keys = new InMemoryAuthorKeyRegistry();
+
+        var refused = Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, new PublicKeyMaterial("EdDSA", "alice-1", new byte[31]), ct));
+
+        Assert.Equal(PublicJwk.NotRenderableType, refused.Type);
+        Assert.Empty(await keys.KeysForAsync(Alice, ct));
+        Assert.Empty(await StreamAsync(events, Alice, ct));
+    }
+
+    /// <summary>
+    /// R4.34 (errata G16): a binding is an entry in the identity's own stream. One written in another
+    /// stream binds nothing to Alice though its payload names her, even when the history
+    /// <see cref="EnrollmentBinding.Find"/> reads is the whole log rather than her stream.
+    /// </summary>
+    [Fact]
+    public async Task R4_34_OnlyTheIdentitysOwnStreamBindsItsKeys()
+    {
+        const string Mallory = "https://agents.example/mallory";
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var planted = NewKey("alice-2");
+
+        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, NewKey("alice-1"), ct));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Mallory, NewKey("mallory-1"), ct));
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Mallory)),
+            Require(AggregateVersion.From(EnrollmentEntries.Length)),
+            [new DomainEvent(
+                Require(EventId.Create("planted-in-another-stream")),
+                Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                Require(ActorId.Create(Mallory)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(planted.Kid)),
+                    new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(planted))),
+                ]))],
+            ct));
+
+        var binding = EnrollmentBinding.Find(Require(await events.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct)), Alice);
+
+        Assert.NotNull(binding);
+        Assert.Equal("alice-1", string.Join(",", binding.Keys.Select(k => k.Kid)));
     }
 
     /// <summary>
@@ -538,6 +644,55 @@ public sealed class EnrollIdentityTests
 
         Assert.True(Require(await enroll.EnrollAsync(Alice, key, ct)).WasAlreadyEnrolled);
         Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Alice, ct)).NotBefore);
+    }
+
+    /// <summary>
+    /// R4.31 rev. as R4.35 reads the log (errata G16): an <c>agent.key-bound</c> entry that names a
+    /// <c>kid</c> binds it, whatever else it carries. One whose <c>jwk</c> is not a key binds the
+    /// <c>kid</c> to no key, and the kid-only clause of the identity's <c>agent.enrolled</c> does not
+    /// stand for it, so after a lost row no bytes under that <c>kid</c> are registered. No writer in
+    /// this solution produces such an entry; this holds the reader to the log if one is ever there.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Alice)),
+            AggregateVersion.New,
+            [
+                new DomainEvent(
+                    Require(EventId.Create("enrolled-beside-a-binding-without-a-key")),
+                    Require(EventType.Create(AgentStandingProjector.EnrolledType)),
+                    Require(ActorId.Create(Alice)),
+                    new JsonValue.Object(
+                    [
+                        new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                        new(AgentStandingProjector.KeyIdField, new JsonValue.String("alice-1")),
+                        new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted")),
+                    ])),
+                new DomainEvent(
+                    Require(EventId.Create("a-binding-without-a-key")),
+                    Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                    Require(ActorId.Create(Alice)),
+                    new JsonValue.Object(
+                    [
+                        new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                        new(AgentStandingProjector.KeyIdField, new JsonValue.String("alice-1")),
+                        new(AgentStandingProjector.JwkField, new JsonValue.String("not-a-key")),
+                    ])),
+            ],
+            ct));
+
+        clock.Advance(TimeSpan.FromDays(1));
+        var lost = new InMemoryAuthorKeyRegistry();
+
+        Assert.Equal("curia/keys/material-immutable", Refusal(await Enroll(events, lost, clock).EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
+        Assert.Empty(await lost.KeysForAsync(Alice, ct));
+        Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>

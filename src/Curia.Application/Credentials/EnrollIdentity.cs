@@ -21,8 +21,9 @@ namespace Curia.Application.Credentials;
 /// or was written before G14 and holds keys no enrollment bound (R4.31 rev., errata G16). An
 /// identifier the log has not enrolled is refused, before the store is asked to register, while the
 /// store holds more than one key for it: nothing in the log says which is its own.</item>
-/// <item><b>The key store's enrollment</b> (<see cref="IAuthorKeyRegistry.EnrollAsync"/>): registers
-/// only for an identity holding no key, atomically against a concurrent enrollment of the same
+/// <item><b>The key store's enrollment</b> (<see cref="IAuthorKeyRegistry.EnrollAsync"/>), asked only
+/// for a key the log can carry as a public JWK (R4.34): registers only for an identity holding no
+/// key, atomically against a concurrent enrollment of the same
 /// identity, and refuses other bytes under a held <c>kid</c>. For an identity the log has already
 /// enrolled, "holding no key" means the store lost its row, and the bound key is registered again
 /// from the instant the log bound it -- R4.31's one exception -- unless another identity has
@@ -114,6 +115,14 @@ public sealed class EnrollIdentity
         // its insert, and no post's server_ts precedes it: a post is admitted only once the log holds
         // the binding. When the store still holds the key, the date is not read.
         var notBefore = bound?.BoundAt ?? _clock.GetUtcNow();
+
+        // R4.34: the log's record binds the key as its public JWK, and refuses a key that renders to
+        // none. Asked after the store, that refusal would leave a row no enrollment binds, and every
+        // re-send would re-present the row and meet the same refusal. So it is asked here, before
+        // anything is written. The route admits only a key its verifier calls a key, and that rule and
+        // the renderer agree (PublicJwkTests), so only a caller that skips the route meets it.
+        if (!PublicJwk.Of(key).TryGetValue(out _, out var renderError))
+            return Result<AgentEnrollment>.Fail(renderError!);
 
         var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
         if (!registered.TryGetValue(out _, out var keyError))

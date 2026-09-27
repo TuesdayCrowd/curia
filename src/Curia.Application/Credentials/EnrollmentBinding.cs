@@ -12,10 +12,12 @@ namespace Curia.Application.Credentials;
 /// </summary>
 /// <param name="Kid">The bound <c>kid</c>.</param>
 /// <param name="Jwk">
-/// The key as <see cref="PublicJwk.Of"/> rendered it, from an <c>agent.key-bound</c> entry; or
-/// <see langword="null"/> for an identity enrolled before R4.34, whose <c>agent.enrolled</c> names the
-/// <c>kid</c> and no key. Such a binding cannot tell two keys under one <c>kid</c> apart, and
-/// <see cref="Holds"/> says so by answering on the <c>kid</c> alone.
+/// The key as <see cref="PublicJwk.Of"/> rendered it, from an <c>agent.key-bound</c> entry; the empty
+/// object when that entry carries no JSON object as its <c>jwk</c>, which no key's rendering equals,
+/// so <see cref="Holds"/> holds no key under its <c>kid</c>; or <see langword="null"/> for an identity
+/// enrolled before R4.34, whose <c>agent.enrolled</c> names the <c>kid</c> and no key. Such a binding
+/// cannot tell two keys under one <c>kid</c> apart, and <see cref="Holds"/> says so by answering on
+/// the <c>kid</c> alone.
 /// </param>
 /// <param name="BoundAt">The instant the log recorded the binding. R4.31 dates a key re-registered after a lost row from here (R6.31).</param>
 /// <param name="EventId">The entry that binds it: where a reader finds the binding in the log (R6.54).</param>
@@ -60,7 +62,14 @@ public sealed record KeyBinding(string Kid, JsonValue.Object? Jwk, DateTimeOffse
 /// </param>
 public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray<KeyBinding> Keys)
 {
-    /// <summary>The binding the log holds for <paramref name="agentId"/>, or <see langword="null"/> when it holds no enrollment.</summary>
+    /// <summary>What an <c>agent.key-bound</c> entry whose <c>jwk</c> is not a JSON object carries: no key.</summary>
+    private static readonly JsonValue.Object NoKey = new([]);
+
+    /// <summary>
+    /// The binding the log holds for <paramref name="agentId"/>, or <see langword="null"/> when it holds
+    /// no enrollment. Only entries in <paramref name="agentId"/>'s own stream count (R4.34), so
+    /// <paramref name="history"/> may be the identity's stream or any wider read of the log.
+    /// </summary>
     public static EnrollmentBinding? Find(IReadOnlyList<AppendedEvent> history, string agentId)
     {
         ArgumentNullException.ThrowIfNull(history);
@@ -72,6 +81,7 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
 
         foreach (var appended in history)
         {
+            if (!string.Equals(appended.AggregateId.Value, agentId, StringComparison.Ordinal)) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
             if (!string.Equals(Text(payload, AgentStandingProjector.AgentIdField), agentId, StringComparison.Ordinal)) continue;
 
@@ -83,9 +93,12 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
                     legacy = new KeyBinding(kid, null, appended.ServerTimestamp.Value, appended.Event.Id.Value);
             }
             else if (string.Equals(type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
-                && Text(payload, AgentStandingProjector.KeyIdField) is { } kid
-                && Member(payload, AgentStandingProjector.JwkField) is JsonValue.Object jwk)
+                && Text(payload, AgentStandingProjector.KeyIdField) is { } kid)
             {
+                // An entry that names a kid binds it, whatever else it carries (R4.35): one with no
+                // object for a jwk binds the kid to no key, and the kid-only clause below does not
+                // stand for it either.
+                var jwk = Member(payload, AgentStandingProjector.JwkField) as JsonValue.Object ?? NoKey;
                 bound.Add(new KeyBinding(kid, jwk, appended.ServerTimestamp.Value, appended.Event.Id.Value));
             }
         }
@@ -100,7 +113,10 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
         return new EnrollmentBinding(at, bound.ToImmutable());
     }
 
-    /// <summary>The binding for <paramref name="kid"/>, or <see langword="null"/> when the log binds no key under it to this identity.</summary>
+    /// <summary>
+    /// The binding for <paramref name="kid"/>, or <see langword="null"/> when the log binds no key under
+    /// it to this identity. Where two entries bind one <c>kid</c>, the first in log order answers.
+    /// </summary>
     public KeyBinding? For(string kid) =>
         Keys.FirstOrDefault(k => string.Equals(k.Kid, kid, StringComparison.Ordinal));
 

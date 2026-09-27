@@ -383,8 +383,11 @@ public static class ForumEndpoints
     /// holds none, and never changes one it holds, and the token endpoint honours a key only for the
     /// identity it is registered to -- except in two cases. An identifier nobody has enrolled
     /// belongs to whoever enrolls it first (plan D4, D7), unless R4.33 refuses it because the event
-    /// log keeps it for its own records. And a lost key row is bound again on its <c>kid</c> alone, by
-    /// whoever presents it first, unless another identity took it (R4.31).</para>
+    /// log keeps it for its own records, or R4.31 because the key store holds several keys for it and
+    /// the log binds none (<c>curia/enroll/keys-ambiguous</c>, errata G16). And a lost key row is
+    /// registered again only with the key the log binds (R4.31 rev., R4.34), unless another identity
+    /// took its <c>kid</c>; for an identity enrolled before R4.34, whose log binds the <c>kid</c>
+    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first.</para>
     ///
     /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
     /// before anything is read or written, each refused 400 by name: the two identifiers' text

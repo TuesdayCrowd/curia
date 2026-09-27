@@ -171,9 +171,10 @@ public sealed class EnrollAgent
         PublicKeyMaterial key,
         CancellationToken cancellationToken)
     {
-        // R4.34: the key as the key set publishes it. The route admits only a key its verifier calls
-        // a key, and that verifier's rule and this renderer agree (PublicJwkTests), so a refusal here
-        // is a caller that skipped the route's check; it is reported, and nothing is appended.
+        // R4.34: the key as the key set publishes it. EnrollIdentity refuses a key that renders to none
+        // before the key store is asked, so through the use case this refuses nothing; a caller that
+        // records alone, skipping the route's check and the use case's, is refused here, and nothing
+        // is appended.
         if (!PublicJwk.Of(key).TryGetValue(out var jwk, out var jwkError))
             return Result<AgentEnrollment>.Fail(jwkError!);
 

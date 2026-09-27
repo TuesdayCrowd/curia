@@ -1056,7 +1056,7 @@ but commit -b keys-bound-in-the-acta -m "$(printf 'PublicJwk: the one rendering 
 
 **Files:**
 - Create: `tests/Curia.Application.Tests/TestKeys.cs`, `conformance/acta/key-bound-entry/` (five files, by script)
-- Modify: `src/Curia.Application/Projections/AgentStandingProjection.cs`, `src/Curia.Application/Credentials/EnrollmentBinding.cs` (whole file), `src/Curia.Application/Credentials/EnrollAgent.cs`, `src/Curia.Application/Credentials/EnrollIdentity.cs`, `src/Curia.Api/ForumEndpoints.cs` (the enrollment route's 409s)
+- Modify: `src/Curia.Application/Projections/AgentStandingProjection.cs`, `src/Curia.Application/Credentials/EnrollmentBinding.cs` (whole file), `src/Curia.Application/Credentials/EnrollAgent.cs`, `src/Curia.Application/Credentials/EnrollIdentity.cs`, `src/Curia.Api/ForumEndpoints.cs` (the enrollment route's 409s, and the exceptions its comment names)
 - Modify (tests): `tests/Curia.Api.Tests/EnrollmentBindingTests.cs`, `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs`, `tests/Curia.Application.Tests/Projections/AgentStandingProjectorTests.cs`, `tests/Curia.Application.Tests/Projections/SearchProjectorTests.cs`, `tests/Curia.Domain.Tests/Acta/LogLeafTests.cs`, `tests/Curia.Api.Tests/EnrollmentIdentifierTests.cs`, `tests/Curia.Api.Tests/FlagPrivacyGateTests.cs`
 - Modify (corpus): `conformance/index.json`, `conformance/README.md`, `rust/curia-testis/tests/vectors.rs`
 
@@ -1098,7 +1098,7 @@ internal static class TestKeys
 }
 ```
 
-The use case's facts: seven new ones — R4.34's two, R4.31 (revised)'s refusal of other bytes at the use case and at the log's record, the pre-R4.34 identity bound by its `kid` alone, the seam the enrollment stage left (its spec's Decision 8), and an identifier the log never enrolled while the store holds several keys for it — and the counts of a stream's entries, which an enrollment now makes two:
+The use case's facts: eleven new ones — R4.34's five (the entry's shape, the vector's payload, one append or none, a key the log cannot carry refused before anything is written, and only the identity's own stream binding its keys), R4.31 (revised)'s refusal of other bytes at the use case and at the log's record and of any bytes under a `kid` whose binding carries no key, the pre-R4.34 identity bound by its `kid` alone, the seam the enrollment stage left (its spec's Decision 8), and an identifier the log never enrolled while the store holds several keys for it — and the counts of a stream's entries, which an enrollment now makes two:
 
 In `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs`, replace:
 
@@ -1173,6 +1173,30 @@ with:
                     new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(key))),
                 ]))],
             ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// An event store that takes one append and refuses every later one, changing nothing, as a store
+    /// does when a write fails after the first of two appends. What it tells apart is R4.34's "same
+    /// append": an enrollment written in one append is taken whole, and one written in two is not.
+    /// </summary>
+    private sealed class OneAppendEventStore(InMemoryEventStore inner) : IEventStore
+    {
+        private int _appends;
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+            AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken = default) =>
+            Interlocked.Increment(ref _appends) == 1
+                ? inner.AppendAsync(aggregateId, expectedVersion, events, cancellationToken)
+                : Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
+                    new Error("test/append-failed", "This store takes one append", "a write failed after the first append")));
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default) =>
+            inner.ReadByAggregateAsync(aggregateId, cancellationToken);
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(
+            EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
+            inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 
     /// <summary>The <c>kid</c> each <c>agent.enrolled</c> in <paramref name="stream"/> names, in order.</summary>
@@ -1329,8 +1353,10 @@ with:
 
     /// <summary>
     /// R4.34 (errata G16): a fresh enrollment appends the record and the key it binds, in that order,
-    /// in one append, and the binding carries the key as RFC 7518's <c>EC</c> JWK. The coordinates
-    /// are read out of the key's DER here, independently of the renderer the Forum uses.
+    /// under one instant, and the binding carries the key as RFC 7518's <c>EC</c> JWK. The coordinates
+    /// are read out of the key's DER here, independently of the renderer the Forum uses. Under this
+    /// frozen clock two appends would share an instant too; that the two are one append is
+    /// <see cref="R4_34_AnEnrollmentAndItsBindingAreOneAppend"/>'s to show.
     /// </summary>
     [Fact]
     public async Task R4_34_AnEnrollmentBindsItsKeyInTheLogBesideItsRecord()
@@ -1357,6 +1383,86 @@ with:
             $"agent_id={((JsonValue.String)payload.Members.Single(m => m.Key == AgentStandingProjector.AgentIdField).Value).Value}"
             + $" kid={((JsonValue.String)payload.Members.Single(m => m.Key == AgentStandingProjector.KeyIdField).Value).Value}"
             + " jwk=" + string.Join(",", jwk.Members.OrderBy(m => m.Key, StringComparer.Ordinal).Select(m => $"{m.Key}:{((JsonValue.String)m.Value).Value}")));
+    }
+
+    /// <summary>
+    /// R4.34 (errata G16): the enrollment and its binding are one append, so a write that fails
+    /// between two appends leaves both entries or neither, and never <c>agent.enrolled</c> without its
+    /// binding: an identity the log would bind by its <c>kid</c> alone, for good. The store here takes
+    /// one append and refuses every later one.
+    /// </summary>
+    [Fact]
+    public async Task R4_34_AnEnrollmentAndItsBindingAreOneAppend()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var oneAppend = new OneAppendEventStore(events);
+        var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, clock), clock);
+
+        var answer = await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct);
+
+        Assert.Equal(
+            "enrolled; agent.enrolled, agent.key-bound",
+            $"{(answer.TryGetValue(out _, out var error) ? "enrolled" : error!.Type)}; {string.Join(", ", Types(await StreamAsync(events, Alice, ct)))}");
+    }
+
+    /// <summary>
+    /// R4.34 (errata G16): the log's record carries the key as its public JWK, so a key the renderer
+    /// refuses is refused before anything is written. Refused after the store, it would leave a key
+    /// row no enrollment binds, which every re-send would re-present and meet the same refusal. The
+    /// route never lets such a key through; this holds the use case to it on its own.
+    /// </summary>
+    [Fact]
+    public async Task R4_34_AKeyTheLogCannotCarryIsRefusedBeforeAnythingIsWritten()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var keys = new InMemoryAuthorKeyRegistry();
+
+        var refused = Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, new PublicKeyMaterial("EdDSA", "alice-1", new byte[31]), ct));
+
+        Assert.Equal(PublicJwk.NotRenderableType, refused.Type);
+        Assert.Empty(await keys.KeysForAsync(Alice, ct));
+        Assert.Empty(await StreamAsync(events, Alice, ct));
+    }
+
+    /// <summary>
+    /// R4.34 (errata G16): a binding is an entry in the identity's own stream. One written in another
+    /// stream binds nothing to Alice though its payload names her, even when the history
+    /// <see cref="EnrollmentBinding.Find"/> reads is the whole log rather than her stream.
+    /// </summary>
+    [Fact]
+    public async Task R4_34_OnlyTheIdentitysOwnStreamBindsItsKeys()
+    {
+        const string Mallory = "https://agents.example/mallory";
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+        var planted = NewKey("alice-2");
+
+        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, NewKey("alice-1"), ct));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Mallory, NewKey("mallory-1"), ct));
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Mallory)),
+            Require(AggregateVersion.From(EnrollmentEntries.Length)),
+            [new DomainEvent(
+                Require(EventId.Create("planted-in-another-stream")),
+                Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                Require(ActorId.Create(Mallory)),
+                new JsonValue.Object(
+                [
+                    new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                    new(AgentStandingProjector.KeyIdField, new JsonValue.String(planted.Kid)),
+                    new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(planted))),
+                ]))],
+            ct));
+
+        var binding = EnrollmentBinding.Find(Require(await events.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct)), Alice);
+
+        Assert.NotNull(binding);
+        Assert.Equal("alice-1", string.Join(",", binding.Keys.Select(k => k.Kid)));
     }
 
     /// <summary>
@@ -1418,6 +1524,55 @@ with:
 
         Assert.True(Require(await enroll.EnrollAsync(Alice, key, ct)).WasAlreadyEnrolled);
         Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Alice, ct)).NotBefore);
+    }
+
+    /// <summary>
+    /// R4.31 rev. as R4.35 reads the log (errata G16): an <c>agent.key-bound</c> entry that names a
+    /// <c>kid</c> binds it, whatever else it carries. One whose <c>jwk</c> is not a key binds the
+    /// <c>kid</c> to no key, and the kid-only clause of the identity's <c>agent.enrolled</c> does not
+    /// stand for it, so after a lost row no bytes under that <c>kid</c> are registered. No writer in
+    /// this solution produces such an entry; this holds the reader to the log if one is ever there.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock);
+
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Alice)),
+            AggregateVersion.New,
+            [
+                new DomainEvent(
+                    Require(EventId.Create("enrolled-beside-a-binding-without-a-key")),
+                    Require(EventType.Create(AgentStandingProjector.EnrolledType)),
+                    Require(ActorId.Create(Alice)),
+                    new JsonValue.Object(
+                    [
+                        new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                        new(AgentStandingProjector.KeyIdField, new JsonValue.String("alice-1")),
+                        new(AgentStandingProjector.ReasonField, new JsonValue.String("Enrollment accepted")),
+                    ])),
+                new DomainEvent(
+                    Require(EventId.Create("a-binding-without-a-key")),
+                    Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                    Require(ActorId.Create(Alice)),
+                    new JsonValue.Object(
+                    [
+                        new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+                        new(AgentStandingProjector.KeyIdField, new JsonValue.String("alice-1")),
+                        new(AgentStandingProjector.JwkField, new JsonValue.String("not-a-key")),
+                    ])),
+            ],
+            ct));
+
+        clock.Advance(TimeSpan.FromDays(1));
+        var lost = new InMemoryAuthorKeyRegistry();
+
+        Assert.Equal("curia/keys/material-immutable", Refusal(await Enroll(events, lost, clock).EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
+        Assert.Empty(await lost.KeysForAsync(Alice, ct));
+        Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
     /// <summary>
@@ -2209,10 +2364,12 @@ namespace Curia.Application.Credentials;
 /// </summary>
 /// <param name="Kid">The bound <c>kid</c>.</param>
 /// <param name="Jwk">
-/// The key as <see cref="PublicJwk.Of"/> rendered it, from an <c>agent.key-bound</c> entry; or
-/// <see langword="null"/> for an identity enrolled before R4.34, whose <c>agent.enrolled</c> names the
-/// <c>kid</c> and no key. Such a binding cannot tell two keys under one <c>kid</c> apart, and
-/// <see cref="Holds"/> says so by answering on the <c>kid</c> alone.
+/// The key as <see cref="PublicJwk.Of"/> rendered it, from an <c>agent.key-bound</c> entry; the empty
+/// object when that entry carries no JSON object as its <c>jwk</c>, which no key's rendering equals,
+/// so <see cref="Holds"/> holds no key under its <c>kid</c>; or <see langword="null"/> for an identity
+/// enrolled before R4.34, whose <c>agent.enrolled</c> names the <c>kid</c> and no key. Such a binding
+/// cannot tell two keys under one <c>kid</c> apart, and <see cref="Holds"/> says so by answering on
+/// the <c>kid</c> alone.
 /// </param>
 /// <param name="BoundAt">The instant the log recorded the binding. R4.31 dates a key re-registered after a lost row from here (R6.31).</param>
 /// <param name="EventId">The entry that binds it: where a reader finds the binding in the log (R6.54).</param>
@@ -2257,7 +2414,14 @@ public sealed record KeyBinding(string Kid, JsonValue.Object? Jwk, DateTimeOffse
 /// </param>
 public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray<KeyBinding> Keys)
 {
-    /// <summary>The binding the log holds for <paramref name="agentId"/>, or <see langword="null"/> when it holds no enrollment.</summary>
+    /// <summary>What an <c>agent.key-bound</c> entry whose <c>jwk</c> is not a JSON object carries: no key.</summary>
+    private static readonly JsonValue.Object NoKey = new([]);
+
+    /// <summary>
+    /// The binding the log holds for <paramref name="agentId"/>, or <see langword="null"/> when it holds
+    /// no enrollment. Only entries in <paramref name="agentId"/>'s own stream count (R4.34), so
+    /// <paramref name="history"/> may be the identity's stream or any wider read of the log.
+    /// </summary>
     public static EnrollmentBinding? Find(IReadOnlyList<AppendedEvent> history, string agentId)
     {
         ArgumentNullException.ThrowIfNull(history);
@@ -2269,6 +2433,7 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
 
         foreach (var appended in history)
         {
+            if (!string.Equals(appended.AggregateId.Value, agentId, StringComparison.Ordinal)) continue;
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
             if (!string.Equals(Text(payload, AgentStandingProjector.AgentIdField), agentId, StringComparison.Ordinal)) continue;
 
@@ -2280,9 +2445,12 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
                     legacy = new KeyBinding(kid, null, appended.ServerTimestamp.Value, appended.Event.Id.Value);
             }
             else if (string.Equals(type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
-                && Text(payload, AgentStandingProjector.KeyIdField) is { } kid
-                && Member(payload, AgentStandingProjector.JwkField) is JsonValue.Object jwk)
+                && Text(payload, AgentStandingProjector.KeyIdField) is { } kid)
             {
+                // An entry that names a kid binds it, whatever else it carries (R4.35): one with no
+                // object for a jwk binds the kid to no key, and the kid-only clause below does not
+                // stand for it either.
+                var jwk = Member(payload, AgentStandingProjector.JwkField) as JsonValue.Object ?? NoKey;
                 bound.Add(new KeyBinding(kid, jwk, appended.ServerTimestamp.Value, appended.Event.Id.Value));
             }
         }
@@ -2297,7 +2465,10 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
         return new EnrollmentBinding(at, bound.ToImmutable());
     }
 
-    /// <summary>The binding for <paramref name="kid"/>, or <see langword="null"/> when the log binds no key under it to this identity.</summary>
+    /// <summary>
+    /// The binding for <paramref name="kid"/>, or <see langword="null"/> when the log binds no key under
+    /// it to this identity. Where two entries bind one <c>kid</c>, the first in log order answers.
+    /// </summary>
     public KeyBinding? For(string kid) =>
         Keys.FirstOrDefault(k => string.Equals(k.Kid, kid, StringComparison.Ordinal));
 
@@ -2488,9 +2659,10 @@ with:
         PublicKeyMaterial key,
         CancellationToken cancellationToken)
     {
-        // R4.34: the key as the key set publishes it. The route admits only a key its verifier calls
-        // a key, and that verifier's rule and this renderer agree (PublicJwkTests), so a refusal here
-        // is a caller that skipped the route's check; it is reported, and nothing is appended.
+        // R4.34: the key as the key set publishes it. EnrollIdentity refuses a key that renders to none
+        // before the key store is asked, so through the use case this refuses nothing; a caller that
+        // records alone, skipping the route's check and the use case's, is refused here, and nothing
+        // is appended.
         if (!PublicJwk.Of(key).TryGetValue(out var jwk, out var jwkError))
             return Result<AgentEnrollment>.Fail(jwkError!);
 
@@ -2577,8 +2749,9 @@ with:
 /// or was written before G14 and holds keys no enrollment bound (R4.31 rev., errata G16). An
 /// identifier the log has not enrolled is refused, before the store is asked to register, while the
 /// store holds more than one key for it: nothing in the log says which is its own.</item>
-/// <item><b>The key store's enrollment</b> (<see cref="IAuthorKeyRegistry.EnrollAsync"/>): registers
-/// only for an identity holding no key, atomically against a concurrent enrollment of the same
+/// <item><b>The key store's enrollment</b> (<see cref="IAuthorKeyRegistry.EnrollAsync"/>), asked only
+/// for a key the log can carry as a public JWK (R4.34): registers only for an identity holding no
+/// key, atomically against a concurrent enrollment of the same
 /// identity, and refuses other bytes under a held <c>kid</c>. For an identity the log has already
 /// enrolled, "holding no key" means the store lost its row, and the bound key is registered again
 /// from the instant the log bound it -- R4.31's one exception -- unless another identity has
@@ -2639,6 +2812,14 @@ with:
         // its insert, and no post's server_ts precedes it: a post is admitted only once the log holds
         // the binding. When the store still holds the key, the date is not read.
         var notBefore = bound?.BoundAt ?? _clock.GetUtcNow();
+
+        // R4.34: the log's record binds the key as its public JWK, and refuses a key that renders to
+        // none. Asked after the store, that refusal would leave a row no enrollment binds, and every
+        // re-send would re-present the row and meet the same refusal. So it is asked here, before
+        // anything is written. The route admits only a key its verifier calls a key, and that rule and
+        // the renderer agree (PublicJwkTests), so only a caller that skips the route meets it.
+        if (!PublicJwk.Of(key).TryGetValue(out _, out var renderError))
+            return Result<AgentEnrollment>.Fail(renderError!);
 
         var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
 ```
@@ -2717,6 +2898,29 @@ with:
                     or EnrollmentErrors.IdentifierReservedType
                     or EnrollmentErrors.KeysAmbiguousType
                 ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))
+```
+
+The route's account of who may enroll names both exceptions this task leaves, and no longer says every lost row is bound again on its `kid` alone:
+
+In `src/Curia.Api/ForumEndpoints.cs`, replace:
+
+```csharp
+    /// identity it is registered to -- except in two cases. An identifier nobody has enrolled
+    /// belongs to whoever enrolls it first (plan D4, D7), unless R4.33 refuses it because the event
+    /// log keeps it for its own records. And a lost key row is bound again on its <c>kid</c> alone, by
+    /// whoever presents it first, unless another identity took it (R4.31).</para>
+```
+
+with:
+
+```csharp
+    /// identity it is registered to -- except in two cases. An identifier nobody has enrolled
+    /// belongs to whoever enrolls it first (plan D4, D7), unless R4.33 refuses it because the event
+    /// log keeps it for its own records, or R4.31 because the key store holds several keys for it and
+    /// the log binds none (<c>curia/enroll/keys-ambiguous</c>, errata G16). And a lost key row is
+    /// registered again only with the key the log binds (R4.31 rev., R4.34), unless another identity
+    /// took its <c>kid</c>; for an identity enrolled before R4.34, whose log binds the <c>kid</c>
+    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first.</para>
 ```
 
 - [ ] **Step 7: The conformance vector**
@@ -2916,7 +3120,7 @@ with:
 dotnet test tests/Curia.Application.Tests -c Release --nologo 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `Passed!  - Failed:     0, Passed:   286, …  - Curia.Application.Tests.dll (net10.0)`. Seven more than before: the seven facts of Step 1. `R4_34_AnEnrollmentWritesTheConformanceVectorsPayload` reads the vector Step 7 wrote.
+Expected: `Passed!  - Failed:     0, Passed:   290, …  - Curia.Application.Tests.dll (net10.0)`. Eleven more than before: the eleven facts of Step 1. `R4_34_AnEnrollmentWritesTheConformanceVectorsPayload` reads the vector Step 7 wrote.
 
 - [ ] **Step 9: Two surfaces that count an enrollment's entries**
 
@@ -3000,7 +3204,7 @@ dotnet test tests/Curia.Api.Tests -c Release --nologo --no-build 2>&1 | grep -E 
 cargo test --manifest-path rust/curia-testis/Cargo.toml --locked --test vectors 2>&1 | grep -E "^test result"
 ```
 
-Expected: `0 Warning(s)`; Application 286, Domain 609, Canon 262, Client 204 (its `ActaLeafRecomputationTests` enumerates the directory and gains the new vector's row), Api 217 (the lost-row fact and the several-keys fact); `test result: ok. 13 passed`.
+Expected: `0 Warning(s)`; Application 290, Domain 609, Canon 262, Client 204 (its `ActaLeafRecomputationTests` enumerates the directory and gains the new vector's row), Api 217 (the lost-row fact and the several-keys fact); `test result: ok. 13 passed`.
 
 - [ ] **Step 11: Commit**
 
@@ -4145,7 +4349,7 @@ dotnet test tests/Curia.Client.Tests -c Release --nologo --no-build 2>&1 | grep 
 dotnet test tests/Curia.Mcp.Tests -c Release --nologo --no-build 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `0 Warning(s)`; Application 292, Infrastructure 106, Api 227, Client 204, Mcp 73. The client suites run against a stub whose key set does not yet name leaves; nothing in them reads `curia_log_index` until Task 8.
+Expected: `0 Warning(s)`; Application 296, Infrastructure 106, Api 227, Client 204, Mcp 73. The client suites run against a stub whose key set does not yet name leaves; nothing in them reads `curia_log_index` until Task 8.
 
 - [ ] **Step 8: Commit**
 
@@ -6881,6 +7085,12 @@ SWITCH_PARSE = ("        switch (wire)\n"
                 "                kind = default;\n"
                 "                return false;\n"
                 "        }")
+ONE_APPEND = ("            .AppendAsync(aggregate, AggregateVersion.New, [enrolled!, bound!], cancellationToken)\n"
+              "            .ConfigureAwait(false);\n")
+TWO_APPENDS = ("            .AppendAsync(aggregate, AggregateVersion.New, [enrolled!], cancellationToken)\n"
+               "            .ConfigureAwait(false);\n"
+               "        if (appended.TryGetValue(out var first, out _) && AggregateVersion.From(first!.Count).TryGetValue(out var next, out _))\n"
+               "            appended = await _events.AppendAsync(aggregate, next!, [bound!], cancellationToken).ConfigureAwait(false);\n")
 
 CASES = [
     dict(id="1", what="the enrollment appends its binding under a type no reader reads",
@@ -7025,6 +7235,9 @@ CASES = [
          cmds=[dotnet(SODIUM, "FullyQualifiedName~PublicJwkTests")],
          edits=[(PUBLIC_JWK, "Render(\"OKP\", \"Ed25519\", key, key.Public.Span, null)",
                              "Render(\"EC\", \"Ed25519\", key, key.Public.Span, null)")]),
+    dict(id="36", what="the enrollment and its binding written in two appends",
+         cmds=[dotnet(APP, "FullyQualifiedName~EnrollIdentityTests")],
+         edits=[(ENROLL_AGENT, ONE_APPEND, TWO_APPENDS)]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -7147,20 +7360,20 @@ echo "falsify.py exit ${PIPESTATUS[0]}"   # fish: echo "falsify.py exit $pipesta
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped. The log's last line is the runner's own `runner exit: N`.
 
-Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are thirty-five cases in forty-eight suite runs. When the plan was amended after Task 2's review, this runner ran exactly as printed here in a git-backed copy of the tree (a `git archive` of 38a21fa with bae4ec8's errata restored under it, Tasks 2–8 applied, `git init`, and one commit): every case printed what the table says, every restore printed `restore clean` with both proofs — the bytes equal to the kept copy, and a real `git diff --quiet` — and the last line was `runner exit: 0`; then Step 3 ran and printed what it states. Cases 34 and 35 were added after Task 3's review, and this runner, as printed here, ran them with case 15 in the repository at Task 3: each printed what the table says, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. The second proof is the one that sees a file the runner did not keep:
+Each case must print `RED` for every command it runs, then `restore clean`, and the last line must be `runner exit: 0`. There are thirty-six cases in forty-nine suite runs. When the plan was amended after Task 2's review, this runner ran exactly as printed here in a git-backed copy of the tree (a `git archive` of 38a21fa with bae4ec8's errata restored under it, Tasks 2–8 applied, `git init`, and one commit): every case printed what the table says, every restore printed `restore clean` with both proofs — the bytes equal to the kept copy, and a real `git diff --quiet` — and the last line was `runner exit: 0`; then Step 3 ran and printed what it states. Cases 34 and 35 were added after Task 3's review, and this runner, as printed here, ran them with case 15 in the repository at Task 3: each printed what the table says, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. Case 36 was added after Task 4's review, and this runner, as printed here, ran it with every case whose patch lands in a file that review changed (1–4, 10–12 and 31), in a git-backed copy of the tree (a `git archive` of c008fe1 with Tasks 4–8 applied from this plan, `git init`, `git add -A`): each printed what the table says, rows 1, 2, 3 and 10 now naming the review's facts they also turn red, each restore printed `restore clean` with both proofs, and the last line was `runner exit: 0`. The second proof is the one that sees a file the runner did not keep:
 
 | Case | Must fail, by name |
 |---|---|
-| 1 | Eight `EnrollIdentityTests` facts: the five that read an enrollment's entry types (`Expected: "agent.key-bound"`, `Actual: "agent.key-bound-unread"`), `R4_34_AnEnrollmentWritesTheConformanceVectorsPayload` (`Assert.Single()`: no binding), and the two refusals of other bytes (`expected a refusal, got AgentEnrollment { … WasAlreadyEnrolled = True }`: with no binding the kid-only clause decides); `EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName` (`other bytes under victim-… were answered 201, and their holder obtained the victim's token`); `KeyBindingTests.R6_54_EachPublishedKeyNamesTheLeafThatBindsIt` (`Expected: "agent.key-bound https://…"`, `Actual: "agent.enrolled https://…"`: the key set names the enrollment's leaf) |
-| 2 | `EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused` and `R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound`; `LogBoundKeysTests.R4_35_OtherBytesUnderTheBoundKidAreRefusedByName` (`Actual: "resolved"`); the lost-row HTTP fact (201, and a token); both `StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken` rows (`Actual: ···"Signature does not verify"···`: the replaced row reached the verifier) |
-| 3 | The same three rule-level facts as case 2, and `LogBoundKeysTests.R4_35_TheKeySetListsOnlyTheKeysTheLogBinds` (the binding's event id is the enrollment's, not the key-bound entry's); the lost-row HTTP fact |
+| 1 | Nine `EnrollIdentityTests` facts: the six that read an enrollment's entry types (`Expected: "agent.key-bound"`, `Actual: "agent.key-bound-unread"`; the one-append fact's `Actual: "enrolled; agent.enrolled, agent.key-bound-unread"`), `R4_34_AnEnrollmentWritesTheConformanceVectorsPayload` (`Assert.Single()`: no binding), and the two refusals of other bytes (`expected a refusal, got AgentEnrollment { … WasAlreadyEnrolled = True }`: with no binding the kid-only clause decides); `EnrollmentBindingTests.R4_31_ALostRowsKidPresentedWithOtherBytesIsRefusedByName` (`other bytes under victim-… were answered 201, and their holder obtained the victim's token`); `KeyBindingTests.R6_54_EachPublishedKeyNamesTheLeafThatBindsIt` (`Expected: "agent.key-bound https://…"`, `Actual: "agent.enrolled https://…"`: the key set names the enrollment's leaf) |
+| 2 | `EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused`, `R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound` and `R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid` (`expected a refusal, got AgentEnrollment { … WasAlreadyEnrolled = True }`: a binding that carries no key held any bytes); `LogBoundKeysTests.R4_35_OtherBytesUnderTheBoundKidAreRefusedByName` (`Actual: "resolved"`); the lost-row HTTP fact (201, and a token); both `StoredKeyFormTests.R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken` rows (`Actual: ···"Signature does not verify"···`: the replaced row reached the verifier) |
+| 3 | The same four rule-level facts as case 2, `LogBoundKeysTests.R4_35_TheKeySetListsOnlyTheKeysTheLogBinds` (the binding's event id is the enrollment's, not the key-bound entry's), and `EnrollIdentityTests.R4_34_OnlyTheIdentitysOwnStreamBindsItsKeys` (`Actual: "alice-1,alice-1"`: the kid-only binding listed beside the one that carries the key); the lost-row HTTP fact |
 | 4 | `EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs` alone (`curia/enroll/already-enrolled`): the seam |
 | 5 | `LogBoundKeysTests`' three refusals (`Actual: "resolved"`); `KeyBindingTests.R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindSignsNothingAndMintsNothing` (`token request 200, question 201`); both `StoredKeyFormTests.R4_35_…` rows; `TokenSubjectBindingTests.R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity` (`Actual: "That agent is not enrolled"`) |
 | 6 | `LogBoundKeysTests.R4_35_TheKeySetListsOnlyTheKeysTheLogBinds` (`…,hole-1@unbound]`); the hole-key HTTP fact, at the key set alone (`token request 401, question 401 …`, and the key set holding `hole-…`) |
 | 7 | The two U+0000 rows of `KeyBindingTests.R4_35_TheKeySetAnswersEveryAgentWithoutA500` (`Actual: "500 Npgsql.PostgresException (0x80004005): 22021: "···`). The other three rows stay green, and should: Postgres `text` holds a noncharacter, U+FFFD and a long string |
 | 8 | The hole-key HTTP fact at the token (`token request 200, question 401 …`); both `StoredKeyFormTests.R4_35_…` rows; the orphan fact (`That agent is not enrolled`). The post path still refuses, which is why case 9 exists (trap 13) |
 | 9 | The hole-key HTTP fact at the question alone (`token request 401, question 201 …`) |
-| 10 | `EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused` alone (`Assert.Empty() Failure`: the store registered the other bytes before the log's record refused them). The HTTP fact stays green, and should: the log's record still refuses, and R4.35 refuses the impostor's token |
+| 10 | `EnrollIdentityTests.R4_31_ALostRowsRecoveryWithOtherBytesUnderTheBoundKidIsRefused` and `R4_31_AKeyBindingThatCarriesNoKeyBindsNoBytesUnderItsKid` (each `Assert.Empty() Failure`: the store registered the bytes before the log's record refused them). The HTTP fact stays green, and should: the log's record still refuses, and R4.35 refuses the impostor's token |
 | 11 | `EnrollIdentityTests.R4_31_TheLogsRecordRefusesOtherBytesUnderTheKidItBound` alone |
 | 12 | The lost-row HTTP fact, at the status (`answered 201, and their holder obtained no token`): both halves of R4.31 (revised) off, and R4.35 still refuses the impostor's token — three layers, each fenced |
 | 13 | `ClientAssertionValidatorTests.R5_21_…` (`Actual: "curia/authn/signature-invalid "`); `StoredKeyFormTests.R5_21_…` (`Actual: ···"Signature does not verify"···`) |
@@ -7186,14 +7399,16 @@ Each case must print `RED` for every command it runs, then `restore clean`, and 
 | 33 | `PropertyP22ToolResultTests.R6_54_TheVerifyToolReportsTheKeyCheckSeparately` (`Not found: "key         verified: "`) |
 | 34 | `PublicJwkTests.R4_28_AP256CoordinateThatBeginsWithZeroIsRenderedAtFullWidth` alone (`Actual: ···"g-zeros","kty":"EC","x":"fuX4jBCSKV5v3PZIcHls7bgpv"···`: the coordinate without its two zero bytes, 30 of its 32) |
 | 35 | `PublicJwkTests.R4_28_AnEd25519KeyIsRenderedAsRfc8037sOctetKeyPair` alone (`Actual: ···""kid":"rfc8037-a","kty":"EC","x":"11qYAYKxCrfVS_7T"···`) |
+| 36 | `EnrollIdentityTests.R4_34_AnEnrollmentAndItsBindingAreOneAppend` alone (`Actual: "test/append-failed; agent.enrolled"`: the second append refused, and the enrollment left without its binding). Every other fact stays green, the Api's included: the suites' clocks are frozen, so two appends stamp one instant and nothing else tells them from one |
 
-Six things in this table are deliberate:
+Seven things in this table are deliberate:
 - **Cases 10 and 11 each leave the HTTP fact green,** and case 12 is the one the surface sees: each half of R4.31 (revised) backs the other, and R4.35 backs both at the token (trap 13).
 - **Cases 8 and 9 are one requirement on two paths.** Each wiring is broken alone, and the one fact shows which path opened.
 - **Case 18 is the RFC anchor's reason for being.** A renderer that swapped coordinates would have been consistent everywhere the Forum compares its own output with itself.
 - **Cases 20 and 29, and 24 and 28, are one rule twice in each reader.** Ignoring the order lets a binding after the post verify; reading it as a failure is the defect the pre-flight scan found (its B1). Each reader needs both cases, and case 28's Api run is what shows the exit code, not only the library's classification, carries it.
 - **Cases 31 to 33 came from Task 2's review.** Case 31's patch counts another identifier's keys, the mistake a refactor of the lookup would make, and both of its facts then see the second key bound. Case 32 leaves the post's own inclusion check red as well, because the head commits to the wrong root for both proofs; its fact asserts the key check alone, the one line the patch moves. Case 33 is the only probe on `curia_verify`'s fourth line: no client fact reads the rendering's lines.
 - **Cases 34 and 35 came from Task 3's review.** Case 34 strips a P-256 coordinate's leading zeros, and only the fixed leading-zero point sees it: RFC 7515's key has no such coordinate, and a key a suite generates has one about once in 128, so no other fact is certain to meet one. Case 35 is errata D4's trap, an Ed25519 key in `EC`'s form, and the RFC 8037 fact is its only red, as case 18 is the P-256 fact's.
+- **Case 36 came from Task 4's review.** It writes the enrollment and its binding in two appends, the second at the version the first left, and every other fact stays green under it, because two appends under a frozen clock stamp one instant. Its one red is a store that takes one append and refuses the next, which is what a failed write between two appends looks like: an `agent.enrolled` without its binding, which binds the identity by its `kid` alone for good.
 
 If a case prints `PATCH MISMATCH`, `BUILD FAILED` or `GREEN`, the patch is wrong for the code as written: correct the **patch**, never the product code, and re-run that case alone (`python3 -u <scratchpad>/falsify.py <scratchpad>/falsify-keep <id>`). Record every correction. A patch that stays green on its first attempt is a finding until it is shown to be a bad patch (trap 13).
 
@@ -7363,10 +7578,12 @@ key's, so a header naming the other allowed algorithm read as a bad signature
 
 **Closed** by errata G16:
 - **R4.34.** `EnrollAgent` appends `agent.key-bound`, `{ agent_id, kid, jwk }`, in the same append as
-  `agent.enrolled`. The JWK is exactly what `PublicJwk.Of` renders for the key set, so the key
-  published and the key bound are one computation. `conformance/acta/key-bound-entry` pins the entry
-  kind in both runners, and `EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload`
-  holds the writer to it.
+  `agent.enrolled`, which `EnrollIdentityTests.R4_34_AnEnrollmentAndItsBindingAreOneAppend` holds
+  against a store that takes one append and refuses the next (case 36). The JWK is exactly what
+  `PublicJwk.Of` renders for the key set, so the key published and the key bound are one
+  computation; `EnrollIdentity` renders it before the key store is asked, so a key the log cannot
+  carry leaves no row. `conformance/acta/key-bound-entry` pins the entry kind in both runners, and
+  `EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload` holds the writer to it.
 - **R4.35.** `LogBoundKeys` asks the store first and then holds its answer to the log's bindings.
   Ingest, the token endpoint (through `LogBoundAgentKeyResolver`) and the key set all read through
   it, and each published key names `curia_log_index`, the leaf that binds it. A key the log does not
@@ -7410,7 +7627,7 @@ for it, after its whole history; one the store holds several keys for is refused
 back until R4.18's recovery exists (errata G16's fifth cost; see below). No identity can rotate,
 revoke or recover a key yet: see "What comes next".
 
-**Falsified:** the stage's Task 9, thirty-five cases in forty-eight suite runs, each red by name, every
+**Falsified:** the stage's Task 9, thirty-six cases in forty-nine suite runs, each red by name, every
 restore proved by bytes and by `git diff`, and the gates re-run unpatched after a
 `--no-incremental` rebuild. Cases 10 and 11 each leave the HTTP fact green by design, and case 12,
 both halves of R4.31 (revised) off at once, is the one the surface sees: R4.35 still refuses the
@@ -7421,6 +7638,8 @@ refusal of several stored keys counting another identifier's (31), the client ho
 proof to its own root rather than the signed head's (32), and `curia_verify` dropping the key
 check's line (33). Cases 34 and 35 came from Task 3's review: the renderer stripping a P-256
 coordinate's leading zeros (34), and rendering an Ed25519 key in `EC`'s form, errata D4's trap (35).
+Case 36 came from Task 4's review: the enrollment and its binding written in two appends, which
+only a store that takes one append and refuses the next can tell from one (36).
 
 ### Observed during the key-binding stage, not acted on
 
@@ -7897,7 +8116,7 @@ Expected:
   Passed!  - Failed:     0, Passed:   211, … - Curia.Client.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   229, … - Curia.Api.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   262, … - Curia.Canon.Tests.dll (net10.0)
-  Passed!  - Failed:     0, Passed:   292, … - Curia.Application.Tests.dll (net10.0)
+  Passed!  - Failed:     0, Passed:   296, … - Curia.Application.Tests.dll (net10.0)
   Passed!  - Failed:     0, Passed:   609, … - Curia.Domain.Tests.dll (net10.0)
   ```
 
@@ -7927,7 +8146,7 @@ Write the PR text to the scratchpad as `pr.md`. `but pr new -F` takes the file's
 - why `LogBoundKeys` asks the store first (Decision 6);
 - that R15.1's frozen set does not move, and the conformance vector and `curia-testis log author` that ship with the new entry kind;
 - D16's CI line, with case 27 as its evidence;
-- the falsification table from `falsify.log`, all thirty-five cases;
+- the falsification table from `falsify.log`, all thirty-six cases;
 - the test plan, with the per-assembly lines Step 1 printed and the differential's exit;
 - what is observed and not fixed, the rulings on the pre-flight scan's two design questions (the spec's §8) and on Task 2's review (the spec's §9), and the one question left for the owner (the spec's §2.1).
 
