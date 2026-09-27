@@ -259,6 +259,9 @@ public static class EnrollmentErrors
     /// <summary>The slug of <see cref="KeysAmbiguous"/>, matched by the route's 409 mapping.</summary>
     public const string KeysAmbiguousType = "curia/enroll/keys-ambiguous";
 
+    /// <summary>The slug of <see cref="IdentifierNotNfc"/>.</summary>
+    public const string IdentifierNotNfcType = "curia/enroll/identifier-not-nfc";
+
     /// <summary>
     /// The most UTF-8 bytes an <c>agent_id</c> or a <c>kid</c> may hold. An implementation limit, not
     /// R4.5's form (plan D4 stays open): it sits well under the 2,704-byte index row Postgres stores
@@ -315,6 +318,17 @@ public static class EnrollmentErrors
         NulCharacterType,
         "That identifier holds U+0000, which the Forum cannot store",
         $"field={field}");
+
+    /// <summary>
+    /// R4.36 (errata G16): the enrollment's <paramref name="field"/> is not in Unicode Normalization
+    /// Form C. A signed envelope names its author in NFC (R6.9), so an identifier NFC would change
+    /// could never author a post, and every signature naming it names another identifier. Names the
+    /// field; the value is never echoed.
+    /// </summary>
+    public static Error IdentifierNotNfc(string field) => new(
+        IdentifierNotNfcType,
+        "That identifier is not in Unicode Normalization Form C",
+        $"field={field}: nothing was registered. A signed envelope names its author in NFC (R6.9), so an identifier NFC would change could never author a post (R4.36).");
 
     /// <summary>The enrollment carries no <c>public_key</c>, or JSON null for it.</summary>
     public static Error PublicKeyMissing() => new(InvalidKeyType, InvalidKeyTitle, "public_key is missing");

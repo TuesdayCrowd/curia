@@ -167,6 +167,20 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
     }
 
     /// <summary>
+    /// An identity as the enrollment route enrolled it before R4.36: the enrollment use case run
+    /// directly, so none of the route's text checks is asked. It writes what the route writes: the key
+    /// row, and the <c>agent.enrolled</c> and <c>agent.key-bound</c> of one append (R4.34). The route
+    /// refuses an identifier outside NFC now; a Forum that enrolled one earlier still holds it.
+    /// </summary>
+    internal async Task EnrollPastTheRouteAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
+    {
+        var enrolled = await Services.GetRequiredService<EnrollIdentity>()
+            .EnrollAsync(agentId, new PublicKeyMaterial("ES256", kid, publicKey), ct);
+        if (!enrolled.TryGetValue(out _, out var error))
+            throw new InvalidOperationException($"{error!.Type}: {error.Title} ({error.Detail})");
+    }
+
+    /// <summary>
     /// Appends an <c>agent.key-bound</c> for <paramref name="agentId"/>'s <c>ES256</c> key at the end of
     /// its stream, now, through the host's own event store, with exactly the members
     /// <c>EnrollAgent</c> writes (R4.34). For an identity that has already posted, this is the binding

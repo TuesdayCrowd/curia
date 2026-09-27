@@ -833,6 +833,28 @@ public sealed class PostVerifierTests : IDisposable
     }
 
     /// <summary>
+    /// An honest post whose own log entry cannot be fetched: its entry route answers 503, and nothing
+    /// else is wrong. Its proof is under the signed head, so nothing the client holds has failed, and
+    /// R6.52 exists so that a network fault never reads as an attack. The inclusion line, the key line
+    /// that reads the post from that entry, and the overall verdict are each could not be checked.
+    /// </summary>
+    [Fact]
+    public async Task R6_52_AnHonestPostWhoseOwnEntryCannotBeFetchedIsNotCheckedNeverFailed()
+    {
+        var log = Log();
+        log.PostEntryRouteUnavailable = true;
+
+        var result = await VerifyAsync(log);
+
+        Assert.Equal(CheckOutcome.Verified, result.Signature.Outcome);
+        Assert.Equal(CheckOutcome.CouldNotCheck, result.Inclusion.Outcome);
+        Assert.Contains("could not be fetched", result.Inclusion.Detail, StringComparison.Ordinal);
+        Assert.Equal(CheckOutcome.CouldNotCheck, result.KeyBinding.Outcome);
+        Assert.Contains("were not in hand", result.KeyBinding.Detail, StringComparison.Ordinal);
+        Assert.Equal(CheckOutcome.CouldNotCheck, result.Overall);
+    }
+
+    /// <summary>
     /// A key set that did not arrive leaves the key's binding nowhere to be looked for, and the key
     /// line says that. It does not say the key set named no leaf: that would be a statement about the
     /// key set's contents on the evidence of a transport fault, the collapse

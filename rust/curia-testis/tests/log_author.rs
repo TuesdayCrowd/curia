@@ -9,8 +9,10 @@
 //! signed: this crate never signs, and the head's signature is `log head`'s
 //! business, which `log_outcomes.rs` and the C# end-to-end test cover. The
 //! tests with no head run the binary: whatever can be checked is checked
-//! before a missing head is reported, so only documents that pass every
-//! check needing no head exit 3.
+//! before a missing head is reported, so a document that fails a check
+//! needing no head exits 1. Exit 3 means every such check held, or that the
+//! log carries no key for the post's kid from before the post: the author's
+//! enrollment, which names the kid and no key, or its binding after the post.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -437,6 +439,30 @@ fn r6_54_without_a_head_proofs_against_two_trees_fail() {
         &three.documents[2].1,
         &four.documents[0].0,
         &four.documents[0].1,
+    )
+    .unwrap_err();
+    assert_eq!(err.predicate(), "curia/acta/tree-mismatch", "{err}");
+}
+
+/// With no head, proofs against two trees of one size are still two trees
+/// when their roots differ: a size does not name a tree, and a head covering
+/// one root covers no other.
+#[test]
+fn r6_54_without_a_head_proofs_against_two_trees_of_one_size_fail() {
+    let key = key_entry(|s| s);
+    let post = post_entry();
+    let one = log(&[Some(&key), None, Some(&post), None]);
+    let other = log(&[Some(&key), None, Some(&post), Some(&key)]);
+
+    // Non-vacuity: one size, two roots.
+    assert_eq!(one.head.tree_size, other.head.tree_size);
+    assert_ne!(one.head.root, other.head.root);
+
+    let err = acta::check_author_unanchored(
+        &one.documents[2].0,
+        &one.documents[2].1,
+        &other.documents[0].0,
+        &other.documents[0].1,
     )
     .unwrap_err();
     assert_eq!(err.predicate(), "curia/acta/tree-mismatch", "{err}");

@@ -392,7 +392,8 @@ public static class ForumEndpoints
     ///
     /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
     /// before anything is read or written, each refused 400 by name: the two identifiers' text
-    /// (R6.15's condition, and U+0000); their length, at most
+    /// (R6.15's condition, and U+0000); the agent identifier's normalization form, NFC (R4.36);
+    /// their length, at most
     /// <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8 bytes each; the algorithm, against the
     /// allow-list the Forum verifies with (R4.15); and then the key, which must be present, base64,
     /// and a key of that algorithm in R4.28's stored form (<see cref="Jwks.CanPublish"/>, the rule
@@ -415,6 +416,13 @@ public static class ForumEndpoints
 
         if ((RefusedText(request.AgentId, "agent_id") ?? RefusedText(request.Kid, "kid")) is { } textError)
             return Problem(StatusCodes.Status400BadRequest, textError);
+
+        // R4.36 (errata G16): an agent identifier NFC would change names, in every envelope it signs,
+        // the identifier NFC maps it to, which another identity can hold (R6.9, R6.55). Asked after
+        // RefusedText, so it never meets a lone surrogate or a noncharacter. A kid is not asked: it
+        // travels in a protected header signed as its bytes, and is never canonicalized.
+        if (NotInNfc(request.AgentId, "agent_id") is { } formError)
+            return Problem(StatusCodes.Status400BadRequest, formError);
 
         if ((TooLong(request.AgentId, "agent_id") ?? TooLong(request.Kid, "kid")) is { } lengthError)
             return Problem(StatusCodes.Status400BadRequest, lengthError);
@@ -496,6 +504,13 @@ public static class ForumEndpoints
 
         return value.Contains('\0', StringComparison.Ordinal) ? EnrollmentErrors.NulCharacter(field) : null;
     }
+
+    /// <summary>
+    /// The refusal for an identifier that is not in Unicode Normalization Form C, or null (R4.36).
+    /// Names the field and never echoes the value.
+    /// </summary>
+    private static Error? NotInNfc(string value, string field) =>
+        value.IsNormalized(NormalizationForm.FormC) ? null : EnrollmentErrors.IdentifierNotNfc(field);
 
     /// <summary>
     /// The refusal for an identifier over <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8
