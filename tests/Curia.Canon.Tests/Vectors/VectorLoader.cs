@@ -41,6 +41,12 @@ internal enum VectorProfile
     /// hashed as <c>SHA-256(0x00 ‖ canonical)</c>: R6.46's leaf input, frozen by R15.1.
     /// </summary>
     ActaLeaf,
+
+    /// <summary>
+    /// <c>display-literal</c> — <see cref="Json.DisplayLiteral.Of"/>: the code points in, the exact
+    /// literal a reader prints out (R10.64, errata G17).
+    /// </summary>
+    DisplayLiteral,
 }
 
 internal sealed record Vector(
@@ -83,6 +89,7 @@ internal static class VectorLoader
         "envelope" => VectorProfile.Envelope,
         "merkle-tree" => VectorProfile.MerkleTree,
         "acta-leaf" => VectorProfile.ActaLeaf,
+        "display-literal" => VectorProfile.DisplayLiteral,
         _ => throw new InvalidOperationException(
             $"unrecognized conformance profile \"{value}\" -- R6.44 requires a runner to fail rather than skip"),
     };
@@ -97,6 +104,7 @@ internal static class VectorLoader
         VectorProfile.Envelope => "envelope",
         VectorProfile.MerkleTree => "merkle-tree",
         VectorProfile.ActaLeaf => "acta-leaf",
+        VectorProfile.DisplayLiteral => "display-literal",
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "not a conformance profile"),
     };
 

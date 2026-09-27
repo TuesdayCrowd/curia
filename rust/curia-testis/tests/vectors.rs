@@ -354,6 +354,29 @@ fn acta() {
     directory_family_test("acta", &corpus().acta);
 }
 
+/// R10.64: the display literal this verifier prints a value it did not
+/// compose in, byte for byte what `conformance/display/` publishes and what
+/// the reference client prints.
+#[test]
+fn display() {
+    let vectors = &corpus().display;
+    assert!(
+        !vectors.is_empty(),
+        "conformance/display/ loaded no vectors"
+    );
+    let mut report = FamilyReport::new("display");
+    for v in vectors {
+        let actual = curia_testis::display::literal(&v.input);
+        let outcome = if actual == v.expected {
+            Ok(())
+        } else {
+            Err(format!("expected {}, got {actual}", v.expected))
+        };
+        report.record(&v.case, outcome);
+    }
+    report.finish();
+}
+
 /// R6.44 (addendum): an accepting-side vector names its rejecting-side twin
 /// as `"pairs-with": "<family>/<case>"`, and a runner SHALL fail when the
 /// named vector is absent from the corpus.
@@ -677,12 +700,13 @@ fn corpus_size_matches_charter() {
             + c.admit_accept.len()
             + c.envelope.len()
             + c.merkle.len()
-            + c.acta.len(),
-        71,
+            + c.acta.len()
+            + c.display.len(),
+        87,
         "conformance/ vector directories (c4 + ordering + unicode + numbers \
-         + admit-reject + admit-accept + envelope + merkle + acta)"
+         + admit-reject + admit-accept + envelope + merkle + acta + display)"
     );
-    assert_eq!(c.total_len(), 77, "every vector in conformance/");
+    assert_eq!(c.total_len(), 93, "every vector in conformance/");
 
     // `Index::load` already refuses a family entry with no `count`, so
     // `filter_map` here drops only the non-family entries (`red-team/`).
@@ -694,7 +718,7 @@ fn corpus_size_matches_charter() {
         .filter_map(|e| e.count)
         .sum();
     assert_eq!(
-        declared, 77,
+        declared, 93,
         "conformance/index.json's declared family counts"
     );
 }

@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "U+0085, a C1 control some renderers break a line at, is an escape."
+}

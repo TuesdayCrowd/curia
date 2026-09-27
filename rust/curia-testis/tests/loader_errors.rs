@@ -66,6 +66,7 @@ fn scaffold_empty_corpus(root: &Path) {
         "envelope",
         "merkle",
         "acta",
+        "display",
     ] {
         fs::create_dir_all(root.join(family)).expect("can scaffold an empty family dir");
     }
@@ -335,7 +336,8 @@ fn write_matching_index(root: &Path) {
     {"name": "admit-accept", "family": true, "shape": "directory", "profiles": ["admit-accept"], "count": 0},
     {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0},
     {"name": "merkle", "family": true, "shape": "merkle", "profiles": ["merkle-tree"], "count": 0},
-    {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0}
+    {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0},
+    {"name": "display", "family": true, "shape": "display", "profiles": ["display-literal"], "count": 0}
   ]
 }"#,
     );

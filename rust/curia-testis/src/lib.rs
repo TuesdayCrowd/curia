@@ -27,6 +27,7 @@ pub mod acta;
 pub mod canonical;
 pub mod conformance;
 pub mod digest;
+pub mod display;
 pub mod envelope;
 pub mod json;
 pub mod jwk;

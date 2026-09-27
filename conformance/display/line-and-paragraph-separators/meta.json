@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "U+2028 and U+2029, which RFC 8785 leaves unescaped in a canonical form, are escapes here."
+}

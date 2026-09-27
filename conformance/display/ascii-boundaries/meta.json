@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "Both sides of both ends of the printable range: U+001F and U+007F are escapes, U+0020 and U+007E stand for themselves."
+}

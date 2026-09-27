@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "U+0430 looks like a and prints as an escape, so a look-alike identifier is told apart where a reader sees it."
+}
