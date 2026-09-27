@@ -49,6 +49,13 @@ public sealed class ShellWordTests : IDisposable
 
         foreach (var value in NotWords())
             Assert.False(ShellWord.TryOf(value, out _), Render(value));
+
+        // A refused value leaves no word behind, so there is no '' to print: R10.65 says a command
+        // with such a value is not printed, and a hole that is handed no word throws rather than
+        // print an empty one (Task 4's review, m3).
+        Assert.False(ShellWord.TryOf("it's", out var refused));
+        Assert.Null(refused);
+        Assert.Throws<ArgumentNullException>(() => new FrameBuilder().Append($"curia read {refused!}"));
     }
 
     [Fact]

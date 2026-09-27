@@ -77,9 +77,9 @@
 ## Review Focus
 
 1. **A board, an identifier and a `kid` holding a line break print as literals on every read path** (D31's finding). The damage is asserted first, through the real Forum: Task 9's `ReaderFrameTests.R10_63_ABoardWrittenToForgeALineIsQuotedOnEveryReadPath` and `R10_63_AnIdentifierEnrolledBeforeR4_37IsQuotedOnEveryReadPath`, across `curia read`'s renderer, `curia_read`, `curia_search`, `curia_verify` and `curia-testis verify`. Run against b4bfe31 they fail naming the forged line; falsification cases 5, 6, 7 and 18.
-2. **Quoting is the default, and the CLI cannot print a variable as a line.** `OutputFenceTests` holds the fence; case 12–14. The compiler found the CLI's unquoted sites itself (Task 5, Step 3's list). Review every `OwnText` the stage constructs, `new OwnText(` and a target-typed `new(` alike: each is the client's own words, and one around a served value is the defect the fence cannot see. Task 5, Step 5 lists the library's and the CLI's; Task 6, Step 4 the adapter's.
+2. **Quoting is the default, and the CLI cannot print a variable as a line.** `OutputFenceTests` holds the fence; case 12–14. `ConstantArgumentTests` holds it where the analyzer cannot see, against a constant-only method taken as a delegate (Task 4's review, m1). The compiler found the CLI's unquoted sites itself (Task 5, Step 3's list). Review every `OwnText` the stage constructs, `new OwnText(` and a target-typed `new(` alike: each is the client's own words, and one around a served value is the defect the fence cannot see. Task 5, Step 5 lists the library's and the CLI's; Task 6, Step 4 the adapter's.
 3. **The two readers print the same bytes.** `conformance/display/`, sixteen vectors in both runners, counted in the index, and a Rust fact over every scalar value; cases 1–4, 30, 31 and 42. `printable-ascii` holds the 93 printable characters that stand for themselves: its first form held 21, and a reader that escaped `<` or `$` passed both runners (Task 2's review).
-4. **The span is written raw only once its delimiters are checked, and the standing warning only when it is the published text.** `Curia.Client.Tests.ReaderFrameTests`; cases 9–11.
+4. **The span is written raw only once its delimiters are checked, and the standing warning only when it is the published text.** `Curia.Client.Tests.ReaderFrameTests`; cases 9–11 and 49.
 5. **Every tool, every served member, every refusal.** `ReaderFrameToolTests` derives its tools from `ToolCatalogue` and its members from what the stub served, and reads each resource's URI with its text; cases 5, 8, 15–17 and 44. Its first draft poisoned every member at once, the client refused the documents whole, and the non-vacuity guard failed it — which is why it poisons one member at a time.
 6. **R4.37 walks scalar values and asks both fields.** A tag character (U+E0041) is two surrogates to a UTF-16 walk. It refuses U+200C with the rest of Cf, and the percent-encoded form its refusal names enrolls (spec §4.14); a variation selector, not seen and of category Mn, enrolls too, which pins the rule's reach. `EnrollmentIdentifierTests.R4_37_…`; cases 21 and 22.
 7. **A 5xx says what it is, and nothing its component said.** `ServerFaultTests`, the four `R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal` rows; cases 23–25. Case 25 is a defect the build-check introduced and the suite caught: the key set matched the fold's failure by its result type, and changing that type made an unreadable log answer 200.
@@ -103,7 +103,7 @@
 | `rust/curia-testis/src/bin/curia-testis.rs`, `src/acta.rs`, `src/jws.rs`, `src/jwk.rs`, `src/json.rs`, `src/nfc.rs` | The verifier prints literals | 3 |
 | `rust/curia-testis/tests/envelope.rs`, `tests/log_author.rs`, `tests/display_output.rs` (new), `tests/Curia.Api.Tests/ActaEndpointTests.cs`, `.github/workflows/ci.yml` | Its facts; the CI comment's count | 3 |
 | `src/Curia.Client/Frame.cs` (new), `ActaCheck.cs`, `Passage.cs`, `SignatureCheck.cs`, `ForumResult.cs`, `PostVerifier.cs` | The client's frame, and `ShellWord` (R10.65) | 4 |
-| `tests/Curia.Client.Tests/ReaderFrameTests.cs` (new), `ShellWordTests.cs` (new), `PosixShell.cs` (new), `tests/Curia.Mcp.Tests/PropertyP22ToolResultTests.cs`, `WriteToolTests.cs` | Its gates; two assertions that read a raw author | 4 |
+| `tests/Curia.Client.Tests/ReaderFrameTests.cs` (new), `ShellWordTests.cs` (new), `PosixShell.cs` (new), `tests/Curia.Architecture.Tests/ConstantArgumentTests.cs` (new), `tests/Curia.Mcp.Tests/PropertyP22ToolResultTests.cs`, `WriteToolTests.cs` | Its gates, one against a delegate past `[ConstantExpected]`; two assertions that read a raw author | 4 |
 | `src/Curia.Client.Cli/Cli.cs`, `Hints.cs` (new), `Program.cs`, `Help.cs`, `Testis.cs`, `tests/Curia.Architecture.Tests/OutputFenceTests.cs` (new), `tests/Curia.Client.Tests/CommandHintTests.cs` (new), `ArgsTests.cs` | The CLI behind its fence; the commands it prints (R10.65); the literals it takes back (R10.66) | 5 |
 | `src/Curia.Mcp/ForumTools.cs`, `WriteTools.cs`, `StartupError.cs` (new), `Program.cs`, `tests/Shared/StubLog.cs`, `tests/Curia.Mcp.Tests/ReaderFrameToolTests.cs` (new), `WriteToolTests.cs`, `McpConfigurationTests.cs`, `tests/Curia.Api.Tests/McpWriteEndToEndTests.cs` | The adapter's own words, and its gate | 6 |
 | `src/Curia.Application/Credentials/EnrollAgent.cs`, `src/Curia.Api/ForumEndpoints.cs`, `tests/Curia.Api.Tests/EnrollmentIdentifierTests.cs` | R4.37 | 7 |
@@ -3374,24 +3374,33 @@ but commit -b strangers-stay-in-quotes -m "$(printf 'curia-testis prints what it
 ### Task 4: The client's frame quotes by default (R10.63), and knows a shell word (R10.65)
 
 **Files:**
-- Create: `src/Curia.Client/Frame.cs`, `tests/Curia.Client.Tests/ReaderFrameTests.cs`, `tests/Curia.Client.Tests/ShellWordTests.cs`, `tests/Curia.Client.Tests/PosixShell.cs`
+- Create: `src/Curia.Client/Frame.cs`, `tests/Curia.Client.Tests/ReaderFrameTests.cs`, `tests/Curia.Client.Tests/ShellWordTests.cs`, `tests/Curia.Client.Tests/PosixShell.cs`, `tests/Curia.Architecture.Tests/ConstantArgumentTests.cs`
 - Modify: `src/Curia.Client/ActaCheck.cs`, `Passage.cs`, `SignatureCheck.cs`, `ForumResult.cs`, `PostVerifier.cs`; `tests/Curia.Mcp.Tests/PropertyP22ToolResultTests.cs`, `WriteToolTests.cs`
 
 **Interfaces:**
 - Consumes: `DisplayLiteral` (Task 2).
 - Produces:
   - `OwnText(string Text)`: the client's own words, written as they are.
-  - `FrameText`: an interpolated-string handler. A `string` hole is a display literal; an `OwnText` hole is written as it is; a `char` is a literal; a struct implementing `IFormattable` is formatted invariantly; nothing else compiles.
+  - `FrameText`: an interpolated-string handler. A `string` hole is a display literal, padded only after it is quoted; a `char`, a `char?` or a `Rune`, with or without an alignment or a format, is a literal; an `OwnText` hole is written as it is; a struct implementing `IFormattable` is formatted invariantly, in a constant format; nothing else compiles. Its literal text and its formats are `[ConstantExpected]`, so a `FrameText` built by hand takes no variable there either.
   - `FrameBuilder`: `Line(FrameText)`, `Line([ConstantExpected] string)`, `Append(FrameText)`, `Blank()`, `Passage(Passage)`, `Span(string? rendered, [ConstantExpected] string indent = "")`, `static IsDelimitedSpan(string?)`.
-  - `ShellWord`: `static TryOf(string?, out ShellWord)`, true only for a value that is not empty, does not begin with `-`, and holds only printable ASCII other than `'`, `\` and `!`; its `ToString()` is the value between single quotation marks, and a `FrameText` hole writes it so. Task 5's `Hints` writes every value in a command through it (R10.65).
+  - `ShellWord`: a sealed record only `TryOf` makes, `static TryOf(string?, [NotNullWhen(true)] out ShellWord?)`, which leaves `null` for a value it refuses and is true only for a value that is not empty, does not begin with `-`, and holds only printable ASCII other than `'`, `\` and `!`; its `ToString()` is the value between single quotation marks, and a `FrameText` hole writes it so. Task 5's `Hints` writes every value in a command through it (R10.65).
   - `Check.Quote` is `DisplayLiteral.Of` (G16's `curia_verify` quoting, now R10.64's literal).
   - `Passage.Render`, `Reading.Render`, `SignatureVerdict.Describe`, `SignatureCheck.Unreachable` and `Refusal.Summary` built on them. Tasks 5 and 6 print through them.
 
-**What the frame writes as it is, and nothing else.** The client's own sentences; numbers, instants and enum members it parsed; the digest it computed; the standing warning and a marking caveat, when they equal the published text the client holds (`Provenance.StandardWarning`, `DelimiterOnlyCaveat`, `MarkingIsNotAGuarantee`); and the Forum's span, once `IsDelimitedSpan` says the Forum delimited it. Every other value is a literal, the ordinary ones too: a post id prints as `"01M…"`.
+**What the frame writes as it is, and nothing else.** The client's own sentences; numbers, instants and enum members it parsed; the digest it computed; the standing warning and the marking caveat as the client holds them (`Provenance.StandardWarning`; `DelimiterOnlyCaveat` for delimiters alone and `MarkingIsNotAGuarantee` for datamarking, chosen by the marking the Forum says it applied and not by what it served); and the Forum's span, once `IsDelimitedSpan` says the Forum delimited it. Every other value is a literal, the ordinary ones too: a post id prints as `"01M…"`.
 
 **Why a shell word, and why here.** A display literal is safe where a model reads it and is a double-quoted word where a shell runs it: inside double quotes sh, dash, bash, zsh and fish all run `$(…)`, and this plan's first form printed a Forum's entity tag into a command that way. Between single quotation marks nothing runs; a `'` ends the word in every shell, a `\` before `'` or `\` is an escape in fish, and csh and tcsh expand `!` as history even there, so those three are refused, and a leading `-` is refused because it reads as an option. No honest value holds any of them. The word lives beside `OwnText` because it is the frame's other visible opt-out from quoting, and `ShellWordTests` checks it against `/bin/sh` itself (`PosixShell`), which knows nothing of the rule; the design probe also ran the word's alphabet through dash, bash, zsh, fish, csh and tcsh, and with `!` refused every word read back as itself in all seven (368 of 368 in each; with `!` admitted, csh and tcsh answered `Event not found`). `NotWords` holds `a!b`, so both the word's table and the hint theory refuse it.
 
 **Why `PostVerifier` loses eight `Check.Quote` calls.** They wrapped a refusal's `Summary`, which now quotes the Forum's words where it is composed; wrapping it again printed a literal inside a literal.
+
+**What Task 4's review changed** (fix round 1). Each change has a row or a fact that fails without it, and each was run so.
+- A `char` with an alignment or a format, a `char?` and a `Rune` bound `FrameText`'s generic `IFormattable` overloads and were written as they came (I1). Each form has an overload that quotes it, and the frame fact a row for each, a present `Rune?` among them.
+- `IsDelimitedSpan`'s end checks were unpinned (I2): without `EndsWith(close)` a span followed by a short line passed. The span fact refuses a span whose closing delimiter is not its last line, and delimiters that do not stand on lines of their own; Task 10's case 49 removes the closing check.
+- `[ConstantExpected]` is checked at a call, and a method-group conversion is not one (m1): `ConstantArgumentTests` reads the IL of every assembly under `src/` and fails on a delegate over a method whose parameter must be a constant. `FrameText`'s literal text and formats are constants too (m2).
+- A default `ShellWord` printed `''` (m3). It is a class only `TryOf` makes: a refused value leaves `null`, a word used without asking is a nullable error, and a hole handed none throws.
+- The caveat that stands is chosen by the marking, not by the served text, and stands when the Forum omitted it (m4).
+- The digest-disagreement line, the Reader Contract line and an aligned string hole now print a hostile value in the facts (m5).
+- `FrameBuilder`'s remark lists every way a frame writes what it did not quote, and why no stranger's words are among them.
 
 - [ ] **Step 1: Write the failing facts, and move two assertions that read a raw author**
 
@@ -3418,6 +3427,11 @@ namespace Curia.Client.Tests;
 /// hostile here the day it is added, and a renderer that prints it raw fails. The non-vacuity guard
 /// is part of the assertion: the sentence must reach the output quoted, or its absence as a line
 /// says nothing.</para>
+///
+/// <para><b>Every line that prints a served value prints here</b> (Task 4's review, m5). A line a
+/// frame writes only under a condition is poisoned only if the condition holds: the first verdict
+/// carries a digest this client computed, so the line naming the Forum's different one prints, and
+/// the reading's Reader Contract URI holds the hostile value too.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -3438,11 +3452,15 @@ public sealed class ReaderFrameTests
 
         var frames = new[]
         {
-            new Passage(post, new SignatureVerdict(true, Hostile, "recanonicalized bytes are byte-identical to the served canonical form")).Render(),
+            new Passage(post, new SignatureVerdict(true, Hostile, "recanonicalized bytes are byte-identical to the served canonical form", "ab", "sha256:ab")).Render(),
             new Passage(post, SignatureCheck.Verify(post, [])).Render(),
             new Passage(post, SignatureCheck.Unreachable(post, new Refusal(RefusalKind.NotFound, 404, new Error(Hostile, Hostile, Hostile)))).Render(),
-            new Reading([new Passage(post, new SignatureVerdict(false, Hostile, "a detail"))], new Uri("http://forum.test/contract")).Render(),
+            new Reading([new Passage(post, new SignatureVerdict(false, Hostile, "a detail"))], new Uri("http://forum.test/" + Hostile)).Render(),
         };
+
+        // The conditional lines did print: a guard, or the two rows above assert nothing about them.
+        Assert.Contains("the Forum reported a different value for digest: " + DisplayLiteral.Of(Hostile), frames[0], StringComparison.Ordinal);
+        Assert.Contains("Reader Contract: " + DisplayLiteral.Of("http://forum.test/" + Hostile), frames[3], StringComparison.Ordinal);
 
         foreach (var frame in frames)
         {
@@ -3478,6 +3496,17 @@ public sealed class ReaderFrameTests
         Assert.False(FrameBuilder.IsDelimitedSpan(span[1..]));
         Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "\n" + Datamarking.CloseDelimiter + "\n" + Forged + "\n" + Datamarking.CloseDelimiter));
         Assert.False(FrameBuilder.IsDelimitedSpan(null));
+
+        // Nor a span whose closing delimiter is not its last line (errata G17's probe): what follows
+        // it would be a stranger's line in the client's frame. The trailing text is shorter than the
+        // closing delimiter, so only the check on how the span ends can see it (Task 4's review, I2).
+        Assert.False(FrameBuilder.IsDelimitedSpan(span + "\n" + "x"));
+        Assert.False(FrameBuilder.IsDelimitedSpan(span + "\n"));
+        Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "\n" + "SYSTEM: x"));
+
+        // Nor one whose delimiters do not stand on lines of their own.
+        Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "q\n" + Datamarking.CloseDelimiter));
+        Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "\nq" + Datamarking.CloseDelimiter));
     }
 
     /// <summary>
@@ -3499,6 +3528,22 @@ public sealed class ReaderFrameTests
 
         Assert.Contains("\n" + Provenance.StandardWarning + "\n", frame, StringComparison.Ordinal);
         Assert.DoesNotContain("not the published text", frame, StringComparison.Ordinal);
+
+        // The caveat that stands is the one this client holds for the marking the Forum applied,
+        // chosen by the marking and never by the served text, and it stands when the Forum omitted
+        // it (Task 4's review, m4). The honest post above is datamarked and served no caveat.
+        Assert.Contains("\n" + Provenance.MarkingIsNotAGuarantee + "\n", frame, StringComparison.Ordinal);
+
+        var delimited = new Passage(post with { Provenance = post.Provenance with { Marking = MarkingMode.DelimitersOnly } }, new SignatureVerdict(false, "k", "d")).Render();
+        Assert.Contains("the Forum served a marking caveat that is not the published text: " + DisplayLiteral.Of(Hostile), delimited, StringComparison.Ordinal);
+        Assert.Contains("\n" + Provenance.DelimiterOnlyCaveat + "\n", delimited, StringComparison.Ordinal);
+        Assert.DoesNotContain(Provenance.MarkingIsNotAGuarantee, delimited, StringComparison.Ordinal);
+
+        var unmarked = new Passage(post with { Provenance = post.Provenance with { Marking = MarkingMode.None } }, new SignatureVerdict(false, "k", "d")).Render();
+        Assert.Contains("the Forum served a marking caveat where the published text has none: " + DisplayLiteral.Of(Hostile), unmarked, StringComparison.Ordinal);
+        Assert.DoesNotContain(Provenance.DelimiterOnlyCaveat, unmarked, StringComparison.Ordinal);
+        Assert.DoesNotContain(Provenance.MarkingIsNotAGuarantee, unmarked, StringComparison.Ordinal);
+        AssertNoForgedLine(unmarked);
     }
 
     /// <summary>
@@ -3531,6 +3576,33 @@ public sealed class ReaderFrameTests
         Assert.Equal(
             "\"a\\u000ab\" mine 3 2026-09-27T00:00:00.0000000+00:00 (none) \"\\u000a\"",
             new FrameBuilder().Append($"{served} {new OwnText("mine")} {count} {at:o} {absent} {'\n'}").ToString());
+
+        // A string hole padded to a column is quoted before it is padded (Task 4's review, m5).
+        Assert.Equal(DisplayLiteral.Of(served) + "  ", new FrameBuilder().Append($"{served,-12}").ToString());
+
+        // A character is quoted however it is written into a hole: with an alignment or a format,
+        // absent-or-present, or as a Rune -- each of which a generic IFormattable overload would
+        // otherwise take and write as it is (Task 4's review, I1). A tag character is a Rune of two
+        // surrogates.
+        var lf = '\n';
+        char? present = '\n';
+        char? missing = null;
+        var tag = new System.Text.Rune(0xE0041);
+        System.Text.Rune? someRune = tag;
+        System.Text.Rune? noRune = null;
+        var lineBreak = DisplayLiteral.Of("\n");
+        var tagLiteral = DisplayLiteral.Of(char.ConvertFromUtf32(0xE0041));
+
+        Assert.Equal(lineBreak, new FrameBuilder().Append($"{lf,1}").ToString());
+        Assert.Equal("  " + lineBreak, new FrameBuilder().Append($"{lf,10}").ToString());
+        Assert.Equal(lineBreak, new FrameBuilder().Append($"{lf:G}").ToString());
+        Assert.Equal(lineBreak, new FrameBuilder().Append($"{present}").ToString());
+        Assert.Equal(DisplayLiteral.Absent, new FrameBuilder().Append($"{missing}").ToString());
+        Assert.Equal(tagLiteral, new FrameBuilder().Append($"{tag}").ToString());
+        Assert.Equal(tagLiteral + "  ", new FrameBuilder().Append($"{tag,-16}").ToString());
+        Assert.Equal(tagLiteral, new FrameBuilder().Append($"{tag:G}").ToString());
+        Assert.Equal(tagLiteral, new FrameBuilder().Append($"{someRune}").ToString());
+        Assert.Equal(DisplayLiteral.Absent, new FrameBuilder().Append($"{noRune}").ToString());
     }
 
     private static void AssertNoForgedLine(string frame)
@@ -3622,6 +3694,13 @@ public sealed class ShellWordTests : IDisposable
 
         foreach (var value in NotWords())
             Assert.False(ShellWord.TryOf(value, out _), Render(value));
+
+        // A refused value leaves no word behind, so there is no '' to print: R10.65 says a command
+        // with such a value is not printed, and a hole that is handed no word throws rather than
+        // print an empty one (Task 4's review, m3).
+        Assert.False(ShellWord.TryOf("it's", out var refused));
+        Assert.Null(refused);
+        Assert.Throws<ArgumentNullException>(() => new FrameBuilder().Append($"curia read {refused!}"));
     }
 
     [Fact]
@@ -3694,6 +3773,160 @@ internal static class PosixShell
 }
 ```
 
+Create `tests/Curia.Architecture.Tests/ConstantArgumentTests.cs`:
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+using System.Xml.Linq;
+using Curia.Client;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
+using Xunit;
+
+namespace Curia.Architecture.Tests;
+
+/// <summary>
+/// R10.63 (errata G17): a parameter that must be a constant is passed one, because the method that
+/// takes it is only ever called.
+///
+/// <para><b>Why the analyzer is not enough.</b> <see cref="ConstantExpectedAttribute"/> is checked by
+/// CA1857 where a method is called, and a method-group conversion is not a call:
+/// <c>Func&lt;string, FrameBuilder&gt; line = frame.Line;</c> builds with no diagnostic, and
+/// <c>line(served)</c> then writes a stranger's words as a line of the client's own (Task 4's review,
+/// m1). A lambda that calls the method is a call, and CA1857 sees its argument. So this fact reads
+/// the IL of every assembly built from <c>src/</c> and fails on any <c>ldftn</c> or
+/// <c>ldvirtftn</c> -- the instructions a delegate over a method is made from -- whose target has a
+/// parameter so marked. The one way past the attribute is then a build that fails its tests.</para>
+///
+/// <para><b>Not vacuous.</b> The scan must read every project under <c>src/</c>, must find
+/// <c>FrameBuilder.Line</c> among the methods it guards, must see delegates at all, and must find the
+/// one bypass this file holds on purpose, and nothing else in this assembly.</para>
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class ConstantArgumentTests
+{
+    private const string ConstantExpected = "System.Diagnostics.CodeAnalysis.ConstantExpectedAttribute";
+
+    [Fact]
+    public void R10_63_NoMethodWhoseParameterMustBeAConstantIsTakenAsADelegate()
+    {
+        var shipped = ShippedAssemblies();
+        Assert.True(shipped.Count >= 12, $"only {shipped.Count} projects were found under src/; the scan is looking in the wrong place");
+
+        var guarded = new HashSet<string>(StringComparer.Ordinal);
+        var delegates = new List<(string Site, string Target)>();
+        foreach (var path in shipped)
+        {
+            using var assembly = AssemblyDefinition.ReadAssembly(path);
+            Scan(assembly, guarded, delegates);
+        }
+
+        Assert.Contains(guarded, method => method.Contains("Curia.Client.FrameBuilder::Line(System.String)", StringComparison.Ordinal));
+        Assert.True(delegates.Count > 0, "no delegate over any method was seen in src/; the IL scan reads nothing");
+
+        var offenders = delegates
+            .Where(d => guarded.Contains(d.Target))
+            .Select(d => $"{d.Site} takes {d.Target} as a delegate")
+            .ToList();
+        Assert.True(
+            offenders.Count == 0,
+            "a method whose parameter must be a constant is taken as a delegate, which passes any string past CA1857: "
+            + string.Join("; ", offenders));
+
+        // The scan finds a bypass where there is one: this assembly holds exactly one, below.
+        Assert.NotNull(Bypass(new FrameBuilder()));
+        using var self = AssemblyDefinition.ReadAssembly(typeof(ConstantArgumentTests).Assembly.Location);
+        var own = new List<(string Site, string Target)>();
+        Scan(self, new HashSet<string>(StringComparer.Ordinal), own);
+        var found = Assert.Single(own, d => guarded.Contains(d.Target));
+        Assert.Equal("Curia.Architecture.Tests.ConstantArgumentTests::Bypass", found.Site);
+    }
+
+    /// <summary>The bypass this fact exists to find, held here so the fact can show it finds one.</summary>
+    private static Func<string, FrameBuilder> Bypass(FrameBuilder frame) => frame.Line;
+
+    /// <summary>
+    /// Every method of <paramref name="assembly"/> with a parameter marked
+    /// <see cref="ConstantExpectedAttribute"/>, into <paramref name="guarded"/>; and every delegate
+    /// its IL makes over a method, with the method that makes it, into <paramref name="delegates"/>.
+    /// </summary>
+    private static void Scan(AssemblyDefinition assembly, HashSet<string> guarded, List<(string Site, string Target)> delegates)
+    {
+        foreach (var type in AllTypes(assembly.MainModule))
+        {
+            foreach (var method in type.Methods)
+            {
+                if (method.Parameters.Any(p => p.CustomAttributes.Any(a => a.AttributeType.FullName == ConstantExpected)))
+                    guarded.Add(method.FullName);
+
+                if (!method.HasBody)
+                    continue;
+
+                foreach (var instruction in method.Body.Instructions)
+                {
+                    if (instruction.OpCode.Code is Code.Ldftn or Code.Ldvirtftn && instruction.Operand is MethodReference target)
+                        delegates.Add(($"{type.FullName}::{method.Name}", target.GetElementMethod().FullName));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The assembly each project under <c>src/</c> builds, as it sits beside this test: its
+    /// <c>AssemblyName</c> where the project sets one (<c>curia</c>, <c>curia-mcp</c>,
+    /// <c>curia-operator</c>), and the project's name otherwise. A project whose assembly is not here
+    /// fails the fact rather than going unread.
+    /// </summary>
+    private static List<string> ShippedAssemblies()
+    {
+        var paths = new List<string>();
+        foreach (var project in Directory.GetDirectories(Path.Combine(FindRepoRoot(), "src")))
+        {
+            var name = Path.GetFileName(project);
+            var file = Path.Combine(project, name + ".csproj");
+            if (!File.Exists(file))
+                continue;
+
+            var assemblyName = XDocument.Load(file).Descendants("AssemblyName").FirstOrDefault()?.Value ?? name;
+            var path = Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll");
+            Assert.True(File.Exists(path), $"{assemblyName}.dll, which {name} builds, is not beside this test, so it would go unread; reference the project");
+            paths.Add(path);
+        }
+
+        return paths;
+    }
+
+    private static IEnumerable<TypeDefinition> AllTypes(ModuleDefinition module)
+    {
+        foreach (var type in module.Types)
+        foreach (var flattened in AllTypesRecursive(type))
+            yield return flattened;
+    }
+
+    private static IEnumerable<TypeDefinition> AllTypesRecursive(TypeDefinition type)
+    {
+        yield return type;
+        foreach (var nested in type.NestedTypes)
+        foreach (var flattened in AllTypesRecursive(nested))
+            yield return flattened;
+    }
+
+    /// <summary>Mirrors EventStoreWriteSurfaceTests.FindRepoRoot: each file in this suite is self-contained.</summary>
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src")))
+            dir = dir.Parent;
+
+        return dir?.FullName
+            ?? throw new InvalidOperationException("Could not find repo root (a 'src' directory) above " + AppContext.BaseDirectory);
+    }
+}
+```
+
 In `tests/Curia.Mcp.Tests/PropertyP22ToolResultTests.cs`, insert before:
 
 ```csharp
@@ -3762,9 +3995,10 @@ with:
 
 ```bash
 dotnet build tests/Curia.Client.Tests -c Release --nologo 2>&1 | grep -E ": error " | sed -E "s# \[[^]]*\]\$##; s#^$PWD/##" | sort -u
+dotnet build tests/Curia.Architecture.Tests -c Release --nologo 2>&1 | grep -E ": error " | sed -E "s# \[[^]]*\]\$##; s#^$PWD/##" | sort -u
 ```
 
-Expected: eleven errors. Seven in `tests/Curia.Client.Tests/ReaderFrameTests.cs`: `CS0246` for `FrameBuilder` and `OwnText` at line 133, and `CS0103` or `CS0246` for `FrameBuilder` at lines 74, 75, 78, 79 and 80. Four in `tests/Curia.Client.Tests/ShellWordTests.cs`: `CS0103` for `ShellWord` at lines 46, 51, 65 and 75.
+Expected: twenty-nine errors from the client's tests. Twenty-three in `tests/Curia.Client.Tests/ReaderFrameTests.cs`: `CS0246` for `FrameBuilder` and `OwnText` at line 169; `CS0103` for `FrameBuilder` at lines 83, 87, 88, 89, 94, 95, 96, 99 and 100; and `CS0246` for `FrameBuilder` at lines 84, 172 and 187 to 196. Six in `tests/Curia.Client.Tests/ShellWordTests.cs`: `CS0103` for `ShellWord` at lines 46, 51, 56, 72 and 82, and `CS0246` for `FrameBuilder` at line 58. And two from the architecture tests: `CS0246` for `FrameBuilder`, twice, at line 71 of `tests/Curia.Architecture.Tests/ConstantArgumentTests.cs`.
 
 - [ ] **Step 3: Write the frame, and make `Check.Quote` the literal**
 
@@ -3783,12 +4017,12 @@ namespace Curia.Client;
 /// <summary>
 /// Words this client wrote, which a <see cref="FrameText"/> hole writes as they are.
 ///
-/// <para>Besides a constant, a span the Forum delimited (<see cref="FrameBuilder.Span"/>) and a
-/// <see cref="ShellWord"/>, the way to put a string into a frame unquoted, and so the thing to look
-/// for when reviewing what a frame prints: every use says "this is mine", and a use that wraps a
-/// value the Forum served, the log recorded or an agent named is the defect R10.63 (errata G17)
-/// forbids. <see cref="FrameText.AppendLiteral"/> is public because the compiler calls it; no code
-/// here calls it by hand, and a review greps for it as for this type.</para>
+/// <para>The way to put a string of the client's choosing into a frame unquoted, and so the thing to
+/// look for when reviewing what a frame prints: every use says "this is mine", and a use that wraps
+/// a value the Forum served, the log recorded or an agent named is the defect R10.63 (errata G17)
+/// forbids. <see cref="FrameBuilder"/> lists every other way a frame writes what it did not quote.
+/// A <see cref="FrameText"/> built by hand is one of them, so a review greps for
+/// <c>new FrameText(</c> as for this type.</para>
 /// </summary>
 /// <param name="Text">The client's own words.</param>
 public readonly record struct OwnText(string Text);
@@ -3805,11 +4039,18 @@ public readonly record struct OwnText(string Text);
 /// of printable ASCII other than <c>'</c>, <c>\</c> and <c>!</c> reads back as itself in each. A
 /// <c>'</c> ends the word in every one of them, a <c>\</c> before <c>'</c> or <c>\</c> is an escape
 /// in fish, csh and tcsh expand <c>!</c> as history even there, and a value beginning with <c>-</c>
-/// is read as an option rather than as a value. <see cref="TryOf"/> refuses each of these, and a
-/// command holding a value it refused is not printed as a command. No honest value holds any of
-/// them: a post id is a ULID, a cursor is base64, and an entity tag is a quoted digest in hex.</para>
+/// is read as an option rather than as a value. <see cref="TryOf"/> refuses each of these. No honest
+/// value holds any of them: a post id is a ULID, a cursor is base64, and an entity tag is a quoted
+/// digest in hex.</para>
+///
+/// <para><b>Only <see cref="TryOf"/> makes one</b> (Task 4's review, m3). The constructor is private
+/// and this is a class, so a refused value leaves <see langword="null"/> behind, not a word holding
+/// nothing that would print as <c>''</c>: a caller that uses the word without asking whether it
+/// got one is a nullable warning, which this build makes an error, and a <see cref="FrameText"/>
+/// hole handed none throws. What a command does without its word is the caller's; R10.65 says it
+/// is not printed as a command.</para>
 /// </summary>
-public readonly record struct ShellWord
+public sealed record ShellWord
 {
     private ShellWord(string value) => Value = value;
 
@@ -3823,9 +4064,9 @@ public readonly record struct ShellWord
     /// The value as a shell word; false, and no word, when the value is empty, begins with
     /// <c>-</c>, or holds a character outside printable ASCII, <c>'</c>, <c>\</c> or <c>!</c>.
     /// </summary>
-    public static bool TryOf(string? value, out ShellWord word)
+    public static bool TryOf(string? value, [NotNullWhen(true)] out ShellWord? word)
     {
-        word = default;
+        word = null;
         if (string.IsNullOrEmpty(value) || value[0] == '-') return false;
 
         foreach (var unit in value)
@@ -3841,18 +4082,35 @@ public readonly record struct ShellWord
 /// <summary>
 /// One line, or part of one, of this client's frame, written by interpolation (R10.63, errata G17).
 ///
-/// <para><b>Every string hole is quoted.</b> A string interpolated into a frame is a value this
-/// client did not write until something says otherwise, so it is written as
+/// <para><b>Every string hole is quoted, and every character.</b> A string interpolated into a frame
+/// is a value this client did not write until something says otherwise, so it is written as
 /// <see cref="DisplayLiteral"/> writes it: a JSON string literal that cannot end the line it sits on,
-/// begin another, or reorder the text around it. The client's own words go in through
+/// begin another, or reorder the text around it, and padded to its column only after it is quoted.
+/// A <see cref="char"/> or a <see cref="Rune"/> is quoted the same way, since a line break is one
+/// character: bare, with an alignment, with a format, or absent-or-present. Each of those forms has
+/// an overload of its own here, which C# prefers to the generic ones below; without them a character
+/// with an alignment or a format, a <c>char?</c> and a <see cref="Rune"/> were taken by the generic
+/// ones and written as they are (Task 4's review, I1). The client's own words go in through
 /// <see cref="OwnText"/>, and a value in a command the reader may run through
-/// <see cref="ShellWord"/>. A struct that formats itself (<see cref="IFormattable"/>) -- a number, an
-/// instant, an enum -- goes in as itself, formatted invariantly: none of the BCL's holds text a
-/// stranger chose, an enum's being the name of one of its members; and no struct in this repository
-/// implements <see cref="IFormattable"/> -- one that wrapped a served string would print it here
-/// unquoted. A character is quoted, since a line break is one. Anything else -- a record, a
-/// collection, a <see cref="Uri"/>, a <see cref="bool"/> -- has no overload here and does not
-/// compile, so each such hole is a decision made where it is written.</para>
+/// <see cref="ShellWord"/>.</para>
+///
+/// <para><b>What else compiles, and what does not.</b> A struct that formats itself
+/// (<see cref="IFormattable"/>) -- a number, an instant, an enum -- goes in as itself, formatted
+/// invariantly, in a format that must be a constant; absent, it is <see cref="DisplayLiteral.Absent"/>.
+/// Of the BCL's, only a character and a rune hold text a stranger chose, and they are quoted above;
+/// an enum's text is the name of one of its members. No struct in this repository implements
+/// <see cref="IFormattable"/>: one that wrapped a served string would print it here unquoted.
+/// Anything else has no overload here and does not compile, so each such hole is a decision made
+/// where it is written: a class -- a <see cref="Uri"/>, a record, a list -- (CS0453); a struct that
+/// does not format itself -- a <see cref="bool"/>, an <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
+/// -- (CS0315); a span (CS9244); a string or an <see cref="OwnText"/> with a format; and an absent
+/// number or character with an alignment or a format.</para>
+///
+/// <para><b>Built by hand, it writes what it is given.</b> Its constructor and
+/// <see cref="AppendLiteral"/> are public because the compiler calls them for every interpolation,
+/// and a call written by hand is not an interpolation. So <see cref="AppendLiteral"/>'s text and
+/// every format must be constants (<see cref="ConstantExpectedAttribute"/>, CA1857 at a call), and a
+/// review greps for <c>new FrameText(</c> as for <see cref="OwnText"/> (Task 4's review, m2).</para>
 ///
 /// <para><b>Why quoting is the default and not the exception.</b> Before this type the reference
 /// client and <c>curia-mcp</c> printed every served value as it came, and a board name or an agent
@@ -3871,7 +4129,7 @@ public readonly ref struct FrameText
         _text = new StringBuilder(literalLength + (formattedCount * 16));
 
     /// <summary>The literal parts: this client's source text.</summary>
-    public void AppendLiteral(string value) => _text.Append(value);
+    public void AppendLiteral([ConstantExpected] string value) => _text.Append(value);
 
     /// <summary>A value this client did not write: quoted.</summary>
     public void AppendFormatted(string? value) => _text.Append(DisplayLiteral.Of(value));
@@ -3879,8 +4137,33 @@ public readonly ref struct FrameText
     /// <summary>A value this client did not write, quoted and then padded to a column.</summary>
     public void AppendFormatted(string? value, int alignment) => Pad(DisplayLiteral.Of(value), alignment);
 
-    /// <summary>A single character is a value too, and a line break is one character.</summary>
+    /// <summary>A single character is a value too, and a line break is one character: quoted.</summary>
     public void AppendFormatted(char value) => _text.Append(DisplayLiteral.Of(value.ToString()));
+
+    /// <summary>A character, quoted and then padded to a column.</summary>
+    public void AppendFormatted(char value, int alignment) => Pad(DisplayLiteral.Of(value.ToString()), alignment);
+
+    /// <summary>A character in a format, which a character ignores: quoted.</summary>
+    public void AppendFormatted(char value, [ConstantExpected] string? format) =>
+        _text.Append(DisplayLiteral.Of(((IFormattable)value).ToString(format, CultureInfo.InvariantCulture)));
+
+    /// <summary>A character that may be absent: quoted, or <see cref="DisplayLiteral.Absent"/>.</summary>
+    public void AppendFormatted(char? value) =>
+        _text.Append(value is { } present ? DisplayLiteral.Of(present.ToString()) : DisplayLiteral.Absent);
+
+    /// <summary>A scalar value, which may be two UTF-16 code units, as a tag character is: quoted.</summary>
+    public void AppendFormatted(Rune value) => _text.Append(DisplayLiteral.Of(value.ToString()));
+
+    /// <summary>A scalar value, quoted and then padded to a column.</summary>
+    public void AppendFormatted(Rune value, int alignment) => Pad(DisplayLiteral.Of(value.ToString()), alignment);
+
+    /// <summary>A scalar value in a format, which a scalar value ignores: quoted.</summary>
+    public void AppendFormatted(Rune value, [ConstantExpected] string? format) =>
+        _text.Append(DisplayLiteral.Of(((IFormattable)value).ToString(format, CultureInfo.InvariantCulture)));
+
+    /// <summary>A scalar value that may be absent: quoted, or <see cref="DisplayLiteral.Absent"/>.</summary>
+    public void AppendFormatted(Rune? value) =>
+        _text.Append(value is { } present ? DisplayLiteral.Of(present.ToString()) : DisplayLiteral.Absent);
 
     /// <summary>The client's own words.</summary>
     public void AppendFormatted(OwnText value) => _text.Append(value.Text);
@@ -3888,16 +4171,23 @@ public readonly ref struct FrameText
     /// <summary>The client's own words, padded to a column.</summary>
     public void AppendFormatted(OwnText value, int alignment) => Pad(value.Text, alignment);
 
-    /// <summary>A value in a command the reader may run: single-quoted, as <see cref="ShellWord"/> admits it.</summary>
-    public void AppendFormatted(ShellWord value) => _text.Append(value.ToString());
+    /// <summary>
+    /// A value in a command the reader may run: single-quoted, as <see cref="ShellWord"/> admits it.
+    /// Handed no word -- a refused value leaves none -- it throws rather than print an empty one.
+    /// </summary>
+    public void AppendFormatted(ShellWord value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        _text.Append(value.ToString());
+    }
 
     /// <summary>A number, an enum or an instant, formatted invariantly.</summary>
     public void AppendFormatted<T>(T value)
         where T : struct, IFormattable =>
         _text.Append(value.ToString(null, CultureInfo.InvariantCulture));
 
-    /// <summary>A number, an enum or an instant, in the format asked for.</summary>
-    public void AppendFormatted<T>(T value, string? format)
+    /// <summary>A number, an enum or an instant, in the format asked for, which must be a constant.</summary>
+    public void AppendFormatted<T>(T value, [ConstantExpected] string? format)
         where T : struct, IFormattable =>
         _text.Append(value.ToString(format, CultureInfo.InvariantCulture));
 
@@ -3926,10 +4216,28 @@ public readonly ref struct FrameText
 /// A frame this client builds: its own lines, each written through <see cref="FrameText"/> or as a
 /// constant, and the Forum's delimited spans, each checked before it is written as served.
 ///
-/// <para>No method here takes a non-constant string as a line: <see cref="Span"/>, the one that takes
-/// a served string, writes it as served only once its delimiters are checked, and quotes it
-/// otherwise. So a value reaches a frame quoted, as a span whose delimiters were checked, or through
-/// <see cref="OwnText"/> or <see cref="ShellWord"/> where a reviewer can see it.</para>
+/// <para><b>What a frame writes that it did not quote, and why no stranger's words are among
+/// it</b> (R10.63, errata G17; Task 4's review listed each way):</para>
+/// <list type="bullet">
+/// <item>Constants. <see cref="Line(string)"/> and <see cref="Span"/>'s indent take only a constant
+/// (CA1857 at every call). A method-group conversion is not a call and would pass any string, so
+/// <c>ConstantArgumentTests</c> fails on one in any assembly built from <c>src/</c>.</item>
+/// <item>The literal parts of an interpolation, which are this client's source text. A
+/// <see cref="FrameText"/> built by hand writes what it is given; its literal text and its formats
+/// must be constants, and a review greps for <c>new FrameText(</c>.</item>
+/// <item><see cref="OwnText"/>, each use a claim that the words are the client's. Two carry sentences
+/// composed elsewhere: <see cref="SignatureVerdict.Detail"/>, through
+/// <see cref="SignatureVerdict.Describe"/>, and <see cref="Refusal.Summary"/>. Every verdict in
+/// <c>src/</c> is composed in <see cref="SignatureCheck"/>, whose details are its own sentences with
+/// each value they name quoted (an error's detail quoted whole), and a summary quotes the problem
+/// document's words where it is composed. A new place that composes either is an
+/// <see cref="OwnText"/> by another name, and is reviewed as one.</item>
+/// <item>A <see cref="ShellWord"/>: printable ASCII between single quotation marks, which cannot end
+/// a line.</item>
+/// <item>A number, an enum or an instant, formatted invariantly (see <see cref="FrameText"/>).</item>
+/// <item>The Forum's span, once <see cref="IsDelimitedSpan"/> says the Forum delimited it.</item>
+/// <item>Another passage's frame, through <c>Passage</c>, built the same way.</item>
+/// </list>
 /// </summary>
 public sealed class FrameBuilder
 {
@@ -4110,7 +4418,7 @@ dotnet test tests/Curia.Client.Tests -c Release --nologo --filter "FullyQualifie
 dotnet test tests/Curia.Mcp.Tests -c Release --nologo 2>&1 | grep -E "Passed!|Failed!|^\s+Failed "
 ```
 
-Expected: four client facts fail — `R10_63_NoServedValueBeginsALineOfAPassage`, `R10_63_AWarningThatIsNotThePublishedTextIsQuotedAndThePublishedTextStands`, `R10_63_ContentServedWithoutItsDelimitersIsQuoted` and `R10_63_EveryRefusalSummaryIsOneLineWhateverTheForumSaid` (`Failed:     4, Passed:     2`; the two that pass are the frame's own) — and five MCP facts, each expecting a quoted author the old renderer prints raw: `PropertyP22ToolResultTests.R11_18_TheReadToolsResultCarriesTheProvenanceEnvelope`, `R14_9_EveryToolsResultMatchesItsP22Classification` for `curia_ask`, `curia_read` and `curia_search`, and `WriteToolTests.R8_19_ADuplicateQuestionIsAnsweredWithTheThreadNotAnError` (`Failed:     5, Passed:    69`). `ShellWordTests` is outside the filter and passes: `ShellWord` arrived whole in Step 3, which is why case 33 and case 41 exist.
+Expected: four client facts fail — `R10_63_NoServedValueBeginsALineOfAPassage`, `R10_63_AWarningThatIsNotThePublishedTextIsQuotedAndThePublishedTextStands`, `R10_63_ContentServedWithoutItsDelimitersIsQuoted` and `R10_63_EveryRefusalSummaryIsOneLineWhateverTheForumSaid` (`Failed:     4, Passed:     2`; the two that pass are the frame's own) — and five MCP facts, each expecting a quoted author the old renderer prints raw: `PropertyP22ToolResultTests.R11_18_TheReadToolsResultCarriesTheProvenanceEnvelope`, `R14_9_EveryToolsResultMatchesItsP22Classification` for `curia_ask`, `curia_read` and `curia_search`, and `WriteToolTests.R8_19_ADuplicateQuestionIsAnsweredWithTheThreadNotAnError` (`Failed:     5, Passed:    69`). `ShellWordTests` is outside the filter and passes: `ShellWord` arrived whole in Step 3, which is why case 33 and case 41 exist. So does `ConstantArgumentTests`, from Step 3 on: nothing under `src/` takes a constant-only method as a delegate, and its guard finds the one bypass its own file holds (a mutant that takes `FrameBuilder.Line` as a delegate in `Passage.Render` turns it red).
 
 - [ ] **Step 5: Render through the frame**
 
@@ -4304,16 +4612,14 @@ with:
         frame.Blank();
         Standing(frame, Post.Provenance.Warning, Provenance.StandardWarning, "warning");
 
-        if (Post.Provenance.MarkingCaveat is { Length: > 0 } caveat)
-        {
-            Standing(
-                frame,
-                caveat,
-                string.Equals(caveat, Provenance.DelimiterOnlyCaveat, StringComparison.Ordinal)
-                    ? Provenance.DelimiterOnlyCaveat
-                    : Provenance.MarkingIsNotAGuarantee,
-                "marking caveat");
-        }
+        // The caveat that stands is the one this client holds for the marking the Forum says it
+        // applied, chosen by the marking and never by the served text, and written when the Forum
+        // omitted it; a served caveat is compared against it (Task 4's review, m4).
+        var servedCaveat = Post.Provenance.MarkingCaveat is { Length: > 0 } served ? served : null;
+        if (PublishedCaveat(Post.Provenance.Marking) is { } caveat)
+            Standing(frame, servedCaveat ?? caveat, caveat, "marking caveat");
+        else if (servedCaveat is not null)
+            frame.Line($"the Forum served a marking caveat where the published text has none: {servedCaveat}");
 
         frame.Blank();
 
@@ -4342,6 +4648,19 @@ with:
         frame.Line($"the Forum served a {new OwnText(name)} that is not the published text: {served}");
         frame.Line($"{new OwnText(published)}");
     }
+
+    /// <summary>
+    /// The caveat this client holds for a marking: R10.15's for delimiters alone, R10.16's for
+    /// datamarking, and none where nothing was marked -- the Forum's own choice for each
+    /// (<c>ForumEndpoints</c>).
+    /// </summary>
+    private static string? PublishedCaveat(MarkingMode marking) => marking switch
+    {
+        MarkingMode.DelimitersOnly => Provenance.DelimiterOnlyCaveat,
+        MarkingMode.Datamark => Provenance.MarkingIsNotAGuarantee,
+        MarkingMode.None => null,
+        _ => null,
+    };
 
     /// <summary>A served list, each element a display literal, joined by commas.</summary>
     private static OwnText Literals(ImmutableArray<string> values) =>
@@ -4662,9 +4981,10 @@ with:
 dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test tests/Curia.Client.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
 dotnet test tests/Curia.Mcp.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
+dotnet test tests/Curia.Architecture.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `0 Warning(s)`, `0 Error(s)`; `Passed:   238` for `Curia.Client.Tests.dll` (230 before: six frame facts and two shell-word facts); `Passed:    74` for `Curia.Mcp.Tests.dll`.
+Expected: `0 Warning(s)`, `0 Error(s)`; `Passed:   238` for `Curia.Client.Tests.dll` (230 before: six frame facts and two shell-word facts); `Passed:    74` for `Curia.Mcp.Tests.dll`; `Passed:    31` for `Curia.Architecture.Tests.dll` (30 before: `ConstantArgumentTests`).
 
 - [ ] **Step 7: Commit**
 
@@ -6528,7 +6848,7 @@ dotnet test tests/Curia.Architecture.Tests -c Debug --no-build --nologo 2>&1 | g
 grep -n "OwnText" src/Curia.Client/*.cs src/Curia.Client.Cli/*.cs | grep -v "^src/Curia.Client/Frame.cs"
 ```
 
-Expected: `0 Warning(s)` and `0 Error(s)` twice; `Passed:    32` for `Curia.Architecture.Tests.dll` in Release and in Debug (30 before); `Passed:   259` for the client (238 after Task 4: fourteen hint facts and rows, and seven argument facts and rows); and every `OwnText` in the library and the CLI, each the client's own words. The grep reads `OwnText`, not `new OwnText(`, so a target-typed `new(` in a helper is listed by its declaration.
+Expected: `0 Warning(s)` and `0 Error(s)` twice; `Passed:    33` for `Curia.Architecture.Tests.dll` in Release and in Debug (31 before); `Passed:   259` for the client (238 after Task 4: fourteen hint facts and rows, and seven argument facts and rows); and every `OwnText` in the library and the CLI, each the client's own words. The grep reads `OwnText`, not `new OwnText(`, so a target-typed `new(` in a helper is listed by its declaration.
   - Library: `ForumResult.cs:107` (`Detailed`: a problem's detail as a display literal after a colon); `Passage.cs:65` (`(owner verified)` or `(owner NOT verified)`), `:76` (the digest computed here), `:86` (the verdict, whose `kid` is quoted where it is written), `:140` and `:145` (the published warning or caveat the client holds), `:144` (which standing sentence it is, a constant) and `:149` (`Literals`: a served list, each element a display literal, joined by commas); `SignatureCheck.cs:68`–`:71` (a verdict's detail, whose values `Describe(Error)` quoted) and `:121` (a refusal's summary, which quoted the Forum's words where it was composed).
   - CLI: `Cli.cs:287` (a refusal's summary, likewise); `Hints.cs:23`, `:29` and `:38` (each hint's return type), `:26`, `:32` and `:41` (`Withheld`, a constant), `:40` and `:41` (the command's head, `[ConstantExpected]`) and `:43` (`Said`: what `Hints` composed from constants, shell words and display literals); `Program.cs:39` (the name `Args` gave an unreadable argument, `--board` or `argument 2`), `:399` (the digest computed here), `:503` (the forked note), `:737` (two `why_ranked` phrases built through `FrameBuilder`), `:738` (the diversification note), `:860` (a clause's mark), `:895` (`true` or `false`), `:896` (the local verdict), `:899` (the verifier's description, which quotes its output), `:910`–`:912` (the three Acta verdicts, whose values `Check.Quote` wrote), `:943` and `:951` (`Help.FlagKindList`), `:1088` (`Detail`: a local error's detail as a display literal after a colon) and `:1092` (`Literals`, as the library's).
 
@@ -9235,6 +9555,10 @@ CASES = [
          cmds=[cargo("display_output")],
          edits=[(TESTIS_JSON, "                    display::literal(name)\n",
                               "                    name\n")]),
+    dict(id="49", what="a span whose closing delimiter is not its last line counts as delimited",
+         cmds=[dotnet(CLIENT, CLIENT_FRAME)],
+         edits=[(FRAME, "            || !rendered.EndsWith(close, StringComparison.Ordinal))",
+                        "            || string.Equals(rendered, \"no-such-span\", StringComparison.Ordinal))")]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -9373,7 +9697,7 @@ grep -E "^\[|runner exit|NOT RED|DID NOT RUN|falsify.py exit" <scratchpad>/falsi
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped.
 
-Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are forty-eight cases in sixty-one suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`.
+Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are forty-nine cases in sixty-two suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`.
 
 | Case | Must fail, by name |
 |---|---|
@@ -9425,6 +9749,7 @@ Each case must print `RED` for every command it runs, then `restore clean` — w
 | 46 | `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown` (the platform's `CryptographicException`), and `RequestSurfaceTests.R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault`, naming the six routes behind authentication |
 | 47 | `ShellWordTests.R10_65_AWordIsTheValueBetweenSingleQuotesAndNothingAShellCouldReadOtherwise` and the `a!b` row of `CommandHintTests.R10_65_AHintWithAValueThatIsNotAWordPrintsNoCommand`. The `/bin/sh` fact stays green, and should: sh does not expand `!` in a command string, so only the table carries csh's rule |
 | 48 | `display_output.rs`' `r10_63_every_refusal_that_names_a_served_value_quotes_it` and `r10_63_a_look_alike_a_refusal_names_is_written_as_its_escape`, each naming `ParseError::DuplicateMember` alone, and `r10_63_a_member_named_twice_is_named_as_a_literal`, where the binary's ADMIT refusal writes the member as it came (`3 passed; 3 failed`) |
+| 49 | `R10_63_TheSpanTheForumDelimitedIsWrittenAsServed` alone: a span followed by a short line, and a span followed by a line break, now count as delimited (errata G17's span probe; Task 4's review, I2) |
 
 - [ ] **Step 3: Prove the tree is what was committed, and green**
 
@@ -9460,7 +9785,7 @@ grep -n "^### D[0-9]" IMPLEMENTATION_PLAN.md | tail -3
 grep -n 'board.Length == 0\|RequiresParent(kind) && string.IsNullOrWhiteSpace(parent)' src/Curia.Domain/Content/PostEnvelope.cs
 grep -n 'public static string Of\|public static bool TryRead' src/Curia.Canon/Json/DisplayLiteral.cs
 grep -n 'pub fn literal' rust/curia-testis/src/display.rs
-grep -n 'public readonly record struct OwnText\|public readonly record struct ShellWord\|public static bool TryOf\|public readonly ref struct FrameText\|public sealed class FrameBuilder\|public static bool IsDelimitedSpan' src/Curia.Client/Frame.cs
+grep -n 'public readonly record struct OwnText\|public sealed record ShellWord\|public static bool TryOf\|public readonly ref struct FrameText\|public sealed class FrameBuilder\|public static bool IsDelimitedSpan' src/Curia.Client/Frame.cs
 grep -n 'public string Render()\|private static void Standing' src/Curia.Client/Passage.cs
 grep -n 'public string Describe' src/Curia.Client/SignatureCheck.cs
 grep -n 'public string Summary' src/Curia.Client/ForumResult.cs
@@ -9478,7 +9803,7 @@ grep -n 'Uri.EscapeDataString(passage.Post.PostId)' src/Curia.Mcp/ForumTools.cs
 grep -n 'fn unreadable' rust/curia-testis/src/bin/curia-testis.rs
 ```
 
-Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `39:`, `53:`, `93:`, `161:`, `243:`; `57:`, `136:` and `164:`; `66:`; `82:`; `94:` and `251:`; `17:`; `37:`; `433:`, `533:`, `1182:`, `2156:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
+Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `134:` and `175:`; `66:`; `82:`; `94:` and `251:`; `17:`; `37:`; `433:`, `533:`, `1182:`, `2156:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
 
 - [ ] **Step 2: Write the register, the trap and what comes next**
 
@@ -9645,14 +9970,16 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
   backslash, which the Task 2 review found it did not (21 of 95: a reader that escaped `<` or `$`
   passed both runners). A Rust fact walks every scalar value, as the C# property walks generated
   strings. `Check.Quote` is now `DisplayLiteral.Of`.
-- **R10.63, the client.** `FrameText` (`src/Curia.Client/Frame.cs:93`), an interpolated-string handler
-  whose `string` holes are literals and whose other holes compile only if they format themselves;
-  `OwnText` (`:21`) for the client's own words; `FrameBuilder` (`:161`), which takes a line only as a
-  `FrameText`, a constant, a passage or a span, and writes a span raw only once `IsDelimitedSpan`
-  (`:243`) has checked its delimiters. `Passage.Render` (`src/Curia.Client/Passage.cs:57`), `Reading`,
+- **R10.63, the client.** `FrameText` (`src/Curia.Client/Frame.cs:117`), an interpolated-string handler
+  whose `string` and character holes are literals and whose other holes compile only if they format
+  themselves; `OwnText` (`:21`) for the client's own words; `FrameBuilder` (`:235`), which takes a line
+  only as a `FrameText`, a constant, a passage or a span, and writes a span raw only once
+  `IsDelimitedSpan` (`:317`) has checked its delimiters. `Passage.Render` (`src/Curia.Client/Passage.cs:57`), `Reading`,
   `SignatureVerdict.Describe` (`SignatureCheck.cs:66`) and `Refusal.Summary`
-  (`src/Curia.Client/ForumResult.cs:82`) are built on them. The standing warning and the marking
-  caveats are written as the client's own only when they are the published text (`Passage.cs:136`).
+  (`src/Curia.Client/ForumResult.cs:82`) are built on them. The standing warning is written as the
+  client's own only when it is the published text (`Passage.cs:134`), and the marking caveat is the one
+  the client holds for the marking served. `ConstantArgumentTests` fails on a delegate over a method
+  whose parameter must be a constant, the one way past CA1857.
 - **R10.63, the CLI.** `Output` (`src/Curia.Client.Cli/Cli.cs:251`) takes a line only as a constant
   (`[ConstantExpected]`, so a variable is CA1857, a build error), a `FrameText`, a `FrameBuilder` or a
   `Reading`. When it changed, the compiler named the CLI's sites itself. `OutputFenceTests` holds the
@@ -9671,7 +9998,7 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
 - **R10.65.** A command the CLI prints for its reader to run -- the entity-tag re-check, the next
   page's cursor, a thread to read -- is written in one place, `Hints`
   (`src/Curia.Client.Cli/Hints.cs:17`), and holds a value only as a `ShellWord`
-  (`src/Curia.Client/Frame.cs:39`, `TryOf` at `:53`): single-quoted, printable ASCII other than `'`,
+  (`src/Curia.Client/Frame.cs:46`, `TryOf` at `:60`): single-quoted, printable ASCII other than `'`,
   `\` and `!`, not beginning with `-`. At b4bfe31 the hints printed the entity tag between single quotes
   as it came and a cursor and a post id bare, so a `'` or a `;` in one ended the word; the plan's
   first form printed them as display literals, which a shell reads as double-quoted words and in which
@@ -9699,7 +10026,7 @@ hostile in turn, its resource URIs read with its text, and five hostile refusals
 Forum, `Curia.Api.Tests.ReaderFrameTests`, which reads a hostile board and a hostile identifier through
 `curia read`'s renderer, `curia_read`, `curia_search`, `curia_verify` and `curia-testis verify`.
 
-**Falsified:** the strangers stage's Task 10 ran forty-eight cases in sixty-one suite runs in a
+**Falsified:** the strangers stage's Task 10 ran forty-nine cases in sixty-two suite runs in a
 git-backed copy: every command printed `RED` on the facts its table names, every restore printed
 `restore clean` with both proofs and, after each of the nine Rust restores, `curia-testis rebuilt:
 yes`, and the run's last lines were `runner exit: 0` and `falsify.py exit 0`.
@@ -9977,7 +10304,7 @@ node tools/differential-oracle/compare.mjs --fail-on-divergence > <scratchpad>/d
 grep -E '"divergences"' <scratchpad>/differential.log
 ```
 
-Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 32, Domain.Primitives 39, AuthN 69, Infrastructure 106, Mcp 111, Client 259, Api 256, Canon 284, Application 299, Domain 609 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    32` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 244 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree.
+Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 33, Domain.Primitives 39, AuthN 69, Infrastructure 106, Mcp 111, Client 259, Api 256, Canon 284, Application 299, Domain 609 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    33` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 244 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree.
 
 - [ ] **Step 2: Push, and open the PR**
 
@@ -9987,4 +10314,4 @@ but push strangers-stay-in-quotes
 gh pr create --base main --head strangers-stay-in-quotes --title "Strangers stay in quotes (errata G17; register D31 and D25)" --body-file <scratchpad>/pr-body.md
 ```
 
-The PR body states what the stage closes (D31, D25), the six requirements, the counts from Step 1, the falsification run's last line, the plan edits Task 3's two code commits carry (the CI comment's count, 238 to 240, in the first; Task 3's review mirrored into Task 3 and its case 48 into Tasks 10–12, in the second; Task 3's review, M6), and the owner questions from the spec's §7 with their defaults, and ends with the attribution line the session's system reminder gives. Then watch CI to green; a red job is read, not re-run.
+The PR body states what the stage closes (D31, D25), the six requirements, the counts from Step 1, the falsification run's last line, the plan edits Task 3's two code commits carry (the CI comment's count, 238 to 240, in the first; Task 3's review mirrored into Task 3 and its case 48 into Tasks 10–12, in the second; Task 3's review, M6), the plan edits Task 4's fix-round commit carries (its review mirrored into Task 4, its architecture fact's count into Tasks 5 and 12, its moved lines into Task 11, and its case 49 into Tasks 10–12), and the owner questions from the spec's §7 with their defaults, and ends with the attribution line the session's system reminder gives. Then watch CI to green; a red job is read, not re-run.

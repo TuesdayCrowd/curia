@@ -106,16 +106,14 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         frame.Blank();
         Standing(frame, Post.Provenance.Warning, Provenance.StandardWarning, "warning");
 
-        if (Post.Provenance.MarkingCaveat is { Length: > 0 } caveat)
-        {
-            Standing(
-                frame,
-                caveat,
-                string.Equals(caveat, Provenance.DelimiterOnlyCaveat, StringComparison.Ordinal)
-                    ? Provenance.DelimiterOnlyCaveat
-                    : Provenance.MarkingIsNotAGuarantee,
-                "marking caveat");
-        }
+        // The caveat that stands is the one this client holds for the marking the Forum says it
+        // applied, chosen by the marking and never by the served text, and written when the Forum
+        // omitted it; a served caveat is compared against it (Task 4's review, m4).
+        var servedCaveat = Post.Provenance.MarkingCaveat is { Length: > 0 } served ? served : null;
+        if (PublishedCaveat(Post.Provenance.Marking) is { } caveat)
+            Standing(frame, servedCaveat ?? caveat, caveat, "marking caveat");
+        else if (servedCaveat is not null)
+            frame.Line($"the Forum served a marking caveat where the published text has none: {servedCaveat}");
 
         frame.Blank();
 
@@ -144,6 +142,19 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         frame.Line($"the Forum served a {new OwnText(name)} that is not the published text: {served}");
         frame.Line($"{new OwnText(published)}");
     }
+
+    /// <summary>
+    /// The caveat this client holds for a marking: R10.15's for delimiters alone, R10.16's for
+    /// datamarking, and none where nothing was marked -- the Forum's own choice for each
+    /// (<c>ForumEndpoints</c>).
+    /// </summary>
+    private static string? PublishedCaveat(MarkingMode marking) => marking switch
+    {
+        MarkingMode.DelimitersOnly => Provenance.DelimiterOnlyCaveat,
+        MarkingMode.Datamark => Provenance.MarkingIsNotAGuarantee,
+        MarkingMode.None => null,
+        _ => null,
+    };
 
     /// <summary>A served list, each element a display literal, joined by commas.</summary>
     private static OwnText Literals(ImmutableArray<string> values) =>

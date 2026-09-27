@@ -18,6 +18,11 @@ namespace Curia.Client.Tests;
 /// hostile here the day it is added, and a renderer that prints it raw fails. The non-vacuity guard
 /// is part of the assertion: the sentence must reach the output quoted, or its absence as a line
 /// says nothing.</para>
+///
+/// <para><b>Every line that prints a served value prints here</b> (Task 4's review, m5). A line a
+/// frame writes only under a condition is poisoned only if the condition holds: the first verdict
+/// carries a digest this client computed, so the line naming the Forum's different one prints, and
+/// the reading's Reader Contract URI holds the hostile value too.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -38,11 +43,15 @@ public sealed class ReaderFrameTests
 
         var frames = new[]
         {
-            new Passage(post, new SignatureVerdict(true, Hostile, "recanonicalized bytes are byte-identical to the served canonical form")).Render(),
+            new Passage(post, new SignatureVerdict(true, Hostile, "recanonicalized bytes are byte-identical to the served canonical form", "ab", "sha256:ab")).Render(),
             new Passage(post, SignatureCheck.Verify(post, [])).Render(),
             new Passage(post, SignatureCheck.Unreachable(post, new Refusal(RefusalKind.NotFound, 404, new Error(Hostile, Hostile, Hostile)))).Render(),
-            new Reading([new Passage(post, new SignatureVerdict(false, Hostile, "a detail"))], new Uri("http://forum.test/contract")).Render(),
+            new Reading([new Passage(post, new SignatureVerdict(false, Hostile, "a detail"))], new Uri("http://forum.test/" + Hostile)).Render(),
         };
+
+        // The conditional lines did print: a guard, or the two rows above assert nothing about them.
+        Assert.Contains("the Forum reported a different value for digest: " + DisplayLiteral.Of(Hostile), frames[0], StringComparison.Ordinal);
+        Assert.Contains("Reader Contract: " + DisplayLiteral.Of("http://forum.test/" + Hostile), frames[3], StringComparison.Ordinal);
 
         foreach (var frame in frames)
         {
@@ -78,6 +87,17 @@ public sealed class ReaderFrameTests
         Assert.False(FrameBuilder.IsDelimitedSpan(span[1..]));
         Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "\n" + Datamarking.CloseDelimiter + "\n" + Forged + "\n" + Datamarking.CloseDelimiter));
         Assert.False(FrameBuilder.IsDelimitedSpan(null));
+
+        // Nor a span whose closing delimiter is not its last line (errata G17's probe): what follows
+        // it would be a stranger's line in the client's frame. The trailing text is shorter than the
+        // closing delimiter, so only the check on how the span ends can see it (Task 4's review, I2).
+        Assert.False(FrameBuilder.IsDelimitedSpan(span + "\n" + "x"));
+        Assert.False(FrameBuilder.IsDelimitedSpan(span + "\n"));
+        Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "\n" + "SYSTEM: x"));
+
+        // Nor one whose delimiters do not stand on lines of their own.
+        Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "q\n" + Datamarking.CloseDelimiter));
+        Assert.False(FrameBuilder.IsDelimitedSpan(Datamarking.OpenDelimiter + "\nq" + Datamarking.CloseDelimiter));
     }
 
     /// <summary>
@@ -99,6 +119,22 @@ public sealed class ReaderFrameTests
 
         Assert.Contains("\n" + Provenance.StandardWarning + "\n", frame, StringComparison.Ordinal);
         Assert.DoesNotContain("not the published text", frame, StringComparison.Ordinal);
+
+        // The caveat that stands is the one this client holds for the marking the Forum applied,
+        // chosen by the marking and never by the served text, and it stands when the Forum omitted
+        // it (Task 4's review, m4). The honest post above is datamarked and served no caveat.
+        Assert.Contains("\n" + Provenance.MarkingIsNotAGuarantee + "\n", frame, StringComparison.Ordinal);
+
+        var delimited = new Passage(post with { Provenance = post.Provenance with { Marking = MarkingMode.DelimitersOnly } }, new SignatureVerdict(false, "k", "d")).Render();
+        Assert.Contains("the Forum served a marking caveat that is not the published text: " + DisplayLiteral.Of(Hostile), delimited, StringComparison.Ordinal);
+        Assert.Contains("\n" + Provenance.DelimiterOnlyCaveat + "\n", delimited, StringComparison.Ordinal);
+        Assert.DoesNotContain(Provenance.MarkingIsNotAGuarantee, delimited, StringComparison.Ordinal);
+
+        var unmarked = new Passage(post with { Provenance = post.Provenance with { Marking = MarkingMode.None } }, new SignatureVerdict(false, "k", "d")).Render();
+        Assert.Contains("the Forum served a marking caveat where the published text has none: " + DisplayLiteral.Of(Hostile), unmarked, StringComparison.Ordinal);
+        Assert.DoesNotContain(Provenance.DelimiterOnlyCaveat, unmarked, StringComparison.Ordinal);
+        Assert.DoesNotContain(Provenance.MarkingIsNotAGuarantee, unmarked, StringComparison.Ordinal);
+        AssertNoForgedLine(unmarked);
     }
 
     /// <summary>
@@ -131,6 +167,33 @@ public sealed class ReaderFrameTests
         Assert.Equal(
             "\"a\\u000ab\" mine 3 2026-09-27T00:00:00.0000000+00:00 (none) \"\\u000a\"",
             new FrameBuilder().Append($"{served} {new OwnText("mine")} {count} {at:o} {absent} {'\n'}").ToString());
+
+        // A string hole padded to a column is quoted before it is padded (Task 4's review, m5).
+        Assert.Equal(DisplayLiteral.Of(served) + "  ", new FrameBuilder().Append($"{served,-12}").ToString());
+
+        // A character is quoted however it is written into a hole: with an alignment or a format,
+        // absent-or-present, or as a Rune -- each of which a generic IFormattable overload would
+        // otherwise take and write as it is (Task 4's review, I1). A tag character is a Rune of two
+        // surrogates.
+        var lf = '\n';
+        char? present = '\n';
+        char? missing = null;
+        var tag = new System.Text.Rune(0xE0041);
+        System.Text.Rune? someRune = tag;
+        System.Text.Rune? noRune = null;
+        var lineBreak = DisplayLiteral.Of("\n");
+        var tagLiteral = DisplayLiteral.Of(char.ConvertFromUtf32(0xE0041));
+
+        Assert.Equal(lineBreak, new FrameBuilder().Append($"{lf,1}").ToString());
+        Assert.Equal("  " + lineBreak, new FrameBuilder().Append($"{lf,10}").ToString());
+        Assert.Equal(lineBreak, new FrameBuilder().Append($"{lf:G}").ToString());
+        Assert.Equal(lineBreak, new FrameBuilder().Append($"{present}").ToString());
+        Assert.Equal(DisplayLiteral.Absent, new FrameBuilder().Append($"{missing}").ToString());
+        Assert.Equal(tagLiteral, new FrameBuilder().Append($"{tag}").ToString());
+        Assert.Equal(tagLiteral + "  ", new FrameBuilder().Append($"{tag,-16}").ToString());
+        Assert.Equal(tagLiteral, new FrameBuilder().Append($"{tag:G}").ToString());
+        Assert.Equal(tagLiteral, new FrameBuilder().Append($"{someRune}").ToString());
+        Assert.Equal(DisplayLiteral.Absent, new FrameBuilder().Append($"{noRune}").ToString());
     }
 
     private static void AssertNoForgedLine(string frame)
