@@ -12,12 +12,14 @@ stage's Decision 23), which was recorded as decided and never made.
 **R4.31** (as G14 wrote it) and **R4.16** (as A16 revised it). On this reading the highest entry is
 G15 (G4 stays reserved), and the highest requirements are R4.33, R5.20 and R6.53. The plan's Task 2
 re-derives every number and stops if the tree disagrees. The entry's text is Appendix A, verbatim, and
-its index rows Appendix B, both as amended after Task 2's review (§9).
+its index rows Appendix B, both as amended after Task 2's review (§9) and after Task 8's
+agreement probe (§10).
 
 **Decisions:** taken by `curia-architect` on the owner's behalf, and marked where they are made (§2).
 One question is left for the owner (§2.1), turning on one already open with them, and no task depends
 on it; a second that §2.1 first left open was decided after Task 2's review (Decision 18). §8 records
-what was changed after the pre-flight scan, and §9 what was changed after Task 2's review, and why.
+what was changed after the pre-flight scan, §9 what was changed after Task 2's review, and §10 what
+was changed after Task 8's agreement probe, and why.
 
 ## 1. The defect
 
@@ -234,17 +236,29 @@ compared the two. It is recorded as trap 22.
       post's `kid`, recompute its leaf and prove it under the same signed head as the post, require an
       `agent.key-bound` of the post's author naming that `kid` at a lower index than the post, and
       verify the post's signature under the key that entry carries, not the one the key set serves.
-    - Both readers take the steps in one order. The entry must be of the post's author and `kid`,
-      whatever its type, or the check *fails*. Then an entry at or after the post's index is *could
-      not be checked*, and so is the author's `agent.enrolled` naming the `kid`: all a pre-G16 identity
-      has, and a reader cannot tell when one was made (§9, M2). Only then is the signature checked,
-      under the key the entry carries.
+      The post's author, `kid` and signature are read from the post's own `post.accepted` entry, never
+      from the read, and a post the Forum served as another author's fails (§10).
+    - Both readers take the steps in one order, and report every failure before any absence. Each
+      proof is held to the signed head first. The post's own entry must be a `post.accepted` and, for
+      the client, name the author the Forum served. The binding entry must be of the post's author and
+      `kid`, whatever its type, or the check *fails*. Then an entry at or after the post's index is
+      *could not be checked*, and so is the author's `agent.enrolled` naming the `kid`: all a pre-G16
+      identity has, and a reader cannot tell when one was made (§9, M2). Only then is the signature
+      checked, under the key the entry carries (§10).
+    - *Amended after Task 8's agreement probe (§10).* The two readers hold their material differently,
+      and R6.54 now says what that changes. The client fetches: a key document it cannot parse is one
+      it did not receive, and without a head it verified it fetches nothing, both *could not be
+      checked*. `curia-testis` is handed files: it fails one it cannot parse and, with no head, checks
+      what it can. Both compare what an entry route states beside its entry. The client's comparison
+      of the Forum's attribution is the one check `curia-testis` cannot make.
     - A key set that names no leaf makes the check impossible (*could not be checked*); one that
       names a leaf binding something else makes it fail; neither makes it pass. One that names the
       author's `agent.enrolled` for a key a binding also carries makes it impossible too, so the most
       a lying key set gains there is *could not be checked*.
     - The binding's proof is held to the head the client verified, not only to its own root
-      (`PostVerifierTests.R6_54_AKeyBindingProvenUnderAnotherRootFails`, case 32; §9, M11).
+      (`PostVerifierTests.R6_54_AKeyBindingProvenUnderAnotherRootFails`, case 32; §9, M11), and before
+      its entry is read (`R6_54_AnUnestablishedBindingUnderAnotherRootFailsRatherThanGoingUnchecked`,
+      case 52; §10).
     - *Amended after the pre-flight scan (B1, §8).* The author's binding after the post was first read
       as *failed*. It is *could not be checked*: the log's silence about the key the post was accepted
       under, not a contradiction of it. A forger binds first, at no cost, so reading it as failed
@@ -263,9 +277,13 @@ compared the two. It is recorded as trap 22.
     - Inputs: the post's entry and proof, the binding's entry and proof, a signed head and the log's
       key set. No agent key set is read.
     - Exits: 0 verified; 1 failed, naming the predicate; 2 usage; 3 could not be checked, for no head
-      given, or when the log carries no key for the post's `kid` from before the post: the author's
-      own `agent.enrolled` naming the `kid`, or the author's binding after the post. Another
-      identity's entry, or another `kid`'s, exits 1 whatever its type.
+      given where every check that needs none held, or when the log carries no key for the post's
+      `kid` from before the post: the author's own `agent.enrolled` naming the `kid`, or the author's
+      binding after the post. Another identity's entry, or another `kid`'s, exits 1 whatever its type,
+      and so does a document that fails a check needing no head, or does not parse, with a head or
+      without one (Task 7's I3; §10).
+    - What an entry route states beside an entry, its `leaf_hash` and `log_index`, is compared with
+      the recomputed leaf and the proof, in `log author` and `log inclusion` both (§10).
     - `conformance/acta/key-bound-entry` binds `envelope/ed25519-minimal`'s key to that envelope's
       author an hour before `acta/content-entry`'s `server_ts`, so a tree over the two published
       vectors, the binding first, under a head over that tree, is a log from which the check
@@ -436,6 +454,8 @@ head's (32), and `curia_verify` dropping the key check's line (33).
 - A remedy for the whole-log fold on anonymous reads, the key set's among them (Decision 8).
 - D25 and the U+0000 sweep; R10.39's publication (Decision 2).
 - R4.14's enrollment log, and R4.10's owner ticket (D7).
+- The read paths' attribution: `curia read`, `curia thread` and the MCP read tools verify under the
+  key set of the author the provenance names, and never compare it with the envelope's (§10).
 
 ## 6. What comes next
 
@@ -607,6 +627,64 @@ Found while ruling, and recorded:
   after Tasks 5 and 6, and 229 after Task 8; Client 211 and Mcp 74 after Task 8. Task 9 runs
   thirty-three cases in forty-six suite runs.
 
+## 10. Amendments after Task 8's agreement probe
+
+Task 8's implementer applied the brief verbatim, got it green, and then ran the brief's `PostVerifier`
+and `curia-testis log author` over the same served documents in 37 configurations of the stub
+(`.superpowers/sdd/2026-09-27-keys-bound-in-the-acta/task-8-report.md`, not tracked). They disagreed on
+fourteen, and the dispatch rule stopped the task. Each is ruled below against R6.52, R6.54 and
+R11.29; the probe's case numbers are its own, not the plan's Task 9 cases. The verdict compared is the client's `key` line against `curia-testis`'s exit code: with
+`--head` where the client held a head, and without it otherwise.
+
+| Probe case | What the Forum served | Brief's client | `curia-testis` | Ruling |
+|---|---|---|---|---|
+| 20 | alice's post served as mallory's, and the log binds alice's key to mallory | verified | failed (`binding-mismatch`) | `curia-testis` is right. R6.54's "its author" is the author the signed envelope names, read from the post's own entry, and the provenance is the Forum's word. The amended client fails it, first on the attribution |
+| 35 | the post's bytes, recorded under another entry type | verified | failed (`not-a-post`) | `curia-testis` is right. Only a `post.accepted` is the log's record of the post's acceptance, and so of the key it was accepted under. R6.52's inclusion still holds, since the bytes are in the log, and `curia-testis log inclusion` agrees |
+| 36 | the log's post entry signed under an unbound `alice-2`; the read serves alice-1's signature over the same bytes | verified | failed (`binding-mismatch`) | `curia-testis` is right. The check is "established from the log", so the post's `kid` and signature are those its entry holds. The key set is still consulted for the served signature's `kid`, and the leaf it names then fails the comparison |
+| 13, 14 | a binding after the post, proven under a size (13) or root (14) the head does not sign | could not be checked | failed (`head-size-mismatch`, `head-root-mismatch`) | `curia-testis` is right. "Under the same signed head" is a check of its own. A leaf the head does not hold says nothing about the log, so the proof is held to the head before the entry's type, identity or order is read |
+| 15 | a pre-R4.34 enrollment, proven under another size | could not be checked | failed (`head-size-mismatch`) | As 13 |
+| 10, 15b | no signed head, and a forged key entry (10) or proofs in two trees (15b) | could not be checked | failed (`leaf-mismatch`, `tree-mismatch`) | Both are right, and the difference is now specified. The client fetches, and without a head it verified it fetches nothing for the check, as its inclusion line already does, so nothing it holds has failed. `curia-testis` is handed its files, so it makes every check that needs no head (Task 7's I3). Neither can reach *verified* |
+| 16, 17, 34 | a key entry (16, 34) or key proof (17) truncated mid-document | could not be checked | failed (`malformed`) | Both are right, and the difference is now specified. A body the client fetched and cannot parse is one it did not receive. A truncated response or an intermediary's page parses no better than a forgery, and R6.52 exists so that a network fault never reads as an attack; `CheckOutcome.CouldNotCheck` and R6.52's inclusion line already read it so. A file handed to `curia-testis` will not become checkable by any head, and exit 3 promises that a head would settle it, so a file that does not parse is a failure of that material. A document that parses and then contradicts itself, or the head, is failed by both |
+| 18, 19 | the key's entry route stating another `leaf_hash` (18) or `log_index` (19) | failed | verified | The client is right. `curia-testis` was wrong by its own module doc ("where the Forum also states a `leaf_hash`, it is compared"). What the route states beside the entry is the Forum's word about that leaf: it is compared, never taken, and a disagreement fails. Task 7's fix round 2 compares both, in `log author` and `log inclusion` |
+| 21 | alice's post served as mallory's, and the log binds alice's key to alice | failed | verified | Both are right about different things, and the difference is now specified. On what both can see, `curia-testis` is right: the log binds the signing key to the signed author before the post. The brief's client failed it by comparing the binding with the provenance, the defect case 20 shows from the other side. The amended client fails it for the reason only it can see: the Forum served the post as another author's. `curia-testis` has no served post to compare |
+
+Three probe cases were scope, not disagreement, in the probe's own classification: 25, 26 and 27 hand the
+two readers different inputs. In 25 the head does not cover the post, which the client knows is the
+latest head. In 26 and 27 the key set could not be fetched or names no leaf, while `curia-testis` is
+handed the leaf.
+
+On the amended code, with Task 7's fix round 2, the same 37 configurations give 28 that agree, 6 that
+differ as ruled above (10, 15b, 16, 17, 34 and 21), and the 3 scope cases. None disagree.
+
+What changed:
+
+- **The client (Task 8).** `ActaCheck.PostOfRecord` reads the post's author, `kid` and signature from
+  its own entry, and checks that entry before anything else: its proof under the head, its type,
+  ADMIT over its envelope, and the Forum's attribution. `ActaCheck.KeyBinding` makes those checks,
+  then holds the key's proof to the head before reading the entry's type, identity or order, and
+  verifies the logged signature under the bound key. `PostVerifier` hands the inclusion check's entry
+  and proof to the fourth check, and checks the post's record before it consults the key set. Its
+  absences stay its own: nothing is fetched without a verified head, and a document that does not
+  parse is read as unfetched. Eight new client facts, twelve test cases with their rows; Client 223.
+- **`curia-testis` (Task 7's fix round 2).** `verify_inclusion` compares the entry route's `leaf_hash`
+  and `log_index`, and `curia/acta/index-mismatch` is new. Three facts; cargo 232.
+- **G16.** R6.54's text and its reason, "How it surfaced", the R6.52, R11.29 and R6.19 rows, the
+  falsification bullet, and the index row (Appendices A and B). No number moves.
+- **Falsification.** Cases 49–57: the client not comparing the attribution (49), reading an entry of
+  any type as the post's acceptance (50), and taking the read's `kid` and signature (51); holding the
+  key's proof to the head only after the entry's order and type (52); ignoring the key entry route's
+  index (53); reading an unparseable key entry as failed (54); `curia-testis` ignoring the route's
+  leaf hash (55) and index (56); and the client reporting a key set naming no leaf before the post's
+  record (57). The carried count for §3 and §4 becomes fifty-seven cases in seventy-three suite runs.
+
+Found while ruling, and recorded:
+
+- **The read paths hold the Forum's attribution to nothing.** `curia read`, `curia thread` and the MCP
+  read tools verify under the key set of the author the provenance names, and print that author.
+  `SignatureCheck.Verify` never reads the envelope's `author`. R6.54's check covers `curia verify` and
+  `curia_verify` only. The register's observations (the plan's Task 10) record it for an entry of its
+  own.
+
 ## Appendix A: errata entry G16, verbatim
 
 The plan's Task 2 inserts this text immediately before the errata's `# Consolidated proposed-requirements
@@ -642,7 +720,12 @@ reader answered could-not-be-checked for any `agent.enrolled`, whoever's it was.
 review then found four more, and the text below carries each: R4.34 was keyed on the key store's
 registrations rather than on the log's enrollments; R4.31 (revised) claimed that rotation would need
 no amendment to it; a re-presentation could still turn an identity's history into failures, through
-R6.52's signature check rather than R6.54's; and R11.29 was left without a cross-reference.
+R6.52's signature check rather than R6.54's; and R11.29 was left without a cross-reference. Then the
+reference client and the independent reader, run over the same served documents, disagreed on
+fourteen of thirty-seven cases, and R6.54 now says the four things that settled them: whose author,
+`kid` and signature the check reads; that what an entry route states beside its entry is compared;
+that a failure a reader can see is reported before any absence; and how a reader that fetches from
+the Forum differs from one its caller hands documents to.
 
 ### The finding
 
@@ -778,21 +861,38 @@ header algorithm is not its key's.
 
 **R6.54** A client that reports a served post as verified SHALL also have established from the log
 that the key the post's signature verifies under is the key the log bound to its author before the
-post: it SHALL find the entry that binds the post's `kid` — the one the author's key set names
-(R4.35), or one it is handed — recompute that entry's leaf (R6.46) and verify its inclusion under the
-same signed head as the post's own proof, require an `agent.key-bound` entry of the post's author
-naming the post's `kid`, at a lower log index than the post, and verify the post's signature under
-the key that entry carries rather than under the key the key set serves. An entry of the post's
-author naming the post's `kid` that establishes no key for the post — the author's `agent.enrolled`,
-which names the `kid` and carries no key (all an identity enrolled before R4.34 has; a reader cannot
-tell when one was made, and reports every such entry so), or the author's binding at a log index not
-lower than the post's — SHALL be reported as could not be checked, and never as failed; so SHALL a
-key set that names no entry for the post's `kid`, and an entry, proof or signed head that cannot be
-fetched. An entry that is not of the post's author and `kid`, whatever its type, an entry of them
-that is neither `agent.enrolled` nor `agent.key-bound`, and an `agent.key-bound` entry before the
-post that carries no usable key or a key the post does not verify under, SHALL be reported as
-failed. R6.52's three outcomes, and its prohibition on collapsing them, govern this check, and a
-post whose key's binding is not verified SHALL NOT be reported as verified. The reason: every check
+post. The post's author, its `kid` and its signature are those of the post's own entry — the
+`post.accepted` entry whose inclusion R6.52 verifies, bound to the served post by R11.29's
+byte-identity of the canonical form — and not those the Forum serves beside it: the `author` its
+envelope names, the `kid` its signature's protected header names, and that signature. The reader
+SHALL find the entry that binds the post's `kid` — the one the author's key set names (R4.35), or one
+it is handed — recompute that entry's leaf and the post's (R6.46), comparing every leaf hash and log
+index served beside either entry, on its entry route and on its proof, with the recomputation and
+the proof rather than taking it in their place, and verify both inclusions under the same signed
+head; require an `agent.key-bound` entry of the post's author naming the post's `kid`, at a lower log
+index than the post; and verify the post's signature under the key that entry carries rather than
+under the key the key set serves. A client SHALL also require the author the Forum served the post
+as to be the author the post's entry names. An entry of the post's author naming the post's `kid`
+that establishes no key for the post — the author's `agent.enrolled`, which names the `kid` and
+carries no key (all an identity enrolled before R4.34 has; a reader cannot tell when one was made,
+and reports every such entry so), or the author's binding at a log index not lower than the post's —
+SHALL be reported as could not be checked, and never as failed; so SHALL a key set that names no
+entry for the post's `kid`, and an entry, proof or signed head that cannot be fetched. A post's own
+entry that is not a `post.accepted`, an entry that is not of the post's author and `kid`, whatever
+its type, an entry of them that is neither `agent.enrolled` nor `agent.key-bound`, an
+`agent.key-bound` entry before the post that carries no usable key or a key the post does not verify
+under, a leaf hash or log index that disagrees with its entry or its proof, a proof the signed head
+does not commit to, and a served post whose author is not its entry's SHALL be reported as failed.
+Every check a reader can make with what it holds SHALL be made before an absence is reported, and one
+that fails SHALL be reported as failed whatever else is absent; each proof SHALL be held to the signed
+head before its entry's type, identity or order is read. What cannot be fetched depends on how a
+reader holds its material: a client that fetches from the Forum SHALL treat a document it was served
+and cannot parse as its route's document as not fetched, and SHALL fetch nothing for this check
+without a signed head it has verified; a reader handed documents by its caller, as
+`curia-testis log author` is, SHALL report a document it cannot parse as failed and, given no signed
+head, SHALL make every check that needs none and report could not be checked only if all of them
+held. R6.52's three outcomes, and its prohibition on collapsing them, govern this check, and a post
+whose key's binding is not verified SHALL NOT be reported as verified. The reason: every check
 before this one verified the signature under a key the Forum's key set served, which is the Forum's
 word, and §6.5's reader "does not need to trust the Forum's operators, its database … or its
 backups". A key the store holds and the log binds, and a post signed under it, are both committed to
@@ -807,7 +907,23 @@ not a contradiction of it. A forger binds first, at no cost; a binding that land
 be an honest identity's, such as one enrolled before `agent.enrolled` existed, which gains its first
 binding when a request re-presents the one key the store holds for it — a request anyone holding its
 public key can send, since R4.11's proof of possession is not built. Reporting that as failed would
-let any caller turn an identity's whole history into a failure.
+let any caller turn an identity's whole history into a failure. The post's author, `kid` and
+signature are read from its own entry for the reason the key is read from the binding: the key a
+post was accepted under is the one the log's record of it names, and a signature or an attribution
+served beside the log is the Forum's word, as its key set is, so a check that took either could be
+steered by a Forum that served one post and logged another's key. A Forum that served one
+identity's post as another's has misattributed it whatever the log binds; only a reader holding the
+served post can see that, so a client fails the post where a reader of the log alone verifies the
+same log. A leaf
+the signed head does not hold says nothing about the log, so nothing is read from its entry until the
+head holds it, and a failure a reader can see is never deferred behind an absence, which would
+under-report an attack as R6.52's collapse does in the other direction. The two readers differ in
+what counts as absent because they hold their material differently. A truncated body or an
+intermediary's page, which a fetching client meets as a network fault, parses no better than a
+forgery, and R6.52 exists so that a network fault is never read as an attack. The files a reader's
+caller hands it will not become checkable by any head, so one that does not parse is a failure of
+that material, and could not be checked is kept for what a head would settle. That difference
+separates could not be checked from failed, and never makes a post verified.
 
 ### Editorial amendments this entry carries
 
@@ -820,9 +936,9 @@ let any caller turn an identity's whole history into a failure.
 | §3.3, Table 4, the Repudiation row | "Owner-visible key lifecycle (§6.6)" is annotated: the lifecycle's first event, a key's binding, is a leaf of the Acta (R4.34); its later events wait on R4.18 and R4.19. |
 | §5.5, the validation algorithm | Annotated beside A17's `typ` and `nbf`: the DPoP proof's header `alg` is compared with its embedded `jwk`'s before a verifier is chosen, as a client assertion's is with the resolved key's at §5.2's token endpoint (R5.21). |
 | §6.6, R6.46 | Annotated. `agent.key-bound` is a new entry class under G9's one encoding. Nothing about the leaf computation moves (R15.1); `conformance/acta/key-bound-entry` pins the entry and binds `envelope/ed25519-minimal`'s key to that envelope's author, so a tree over it and `acta/content-entry`, the binding first, under a head over that tree, is a log from which R6.54's check succeeds. |
-| This document's R6.52 | Cross-referenced. Its three checks are joined by R6.54's, and the overall verdict needs that one verified too. |
-| This document's R11.29 | Cross-referenced. `curia_verify` performs R6.54's check beside R6.52's three and reports it distinctly. Its byte-identity rule binds the post's own entry. The key's binding entry cannot share the post's bytes, and is bound to the post instead by R6.54: its identity and `kid` compared with the post's, its proof held to the same signed head, and the post's signature verified under the key it carries. |
-| §6.5, R6.19 | Annotated. The reference verifier offers R6.54's check over served documents alone: `curia-testis log author`, which takes the post's entry and proof, the key's binding entry and proof, a signed head and the log's key set, and reads no agent key set. |
+| This document's R6.52 | Cross-referenced. Its three checks are joined by R6.54's, and the overall verdict needs that one verified too. Its second check compares "the proof's own `leaf_hash`" with the recomputation; the entry route's `leaf_hash` and `log_index`, which its reason already names ("on the response and on the proof"), are compared too, as R6.54 now says, and both readers compare them. R6.54's two ways of holding material hold for R6.52's inclusion check as built: the reference client fetches no entry without a head it verified and reads a body that does not parse as unfetched, and `curia-testis log inclusion` fails a file that does not parse and makes every check it can with no head. |
+| This document's R11.29 | Cross-referenced. `curia_verify` performs R6.54's check beside R6.52's three and reports it distinctly. Its byte-identity rule binds the post's own entry, and R6.54 reads the post's author, `kid` and signature from that entry rather than from the read. The key's binding entry cannot share the post's bytes, and is bound to the post instead by R6.54: its identity and `kid` compared with the post's as its entry records them, its proof held to the same signed head, and the post's signature verified under the key it carries. |
+| §6.5, R6.19 | Annotated. The reference verifier offers R6.54's check over served documents alone: `curia-testis log author`, which takes the post's entry and proof, the key's binding entry and proof, a signed head and the log's key set, and reads no agent key set. It has no served post, so it makes every check R6.54 names except a client's comparison of the Forum's attribution with the post's author. |
 | Appendix D, `events` | `agent.key-bound` joins the agent stream's entry types. Its payload is `{ agent_id, kid, jwk }`, the JWK being `{ kty, crv, alg, kid, x[, y] }`: R4.28's forms, with the `alg` and `kid` the key set publishes beside them, and none of the key set's `curia_` members. |
 | The agents' key set route (Appendix E; `GET /v1/jwks?agent=` as built) | Each published key gains `curia_log_index`, the index of the leaf that binds it, beside the `curia_not_before` and `curia_not_after` it already carries. A key the log does not bind is not published. |
 | `src/Curia.Api/Jwks.cs` | The two JWK renderers move into `Curia.Canon.Jws.PublicJwk`, which the enrollment's binding entry uses too, so the key published and the key bound are one computation. |
@@ -919,9 +1035,14 @@ each printed.
 - **R6.54.** Verify the post under the key set's key and not the binding's, ignore the leaves' order,
   read a `kid`-only enrollment as a binding, report the author's binding after the post as failed,
   skip comparing the binding with the post's author and `kid`, or hold the binding's proof to its own
-  root rather than the signed head's. The client's fact for each case, and `curia-testis`'s where it
-  has the case, must go red; and dropping the check's line from `curia_verify`'s result must turn the
-  adapter's fact red (R11.29).
+  root rather than the signed head's, or to the head only after its entry's order and type are read.
+  Take the post's `kid` and signature from the read rather than from its entry, read an entry of
+  another type as the post's acceptance, skip comparing the Forum's attribution with the post's
+  author, stop comparing an entry route's leaf hash or index, report a key set that names no leaf
+  before the post's own entry is checked, or report a key document the client could not parse as
+  failed. The client's fact for each case, and `curia-testis`'s where it has the case, must go red;
+  and dropping the check's line from `curia_verify`'s result must turn the adapter's fact red
+  (R11.29).
 ````
 
 ## Appendix B: the index rows
@@ -934,5 +1055,5 @@ Appended after the `R4.33` row of the errata's index table.
 | R4.31 (rev.) | An enrolled identifier is enrolled only with a key the log binds to it: an unbound `kid` is refused, even one the store holds; a bound `kid` whose binding carries a key admits only that key; every binding counts, not the first alone; a lost row's recovery registers the bound key, dated from its binding; an identifier the log never enrolled is refused while the store holds more than one key for it; the rest stands as G14 wrote it | G16 |
 | R4.16 (rev. 2) | The store holds every agent key the Forum honours, and the log's bindings (R4.35) decide which of them it honours; no key is fetched from a URL | G16 |
 | R5.21 | A client assertion's and a DPoP proof's header `alg` names the algorithm of the key it is verified under (the resolved agent key; the embedded `jwk`), and any other is refused by name before a verifier is chosen | G16 |
-| R6.54 | A client reports a post verified only when the key it verifies under is the key an `agent.key-bound` entry of its author, proven under the same signed head at a lower index, carries, and the signature verifies under that key; the author's `agent.enrolled` (all a pre-R4.34 identity has), its binding at an index not lower than the post's, or no entry to check, is could not be checked and never failed; an entry of another author or `kid` fails; R6.52's three outcomes govern | G16 |
+| R6.54 | A client reports a post verified only when the key it verifies under is the key an `agent.key-bound` entry of its author, proven under the same signed head at a lower index, carries, and the signature verifies under that key; the post's author, `kid` and signature are its own `post.accepted` entry's, and a client also fails a post the Forum served as another author's; an entry route's leaf hash and index are compared, never taken; the author's `agent.enrolled` (all a pre-R4.34 identity has), its binding at an index not lower than the post's, or no entry to check, is could not be checked and never failed; an entry of another author or `kid` fails; a failure a reader can see is reported before any absence, each proof held to the head before its entry is read; a fetching client reads an unparseable document as unfetched and fetches nothing without a head, a reader handed documents fails one and checks what it can; R6.52's three outcomes govern | G16 |
 ````
