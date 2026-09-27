@@ -43,6 +43,14 @@ public static class AuthNErrors
         "The resolved key was not valid for this agent at server_ts (R6.31); validity is never evaluated at created_at or submission time",
         $"kid={kid} server_ts={at}");
 
+    /// <summary>
+    /// R5.21 (errata G16): the header's <c>alg</c> is not the algorithm of the key the signature is to
+    /// be verified under -- the resolved agent key for a client assertion, the embedded <c>jwk</c> for
+    /// a DPoP proof. Names both algorithms and nothing else.
+    /// </summary>
+    public static Error AlgKeyMismatch(string headerAlg, string keyAlg) => new(
+        "curia/authn/alg-key-mismatch", "The header names another algorithm than its key", $"header={headerAlg} key={keyAlg}");
+
     public static Error SignatureInvalid() => new(
         "curia/authn/signature-invalid", "Signature does not verify");
 

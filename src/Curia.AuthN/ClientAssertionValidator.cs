@@ -71,6 +71,12 @@ public static class ClientAssertionValidator
         if (!keyResult.TryGetValue(out var key, out var keyError))
             return Result<ClientAssertionClaims>.Fail(keyError!);
 
+        // R5.21 (errata G16): the verifier is chosen by the header's alg, so the header must name the
+        // resolved key's own algorithm. Without this, a header naming the other algorithm handed an
+        // agent's key to a verifier it is not a key of, and the refusal read as a bad signature.
+        if (!string.Equals(header.Alg, key!.Alg, StringComparison.Ordinal))
+            return Result<ClientAssertionClaims>.Fail(AuthNErrors.AlgKeyMismatch(header.Alg, key.Alg));
+
         if (!context.VerifiersByAlg.TryGetValue(header.Alg, out var verifier))
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.AlgNotAllowed(header.Alg));
 

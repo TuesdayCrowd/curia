@@ -191,15 +191,14 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     /// errata G16. It answered 500.</item>
     /// <item><c>es256-p384-spki</c>: the row holds a P-384 key, under an identity enrolled before errata
     /// G16, and the assertion is genuinely signed by it under <c>ES256</c>. It was issued a token.</item>
-    /// <item><c>eddsa-header-over-an-es256-key</c>: an honest agent's row, and an assertion whose
-    /// header says <c>EdDSA</c> over 64 zero bytes. Anyone could send it, naming any agent. It
-    /// answered 500.</item>
     /// </list>
+    /// The third row this theory held, an assertion whose header says <c>EdDSA</c> over an honest
+    /// <c>ES256</c> key, is refused by name since errata G16 (R5.21), and is
+    /// <see cref="R5_21_AnAssertionWhoseHeaderNamesAnotherAlgorithmThanItsKeyIsRefusedByName"/>.
     /// </summary>
     [Theory]
     [InlineData("es256-32-raw-bytes")]
     [InlineData("es256-p384-spki")]
-    [InlineData("eddsa-header-over-an-es256-key")]
     public async Task R4_15_AStoredKeyThatIsNotAKeyOfItsAlgorithmMintsNoTokenAndIsAnsweredAsABadSignatureIs(string row)
     {
         var ct = TestContext.Current.CancellationToken;
@@ -212,9 +211,7 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, honest.AgentId, ct);
         Assert.Equal($"401 {SignatureDoesNotVerify}", $"{(int)controlStatus} {controlBody}");
 
-        var agent = row is "es256-32-raw-bytes" or "es256-p384-spki"
-            ? await EnrolledBeforeKeyBindingAsync($"stored-{row}-{suffix}", ct)
-            : await EnrolledAsync($"stored-{row}-{suffix}", ct);
+        var agent = await EnrolledBeforeKeyBindingAsync($"stored-{row}-{suffix}", ct);
         HttpStatusCode status;
         string body;
         switch (row)
@@ -231,27 +228,6 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
                 await ReplaceAsync(agent.Kid, "ES256", p384.ExportSubjectPublicKeyInfo(), ct);
                 (status, body) = await DpopClient.For(agent, p384)
                     .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
-                break;
-            }
-
-            case "eddsa-header-over-an-es256-key":
-            {
-                var header = new JsonObject { ["alg"] = "EdDSA", ["kid"] = agent.Kid, ["typ"] = "JWT" };
-                var claims = new JsonObject
-                {
-                    ["iss"] = agent.AgentId,
-                    ["sub"] = agent.AgentId,
-                    ["aud"] = TokenEndpoint,
-                    ["iat"] = forum.Now.ToUnixTimeSeconds(),
-                    ["exp"] = forum.Now.AddSeconds(60).ToUnixTimeSeconds(),
-                    ["jti"] = Guid.NewGuid().ToString("N"),
-                };
-                var assertion =
-                    Base64Url.EncodeToString(Encoding.UTF8.GetBytes(header.ToJsonString())) + "." +
-                    Base64Url.EncodeToString(Encoding.UTF8.GetBytes(claims.ToJsonString())) + "." +
-                    Base64Url.EncodeToString(new byte[64]);
-                (status, body) = await DpopClient.For(agent, agent.AssertionKey)
-                    .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, assertion, ct);
                 break;
             }
 
@@ -286,5 +262,41 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
 
         Assert.Equal($"401 {NotBoundByTheLog}", $"{(int)status} {body}");
+    }
+
+    /// <summary>
+    /// R5.21 (errata G16): an honest agent's row, and an assertion whose header says <c>EdDSA</c> over
+    /// 64 zero bytes, naming that agent's <c>ES256</c> <c>kid</c>. Anyone could send it, naming any
+    /// agent. Before errata G15's key rule it answered 500; after it, 401 as a bad signature, which is
+    /// what the header's choice of verifier made it. It is now refused by name before any verifier is
+    /// chosen.
+    /// </summary>
+    [Fact]
+    public async Task R5_21_AnAssertionWhoseHeaderNamesAnotherAlgorithmThanItsKeyIsRefusedByName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var agent = await EnrolledAsync($"stored-eddsa-header-{Suffix()}", ct);
+
+        var header = new JsonObject { ["alg"] = "EdDSA", ["kid"] = agent.Kid, ["typ"] = "JWT" };
+        var claims = new JsonObject
+        {
+            ["iss"] = agent.AgentId,
+            ["sub"] = agent.AgentId,
+            ["aud"] = TokenEndpoint,
+            ["iat"] = forum.Now.ToUnixTimeSeconds(),
+            ["exp"] = forum.Now.AddSeconds(60).ToUnixTimeSeconds(),
+            ["jti"] = Guid.NewGuid().ToString("N"),
+        };
+        var assertion =
+            Base64Url.EncodeToString(Encoding.UTF8.GetBytes(header.ToJsonString())) + "." +
+            Base64Url.EncodeToString(Encoding.UTF8.GetBytes(claims.ToJsonString())) + "." +
+            Base64Url.EncodeToString(new byte[64]);
+
+        var (status, body) = await DpopClient.For(agent, agent.AssertionKey)
+            .RequestTokenAsync(forum.Client, TokenEndpoint, forum.Now, agent.AgentId, assertion, ct);
+
+        Assert.Equal(
+            "401 {\"error\":\"invalid_client\",\"error_description\":\"The header names another algorithm than its key\",\"detail\":\"curia/authn/alg-key-mismatch\"}",
+            $"{(int)status} {body}");
     }
 }
