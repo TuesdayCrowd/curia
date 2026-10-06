@@ -52,6 +52,18 @@ public sealed class HeadStore
     public string DirectoryFor(Uri forum) => Path.Combine(Root, "logs", OriginKey(forum));
 
     /// <summary>
+    /// A Forum's origin: its scheme, host and port, with no userinfo, path or query. R6.53 retains one
+    /// head per log, and a log is the Forum's, not the credential's a caller reached it with; and a
+    /// password written into <c>--forum</c> or <c>CURIA_FORUM</c> must not reach a line a reader sees.
+    /// Every place the client names a Forum it was configured with names it through this.
+    /// </summary>
+    public static string Origin(Uri forum)
+    {
+        ArgumentNullException.ThrowIfNull(forum);
+        return forum.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
+    }
+
+    /// <summary>
     /// A filesystem-safe name for a Forum origin, and an injective one.
     ///
     /// <para>The readable half is for a human looking at the directory; the eight hex digits are
@@ -61,13 +73,14 @@ public sealed class HeadStore
     ///
     /// <para>Scheme, host and port only. A path, a query or a userinfo would split one log's head
     /// across several files, and the Acta is a property of the Forum rather than of the URL a caller
-    /// happened to type.</para>
+    /// happened to type. The userinfo is dropped by <see cref="Origin"/>, because a credential in the
+    /// URL is not part of the log's identity and is printed nowhere.</para>
     /// </summary>
     public static string OriginKey(Uri forum)
     {
         ArgumentNullException.ThrowIfNull(forum);
 
-        var origin = forum.GetLeftPart(UriPartial.Authority);
+        var origin = Origin(forum);
         var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(origin)))[..8];
 
         var readable = new StringBuilder(origin.Length);

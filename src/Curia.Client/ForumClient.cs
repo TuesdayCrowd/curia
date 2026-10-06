@@ -291,7 +291,7 @@ public sealed class ForumClient
         catch (HttpRequestException ex)
         {
             return ForumResult<ReadOnlyMemory<byte>>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: {ex.Message}")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: {ex.Message}")));
         }
 
         using (response)
@@ -354,12 +354,12 @@ public sealed class ForumClient
         catch (HttpRequestException ex)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: {ex.Message}")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: {ex.Message}")));
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: timed out ({ex.Message})")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: timed out ({ex.Message})")));
         }
 
         using (response)
@@ -384,12 +384,12 @@ public sealed class ForumClient
         catch (HttpRequestException ex)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: {ex.Message}")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: {ex.Message}")));
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: timed out ({ex.Message})")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: timed out ({ex.Message})")));
         }
 
         using (response)

@@ -49,11 +49,17 @@ public sealed record DpopProofClaims(
         if (!NumericDate.ReadRequired(root, "iat").TryGetValue(out var iat, out var iatError))
             return Result<DpopProofClaims>.Fail(iatError!);
 
+        // R11.33 (errata G17): the replay cache is asked about this jti, and an absent, blank,
+        // NUL-holding or overlong one threw there, on every route behind authentication.
+        var jti = CompactJws.ReadString(root, "jti");
+        if (CompactJws.IdentifierRefusal(jti, "jti", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)
+            return Result<DpopProofClaims>.Fail(jtiError);
+
         return Result<DpopProofClaims>.Ok(new DpopProofClaims(
             Htm: CompactJws.ReadString(root, "htm"),
             Htu: CompactJws.ReadString(root, "htu"),
             Iat: iat,
-            Jti: CompactJws.ReadString(root, "jti"),
+            Jti: jti,
             Ath: root.TryGetProperty("ath", out var ath) && ath.ValueKind == JsonValueKind.String ? ath.GetString() : null,
             Nonce: root.TryGetProperty("nonce", out var nonce) && nonce.ValueKind == JsonValueKind.String ? nonce.GetString() : null));
     }

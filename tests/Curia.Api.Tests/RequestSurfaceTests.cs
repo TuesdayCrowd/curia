@@ -50,9 +50,15 @@ namespace Curia.Api.Tests;
 /// charset is swept, the quoted form included (Task 8's review, I1): five of <see cref="Requests"/>'
 /// bodies name one other than the bare token utf-8, and
 /// <see cref="R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound"/> holds both sides.
-/// Claims inside a JWT the agent signs are probed by
-/// <see cref="R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault"/>, the jwk by the
-/// header fact.</para>
+/// A token request's declared charset is swept too, on the form and on a multipart part (the stage's
+/// final gate, second round): four of the bodies declare UTF-7, which the form reader cannot decode,
+/// and <see cref="R11_33_ATokenRequestInACharsetTheFormReaderCannotDecodeIsInvalidRequest"/> holds
+/// both sides. Claims inside a JWT the agent signs are probed for their NumericDates by
+/// <see cref="R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault"/>, and for every
+/// string a store reads by <see cref="R11_33_NoStringAnEnrolledAgentSignsIsAnsweredAsAServerFault"/>
+/// (a proof's or an assertion's <c>jti</c>, a write proof's <c>nonce</c>) and
+/// <see cref="R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown"/> (an assertion's
+/// <c>kid</c>, read before any signature); the jwk by the header fact.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -185,7 +191,9 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// <c>DPoP</c> headers: a token that is not a JWS, one whose header is not an object, one naming
     /// a <c>kid</c> holding U+0000, a scheme the Forum does not know, a token four thousand bytes
     /// long, a proof with no token, and an <c>alg</c> or <c>kid</c>, and a proof's <c>jwk</c> member,
-    /// holding an unpaired-surrogate escape (Task 11's fix review). Then an enrolled agent obtains a token bound to a proof key
+    /// holding an unpaired-surrogate escape (Task 11's fix review), and an access token whose
+    /// <c>kid</c> is absent, empty, white space or a number (the stage's final gate, second round,
+    /// which found each already answered 401, and keeps them here so it stays so). Then an enrolled agent obtains a token bound to a proof key
     /// that is no point on P-256 -- the token endpoint issues it, since it reads a proof's key without
     /// building it (register D29) -- and sends it to every route with a proof carrying that key. Every
     /// route behind authentication threw on it, a 500 any agent could cause (the register's
@@ -210,6 +218,10 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             ("DPoP " + Segment("{\"alg\":\"\\ud800\",\"typ\":\"at+jwt\"}") + ".e30.AA", Segment("{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"\\ud800\"}}") + ".e30.AA"),
             ("DPoP " + Segment("{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":\"\\ud800\"}") + ".e30.AA", Segment("{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"OKP\",\"crv\":\"\\udc00\"}}") + ".e30.AA"),
             (null, Segment("{\"typ\":\"dpop+jwt\",\"alg\":\"\\ud800\"}") + ".e30.AA"),
+            ("DPoP " + Segment("{\"alg\":\"ES256\",\"typ\":\"at+jwt\"}") + ".e30.AA", "a.b.c"),
+            ("DPoP " + Segment("{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":\"\"}") + ".e30.AA", "a.b.c"),
+            ("DPoP " + Segment("{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":\" \"}") + ".e30.AA", "a.b.c"),
+            ("DPoP " + Segment("{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":1}") + ".e30.AA", "a.b.c"),
         ];
 
         var faults = new List<string>();
@@ -365,14 +377,21 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// caller holding no credential: the endpoint read the proof through a parse of its own. The
     /// sweep had held string decodability fixed, sending U+0000, which decodes (trap 26). A proof's
     /// key that cannot be read is <c>invalid_dpop_proof</c>; an assertion that cannot be read, behind
-    /// a proof whose key can, is <c>invalid_client</c>.
+    /// a proof whose key can, is <c>invalid_client</c>. The last four rows are an assertion whose header
+    /// <c>kid</c> is absent, empty, white space or a number (the stage's final gate, second round):
+    /// <c>PostgresAgentKeyStore</c> refuses a blank <c>kid</c> by throwing, and this answered 500 to
+    /// anyone before any signature was checked.
     /// </summary>
     [Theory]
     [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"\\ud800\"}}")]
     [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"OKP\",\"crv\":\"\\udc00\"}}")]
     [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"a\\ud800\",\"y\":\"AA\"}}")]
     [InlineData(true, "{\"alg\":\"\\ud800\",\"typ\":\"JWT\"}")]
-    public async Task R11_33_ATokenRequestsProofOrAssertionHoldingAnUnpairedSurrogateIsRefusedNotThrown(bool inAssertion, string header)
+    [InlineData(true, "{\"alg\":\"ES256\",\"typ\":\"JWT\"}")]
+    [InlineData(true, "{\"alg\":\"ES256\",\"typ\":\"JWT\",\"kid\":\"\"}")]
+    [InlineData(true, "{\"alg\":\"ES256\",\"typ\":\"JWT\",\"kid\":\" \"}")]
+    [InlineData(true, "{\"alg\":\"ES256\",\"typ\":\"JWT\",\"kid\":1}")]
+    public async Task R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown(bool inAssertion, string header)
     {
         var ct = TestContext.Current.CancellationToken;
         var form = inAssertion
@@ -457,6 +476,143 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         Assert.True(sent > routes.Count, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
         Assert.True(faults.Count == 0, "NumericDates an enrolled agent signed answered as a server fault, or were honoured:\n" + string.Join('\n', faults));
         Assert.True(read > 0, "no route refused a proof whose iat is out of range, so none read it; a defect in this fact");
+    }
+
+    /// <summary>
+    /// The rows of <see cref="R11_33_NoStringAnEnrolledAgentSignsIsAnsweredAsAServerFault"/>: each
+    /// <c>jti</c> no store can hold, on a proof to a read and to a write and on a client assertion at
+    /// the token endpoint, and a proof <c>nonce</c> holding U+0000 on each write route that asks for one.
+    /// </summary>
+    public static TheoryData<string, string, string> UnreadableSignedStrings()
+    {
+        string[] jtis = ["absent", "empty", "spaces", "newline", "number", "object", "nul-inside", "ascii-257", "hex-3000"];
+        var rows = new TheoryData<string, string, string>();
+        foreach (var target in new[] { "GET /v1/inbox", "POST /v1/posts", "POST /oauth/token" })
+            foreach (var jti in jtis)
+                rows.Add(target, "jti", jti);
+        foreach (var target in new[] { "POST /v1/posts", "POST /v1/posts/x/flags", "POST /v1/posts/x/accept" })
+            rows.Add(target, "nonce", "nul-inside");
+        return rows;
+    }
+
+    /// <summary>
+    /// R11.33's strings (the stage's final gate, second round). The claims fact varied a signed
+    /// claim's NumericDates and never its strings, so every <c>jti</c>, <c>kid</c> and <c>nonce</c> the
+    /// enrolled sweep sent was one the reference client mints. An agent enrolled through the route
+    /// signs, with its own bound keys, a proof or a client assertion whose <c>jti</c> is absent, not a
+    /// string, empty, white space, holds U+0000, or runs past what an index row holds; each reached the
+    /// replay cache, which threw, or Postgres, which threw 22021 or 54000, and answered 500. A write's
+    /// proof <c>nonce</c> holding U+0000 reached the nonce store, and Postgres threw 22021. Each is a
+    /// 401 now: a <c>jti</c> is <c>curia/authn/malformed</c> (at the token endpoint,
+    /// <c>invalid_client</c> naming it), a nonce the Forum could not have issued is stale. A write is
+    /// sent the nonce the Forum asks for first, so the <c>jti</c> reaches the replay cache on a tree
+    /// that does not refuse it.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(UnreadableSignedStrings))]
+    public async Task R11_33_NoStringAnEnrolledAgentSignsIsAnsweredAsAServerFault(string target, string claim, string row)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create("https://agents.example/signed-string-" + suffix, "signed-string-" + suffix);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        void Edit(JsonObject payload)
+        {
+            payload.Remove(claim);
+            JsonNode? value = row switch
+            {
+                "absent" => null,
+                "empty" => "",
+                "spaces" => "   ",
+                "newline" => "\n",
+                "number" => 1,
+                "object" => new JsonObject { ["a"] = 1 },
+                "nul-inside" => "a\0b",
+                "ascii-257" => new string('a', 257),
+                "hex-3000" => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(1500)),
+                _ => throw new ArgumentOutOfRangeException(nameof(row), row, "no such row"),
+            };
+            if (row != "absent") payload[claim] = value;
+        }
+
+        var (method, path) = (target.Split(' ')[0], target.Split(' ')[1]);
+        HttpStatusCode status;
+        string body;
+        if (path == "/oauth/token")
+        {
+            (status, body) = await dpop.RequestTokenAsync(
+                client, TokenEndpoint, forum.Now, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now, Edit), ct);
+            Assert.True(status == HttpStatusCode.Unauthorized, $"{(int)status} {body[..Math.Min(body.Length, 240)]}");
+            using var answer = JsonDocument.Parse(body);
+            Assert.Equal("invalid_client", answer.RootElement.GetProperty("error").GetString());
+            Assert.Equal("curia/authn/malformed", answer.RootElement.GetProperty("detail").GetString());
+            return;
+        }
+
+        var htu = "http://localhost" + path;
+        HttpRequestMessage Make(string proof)
+        {
+            var request = new HttpRequestMessage(new HttpMethod(method), path);
+            if (method != "GET") request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            request.Headers.Authorization = new AuthenticationHeaderValue("DPoP", token);
+            request.Headers.Add("DPoP", proof);
+            return request;
+        }
+
+        // A write asks for a nonce; the Forum's own is sent beside the row's jti, so the jti is read.
+        string? nonce = null;
+        if (method != "GET" && claim == "jti")
+        {
+            using var challenge = Make(dpop.Proof(method, htu, forum.Now, token));
+            using var challenged = await client.SendAsync(challenge, ct);
+            Assert.True(
+                challenged.Headers.TryGetValues("DPoP-Nonce", out var nonces),
+                $"{(int)challenged.StatusCode} {method} {path} asked for no nonce, so the row's jti is not what it tests");
+            nonce = nonces.First();
+        }
+
+        using var sent = Make(dpop.Proof(method, htu, forum.Now, token, nonce, Edit));
+        using var response = await client.SendAsync(sent, ct);
+        status = response.StatusCode;
+        body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(status == HttpStatusCode.Unauthorized, $"{(int)status} {target} ({claim} {row}): {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal(claim == "nonce" ? "curia/authn/nonce-stale" : "curia/authn/malformed", problem.RootElement.GetProperty("type").GetString());
+    }
+
+    /// <summary>
+    /// R11.33 for a token request's declared charset (the stage's final gate, second round). The form
+    /// reader looks a declared charset up through <c>MediaTypeHeaderValue.Encoding</c>, which throws
+    /// <see cref="NotSupportedException"/> for UTF-7 and its aliases (SYSLIB0001), on the form's own
+    /// Content-Type or on any multipart part's. The endpoint caught only what the reader throws for a
+    /// body it cannot parse, so each answered 500 to anyone; <c>JsonCharset</c> exempts <c>/oauth</c>.
+    /// Each is RFC 6749's <c>invalid_request</c> now. The last row is the other side: a form declared
+    /// UTF-8 is read, and refused for what it lacks, so the refusal is the reader's and not a blanket one.
+    /// </summary>
+    [Theory]
+    [InlineData("application/x-www-form-urlencoded; charset=utf-7", "a=b", true)]
+    [InlineData("application/x-www-form-urlencoded; charset=csUnicode11UTF7", "a=b", true)]
+    [InlineData("application/x-www-form-urlencoded; charset=unicode-1-1-utf-7", "a=b", true)]
+    [InlineData("multipart/form-data; boundary=b", "--b\r\nContent-Disposition: form-data; name=\"a\"\r\nContent-Type: text/plain; charset=utf-7\r\n\r\nb\r\n--b--\r\n", true)]
+    [InlineData("application/x-www-form-urlencoded; charset=utf-8", "a=b", false)]
+    public async Task R11_33_ATokenRequestInACharsetTheFormReaderCannotDecodeIsInvalidRequest(string contentType, string body, bool unreadable)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var request = Post(new Uri("/oauth/token", UriKind.Relative), Declared(new StringContent(body, Encoding.ASCII), contentType));
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var answer = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{(int)response.StatusCode} {answer[..Math.Min(answer.Length, 240)]}");
+        using var json = JsonDocument.Parse(answer);
+        Assert.Equal("invalid_request", json.RootElement.GetProperty("error").GetString());
+        Assert.Equal(
+            unreadable ? "The request body is not a form this endpoint can read" : "client_assertion_type must be jwt-bearer",
+            json.RootElement.GetProperty("error_description").GetString());
     }
 
     /// <summary>
@@ -813,14 +969,16 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 .Replace("{" + name + "}", "x", StringComparison.Ordinal));
 
     /// <summary>
-    /// For a read, one GET. For a write, fifteen bodies, each made fresh so a request can be sent again:
+    /// For a read, one GET. For a write, nineteen bodies, each made fresh so a request can be sent again:
     /// none; an empty object; an object whose members hold U+0000 and a line break; a form whose
     /// values hold U+0000; a multipart form cut off before its closing boundary; JSON cut off; JSON
     /// nested two hundred deep; JSON whose bytes are not UTF-8; an empty object whose Content-Type
     /// names a charset no encoder knows, one naming UTF-16, one naming a quoted "utf-8", and one
     /// naming an empty charset (Task 8's review, I1); an empty object declared as a +json media type
     /// in a charset no encoder knows (Task 8's second review, I1); a multipart form with no boundary;
-    /// and a form whose key is five thousand bytes.
+    /// a form whose key is five thousand bytes; and a form declared in UTF-7 under each of three of
+    /// its names, and a multipart form one of whose parts is, which the form reader cannot decode (the
+    /// stage's final gate, second round).
     /// </summary>
     private static IEnumerable<Func<HttpRequestMessage>> Requests(string method, string target)
     {
@@ -858,6 +1016,12 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             new StringContent("--b\r\nContent-Disposition: form-data; name=\"client_id\"\r\n\r\na\r\n--b--\r\n", Encoding.ASCII),
             "multipart/form-data"));
         yield return () => Post(uri, new StringContent(new string('k', 5000) + "=v", Encoding.ASCII, "application/x-www-form-urlencoded"));
+        yield return () => Post(uri, Declared(new StringContent("a=b", Encoding.ASCII), "application/x-www-form-urlencoded; charset=utf-7"));
+        yield return () => Post(uri, Declared(new StringContent("a=b", Encoding.ASCII), "application/x-www-form-urlencoded; charset=csUnicode11UTF7"));
+        yield return () => Post(uri, Declared(new StringContent("a=b", Encoding.ASCII), "application/x-www-form-urlencoded; charset=unicode-1-1-utf-7"));
+        yield return () => Post(uri, Declared(
+            new StringContent("--b\r\nContent-Disposition: form-data; name=\"a\"\r\nContent-Type: text/plain; charset=utf-7\r\n\r\nb\r\n--b--\r\n", Encoding.ASCII),
+            "multipart/form-data; boundary=b"));
     }
 
     private static HttpRequestMessage Post(Uri uri, HttpContent content) =>

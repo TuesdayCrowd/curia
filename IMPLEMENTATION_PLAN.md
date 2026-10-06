@@ -197,7 +197,10 @@ set; SP scores recorded even if not yet weighted.*
 > /v1/posts/batch and /v1/posts/{id}/flags, and a token request's DPoP proof whose header is JSON but
 > not an object answered 500 to anyone, and a compact JWS whose header or payload held an
 > unpaired-surrogate escape -- an access token's alg or kid, a proof's jwk -- answered 500 to anyone
-> on /oauth/token and every route behind authentication; all four are now 4xx.
+> on /oauth/token and every route behind authentication; all four are now 4xx. Its final gate found
+> four more: a signed `jti` or `nonce`, or a client assertion's `kid`, that no store could be asked
+> about, answered 500 on /oauth/token or on every route behind authentication, and a token form or
+> multipart part declaring UTF-7 answered 500 to anyone; all are now 4xx.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -1947,9 +1950,30 @@ request's proof whose `jwk` held one answered 500 at `/oauth/token`, which read 
 parse of its own. `CompactJws` refuses such a segment as malformed
 (`src/Curia.AuthN/Jwt/CompactJws.cs:122`), and the token endpoint now reads its proof through
 `CompactJws` (`src/Curia.Api/Issuer/TokenEndpoint.cs:181`). It is held by `CompactJwsStringTests`,
-`R11_33_ATokenRequestsProofOrAssertionHoldingAnUnpairedSurrogateIsRefusedNotThrown` and the header
+`R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown` and the header
 sweep's surrogate rows (falsification cases 91 and 92). The sweep had sent `\u0000`, which
-decodes, and no string that does not (trap 26). A 4xx no handler composed is a problem
+decodes, and no string that does not (trap 26).
+The eighth, ninth and tenth were found by the stage's final gate, and every one was a string the
+enrolled sweep signed but never varied. A DPoP proof's or a client assertion's `jti` that was
+absent, not a string, empty, white space, held U+0000, or ran past `authn_replay_pkey`'s 2,704-byte
+btree row answered 500 from every route behind authentication and from `/oauth/token`, to any
+enrolled agent. `PostgresReplayCache` threw `ArgumentException`, or Postgres threw 22021 or 54000. A
+client assertion whose header `kid` was absent, not a string, empty or white space answered 500 from
+`/oauth/token` to anyone, before any signature was checked (`PostgresAgentKeyStore.ResolveAsync`). A
+write's proof `nonce` holding U+0000 answered 500 from every write route
+(`PostgresDpopNonceStore.IsCurrentAsync`, 22021). One reader, `CompactJws.IdentifierRefusal`
+(`src/Curia.AuthN/Jwt/CompactJws.cs:159`), now refuses each of them before any store is asked. It is
+held by the jti, kid and nonce facts in `AccessTokenValidatorDpopTests` and
+`ClientAssertionValidatorTests`, and through the host by
+`RequestSurfaceTests.R11_33_NoStringAnEnrolledAgentSignsIsAnsweredAsAServerFault` and, for the
+`kid`, `R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown` (falsification cases
+97-101). The eleventh is anonymous: a token request whose form, or any of whose multipart parts,
+declared charset UTF-7 or an alias answered 500, because the form reader's charset lookup throws
+`NotSupportedException` and the endpoint caught only `InvalidDataException` and `IOException`
+(`src/Curia.Api/Issuer/TokenEndpoint.cs:88`). It is held by
+`R11_33_ATokenRequestInACharsetTheFormReaderCannotDecodeIsInvalidRequest` and four sweep bodies
+(falsification case 102).
+A 4xx no handler composed is a problem
 document now, and at `/oauth/token` RFC 6749's error object; until the stage's final gate every path
 under `/oauth` had been left out, so routing's 404 and 405 there were served with no body at all
 (cases 95, 96)
@@ -2036,8 +2060,10 @@ layer over.
   agent","detail":"curia/keys/not-registered-to-agent"}`, so the refusal does not say whose a `kid`
   is (R5.12). An assertion whose `sub` is not the client is refused 401
   `curia/authn/subject-mismatch`.
-- A U+0000 in `client_id` or in the assertion header's `kid` meets the same 401: the store answers
-  it before its query runs (`PostgresAgentKeyStore.cs:336`), since no stored row can hold one. The
+- A U+0000 in `client_id` meets the same 401: the store answers it before its query runs
+  (`PostgresAgentKeyStore.cs:336`), since no stored row can hold one. One in the assertion header's
+  `kid` met it too until the strangers stage's final gate, second round, which refuses a `kid` no
+  store can be asked about as `curia/authn/malformed` before any key is resolved (R11.33, D25). The
   review of the fix probed both as Postgres 500s: the fix itself had opened the `client_id` one,
   once the resolver took the agent, and the header `kid` one predated it.
 - The facts are `TokenSubjectBindingTests`' four:
@@ -2046,7 +2072,8 @@ layer over.
   - `R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity`, over a row the provisioning role
     writes;
   - `R5_20_AnAssertionNamingAnotherSubjectThanItsClientIsRefused`;
-  - `R5_20_AnAssertionNamingANulIdentifierOrKidIsRefusedAsAnUnregisteredKeyIs`.
+  - `R5_20_AnAssertionNamingANulIdentifierOrKidIsRefusedNotThrown` (named
+    `…IsRefusedAsAnUnregisteredKeyIs` until the strangers stage's final gate, second round).
 
   With them come
   `ClientAssertionValidatorTests.R5_20_AKeyRegisteredToAnotherAgentDoesNotAuthenticateTheAssertedSubject`
@@ -4081,9 +4108,17 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
 - **R10.63, the adapter.** `ForumTools` and `WriteTools` compose every result and refusal through
   `FrameBuilder`, except `curia_verify`, whose result is `PostVerification.Render`: lines the client
   composes over `Check` details, in which every value the client did not compose goes through
-  `Check.Quote`. That covers a served value, and also the caller's own `--forum`, `CURIA_FORUM` or
-  `CURIA_CLIENT_HOME`, which `ConsistencyAsync` had echoed raw until the stage's final gate
-  (`src/Curia.Client/PostVerifier.cs`, falsification cases 93 and 94). `curia verify` prints the
+  `Check.Quote`. That covers a served value, and also the origin of the caller's own `--forum` or
+  `CURIA_FORUM`, and its `CURIA_CLIENT_HOME`, which `ConsistencyAsync` had echoed raw until the
+  stage's final gate (`src/Curia.Client/PostVerifier.cs`, falsification cases 93 and 94).
+  The authority `ConsistencyAsync` names, and the key `HeadStore.OriginKey` retains a head under,
+  kept the Forum URL's userinfo, so a `--forum` or `CURIA_FORUM` password was printed into
+  `curia verify`'s and `curia_verify`'s consistency line, and one Forum reached with two credentials kept
+  two heads, against the comment that said it could not. Both now read `HeadStore.Origin`, which
+  drops it; an origin without userinfo keys exactly as before (`HeadStoreTests`,
+  `PostVerifierTests.R6_53_AConsistencyDetailNamesTheForumWithoutItsUserinfo`; falsification case
+  103).
+  `curia verify` prints the
   same details through `OwnText`; a receipt had printed the board an answer copies from its question, and a write
   refusal the Forum's title and detail, as they came. A passage's resource URI carries the post id
   percent-encoded (`src/Curia.Mcp/ForumTools.cs:285`), and the gate reads each URI: it had carried the
@@ -4192,6 +4227,14 @@ enrollment route keeps its own walk of the same four categories (`ForumEndpoints
 `ControlCharacter`) rather than calling `SpanText`; which terminals act on which C1 control was not
 run; and the span a reader prints is still not compared with the canonical form it verified (below).
 
+### D32 — screening is quadratic in the length of what it screens, and a flag's rationale has no cap *(opened by the strangers stage's final gate, 2026-10-06)*
+
+**Found by the stage's final review.** `RaiseFlag.RecordAsync` (`src/Curia.Application/Moderation/RaiseFlag.cs:91`) runs `ContentScreener.ScreenText` over the whole rationale before it checks that the post exists, and nothing caps the rationale: a flag is not a signed envelope, so R6.39's caps never apply, and Kestrel's 30 MB body limit is the only bound. `ScreenText` grows with the square of its input (timed in Release on `r` repeated N times: 25k 0.23 s, 100k 1.15 s, 200k 4.57 s, 400k 18.56 s). Over HTTP, an enrolled agent's flag against a post that does not exist took 106.7 s at N = 1,000,000 before it answered 404, and ran past a 100 s client timeout at 3,000,000. Enrollment costs nothing, so this is anyone's. The errata's argument that decode work is 'already bounded at 1 MiB' (around line 2294) holds for an admitted submission and not for this path. `ApplyModeration.cs:93` makes the same call on the operator's out-of-band path.
+
+**Probably wider, and not measured.** `ScreenEnvelope` runs the same detectors over every canonical string, so a T0 post carrying one string at R6.39's 256 KiB cap is likely to cost several seconds of CPU at SCREEN. The probe that would carry information: time `IngestPipeline` on a submission whose body is one 256 KiB string of a single repeated character, and on one of 256 KiB of ordinary prose.
+
+**Not fixed here.** Two parts. (1) Make the screener's cost linear, or bounded per string, with the red-team corpus (`conformance/red-team/`) as the regression set and a timing fact that fails above a stated budget at R6.39's cap. (2) A published cap on a flag rationale (and on a moderation rationale), checked before screening, which wants an errata entry because it is a new normative number. 'What comes next' carries both.
+
 ### Observed during the strangers stage, not acted on
 
 - **The Forum accepts a line break in an envelope's identifier-like members, and a `parent` that is
@@ -4233,8 +4276,9 @@ run; and the span a reader prints is still not compared with the canonical form 
 - **The header sweep varies the two headers every route reads.** `Authorization` and `DPoP`, hostile
   without a credential and as a token bound to a key off the curve (`RequestSurfaceTests`); since Task
   8's review, a JSON body's declared charset and the NumericDates in a JWT an agent signs, and, since
-  Task 11's fix review, a header or proof jwk member holding an unpaired-surrogate escape, are swept
-  too (D25). A header one handler reads -- a conditional read's `If-None-Match` -- is not swept.
+  Task 11's fix review, a header or proof jwk member holding an unpaired-surrogate escape, and, since
+  the stage's final gate, a signed `jti` and `nonce`, an assertion's and an access token's `kid`,
+  and a token form's declared charset, are swept too (D25). A header one handler reads -- a conditional read's `If-None-Match` -- is not swept.
 - **A display literal can hold a delimiter in the middle of a line.** `Of("<<<CURIA-UNTRUSTED-END>>>")`
   is that text between quotation marks (the Task 2 review ran it). A literal never begins a line, and
   `IsDelimitedSpan` (`src/Curia.Client/Frame.cs:323`) runs only on the Forum's served `rendered`
@@ -5474,6 +5518,9 @@ the key-binding stage's M5, both at the token endpoint rotation changes, can rid
 builds a token request's proof key through `JwkPublicKey`, a result since that stage, so the token
 endpoint cannot inherit the 500 the resource routes had.
 
+**D32** first: the screener's quadratic cost is reachable by any enrolled agent through a flag, and
+probably through a post; a timing probe at R6.39's cap settles the second before any fix is scoped.
+
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
 stage (errata G16, D28) took the binding alone, because rotation's keys need the leaf it defines.
@@ -5710,7 +5757,10 @@ enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers st
     beside what it found**, and run what the register already suspects in them. Task 11's review
     found its second instance the same way: the sweep sent its hostile proofs to `/oauth/token` with
     no form, which the endpoint refuses before it reads a proof, so a proof whose header is not an
-    object answered 500 on a request the sweep never sent (D25).
+    object answered 500 on a request the sweep never sent (D25). The stage's final gate found its
+    third and fourth instances. The enrolled pass varied a signed claim's NumericDates and never its
+    strings, so every `jti`, `kid` and `nonce` it sent was one the reference client mints. And it
+    varied a JSON body's charset and never a form's (D25).
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

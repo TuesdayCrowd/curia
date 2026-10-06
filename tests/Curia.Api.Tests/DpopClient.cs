@@ -62,7 +62,18 @@ internal sealed class DpopClient
     /// The same assertion with its <c>iat</c> and <c>exp</c> as written, signed by the registered key:
     /// for a NumericDate no honest client would send, such as one the runtime cannot represent (R11.33).
     /// </summary>
-    internal string ClientAssertion(string tokenEndpoint, long iat, long exp)
+    internal string ClientAssertion(string tokenEndpoint, long iat, long exp) =>
+        ClientAssertion(tokenEndpoint, iat, exp, _ => { });
+
+    /// <summary>
+    /// The assertion with its payload edited as <paramref name="edit"/> says, then signed by the
+    /// registered key: for a claim no honest client would send, such as a <c>jti</c> no store can hold
+    /// (R11.33).
+    /// </summary>
+    internal string ClientAssertion(string tokenEndpoint, DateTimeOffset now, Action<JsonObject> edit) =>
+        ClientAssertion(tokenEndpoint, now.ToUnixTimeSeconds(), now.AddSeconds(60).ToUnixTimeSeconds(), edit);
+
+    private string ClientAssertion(string tokenEndpoint, long iat, long exp, Action<JsonObject> edit)
     {
         var header = new JsonObject { ["alg"] = "ES256", ["kid"] = Kid, ["typ"] = "JWT" };
         var payload = new JsonObject
@@ -74,6 +85,7 @@ internal sealed class DpopClient
             ["exp"] = exp,
             ["jti"] = Guid.NewGuid().ToString("N"),
         };
+        edit(payload);
 
         return Sign(_assertionKey, header, payload);
     }
@@ -89,7 +101,18 @@ internal sealed class DpopClient
         Proof(method, url, now.ToUnixTimeSeconds(), accessToken, nonce);
 
     /// <summary>The same proof with its <c>iat</c> as written: for a NumericDate no honest client would send (R11.33).</summary>
-    internal string Proof(string method, string url, long iat, string? accessToken = null, string? nonce = null)
+    internal string Proof(string method, string url, long iat, string? accessToken = null, string? nonce = null) =>
+        Proof(method, url, iat, accessToken, nonce, _ => { });
+
+    /// <summary>
+    /// The proof with its payload edited as <paramref name="edit"/> says, then signed by the bound
+    /// DPoP key: for a claim no honest client would send, such as a <c>jti</c> or <c>nonce</c> no store
+    /// can hold (R11.33).
+    /// </summary>
+    internal string Proof(string method, string url, DateTimeOffset now, string? accessToken, string? nonce, Action<JsonObject> edit) =>
+        Proof(method, url, now.ToUnixTimeSeconds(), accessToken, nonce, edit);
+
+    private string Proof(string method, string url, long iat, string? accessToken, string? nonce, Action<JsonObject> edit)
     {
         var header = new JsonObject
         {
@@ -110,6 +133,7 @@ internal sealed class DpopClient
             payload["ath"] = Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(accessToken)));
 
         if (nonce is not null) payload["nonce"] = nonce;
+        edit(payload);
 
         return Sign(_dpopKey, header, payload);
     }

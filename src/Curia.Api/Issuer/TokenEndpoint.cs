@@ -64,7 +64,11 @@ public static class TokenEndpoint
         // boundary, on which it throws IOException, each answered 500 to a caller holding no
         // credential (register D25's sweep; R11.33, errata G17). Each is a request this endpoint
         // cannot read: RFC 6749 §5.2's invalid_request. Multipart stays readable: a token request
-        // may be one, and R5.20's refusal of a NUL identifier is tested through one.
+        // may be one, and R5.20's refusal of a NUL identifier is tested through one. A charset the
+        // platform will not decode (UTF-7 and its aliases; SYSLIB0001), declared on the form or on
+        // any multipart part, throws NotSupportedException from MediaTypeHeaderValue.Encoding inside
+        // the form reader, and answered 500 to anyone too (the stage's final gate, second round).
+        // JsonCharset exempts /oauth, so this catch is the only refusal.
         if (!http.HasFormContentType)
             return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
 
@@ -78,6 +82,10 @@ public static class TokenEndpoint
             return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
         }
         catch (IOException)
+        {
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+        }
+        catch (NotSupportedException)
         {
             return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
         }

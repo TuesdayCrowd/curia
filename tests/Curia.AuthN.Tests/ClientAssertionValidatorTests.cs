@@ -272,6 +272,72 @@ public sealed class ClientAssertionValidatorTests
         Assert.Equal("curia/authn/malformed", error!.Type);
     }
 
+    /// <summary>
+    /// R11.33 (the stage's final gate, second round): an assertion the agent's registered key
+    /// genuinely signed, whose <c>jti</c> is absent, not a string, empty, white space, holds U+0000 or
+    /// runs past 256 UTF-8 bytes, is malformed, and the replay cache never hears of it. Each reached
+    /// <c>PostgresReplayCache</c> or Postgres, and <c>/oauth/token</c> answered 500 to any enrolled
+    /// agent. The cache here throws as they do; the type is asserted exactly. The last row is the
+    /// bound's other side: a <c>jti</c> of exactly 256 UTF-8 bytes is read.
+    /// </summary>
+    [Theory]
+    [InlineData(UnreadableStrings.Absent, false)]
+    [InlineData("empty", false)]
+    [InlineData("spaces", false)]
+    [InlineData("newline", false)]
+    [InlineData("number", false)]
+    [InlineData("object", false)]
+    [InlineData("nul-inside", false)]
+    [InlineData("ascii-257", false)]
+    [InlineData("ascii-256", true)]
+    public async Task R11_33_AnAssertionWhoseJtiIsNotReadableIsMalformedNotThrown(string row, bool read)
+    {
+        var scenario = new ClientAssertionScenario();
+        var context = scenario.Context with { ReplayCache = new RefusingReplayCache() };
+        var assertion = scenario.SignValid(payload: scenario.ValidPayload().WithRow("jti", row), key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, context, TestContext.Current.CancellationToken);
+
+        if (read)
+        {
+            Assert.True(result.TryGetValue(out _, out var readError), readError?.Detail);
+            return;
+        }
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (the stage's final gate, second round): an assertion whose header <c>kid</c> is absent,
+    /// not a string, empty or white space, or holds U+0000, is malformed before any key is resolved.
+    /// <c>CompactJws.ReadString</c> makes an absent or non-string <c>kid</c> <c>""</c>, and
+    /// <c>PostgresAgentKeyStore</c> refuses a blank one by throwing: <c>/oauth/token</c> answered 500 to
+    /// anyone, before any signature was checked. The in-memory resolver would refuse <c>""</c> as a
+    /// <c>kid</c> not found, so the failure alone is vacuous; that the resolver was never asked is the
+    /// half that carries information.
+    /// </summary>
+    [Theory]
+    [InlineData(UnreadableStrings.Absent)]
+    [InlineData("empty")]
+    [InlineData("space")]
+    [InlineData("tab")]
+    [InlineData("number")]
+    [InlineData("nul-inside")]
+    public async Task R11_33_AnAssertionWhoseKidIsNotReadableIsMalformedBeforeAnyKeyIsResolved(string row)
+    {
+        var scenario = new ClientAssertionScenario();
+        var resolver = new RecordingAgentKeyResolver(scenario.Context.AgentKeyResolver);
+        var context = scenario.Context with { AgentKeyResolver = resolver };
+        var assertion = scenario.SignValid(header: scenario.ValidHeader().WithHeaderRow("kid", row), key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+        Assert.Empty(resolver.Asked);
+    }
+
     [Fact]
     public async Task ExpiredAssertionIsRejected()
     {

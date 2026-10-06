@@ -243,14 +243,16 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     /// <summary>
     /// R5.20's refusal holds for text no registered key can carry. Postgres <c>text</c> cannot hold
     /// U+0000, so no agent and no <c>kid</c> in the store contains one. A <c>client_id</c> (with
-    /// <c>iss</c> and <c>sub</c>) carrying one, sent as multipart, and separately an assertion
-    /// header's <c>kid</c> carrying one, each meet the refusal a <c>kid</c> registered nowhere meets,
-    /// byte for byte. Neither may reach the store as a parameter it refuses, which answered 500 and
-    /// told an unauthenticated caller it had reached the database. The key holder's own token is the
-    /// positive control.
+    /// <c>iss</c> and <c>sub</c>) carrying one, sent as multipart, meets the refusal a <c>kid</c>
+    /// registered nowhere meets, byte for byte. An assertion header's <c>kid</c> carrying one is
+    /// malformed before any key is resolved (R11.33, the strangers stage's final gate, second round:
+    /// a <c>kid</c> no store can be asked about is refused at the boundary, beside an absent or blank
+    /// one, which the store answered by throwing). Neither may reach the store as a parameter it
+    /// refuses, which answered 500 and told an unauthenticated caller it had reached the database.
+    /// The key holder's own token is the positive control.
     /// </summary>
     [Fact]
-    public async Task R5_20_AnAssertionNamingANulIdentifierOrKidIsRefusedAsAnUnregisteredKeyIs()
+    public async Task R5_20_AnAssertionNamingANulIdentifierOrKidIsRefusedNotThrown()
     {
         const string Nul = "\0";
         var ct = TestContext.Current.CancellationToken;
@@ -276,7 +278,9 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
             $"a client_id holding U+0000 was answered {(int)subjectStatus}: {subjectBody[..Math.Min(120, subjectBody.Length)]} -- " +
             $"a kid holding U+0000 was answered {(int)kidStatus}: {kidBody[..Math.Min(120, kidBody.Length)]}");
         Assert.Equal(controlBody, subjectBody);
-        Assert.Equal(controlBody, kidBody);
+        Assert.Equal(
+            "{\"error\":\"invalid_client\",\"error_description\":\"Malformed token\",\"detail\":\"curia/authn/malformed\"}",
+            kidBody);
 
         var (ownStatus, ownBody) = await DpopClient.For(holder, holder.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);

@@ -142,6 +142,35 @@ public static class CompactJws
         return true;
     }
 
+    /// <summary>The most UTF-8 bytes a <c>jti</c> may hold: an implementation limit, well under the
+    /// 2,704-byte btree row <c>authn_replay_pkey</c> stores and eight times the 32 hex characters the
+    /// reference client mints (<c>src/Curia.Client/DpopSigner.cs:114</c>).</summary>
+    internal const int MaxJtiUtf8Bytes = 256;
+
+    /// <summary>
+    /// R11.33 (errata G17): why a string a store will be asked about cannot be one, or
+    /// <see langword="null"/> when it can. <see cref="ReadString"/> turns an absent or non-string
+    /// member into <c>""</c>, which this refuses, as it refuses white space alone, U+0000 (which
+    /// Postgres text cannot hold, 22021), and, with <paramref name="maxUtf8Bytes"/>, a value longer
+    /// than an index row stores (54000). One reader, at the boundary, so every adapter behind it is
+    /// asked only what it can answer: a rule written for each adapter is a rule the next adapter does
+    /// not know about. The detail names the member and never echoes its value.
+    /// </summary>
+    internal static Error? IdentifierRefusal(string value, string name, int? maxUtf8Bytes)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (!string.IsNullOrWhiteSpace(value)
+            && !value.Contains('\0', StringComparison.Ordinal)
+            && (maxUtf8Bytes is not { } max || Encoding.UTF8.GetByteCount(value) <= max))
+        {
+            return null;
+        }
+
+        return AuthNErrors.Malformed(
+            $"'{name}' must be a non-empty string{(maxUtf8Bytes is { } bound ? $" of at most {bound} UTF-8 bytes" : "")} holding no U+0000");
+    }
+
     /// <summary>Missing or wrong-kind reads as empty rather than throwing -- mirrors
     /// <c>DetachedJws.ReadString</c>'s tolerant style, so a missing mandatory claim fails the
     /// semantic check downstream (e.g. an empty <c>iss</c> never equals the configured issuer)

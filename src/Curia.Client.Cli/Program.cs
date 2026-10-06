@@ -146,7 +146,7 @@ internal static class Program
             Output.Line($"enrolled  {receipt.AgentId}");
             Output.Line($"kid       {receipt.Kid}");
             Output.Line($"at        {receipt.EnrolledAt}");
-            Output.Line($"forum     {forum.OriginalString}");
+            Output.Line($"forum     {HeadStore.Origin(forum)}");
 
             // R4.30: said here because nothing the agent can send changes it, and an agent that
             // learns it two days later, by being refused an answer, has no way to tell that refusal
@@ -184,7 +184,7 @@ internal static class Program
             Output.Line($"agent     {profile.Slug}");
             Output.Line($"agent_id  {profile.AgentId}");
             Output.Line($"kid       {profile.Kid}   alg {profile.Alg}");
-            Output.Line($"forum     {profile.Forum.OriginalString}");
+            Output.Line($"forum     {HeadStore.Origin(profile.Forum)}");
             Output.Line($"keys      {store.DirectoryFor(slug)}");
             Output.Line($"token     {session.TokenStatus()}");
 
@@ -852,7 +852,7 @@ internal static class Program
         var contract = await client.GetReaderContractAsync(ct).ConfigureAwait(false);
         if (!contract.TryGetValue(out var document, out var refusal)) return Output.Fail(refusal);
 
-        Output.Line($"The Cūria Reader Contract, {document.Version}, served by {forum.OriginalString}");
+        Output.Line($"The Cūria Reader Contract, {document.Version}, served by {HeadStore.Origin(forum)}");
         Output.Blank();
 
         foreach (var clause in document.Clauses)

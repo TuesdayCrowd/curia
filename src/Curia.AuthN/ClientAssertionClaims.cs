@@ -24,12 +24,18 @@ public sealed record ClientAssertionClaims(
         if (!NumericDate.ReadRequired(root, "exp").TryGetValue(out var exp, out var expError))
             return Result<ClientAssertionClaims>.Fail(expError!);
 
+        // R11.33 (errata G17): the replay cache is asked about this jti, and an absent, blank,
+        // NUL-holding or overlong one threw there, at the token endpoint.
+        var jti = CompactJws.ReadString(root, "jti");
+        if (CompactJws.IdentifierRefusal(jti, "jti", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)
+            return Result<ClientAssertionClaims>.Fail(jtiError);
+
         return Result<ClientAssertionClaims>.Ok(new ClientAssertionClaims(
             Iss: CompactJws.ReadString(root, "iss"),
             Sub: CompactJws.ReadString(root, "sub"),
             Aud: CompactJws.ReadString(root, "aud"),
             Iat: iat,
             Exp: exp,
-            Jti: CompactJws.ReadString(root, "jti")));
+            Jti: jti));
     }
 }

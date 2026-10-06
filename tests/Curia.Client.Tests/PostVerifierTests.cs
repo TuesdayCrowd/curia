@@ -982,6 +982,49 @@ public sealed class PostVerifierTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// R6.53 (the stage's final gate, second round): the consistency line names the Forum by its
+    /// origin, never by the credential in the URL that reached it. <c>ConsistencyAsync</c> quoted the
+    /// URL's authority, userinfo and all, so a password in <c>--forum</c> or <c>CURIA_FORUM</c> was
+    /// printed into <c>curia verify</c>'s and <c>curia_verify</c>'s result, and on an unreadable head
+    /// again inside the directory it names. A first read and an unreadable retained head are the two
+    /// lines that name it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task R6_53_AConsistencyDetailNamesTheForumWithoutItsUserinfo(bool unreadable)
+    {
+        var log = Log();
+        var forum = new Uri("http://alice:s3cret@forum.example:8080");
+        var root = Directory.CreateTempSubdirectory("curia-head-store-").FullName;
+        try
+        {
+            var store = new HeadStore(root);
+            if (unreadable)
+            {
+                Directory.CreateDirectory(store.DirectoryFor(forum));
+                await File.WriteAllTextAsync(
+                    Path.Combine(store.DirectoryFor(forum), "head.json"),
+                    "{ this is not a head",
+                    TestContext.Current.CancellationToken);
+            }
+
+            var result = await VerifyAtAsync(log, forum, store);
+            var detail = result.Consistency.Detail;
+
+            Assert.Equal(CheckOutcome.CouldNotCheck, result.Consistency.Outcome);
+            Assert.DoesNotContain("alice", detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("s3cret", detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("alice_s3cret", detail, StringComparison.Ordinal);
+            Assert.Contains(DisplayLiteral.Of("http://forum.example:8080"), detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string ForkRoot(StubLog fork, int treeSize) =>
         Curia.Domain.Acta.LogEntries.Prefixed(fork.RootAt(treeSize));
 
