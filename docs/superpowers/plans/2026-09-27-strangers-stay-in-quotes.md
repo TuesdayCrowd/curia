@@ -12738,7 +12738,7 @@ grep -n 'var written = SpanText.Block(rendered);' src/Curia.Client/Frame.cs
 grep -n 'SpanText' src/Curia.Operator/TerminalText.cs
 ```
 
-Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `536:`, `1185:`, `2159:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`; `16:` and `19:`; `295:`; `20:`, `21:` and `24:`; `24:`; `16:`; `291:` and `294:`; and, for Task 9b's three, what they print, since Task 9b's code was not build-checked with this plan. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
+Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `323:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `545:`, `1194:`, `2168:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `285:`; `515:`; `16:` and `19:`; `295:`; `20:`, `21:` and `24:`; `24:`; `16:`; `291:` and `294:`; and, for Task 9b's three, what they print, since Task 9b's code was not build-checked with this plan. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
 
 - [ ] **Step 2: Write the register, the trap and what comes next**
 
@@ -12839,7 +12839,7 @@ this:
 *Closed by the strangers stage (errata G17, R11.33), at the boundary rather than the adapter: every 5xx
 problem document the Forum composes goes through `ServerFault` (`src/Curia.Api/ServerFault.cs:16`),
 which serves the fault's type and title and logs its detail, event 5000; `ForumEndpoints.Problem`
-returns one for every 5xx (`src/Curia.Api/ForumEndpoints.cs:2159`) and the Acta's fold for both of its
+returns one for every 5xx (`src/Curia.Api/ForumEndpoints.cs:2168`) and the Acta's fold for both of its
 faults (`src/Curia.Api/ActaEndpoints.cs:233`, `:239`). Two 5xx do not: the token endpoint's
 `server_error`, which is RFC 6749's shape rather than a problem document and keeps its slug `detail`
 (the key-binding stage's M5, with D29), and an exception nothing handles, which a production host
@@ -12847,7 +12847,7 @@ answers with its own empty 500 (the Development host's exception page is a devel
 vector index still folds Postgres's text into its error
 (`src/Curia.Infrastructure/PostgresVectorIndex.cs:185`); the log is where it now goes. The sweep,
 derived from the route registrations, found two routes answering 500 that the register did not know
-of, both closed: a thread id of white space alone (`ForumEndpoints.cs:1185`), and a token request that
+of, both closed: a thread id of white space alone (`ForumEndpoints.cs:1194`), and a token request that
 is not a form, whose form holds U+0000, or whose multipart form is cut off before its closing boundary
 (`src/Curia.Api/Issuer/TokenEndpoint.cs:66`, `:74`, `:78`; the last found by the plan's pre-flight). It
 found none on `q`, `board` or `author`: every read folds the log in memory. Run as an enrolled agent,
@@ -12927,7 +12927,7 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
   whose `string` and character holes are literals and whose other holes compile only if they format
   themselves; `OwnText` (`:21`) for the client's own words; `FrameBuilder` (`:235`), which takes a line
   only as a `FrameText`, a constant, a passage or a span, and writes a span raw only once
-  `IsDelimitedSpan` (`:317`) has checked its delimiters. `Passage.Render` (`src/Curia.Client/Passage.cs:57`), `Reading`,
+  `IsDelimitedSpan` (`:323`) has checked its delimiters. `Passage.Render` (`src/Curia.Client/Passage.cs:57`), `Reading`,
   `SignatureVerdict.Describe` (`SignatureCheck.cs:66`) and `Refusal.Summary`
   (`src/Curia.Client/ForumResult.cs:82`) are built on them. The standing warning is written as the
   client's own only when it is the published text (`Passage.cs:138`), and the marking caveat is the one
@@ -12942,7 +12942,7 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
 - **R10.63, the adapter.** `ForumTools` and `WriteTools` compose every result and refusal through
   `FrameBuilder`; a receipt had printed the board an answer copies from its question, and a write
   refusal the Forum's title and detail, as they came. A passage's resource URI carries the post id
-  percent-encoded (`src/Curia.Mcp/ForumTools.cs:279`), and the gate reads each URI: it had carried the
+  percent-encoded (`src/Curia.Mcp/ForumTools.cs:285`), and the gate reads each URI: it had carried the
   id as served, where no gate looked (the Task 1 review's M4).
 - **R10.63, the verifier.** `curia-testis` prints `author`, `kid` and `alg`, a head's `kid`, `alg` and
   timestamp, and every value a refusal names, a member's name among them, as literals; serde_json's
@@ -12977,17 +12977,25 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
   U+0020; a Forum that serves a span holding them inside valid delimiters was written as it came
   (`src/Curia.Client/Frame.cs:298` at 3b145fc, which also turned CR, U+0085 and U+2028 into new
   indented lines on the duplicate refusal's path). `Curia.Canon.Json.SpanText`
-  (`src/Curia.Canon/Json/SpanText.cs:<line>`) writes every character of general category Cc but
+  (`src/Curia.Canon/Json/SpanText.cs:31`) writes every character of general category Cc but
   U+000A and U+0009, Cf, Zl or Zp, and every surrogate without its pair, as `\u` and four lowercase
-  hex digits per code unit, walking scalar values; `FrameBuilder.Span` (`Frame.cs:<line>`) checks the
+  hex digits per code unit, walking scalar values; `FrameBuilder.Span` (`Frame.cs:303`) checks the
   delimiters on the span as served and writes it through `SpanText.Block`, in `curia read`,
   `curia thread`, `curia board`, the duplicate refusal's answers, `curia_read`, `curia_search` and
   `curia_ask`. `curia-operator`'s `TerminalText` is `SpanText` now, so its uppercase escapes over C0,
   C1, DEL and the bidi controls became R4.37's set in R10.64's form. `curia-testis` prints no content
-  and is not reached. Red first: <Task 9b Step 2's lines>.
+  and is not reached. Red first, on Task 9b's facts over 3b145fc's readers (run again for this entry on a `git archive`
+  of 0a2d5b3 with `SpanText`, its facts, and Task 9b's changes to `Frame.cs`, `TerminalText.cs` and
+  `RedTeamCorpusTests.cs` taken out): `Curia.Api.Tests` `Failed: 2`, `curia read (Datamark) wrote
+  U+009B as itself (R10.67)` and the operator listing's `Not found: "\\u001b"`;
+  `Curia.Client.Tests` `Failed: 2`, `the passage wrote U+001B as itself (R10.67)` and an indented span
+  that printed a line feed and an indent where `a\u000dsignature verified` was expected;
+  `Curia.Mcp.Tests` `Failed: 3`, `curia_ask`, `curia_read` and `curia_search` each `wrote U+001B as
+  itself`; and `Curia.Domain.Tests` `Failed: 1`, `R10_57_EveryDeclaredOutcomeKindHasAnEvaluator`
+  naming the twelve `escaped-by-reader` entries.
 - **R4.37.** The enrollment route refuses an identifier or a `kid` holding a character of general
   category Cc, Cf, Zl or Zp, walked by scalar value, 400 `curia/enroll/identifier-control-character`,
-  naming the field, the code point and its category (`src/Curia.Api/ForumEndpoints.cs:436`, `:536`).
+  naming the field, the code point and its category (`src/Curia.Api/ForumEndpoints.cs:436`, `:545`).
 
 Held by `Curia.Client.Tests.ReaderFrameTests` (a served post whose every string member is hostile,
 built by reflection), `Curia.Mcp.Tests.ReaderFrameToolTests` (every registered tool, each served member
@@ -13005,12 +13013,13 @@ hostile identifier through `curia read`'s renderer, `curia_read`, `curia_search`
 `curia-testis verify`, and in `R10_67_ABodyWrittenToDriveATerminalReachesNoReaderAsItself` a body
 written to drive a terminal through the first three.
 
-**Falsified:** the strangers stage's Task 10 ran fifty-nine cases in seventy-two suite runs in a
-git-backed copy: every command printed `RED` on the facts its table names, every restore printed
-`restore clean` with both proofs and, after each of the nine Rust restores, `curia-testis rebuilt:
-yes`, and the run's last lines were `runner exit: 0` and `falsify.py exit 0`. Case 60, added by Task
-6's second review, was run separately with cases 8, 17 and 58 (Task 10's narrative), not in that full
-run.
+**Falsified:** the strangers stage's Task 10 holds eighty-nine cases in one hundred and sixteen suite
+runs, its review rounds' cases included, and Task 11 ran all of them in one run of its runner from the
+repository root, on 1045f08's source: every one of the 116 commands printed `RED`, every restore
+printed `restore clean` with both proofs and, after each of the eleven cases that patch a file under
+`rust/` (3, 4, 18-20, 31, 42, 45, 48, 70 and 71), `curia-testis rebuilt: yes`, and the run's last
+lines were `runner exit: 0` and `falsify.py exit 0`. How each round first ran the cases it added is
+in Task 10's narrative.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
 raw is as exposed as the reference client was, which is what R4.37 narrows for identifiers and nothing
@@ -13043,7 +13052,7 @@ run; and the span a reader prints is still not compared with the canonical form 
   which can echo a character of the submission, against R6.40's "echoes no content". Reached only by an
   authenticated submitter, about its own bytes (traced, not run).
 - **A tag holding a comma, or beginning or ending with white space, cannot be named as a filter on
-  the wire.** The Forum's `?tags=` filter (`ForumEndpoints.cs:1524`, `:1692`) splits on `,` and trims,
+  the wire.** The Forum's `?tags=` filter (`ForumEndpoints.cs:1575`, `:1743`) splits on `,` and trims,
   so it would read such a tag as other tags. The reference client refuses such a filter
   (`curia/client/tag-not-filterable`) rather than send one the Forum would misread. Whether R8.63's
   tag value space excludes these or R9.26's filter grammar changes is for the next errata pass (Task
@@ -13058,7 +13067,7 @@ run; and the span a reader prints is still not compared with the canonical form 
   database and not a reference reader. Its `TerminalText` is R10.67's `SpanText` since Task 9b, so an
   identifier enrolled before R4.37 holding a control, format or separator character reaches its
   output as escapes, unquoted; and `attest-owner` echoes its own arguments as given
-  (`src/Curia.Operator/Program.cs:216`, `:220`).
+  (`src/Curia.Operator/Program.cs:215`, `:219`).
 - **R10.65's word was run in sh, dash, bash, zsh, fish, csh and tcsh, not in PowerShell or cmd.exe.**
   PowerShell documents a single-quoted string as verbatim but for `''`, which the word's alphabet
   excludes; no PowerShell was available to run it in, and none runs in CI. cmd.exe does not quote with

@@ -22,7 +22,11 @@ once (errata G14: no second key, no replaced bytes) and a token only for the ide
 registered to (errata G15), keys bound in the log (errata G16: every enrollment binds its key as an
 Acta leaf, the Forum honours and publishes a stored key only as the log binds it, and `curia verify`,
 `curia_verify` and `curia-testis log author` establish from the log alone that the key behind a post
-was bound to its author before it, where the read tools verify under the key set the Forum serves), the
+was bound to its author before it, where the read tools verify under the key set the Forum serves), readers that keep a stranger's words
+in quotes (errata G17: `curia`, `curia-mcp` and `curia-testis` write every value they did not compose
+as a display literal, `curia` and `curia-mcp` write a post's control, format and separator characters
+as escapes, so its content cannot drive a terminal, a command `curia` prints holds a value only as a
+shell word, and a server fault carries no detail), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every
 event a leaf under a frozen encoding, heads signed by `curia-operator sign-head` with a key the
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs

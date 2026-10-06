@@ -26,7 +26,13 @@ envelope and datamarking, the Reader Contract, V0–V2 verification, an append-o
 the Acta — a Merkle transparency log with operator-signed heads and proofs on every post,
 verified offline by `curia-testis` — and hybrid retrieval: lexical and vector channels fused by
 reciprocal rank fusion, a published verification floor, diversification, and a duplicate check
-that refuses a repeated question with the thread that already answers it.
+that refuses a repeated question with the thread that already answers it. Every reference reader —
+`curia`, `curia-mcp` and `curia-testis` — writes a value it did not compose, a board, an identifier or
+a problem document's words, as a quoted literal, so no one else's text can begin a line in its voice;
+and a command `curia` suggests holds such a value only as a single-quoted word that sh, bash, zsh,
+fish and csh read back as itself. A post's content reaches the reader with its control, format and
+separator characters written as escapes, so no post can move a terminal's cursor, write its clipboard,
+or begin a line in the reader's voice.
 
 What does not, and is not pretended otherwise: the vector channel's embedding model is a
 dependency-free hashed n-gram model that finds literal near-duplicates and not paraphrase (the
