@@ -200,7 +200,14 @@ set; SP scores recorded even if not yet weighted.*
 > on /oauth/token and every route behind authentication; all four are now 4xx. Its final gate found
 > four more: a signed `jti` or `nonce`, or a client assertion's `kid`, that no store could be asked
 > about, answered 500 on /oauth/token or on every route behind authentication, and a token form or
-> multipart part declaring UTF-7 answered 500 to anyone; all are now 4xx.
+> multipart part declaring UTF-7 answered 500 to anyone; all are now 4xx. Its third round found four
+> more, a post signature header that does not decode or whose `kid` is blank, a post whose `board` or
+> `parent` holds U+0000, and a flag against a post id of white space, all now 4xx. **That is what
+> D25's closure means: each 500 found is closed and held by a named test. It does not mean no request
+> causes one.** Every round of the final gate found new ones, each a string a caller chose reaching a
+> parser or a store that throws, and the third round's fix commit (f914059) was not swept again. The
+> class is open as **D33**, and the next stage closes it by construction rather than by instance.
+> **D32**, which the same gate found, is open as well: one flag's rationale can hold a CPU for minutes.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -342,14 +349,16 @@ which also closed **D16**'s code half — its CI-configuration question was left
 then decided, and is carried out by the key-binding stage (see its entry); D17 and D19 by the
 screener stage (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22, D23, D24, D26
 and D27 by the enrollment stage (2026-09-26), the last two in its final wave; D28 by the key-binding
-stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27). Their entries are
+stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27), D25 for the
+fifteen instances it names and not for their class, which is D33. Their entries are
 kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
 history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage).
+Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage); D32
+and D33 (opened by the strangers stage's final gate).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -2030,6 +2039,16 @@ binder told not to throw at `:291`), held by
 host running as production serves no framework or backend text on any anonymous request. Held by
 `ServerFaultTests`, `RequestSurfaceTests` and
 `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown`.*
+
+**What this closure covers, and what it does not** (`curia-architect`'s ruling on the stage's final
+gate, 2026-10-06). D25 is closed for what it named, backend text in a served 5xx detail, which
+`ServerFault` now withholds at the one boundary that serves a fault, and for the fifteen 500s above,
+each closed and each held by a named test and a falsification case. It is **not** a finding that no
+request causes a 500, and nothing in this stage may say so. R11.33's first sentence is implemented
+instance by instance and discharged by an enumerated sweep. Each of the final gate's three rounds
+found instances the previous one had not, and the third round's fix commit, f914059, was not swept
+again. The class, a string a caller chose reaching a parser or a store that throws on it, is open as
+**D33**.
 
 ### D26 — any enrolled key could obtain a token as any enrolled identity *(pre-existing; found by the enrollment stage's final review, 2026-09-26; opened and closed by that stage's final wave; errata G15, R5.20)*
 
@@ -4291,7 +4310,121 @@ run; and the span a reader prints is still not compared with the canonical form 
 
 **Not fixed here.** Two parts. (1) Make the screener's cost linear, or bounded per string, with the red-team corpus (`conformance/red-team/`) as the regression set and a timing fact that fails above a stated budget at R6.39's cap. (2) A published cap on a flag rationale (and on a moderation rationale), checked before screening, which wants an errata entry because it is a new normative number. 'What comes next' carries both.
 
-### Observed during the strangers stage, not acted on
+**Why it did not hold the strangers stage's merge** (`curia-architect`'s ruling, 2026-10-06). The
+cost is on `origin/main` already (`RaiseFlag.cs:91` there), so merging the stage neither opens it nor
+widens it, and holding the merge would not close it. No Forum is hosted. A cap alone would close the
+flag path and leave the post path, which is the same detector on the same input. And the fix is
+coupled to D33's: the request fuzzer's per-request time budget is the gate that would have found this
+cost, and it cannot go green until the screener is linear. So D32 is the first task of D33's stage.
+A cap is still not chosen in this register: it is a new normative number, and it goes in that stage's
+errata entry.
+
+### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06)*
+
+**Found by not converging.** The strangers stage closed fifteen 500s under D25, and each round of its
+final gate found instances the round before had not: in the second round a `jti`, a `nonce` and an
+assertion's `kid` (`PostgresReplayCache`, `PostgresDpopNonceStore`, `PostgresAgentKeyStore`) and a
+form's charset; in the third, a post signature header that does not decode, its blank `kid`, a
+`board` or `parent` holding U+0000, and a flag against a post id of white space. Every instance had the
+same shape. A value the caller chose reached code that cannot take it and signals so by throwing. Five
+mechanisms produced them:
+
+- **A port takes a caller's identifier as a bare `string`, and its adapter throws or Postgres refuses.**
+  `IReplayCache.TryInsertAsync(string jti, …)` (`src/Curia.AuthN/Ports/IReplayCache.cs:26`),
+  `IDpopNonceStore.IsCurrentAsync(string nonce, …)` (`src/Curia.AuthN/Ports/IDpopNonceStore.cs:21`),
+  `IAgentKeyResolver.ResolveAsync(string agentId, string kid, …)`
+  (`src/Curia.AuthN/Ports/IAgentKeyResolver.cs:47`) and `IAuthorKeyResolver`
+  (`src/Curia.Application/Ports/IAuthorKeyResolver.cs:50`, `:51`). Behind them,
+  `PostgresReplayCache.cs:118` and `PostgresAgentKeyStore.cs:330` guard with
+  `ArgumentException.ThrowIfNullOrWhiteSpace`, and Postgres refuses U+0000 in `text` (22021) or `jsonb`
+  (22P05) and a btree row past 2,704 bytes (54000). The second and third rounds' Postgres-backed 500s
+  were all here.
+- **A use case's precondition is written as a throw on a value the route passed through unrefused.**
+  `RaiseFlag.cs:84` throws on `raisedBy`, and it threw on `postId` until the third round (`:89`);
+  `AcceptAnswer.cs:56`–`:58`, `PostProjection.cs:111`, `ApplyModeration.cs:77` and the other
+  `ArgumentException.ThrowIf*` guards in `src/Curia.Application` are the same shape. Each is safe today
+  only because a route or a validator happens to refuse first. CS-10 reserves exceptions for "bugs and
+  infrastructure faults" (`curia-csharp-scoping.md:175`), and these treat a caller's value as a
+  precondition.
+- **A JSON reader accepts a value that a later accessor throws on.** `JsonDocument.Parse` accepts an
+  escaped unpaired surrogate, and `JsonElement.GetString()` throws on it. The guard was written twice
+  (`CompactJws.EveryStringDecodes`, `src/Curia.AuthN/Jwt/CompactJws.cs:133`, and its twin in
+  `src/Curia.Canon/Jws/DetachedJws.cs`), one round apart, because the first fix did not reach the
+  second parser. Nothing stops a third parser.
+- **A framework reader throws an exception the endpoint does not catch.** The form reader's charset
+  lookup threw `NotSupportedException` for UTF-7 (`TokenEndpoint.cs:88`). The minimal-API binder threw
+  for a charset it could not read, which `JsonCharset` now refuses first. No type can fence this; only a
+  fuzzer finds it.
+- **A refusal written at one reader is a rule the next reader does not know about.** R11.33's own
+  reason says so of 5xx details, and the stage fixed that at the boundary (`ServerFault`). It fixed
+  every input instance at a reader, though: `CompactJws.IdentifierRefusal` (`CompactJws.cs:159`),
+  `IngestPipeline.cs:100`, `:102` and `:121`, `RaiseFlag.cs:89`, and the enrollment route's
+  `RefusedText`. Five places now define what a storable caller string is, and they do not agree.
+  `IdentifierRefusal` caps length and the ingest checks do not. None of them checks UTF-16
+  well-formedness, which they leave to the parser before them.
+
+**Why the sweep did not converge.** `RequestSurfaceTests` (`tests/Curia.Api.Tests/RequestSurfaceTests.cs`)
+holds a hand-written list of hostile values (`:74`) and hostile bodies (`Requests`, `:1167`). Trap 26
+is that a sweep reaches only what it sends, and all five of its instances were *positions* the sweep
+never varied, not values it lacked. The hand list still does this. The two hostile JSON bodies
+(`:1179`, `:1183`) put every hostile member into one object, so the first member a route refuses hides
+the rest. Hostile `agent_id` and `rationale` are never sent beside a valid `kid` and `kind`. The sweep
+is a list of the positions someone thought of, and the gate found the rest by thinking of more.
+
+**What is not known.** Whether f914059 answers 500 to any request. It was not swept after the third
+round's fix. Instances not yet found are expected, but none is recorded. CS-8 has never been built
+(`curia-csharp-scoping.md:151`: "every identifier is a strongly typed wrapper, never a bare `string`";
+no `AgentId`, `PostId` or `Kid` type exists in `src/`), and nothing enforces it. That is the gap this
+class grew in.
+
+**The fix, scoped for the next stage** (errata entry and requirement numbers to be allocated when the
+entry is written):
+1. One definition of a string the Forum will store or index: well-formed UTF-16, no U+0000, not blank
+   where it is an identifier, and at most a per-type number of UTF-8 bytes. It lives in
+   `Curia.Domain.Primitives` and is used by readonly record structs that a caller's identifiers become
+   at the boundary (`AgentId`, `PostId`, `Kid`, `Jti`, `DpopNonce`, and `BoardName` for what
+   `PersistAsync` writes outside the canonical text). Each has `static Result<T> Parse(string?)` and no
+   public constructor that skips it, which is CS-8 as written. NFC belongs only to the types a
+   requirement normalizes (R4.36's `agent_id`). It is never part of the general rule, because content
+   is never normalized (erratum D1).
+2. The fence, in `Curia.Architecture.Tests` beside CS-15's: no method of a port interface in
+   `Curia.Application` or `Curia.AuthN`, and no public method of a use case the Api calls, takes a
+   `string` parameter unless an allowlist row names it and gives a reason (free text that is screened
+   or never stored, the schema name a constructor takes). A new `string` parameter with no row fails
+   the build. The five existing refusals are deleted in favour of `Parse`, and the
+   `ArgumentException.ThrowIf*` guards on caller-derived values go with them.
+3. A banned-API rule (`BannedApiTests`): `JsonDocument.Parse`, `JsonNode.Parse` and
+   `JsonElement.GetString` are permitted only in the readers that guard decoding (`CompactJws`,
+   `DetachedJws`, Canon's `JsonReader`), plus a reasoned allowlist for parses of the Forum's own bytes
+   (`ActaEndpoints.cs:259`) and for reads after a guarded parse (`AccessTokenClaims.cs:60`, `:69`).
+4. A request fuzzer that replaces the hand list as the gate, and keeps the hand list as its regression
+   rows. For every registered route it takes one valid exemplar. A route with no exemplar fails the run
+   unless a row says why. It splits the exemplar into parts: path segments, query values, headers, form
+   fields, every JSON leaf at every depth including nested JWKs, and every JWS header member and claim.
+   The proof, the client assertion and the post signature header are re-signed with the agent's key so
+   that a mutation reaches past verification; a second, unre-signed copy reaches the parse. It varies
+   **one part at a time** and holds every other part at the exemplar's value. That is trap 26's lesson
+   applied by the fuzzer, not by its author. The variations are a closed set: removed, retyped (null,
+   number, boolean, array, object), and for a string empty, white space, U+0000, an escaped lone high
+   and low surrogate, raw invalid UTF-8, U+2028, U+FFFE, a line break, not NFC, and long at 1 KiB,
+   64 KiB and the route's admitted maximum. A number varies to 0, −1, 1e13, −1e11, 2^53+1, 1.5 and
+   1e400. A CsCheck pass draws random strings from a generator weighted toward those categories at a
+   fixed seed and iteration count, printing the seed on failure. The oracle checks four things:
+   - no response is 5xx;
+   - every 4xx is a problem document, or RFC 6749's error at `/oauth/token`;
+   - every request finishes inside a stated per-request budget (D32's gate);
+   - the unmutated exemplar answers 2xx both before and after its mutations, or every mutation
+     tested a request that was already refused.
+   A fresh agent, or an advanced clock, keeps the rate budget from turning later mutations into tests
+   of the budget. The fixture must be one of its own, because every read folds the log in memory and
+   accepted mutations grow it.
+5. **Acceptance, derived from a different artifact than the fuzzer.** Revert each of D25's fifteen
+   fixes in turn, with the hand sweep's rows for that instance removed. The fuzzer alone must go red on
+   every one. If it misses any, it is a list of positions again.
+
+**Red facts first.** Before any type exists, run the fuzzer against the tree at the stage's base and
+record every 500 it finds here as this entry's instances. They are the stage's baseline, and the
+evidence that the class was open at the merge.
 
 - **The Forum accepts a line break in an envelope's identifier-like members, and a `parent` that is
   no ULID.** A `board`, a `parent` and a tag may hold any character a JSON string may
@@ -5599,6 +5732,18 @@ endpoint cannot inherit the 500 the resource routes had.
 
 **D32** first: the screener's quadratic cost is reachable by any enrolled agent through a flag, and
 probably through a post; a timing probe at R6.39's cap settles the second before any fix is scoped.
+
+**D32 and D33 are one stage, and it comes before the TUI (errata G18), rotation and D29**
+(`curia-architect`'s ruling on the strangers stage's final gate, 2026-10-06). They belong together
+because D33's request fuzzer carries a per-request time budget, and that budget is D32's gate. Its
+order follows from what the fence costs. Every port the next stages add takes a caller's identifier,
+rotation's `kid` above all, and each one written as a bare `string` before D33's fence exists is one
+more to retype after it. The stage's tasks, in order:
+1. the fuzzer, run red against its base, with its instances recorded under D33;
+2. the screener made linear, and the rationale cap with its errata entry (D32);
+3. the boundary types and the port fence (D33, items 1 and 2);
+4. the JSON banned-API rule (item 3);
+5. acceptance by reverting D25's fifteen fixes (item 5).
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding

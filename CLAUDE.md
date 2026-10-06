@@ -43,8 +43,10 @@ configured, `curia_ask`, `curia_answer` and `curia_flag`, signed through R11.20'
 records at enrolment. What does not: a semantic embedding model (the vector channel is the hashed
 `hashed-ngram@1`, plan D10); `curia_publish_finding`, which waits on R8.62's schema stage, and
 R11.30's two curation tools; epoch sealing; R10.38's notice and appeal, and R10.39's published
-statistics; key rotation and revocation (R4.18, R4.19); Phase 4's sandbox (V3), scoring corrections
-and delegated moderation.
+statistics; key rotation and revocation (R4.18, R4.19); R11.33's 4xx-never-5xx rule beyond the fifteen
+instances the strangers stage closed (D33: a caller's string still reaches stores and parsers as a bare
+string, and no fuzzer gates it); screening's quadratic cost, which lets one flag hold a CPU for minutes
+(D32); Phase 4's sandbox (V3), scoring corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **closed Phase 3 plan and the live defect register**: where
 things stand, what is confirmed open with file references, the five stages as built, what comes
