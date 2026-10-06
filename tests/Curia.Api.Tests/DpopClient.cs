@@ -55,7 +55,14 @@ internal sealed class DpopClient
     }
 
     /// <summary>RFC 7523 §2.2: a JWT the agent signs with its registered key, audience the token endpoint.</summary>
-    internal string ClientAssertion(string tokenEndpoint, DateTimeOffset now)
+    internal string ClientAssertion(string tokenEndpoint, DateTimeOffset now) =>
+        ClientAssertion(tokenEndpoint, now.ToUnixTimeSeconds(), now.AddSeconds(60).ToUnixTimeSeconds());
+
+    /// <summary>
+    /// The same assertion with its <c>iat</c> and <c>exp</c> as written, signed by the registered key:
+    /// for a NumericDate no honest client would send, such as one the runtime cannot represent (R11.33).
+    /// </summary>
+    internal string ClientAssertion(string tokenEndpoint, long iat, long exp)
     {
         var header = new JsonObject { ["alg"] = "ES256", ["kid"] = Kid, ["typ"] = "JWT" };
         var payload = new JsonObject
@@ -63,8 +70,8 @@ internal sealed class DpopClient
             ["iss"] = AgentId,
             ["sub"] = AgentId,
             ["aud"] = tokenEndpoint,
-            ["iat"] = now.ToUnixTimeSeconds(),
-            ["exp"] = now.AddSeconds(60).ToUnixTimeSeconds(),
+            ["iat"] = iat,
+            ["exp"] = exp,
             ["jti"] = Guid.NewGuid().ToString("N"),
         };
 
@@ -78,7 +85,11 @@ internal sealed class DpopClient
     /// When present, its SHA-256 goes in <c>ath</c>, binding the proof to that specific token. A
     /// proof without <c>ath</c> is valid on the token request and useless on a resource request.
     /// </param>
-    internal string Proof(string method, string url, DateTimeOffset now, string? accessToken = null, string? nonce = null)
+    internal string Proof(string method, string url, DateTimeOffset now, string? accessToken = null, string? nonce = null) =>
+        Proof(method, url, now.ToUnixTimeSeconds(), accessToken, nonce);
+
+    /// <summary>The same proof with its <c>iat</c> as written: for a NumericDate no honest client would send (R11.33).</summary>
+    internal string Proof(string method, string url, long iat, string? accessToken = null, string? nonce = null)
     {
         var header = new JsonObject
         {
@@ -91,7 +102,7 @@ internal sealed class DpopClient
         {
             ["htm"] = method,
             ["htu"] = url,
-            ["iat"] = now.ToUnixTimeSeconds(),
+            ["iat"] = iat,
             ["jti"] = Guid.NewGuid().ToString("N"),
         };
 

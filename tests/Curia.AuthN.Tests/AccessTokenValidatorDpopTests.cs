@@ -118,6 +118,29 @@ public sealed class AccessTokenValidatorDpopTests
         Assert.Equal("curia/authn/malformed-jwk", error!.Type);
     }
 
+    /// <summary>
+    /// R11.33 (errata G17): a proof the bound DPoP key genuinely signed, whose <c>iat</c> is a number
+    /// <see cref="DateTimeOffset"/> cannot hold, is refused, never thrown. It reached
+    /// <see cref="DateTimeOffset.FromUnixTimeSeconds"/> unchecked after the signature verified, and
+    /// every route behind authentication answered 500 to any enrolled agent.
+    /// </summary>
+    [Theory]
+    [InlineData(10000000000000L)]
+    [InlineData(-100000000000L)]
+    public async Task R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown(long iat)
+    {
+        var scenario = new AccessTokenScenario();
+        var token = scenario.SignAccessToken();
+        var payload = scenario.ValidDpopPayload(token).WithClaim("iat", iat);
+        var proof = scenario.SignDpopProof(token, payload: payload, key: scenario.DpopKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
     [Fact]
     public async Task DpopBindingMismatchIsRejected_ThumbprintDoesNotMatchCnfJkt()
     {

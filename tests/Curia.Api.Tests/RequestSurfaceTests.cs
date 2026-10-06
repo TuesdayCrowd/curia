@@ -46,8 +46,13 @@ namespace Curia.Api.Tests;
 /// reads, the batch's <c>marking</c>, is read by the same function the reads' is. Of the headers,
 /// the two every route reads first are probed, <c>Authorization</c> and <c>DPoP</c>
 /// (<see cref="R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault"/>); a header a single
-/// handler reads, a conditional read's <c>If-None-Match</c> or a body's <c>Content-Type</c>, is not
-/// swept.</para>
+/// handler reads, a conditional read's <c>If-None-Match</c>, is not swept. A JSON body's declared
+/// charset is swept, the quoted form included (Task 8's review, I1): four of <see cref="Requests"/>'
+/// bodies name one other than the bare token utf-8, and
+/// <see cref="R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound"/> holds both sides.
+/// Claims inside a JWT the agent signs are probed by
+/// <see cref="R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault"/>, the jwk by the
+/// header fact.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -289,6 +294,114 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     private static string Segment(string json) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(json));
 
     /// <summary>
+    /// R11.33's claims (Task 8's review, C1). The header fact varies a proof's <c>jwk</c> and no claim;
+    /// a JWT the agent signs also carries <c>iat</c>, <c>exp</c> and <c>nbf</c>, parsed after its
+    /// signature verifies, and a number <see cref="DateTimeOffset"/> cannot hold threw there. An
+    /// enrolled agent sends the token endpoint client assertions its registered key signs with such
+    /// an <c>iat</c> or <c>exp</c>, and then every route its valid token, with proofs its bound key
+    /// signs whose <c>iat</c> is such a number. None may answer 5xx, no assertion may be honoured, and
+    /// some route must answer 401, or no proof was read.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var routes = Routes(forum);
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create("https://agents.example/numeric-date-" + suffix, "numeric-date-" + suffix);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var now = forum.Now.ToUnixTimeSeconds();
+        (long Iat, long Exp)[] assertions =
+        [
+            (10000000000000, 10000000000000),
+            (now, 10000000000000),
+            (-100000000000, now + 60),
+        ];
+
+        var faults = new List<string>();
+        foreach (var (iat, exp) in assertions)
+        {
+            var (status, body) = await dpop.RequestTokenAsync(
+                client, TokenEndpoint, forum.Now, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, iat, exp), ct);
+            if ((int)status >= 500 || status == HttpStatusCode.OK)
+                faults.Add($"{(int)status} POST /oauth/token (an assertion with iat {iat}, exp {exp}): {body[..Math.Min(body.Length, 160)]}");
+        }
+
+        long[] proofIats = [10000000000000, -100000000000];
+        var sent = 0;
+        var read = 0;
+        foreach (var (method, pattern, parameters) in routes)
+        {
+            var path = Plain(pattern, parameters);
+            foreach (var iat in proofIats)
+            {
+                using var request = new HttpRequestMessage(new HttpMethod(method), path);
+                if (method != "GET") request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                request.Headers.Authorization = new AuthenticationHeaderValue("DPoP", token);
+                request.Headers.Add("DPoP", dpop.Proof(method, "http://localhost" + path, iat, token));
+                using var response = await client.SendAsync(request, ct);
+                sent++;
+                if ((int)response.StatusCode >= 500)
+                    faults.Add($"{(int)response.StatusCode} {method} {path} (a proof with iat {iat})");
+                else if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    read++;
+            }
+        }
+
+        Assert.True(sent > routes.Count, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
+        Assert.True(faults.Count == 0, "NumericDates an enrolled agent signed answered as a server fault, or were honoured:\n" + string.Join('\n', faults));
+        Assert.True(read > 0, "no route refused a proof whose iat is out of range, so none read it; a defect in this fact");
+    }
+
+    /// <summary>
+    /// R11.33 for a JSON body's declared charset (Task 8's review, I1): the minimal-API binder threw
+    /// <see cref="InvalidOperationException"/> for a charset it does not know, before any filter ran,
+    /// and answered 500 to anyone. A JSON body is read as UTF-8 only (RFC 8259 §8.1), so one that
+    /// declares another charset is refused 415 before it is bound, a quoted <c>"utf-8"</c> included,
+    /// since the binder does not unquote it and threw there too; one that declares none, or the bare
+    /// token utf-8 in any case, is bound as before.
+    /// </summary>
+    [Theory]
+    [InlineData("/v1/agents", "application/json; charset=bogus-xyz", true)]
+    [InlineData("/v1/agents", "application/json; charset=utf-16", true)]
+    [InlineData("/v1/agents", "application/json", false)]
+    [InlineData("/v1/agents", "application/json; charset=utf-8", false)]
+    [InlineData("/v1/agents", "application/json; charset=UTF-8", false)]
+    [InlineData("/v1/agents", "application/json; charset=\"utf-8\"", true)]
+    [InlineData("/v1/posts/batch", "application/json; charset=bogus-xyz", true)]
+    [InlineData("/v1/posts/batch", "application/json; charset=utf-16", true)]
+    [InlineData("/v1/posts/batch", "application/json", false)]
+    [InlineData("/v1/posts/batch", "application/json; charset=utf-8", false)]
+    [InlineData("/v1/posts/batch", "application/json; charset=UTF-8", false)]
+    [InlineData("/v1/posts/batch", "application/json; charset=\"utf-8\"", true)]
+    public async Task R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound(string path, string contentType, bool refused)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var content = new ByteArrayContent("{}"u8.ToArray());
+        Assert.True(content.Headers.TryAddWithoutValidation("Content-Type", contentType));
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        if (refused)
+        {
+            Assert.True(response.StatusCode == HttpStatusCode.UnsupportedMediaType, $"{(int)response.StatusCode} {body}");
+            using var json = JsonDocument.Parse(body);
+            Assert.Equal("curia/request/unsupported-charset", json.RootElement.GetProperty("type").GetString());
+        }
+        else
+        {
+            Assert.True(
+                response.StatusCode != HttpStatusCode.UnsupportedMediaType && (int)response.StatusCode < 500,
+                $"{(int)response.StatusCode} {body}");
+        }
+    }
+
+    /// <summary>
     /// The one hand-written list is held to the handlers: a parameter a handler binds from the query
     /// and the list does not name would go unprobed, so it fails here by name.
     /// </summary>
@@ -491,11 +604,13 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 .Replace("{" + name + "}", "x", StringComparison.Ordinal));
 
     /// <summary>
-    /// For a read, one GET. For a write, ten bodies, each made fresh so a request can be sent again:
+    /// For a read, one GET. For a write, fourteen bodies, each made fresh so a request can be sent again:
     /// none; an empty object; an object whose members hold U+0000 and a line break; a form whose
     /// values hold U+0000; a multipart form cut off before its closing boundary; JSON cut off; JSON
-    /// nested two hundred deep; JSON whose bytes are not UTF-8; a multipart form with no boundary; and
-    /// a form whose key is five thousand bytes.
+    /// nested two hundred deep; JSON whose bytes are not UTF-8; an empty object whose Content-Type
+    /// names a charset no encoder knows, one naming UTF-16, one naming a quoted "utf-8", and one
+    /// naming an empty charset (Task 8's review, I1); a multipart form with no boundary; and a form
+    /// whose key is five thousand bytes.
     /// </summary>
     private static IEnumerable<Func<HttpRequestMessage>> Requests(string method, string target)
     {
@@ -520,6 +635,10 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         yield return () => Post(uri, new StringContent("{\"digests\":[", Encoding.UTF8, "application/json"));
         yield return () => Post(uri, new StringContent(new string('[', 200) + new string(']', 200), Encoding.UTF8, "application/json"));
         yield return () => Post(uri, Typed(new ByteArrayContent([0x7B, 0x22, 0x61, 0x22, 0x3A, 0x22, 0xFF, 0xFE, 0x22, 0x7D]), "application/json"));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=bogus-xyz"));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=utf-16"));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=\"utf-8\""));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset="));
         yield return () => Post(uri, Typed(
             new StringContent("--b\r\nContent-Disposition: form-data; name=\"client_id\"\r\n\r\na\r\n--b--\r\n", Encoding.ASCII),
             "multipart/form-data"));
@@ -532,6 +651,18 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     private static HttpContent Typed(HttpContent content, string mediaType)
     {
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(mediaType);
+        return content;
+    }
+
+    /// <summary>
+    /// The Content-Type as written, unvalidated: the client's parser refuses an empty charset, which a
+    /// caller that is not this client can still send.
+    /// </summary>
+    private static HttpContent Declared(HttpContent content, string contentType)
+    {
+        content.Headers.Remove("Content-Type");
+        if (!content.Headers.TryAddWithoutValidation("Content-Type", contentType))
+            throw new InvalidOperationException("the test client would not carry this Content-Type");
         return content;
     }
 }

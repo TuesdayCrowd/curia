@@ -4,9 +4,18 @@ using Curia.Domain.Primitives;
 namespace Curia.AuthN.Jwt;
 
 /// <summary>RFC 7519 §2's "NumericDate": seconds since the Unix epoch, as a JSON number. Shared by
-/// every claim parser (access token, client assertion, DPoP proof) for <c>iat</c>/<c>exp</c>/<c>nbf</c>.</summary>
+/// every claim parser (access token, client assertion, DPoP proof) for <c>iat</c>/<c>exp</c>/<c>nbf</c>.
+/// A value <see cref="DateTimeOffset.FromUnixTimeSeconds"/> cannot represent is malformed, never a
+/// throw, because both JWTs that reach this are signed by keys the caller holds and are parsed after
+/// their signatures verify (R11.33).</summary>
 internal static class NumericDate
 {
+    /// <summary>The first second <see cref="DateTimeOffset"/> holds; an earlier one is malformed (R11.33).</summary>
+    private static readonly long MinSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
+
+    /// <summary>The last second <see cref="DateTimeOffset"/> holds; a later one is malformed (R11.33).</summary>
+    private static readonly long MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
+
     /// <summary>Reads a mandatory NumericDate claim; fails (rather than defaulting) when it is
     /// absent or not a JSON number -- unlike <c>CompactJws.ReadString</c>'s tolerant-empty style,
     /// silently defaulting a missing <c>exp</c> to the Unix epoch would make every token look
@@ -15,6 +24,9 @@ internal static class NumericDate
     {
         if (!obj.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Number || !v.TryGetInt64(out var seconds))
             return Result<DateTimeOffset>.Fail(AuthNErrors.Malformed($"'{name}' must be an integer NumericDate"));
+
+        if (seconds < MinSeconds || seconds > MaxSeconds)
+            return Result<DateTimeOffset>.Fail(AuthNErrors.Malformed($"'{name}' is outside the range of a NumericDate"));
 
         return Result<DateTimeOffset>.Ok(DateTimeOffset.FromUnixTimeSeconds(seconds));
     }
@@ -29,6 +41,9 @@ internal static class NumericDate
 
         if (v.ValueKind != JsonValueKind.Number || !v.TryGetInt64(out var seconds))
             return Result<DateTimeOffset?>.Fail(AuthNErrors.Malformed($"'{name}' must be an integer NumericDate"));
+
+        if (seconds < MinSeconds || seconds > MaxSeconds)
+            return Result<DateTimeOffset?>.Fail(AuthNErrors.Malformed($"'{name}' is outside the range of a NumericDate"));
 
         return Result<DateTimeOffset?>.Ok(DateTimeOffset.FromUnixTimeSeconds(seconds));
     }

@@ -107,7 +107,7 @@
 | `src/Curia.Client.Cli/Cli.cs`, `Hints.cs` (new), `Program.cs`, `Help.cs`, `Testis.cs`, `tests/Curia.Architecture.Tests/OutputFenceTests.cs` (new), `tests/Curia.Client.Tests/CommandHintTests.cs` (new), `ArgsTests.cs` | The CLI behind its fence; the commands it prints (R10.65); the literals it takes back (R10.66) | 5 |
 | `src/Curia.Mcp/ForumTools.cs`, `WriteTools.cs`, `StartupError.cs` (new), `Program.cs`, `ToolText.cs`, `ForumWriter.cs`, `tests/Shared/StubLog.cs`, `tests/Curia.Mcp.Tests/ReaderFrameToolTests.cs` (new), `WriteToolTests.cs`, `McpConfigurationTests.cs`, `tests/Curia.Api.Tests/McpWriteEndToEndTests.cs` | The adapter's own words, and its gate | 6 |
 | `src/Curia.Application/Credentials/EnrollAgent.cs`, `src/Curia.Api/ForumEndpoints.cs`, `tests/Curia.Api.Tests/EnrollmentIdentifierTests.cs` | R4.37 | 7 |
-| `src/Curia.Api/ServerFault.cs` (new), `ForumEndpoints.cs`, `ActaEndpoints.cs`, `Issuer/TokenEndpoint.cs`, `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, `AccessTokenValidator.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs` (new), `ServerFaultTests.cs` (new), `KeyBindingTests.cs`, `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs` | R11.33 and D25, headers included | 8 |
+| `src/Curia.Api/ServerFault.cs` (new), `JsonCharset.cs` (new), `ForumEndpoints.cs`, `ActaEndpoints.cs`, `Issuer/TokenEndpoint.cs`, `Program.cs`, `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, `AccessTokenValidator.cs`, `Jwt/NumericDate.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs` (new), `ServerFaultTests.cs` (new), `KeyBindingTests.cs`, `DpopClient.cs`, `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs`, `ClientAssertionValidatorTests.cs`, `NumericDateTests.cs` (new) | R11.33 and D25, headers, signed claims and a JSON body's charset included | 8 |
 | `tests/Curia.Api.Tests/ReaderFrameTests.cs` (new) | Both probes, every reader, the real Forum | 9 |
 | `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `README.md` | Register D31, D25, D4; traps 23 to 26; what comes next; what works | 11 |
 
@@ -8962,15 +8962,19 @@ but commit -b strangers-stay-in-quotes -m "$(printf 'R4.37: an enrollment refuse
 ### Task 8: A server fault says only what it is, and no request causes one (R11.33, register D25)
 
 **Files:**
-- Create: `src/Curia.Api/ServerFault.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs`, `tests/Curia.Api.Tests/ServerFaultTests.cs`
-- Modify: `src/Curia.Api/ForumEndpoints.cs`, `src/Curia.Api/ActaEndpoints.cs`, `src/Curia.Api/Issuer/TokenEndpoint.cs`, `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, `src/Curia.AuthN/AccessTokenValidator.cs`, `tests/Curia.Api.Tests/KeyBindingTests.cs`, `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs`
+- Create: `src/Curia.Api/ServerFault.cs`, `src/Curia.Api/JsonCharset.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs`, `tests/Curia.Api.Tests/ServerFaultTests.cs`, `tests/Curia.AuthN.Tests/NumericDateTests.cs`
+- Modify: `src/Curia.Api/ForumEndpoints.cs`, `src/Curia.Api/ActaEndpoints.cs`, `src/Curia.Api/Issuer/TokenEndpoint.cs`, `src/Curia.Api/Program.cs`, `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, `src/Curia.AuthN/AccessTokenValidator.cs`, `src/Curia.AuthN/Jwt/NumericDate.cs`, `tests/Curia.Api.Tests/DpopClient.cs`, `tests/Curia.Api.Tests/KeyBindingTests.cs`, `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs`, `tests/Curia.AuthN.Tests/ClientAssertionValidatorTests.cs`
 
 **Interfaces:**
 - Produces: `ServerFault(int status, Error error) : IResult`, which logs the detail (event 5000) and serves type and title; its `Type`. `ForumEndpoints.Problem` returns one for every 5xx, and `ActaEndpoints.FoldAsync` for its two faults. `JwkPublicKey.ToPublicKeyMaterial` returns `Result<PublicKeyMaterial>`: a jwk whose coordinates are no point on P-256 is `curia/authn/malformed-jwk`, which a route answers 401, never a throw.
+- Produces: `NumericDate.ReadRequired`/`ReadOptional` answer a value outside `DateTimeOffset`'s range (-62135596800..253402300799) `curia/authn/malformed`, never a throw.
+- Produces: `JsonCharset.UseUtf8JsonBodies` refuses a JSON body whose declared charset is anything but the bare token utf-8 (case-insensitive; a quoted `"utf-8"` included) with 415 `curia/request/unsupported-charset`, before binding; `/oauth` is exempt.
 
-**Why the sweep sends ten bodies, and as an enrolled agent too.** This plan's first sweep sent four bodies anonymously. A pre-flight sent six more and found one the first fix missed: a `multipart/form-data` token body cut off before its closing boundary, on which ASP.NET's form reader throws `IOException` rather than `InvalidDataException`, answering 500 to anyone. The sweep sends all ten now. Refusing every token body but `application/x-www-form-urlencoded`, which RFC 6749 §3.2 has a client send, would be the shorter fix, and is not taken here: `TokenSubjectBindingTests` sends a multipart token request on purpose, to carry U+0000 past the form reader into R5.20's check, and closing that door is a decision about R5.20, not R11.33. And without a credential, every route that needs one answers 401 before it reads its path, its query or its body, so an anonymous sweep of those routes tests authentication and nothing behind it. Enrollment costs nothing, so a request only an enrolled agent can send is one anyone can send: the sweep runs again with a T1 agent's DPoP-bound token (T1 because a tier may do everything a lesser one may), asserts that none of its requests stopped at authentication, and fails on any 5xx. Against b4bfe31 it finds the same two routes as the anonymous pass and no third; case 39 shows what only it can see.
+**Why the sweep sends fourteen bodies, and as an enrolled agent too.** This plan's first sweep sent four bodies anonymously. A pre-flight sent six more and found one the first fix missed: a `multipart/form-data` token body cut off before its closing boundary, on which ASP.NET's form reader throws `IOException` rather than `InvalidDataException`, answering 500 to anyone. The sweep sends all ten now. Task 8's review found that a JSON `Content-Type` naming a charset the binder cannot read made the minimal-API binder throw `InvalidOperationException`, answering 500 from `POST /v1/agents` and `/v1/posts/batch` to anyone (and from `POST /v1/posts/{id}/flags`, whose body is bound before authentication). That includes `charset="utf-8"`, because the binder does not unquote, and an empty `charset=`. So `JsonCharset` compares the raw parameter and refuses the quoted form rather than reading the header more generously than the binder does; `utf-16` was already a 400 and is now a 415. The sweep sends fourteen bodies since: those ten, and `{}` declared as `charset=bogus-xyz`, `charset=utf-16`, `charset="utf-8"` and `charset=`, the last two through `Declared`, which writes the header unvalidated because the test client's parser refuses an empty charset. Refusing every token body but `application/x-www-form-urlencoded`, which RFC 6749 §3.2 has a client send, would be the shorter fix, and is not taken here: `TokenSubjectBindingTests` sends a multipart token request on purpose, to carry U+0000 past the form reader into R5.20's check, and closing that door is a decision about R5.20, not R11.33. And without a credential, every route that needs one answers 401 before it reads its path, its query or its body, so an anonymous sweep of those routes tests authentication and nothing behind it. Enrollment costs nothing, so a request only an enrolled agent can send is one anyone can send: the sweep runs again with a T1 agent's DPoP-bound token (T1 because a tier may do everything a lesser one may), asserts that none of its requests stopped at authentication, and fails on any 5xx. Against b4bfe31 it finds the same two routes as the anonymous pass and no third; case 39 shows what only it can see.
 
-**Why headers too** (Task 1's review, I3). The sweep's first form sent only well-formed headers, and reported "no third" of what it sent. The register already held a third, traced and not run: a DPoP proof whose `jwk` names P-256 with coordinates that are no point on it. The token endpoint binds a token to that key without building it (D29), and `AccessTokenValidator` then built it with `ECDsa.Create`, which throws for a point off the curve, so every route behind authentication answered 500 to any enrolled agent's request. `JwkPublicKey` is total now, and its two callers read its result (`ActaEndpoints` binds it where it mapped). `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown` pins the validator; `RequestSurfaceTests.R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault` sends every route hostile `Authorization` and `DPoP` headers without a credential, and the token the endpoint issues for such a proof with a proof carrying that key, and needs every answer below 500 and some at 401. A header one handler reads, `If-None-Match` or a body's `Content-Type`, is named in the sweep's remarks as not varied.
+**Why headers too** (Task 1's review, I3). The sweep's first form sent only well-formed headers, and reported "no third" of what it sent. The register already held a third, traced and not run: a DPoP proof whose `jwk` names P-256 with coordinates that are no point on it. The token endpoint binds a token to that key without building it (D29), and `AccessTokenValidator` then built it with `ECDsa.Create`, which throws for a point off the curve, so every route behind authentication answered 500 to any enrolled agent's request. `JwkPublicKey` is total now, and its two callers read its result (`ActaEndpoints` binds it where it mapped). `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown` pins the validator; `RequestSurfaceTests.R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault` sends every route hostile `Authorization` and `DPoP` headers without a credential, and the token the endpoint issues for such a proof with a proof carrying that key, and needs every answer below 500 and some at 401. A JSON body's declared charset is swept since Task 8's review (four bodies, and `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` for both sides); `If-None-Match`, read by one handler, is named in the sweep's remarks as not varied.
+
+**Why the claims too** (Task 8's review, C1). The header sweep varied only a proof's `jwk`, never a claim. `NumericDate` handed `iat`, `exp` and `nbf` to `DateTimeOffset.FromUnixTimeSeconds` unchecked, after the signature verified, and that throws `ArgumentOutOfRangeException` outside -62135596800..253402300799. So an assertion with `exp` 1e13 answered 500 from `/oauth/token`, and a proof with `iat` 1e13 or -1e11 answered 500 from `GET /v1/inbox`, `GET /v1/flags` and `POST /v1/posts` (and every other route behind authentication), to any enrolled agent. The fix is in `NumericDate` alone: `AccessTokenValidator` and `ClientAssertionValidator` only do arithmetic on values already in range (`ClientAssertionValidator.cs:118` runs only after lines 109 and 113 have capped `iat` and `exp`). Four facts hold it: `NumericDateTests.R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead` and `R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown` for both readers, `ClientAssertionValidatorTests.R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown`, `AccessTokenValidatorDpopTests.R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown`, and through the host `RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault`.
 
 **Why the key set's match changes.** `GetJwks` answered an unreadable log 503 by matching the fold's failure as `JsonHttpResult<Problem>` with the log-unreadable slug. When the fold returned a `ServerFault` instead, the match stopped matching, and an unreadable log was answered `200` with the keys and no positions — the key set's documented answer to a log that reads but will not fold. `KeyBindingTests`' `key set`/`whole` row caught it during the build-check. It matches `ServerFault` by its slug now, and falsification case 25 holds it.
 
@@ -9027,8 +9031,13 @@ namespace Curia.Api.Tests;
 /// reads, the batch's <c>marking</c>, is read by the same function the reads' is. Of the headers,
 /// the two every route reads first are probed, <c>Authorization</c> and <c>DPoP</c>
 /// (<see cref="R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault"/>); a header a single
-/// handler reads, a conditional read's <c>If-None-Match</c> or a body's <c>Content-Type</c>, is not
-/// swept.</para>
+/// handler reads, a conditional read's <c>If-None-Match</c>, is not swept. A JSON body's declared
+/// charset is swept, the quoted form included (Task 8's review, I1): four of <see cref="Requests"/>'
+/// bodies name one other than the bare token utf-8, and
+/// <see cref="R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound"/> holds both sides.
+/// Claims inside a JWT the agent signs are probed by
+/// <see cref="R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault"/>, the jwk by the
+/// header fact.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -9270,6 +9279,114 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     private static string Segment(string json) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(json));
 
     /// <summary>
+    /// R11.33's claims (Task 8's review, C1). The header fact varies a proof's <c>jwk</c> and no claim;
+    /// a JWT the agent signs also carries <c>iat</c>, <c>exp</c> and <c>nbf</c>, parsed after its
+    /// signature verifies, and a number <see cref="DateTimeOffset"/> cannot hold threw there. An
+    /// enrolled agent sends the token endpoint client assertions its registered key signs with such
+    /// an <c>iat</c> or <c>exp</c>, and then every route its valid token, with proofs its bound key
+    /// signs whose <c>iat</c> is such a number. None may answer 5xx, no assertion may be honoured, and
+    /// some route must answer 401, or no proof was read.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var routes = Routes(forum);
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create("https://agents.example/numeric-date-" + suffix, "numeric-date-" + suffix);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var now = forum.Now.ToUnixTimeSeconds();
+        (long Iat, long Exp)[] assertions =
+        [
+            (10000000000000, 10000000000000),
+            (now, 10000000000000),
+            (-100000000000, now + 60),
+        ];
+
+        var faults = new List<string>();
+        foreach (var (iat, exp) in assertions)
+        {
+            var (status, body) = await dpop.RequestTokenAsync(
+                client, TokenEndpoint, forum.Now, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, iat, exp), ct);
+            if ((int)status >= 500 || status == HttpStatusCode.OK)
+                faults.Add($"{(int)status} POST /oauth/token (an assertion with iat {iat}, exp {exp}): {body[..Math.Min(body.Length, 160)]}");
+        }
+
+        long[] proofIats = [10000000000000, -100000000000];
+        var sent = 0;
+        var read = 0;
+        foreach (var (method, pattern, parameters) in routes)
+        {
+            var path = Plain(pattern, parameters);
+            foreach (var iat in proofIats)
+            {
+                using var request = new HttpRequestMessage(new HttpMethod(method), path);
+                if (method != "GET") request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                request.Headers.Authorization = new AuthenticationHeaderValue("DPoP", token);
+                request.Headers.Add("DPoP", dpop.Proof(method, "http://localhost" + path, iat, token));
+                using var response = await client.SendAsync(request, ct);
+                sent++;
+                if ((int)response.StatusCode >= 500)
+                    faults.Add($"{(int)response.StatusCode} {method} {path} (a proof with iat {iat})");
+                else if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    read++;
+            }
+        }
+
+        Assert.True(sent > routes.Count, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
+        Assert.True(faults.Count == 0, "NumericDates an enrolled agent signed answered as a server fault, or were honoured:\n" + string.Join('\n', faults));
+        Assert.True(read > 0, "no route refused a proof whose iat is out of range, so none read it; a defect in this fact");
+    }
+
+    /// <summary>
+    /// R11.33 for a JSON body's declared charset (Task 8's review, I1): the minimal-API binder threw
+    /// <see cref="InvalidOperationException"/> for a charset it does not know, before any filter ran,
+    /// and answered 500 to anyone. A JSON body is read as UTF-8 only (RFC 8259 §8.1), so one that
+    /// declares another charset is refused 415 before it is bound, a quoted <c>"utf-8"</c> included,
+    /// since the binder does not unquote it and threw there too; one that declares none, or the bare
+    /// token utf-8 in any case, is bound as before.
+    /// </summary>
+    [Theory]
+    [InlineData("/v1/agents", "application/json; charset=bogus-xyz", true)]
+    [InlineData("/v1/agents", "application/json; charset=utf-16", true)]
+    [InlineData("/v1/agents", "application/json", false)]
+    [InlineData("/v1/agents", "application/json; charset=utf-8", false)]
+    [InlineData("/v1/agents", "application/json; charset=UTF-8", false)]
+    [InlineData("/v1/agents", "application/json; charset=\"utf-8\"", true)]
+    [InlineData("/v1/posts/batch", "application/json; charset=bogus-xyz", true)]
+    [InlineData("/v1/posts/batch", "application/json; charset=utf-16", true)]
+    [InlineData("/v1/posts/batch", "application/json", false)]
+    [InlineData("/v1/posts/batch", "application/json; charset=utf-8", false)]
+    [InlineData("/v1/posts/batch", "application/json; charset=UTF-8", false)]
+    [InlineData("/v1/posts/batch", "application/json; charset=\"utf-8\"", true)]
+    public async Task R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound(string path, string contentType, bool refused)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var content = new ByteArrayContent("{}"u8.ToArray());
+        Assert.True(content.Headers.TryAddWithoutValidation("Content-Type", contentType));
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        if (refused)
+        {
+            Assert.True(response.StatusCode == HttpStatusCode.UnsupportedMediaType, $"{(int)response.StatusCode} {body}");
+            using var json = JsonDocument.Parse(body);
+            Assert.Equal("curia/request/unsupported-charset", json.RootElement.GetProperty("type").GetString());
+        }
+        else
+        {
+            Assert.True(
+                response.StatusCode != HttpStatusCode.UnsupportedMediaType && (int)response.StatusCode < 500,
+                $"{(int)response.StatusCode} {body}");
+        }
+    }
+
+    /// <summary>
     /// The one hand-written list is held to the handlers: a parameter a handler binds from the query
     /// and the list does not name would go unprobed, so it fails here by name.
     /// </summary>
@@ -9472,11 +9589,13 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 .Replace("{" + name + "}", "x", StringComparison.Ordinal));
 
     /// <summary>
-    /// For a read, one GET. For a write, ten bodies, each made fresh so a request can be sent again:
+    /// For a read, one GET. For a write, fourteen bodies, each made fresh so a request can be sent again:
     /// none; an empty object; an object whose members hold U+0000 and a line break; a form whose
     /// values hold U+0000; a multipart form cut off before its closing boundary; JSON cut off; JSON
-    /// nested two hundred deep; JSON whose bytes are not UTF-8; a multipart form with no boundary; and
-    /// a form whose key is five thousand bytes.
+    /// nested two hundred deep; JSON whose bytes are not UTF-8; an empty object whose Content-Type
+    /// names a charset no encoder knows, one naming UTF-16, one naming a quoted "utf-8", and one
+    /// naming an empty charset (Task 8's review, I1); a multipart form with no boundary; and a form
+    /// whose key is five thousand bytes.
     /// </summary>
     private static IEnumerable<Func<HttpRequestMessage>> Requests(string method, string target)
     {
@@ -9501,6 +9620,10 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         yield return () => Post(uri, new StringContent("{\"digests\":[", Encoding.UTF8, "application/json"));
         yield return () => Post(uri, new StringContent(new string('[', 200) + new string(']', 200), Encoding.UTF8, "application/json"));
         yield return () => Post(uri, Typed(new ByteArrayContent([0x7B, 0x22, 0x61, 0x22, 0x3A, 0x22, 0xFF, 0xFE, 0x22, 0x7D]), "application/json"));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=bogus-xyz"));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=utf-16"));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=\"utf-8\""));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset="));
         yield return () => Post(uri, Typed(
             new StringContent("--b\r\nContent-Disposition: form-data; name=\"client_id\"\r\n\r\na\r\n--b--\r\n", Encoding.ASCII),
             "multipart/form-data"));
@@ -9513,6 +9636,18 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     private static HttpContent Typed(HttpContent content, string mediaType)
     {
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(mediaType);
+        return content;
+    }
+
+    /// <summary>
+    /// The Content-Type as written, unvalidated: the client's parser refuses an empty charset, which a
+    /// caller that is not this client can still send.
+    /// </summary>
+    private static HttpContent Declared(HttpContent content, string contentType)
+    {
+        content.Headers.Remove("Content-Type");
+        if (!content.Headers.TryAddWithoutValidation("Content-Type", contentType))
+            throw new InvalidOperationException("the test client would not carry this Content-Type");
         return content;
     }
 }
@@ -9696,12 +9831,244 @@ this:
         Assert.Equal("curia/authn/malformed-jwk", error!.Type);
 ```
 
+In `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs`, insert before:
+
+```csharp
+    [Fact]
+    public async Task DpopBindingMismatchIsRejected_ThumbprintDoesNotMatchCnfJkt()
+```
+
+this (Task 8's review, C1):
+
+```csharp
+    /// <summary>
+    /// R11.33 (errata G17): a proof the bound DPoP key genuinely signed, whose <c>iat</c> is a number
+    /// <see cref="DateTimeOffset"/> cannot hold, is refused, never thrown. It reached
+    /// <see cref="DateTimeOffset.FromUnixTimeSeconds"/> unchecked after the signature verified, and
+    /// every route behind authentication answered 500 to any enrolled agent.
+    /// </summary>
+    [Theory]
+    [InlineData(10000000000000L)]
+    [InlineData(-100000000000L)]
+    public async Task R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown(long iat)
+    {
+        var scenario = new AccessTokenScenario();
+        var token = scenario.SignAccessToken();
+        var payload = scenario.ValidDpopPayload(token).WithClaim("iat", iat);
+        var proof = scenario.SignDpopProof(token, payload: payload, key: scenario.DpopKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
+```
+
+In `tests/Curia.AuthN.Tests/ClientAssertionValidatorTests.cs`, insert before:
+
+```csharp
+    [Fact]
+    public async Task ExpiredAssertionIsRejected()
+```
+
+this (Task 8's review, C1):
+
+```csharp
+    /// <summary>
+    /// R11.33 (errata G17): an assertion the agent's registered key genuinely signed, whose
+    /// <c>iat</c> or <c>exp</c> is a number <see cref="DateTimeOffset"/> cannot hold, is refused as
+    /// malformed, never thrown. The claims are parsed after the signature verifies, so any enrolled
+    /// agent chooses them; they reached <see cref="DateTimeOffset.FromUnixTimeSeconds"/> unchecked,
+    /// and the token endpoint answered 500. A null row is the scenario's own valid value.
+    /// </summary>
+    [Theory]
+    [InlineData(10000000000000L, 10000000000000L)]
+    [InlineData(null, 10000000000000L)]
+    [InlineData(-100000000000L, null)]
+    public async Task R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown(long? iat, long? exp)
+    {
+        var scenario = new ClientAssertionScenario();
+        var payload = scenario.ValidPayload()
+            .WithClaim("iat", iat ?? TestJwt.ToUnixSeconds(scenario.Iat))
+            .WithClaim("exp", exp ?? TestJwt.ToUnixSeconds(scenario.Exp));
+        var assertion = scenario.SignValid(payload: payload, key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
+```
+
+Create `tests/Curia.AuthN.Tests/NumericDateTests.cs` (Task 8's review, C1):
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
+using Curia.AuthN.Jwt;
+using Xunit;
+
+namespace Curia.AuthN.Tests;
+
+/// <summary>
+/// R11.33 (errata G17) at the one function that turns a JWT's <c>iat</c>, <c>exp</c> and <c>nbf</c>
+/// into a time: a number <see cref="DateTimeOffset.FromUnixTimeSeconds"/> cannot represent is a
+/// malformed claim, never a throw. Both JWTs that reach it are signed by keys their caller holds, and
+/// are parsed after their signatures verify, so any enrolled agent chooses the number.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class NumericDateTests
+{
+    /// <summary>The first and last second <see cref="DateTimeOffset"/> holds are read, by both readers.</summary>
+    [Theory]
+    [InlineData(253402300799L)]
+    [InlineData(-62135596800L)]
+    public void R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead(long seconds)
+    {
+        using var json = JsonDocument.Parse("{\"iat\":" + seconds + "}");
+        var expected = DateTimeOffset.FromUnixTimeSeconds(seconds);
+
+        var required = NumericDate.ReadRequired(json.RootElement, "iat");
+        var optional = NumericDate.ReadOptional(json.RootElement, "iat");
+
+        Assert.True(required.TryGetValue(out var read, out var requiredError), requiredError?.Detail);
+        Assert.Equal(expected, read);
+        Assert.True(optional.TryGetValue(out var readOptional, out var optionalError), optionalError?.Detail);
+        Assert.Equal(expected, readOptional);
+    }
+
+    /// <summary>One second beyond either end, and far beyond, is malformed by both readers, and nothing throws.</summary>
+    [Theory]
+    [InlineData(253402300800L)]
+    [InlineData(-62135596801L)]
+    [InlineData(10000000000000L)]
+    [InlineData(-100000000000L)]
+    public void R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown(long seconds)
+    {
+        using var json = JsonDocument.Parse("{\"iat\":" + seconds + "}");
+
+        var required = NumericDate.ReadRequired(json.RootElement, "iat");
+        var optional = NumericDate.ReadOptional(json.RootElement, "iat");
+
+        Assert.False(required.TryGetValue(out _, out var requiredError));
+        Assert.Equal("curia/authn/malformed", requiredError!.Type);
+        Assert.False(optional.TryGetValue(out _, out var optionalError));
+        Assert.Equal("curia/authn/malformed", optionalError!.Type);
+    }
+}
+```
+
+In `tests/Curia.Api.Tests/DpopClient.cs`, replace (Task 8's review, C1: the sweep's claims fact signs NumericDates no honest client would send, so the two signers take them as written, and the `DateTimeOffset` overloads delegate):
+
+```csharp
+    /// <summary>RFC 7523 §2.2: a JWT the agent signs with its registered key, audience the token endpoint.</summary>
+    internal string ClientAssertion(string tokenEndpoint, DateTimeOffset now)
+    {
+        var header = new JsonObject { ["alg"] = "ES256", ["kid"] = Kid, ["typ"] = "JWT" };
+        var payload = new JsonObject
+        {
+            ["iss"] = AgentId,
+            ["sub"] = AgentId,
+            ["aud"] = tokenEndpoint,
+            ["iat"] = now.ToUnixTimeSeconds(),
+            ["exp"] = now.AddSeconds(60).ToUnixTimeSeconds(),
+            ["jti"] = Guid.NewGuid().ToString("N"),
+        };
+
+        return Sign(_assertionKey, header, payload);
+    }
+
+    /// <summary>
+    /// RFC 9449 §4.2: a proof bound to this method and URL, carrying the DPoP public key.
+    /// </summary>
+    /// <param name="accessToken">
+    /// When present, its SHA-256 goes in <c>ath</c>, binding the proof to that specific token. A
+    /// proof without <c>ath</c> is valid on the token request and useless on a resource request.
+    /// </param>
+    internal string Proof(string method, string url, DateTimeOffset now, string? accessToken = null, string? nonce = null)
+    {
+        var header = new JsonObject
+        {
+            ["alg"] = "ES256",
+            ["typ"] = "dpop+jwt",
+            ["jwk"] = DpopJwk(),
+        };
+
+        var payload = new JsonObject
+        {
+            ["htm"] = method,
+            ["htu"] = url,
+            ["iat"] = now.ToUnixTimeSeconds(),
+            ```
+
+with:
+
+```csharp
+    /// <summary>RFC 7523 §2.2: a JWT the agent signs with its registered key, audience the token endpoint.</summary>
+    internal string ClientAssertion(string tokenEndpoint, DateTimeOffset now) =>
+        ClientAssertion(tokenEndpoint, now.ToUnixTimeSeconds(), now.AddSeconds(60).ToUnixTimeSeconds());
+
+    /// <summary>
+    /// The same assertion with its <c>iat</c> and <c>exp</c> as written, signed by the registered key:
+    /// for a NumericDate no honest client would send, such as one the runtime cannot represent (R11.33).
+    /// </summary>
+    internal string ClientAssertion(string tokenEndpoint, long iat, long exp)
+    {
+        var header = new JsonObject { ["alg"] = "ES256", ["kid"] = Kid, ["typ"] = "JWT" };
+        var payload = new JsonObject
+        {
+            ["iss"] = AgentId,
+            ["sub"] = AgentId,
+            ["aud"] = tokenEndpoint,
+            ["iat"] = iat,
+            ["exp"] = exp,
+            ["jti"] = Guid.NewGuid().ToString("N"),
+        };
+
+        return Sign(_assertionKey, header, payload);
+    }
+
+    /// <summary>
+    /// RFC 9449 §4.2: a proof bound to this method and URL, carrying the DPoP public key.
+    /// </summary>
+    /// <param name="accessToken">
+    /// When present, its SHA-256 goes in <c>ath</c>, binding the proof to that specific token. A
+    /// proof without <c>ath</c> is valid on the token request and useless on a resource request.
+    /// </param>
+    internal string Proof(string method, string url, DateTimeOffset now, string? accessToken = null, string? nonce = null) =>
+        Proof(method, url, now.ToUnixTimeSeconds(), accessToken, nonce);
+
+    /// <summary>The same proof with its <c>iat</c> as written: for a NumericDate no honest client would send (R11.33).</summary>
+    internal string Proof(string method, string url, long iat, string? accessToken = null, string? nonce = null)
+    {
+        var header = new JsonObject
+        {
+            ["alg"] = "ES256",
+            ["typ"] = "dpop+jwt",
+            ["jwk"] = DpopJwk(),
+        };
+
+        var payload = new JsonObject
+        {
+            ["htm"] = method,
+            ["htu"] = url,
+            ["iat"] = iat,
+            ```
+
 - [ ] **Step 2: Run them**
 
 ```bash
 dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedName~RequestSurfaceTests|FullyQualifiedName~ServerFaultTests|FullyQualifiedName~R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal" 2>&1 | grep -E "Passed!|Failed!|^\s+Failed "
 dotnet test tests/Curia.AuthN.Tests -c Release --nologo --filter "FullyQualifiedName~R11_33" 2>&1 | grep -E "Passed!|Failed!|^\s+Failed "
 ```
+
+Task 8's review added the claims and the charset (C1, I1). Against the tree before them, with every other Step 3 change in place, the AuthN filter is `Failed:     9, Passed:     3`: the four rejecting rows of `R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown`, the three rows of `R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown` and the two of `R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown`, each with `ArgumentOutOfRangeException` from `FromUnixTimeSeconds`; the accepting rows and the off-curve fact pass. `RequestSurfaceTests` is `Failed:    10, Passed:     8`: the six refused rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` (bogus-xyz and quoted `"utf-8"` with 500 `InvalidOperationException ... is not a known encoding`, utf-16 with 400), both sweep facts and production's (500 on `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`, three times a target: bogus-xyz, the quoted `"utf-8"` and the empty charset), and `R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault` (500 from `/oauth/token` for all three assertions, and from every route behind authentication for both proofs). The theory's accepting rows pass.
 
 Expected: eight Api facts fail: `ServerFaultTests.R11_33_AnAnonymousSearchTheIndexFailsIsServedWithoutTheBackendsWords` (`"detail":"22000: NaN not allowed i"···`), the three 503 rows of `R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal` (`"detail":"test/log-unreadable"`), the three sweep facts -- the anonymous one, the enrolled agent's and production's -- and the header fact (`Failed:     8, Passed:     2`; the two that pass are the query-parameter fact and the token row). Each sweep names the token endpoint ten times, once a body, and the thread route three times; production names what each threw: `InvalidOperationException` for the six bodies that are not forms, `InvalidDataException` for the three forms the reader refuses, and `IOException` for the multipart form cut off before its boundary. The gate prints each request as its URL, not its body; errata G17 names the bodies. The header fact names seven requests `(a token bound to a proof key off the curve)`: the six routes behind authentication -- `POST /v1/posts`, `POST /v1/posts/x/flags`, `POST /v1/posts/x/accept`, `GET /v1/inbox`, `GET /v1/flags` and `GET /v1/posts/x/flags` -- each of which threw building the key, and `POST /oauth/token`, whose JSON body is not a form. Then the validator's fact fails with the platform's `CryptographicException` (`Failed:     1, Passed:     0`). After Step 3 the six routes answer 401 and no other route reads the token.
 
@@ -9989,6 +10356,124 @@ with:
 
 ```
 
+Replace `src/Curia.AuthN/Jwt/NumericDate.cs` with (Task 8's review, C1):
+
+```csharp
+using System.Text.Json;
+using Curia.Domain.Primitives;
+
+namespace Curia.AuthN.Jwt;
+
+/// <summary>RFC 7519 §2's "NumericDate": seconds since the Unix epoch, as a JSON number. Shared by
+/// every claim parser (access token, client assertion, DPoP proof) for <c>iat</c>/<c>exp</c>/<c>nbf</c>.
+/// A value <see cref="DateTimeOffset.FromUnixTimeSeconds"/> cannot represent is malformed, never a
+/// throw, because both JWTs that reach this are signed by keys the caller holds and are parsed after
+/// their signatures verify (R11.33).</summary>
+internal static class NumericDate
+{
+    /// <summary>The first second <see cref="DateTimeOffset"/> holds; an earlier one is malformed (R11.33).</summary>
+    private static readonly long MinSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
+
+    /// <summary>The last second <see cref="DateTimeOffset"/> holds; a later one is malformed (R11.33).</summary>
+    private static readonly long MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
+
+    /// <summary>Reads a mandatory NumericDate claim; fails (rather than defaulting) when it is
+    /// absent or not a JSON number -- unlike <c>CompactJws.ReadString</c>'s tolerant-empty style,
+    /// silently defaulting a missing <c>exp</c> to the Unix epoch would make every token look
+    /// permanently expired, which hides the real "claim missing" failure behind a misleading one.</summary>
+    public static Result<DateTimeOffset> ReadRequired(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Number || !v.TryGetInt64(out var seconds))
+            return Result<DateTimeOffset>.Fail(AuthNErrors.Malformed($"'{name}' must be an integer NumericDate"));
+
+        if (seconds < MinSeconds || seconds > MaxSeconds)
+            return Result<DateTimeOffset>.Fail(AuthNErrors.Malformed($"'{name}' is outside the range of a NumericDate"));
+
+        return Result<DateTimeOffset>.Ok(DateTimeOffset.FromUnixTimeSeconds(seconds));
+    }
+
+    /// <summary>Reads an optional NumericDate claim (e.g. <c>nbf</c>, SHOULD per Table 8): absent
+    /// is a real, valid state (<see langword="null"/>), distinct from present-but-malformed
+    /// (a failure) -- Table 8's SHOULD only ever governs what happens when the claim is there.</summary>
+    public static Result<DateTimeOffset?> ReadOptional(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var v))
+            return Result<DateTimeOffset?>.Ok(null);
+
+        if (v.ValueKind != JsonValueKind.Number || !v.TryGetInt64(out var seconds))
+            return Result<DateTimeOffset?>.Fail(AuthNErrors.Malformed($"'{name}' must be an integer NumericDate"));
+
+        if (seconds < MinSeconds || seconds > MaxSeconds)
+            return Result<DateTimeOffset?>.Fail(AuthNErrors.Malformed($"'{name}' is outside the range of a NumericDate"));
+
+        return Result<DateTimeOffset?>.Ok(DateTimeOffset.FromUnixTimeSeconds(seconds));
+    }
+}
+```
+
+Create `src/Curia.Api/JsonCharset.cs` (Task 8's review, I1):
+
+```csharp
+using Microsoft.Extensions.Primitives;
+using Microsoft.Net.Http.Headers;
+
+namespace Curia.Api;
+
+/// <summary>
+/// R11.33 (errata G17): the minimal-API JSON binder throws for a Content-Type whose charset it does
+/// not know, before any endpoint filter runs, which answered 500 to anyone. A JSON body is read as
+/// UTF-8 only (RFC 8259 §8.1), so one declaring another charset is refused 415 before binding.
+/// The comparison is on the raw parameter, because the binder does not unquote it, and a guard more
+/// permissive than the binder lets the binder's throw through: a quoted <c>"utf-8"</c> is refused
+/// (Task 8's review, I1).
+/// </summary>
+internal static class JsonCharset
+{
+    internal static bool IsRefused(string? contentType)
+    {
+        if (!MediaTypeHeaderValue.TryParse(contentType, out var media)) return false;
+        var type = media.MediaType;
+        var json = StringSegment.Equals(type, "application/json", StringComparison.OrdinalIgnoreCase)
+            || type.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
+        if (!json) return false;
+        if (!media.Charset.HasValue) return false;
+        return !StringSegment.Equals(media.Charset, "utf-8", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static WebApplication UseUtf8JsonBodies(this WebApplication app)
+    {
+        app.Use(async (context, next) =>
+        {
+            if (!context.Request.Path.StartsWithSegments("/oauth", StringComparison.Ordinal) && IsRefused(context.Request.ContentType))
+            {
+                await Results.Json(
+                    new Problem("curia/request/unsupported-charset", "A JSON body is read as UTF-8 only (RFC 8259 §8.1); declare charset=utf-8, unquoted, or none", null),
+                    statusCode: StatusCodes.Status415UnsupportedMediaType).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            await next(context).ConfigureAwait(false);
+        });
+        return app;
+    }
+}
+```
+
+In `src/Curia.Api/Program.cs`, replace:
+
+```csharp
+        var app = builder.Build();
+        TokenEndpoint.Map(app);
+```
+
+with:
+
+```csharp
+        var app = builder.Build();
+        app.UseUtf8JsonBodies();
+        TokenEndpoint.Map(app);
+```
+
 - [ ] **Step 4: Run them, and the whole Api suite**
 
 ```bash
@@ -9997,7 +10482,7 @@ dotnet test tests/Curia.Api.Tests -c Release --no-build --nologo 2>&1 | grep -E 
 dotnet test tests/Curia.AuthN.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `0 Warning(s)`, `0 Error(s)`; `Passed!  - Failed:     0, Passed:   254` for `Curia.Api.Tests.dll` (237 before: eleven R4.37 rows, five sweep facts and the fault fact); `Passed!  - Failed:     0, Passed:    69` for `Curia.AuthN.Tests.dll` (68 before).
+Expected: `0 Warning(s)`, `0 Error(s)`; `Passed!  - Failed:     0, Passed:   267` for `Curia.Api.Tests.dll` (237 before: eleven R4.37 rows, five sweep facts and the fault fact, and from Task 8's review the claims fact and the charset theory's twelve rows); `Passed!  - Failed:     0, Passed:    80` for `Curia.AuthN.Tests.dll` (68 before: the off-curve fact, and from Task 8's review `NumericDateTests`' six rows, the assertion theory's three and the proof theory's two). No existing fact asserted 400 for a UTF-16 JSON body, so none moved to 415.
 
 - [ ] **Step 5: Commit**
 
@@ -10298,6 +10783,9 @@ TESTIS_ACTA = "rust/curia-testis/src/acta.rs"
 TESTIS_JSON = "rust/curia-testis/src/json.rs"
 TESTIS_CONFORMANCE = "rust/curia-testis/src/conformance.rs"
 JWK_KEY = "src/Curia.AuthN/Dpop/JwkPublicKey.cs"
+NUMERIC_DATE = "src/Curia.AuthN/Jwt/NumericDate.cs"
+JSON_CHARSET = "src/Curia.Api/JsonCharset.cs"
+PROGRAM_API = "src/Curia.Api/Program.cs"
 
 CANON = "tests/Curia.Canon.Tests"
 CLIENT = "tests/Curia.Client.Tests"
@@ -10318,6 +10806,7 @@ CLIENT_WORDS = "FullyQualifiedName~ShellWordTests|FullyQualifiedName~CommandHint
 CLIENT_HINTS = "FullyQualifiedName~CommandHintTests"
 CLIENT_ARGS = "FullyQualifiedName~ArgsTests"
 MCP_STARTUP = "FullyQualifiedName~R10_63_AStartupRefusalQuotesItsDetail"
+API_CHARSET = "FullyQualifiedName~R11_33_AJsonBodyInACharsetOtherThanUtf8"
 
 RUNE_WALK = ("        foreach (var rune in value.EnumerateRunes())\n"
              "        {\n"
@@ -10602,6 +11091,26 @@ CASES = [
          cmds=[dotnet(MCP, "FullyQualifiedName~R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel")],
          edits=[(RESULT, '        RefusalKind.Transport => Said($"{Error.Title}{Detailed}"),',
                          '        RefusalKind.Transport => Said($"{Error.Title}{new OwnText(": " + Error.Detail)}"),')]),
+    dict(id="61", what="a NumericDate the runtime cannot represent is read",
+         cmds=[dotnet(AUTHN, "FullyQualifiedName~NumericDateTests|FullyQualifiedName~R11_33_AnAssertionWhoseNumericDate|FullyQualifiedName~R11_33_AProofWhoseIat"),
+               dotnet(API, "FullyQualifiedName~R11_33_NoNumericDate")],
+         edits=[(NUMERIC_DATE, "    private static readonly long MinSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();\n",
+                               "    private static readonly long MinSeconds = Math.Min(long.MinValue, DateTimeOffset.MinValue.ToUnixTimeSeconds());\n"),
+                (NUMERIC_DATE, "    private static readonly long MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();\n",
+                               "    private static readonly long MaxSeconds = Math.Max(long.MaxValue, DateTimeOffset.MaxValue.ToUnixTimeSeconds());\n")]),
+    dict(id="62", what="the range is one second too narrow",
+         cmds=[dotnet(AUTHN, "FullyQualifiedName~R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead")],
+         edits=[(NUMERIC_DATE, "MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();",
+                               "MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds() - 1;")]),
+    dict(id="63", what="the charset guard is not registered",
+         cmds=[dotnet(API, API_SWEEP), dotnet(API, API_CHARSET)],
+         edits=[(PROGRAM_API, "        app.UseUtf8JsonBodies();\n", "")]),
+    dict(id="64", what="the charset is compared case-sensitively",
+         cmds=[dotnet(API, API_CHARSET)],
+         edits=[(JSON_CHARSET, "\"utf-8\", StringComparison.OrdinalIgnoreCase)", "\"utf-8\", StringComparison.Ordinal)")]),
+    dict(id="65", what="the guard unquotes the charset and the binder does not",
+         cmds=[dotnet(API, API_SWEEP), dotnet(API, API_CHARSET)],
+         edits=[(JSON_CHARSET, "StringSegment.Equals(media.Charset,", "StringSegment.Equals(HeaderUtilities.RemoveQuotes(media.Charset),")]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -10740,7 +11249,7 @@ grep -E "^\[|runner exit|NOT RED|DID NOT RUN|falsify.py exit" <scratchpad>/falsi
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped.
 
-Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are sixty cases in seventy-three suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 60 came with Task 6's second fix round, which ran it, with cases 8, 17 and 58, whose class filter the round's new theory falls under, from the repository root with the round's changes in place: RED on the facts the table names (case 58's Passed count now 66), each restore byte-identical to its kept copy, the tree rebuilt with --no-incremental and the suite green after, and runner exit: 0.
+Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are sixty-five cases in eighty-one suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 60 came with Task 6's second fix round, which ran it, with cases 8, 17 and 58, whose class filter the round's new theory falls under, from the repository root with the round's changes in place: RED on the facts the table names (case 58's Passed count now 66), each restore byte-identical to its kept copy, the tree rebuilt with --no-incremental and the suite green after, and runner exit: 0. Cases 61–65 came with Task 8's review round (its rulings C1 and I1), which ran them from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names, each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 61's first form wrote `long.MinValue` and `long.MaxValue` and did not build (CA1802), which is why it goes through `Math.Min`/`Math.Max`.
 
 | Case | Must fail, by name |
 |---|---|
@@ -10804,12 +11313,17 @@ Each case must print `RED` for every command it runs, then `restore clean` — w
 | 58 | The `403`, `table-11/rate-budget-exhausted` rows of `R10_63_NoRefusalsWordsBeginALineOfWhatAToolTellsTheModel` for `curia_ask` and `curia_flag` (`Failed: 2, Passed: 66`). `curia_answer`'s row stays green, and should: it reads the question first, and that read's refusal is a read tool's, not `WriteRefused`'s (Task 6's review). The Passed count rose from 60 to 66 when Task 6's second review added the not-the-Forum theory to the class, whose six rows stay green under this patch because they reach Refusal.Summary's Transport arm, not WriteTools' rate-budget arm |
 | 59 | `ReaderFrameToolTests.R10_63_CuriaVerifyQuotesTheDigestItWasGiven` alone (Task 6's review) |
 | 60 | All six rows of ReaderFrameToolTests.R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel, one per registered tool (Failed: 6, Passed: 0). Every row reaches Refusal.Summary's Transport arm, through ForumTools.Refused for the read tools and WriteTools' named fall-through for the write tools (Task 6's second review) |
+| 61 | The four rejecting rows of `NumericDateTests.R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown`, the three rows of `ClientAssertionValidatorTests.R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown` and the two of `AccessTokenValidatorDpopTests.R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown` (`ArgumentOutOfRangeException` from `FromUnixTimeSeconds`); `RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault`. The accepting rows of `R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead` stay green, and should. The bounds are widened through `Math.Min`/`Math.Max` rather than written as `long.MinValue`/`long.MaxValue`, which CA1802 refuses to build as a `static readonly` initializer (Task 8's review, C1) |
+| 62 | The two `253402300799` rows of `R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead`, by both readers in one row, alone: the accepting side is pinned (Task 8's review, C1) |
+| 63 | The three sweep facts -- the anonymous one, the enrolled agent's and production's -- on `charset=bogus-xyz`, the quoted `"utf-8"` and the empty charset (500 from `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`), and the six refused rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound`, utf-16's because 400 is not 415. The accepting rows stay green, and should (Task 8's review, I1) |
+| 64 | The two `charset=UTF-8` accepting rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` alone: the accepting side is pinned (Task 8's review, I1) |
+| 65 | The two quoted `"utf-8"` refused rows of the theory, and the three sweep facts, each with a 500 from the binder: the first ruling's guard reproduced (Task 8's review, I1) |
 
 - [ ] **Step 3: Prove the tree is what was committed, and green**
 
 ```bash
 git status --porcelain
-(grep -rnE '"no-such-(warning|delimiter|span|kid|fault|root|type|literal|suffix|prefix|tag)"|Status500InternalServerError \+ 100|ContentLength == -1|\(char\)0x2FFF|\(char\)0x3C|candidate\.Length == -1|Q\.X!\.Length == -1|var rune = \(int\)unit|OwnText\((Post\.Board|Post\.Provenance\.Author|Kid \?\? string\.Empty|Error\.Title|draft\.Board|page\.Floor\.Surface|refusal\.Error\.Title|detail|agentId|expectedDigest)\)|OwnText\(refusal\.Error\.Title \+|The identity .\{slug\}. is enrolled|curia read \{postId\}|read the thread: curia thread \{|from == 0 && argv|throw new InvalidOperationException\(limitError|\$"""more: curia inbox|\[\.\. Split\(raw\)\.Select|string published, \[ConstantExpected\]' src; grep -rnE '\.take\(1\)|u\{2fff\}|!= 0x3C' rust/curia-testis/src) | grep . || echo "no residue"
+(grep -rnE '"no-such-(warning|delimiter|span|kid|fault|root|type|literal|suffix|prefix|tag)"|Status500InternalServerError \+ 100|ContentLength == -1|\(char\)0x2FFF|\(char\)0x3C|candidate\.Length == -1|Q\.X!\.Length == -1|var rune = \(int\)unit|OwnText\((Post\.Board|Post\.Provenance\.Author|Kid \?\? string\.Empty|Error\.Title|draft\.Board|page\.Floor\.Surface|refusal\.Error\.Title|detail|agentId|expectedDigest)\)|OwnText\(refusal\.Error\.Title \+|The identity .\{slug\}. is enrolled|curia read \{postId\}|read the thread: curia thread \{|from == 0 && argv|throw new InvalidOperationException\(limitError|\$"""more: curia inbox|\[\.\. Split\(raw\)\.Select|string published, \[ConstantExpected\]|Math\.(Min|Max)\(long\.M|ToUnixTimeSeconds\(\) - 1|RemoveQuotes\(media\.Charset\)|"utf-8", StringComparison\.Ordinal\)' src; grep -rnE '\.take\(1\)|u\{2fff\}|!= 0x3C' rust/curia-testis/src) | grep . || echo "no residue"
 cargo build --manifest-path rust/curia-testis/Cargo.toml --locked --bin curia-testis 2>&1 | tail -1
 dotnet build Curia.sln -c Release --no-incremental --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s\)"
 dotnet test Curia.sln -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!" | sort
@@ -10817,7 +11331,7 @@ dotnet test Curia.sln -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Fai
 
 Expected: `git status --porcelain` prints nothing; `no residue`; the verifier builds; `0 Warning(s)`, `0 Error(s)`; and eleven `Passed!` lines, the counts Task 12 states.
 
-The residue grep looks for the token each patch adds, and it was checked both ways: on the finished tree it prints `no residue`, and with each such case's patch applied it names the patched line. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. A patch that only removes something -- cases 2, 12–14, 18–20, 24, 29–31, 33, 44, 45, 47, 48, 51 and 52 -- leaves no token to find; `git status --porcelain` and each restore's `git diff --quiet` are what prove it gone.
+The residue grep looks for the token each patch adds, and it was checked both ways: on the finished tree it prints `no residue`, and with each such case's patch applied it names the patched line. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. A patch that only removes something -- cases 2, 12–14, 18–20, 24, 29–31, 33, 44, 45, 47, 48, 51, 52 and 63 -- leaves no token to find; `git status --porcelain` and each restore's `git diff --quiet` are what prove it gone.
 
 - [ ] **Step 4: Nothing to commit**
 
@@ -10855,9 +11369,13 @@ grep -n 'CanonErrors.Malformed(ex.Message)' src/Curia.Canon/Json/JsonReader.cs
 grep -n 'public static Result<PublicKeyMaterial> ToPublicKeyMaterial\|catch (CryptographicException)' src/Curia.AuthN/Dpop/JwkPublicKey.cs
 grep -n 'Uri.EscapeDataString(passage.Post.PostId)' src/Curia.Mcp/ForumTools.cs
 grep -n 'fn unreadable' rust/curia-testis/src/bin/curia-testis.rs
+grep -n 'MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();\|MinSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();' src/Curia.AuthN/Jwt/NumericDate.cs
+grep -n 'app.UseUtf8JsonBodies();' src/Curia.Api/Program.cs
+grep -n 'StringComparison.OrdinalIgnoreCase' src/Curia.Api/JsonCharset.cs
+grep -n 'StringSegment.Equals(media.Charset,' src/Curia.Api/JsonCharset.cs
 ```
 
-Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `536:`, `1185:`, `2159:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
+Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `536:`, `1185:`, `2159:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`; `14:` and `17:`; `291:`; `20:`, `21:` and `24:`; `24:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
 
 - [ ] **Step 2: Write the register, the trap and what comes next**
 
@@ -10972,7 +11490,21 @@ is not a form, whose form holds U+0000, or whose multipart form is cut off befor
 found none on `q`, `board` or `author`: every read folds the log in memory. Run as an enrolled agent,
 whose requests reach the handlers behind authentication, it found the same two and no third among
 well-formed headers. The third was a header, recorded under "Observed during the enrollment stage" and
-closed by the same stage: a DPoP proof whose key is no point on P-256, under a token bound to it. A
+closed by the same stage: a DPoP proof whose key is no point on P-256, under a token bound to it.
+Task 8's review found two more, and the stage closed both. The fifth is a signed claim out of range:
+`NumericDate` handed `iat`, `exp` and `nbf` to `FromUnixTimeSeconds` unchecked after the signature
+verified, so an assertion with `exp` 1e13 answered 500 from `/oauth/token`, and a proof with `iat`
+1e13 or -1e11 answered 500 from every route behind authentication, to any enrolled agent; a value
+outside `DateTimeOffset`'s range is `curia/authn/malformed` now (`src/Curia.AuthN/Jwt/NumericDate.cs:14`,
+`:17`), held by `NumericDateTests`, the assertion and proof theories, and
+`RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault` (falsification
+cases 61 and 62). The sixth is a JSON body's declared charset, the quoted form included: the
+minimal-API binder threw for a charset it cannot read -- `bogus-xyz`, an empty one, and `"utf-8"`,
+since it does not unquote -- answering 500 to anyone from `POST /v1/agents`, `/v1/posts/batch` and
+`/v1/posts/{id}/flags`; `JsonCharset` refuses anything but the bare token utf-8 with 415 before
+binding (`src/Curia.Api/JsonCharset.cs:24`, registered at `src/Curia.Api/Program.cs:291`), held by
+`R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` and four sweep bodies (cases
+63–65). A
 host running as production serves no framework or backend text on any anonymous request. Held by
 `ServerFaultTests`, `RequestSurfaceTests` and
 `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown`.*
@@ -11134,9 +11666,9 @@ bytes and the same result); no fact feeds a reader ill-formed bytes.
   single quotation marks at all, so no word is safe there. The committed facts run `/bin/sh` only; the
   other six were the design probe's, and none of them runs in CI.
 - **The header sweep varies the two headers every route reads.** `Authorization` and `DPoP`, hostile
-  without a credential and as a token bound to a key off the curve (`RequestSurfaceTests`). A header
-  one handler reads -- a conditional read's `If-None-Match`, a body's `Content-Type` beyond the ten
-  bodies -- is not swept.
+  without a credential and as a token bound to a key off the curve (`RequestSurfaceTests`); since Task
+  8's review, a JSON body's declared charset and the NumericDates in a JWT an agent signs are swept
+  too (D25). A header one handler reads -- a conditional read's `If-None-Match` -- is not swept.
 - **A display literal can hold a delimiter in the middle of a line.** `Of("<<<CURIA-UNTRUSTED-END>>>")`
   is that text between quotation marks (the Task 2 review ran it). A literal never begins a line, so a
   span check that reads whole lines, as `IsDelimitedSpan` does, is not deceived; a consumer that finds
@@ -11373,7 +11905,7 @@ node tools/differential-oracle/compare.mjs --fail-on-divergence > <scratchpad>/d
 grep -E '"divergences"' <scratchpad>/differential.log
 ```
 
-Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 34, Domain.Primitives 39, AuthN 69, Infrastructure 106, Mcp 144, Client 270, Api 256, Canon 284, Application 299, Domain 609 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    34` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 244 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree, but for Architecture and Client, which Task 5's review raised from 33 and 259.
+Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 34, Domain.Primitives 39, AuthN 80, Infrastructure 106, Mcp 144, Client 270, Api 269, Canon 284, Application 299, Domain 609 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    34` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 244 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree, but for Architecture and Client, which Task 5's review raised from 33 and 259, and AuthN and Api, which Task 8's review raised from 69 and 256 (eleven AuthN rows; the claims fact and the charset theory's twelve rows).
 
 - [ ] **Step 2: Push, and open the PR**
 

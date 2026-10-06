@@ -227,6 +227,31 @@ public sealed class ClientAssertionValidatorTests
         Assert.Equal("curia/authn/ttl-exceeded", error!.Type);
     }
 
+    /// <summary>
+    /// R11.33 (errata G17): an assertion the agent's registered key genuinely signed, whose
+    /// <c>iat</c> or <c>exp</c> is a number <see cref="DateTimeOffset"/> cannot hold, is refused as
+    /// malformed, never thrown. The claims are parsed after the signature verifies, so any enrolled
+    /// agent chooses them; they reached <see cref="DateTimeOffset.FromUnixTimeSeconds"/> unchecked,
+    /// and the token endpoint answered 500. A null row is the scenario's own valid value.
+    /// </summary>
+    [Theory]
+    [InlineData(10000000000000L, 10000000000000L)]
+    [InlineData(null, 10000000000000L)]
+    [InlineData(-100000000000L, null)]
+    public async Task R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown(long? iat, long? exp)
+    {
+        var scenario = new ClientAssertionScenario();
+        var payload = scenario.ValidPayload()
+            .WithClaim("iat", iat ?? TestJwt.ToUnixSeconds(scenario.Iat))
+            .WithClaim("exp", exp ?? TestJwt.ToUnixSeconds(scenario.Exp));
+        var assertion = scenario.SignValid(payload: payload, key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
     [Fact]
     public async Task ExpiredAssertionIsRejected()
     {

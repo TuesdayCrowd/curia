@@ -288,6 +288,7 @@ public sealed class Program
         });
 
         var app = builder.Build();
+        app.UseUtf8JsonBodies();
         TokenEndpoint.Map(app);
         ForumEndpoints.Map(app);
         ActaEndpoints.Map(app);
