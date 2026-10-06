@@ -1,3 +1,4 @@
+using System.Globalization;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.Canon.Json;
@@ -262,6 +263,9 @@ public static class EnrollmentErrors
     /// <summary>The slug of <see cref="IdentifierNotNfc"/>.</summary>
     public const string IdentifierNotNfcType = "curia/enroll/identifier-not-nfc";
 
+    /// <summary>The slug of <see cref="IdentifierControlCharacter"/>.</summary>
+    public const string IdentifierControlCharacterType = "curia/enroll/identifier-control-character";
+
     /// <summary>
     /// The most UTF-8 bytes an <c>agent_id</c> or a <c>kid</c> may hold. An implementation limit, not
     /// R4.5's form (plan D4 stays open): it sits well under the 2,704-byte index row Postgres stores
@@ -329,6 +333,23 @@ public static class EnrollmentErrors
         IdentifierNotNfcType,
         "That identifier is not in Unicode Normalization Form C",
         $"field={field}: nothing was registered. A signed envelope names its author in NFC (R6.9), so an identifier NFC would change could never author a post (R4.36).");
+
+    /// <summary>
+    /// R4.37 (errata G17): the enrollment's <paramref name="field"/> holds a character of general
+    /// category Cc, Cf, Zl or Zp. Such a character lays out the text around it rather than showing as
+    /// itself -- it begins a line, reorders one, or is invisible -- and an identifier is printed
+    /// wherever an agent or a key is named. Names the field, the code point and its category; the
+    /// value is never echoed. Every character of Cf is refused, U+200C and U+200D among them, which
+    /// some scripts' honest words hold: they are invisible, and an identifier that differs from
+    /// another only by one reads as the other. The remedy is the one a URI already has, the
+    /// character percent-encoded, and the refusal says so.
+    /// </summary>
+    public static Error IdentifierControlCharacter(string field, int codePoint, string category) => new(
+        IdentifierControlCharacterType,
+        "That identifier holds a control, format or separator character",
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"field={field}: U+{codePoint:X4} ({category}); nothing was registered. An identifier is printed wherever an agent or a key is named, and a character of this kind lays out the text around it instead of showing as itself (R4.37). The same character percent-encoded, as a URI writes one, is not refused."));
 
     /// <summary>The enrollment carries no <c>public_key</c>, or JSON null for it.</summary>
     public static Error PublicKeyMissing() => new(InvalidKeyType, InvalidKeyTitle, "public_key is missing");

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -393,6 +394,7 @@ public static class ForumEndpoints
     /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
     /// before anything is read or written, each refused 400 by name: the two identifiers' text
     /// (R6.15's condition, and U+0000); the agent identifier's normalization form, NFC (R4.36);
+    /// a control, format or separator character in either (R4.37, errata G17);
     /// their length, at most
     /// <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8 bytes each; the algorithm, against the
     /// allow-list the Forum verifies with (R4.15); and then the key, which must be present, base64,
@@ -423,6 +425,13 @@ public static class ForumEndpoints
         // travels in a protected header signed as its bytes, and is never canonicalized.
         if (NotInNfc(request.AgentId, "agent_id") is { } formError)
             return Problem(StatusCodes.Status400BadRequest, formError);
+
+        // R4.37 (errata G17): an identifier is printed wherever an agent or a key is named -- in the
+        // log, the key set, a token's subject, every reader's frame -- and a control, format or
+        // separator character there begins a line, reorders one, or hides. Refused in both fields,
+        // after RefusedText, so U+0000 keeps its own name and no lone surrogate reaches the walk.
+        if ((ControlCharacter(request.AgentId, "agent_id") ?? ControlCharacter(request.Kid, "kid")) is { } controlError)
+            return Problem(StatusCodes.Status400BadRequest, controlError);
 
         if ((TooLong(request.AgentId, "agent_id") ?? TooLong(request.Kid, "kid")) is { } lengthError)
             return Problem(StatusCodes.Status400BadRequest, lengthError);
@@ -511,6 +520,33 @@ public static class ForumEndpoints
     /// </summary>
     private static Error? NotInNfc(string value, string field) =>
         value.IsNormalized(NormalizationForm.FormC) ? null : EnrollmentErrors.IdentifierNotNfc(field);
+
+    /// <summary>
+    /// The refusal for an identifier holding a character of general category Cc, Cf, Zl or Zp, or
+    /// null (R4.37). Walks scalar values, so a format character beyond the Basic Multilingual Plane --
+    /// a tag character, say -- is found as itself rather than as two surrogate halves. Asked after
+    /// <see cref="RefusedText"/>, so every value it walks is well-formed. The category is the
+    /// runtime's Unicode tables' (<see cref="Rune.GetUnicodeCategory"/>), and only these four are
+    /// refused: a variation selector (Mn), a Hangul filler (Lo) and an unassigned code point (Cn) are
+    /// not seen either, and enroll (errata G17, "What this costs" 5).
+    /// </summary>
+    private static Error? ControlCharacter(string value, string field)
+    {
+        foreach (var rune in value.EnumerateRunes())
+        {
+            var category = Rune.GetUnicodeCategory(rune);
+            var name = category == UnicodeCategory.Control ? "Cc"
+                : category == UnicodeCategory.Format ? "Cf"
+                : category == UnicodeCategory.LineSeparator ? "Zl"
+                : category == UnicodeCategory.ParagraphSeparator ? "Zp"
+                : null;
+
+            if (name is not null)
+                return EnrollmentErrors.IdentifierControlCharacter(field, rune.Value, name);
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// The refusal for an identifier over <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8
