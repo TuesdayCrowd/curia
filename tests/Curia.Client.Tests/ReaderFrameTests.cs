@@ -56,6 +56,8 @@ public sealed class ReaderFrameTests
         foreach (var frame in frames)
         {
             Assert.Contains(Forged, frame, StringComparison.Ordinal);
+            Assert.Contains("board " + DisplayLiteral.Of(post.Board), frame, StringComparison.Ordinal);
+            Assert.Contains("author    " + DisplayLiteral.Of(post.Provenance.Author), frame, StringComparison.Ordinal);
             AssertNoForgedLine(frame);
         }
     }
