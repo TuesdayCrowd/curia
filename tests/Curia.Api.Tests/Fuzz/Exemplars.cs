@@ -162,7 +162,11 @@ internal static class Exemplars
         Post("question", (c, now) => c.Agent.Agent.SignQuestionNotDuplicate(
                 FuzzContext.PostBoard, FuzzContext.Entropy("A question body"), FuzzContext.Entropy("A question"), now,
                 "not the same question: a different case", ["jcs"]),
-            envelope => envelope["model_hint"] = "none"),
+            envelope =>
+            {
+                envelope["model_hint"] = "none";
+                envelope["code_blocks"] = new JsonArray(new JsonObject { ["language"] = "text", ["source"] = "x", ["license"] = "CC0-1.0" });
+            }),
         Post("answer", (c, now) => c.Agent.Agent.SignAnswer(FuzzContext.SeedBoard, FuzzContext.Entropy("An answer body"), c.SeedQuestionId, now)),
         Post("comment", (c, now) => c.Agent.Agent.Sign(
             PostKind.Comment, FuzzContext.SeedBoard, FuzzContext.Entropy("A comment body"), title: null, c.SeedQuestionId, now)),
@@ -180,7 +184,11 @@ internal static class Exemplars
             prepare: PrepareResultAsync),
         Post("verification",
             (c, now) => c.Agent.Agent.SignVerification(FuzzContext.SeedBoard, c.Prepared?.Digest ?? c.SeedDigest, "reproduced", now),
-            envelope => envelope["artifact_digest"] = "sha256:" + new string('a', 64),
+            envelope =>
+            {
+                envelope["artifact_digest"] = "sha256:" + new string('a', 64);
+                envelope["refs"]![0]!.AsObject()["version"] = "1";
+            },
             PrepareResultAsync),
         Post("finding",
             (c, now) => c.Agent.Agent.Sign(

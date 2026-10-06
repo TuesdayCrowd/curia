@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -6,6 +7,11 @@ using Curia.Canon.Json;
 using Microsoft.AspNetCore.Http;
 
 namespace Curia.Api.Tests.Fuzz;
+
+/// <summary>The varied envelope has no canonical form, so it has no re-signed copy (spec §4.10).</summary>
+[SuppressMessage("Design", "CA1032:Implement standard exception constructors", Justification = "Thrown with one message only, by SignPost; the pass catches it by type.")]
+[SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "SignPost throws it; falsification case F18 removes that throw and must still build, so its fact goes red rather than the build.")]
+internal sealed class NotReSignableException() : Exception("the varied envelope has no canonical form, so it has no re-signed copy (spec §4.10)");
 
 /// <summary>A header's parameter, such as a Content-Type's <c>charset</c>.</summary>
 internal sealed record HeaderParameter(string Name, string Value);
@@ -341,7 +347,8 @@ internal sealed class RequestModel(string method, string pattern)
 
     /// <summary>
     /// The detached post signature over the canonical form of the envelope as sent. An envelope that
-    /// cannot be canonicalized has no re-signed copy: the unre-signed one is sent in its place.
+    /// cannot be canonicalized has no re-signed copy: rendering one throws NotReSignableException, and
+    /// the pass counts it superseded by the unre-signed copy, which is sent and counted.
     /// </summary>
     private string SignPost(JwsEntry entry, string? address, VariedValue? value, CopyKind copy)
     {
@@ -365,7 +372,7 @@ internal sealed class RequestModel(string method, string pattern)
 
         var relative = pointer![signed.Length..];
         var variedEnvelope = RawJson.Write(envelope, relative, value);
-        return Canonical(variedEnvelope) is { } canonical ? JwsBuilder.Detached(header, canonical, entry.Signer) : original;
+        return Canonical(variedEnvelope) is { } canonical ? JwsBuilder.Detached(header, canonical, entry.Signer) : throw new NotReSignableException();
     }
 
     /// <summary>The Cūria canonical form (JCS with NFC) of bytes, or null when they have none.</summary>

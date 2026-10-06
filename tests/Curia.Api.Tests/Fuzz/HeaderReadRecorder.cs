@@ -5,50 +5,78 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Primitives;
 
 namespace Curia.Api.Tests.Fuzz;
 
 /// <summary>
-/// Hardin's item 9: every header and every query parameter the host reads, by name, across the whole
-/// closed pass -- an error path's reads included. An <see cref="IStartupFilter"/> puts a recording
-/// <see cref="IHeaderDictionary"/> in <see cref="IHttpRequestFeature.Headers"/>, and a recording
-/// <see cref="IQueryCollection"/> behind <see cref="IQueryFeature"/>, before any other middleware runs.
+/// Hardin's item 9: every header and every query parameter the host reads across the whole closed
+/// pass -- an error path's reads included -- recorded by name and by the route the host matched
+/// (<see cref="RouteEndpoint"/>'s raw pattern at the moment of the read, <see cref="NoEndpoint"/> when
+/// none matched). An <see cref="IStartupFilter"/> puts a recording <see cref="IHeaderDictionary"/> in
+/// <see cref="IHttpRequestFeature.Headers"/>, and a recording <see cref="IQueryCollection"/> behind
+/// <see cref="IQueryFeature"/>, before any other middleware runs. The closed pass checks header
+/// coverage by name, and query coverage by route, both ways.
 /// </summary>
 internal sealed class HeaderReadRecorder : IStartupFilter
 {
+    /// <summary>The route of a read that no endpoint matched.</summary>
+    internal const string NoEndpoint = "(no endpoint)";
+
     private readonly ConcurrentDictionary<string, byte> _headers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, byte> _query = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(string Route, string Name), byte> _headerReads = new(RouteAndHeaderName.Instance);
+    private readonly ConcurrentDictionary<(string Route, string Name), byte> _queryReads = new();
 
     internal IReadOnlyCollection<string> Headers => [.. _headers.Keys];
 
-    internal IReadOnlyCollection<string> QueryNames => [.. _query.Keys];
+    /// <summary>Every header read, by the route the host matched and the header's name (compared ignoring case).</summary>
+    internal IReadOnlyCollection<(string Route, string Name)> HeaderReads => [.. _headerReads.Keys];
+
+    /// <summary>Every query parameter read, by the route the host matched and the parameter's name.</summary>
+    internal IReadOnlyCollection<(string Route, string Name)> QueryReads => [.. _queryReads.Keys];
 
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
     {
         app.Use(async (context, following) =>
         {
             var request = context.Features.Get<IHttpRequestFeature>()!;
-            request.Headers = new RecordingHeaders(request.Headers, _headers);
+            request.Headers = new RecordingHeaders(context, request.Headers, _headers, _headerReads);
             var query = context.Request.Query;
-            context.Features.Set<IQueryFeature>(new RecordingQueryFeature(new RecordingQuery(query, _query)));
+            context.Features.Set<IQueryFeature>(new RecordingQueryFeature(new RecordingQuery(context, query, _queryReads)));
             await following(context);
         });
         next(app);
     };
+
+    /// <summary>The route the host matched for this request, read when the read happens: the endpoint is set only after routing.</summary>
+    private static string RouteOf(HttpContext c) =>
+        c.GetEndpoint() is RouteEndpoint { RoutePattern.RawText: { } raw } ? c.Request.Method + " " + raw : NoEndpoint;
+
+    /// <summary>Route ordinal, header name ignoring case.</summary>
+    private sealed class RouteAndHeaderName : IEqualityComparer<(string Route, string Name)>
+    {
+        internal static readonly RouteAndHeaderName Instance = new();
+
+        public bool Equals((string Route, string Name) x, (string Route, string Name) y) =>
+            string.Equals(x.Route, y.Route, StringComparison.Ordinal) && string.Equals(x.Name, y.Name, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((string Route, string Name) obj) =>
+            HashCode.Combine(StringComparer.Ordinal.GetHashCode(obj.Route), StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Name));
+    }
 
     private sealed class RecordingQueryFeature(IQueryCollection query) : IQueryFeature
     {
         public IQueryCollection Query { get; set; } = query;
     }
 
-    private sealed class RecordingQuery(IQueryCollection inner, ConcurrentDictionary<string, byte> reads) : IQueryCollection
+    private sealed class RecordingQuery(HttpContext context, IQueryCollection inner, ConcurrentDictionary<(string Route, string Name), byte> reads) : IQueryCollection
     {
         public StringValues this[string key]
         {
             get
             {
-                reads.TryAdd(key, 0);
+                reads.TryAdd((RouteOf(context), key), 0);
                 return inner[key];
             }
         }
@@ -59,13 +87,13 @@ internal sealed class HeaderReadRecorder : IStartupFilter
 
         public bool ContainsKey(string key)
         {
-            reads.TryAdd(key, 0);
+            reads.TryAdd((RouteOf(context), key), 0);
             return inner.ContainsKey(key);
         }
 
         public bool TryGetValue(string key, out StringValues value)
         {
-            reads.TryAdd(key, 0);
+            reads.TryAdd((RouteOf(context), key), 0);
             return inner.TryGetValue(key, out value);
         }
 
@@ -75,13 +103,23 @@ internal sealed class HeaderReadRecorder : IStartupFilter
     }
 
     [SuppressMessage("Naming", "CA1710:Identifiers should have correct suffix", Justification = "A recording view of the request's headers, named for what it records.")]
-    private sealed class RecordingHeaders(IHeaderDictionary inner, ConcurrentDictionary<string, byte> reads) : IHeaderDictionary
+    private sealed class RecordingHeaders(
+        HttpContext context,
+        IHeaderDictionary inner,
+        ConcurrentDictionary<string, byte> reads,
+        ConcurrentDictionary<(string Route, string Name), byte> routeReads) : IHeaderDictionary
     {
+        private void Record(string key)
+        {
+            reads.TryAdd(key, 0);
+            routeReads.TryAdd((RouteOf(context), key), 0);
+        }
+
         public StringValues this[string key]
         {
             get
             {
-                reads.TryAdd(key, 0);
+                Record(key);
                 return inner[key];
             }
 
@@ -92,7 +130,7 @@ internal sealed class HeaderReadRecorder : IStartupFilter
         {
             get
             {
-                reads.TryAdd("Content-Length", 0);
+                Record("Content-Length");
                 return inner.ContentLength;
             }
 
@@ -122,13 +160,13 @@ internal sealed class HeaderReadRecorder : IStartupFilter
 
         public bool Contains(KeyValuePair<string, StringValues> item)
         {
-            reads.TryAdd(item.Key, 0);
+            Record(item.Key);
             return inner.Contains(item);
         }
 
         public bool ContainsKey(string key)
         {
-            reads.TryAdd(key, 0);
+            Record(key);
             return inner.ContainsKey(key);
         }
 
@@ -142,7 +180,7 @@ internal sealed class HeaderReadRecorder : IStartupFilter
 
         public bool TryGetValue(string key, out StringValues value)
         {
-            reads.TryAdd(key, 0);
+            Record(key);
             return inner.TryGetValue(key, out value);
         }
 

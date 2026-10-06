@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -11,7 +12,8 @@ namespace Curia.Api.Tests.Fuzz;
 
 /// <summary>
 /// What the request surface is, derived from the host where it can be and listed by hand only where
-/// it cannot: the parameters two handlers read off the request rather than binding, and the headers
+/// it cannot: the parameters two handlers read off the request rather than binding, the ones a route
+/// reads only to refuse, and the headers
 /// a transport computes. Shared by the hand sweep (<c>RequestSurfaceTests</c>) and the fuzzer.
 /// </summary>
 internal static class SurfaceInventory
@@ -53,6 +55,19 @@ internal static class SurfaceInventory
         ("POST", "/v1/posts/batch", "marking"),
         ("GET", "/v1/threads/{rootPostId}", "marking"),
         ("GET", "/v1/boards/{board}/posts", "marking"),
+    ];
+
+    /// <summary>
+    /// The query parameters a route reads only to refuse them, each with the problem type it answers:
+    /// R9.26's refusable list as errata G12 item 9 publishes it. A presence is refused before any value
+    /// is read, so there is nothing to vary. The closed pass holds this list to the host's reads both
+    /// ways, and <c>R14_10_EveryRefusedQueryParameterIsRefusedByItsRoute</c> holds it to the answer, so
+    /// a filter the route honours cannot be listed here to escape the fuzzer.
+    /// </summary>
+    internal static readonly (string Method, string Pattern, string Name, string ProblemType)[] RefusedQuery =
+    [
+        ("GET", "/v1/search", "verification", "curia/search/unsupported-filter"),
+        ("GET", "/v1/search", "environment_version", "curia/search/unsupported-filter"),
     ];
 
     /// <summary>
@@ -127,10 +142,29 @@ internal static class SurfaceInventory
 
     /// <summary>
     /// The envelope parser's known members: <see cref="PostEnvelope"/>'s fields, each the snake_case
-    /// wire name the parser reads it from.
+    /// wire name the parser reads it from, and, for an array of domain records, each element member
+    /// as <c>&lt;member&gt;/*/&lt;field&gt;</c>.
     /// </summary>
-    internal static List<string> EnvelopeMembers() =>
-        [.. typeof(PostEnvelope).GetConstructors().Single().GetParameters().Select(p => SnakeCase(p.Name!))];
+    internal static List<string> EnvelopeMembers()
+    {
+        var members = new List<string>();
+        foreach (var p in typeof(PostEnvelope).GetConstructors().Single().GetParameters())
+        {
+            var name = SnakeCase(p.Name!);
+            members.Add(name);
+            if (p.ParameterType.IsGenericType
+                && p.ParameterType.GetGenericTypeDefinition() == typeof(ImmutableArray<>)
+                && p.ParameterType.GetGenericArguments()[0] is { IsClass: true } element
+                && element.Namespace is { } ns
+                && ns.StartsWith("Curia.Domain", StringComparison.Ordinal))
+            {
+                foreach (var q in element.GetConstructors().Single(c => c.IsPublic).GetParameters())
+                    members.Add($"{name}/*/{SnakeCase(q.Name!)}");
+            }
+        }
+
+        return members;
+    }
 
     private static string SnakeCase(string name)
     {

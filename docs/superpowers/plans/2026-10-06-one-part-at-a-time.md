@@ -63,7 +63,7 @@
 |---|---|---|
 | `docs/superpowers/specs/…`, `docs/superpowers/plans/…` | spec and plan | A0 |
 | `tests/Curia.Api.Tests/Fuzz/{Part.cs, Variation.cs, RawJson.cs, JwsBuilder.cs, RequestModel.cs, Exemplars.cs, Mutator.cs, Oracle.cs, ProblemShape.cs, ExpectedFaults.cs, HeaderReadRecorder.cs, SurfaceInventory.cs, FuzzRun.cs}` (new) | the fuzzer | A1 |
-| `tests/Curia.Api.Tests/Fuzz/{RequestFuzzClosedTests.cs, RequestFuzzRandomTests.cs, RequestFuzzKestrelTests.cs}` (new) | its gates | A1, A2 |
+| `tests/Curia.Api.Tests/Fuzz/{RequestFuzzClosedTests.cs, RefusedQueryTests.cs, RequestFuzzRandomTests.cs, RequestFuzzKestrelTests.cs}` (new) | its gates | A1, A2 |
 | `tests/Curia.Api.Tests/RequestSurfaceTests.cs` | uses `SurfaceInventory` and `ProblemShape` (moved, not changed) | A1 |
 | `tests/Curia.Api.Tests/ForumFixture.cs` | unsealed; `protected virtual void ConfigureFuzz(IServiceCollection)` hook | A1 |
 | `tests/Curia.Api.Tests/Curia.Api.Tests.csproj`, `packages.lock.json` | `CsCheck` reference | A2 |
@@ -155,10 +155,13 @@ internal static class ExpectedFaults { internal static readonly ImmutableArray<F
 | `R14_10_EveryRegisteredRouteHasAnExemplarAndEveryExemplarARoute` | `Routes(forum)` (moved from `RequestSurfaceTests.cs:1114`) equals the set of `(Method, Pattern)` over `Exemplars.All`, both ways; message lists the difference |
 | `R14_10_EveryPostKindHasAnExemplar` | `PostKinds` wire values ⊆ `POST /v1/posts` variants |
 | `R14_10_EveryQueryParameterARouteReadsHasAnExemplarValue` | per route, bound query parameters (as in `EveryQueryParameterAHandlerBindsIsProbed`, `RequestSurfaceTests.cs:954`) ∪ `SurfaceInventory.RequestReadQuery` restricted to the route ⊆ row's `Query` keys |
-| `R14_10_EveryEnvelopeMemberAndBodyPropertyIsAPart` | the envelope parser's known-member set, and each body DTO's `JsonPropertyName` set, ⊆ the union of the exemplars' `json:` parts (spec §4.10) |
-| (inside the closed-pass fact) header and query coverage | `HeaderReadRecorder`, installed on every fuzz fixture through `ConfigureFuzz`, records header reads and `IQueryFeature` reads across the **whole** closed pass. At the end: recorded header names ⊆ varied header names ∪ `TransportHeaders` (`Host`, `Content-Length`, each with reason "framing, computed by the client; Kestrel's parser"; `Transfer-Encoding` and `Connection` were listed too, and the first pass found both stale: nothing reads either through the request's headers on the test host), and every `TransportHeaders` and `RequestReadQuery` entry was read at least once. Each miss is a failure line beginning `coverage:` |
-| `R14_10_NoVariationOfAnyPartIsAServerFaultAProblemlessRefusalOrOverBudget` | runs the closed pass. Failures that are not ledger rows, plus stale ledger rows, fail with one line each: `"{status} {Method} {Pattern} [{Variant}] {Part} {Variation} {Copy}: {reason} ({elapsed} ms)"`. Non-vacuity: spec §4.10's clause 5 (reach per part, sent + unsent = planned per row, the unsent ceiling), and every row's exemplar answered 2xx before and after. Every failure also goes to `CURIA_FUZZ_FAILURES` when set |
+| `R14_10_EveryEnvelopeMemberAndBodyPropertyIsAPart` | the envelope parser's known-member set, element members of its arrays of domain records (`code_blocks/*/language\|source\|license`, `refs/*/kind\|value\|version`) included, and each body DTO's `JsonPropertyName` set, ⊆ the union of the exemplars' `json:` parts (spec §4.10) |
+| (inside the closed-pass fact) header and query coverage | `HeaderReadRecorder`, installed on every fuzz fixture through `ConfigureFuzz`, records header reads and `IQueryFeature` reads, each by name and by the route the host matched (`RouteEndpoint.RoutePattern.RawText` at the moment of the read; `(no endpoint)` when none matched), across the **whole** closed pass. At the end: recorded header names ⊆ varied header names ∪ `TransportHeaders` (`Host`, `Content-Length`, each with reason "framing, computed by the client; Kestrel's parser"; `Transfer-Encoding` and `Connection` were listed too, and the first pass found both stale: nothing reads either through the request's headers on the test host), and every `TransportHeaders` entry was read at least once, and every `RequestReadQuery` entry `(Method, Pattern, Name)` was read at least once **by that route**. A name read only by another route does not count (review of 7bf1160: by name alone, /v1/search's reads made nine entries unfalsifiable). Each miss is a failure line beginning `coverage:`. Every query parameter a route reads (by the route the host matched) is sent by some exemplar of that route or listed in `SurfaceInventory.RefusedQuery` (R9.26's refusable list, errata G12 item 9: `/v1/search`'s `verification` and `environment_version`), every `RefusedQuery` entry was read by its route, and a query read with no endpoint matched is a failure. Header coverage is by name across the pass. Per-route header coverage is recorded as observed, not acted on |
+| `R14_10_NoVariationOfAnyPartIsAServerFaultAProblemlessRefusalOrOverBudget` | runs the closed pass. Failures that are not ledger rows, plus stale ledger rows, plus any ledger row that matches a budget failure or names an exemplar send (spec §4.10: a clause-4 failure is an exemplar defect and never a ledger row), fail with one line each: `"{status} {Method} {Pattern} [{Variant}] {Part} {Variation} {Copy}: {reason} ({elapsed} ms)"`. Non-vacuity: spec §4.10's clause 5 (reach per part, sent + unsent + superseded = planned per row, and at least one superseded copy in the pass, the unsent ceiling), and every row's exemplar answered 2xx before and after. Every failure also goes to `CURIA_FUZZ_FAILURES` when set |
 | `R14_10_AHostOverTheFuzzedLogStartsAndServesWhatItAccepted` | runs after the closed pass in the same test (one fact, two phases). The restart check (spec §4.10) |
+| `R14_10_AnEnvelopeThatCannotBeCanonicalizedHasNoReSignedCopy` | offline: the `question` row's `json:/envelope/body` varied by `nul-raw` throws `NotReSignableException` when rendered re-signed, and renders unsigned (review of 7bf1160) |
+| `R14_10_AnExemplarFailureIsNeverLedgerable` | `FuzzRun.Ledgerable` refuses an exemplar send's failure and accepts a variation's server fault (review of 7bf1160) |
+| `R14_10_EveryRefusedQueryParameterIsRefusedByItsRoute` | on a plain `ForumFixture`, so its reads never enter the pass's recorder: each `RefusedQuery` entry, sent with `q=x`, answers 400 with its problem type and a detail naming the parameter; no entry is also in `RequestReadQuery` |
 
 **Steps:**
 
@@ -180,7 +183,7 @@ internal static class ExpectedFaults { internal static readonly ImmutableArray<F
 | `POST /v1/posts/batch` | `{"digests":[seed digest]}` |
 | `POST /v1/agents` | fresh enrollment, as `ForumAgent.EnrollAsync` sends it; consumed |
 | `POST /oauth/token` | urlencoded and multipart variants, each sending `; charset=utf-8` on its `Content-Type` (on the request for urlencoded, on each part for multipart), written by the fuzzer's renderer because `FormUrlEncodedContent` sends none; the `DPoP` proof is a JWS part |
-| `POST /v1/posts` | one row per kind: question (`title` and `body` Fresh, high-entropy per send), answer (`parent` = seed), comment, revision (consumed: `Prepare` posts a fresh post of the agent's own, and `parent` and `prev` name it), vote and verification as `ForumAgent.SignVote` and `SignVerification` build them (both consumed: `Prepare` creates a fresh target owned by a second agent, result-bearing for a verification); finding (Table 10 grants `finding`/`create` from T2 only, so its `Prepare` raises the fuzz agent to T2 once: five of its answers accepted, then 31 days; `R14_10_EveryPostKindHasAnExemplar` requires the row); one question row carries every optional member (`not_duplicate`, `duplicate_rationale`, `model_hint`), and the verification row `artifact_digest`, so no `question-not-duplicate` row is needed; `CreatesPosts`, each on a fixture of its own (spec §4.10) |
+| `POST /v1/posts` | one row per kind: question (`title` and `body` Fresh, high-entropy per send), answer (`parent` = seed), comment, revision (consumed: `Prepare` posts a fresh post of the agent's own, and `parent` and `prev` name it), vote and verification as `ForumAgent.SignVote` and `SignVerification` build them (both consumed: `Prepare` creates a fresh target owned by a second agent, result-bearing for a verification); finding (Table 10 grants `finding`/`create` from T2 only, so its `Prepare` raises the fuzz agent to T2 once: five of its answers accepted, then 31 days; `R14_10_EveryPostKindHasAnExemplar` requires the row); one question row carries every optional member (`not_duplicate`, `duplicate_rationale`, `model_hint`, and one `code_blocks` element with `language`, `source` and `license`), and the verification row `artifact_digest` and a `version` on its ref, so no `question-not-duplicate` row is needed; `CreatesPosts`, each on a fixture of its own (spec §4.10) |
 | `POST /v1/posts/{postId}/flags` | `{"kind":"spam","rationale":"r"}`; consumed: `Prepare` posts a fresh question as a second agent and advances the clock 25 hours, and the path takes that question's id, so A4b's budget and repeat rule never refuse a variation (spec §4.10, §4.12) |
 | `POST /v1/posts/{postId}/accept` | consumed; `Prepare` asks and answers as `AcceptAnswerTests` does. Read `AcceptAnswerAsync` (`ForumEndpoints.cs:1340`) for which id the path takes |
 
@@ -202,6 +205,12 @@ internal static class ExpectedFaults { internal static readonly ImmutableArray<F
   - Recorded as built: created post ids are taken only from the 201s of `POST /v1/posts` rows (`CreatesPosts`); a flag's or an acceptance's 201 names a post it did not create.
   - Recorded as built: reach (clause 5) excludes by name, in `Oracle.AuthenticationAndSignatureRefusals`, `curia/authn/signature-invalid`, `curia/jws/signature-invalid`, `curia/authn/missing-authorization` and `curia/authn/missing-dpop-proof`; any other problem type, or a 2xx, counts as reach.
   - Recorded as built: the `CURIA_FUZZ_FAILURES` file is JSONL, one object `{route, variant, part, variation, copy, status, problemType, elapsedMs, ledgered}` per line. The `CURIA_FUZZ_ANSWERS` file is one indented JSON object whose keys are `"{Route} [{Variant}] {part} {variation} {copy}"` (the exemplar's sends as `exemplar first plain` and `exemplar last plain`) and whose values are `"{status} {problem type}"`.
+  - Recorded as built (review of 7bf1160): a variation whose envelope has no canonical form (the raw-byte variations: nul-raw, lone-high-raw, lone-low-raw, bad-utf8, overlong) has no re-signed copy. Rendering one throws `NotReSignableException`, the pass counts it `superseded`, and clause 5 reads sent + unsent + superseded = planned. Before the fix, the re-signed copy was sent carrying the original signature, under a `re-signed` key: 15,991 such keys in the first answers file, and reach credited to them. `Mutator.Plan`'s printed counts still include superseded copies.
+  - Recorded as built (review of 7bf1160): the restart check on the `vote` row's fixture asks only `GET /health`. A vote is never served (R8.55), so the vote ids its 201s name are not read back. Spec §4.10 says every post the run created.
+  - Recorded as built (review of 7bf1160): the 2,000 ms budget excludes the first send of each row, not of each route (`POST /v1/posts` has seven rows and `/oauth/token` two). Rows on a fixture of their own start a new host, so a per-route exclusion would budget a cold start. The excluded send is always the plain exemplar's `first`, which clause 4 still requires to answer 2xx. The `last` exemplar send and every variation send are budgeted. The per-row `slowest` in `CURIA_FUZZ_TIMINGS` skips the same send.
+  - Recorded as built (review of 7bf1160): the first pass reduced each envelope pointer to its top-level member, so an empty `code_blocks` satisfied the fact and no element member was ever varied. The fact now compares element members too.
+  - Recorded as built (review of 7bf1160): `Judge` refused to ledger budget failures only, so a `FaultRow` with Part `exemplar` could silence a clause-4 failure. `FuzzRun.Ledgerable` now refuses both.
+  - Recorded as built (review of 7bf1160, second round): the two-way query check found `GET /v1/search` reading `verification` and `environment_version` (`ForumEndpoints.cs:1531`-`:1537`) through `ContainsKey`, only to refuse them. No exemplar can send one, because clause 4 requires a 2xx. They are listed in `RefusedQuery`. The closed pass holds that list to the host's reads both ways, and a fact holds it to the answer, so a filter the route honours cannot be parked there.
 - [ ] **Step 4.** Run it red at the base:
 
   ```
@@ -211,9 +220,152 @@ internal static class ExpectedFaults { internal static readonly ImmutableArray<F
   Expected: `Failed!`, including budget rows on `POST /v1/posts json:/envelope/body long-r-262144` and `long-comment-262144`. This is a prediction from the measured times and has not been run. **If the `long-r-262144` budget row is absent, stop and report**: the fuzzer did not reach a body string at the cap, and the reach clause should say which part it missed. `long-comment-262144` is predicted at about 3 s against the 2 s budget, which is a narrow margin, so its absence is recorded and does not stop the task. Record **every** failure line verbatim.
 - [ ] **Step 5.** Sort the failures:
   - **Budget rows** are D32. Leave them failing; A3 fixes them.
-  - **Each 5xx and each problemless 4xx** becomes ledger row `D33-<n>`, numbered in order of first appearance, plus one register line under D33's "Red facts first" giving the row, the exception type from the log (event 5000), and the file:line of the throw.
+  - **Each 5xx and each problemless 4xx on a variation** becomes ledger row `D33-<n>`, numbered in order of first appearance, plus one register line under D33's "Red facts first" giving the row, the exception type from the log (event 5000), and the file:line of the throw. One on an exemplar send is an exemplar defect: fix the exemplar, never ledger it.
   - **Do not fix any of them in PR A.** That includes rows that look like one-liners (Hardin; spec §4.1).
 - [ ] **Step 6.** Run again, with `CURIA_FUZZ_FAILURES` and `CURIA_FUZZ_ANSWERS` set. Diff the sorted failure rows of Steps 4 and 6 (excluding rows Step 5 ledgered). Every row that is not a budget row (D32) must be identical in both runs, or stop and report the rows that flapped. Budget rows are compared as a set and may differ only near the budget: a budget row present in one run and absent in the other is recorded, and does not stop the task, because a budget row's elapsed time depends on the machine and on the content of Fresh parts (a `long-self` of a Fresh part repeats a value that is regenerated on every send). A budget row on a part or variation that has none in the other run, a budget row that becomes a non-budget row, or any non-budget difference stops the task. On the first run, one row flapped: verification `json:/envelope/nonce long-self-262144` re-signed (3081 ms in Step 6, under budget in Step 4). A3 Step 7 is the check that no budget row survives. Expected: only budget rows fail. Keep the answers file as `/tmp/answers-A1.json`, the wire snapshot A3 and A4 compare against.
+  - Recorded as built (review of 7bf1160, second round): the baseline was regenerated after `RefusedQuery` landed, because that change alters the coverage lines. Two closed passes, both with `CURIA_FUZZ_FAILURES` and `CURIA_FUZZ_ANSWERS` set; run 2's answers file is `/tmp/answers-A1.json`. Planned sends per row and in total (identical in both runs; question 3421 and verification 3407 carry the new `code_blocks` element and `refs[0].version`):
+
+    ```
+    GET /health [plain]: 0 sends
+    GET /.well-known/reader-contract/v1 [plain]: 0 sends
+    GET /oauth/jwks [plain]: 0 sends
+    GET /.well-known/oauth-authorization-server [plain]: 0 sends
+    GET /v1/log/head [plain]: 0 sends
+    GET /v1/log/jwks [plain]: 0 sends
+    GET /v1/log/proof/{index:long} [plain]: 50 sends
+    GET /v1/log/consistency [plain]: 50 sends
+    GET /v1/log/entries/{index:long} [plain]: 25 sends
+    GET /v1/jwks [plain]: 25 sends
+    GET /v1/posts/{postId} [plain]: 150 sends
+    GET /v1/threads/{rootPostId} [plain]: 50 sends
+    GET /v1/boards/{board}/posts [plain]: 50 sends
+    GET /v1/search [plain]: 250 sends
+    GET /v1/inbox [plain]: 1911 sends
+    GET /v1/flags [plain]: 1786 sends
+    GET /v1/posts/{postId}/flags [plain]: 1811 sends
+    POST /v1/posts/batch [plain]: 127 sends
+    POST /oauth/token [urlencoded]: 1498 sends
+    POST /oauth/token [multipart]: 1498 sends
+    POST /v1/agents [plain]: 200 sends
+    POST /v1/posts/{postId}/flags [plain]: 2013 sends
+    POST /v1/posts/{postId}/accept [plain]: 1881 sends
+    POST /v1/posts [question]: 3421 sends
+    POST /v1/posts [answer]: 3023 sends
+    POST /v1/posts [comment]: 3023 sends
+    POST /v1/posts [revision]: 3097 sends
+    POST /v1/posts [vote]: 2945 sends
+    POST /v1/posts [verification]: 3407 sends
+    POST /v1/posts [finding]: 3023 sends
+    total: 35314 sends
+    ```
+
+    Superseded: 520 re-signed copies in the pass (each run), all on `json:/envelope` parts of the seven `POST /v1/posts` rows (question 100, verification 100, revision 72, answer 65, comment 65, finding 65, vote 53), counted as the (part, variation) pairs the answers file holds `unsigned` with no `re-signed` key. The answers file no longer carries `re-signed` keys for raw-byte variations of the envelope: 0, against 15,991 such keys in the first answers file. The 1,665 `re-signed` keys for raw-byte variations that remain are all on `jws:` positions, whose compact signature is computed over the varied bytes, so those copies are real. Every failure is a budget row (D32): 101 in run 1 and 103 in run 2, no 5xx, no problemless 4xx, no `coverage:`, `superseded:` or `ledger:` line, and no exemplar failure, so nothing is ledgered. The runs differ by two budget rows present only in run 2, comment and verification `json:/envelope/nonce long-self-262144 re-signed` (a Fresh part, the shape Step 6 already records); each run has budget rows on that part and that variation, so this is recorded and does not stop the task. Run 2's failure lines, verbatim:
+
+    ```
+    201 POST /v1/posts/{postId}/flags [plain] json:/rationale long-r-262144 plain: over budget: 7980 ms against 2000 ms (set in Release on an Apple M3 Max) (7980 ms)
+    201 POST /v1/posts/{postId}/flags [plain] json:/rationale long-comment-262144 plain: over budget: 2953 ms against 2000 ms (set in Release on an Apple M3 Max) (2953 ms)
+    201 POST /v1/posts/{postId}/flags [plain] json:/rationale long-self-262144 plain: over budget: 7981 ms against 2000 ms (set in Release on an Apple M3 Max) (7981 ms)
+    201 POST /v1/posts [question] json:/envelope/board long-r-262144 re-signed: over budget: 7987 ms against 2000 ms (set in Release on an Apple M3 Max) (7987 ms)
+    201 POST /v1/posts [question] json:/envelope/board long-comment-262144 re-signed: over budget: 2972 ms against 2000 ms (set in Release on an Apple M3 Max) (2972 ms)
+    201 POST /v1/posts [question] json:/envelope/board long-self-262144 re-signed: over budget: 7224 ms against 2000 ms (set in Release on an Apple M3 Max) (7224 ms)
+    201 POST /v1/posts [question] json:/envelope/body long-r-262144 re-signed: over budget: 8006 ms against 2000 ms (set in Release on an Apple M3 Max) (8006 ms)
+    201 POST /v1/posts [question] json:/envelope/body long-comment-262144 re-signed: over budget: 2973 ms against 2000 ms (set in Release on an Apple M3 Max) (2973 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/language long-r-262144 re-signed: over budget: 8015 ms against 2000 ms (set in Release on an Apple M3 Max) (8015 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/language long-comment-262144 re-signed: over budget: 2976 ms against 2000 ms (set in Release on an Apple M3 Max) (2976 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/language long-self-262144 re-signed: over budget: 7998 ms against 2000 ms (set in Release on an Apple M3 Max) (7998 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/source long-r-262144 re-signed: over budget: 8008 ms against 2000 ms (set in Release on an Apple M3 Max) (8008 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/source long-comment-262144 re-signed: over budget: 2988 ms against 2000 ms (set in Release on an Apple M3 Max) (2988 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/source long-self-262144 re-signed: over budget: 8019 ms against 2000 ms (set in Release on an Apple M3 Max) (8019 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/license long-r-262144 re-signed: over budget: 8014 ms against 2000 ms (set in Release on an Apple M3 Max) (8014 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/license long-comment-262144 re-signed: over budget: 3001 ms against 2000 ms (set in Release on an Apple M3 Max) (3001 ms)
+    201 POST /v1/posts [question] json:/envelope/code_blocks/0/license long-self-262144 re-signed: over budget: 2370 ms against 2000 ms (set in Release on an Apple M3 Max) (2370 ms)
+    201 POST /v1/posts [question] json:/envelope/duplicate_rationale long-r-262144 re-signed: over budget: 8033 ms against 2000 ms (set in Release on an Apple M3 Max) (8033 ms)
+    201 POST /v1/posts [question] json:/envelope/duplicate_rationale long-comment-262144 re-signed: over budget: 3007 ms against 2000 ms (set in Release on an Apple M3 Max) (3007 ms)
+    201 POST /v1/posts [question] json:/envelope/nonce long-r-262144 re-signed: over budget: 8049 ms against 2000 ms (set in Release on an Apple M3 Max) (8049 ms)
+    201 POST /v1/posts [question] json:/envelope/nonce long-comment-262144 re-signed: over budget: 3016 ms against 2000 ms (set in Release on an Apple M3 Max) (3016 ms)
+    201 POST /v1/posts [question] json:/envelope/nonce long-self-262144 re-signed: over budget: 3085 ms against 2000 ms (set in Release on an Apple M3 Max) (3085 ms)
+    201 POST /v1/posts [question] json:/envelope/tags/0 long-r-262144 re-signed: over budget: 8055 ms against 2000 ms (set in Release on an Apple M3 Max) (8055 ms)
+    201 POST /v1/posts [question] json:/envelope/tags/0 long-comment-262144 re-signed: over budget: 3025 ms against 2000 ms (set in Release on an Apple M3 Max) (3025 ms)
+    201 POST /v1/posts [question] json:/envelope/tags/0 long-self-262144 re-signed: over budget: 8074 ms against 2000 ms (set in Release on an Apple M3 Max) (8074 ms)
+    201 POST /v1/posts [question] json:/envelope/title long-r-262144 re-signed: over budget: 8061 ms against 2000 ms (set in Release on an Apple M3 Max) (8061 ms)
+    201 POST /v1/posts [question] json:/envelope/title long-comment-262144 re-signed: over budget: 3035 ms against 2000 ms (set in Release on an Apple M3 Max) (3035 ms)
+    201 POST /v1/posts [question] json:/envelope/model_hint long-r-262144 re-signed: over budget: 8057 ms against 2000 ms (set in Release on an Apple M3 Max) (8057 ms)
+    201 POST /v1/posts [question] json:/envelope/model_hint long-comment-262144 re-signed: over budget: 3047 ms against 2000 ms (set in Release on an Apple M3 Max) (3047 ms)
+    201 POST /v1/posts [question] json:/envelope/model_hint long-self-262144 re-signed: over budget: 8064 ms against 2000 ms (set in Release on an Apple M3 Max) (8064 ms)
+    201 POST /v1/posts [answer] json:/envelope/board long-r-262144 re-signed: over budget: 8005 ms against 2000 ms (set in Release on an Apple M3 Max) (8005 ms)
+    201 POST /v1/posts [answer] json:/envelope/board long-comment-262144 re-signed: over budget: 2965 ms against 2000 ms (set in Release on an Apple M3 Max) (2965 ms)
+    201 POST /v1/posts [answer] json:/envelope/board long-self-262144 re-signed: over budget: 7215 ms against 2000 ms (set in Release on an Apple M3 Max) (7215 ms)
+    201 POST /v1/posts [answer] json:/envelope/body long-r-262144 re-signed: over budget: 8004 ms against 2000 ms (set in Release on an Apple M3 Max) (8004 ms)
+    201 POST /v1/posts [answer] json:/envelope/body long-comment-262144 re-signed: over budget: 2973 ms against 2000 ms (set in Release on an Apple M3 Max) (2973 ms)
+    201 POST /v1/posts [answer] json:/envelope/nonce long-r-262144 re-signed: over budget: 7996 ms against 2000 ms (set in Release on an Apple M3 Max) (7996 ms)
+    201 POST /v1/posts [answer] json:/envelope/nonce long-comment-262144 re-signed: over budget: 2979 ms against 2000 ms (set in Release on an Apple M3 Max) (2979 ms)
+    201 POST /v1/posts [answer] json:/envelope/nonce long-self-262144 re-signed: over budget: 3783 ms against 2000 ms (set in Release on an Apple M3 Max) (3783 ms)
+    201 POST /v1/posts [answer] json:/envelope/parent long-r-262144 re-signed: over budget: 8014 ms against 2000 ms (set in Release on an Apple M3 Max) (8014 ms)
+    201 POST /v1/posts [answer] json:/envelope/parent long-comment-262144 re-signed: over budget: 2994 ms against 2000 ms (set in Release on an Apple M3 Max) (2994 ms)
+    201 POST /v1/posts [answer] json:/envelope/parent long-self-262144 re-signed: over budget: 4056 ms against 2000 ms (set in Release on an Apple M3 Max) (4056 ms)
+    201 POST /v1/posts [answer] json:/envelope/tags/0 long-r-262144 re-signed: over budget: 8038 ms against 2000 ms (set in Release on an Apple M3 Max) (8038 ms)
+    201 POST /v1/posts [answer] json:/envelope/tags/0 long-comment-262144 re-signed: over budget: 3004 ms against 2000 ms (set in Release on an Apple M3 Max) (3004 ms)
+    201 POST /v1/posts [answer] json:/envelope/tags/0 long-self-262144 re-signed: over budget: 8037 ms against 2000 ms (set in Release on an Apple M3 Max) (8037 ms)
+    201 POST /v1/posts [comment] json:/envelope/board long-r-262144 re-signed: over budget: 7988 ms against 2000 ms (set in Release on an Apple M3 Max) (7988 ms)
+    201 POST /v1/posts [comment] json:/envelope/board long-comment-262144 re-signed: over budget: 2960 ms against 2000 ms (set in Release on an Apple M3 Max) (2960 ms)
+    201 POST /v1/posts [comment] json:/envelope/board long-self-262144 re-signed: over budget: 7219 ms against 2000 ms (set in Release on an Apple M3 Max) (7219 ms)
+    201 POST /v1/posts [comment] json:/envelope/body long-r-262144 re-signed: over budget: 7999 ms against 2000 ms (set in Release on an Apple M3 Max) (7999 ms)
+    201 POST /v1/posts [comment] json:/envelope/body long-comment-262144 re-signed: over budget: 2977 ms against 2000 ms (set in Release on an Apple M3 Max) (2977 ms)
+    201 POST /v1/posts [comment] json:/envelope/nonce long-r-262144 re-signed: over budget: 8006 ms against 2000 ms (set in Release on an Apple M3 Max) (8006 ms)
+    201 POST /v1/posts [comment] json:/envelope/nonce long-comment-262144 re-signed: over budget: 2980 ms against 2000 ms (set in Release on an Apple M3 Max) (2980 ms)
+    201 POST /v1/posts [comment] json:/envelope/nonce long-self-262144 re-signed: over budget: 3048 ms against 2000 ms (set in Release on an Apple M3 Max) (3048 ms)
+    201 POST /v1/posts [comment] json:/envelope/parent long-r-262144 re-signed: over budget: 8007 ms against 2000 ms (set in Release on an Apple M3 Max) (8007 ms)
+    201 POST /v1/posts [comment] json:/envelope/parent long-comment-262144 re-signed: over budget: 2995 ms against 2000 ms (set in Release on an Apple M3 Max) (2995 ms)
+    201 POST /v1/posts [comment] json:/envelope/parent long-self-262144 re-signed: over budget: 5285 ms against 2000 ms (set in Release on an Apple M3 Max) (5285 ms)
+    201 POST /v1/posts [comment] json:/envelope/tags/0 long-r-262144 re-signed: over budget: 8052 ms against 2000 ms (set in Release on an Apple M3 Max) (8052 ms)
+    201 POST /v1/posts [comment] json:/envelope/tags/0 long-comment-262144 re-signed: over budget: 2999 ms against 2000 ms (set in Release on an Apple M3 Max) (2999 ms)
+    201 POST /v1/posts [comment] json:/envelope/tags/0 long-self-262144 re-signed: over budget: 8047 ms against 2000 ms (set in Release on an Apple M3 Max) (8047 ms)
+    201 POST /v1/posts [revision] json:/envelope/board long-r-262144 re-signed: over budget: 7991 ms against 2000 ms (set in Release on an Apple M3 Max) (7991 ms)
+    201 POST /v1/posts [revision] json:/envelope/board long-comment-262144 re-signed: over budget: 2967 ms against 2000 ms (set in Release on an Apple M3 Max) (2967 ms)
+    201 POST /v1/posts [revision] json:/envelope/board long-self-262144 re-signed: over budget: 7225 ms against 2000 ms (set in Release on an Apple M3 Max) (7225 ms)
+    201 POST /v1/posts [revision] json:/envelope/body long-r-262144 re-signed: over budget: 8015 ms against 2000 ms (set in Release on an Apple M3 Max) (8015 ms)
+    201 POST /v1/posts [revision] json:/envelope/body long-comment-262144 re-signed: over budget: 2982 ms against 2000 ms (set in Release on an Apple M3 Max) (2982 ms)
+    201 POST /v1/posts [revision] json:/envelope/nonce long-r-262144 re-signed: over budget: 8021 ms against 2000 ms (set in Release on an Apple M3 Max) (8021 ms)
+    201 POST /v1/posts [revision] json:/envelope/nonce long-comment-262144 re-signed: over budget: 3010 ms against 2000 ms (set in Release on an Apple M3 Max) (3010 ms)
+    201 POST /v1/posts [revision] json:/envelope/nonce long-self-262144 re-signed: over budget: 3813 ms against 2000 ms (set in Release on an Apple M3 Max) (3813 ms)
+    201 POST /v1/posts [revision] json:/envelope/parent long-r-262144 re-signed: over budget: 8032 ms against 2000 ms (set in Release on an Apple M3 Max) (8032 ms)
+    201 POST /v1/posts [revision] json:/envelope/parent long-comment-262144 re-signed: over budget: 3010 ms against 2000 ms (set in Release on an Apple M3 Max) (3010 ms)
+    201 POST /v1/posts [revision] json:/envelope/parent long-self-262144 re-signed: over budget: 4385 ms against 2000 ms (set in Release on an Apple M3 Max) (4385 ms)
+    201 POST /v1/posts [revision] json:/envelope/tags/0 long-r-262144 re-signed: over budget: 8077 ms against 2000 ms (set in Release on an Apple M3 Max) (8077 ms)
+    201 POST /v1/posts [revision] json:/envelope/tags/0 long-comment-262144 re-signed: over budget: 3029 ms against 2000 ms (set in Release on an Apple M3 Max) (3029 ms)
+    201 POST /v1/posts [revision] json:/envelope/tags/0 long-self-262144 re-signed: over budget: 8062 ms against 2000 ms (set in Release on an Apple M3 Max) (8062 ms)
+    201 POST /v1/posts [vote] json:/envelope/nonce long-r-262144 re-signed: over budget: 7983 ms against 2000 ms (set in Release on an Apple M3 Max) (7983 ms)
+    201 POST /v1/posts [vote] json:/envelope/nonce long-comment-262144 re-signed: over budget: 2965 ms against 2000 ms (set in Release on an Apple M3 Max) (2965 ms)
+    201 POST /v1/posts [vote] json:/envelope/nonce long-self-262144 re-signed: over budget: 2785 ms against 2000 ms (set in Release on an Apple M3 Max) (2785 ms)
+    201 POST /v1/posts [verification] json:/envelope/body long-r-262144 re-signed: over budget: 7976 ms against 2000 ms (set in Release on an Apple M3 Max) (7976 ms)
+    201 POST /v1/posts [verification] json:/envelope/body long-comment-262144 re-signed: over budget: 2963 ms against 2000 ms (set in Release on an Apple M3 Max) (2963 ms)
+    201 POST /v1/posts [verification] json:/envelope/method long-r-262144 re-signed: over budget: 7997 ms against 2000 ms (set in Release on an Apple M3 Max) (7997 ms)
+    201 POST /v1/posts [verification] json:/envelope/method long-comment-262144 re-signed: over budget: 2988 ms against 2000 ms (set in Release on an Apple M3 Max) (2988 ms)
+    201 POST /v1/posts [verification] json:/envelope/nonce long-r-262144 re-signed: over budget: 8038 ms against 2000 ms (set in Release on an Apple M3 Max) (8038 ms)
+    201 POST /v1/posts [verification] json:/envelope/nonce long-comment-262144 re-signed: over budget: 2997 ms against 2000 ms (set in Release on an Apple M3 Max) (2997 ms)
+    201 POST /v1/posts [verification] json:/envelope/nonce long-self-262144 re-signed: over budget: 3810 ms against 2000 ms (set in Release on an Apple M3 Max) (3810 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/kind long-r-262144 re-signed: over budget: 8054 ms against 2000 ms (set in Release on an Apple M3 Max) (8054 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/kind long-comment-262144 re-signed: over budget: 3023 ms against 2000 ms (set in Release on an Apple M3 Max) (3023 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/kind long-self-262144 re-signed: over budget: 8084 ms against 2000 ms (set in Release on an Apple M3 Max) (8084 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/value long-r-262144 re-signed: over budget: 8069 ms against 2000 ms (set in Release on an Apple M3 Max) (8069 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/value long-comment-262144 re-signed: over budget: 3030 ms against 2000 ms (set in Release on an Apple M3 Max) (3030 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/value long-self-262144 re-signed: over budget: 3291 ms against 2000 ms (set in Release on an Apple M3 Max) (3291 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/version long-r-262144 re-signed: over budget: 8088 ms against 2000 ms (set in Release on an Apple M3 Max) (8088 ms)
+    201 POST /v1/posts [verification] json:/envelope/refs/0/version long-comment-262144 re-signed: over budget: 3038 ms against 2000 ms (set in Release on an Apple M3 Max) (3038 ms)
+    201 POST /v1/posts [finding] json:/envelope/board long-r-262144 re-signed: over budget: 8008 ms against 2000 ms (set in Release on an Apple M3 Max) (8008 ms)
+    201 POST /v1/posts [finding] json:/envelope/board long-comment-262144 re-signed: over budget: 2972 ms against 2000 ms (set in Release on an Apple M3 Max) (2972 ms)
+    201 POST /v1/posts [finding] json:/envelope/board long-self-262144 re-signed: over budget: 7214 ms against 2000 ms (set in Release on an Apple M3 Max) (7214 ms)
+    201 POST /v1/posts [finding] json:/envelope/body long-r-262144 re-signed: over budget: 8004 ms against 2000 ms (set in Release on an Apple M3 Max) (8004 ms)
+    201 POST /v1/posts [finding] json:/envelope/body long-comment-262144 re-signed: over budget: 2977 ms against 2000 ms (set in Release on an Apple M3 Max) (2977 ms)
+    201 POST /v1/posts [finding] json:/envelope/nonce long-r-262144 re-signed: over budget: 7996 ms against 2000 ms (set in Release on an Apple M3 Max) (7996 ms)
+    201 POST /v1/posts [finding] json:/envelope/nonce long-comment-262144 re-signed: over budget: 2975 ms against 2000 ms (set in Release on an Apple M3 Max) (2975 ms)
+    201 POST /v1/posts [finding] json:/envelope/nonce long-self-262144 re-signed: over budget: 4538 ms against 2000 ms (set in Release on an Apple M3 Max) (4538 ms)
+    201 POST /v1/posts [finding] json:/envelope/tags/0 long-r-262144 re-signed: over budget: 8025 ms against 2000 ms (set in Release on an Apple M3 Max) (8025 ms)
+    201 POST /v1/posts [finding] json:/envelope/tags/0 long-comment-262144 re-signed: over budget: 3006 ms against 2000 ms (set in Release on an Apple M3 Max) (3006 ms)
+    201 POST /v1/posts [finding] json:/envelope/tags/0 long-self-262144 re-signed: over budget: 8124 ms against 2000 ms (set in Release on an Apple M3 Max) (8124 ms)
+    201 POST /v1/posts [finding] json:/envelope/title long-r-262144 re-signed: over budget: 8060 ms against 2000 ms (set in Release on an Apple M3 Max) (8060 ms)
+    201 POST /v1/posts [finding] json:/envelope/title long-comment-262144 re-signed: over budget: 2997 ms against 2000 ms (set in Release on an Apple M3 Max) (2997 ms)
+    ```
 - [ ] **Step 7.** Commit: `R14.10: a fuzzer derived from the route table varies one part at a time, and its base is red (D32 budget rows; D33-1…n ledgered)`.
 
 ### Task A2: The random pass and the Kestrel pass
@@ -455,8 +607,15 @@ Use the same runner as A5, with `CASES` replaced. The filter and expected name a
 | F14 | `AccessPolicy.cs` | `&& !IsFlagRaise(request)` → `&& !(IsFlagRaise(request) && request.PostsToday == int.MinValue)` | `R7_22_AFlagIsNotRefusedForASpentPostingBudget`, `R7_22_AnAgentAtItsPostingBudgetMayFlag` |
 | F15 | `TierPolicy.cs` | `PrincipalTier.T0 => 10,` → `PrincipalTier.T0 => 11,` | `R7_22_TheFlagBudgetsAreThePublishedOnes`, `R7_22_TheEleventhFlagInADayIsRefused` |
 | F16 | `RaiseFlag.cs` | `&& f.Kind == kind` → `&& (f.Kind == kind \|\| f.FlagId != "no-such-flag")` | `R10_70_AnotherTypeOrAnotherRaiserIsNotARepeat` |
+| F17 | `src/Curia.Api/ForumEndpoints.cs` (the inbox handler) | `Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()),` → `Cursor: SearchCursor.Decode(string.Empty),` | `R14_10_NoVariationOfAnyPartIsAServerFaultAProblemlessRefusalOrOverBudget`, naming `coverage: RequestReadQuery lists GET /v1/inbox cursor`. GREEN on 7bf1160, because `/v1/search` reads `cursor` and the check compared names only: that is the discrimination |
+| F18 | `tests/Curia.Api.Tests/Fuzz/RequestModel.cs` | `: throw new NotReSignableException();` → `: original;` | `R14_10_AnEnvelopeThatCannotBeCanonicalizedHasNoReSignedCopy`; in the same run, the closed pass names `superseded: no re-signed copy was superseded` |
+| F19 | `tests/Curia.Api.Tests/Fuzz/Exemplars.cs` | the line `                envelope["code_blocks"] = new JsonArray(new JsonObject { ["language"] = "text", ["source"] = "x", ["license"] = "CC0-1.0" });` → an empty string | `R14_10_EveryEnvelopeMemberAndBodyPropertyIsAPart`, naming `envelope: code_blocks/*/language` |
+| F20 | `src/Curia.Api/ForumEndpoints.cs` (the board listing) | `        return Results.Ok(posts\n            .Where(p => p.Board == board && servable(p.PostId) && Discussion(p))` → the same two lines, preceded by the line `        _ = http.Query["zzz-unlisted"].ToString();` | `R14_10_NoVariationOfAnyPartIsAServerFaultAProblemlessRefusalOrOverBudget`, naming `coverage: GET /v1/boards/{board}/posts reads the query parameter zzz-unlisted`. GREEN on 7bf1160 |
+| F21 | `tests/Curia.Api.Tests/Fuzz/FuzzRun.cs` | `!failure.Budget && !string.Equals(failure.Part, "exemplar", StringComparison.Ordinal);` → `!failure.Budget;` | `R14_10_AnExemplarFailureIsNeverLedgerable` |
+| F22 | `src/Curia.Api/ForumEndpoints.cs` | `foreach (var unsupported in (string[])["verification", "environment_version"])` → `foreach (var unsupported in (string[])["verification"])` | `R14_10_EveryRefusedQueryParameterIsRefusedByItsRoute`, naming environment_version. In a run that includes the closed pass, that pass also names `coverage: RefusedQuery lists GET /v1/search environment_version` |
+| F23 | `tests/Curia.Api.Tests/Fuzz/SurfaceInventory.cs` | the line `        ("GET", "/v1/search", "environment_version", "curia/search/unsupported-filter"),` → an empty string | `R14_10_NoVariationOfAnyPartIsAServerFaultAProblemlessRefusalOrOverBudget`, naming `coverage: GET /v1/search reads the query parameter environment_version, and no exemplar of that route sends it`. This is the line the unpatched tree printed before `RefusedQuery` existed |
 
-- [ ] Run. Expected: `falsify: 16 cases, 0 not RED`.
+- [ ] Run. Expected: `falsify: 23 cases, 0 not RED`.
 - [ ] **Not falsified, and recorded as owed:** the restart clause (no fault that breaks only a restart could be planted without also breaking reads), and the Kestrel pass. Whether any raw path byte reaches a handler is what A2's reach guard reports. A patch that makes a handler throw on a raw byte would also be found by the closed pass's percent-encoded rows, so the pass has no fault of its own to plant.
 
 ### Task A7: The register and the documents (PR A)
@@ -464,6 +623,9 @@ Use the same runner as A5, with `CASES` replaced. The filter and expected name a
 - [ ] In `IMPLEMENTATION_PLAN.md`:
   - **D32** gets "Closed by the stage's PR A", with the A3 timings, the corpus diff (empty), the versions, R10.68, and the facts and falsification cases. The amplification paragraph stays open.
   - **D33** gets the red baseline (A1, A2) as instances `D33-1…n`, the acceptance's 20 lines, the closed-set additions if any, and "the ledger holds n rows; PR B empties it".
+  - **D33** also records, as observed and not acted on (review of 7bf1160), these two texts verbatim; their file:line references are at 7bf1160, so re-read them against the tree when recording (after the review round, the header loop is `FuzzRun.cs:148`–`:152`):
+    - "No variation adds an unknown envelope member. ADMIT accepts one, VERIFY signs it, SCREEN screens its name and PERSIST stores it (CanonicalStrings.cs:49; ContentScreener.cs:77, :92), and JsonReader.cs:357-378 caps a member name at 262,144 bytes, as it caps a value. Spec §4.10's closed set has no add-member class, and §4.11 admits one only to remedy an acceptance miss. The screening-cost exposure of a long author-chosen member name is covered structurally by R10.69 (every screening pattern on the linear engine), not by the fuzzer. Revisit if an acceptance case ever needs an inserted member."
+    - "Header-read coverage is checked by name across the whole pass (FuzzRun.cs:139-143): a header read on route X is satisfied by an exemplar of route Y that varies it. The recorder now records header reads by route as well (`HeaderReads`), so a per-route check is one loop. It was not turned on in PR A because middleware reads headers such as `Authorization` and `DPoP` on anonymous routes, and per-route coverage would add those parts to every anonymous exemplar, which changes the plan's send counts and the A1 baseline. The next fuzzer change should measure the per-route difference from `HeaderReads` first, then decide."
   - **D34** gets "Closed by the stage's PR A, Task A4b", with R7.22 and R10.70, the facts, F14–F16, and the residuals (D7's fleet of identities; two identical flags raised at once).
   - **Traps** gain "27. A fuzzer derived from the request surface cannot find a cost keyed to a detector's anchor word; linearity is structural (R10.69)".
   - **What comes next** says PR B is next.

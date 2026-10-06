@@ -15,7 +15,7 @@ public sealed class RequestFuzzGroup;
 /// R14.10 (errata G18): a fuzzer derived from the route registrations varies one part of a request
 /// at a time over a closed published set, with an oracle and a ledger. The scope is derived -- routes
 /// from the host's <c>EndpointDataSource</c>, parts by walking each exemplar -- and these facts hold
-/// the derivation to the host both ways.
+/// the derivation to the host: query reads both ways and by route; header reads by name.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -83,7 +83,13 @@ public sealed class RequestFuzzClosedTests(FuzzForumFixture forum) : IClassFixtu
             foreach (var part in model.Parts().Where(p => p.Kind == PartKind.Json))
             {
                 var pointer = part.Address["json:".Length..];
-                if (pointer.StartsWith("/envelope/", StringComparison.Ordinal)) envelope.Add(pointer["/envelope/".Length..].Split('/')[0]);
+                if (pointer.StartsWith("/envelope/", StringComparison.Ordinal))
+                {
+                    var segments = pointer["/envelope/".Length..].Split('/')
+                        .Select(s => s.Length > 0 && s.All(char.IsAsciiDigit) ? "*" : s)
+                        .ToArray();
+                    for (var i = 1; i <= segments.Length; i++) envelope.Add(string.Join('/', segments[..i]));
+                }
                 else if (pointer.Length > 1) body.Add(pointer[1..].Split('/')[0]);
             }
         }
@@ -93,7 +99,41 @@ public sealed class RequestFuzzClosedTests(FuzzForumFixture forum) : IClassFixtu
             .Distinct(StringComparer.Ordinal)
             .ToList();
         Assert.True(SurfaceInventory.BodyMembers(forum).Count > 0, "no handler binds a body with named members; the reflection is wrong");
+        Assert.True(SurfaceInventory.EnvelopeMembers().Any(m => m.Contains("/*/", StringComparison.Ordinal)), "the reflection found no nested envelope member; it is wrong");
         Assert.True(missing.Count == 0, "members no exemplar carries as a part:\n" + string.Join('\n', missing));
+    }
+
+    /// <summary>
+    /// Spec §4.10: a variation whose envelope has no canonical form has no re-signed copy. Rendering
+    /// one throws, and the pass counts it superseded by the unre-signed copy, which is sent.
+    /// </summary>
+    [Fact]
+    public async Task R14_10_AnEnvelopeThatCannotBeCanonicalizedHasNoReSignedCopy()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var context = FuzzContext.Offline(forum);
+        var row = Exemplars.All.Single(r => r.Route == "POST /v1/posts" && r.Variant == "question");
+        var model = await row.Build(context, ct);
+        var part = model.Parts().Single(p => p.Address == "json:/envelope/body");
+        var variation = Variations.Closed.Single(v => v.Id == "nul-raw");
+        var value = variation.Make(part, model.ValueOf(part));
+
+        Assert.Throws<NotReSignableException>(() => model.Render(part, value, CopyKind.ReSigned));
+        using var unsigned = model.Render(part, value, CopyKind.Unsigned);
+        Assert.NotNull(unsigned);
+    }
+
+    /// <summary>
+    /// Spec §4.10: a clause-4 failure is an exemplar defect and never a ledger row, and a budget
+    /// failure (D32) never one either; a variation's server fault may be.
+    /// </summary>
+    [Fact]
+    public void R14_10_AnExemplarFailureIsNeverLedgerable()
+    {
+        Assert.False(FuzzRun.Ledgerable(new FuzzFailure(
+            "GET /health", "plain", "exemplar", "first", "plain", 409, "about:blank", 1, "the exemplar was not answered 2xx (clause 4): about:blank")));
+        Assert.True(FuzzRun.Ledgerable(new FuzzFailure(
+            "GET /health", "plain", "query:none", "nul", "plain", 500, "about:blank", 1, "a server fault")));
     }
 
     /// <summary>

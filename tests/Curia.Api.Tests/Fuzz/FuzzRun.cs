@@ -88,6 +88,12 @@ internal static class FuzzRun
         return (agent, dpop, await dpop.GetTokenAsync(client, TokenEndpoint, forum.Now, ct));
     }
 
+    /// <summary>
+    /// A budget failure (D32) and any failure of an exemplar send (clause 4, and clauses 1-2 on an
+    /// exemplar) are never ledger rows (spec §4.10).
+    /// </summary>
+    internal static bool Ledgerable(FuzzFailure failure) => !failure.Budget && !string.Equals(failure.Part, "exemplar", StringComparison.Ordinal);
+
     /// <summary>The outcome of a closed pass.</summary>
     internal sealed record Outcome(IReadOnlyList<string> Failures, IReadOnlyList<FuzzFailure> Answered, IReadOnlyList<string> Plan);
 
@@ -104,6 +110,7 @@ internal static class FuzzRun
         // The plan, per row and in total, before the first send; and every header an exemplar varies.
         var plan = new List<string>();
         var varied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sentQuery = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var total = 0;
         foreach (var row in Exemplars.All)
         {
@@ -114,6 +121,8 @@ internal static class FuzzRun
             plan.Add($"{row.Route} [{row.Variant}]: {count.ToString(CultureInfo.InvariantCulture)} sends");
             foreach (var part in model.Parts().Where(p => p.Kind == PartKind.Header))
                 varied.Add(part.Address["header:".Length..]);
+            if (!sentQuery.TryGetValue(row.Route, out var sent)) sentQuery[row.Route] = sent = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (name, _) in model.Query) sent.Add(name);
         }
 
         plan.Add($"total: {total.ToString(CultureInfo.InvariantCulture)} sends");
@@ -148,11 +157,32 @@ internal static class FuzzRun
                 pass.Lines.Add($"coverage: TransportHeaders lists {name}, which nothing read during the pass (stale)");
         }
 
-        foreach (var name in SurfaceInventory.RequestReadQuery.Select(q => q.Name).Distinct(StringComparer.Ordinal))
+        foreach (var (method, pattern, name) in SurfaceInventory.RequestReadQuery)
         {
-            if (!forum.Recorder.QueryNames.Contains(name, StringComparer.Ordinal))
-                pass.Lines.Add($"coverage: RequestReadQuery lists {name}, which nothing read during the pass (stale)");
+            if (!forum.Recorder.QueryReads.Contains(($"{method} {pattern}", name)))
+                pass.Lines.Add($"coverage: RequestReadQuery lists {method} {pattern} {name}, which that route never read during the pass (stale)");
         }
+
+        foreach (var (method, pattern, name, _) in SurfaceInventory.RefusedQuery)
+        {
+            if (!forum.Recorder.QueryReads.Contains(($"{method} {pattern}", name)))
+                pass.Lines.Add($"coverage: RefusedQuery lists {method} {pattern} {name}, which that route never read during the pass (stale)");
+        }
+
+        // Both ways: every query parameter a route read is sent by some exemplar of that route, or listed as one it refuses.
+        foreach (var (route, name) in forum.Recorder.QueryReads.OrderBy(r => r.Route, StringComparer.Ordinal).ThenBy(r => r.Name, StringComparer.Ordinal))
+        {
+            if (route == HeaderReadRecorder.NoEndpoint)
+                pass.Lines.Add($"coverage: the query parameter {name} was read with no endpoint matched");
+            else if ((!sentQuery.TryGetValue(route, out var names) || !names.Contains(name))
+                && !SurfaceInventory.RefusedQuery.Any(r => string.Equals($"{r.Method} {r.Pattern}", route, StringComparison.Ordinal) && string.Equals(r.Name, name, StringComparison.Ordinal)))
+            {
+                pass.Lines.Add($"coverage: {route} reads the query parameter {name}, and no exemplar of that route sends it");
+            }
+        }
+
+        if (pass.SupersededTotal == 0)
+            pass.Lines.Add("superseded: no re-signed copy was superseded in the whole pass, so no raw-byte variation reached a signed envelope");
 
         await pass.WriteFilesAsync(timings, ct);
         return new Outcome(pass.Judge(), pass.Failures, plan);
@@ -176,6 +206,8 @@ internal static class FuzzRun
         internal List<string> Lines { get; } = [];
 
         internal List<string> MainCreated { get; } = [];
+
+        internal int SupersededTotal { get; private set; }
 
         private readonly SortedDictionary<string, string> _answers = new(StringComparer.Ordinal);
         private readonly List<string> _timings = [];
@@ -203,9 +235,9 @@ internal static class FuzzRun
                 Lines.Add($"{row.Route} [{row.Variant}]: the row stopped after {state.Sent.ToString(CultureInfo.InvariantCulture)} sends: {e.GetType().Name}: {e.Message}");
             }
 
-            // Clause 5: sent plus unsent is the plan; unsent at most a tenth of a part's sends; reach per part.
-            if (state.Sent + state.UnsentTotal != plan.Count)
-                Lines.Add($"{row.Route} [{row.Variant}]: sent {state.Sent.ToString(CultureInfo.InvariantCulture)} + unsent {state.UnsentTotal.ToString(CultureInfo.InvariantCulture)} is not the {plan.Count.ToString(CultureInfo.InvariantCulture)} planned");
+            // Clause 5: sent plus unsent plus superseded is the plan; unsent at most a tenth of a part's sends; reach per part.
+            if (state.Sent + state.UnsentTotal + state.SupersededTotal != plan.Count)
+                Lines.Add($"{row.Route} [{row.Variant}]: sent {state.Sent.ToString(CultureInfo.InvariantCulture)} + unsent {state.UnsentTotal.ToString(CultureInfo.InvariantCulture)} + superseded {state.SupersededTotal.ToString(CultureInfo.InvariantCulture)} is not the {plan.Count.ToString(CultureInfo.InvariantCulture)} planned");
 
             foreach (var (address, planned) in state.Planned)
             {
@@ -226,6 +258,8 @@ internal static class FuzzRun
             _slowest[row.Route] = Math.Max(_slowest.GetValueOrDefault(row.Route), slowest);
 
             if (!row.OwnFixture) MainCreated.AddRange(state.Created);
+
+            // A vote is never served (R8.55; PostKinds.IsServedToReaders, ForumEndpoints.cs:1816), so GET /v1/posts/{id} on one can never answer 200. The vote row's restart check asks only GET /health (spec §4.10 departs here; recorded in the plan's Task A1).
             return string.Equals(row.Variant, "vote", StringComparison.Ordinal) ? [] : state.Created;
         }
 
@@ -249,6 +283,13 @@ internal static class FuzzRun
             {
                 request = model.Render(part, value, copy);
             }
+            catch (NotReSignableException) when (part is not null && copy == CopyKind.ReSigned)
+            {
+                state.Superseded[part.Address] = state.Superseded.GetValueOrDefault(part.Address) + 1;
+                state.SupersededTotal++;
+                SupersededTotal++;
+                return;
+            }
             catch (Exception) when (part is not null)
             {
                 state.Unsent[part.Address] = state.Unsent.GetValueOrDefault(part.Address) + 1;
@@ -258,6 +299,7 @@ internal static class FuzzRun
 
             var address = part?.Address ?? "exemplar";
             var key = $"{row.Route} [{row.Variant}] {address} {label} {Copies.Wire(copy)}";
+            // Warm-up is the first send of each ROW, not each route (spec §4.10 clause 3 says route): rows on a fixture of their own start a new host, whose first request is a cold start. Only the plain exemplar's first send is exempt; its last send and every variation stay budgeted. Recorded in the plan's Task A1.
             var warmUp = state.Elapsed.Count == 0;
             var stopwatch = Stopwatch.StartNew();
             int status;
@@ -344,8 +386,8 @@ internal static class FuzzRun
             foreach (var failure in Failures)
             {
                 var row = Ledgered(failure);
-                if (row is not null && failure.Budget)
-                    lines.Add($"ledger: {row.Register} matches a budget failure, which may never be ledgered: {failure.Line}");
+                if (row is not null && !Ledgerable(failure))
+                    lines.Add($"ledger: {row.Register} matches a {(failure.Budget ? "budget" : "exemplar")} failure, which may never be ledgered: {failure.Line}");
                 else if (row is not null)
                     matched.Add(row);
                 else
@@ -356,6 +398,8 @@ internal static class FuzzRun
             {
                 if (!Regex.IsMatch(row.Register, "^D33-[1-9][0-9]*$", RegexOptions.None, TimeSpan.FromSeconds(1)))
                     lines.Add($"ledger: {row.Register} is not D33-<n>");
+                if (string.Equals(row.Part, "exemplar", StringComparison.Ordinal))
+                    lines.Add($"ledger: {row.Register} names an exemplar send, which may never be ledgered");
                 if (!matched.Contains(row))
                     lines.Add($"ledger: {row.Register} ({row.Route} [{row.Variant}] {row.Part} {row.Variation} {row.Copy}) was not observed failing (stale)");
             }
@@ -394,7 +438,7 @@ internal static class FuzzRun
                         ["status"] = f.Status,
                         ["problemType"] = f.ProblemType,
                         ["elapsedMs"] = f.ElapsedMs,
-                        ["ledgered"] = !f.Budget && Ledgered(f) is not null,
+                        ["ledgered"] = Ledgerable(f) && Ledgered(f) is not null,
                     }.ToJsonString()).Append('\n');
                 }
 
@@ -417,6 +461,8 @@ internal static class FuzzRun
 
         internal Dictionary<string, int> Unsent { get; } = new(StringComparer.Ordinal);
 
+        internal Dictionary<string, int> Superseded { get; } = new(StringComparer.Ordinal);
+
         internal HashSet<string> Reached { get; } = new(StringComparer.Ordinal);
 
         internal List<long> Elapsed { get; } = [];
@@ -426,5 +472,7 @@ internal static class FuzzRun
         internal int Sent { get; set; }
 
         internal int UnsentTotal { get; set; }
+
+        internal int SupersededTotal { get; set; }
     }
 }
