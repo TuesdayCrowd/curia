@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Xml.Linq;
 using Curia.Client;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -38,7 +37,7 @@ public sealed class ConstantArgumentTests
     [Fact]
     public void R10_63_NoMethodWhoseParameterMustBeAConstantIsTakenAsADelegate()
     {
-        var shipped = ShippedAssemblies();
+        var shipped = Shipped.ShippedAssemblies();
         Assert.True(shipped.Count >= 12, $"only {shipped.Count} projects were found under src/; the scan is looking in the wrong place");
 
         var guarded = new HashSet<string>(StringComparer.Ordinal);
@@ -90,7 +89,7 @@ public sealed class ConstantArgumentTests
         const string ownText = "System.Void Curia.Client.OwnText::.ctor(System.String)";
         var sites = new List<(string Method, ParameterDefinition Parameter)>();
 
-        foreach (var path in ShippedAssemblies())
+        foreach (var path in Shipped.ShippedAssemblies())
         {
             using var assembly = AssemblyDefinition.ReadAssembly(path);
             foreach (var type in AllTypes(assembly.MainModule))
@@ -170,31 +169,6 @@ public sealed class ConstantArgumentTests
         }
     }
 
-    /// <summary>
-    /// The assembly each project under <c>src/</c> builds, as it sits beside this test: its
-    /// <c>AssemblyName</c> where the project sets one (<c>curia</c>, <c>curia-mcp</c>,
-    /// <c>curia-operator</c>), and the project's name otherwise. A project whose assembly is not here
-    /// fails the fact rather than going unread.
-    /// </summary>
-    private static List<string> ShippedAssemblies()
-    {
-        var paths = new List<string>();
-        foreach (var project in Directory.GetDirectories(Path.Combine(FindRepoRoot(), "src")))
-        {
-            var name = Path.GetFileName(project);
-            var file = Path.Combine(project, name + ".csproj");
-            if (!File.Exists(file))
-                continue;
-
-            var assemblyName = XDocument.Load(file).Descendants("AssemblyName").FirstOrDefault()?.Value ?? name;
-            var path = Path.Combine(AppContext.BaseDirectory, assemblyName + ".dll");
-            Assert.True(File.Exists(path), $"{assemblyName}.dll, which {name} builds, is not beside this test, so it would go unread; reference the project");
-            paths.Add(path);
-        }
-
-        return paths;
-    }
-
     private static IEnumerable<TypeDefinition> AllTypes(ModuleDefinition module)
     {
         foreach (var type in module.Types)
@@ -208,16 +182,5 @@ public sealed class ConstantArgumentTests
         foreach (var nested in type.NestedTypes)
         foreach (var flattened in AllTypesRecursive(nested))
             yield return flattened;
-    }
-
-    /// <summary>Mirrors EventStoreWriteSurfaceTests.FindRepoRoot: each file in this suite is self-contained.</summary>
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src")))
-            dir = dir.Parent;
-
-        return dir?.FullName
-            ?? throw new InvalidOperationException("Could not find repo root (a 'src' directory) above " + AppContext.BaseDirectory);
     }
 }

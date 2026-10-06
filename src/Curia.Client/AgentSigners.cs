@@ -203,8 +203,7 @@ public sealed class ExternalSigner : IAgentSigner
                 process.StandardInput.Close();
             }
 
-            var stdout = process.StandardOutput.ReadToEnd();
-            var stderr = process.StandardError.ReadToEnd();
+            var (stdout, stderr) = ProgramOutput.Read(process);
             process.WaitForExit();
 
             return process.ExitCode == 0

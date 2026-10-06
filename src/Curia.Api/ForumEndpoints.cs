@@ -415,7 +415,7 @@ public static class ForumEndpoints
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
+        if (string.IsNullOrEmpty(request.AgentId) || string.IsNullOrEmpty(request.Kid))
             return Results.BadRequest(new Problem(
                 "curia/enroll/invalid", "agent_id and kid are required", null));
 
@@ -435,6 +435,13 @@ public static class ForumEndpoints
         // after RefusedText, so U+0000 keeps its own name and no lone surrogate reaches the walk.
         if ((ControlCharacter(request.AgentId, "agent_id") ?? ControlCharacter(request.Kid, "kid")) is { } controlError)
             return Problem(StatusCodes.Status400BadRequest, controlError);
+
+        // A blank identifier made of characters outside Cc, Cf, Zl and Zp -- U+0020, U+00A0, U+3000
+        // (Zs) -- is still refused as required. Asked after R4.37, so an identifier made only of a
+        // control or separator character that is also white space (U+000A, U+0085, U+2028) is refused
+        // by R4.37's name, which is its true reason, and not as missing (Task 10's review).
+        if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
+            return Results.BadRequest(new Problem("curia/enroll/invalid", "agent_id and kid are required", null));
 
         if ((TooLong(request.AgentId, "agent_id") ?? TooLong(request.Kid, "kid")) is { } lengthError)
             return Problem(StatusCodes.Status400BadRequest, lengthError);

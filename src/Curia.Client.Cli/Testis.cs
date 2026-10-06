@@ -134,8 +134,7 @@ internal static class Testis
 
         using (process)
         {
-            var stdout = await process.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
-            var stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+            var (stdout, stderr) = await ProgramOutput.ReadAsync(process, ct).ConfigureAwait(false);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
 
             return process.ExitCode switch

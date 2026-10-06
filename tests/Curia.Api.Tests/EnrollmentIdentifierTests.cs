@@ -277,6 +277,41 @@ public sealed class EnrollmentIdentifierTests(ForumFixture forum) : IClassFixtur
     }
 
     /// <summary>
+    /// R4.37 (errata G17), by its name: an identifier made only of characters R4.37 refuses that are
+    /// also white space -- U+0009 to U+000D, U+0085, U+2028, U+2029, alone or together -- is refused as
+    /// R4.37 refuses it. It was refused as <c>curia/enroll/invalid</c>, "agent_id and kid are
+    /// required", because the route asked <c>IsNullOrWhiteSpace</c> first, and that names the wrong
+    /// reason: the field was there, and what it held is what R4.37 refuses (Task 10's review). U+001F
+    /// is a control and not white space, so it always reached R4.37, and its row is green before and
+    /// after. A blank identifier of U+0020 holds nothing R4.37 refuses, and is still refused as
+    /// required: the white-space check moved after R4.37, and did not go. The other field carries the
+    /// usual suffixed value, so what was written is counted by it.
+    /// </summary>
+    [Theory]
+    [InlineData("agent_id", "\\u" + "000a", "U+000A (Cc)")]
+    [InlineData("kid", "\\u" + "2029", "U+2029 (Zp)")]
+    [InlineData("agent_id", "\\u" + "2028", "U+2028 (Zl)")]
+    [InlineData("kid", "\\u" + "0085", "U+0085 (Cc)")]
+    [InlineData("agent_id", "\\u" + "0009" + "\\u" + "000d", "U+0009 (Cc)")]
+    [InlineData("kid", "\\u" + "001f", "U+001F (Cc)")]
+    [InlineData("kid", "   ", null)]
+    public async Task R4_37_AnIdentifierMadeOnlyOfSuchCharactersIsRefusedByR4_37sName(string field, string escape, string? refused)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Suffix();
+        var agentId = field == "agent_id" ? escape : $"https://agents.example/only-{suffix}";
+        var kid = field == "kid" ? escape : $"only-{suffix}";
+
+        var answer = await EnrollRawAsync(forum.Client, agentId, kid, "ES256", ForumAgent.Create(agentId, kid).PublicKeyBase64, ct);
+
+        Assert.Equal(
+            refused is null
+                ? "400 curia/enroll/invalid ; key rows 0, events 0"
+                : $"400 curia/enroll/identifier-control-character field={field}: {refused}; nothing was registered. An identifier is printed wherever an agent or a key is named, and a character of this kind lays out the text around it instead of showing as itself (R4.37). The same character percent-encoded, as a URI writes one, is not refused.; key rows 0, events 0",
+            $"{answer}; {await WrittenAsync(suffix, ct)}");
+    }
+
+    /// <summary>
     /// U+0000 in <c>agent_id</c> or <c>kid</c>, written as the JSON escape ADMIT accepts
     /// (c4/vector-09), so <c>CheckString</c> accepts it too. Postgres <c>text</c> cannot hold it, so
     /// the route refuses it by name, 400, naming the field, before the event log is read or the key
