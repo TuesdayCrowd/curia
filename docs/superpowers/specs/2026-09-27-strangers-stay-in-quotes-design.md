@@ -518,8 +518,8 @@ Each has a default the plan follows, and no task waits on an answer.
   which says "in a shell".
 - **Headers one handler reads**: a conditional read's `If-None-Match` and a body's `Content-Type`
   beyond the ten bodies are not swept; the two headers every route reads are (§4.15).
-- **A fact that feeds a reader ill-formed bytes.** R10.64's decoding of another program's output rests
-  on each platform's default decoder, which both runtimes were run to agree on; no fact pins it.
+- **A fact that feeds both readers the same ill-formed bytes.** Each reader's decoding is pinned on its
+  own side (`ProgramOutputTests`; `display_output.rs`), and agreement between them is not.
 - **Invisible characters outside Cc, Cf, Zl and Zp at enrollment**: D4's form (§4.14).
 - **The red-team corpus's reach.** R10.24 runs the corpus against the reference client's detectors,
   not its frame; the frame now has gates of its own (§4.9), and whether the corpus should also be

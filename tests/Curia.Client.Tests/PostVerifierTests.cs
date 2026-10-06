@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Tests.Shared;
 using Curia.Domain.Serving;
@@ -21,6 +22,9 @@ namespace Curia.Client.Tests;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class PostVerifierTests : IDisposable
 {
+    private const string HostileAuthority = "http://forum\u00AD.\u0430test";
+    private const string HostileForum = HostileAuthority + "/";
+
     private readonly string _home = Directory.CreateTempSubdirectory("curia-head-store-").FullName;
     private readonly List<StubLog> _logs = [];
 
@@ -914,6 +918,70 @@ public sealed class PostVerifierTests : IDisposable
         Assert.DoesNotContain(lines, l => l.StartsWith("VERIFIED.", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// R10.63 (errata G17): the Forum this client was pointed at -- by <c>--forum</c> or
+    /// <c>CURIA_FORUM</c> -- is an argument its caller gave it, echoed back, and so is a display
+    /// literal like every other value the client did not compose. The authority carries a soft
+    /// hyphen (Cf), which a literal escapes, and a Cyrillic letter (Ll), which no rule escapes but
+    /// which now sits inside the quotes rather than in the sentence around them.
+    /// </summary>
+    [Fact]
+    public async Task R10_63_TheForumAuthorityAFirstReadNamesIsADisplayLiteral()
+    {
+        var log = Log();
+        var forum = new Uri(HostileForum);
+        var root = Directory.CreateTempSubdirectory("curia-head-store-").FullName;
+        try
+        {
+            var result = await VerifyAtAsync(log, forum, new HeadStore(root));
+            var rendered = result.Render();
+
+            Assert.Contains(DisplayLiteral.Of(HostileAuthority), rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u00AD", rendered, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// R10.63 (errata G17): an unreadable retained head names the Forum and the directory to inspect.
+    /// The directory is rooted at <c>CURIA_CLIENT_HOME</c>, which the caller chose, so both holes are
+    /// display literals: the zero-width space (Cf) in the home and the soft hyphen in the authority
+    /// reach the reader escaped, never as themselves.
+    /// </summary>
+    [Fact]
+    public async Task R10_63_AnUnreadableRetainedHeadNamesItsDirectoryAsADisplayLiteral()
+    {
+        var log = Log();
+        var forum = new Uri(HostileForum);
+        var temp = Directory.CreateTempSubdirectory("curia-head-store-").FullName;
+        try
+        {
+            var store = new HeadStore(Path.Combine(temp, "home\u200B"));
+            Directory.CreateDirectory(store.DirectoryFor(forum));
+            await File.WriteAllTextAsync(
+                Path.Combine(store.DirectoryFor(forum), "head.json"),
+                "{ this is not a head",
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HeadStore.RetainedHead.Unreadable, store.State(forum));
+
+            var result = await VerifyAtAsync(log, forum, store);
+            var detail = result.Consistency.Detail;
+
+            Assert.Equal(CheckOutcome.CouldNotCheck, result.Consistency.Outcome);
+            Assert.Contains(DisplayLiteral.Of(store.DirectoryFor(forum)), detail, StringComparison.Ordinal);
+            Assert.Contains(DisplayLiteral.Of(HostileAuthority), detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u200B", detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u00AD", detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(temp, recursive: true);
+        }
+    }
+
     private static string ForkRoot(StubLog fork, int treeSize) =>
         Curia.Domain.Acta.LogEntries.Prefixed(fork.RootAt(treeSize));
 
@@ -927,6 +995,17 @@ public sealed class PostVerifierTests : IDisposable
     private async Task<PostVerification> VerifyAsync(StubLog log, HeadStore? heads = null)
     {
         var verifier = new PostVerifier(log.Client(), heads ?? new HeadStore(_home));
+        var result = await verifier.VerifyAsync(StubLog.PostId, MarkingMode.None, TestContext.Current.CancellationToken);
+
+        Assert.True(result.TryGetValue(out var verification, out var refusal), refusal?.Summary);
+        return verification!;
+    }
+
+    private static async Task<PostVerification> VerifyAtAsync(StubLog log, Uri forum, HeadStore heads)
+    {
+        // The stub's handler answers by path alone, so a client that names another Forum reaches it.
+        using var http = log.RawClient();
+        var verifier = new PostVerifier(new ForumClient(http, forum), heads);
         var result = await verifier.VerifyAsync(StubLog.PostId, MarkingMode.None, TestContext.Current.CancellationToken);
 
         Assert.True(result.TryGetValue(out var verification, out var refusal), refusal?.Summary);

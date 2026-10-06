@@ -1950,8 +1950,10 @@ parse of its own. `CompactJws` refuses such a segment as malformed
 `R11_33_ATokenRequestsProofOrAssertionHoldingAnUnpairedSurrogateIsRefusedNotThrown` and the header
 sweep's surrogate rows (falsification cases 91 and 92). The sweep had sent `\u0000`, which
 decodes, and no string that does not (trap 26). A 4xx no handler composed is a problem
-document now
-(`src/Curia.Api/UnreadableRequests.cs:16`, registered at `src/Curia.Api/Program.cs:294`, with the
+document now, and at `/oauth/token` RFC 6749's error object; until the stage's final gate every path
+under `/oauth` had been left out, so routing's 404 and 405 there were served with no body at all
+(cases 95, 96)
+(`src/Curia.Api/UnreadableRequests.cs:19`, registered at `src/Curia.Api/Program.cs:294`, with the
 binder told not to throw at `:291`), held by
 `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` and the three sweeps (cases 67,
 68). A
@@ -4077,7 +4079,12 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
   fence: no other CLI type touches `System.Console`, and no line's `string` parameter loses the
   attribute.
 - **R10.63, the adapter.** `ForumTools` and `WriteTools` compose every result and refusal through
-  `FrameBuilder`; a receipt had printed the board an answer copies from its question, and a write
+  `FrameBuilder`, except `curia_verify`, whose result is `PostVerification.Render`: lines the client
+  composes over `Check` details, in which every value the client did not compose goes through
+  `Check.Quote`. That covers a served value, and also the caller's own `--forum`, `CURIA_FORUM` or
+  `CURIA_CLIENT_HOME`, which `ConsistencyAsync` had echoed raw until the stage's final gate
+  (`src/Curia.Client/PostVerifier.cs`, falsification cases 93 and 94). `curia verify` prints the
+  same details through `OwnText`; a receipt had printed the board an answer copies from its question, and a write
   refusal the Forum's title and detail, as they came. A passage's resource URI carries the post id
   percent-encoded (`src/Curia.Mcp/ForumTools.cs:285`), and the gate reads each URI: it had carried the
   id as served, where no gate looked (the Task 1 review's M4).
@@ -4150,7 +4157,7 @@ hostile identifier through `curia read`'s renderer, `curia_read`, `curia_search`
 `curia-testis verify`, and in `R10_67_ABodyWrittenToDriveATerminalReachesNoReaderAsItself` a body
 written to drive a terminal through the first three.
 
-**Falsified:** the strangers stage's Task 10 holds ninety-two cases in one hundred and twenty suite
+**Falsified:** the strangers stage's Task 10 holds ninety-six cases in one hundred and twenty-four suite
 runs, its review rounds' cases included. Task 11 ran the first eighty-nine in one run of its runner
 from the repository root, on 1045f08's source: every one of the 116 commands printed `RED`, every restore
 printed `restore clean` with both proofs and, after each of the eleven cases that patch a file under
@@ -4159,7 +4166,11 @@ lines were `runner exit: 0` and `falsify.py exit 0`. Case 90 came with Task 11's
 alone: `RED`, `restore clean` with both proofs, and `runner exit: 0`. Task 11's fix review
 retargeted case 90 at `CompactJws`'s object check and added cases 91 and 92, and ran the three with
 its changes uncommitted: `RED` on every command, each restore byte-identical to its kept copy, and
-`runner exit: 0`. How each round first ran the cases it added is in Task 10's narrative.
+`runner exit: 0`. How each round first ran the cases it added is in Task 10's narrative. The
+stage's final gate added cases 93-96 and ran the four from the repository root with its two code
+files staged in the index: `RED` on every command (93 and 94 at `Failed: 1, Passed: 1` in Client,
+naming the first-read and the unreadable-head facts in turn; 95 at `Failed: 5, Passed: 4` and 96 at
+`Failed: 3, Passed: 6` in Api), `restore clean` with both proofs, and `runner exit: 0`.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
 raw is as exposed as the reference client was, which is what R4.37 narrows for identifiers and nothing
@@ -4167,9 +4178,15 @@ narrows for a `board`, `parent` or tag. An identity enrolled before R4.37 keeps 
 wrapped around a served value is the defect the compiler cannot see; the plan's Task 5 lists every one
 the library, the CLI and the adapter hold, and each is the client's own words. `curia-operator` escapes
 what it reads from the database, through `SpanText`, and does not quote it. R10.64's decoding of bytes -- another program's
-output, a path -- rests on each platform's default: .NET's redirected streams decode UTF-8 with U+FFFD
-for each maximal ill-formed subpart, as Rust's lossy conversion does (both run on macOS, with the same
-bytes and the same result); no fact feeds a reader ill-formed bytes. R10.67's set is the runtime's
+output, a path -- is each reader's own rather than the platform's. `ProgramOutput`
+(`src/Curia.Client/ProgramOutput.cs`) reads a child's stdout and stderr as raw bytes and decodes them
+as UTF-8 with U+FFFD for each maximal ill-formed subpart, because the redirected `StreamReader` it
+replaced detected a byte order mark, and on macOS read a stream beginning FF FE as UTF-16LE.
+`curia-testis` uses Rust's lossy conversion, which substitutes the same way. Each side is pinned:
+`ProgramOutputTests` feeds ill-formed rows (`FFFE4100`, `C328`, `F09F98`) through `Decode` and
+through a real child process, and `rust/curia-testis/tests/display_output.rs` runs the binary with a
+non-UTF-8 argument. No fact feeds the same ill-formed bytes to both readers, so that they agree is
+still shown only by the run this paragraph used to rest on. R10.67's set is the runtime's
 Unicode tables', so a code point a later runtime places in Cf is escaped from that upgrade on; the
 enrollment route keeps its own walk of the same four categories (`ForumEndpoints.cs`,
 `ControlCharacter`) rather than calling `SpanText`; which terminals act on which C1 control was not
@@ -4278,6 +4295,13 @@ run; and the span a reader prints is still not compared with the canonical form 
   machine-parsed and RFC 8259 §8.1 forbids the mark. The describe side is pinned by
   `R10_64_ASignerWhoseOutputBeginsWithAByteOrderMarkIsRefused`. The sign side was observed by the fix
   review's scratch run and is not pinned. A signer's stdin is outside R10.64, as recorded before.
+- **No gate reads a `Check` detail's holes.** The two facts added at the final gate pin the three
+  sites in `ConsistencyAsync` that echoed the caller's own configuration. Nothing fails if a later
+  `Check.Verified`, `Failed` or `CouldNotCheck` interpolates a served or caller-given value without
+  `Check.Quote`. `OwnText(acta.….Describe)` in `curia verify` and `PostVerification.Render` in
+  `curia_verify` both trust that every hole is quoted. A syntactic gate over the factories'
+  interpolation holes, with an allowlist of numbers, computed digests and nested `Check` details,
+  would hold it.
 
 ### Observed during the key-binding stage, not acted on
 

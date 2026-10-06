@@ -6,8 +6,11 @@ namespace Curia.Api;
 /// framework before any Forum code runs, with no body; this gives each one a type and a title, and
 /// no detail, so nothing the framework said is echoed. <c>UseStatusCodePages</c> fires only on a
 /// response that has no body, so every response a handler composed is untouched. A 5xx stays
-/// <see cref="ServerFault"/>'s, and <c>/oauth</c> is left alone, because the token endpoint composes
-/// RFC 6749's errors itself (Task 8's second review, I2).
+/// <see cref="ServerFault"/>'s (Task 8's second review, I2). At <c>/oauth/token</c> the answer is
+/// RFC 6749 §5.2's error object (<c>invalid_request</c>, with this status's title) rather than a
+/// problem document, because R11.33 names that form there. A response the token endpoint composed
+/// has a body and never reaches this handler. Every other path under <c>/oauth</c> gets the problem
+/// document (the stage's final gate).
 /// </summary>
 internal static class UnreadableRequests
 {
@@ -18,8 +21,6 @@ internal static class UnreadableRequests
             var http = context.HttpContext;
             var status = http.Response.StatusCode;
             if (status < 400 || status > 499) return;
-            if (http.Request.Path.StartsWithSegments("/oauth", StringComparison.Ordinal)) return;
-
             var (type, title) = status switch
             {
                 StatusCodes.Status400BadRequest => ("curia/request/unreadable", "The request could not be read"),
@@ -29,6 +30,14 @@ internal static class UnreadableRequests
                 StatusCodes.Status415UnsupportedMediaType => ("curia/request/unsupported-media-type", "This route does not read this media type"),
                 _ => ("curia/request/refused", "The request was refused"),
             };
+
+            if (http.Request.Path.Equals("/oauth/token", StringComparison.Ordinal))
+            {
+                await Results.Json(new { error = "invalid_request", error_description = title }, statusCode: status)
+                    .ExecuteAsync(http)
+                    .ConfigureAwait(false);
+                return;
+            }
 
             await Results.Json(new Problem(type, title, null), statusCode: status)
                 .ExecuteAsync(http)

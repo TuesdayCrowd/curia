@@ -520,6 +520,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     [InlineData("POST", "/v1/posts/batch", "application/json", "[", 400, "curia/request/unreadable")]
     [InlineData("POST", "/v1/agents", "text/plain", "{}", 415, "curia/request/unsupported-media-type")]
     [InlineData("GET", "/v1/log/entries/x", "", "", 404, "curia/request/no-route")]
+    [InlineData("GET", "/oauth/nope", "", "", 404, "curia/request/no-route")]
+    [InlineData("POST", "/oauth/jwks", "", "", 405, "curia/request/method-not-allowed")]
     public async Task R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument(
         string method, string path, string contentType, string body, int status, string type)
     {
@@ -540,6 +542,34 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         Assert.True(
             !json.RootElement.TryGetProperty("detail", out var detail) || detail.ValueKind == JsonValueKind.Null,
             $"the problem document carries a detail: {served}");
+    }
+
+    /// <summary>
+    /// R11.33 names RFC 6749's error response as the one other form a 4xx may take, "at the token
+    /// endpoint". Routing's refusal there -- a method the endpoint does not take -- is composed by no
+    /// handler, so it is answered with RFC 6749 §5.2's error object (<c>invalid_request</c>) and the
+    /// status routing chose, not a problem document and not an empty body (the stage's final gate).
+    /// </summary>
+    [Theory]
+    [InlineData("GET", "/oauth/token", 405)]
+    [InlineData("PUT", "/oauth/token", 405)]
+    [InlineData("DELETE", "/oauth/token", 405)]
+    public async Task R11_33_ARequestRoutingRefusesAtTheTokenEndpointIsAnsweredWithRfc6749sError(
+        string method, string path, int status)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var served = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True((int)response.StatusCode == status, $"{(int)response.StatusCode} {served[..Math.Min(served.Length, 160)]}");
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        using var json = JsonDocument.Parse(served);
+        Assert.Equal(JsonValueKind.Object, json.RootElement.ValueKind);
+        Assert.True(json.RootElement.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String, served);
+        Assert.Equal("invalid_request", error.GetString());
+        Assert.False(json.RootElement.TryGetProperty("type", out _), $"the error object carries a type: {served}");
     }
 
     /// <summary>
@@ -564,7 +594,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
 
         if (root.ValueKind != JsonValueKind.Object) return "not a JSON object";
 
-        if (path.StartsWith("/oauth", StringComparison.Ordinal))
+        if (path.Equals("/oauth/token", StringComparison.Ordinal))
         {
             return root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String
                 ? null

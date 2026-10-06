@@ -407,17 +407,17 @@ public sealed class PostVerifier
         // read; anything else is reported and the file is left alone.
         if (_heads.State(_forum.Forum) is HeadStore.RetainedHead.Unreadable)
             return Check.CouldNotCheck(
-                $"a head is retained for {_forum.Forum.GetLeftPart(UriPartial.Authority)} and could "
+                $"a head is retained for {Check.Quote(_forum.Forum.GetLeftPart(UriPartial.Authority))} and could "
                 + "not be read. It is left exactly as it is: replacing it would discard the only "
                 + "evidence this client has of what the log looked like before (R6.53). Inspect "
-                + $"{_heads.DirectoryFor(_forum.Forum)} by hand.");
+                + $"{Check.Quote(_heads.DirectoryFor(_forum.Forum))} by hand.");
 
         var retained = _heads.Read(_forum.Forum);
         if (retained is null)
         {
             _heads.Write(_forum.Forum, head);
             return Check.CouldNotCheck(Invariant(
-                $"this client had retained no earlier head for {_forum.Forum.GetLeftPart(UriPartial.Authority)}, so there was nothing to compare against. The head at tree size {head.TreeSize} is now retained, and the next verification will check the log against it (R6.53)."));
+                $"this client had retained no earlier head for {Check.Quote(_forum.Forum.GetLeftPart(UriPartial.Authority))}, so there was nothing to compare against. The head at tree size {head.TreeSize} is now retained, and the next verification will check the log against it (R6.53)."));
         }
 
         if (retained.TreeSize == head.TreeSize)
