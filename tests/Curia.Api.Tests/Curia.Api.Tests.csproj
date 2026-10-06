@@ -20,6 +20,7 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="CsCheck" />
   </ItemGroup>
 
   <ItemGroup>

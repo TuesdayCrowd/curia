@@ -120,7 +120,8 @@ internal static class FuzzRun
         ArgumentNullException.ThrowIfNull(forum);
         var pass = new Pass();
         var timings = Environment.GetEnvironmentVariable("CURIA_FUZZ_TIMINGS");
-        if (timings is not null) await File.WriteAllTextAsync(timings, "route\tvariant\tindex\telapsed_ms\n", ct);
+        // Appended, never truncated: the random and Kestrel passes write their slowest rows to the same file, in whatever order the classes run.
+        if (timings is not null) await File.AppendAllTextAsync(timings, "route\tvariant\tindex\telapsed_ms\n", ct);
 
         using var main = await FuzzContext.SeedAsync(forum, ct);
 
