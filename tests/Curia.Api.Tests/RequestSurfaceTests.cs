@@ -184,7 +184,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// R11.33's headers. Every route is sent, with no credential, hostile <c>Authorization</c> and
     /// <c>DPoP</c> headers: a token that is not a JWS, one whose header is not an object, one naming
     /// a <c>kid</c> holding U+0000, a scheme the Forum does not know, a token four thousand bytes
-    /// long, and a proof with no token. Then an enrolled agent obtains a token bound to a proof key
+    /// long, a proof with no token, and an <c>alg</c> or <c>kid</c>, and a proof's <c>jwk</c> member,
+    /// holding an unpaired-surrogate escape (Task 11's fix review). Then an enrolled agent obtains a token bound to a proof key
     /// that is no point on P-256 -- the token endpoint issues it, since it reads a proof's key without
     /// building it (register D29) -- and sends it to every route with a proof carrying that key. Every
     /// route behind authentication threw on it, a 500 any agent could cause (the register's
@@ -206,6 +207,9 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             ("Bearer x", null),
             ("DPoP " + new string('A', 4096), null),
             (null, "a.b.c"),
+            ("DPoP " + Segment("{\"alg\":\"\\ud800\",\"typ\":\"at+jwt\"}") + ".e30.AA", Segment("{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"\\ud800\"}}") + ".e30.AA"),
+            ("DPoP " + Segment("{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":\"\\ud800\"}") + ".e30.AA", Segment("{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"OKP\",\"crv\":\"\\udc00\"}}") + ".e30.AA"),
+            (null, Segment("{\"typ\":\"dpop+jwt\",\"alg\":\"\\ud800\"}") + ".e30.AA"),
         ];
 
         var faults = new List<string>();
@@ -351,6 +355,45 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{(int)response.StatusCode} {body[..Math.Min(body.Length, 240)]}");
         using var json = JsonDocument.Parse(body);
         Assert.Equal("invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
+    }
+
+    /// <summary>
+    /// R11.33 for a token request whose DPoP proof or client assertion holds an unpaired-surrogate
+    /// escape (Task 11's fix review). <c>JsonDocument.Parse</c> accepts an escaped unpaired surrogate
+    /// and <see cref="JsonElement.GetString()"/> throws <see cref="InvalidOperationException"/> on it,
+    /// so a proof whose <c>jwk</c> held one in <c>kty</c>, <c>crv</c> or <c>x</c> answered 500 to a
+    /// caller holding no credential: the endpoint read the proof through a parse of its own. The
+    /// sweep had held string decodability fixed, sending U+0000, which decodes (trap 26). A proof's
+    /// key that cannot be read is <c>invalid_dpop_proof</c>; an assertion that cannot be read, behind
+    /// a proof whose key can, is <c>invalid_client</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"\\ud800\"}}")]
+    [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"OKP\",\"crv\":\"\\udc00\"}}")]
+    [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"a\\ud800\",\"y\":\"AA\"}}")]
+    [InlineData(true, "{\"alg\":\"\\ud800\",\"typ\":\"JWT\"}")]
+    public async Task R11_33_ATokenRequestsProofOrAssertionHoldingAnUnpairedSurrogateIsRefusedNotThrown(bool inAssertion, string header)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var form = inAssertion
+            ? new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "client_credentials",
+                ["client_id"] = "x",
+                ["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                ["client_assertion"] = Segment(header) + ".e30.AA",
+            })
+            : WellFormedTokenForm();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
+        request.Headers.TryAddWithoutValidation("DPoP", inAssertion ? OffCurveProof("POST", TokenEndpoint, forum.Now) : Segment(header) + ".e30.AA");
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        var expected = inAssertion ? HttpStatusCode.Unauthorized : HttpStatusCode.BadRequest;
+        Assert.True(response.StatusCode == expected, $"{(int)response.StatusCode} {body[..Math.Min(body.Length, 240)]}");
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(inAssertion ? "invalid_client" : "invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
     }
 
     /// <summary>
@@ -762,6 +805,10 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         yield return () => Post(uri, new StringContent("{}", Encoding.UTF8, "application/json"));
         yield return () => Post(uri, new StringContent(
             "{\"digests\":[\"a\\u0000b\"],\"agent_id\":\"\\u0000\",\"kid\":\"\\n\",\"kind\":\"\\n\",\"rationale\":\"\\u0000\"}",
+            Encoding.UTF8,
+            "application/json"));
+        yield return () => Post(uri, new StringContent(
+            "{\"digests\":[\"\\ud800\"],\"agent_id\":\"\\ud800\",\"kid\":\"\\udc00\",\"kind\":\"\\ud800\",\"rationale\":\"\\ud800\"}",
             Encoding.UTF8,
             "application/json"));
         yield return () => Post(uri, new StringContent(

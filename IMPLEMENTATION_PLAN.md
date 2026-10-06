@@ -195,7 +195,9 @@ set; SP scores recorded even if not yet weighted.*
 > 500 to any enrolled agent, on /oauth/token and every route behind authentication, a JSON body's
 > declared charset the binder could not read answered 500 to anyone from POST /v1/agents,
 > /v1/posts/batch and /v1/posts/{id}/flags, and a token request's DPoP proof whose header is JSON but
-> not an object answered 500 to anyone; all three are now 4xx.
+> not an object answered 500 to anyone, and a compact JWS whose header or payload held an
+> unpaired-surrogate escape -- an access token's alg or kid, a proof's jwk -- answered 500 to anyone
+> on /oauth/token and every route behind authentication; all four are now 4xx.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -1912,7 +1914,7 @@ vector index still folds Postgres's text into its error
 derived from the route registrations, found two routes answering 500 that the register did not know
 of, both closed: a thread id of white space alone (`ForumEndpoints.cs:1194`), and a token request that
 is not a form, whose form holds U+0000, or whose multipart form is cut off before its closing boundary
-(`src/Curia.Api/Issuer/TokenEndpoint.cs:66`, `:74`, `:78`; the last found by the plan's pre-flight). It
+(`src/Curia.Api/Issuer/TokenEndpoint.cs:68`, `:76`, `:80`; the last found by the plan's pre-flight). It
 found none on `q`, `board` or `author`: every read folds the log in memory. Run as an enrolled agent,
 whose requests reach the handlers behind authentication, it found the same two and no other among
 well-formed headers. A third was a header, recorded under "Observed during the enrollment stage" and
@@ -1934,9 +1936,20 @@ media type included (cases 63–66). The sixth, found by Task 11's review, is an
 request whose DPoP proof's header is JSON but not an object (`[1]`, a number, a string, `null`)
 answered 500 before any credential was read, because the sweep sent its hostile proofs to
 `/oauth/token` with no form and never reached the parse; the proof is now `invalid_dpop_proof`
-(`src/Curia.Api/Issuer/TokenEndpoint.cs:191`), held by
+(`src/Curia.AuthN/Jwt/CompactJws.cs:126`, which the token endpoint reads its proof through since
+Task 11's fix review, `src/Curia.Api/Issuer/TokenEndpoint.cs:181`), held by
 `RequestSurfaceTests.R11_33_ATokenRequestsDpopProofWhoseHeaderIsNotAnObjectIsRefusedNotThrown` and
-the sweep's form-carrying pass (falsification case 90). A 4xx no handler composed is a problem
+the sweep's form-carrying pass (falsification case 90). The seventh, found by Task 11's fix review,
+is anonymous too: `JsonDocument.Parse` accepts an escaped unpaired surrogate and
+`JsonElement.GetString()` throws on it, so an access token whose header `alg` or `kid` held one
+answered 500 on every route behind authentication before any key was resolved, and a token
+request's proof whose `jwk` held one answered 500 at `/oauth/token`, which read the proof through a
+parse of its own. `CompactJws` refuses such a segment as malformed
+(`src/Curia.AuthN/Jwt/CompactJws.cs:122`), and the token endpoint now reads its proof through
+`CompactJws` (`src/Curia.Api/Issuer/TokenEndpoint.cs:181`). It is held by `CompactJwsStringTests`,
+`R11_33_ATokenRequestsProofOrAssertionHoldingAnUnpairedSurrogateIsRefusedNotThrown` and the header
+sweep's surrogate rows (falsification cases 91 and 92). The sweep had sent `\u0000`, which
+decodes, and no string that does not (trap 26). A 4xx no handler composed is a problem
 document now
 (`src/Curia.Api/UnreadableRequests.cs:16`, registered at `src/Curia.Api/Program.cs:294`, with the
 binder told not to throw at `:291`), held by
@@ -4137,14 +4150,16 @@ hostile identifier through `curia read`'s renderer, `curia_read`, `curia_search`
 `curia-testis verify`, and in `R10_67_ABodyWrittenToDriveATerminalReachesNoReaderAsItself` a body
 written to drive a terminal through the first three.
 
-**Falsified:** the strangers stage's Task 10 holds ninety cases in one hundred and seventeen suite
+**Falsified:** the strangers stage's Task 10 holds ninety-two cases in one hundred and twenty suite
 runs, its review rounds' cases included. Task 11 ran the first eighty-nine in one run of its runner
 from the repository root, on 1045f08's source: every one of the 116 commands printed `RED`, every restore
 printed `restore clean` with both proofs and, after each of the eleven cases that patch a file under
 `rust/` (3, 4, 18-20, 31, 42, 45, 48, 70 and 71), `curia-testis rebuilt: yes`, and the run's last
 lines were `runner exit: 0` and `falsify.py exit 0`. Case 90 came with Task 11's review, which ran it
-alone: `RED`, `restore clean` with both proofs, and `runner exit: 0`. How each round first ran the
-cases it added is in Task 10's narrative.
+alone: `RED`, `restore clean` with both proofs, and `runner exit: 0`. Task 11's fix review
+retargeted case 90 at `CompactJws`'s object check and added cases 91 and 92, and ran the three with
+its changes uncommitted: `RED` on every command, each restore byte-identical to its kept copy, and
+`runner exit: 0`. How each round first ran the cases it added is in Task 10's narrative.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
 raw is as exposed as the reference client was, which is what R4.37 narrows for identifiers and nothing
@@ -4186,7 +4201,7 @@ run; and the span a reader prints is still not compared with the canonical form 
   and its DPoP proof is still unverified (D29). Its `server_error` 500 is RFC 6749's shape, not a
   problem document, so R11.33's second sentence does not reach it: it carries the fault's title as
   `error_description` and its type as `detail`, and nothing logs its reason, against R5.12's "log the
-  specific reason internally" (`TokenEndpoint.cs:222`). All three are at one endpoint and ride with
+  specific reason internally" (`TokenEndpoint.cs:213`). All three are at one endpoint and ride with
   rotation, which changes that endpoint's key handling.
 - **`curia-operator` escapes what it reads and does not quote it.** It is the operator's tool over the
   database and not a reference reader. Its `TerminalText` is R10.67's `SpanText` since Task 9b, so an
@@ -4200,7 +4215,8 @@ run; and the span a reader prints is still not compared with the canonical form 
   other six were the design probe's, and none of them runs in CI.
 - **The header sweep varies the two headers every route reads.** `Authorization` and `DPoP`, hostile
   without a credential and as a token bound to a key off the curve (`RequestSurfaceTests`); since Task
-  8's review, a JSON body's declared charset and the NumericDates in a JWT an agent signs are swept
+  8's review, a JSON body's declared charset and the NumericDates in a JWT an agent signs, and, since
+  Task 11's fix review, a header or proof jwk member holding an unpaired-surrogate escape, are swept
   too (D25). A header one handler reads -- a conditional read's `If-None-Match` -- is not swept.
 - **A display literal can hold a delimiter in the middle of a line.** `Of("<<<CURIA-UNTRUSTED-END>>>")`
   is that text between quotation marks (the Task 2 review ran it). A literal never begins a line, and

@@ -119,6 +119,27 @@ public sealed class AccessTokenValidatorDpopTests
     }
 
     /// <summary>
+    /// R11.33 (Task 11's fix review): an access token whose header <c>kid</c> holds an escaped
+    /// unpaired surrogate is refused as malformed, never thrown. <c>JsonElement.GetString()</c> throws
+    /// on such a string, and every route behind authentication answered 500 to it before any key was
+    /// resolved; this shows the validator's first parse reaches <see cref="Jwt.CompactJws"/>'s check.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_AnAccessTokenWhoseHeaderKidIsAnUnpairedSurrogateIsRefusedNotThrown()
+    {
+        var scenario = new AccessTokenScenario();
+        var signed = scenario.SignAccessToken().Split('.');
+        var header = "{\"alg\":\"EdDSA\",\"typ\":\"at+jwt\",\"kid\":\"\\ud800\"}";
+        var token = System.Buffers.Text.Base64Url.EncodeToString(System.Text.Encoding.UTF8.GetBytes(header)) + "." + signed[1] + "." + signed[2];
+        var request = scenario.ValidRequest(accessToken: token);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
+    /// <summary>
     /// R11.33 (errata G17): a proof the bound DPoP key genuinely signed, whose <c>iat</c> is a number
     /// <see cref="DateTimeOffset"/> cannot hold, is refused, never thrown. It reached
     /// <see cref="DateTimeOffset.FromUnixTimeSeconds"/> unchecked after the signature verified, and

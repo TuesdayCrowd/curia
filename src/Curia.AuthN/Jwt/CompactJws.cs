@@ -106,10 +106,11 @@ public static class CompactJws
 
     private static Result<T> ParseJsonObject<T>(string segment, string segmentName, Func<JsonElement, Result<T>> project)
     {
+        var bytes = Base64Url.DecodeFromChars(segment);
         JsonDocument doc;
         try
         {
-            doc = JsonDocument.Parse(Base64Url.DecodeFromChars(segment));
+            doc = JsonDocument.Parse(bytes);
         }
         catch (JsonException)
         {
@@ -118,6 +119,9 @@ public static class CompactJws
 
         using (doc)
         {
+            if (!EveryStringDecodes(bytes))
+                return Result<T>.Fail(AuthNErrors.Malformed($"{segmentName} holds a string that is not valid UTF-16"));
+
             var root = doc.RootElement;
             return root.ValueKind != JsonValueKind.Object
                 ? Result<T>.Fail(AuthNErrors.Malformed($"{segmentName} must be a JSON object"))
@@ -125,10 +129,25 @@ public static class CompactJws
         }
     }
 
+    /// <summary>R11.33: <see cref="JsonDocument.Parse(ReadOnlyMemory{byte}, JsonDocumentOptions)"/> accepts an escaped unpaired surrogate, and <see cref="JsonElement.GetString"/> then throws <see cref="InvalidOperationException"/> on it, so a segment holding one in any member name or string value is refused here, before any reader asks for a string. The catch's scope is one string's decoding and nothing else.</summary>
+    private static bool EveryStringDecodes(ReadOnlySpan<byte> json)
+    {
+        var reader = new Utf8JsonReader(json);
+        while (reader.Read())
+        {
+            if (reader.TokenType is not (JsonTokenType.String or JsonTokenType.PropertyName)) continue;
+            try { _ = reader.GetString(); }
+            catch (InvalidOperationException) { return false; }
+        }
+        return true;
+    }
+
     /// <summary>Missing or wrong-kind reads as empty rather than throwing -- mirrors
     /// <c>DetachedJws.ReadString</c>'s tolerant style, so a missing mandatory claim fails the
     /// semantic check downstream (e.g. an empty <c>iss</c> never equals the configured issuer)
-    /// instead of a JSON-shape exception escaping from claim parsing.</summary>
+    /// instead of a JSON-shape exception escaping from claim parsing. Nor can the read of a string
+    /// throw: <see cref="ParseJsonObject{T}"/> refused any segment holding a string that does not
+    /// decode, and every element read here was reached through it.</summary>
     internal static string ReadString(JsonElement obj, string name) =>
         obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
 }

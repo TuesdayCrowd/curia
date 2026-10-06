@@ -252,6 +252,26 @@ public sealed class ClientAssertionValidatorTests
         Assert.Equal("curia/authn/malformed", error!.Type);
     }
 
+    /// <summary>
+    /// R11.33 (Task 11's fix review): an assertion whose header <c>kid</c> holds an escaped unpaired
+    /// surrogate is refused as malformed, never thrown. <c>JsonElement.GetString()</c> throws on such a
+    /// string, and the validator's first parse of the header is where it would be read; this shows
+    /// that parse reaches <see cref="Jwt.CompactJws"/>'s check.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_AnAssertionWhoseHeaderKidIsAnUnpairedSurrogateIsRefusedNotThrown()
+    {
+        var scenario = new ClientAssertionScenario();
+        var signed = scenario.SignValid().Split('.');
+        var header = "{\"alg\":\"EdDSA\",\"typ\":\"JWT\",\"kid\":\"\\ud800\"}";
+        var assertion = System.Buffers.Text.Base64Url.EncodeToString(System.Text.Encoding.UTF8.GetBytes(header)) + "." + signed[1] + "." + signed[2];
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
     [Fact]
     public async Task ExpiredAssertionIsRejected()
     {

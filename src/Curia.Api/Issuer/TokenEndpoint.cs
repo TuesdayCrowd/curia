@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Curia.Api.Adapters;
 using Curia.Application.Credentials;
@@ -5,6 +6,7 @@ using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.AuthN;
 using Curia.AuthN.Dpop;
+using Curia.AuthN.Jwt;
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain;
@@ -176,29 +178,18 @@ public static class TokenEndpoint
     /// denial, not an escalation. The proof itself is verified on every resource request, which is
     /// where possession actually has to hold.</para>
     /// </summary>
-    private static string? DpopThumbprintOf(string proof)
-    {
-        var parts = proof.Split('.');
-        if (parts.Length != 3) return null;
+    private static string? DpopThumbprintOf(string proof) =>
+        CompactJws.Split(proof)
+            .Bind(parts => CompactJws.ParseHeader(parts, ProofKey))
+            .TryGetValue(out var key, out _)
+            ? JwkThumbprint.Compute(key!)
+            : null;
 
-        try
-        {
-            var headerJson = System.Text.Encoding.UTF8.GetString(
-                System.Buffers.Text.Base64Url.DecodeFromChars(parts[0]));
-
-            using var header = System.Text.Json.JsonDocument.Parse(headerJson);
-            // A non-object header is a proof whose key cannot be read (R11.33): the check CompactJws and DpopProof.ParseJwk make.
-            if (header.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
-            if (!header.RootElement.TryGetProperty("jwk", out var jwk)) return null;
-
-            var parsed = JwkParser.Parse(jwk);
-            return parsed.TryGetValue(out var key, out _) ? JwkThumbprint.Compute(key!) : null;
-        }
-        catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException)
-        {
-            return null;
-        }
-    }
+    /// <summary>The proof's <c>jwk</c>, read through <see cref="CompactJws"/> as every other compact JWS is (R5.13). A header that is not an object, or that holds a string which does not decode, is a key that cannot be read (R11.33), never a throw: the endpoint keeps no parse of its own to fall behind CompactJws's.</summary>
+    private static Result<Jwk> ProofKey(JsonElement header) =>
+        header.TryGetProperty("jwk", out var jwk) && jwk.ValueKind == JsonValueKind.Object
+            ? JwkParser.Parse(jwk)
+            : Result<Jwk>.Fail(AuthNErrors.MalformedJwk("missing jwk header parameter"));
 
     /// <summary>
     /// The absolute token-endpoint URL, which the assertion's <c>aud</c> must match.

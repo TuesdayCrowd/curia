@@ -27,7 +27,7 @@ in quotes (errata G17: `curia`, `curia-mcp` and `curia-testis` write every value
 as a display literal, `curia` and `curia-mcp` write a post's control, format and separator characters
 as escapes, so its content cannot drive a terminal, a command `curia` prints holds a value only as a
 shell word, and a server fault served as a problem document carries no detail (the token
-endpoint's RFC 6749 server_error still carries its slug, register D29)), the
+endpoint's RFC 6749 server_error still carries its slug, the key-binding stage's M5 in the register)), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every
 event a leaf under a frozen encoding, heads signed by `curia-operator sign-head` with a key the
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs
