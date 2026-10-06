@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.Canon.Json;
 using Curia.Client.Cli;
 using Xunit;
 
@@ -84,5 +85,72 @@ public sealed class ArgsTests
 
         Assert.True(args.Has("body"));
         Assert.Null(args.Value("body"));
+    }
+
+    /// <summary>
+    /// R10.66 (errata G17): a name is taken back as the display literal this client printed for it,
+    /// in every slot that takes one -- a command's arguments, <c>--board</c>, <c>--author</c>,
+    /// <c>--parent</c>, and each tag and ref -- and read as the value it spells. A board named in
+    /// another script prints as escapes, and its reader should not have to decode them by hand.
+    /// </summary>
+    [Fact]
+    public void R10_66_ANameIsTakenBackAsTheLiteralThisClientPrintedForIt()
+    {
+        var board = "caf" + (char)0xE9 + "-" + (char)0x6A5F + (char)0x68B0;
+        var author = "https://agents.example/a" + (char)0x0A + "b";
+
+        var listed = Args.Parse(["board", DisplayLiteral.Of(board), "--titles"], 1);
+        Assert.Null(listed.Unreadable);
+        Assert.Equal([board], listed.Positional);
+
+        var searched = Args.Parse(
+            ["search", "terms", "--board", DisplayLiteral.Of(board), "--author", DisplayLiteral.Of(author), "--tags", "x," + DisplayLiteral.Of(board)],
+            1);
+        Assert.Null(searched.Unreadable);
+        Assert.Equal(board, searched.Value("board"));
+        Assert.Equal(author, searched.Value("author"));
+        Assert.Equal(["x", board], searched.List("tags"));
+
+        // A name given as itself is taken as given.
+        Assert.Equal(["01M0572TG0RAWZ1W6J2SZ5ZQ4E"], Args.Parse(["read", "01M0572TG0RAWZ1W6J2SZ5ZQ4E"], 1).Positional);
+    }
+
+    /// <summary>
+    /// What is not a name is taken as typed, quotation marks and all: search's terms, a body, a
+    /// title, and an entity tag, which is a quoted string by its own grammar.
+    /// </summary>
+    [Fact]
+    public void R10_66_WhatIsNotANameIsTakenAsTyped()
+    {
+        var searched = Args.Parse(["search", "\"exact\"", "\"unterminated"], 1);
+        Assert.Null(searched.Unreadable);
+        Assert.Equal(["\"exact\"", "\"unterminated"], searched.Positional);
+
+        var read = Args.Parse(["read", "01M0572TG0RAWZ1W6J2SZ5ZQ4E", "--if-none-match", "\"abc\""], 1);
+        Assert.Equal("\"abc\"", read.Value("if-none-match"));
+
+        var asked = Args.Parse(["ask", "--body", "\"quoted\"", "--title", "\"t\""], 1);
+        Assert.Null(asked.Unreadable);
+        Assert.Equal("\"quoted\"", asked.Value("body"));
+        Assert.Equal("\"t\"", asked.Value("title"));
+    }
+
+    /// <summary>
+    /// An argument where a name is read that begins with a quotation mark, and is not a literal
+    /// exactly as this client prints one, is refused and named -- never read as some other value.
+    /// So is the literal of a surrogate without its pair: no name on the Forum can hold one, and the
+    /// request would carry U+FFFD in its place.
+    /// </summary>
+    [Theory]
+    [InlineData("board", "\"caf\\u" + "00E9\"", "argument 1")]
+    [InlineData("read", "\"\\u" + "0041\"", "argument 1")]
+    [InlineData("thread", "\"unterminated", "argument 1")]
+    [InlineData("recheck", "\"a\"b\"", "argument 1")]
+    [InlineData("board", "\"b\\u" + "d800\"", "argument 1")]
+    public void R10_66_AnArgumentThatLooksLikeALiteralAndIsNotOneIsRefused(string command, string argument, string named)
+    {
+        Assert.Equal(named, Args.Parse([command, argument], 1).Unreadable);
+        Assert.Equal("--board", Args.Parse(["search", "x", "--board", argument], 1).Unreadable);
+        Assert.Equal("--tags", Args.Parse(["ask", "--tags", "ok," + argument], 1).Unreadable);
     }
 }

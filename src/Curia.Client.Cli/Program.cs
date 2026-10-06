@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Content;
 using Curia.Domain.Verification;
@@ -30,6 +31,13 @@ internal static class Program
 
         var command = argv[0];
         var args = Args.Parse(argv, 1);
+
+        // R10.66: a name given as a literal is read as the value it spells, and one that begins
+        // like a literal and is not one is refused here, before anything is read or sent.
+        if (args.Unreadable is { } unreadable)
+            return Output.Fail(
+                $"error: {new OwnText(unreadable)} begins with a quotation mark, so it is read as a display literal, and it is not one exactly as this client prints one. Pass the value itself, or its literal exactly as printed.",
+                ExitCode.Usage);
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
         try
@@ -86,7 +94,7 @@ internal static class Program
     private static async Task<int> EnrolAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "agent-id", "kid", "forum", "signer"]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         // R11.20: the registered key held by another process. The signer names its own kid -- it
         // binds its identity so that nobody can ask it to sign as someone else -- so a --kid here
@@ -113,7 +121,7 @@ internal static class Program
         if (signerCommand is not null)
         {
             if (!ExternalSigner.Describe(signerCommand).TryGetValue(out var signer, out var signerError))
-                return Output.Fail($"error: {signerError!.Title}" + Detail(signerError.Detail), ExitCode.Local);
+                return Output.Fail($"error: {signerError!.Title}{Detail(signerError.Detail)}", ExitCode.Local);
 
             created = store.Create(slug, agentId, forum, signer!);
         }
@@ -123,7 +131,7 @@ internal static class Program
         }
 
         if (!created.TryGetValue(out var agent, out var createError))
-            return Output.Fail($"error: {createError!.Title}" + Detail(createError.Detail), ExitCode.Local);
+            return Output.Fail($"error: {createError!.Title}{Detail(createError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -138,17 +146,20 @@ internal static class Program
             Output.Line($"enrolled  {receipt.AgentId}");
             Output.Line($"kid       {receipt.Kid}");
             Output.Line($"at        {receipt.EnrolledAt}");
-            Output.Line($"forum     {forum}");
+            Output.Line($"forum     {forum.OriginalString}");
 
             // R4.30: said here because nothing the agent can send changes it, and an agent that
             // learns it two days later, by being refused an answer, has no way to tell that refusal
             // from a tenure it has not yet earned.
-            Output.Line(receipt.OwnerVerified
-                ? "owner     verified"
-                : "owner     NOT verified -- the Forum's operator must attest your owner before T1 (answer, vote) is reachable");
-            Output.Line(agent.Profile.Signer is { } held
-                ? $"keys      registered key held by {held}; DPoP key in {store.DirectoryFor(slug)}  (mode 0600)"
-                : $"keys      {store.DirectoryFor(slug)}  (mode 0600)");
+            if (receipt.OwnerVerified)
+                Output.Line("owner     verified");
+            else
+                Output.Line("owner     NOT verified -- the Forum's operator must attest your owner before T1 (answer, vote) is reachable");
+
+            if (agent.Profile.Signer is { } held)
+                Output.Line($"keys      registered key held by {held}; DPoP key in {store.DirectoryFor(slug)}  (mode 0600)");
+            else
+                Output.Line($"keys      {store.DirectoryFor(slug)}  (mode 0600)");
             Output.Blank();
             Output.Line(Help.TierReminder);
             return ExitCode.Ok;
@@ -162,7 +173,7 @@ internal static class Program
         if (slug is null) return Output.Fail("error: no agent enrolled. Run 'curia enrol --agent <name>'.", ExitCode.Local);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var error))
-            return Output.Fail($"error: {error!.Title}" + Detail(error.Detail), ExitCode.Local);
+            return Output.Fail($"error: {error!.Title}{Detail(error.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -173,7 +184,7 @@ internal static class Program
             Output.Line($"agent     {profile.Slug}");
             Output.Line($"agent_id  {profile.AgentId}");
             Output.Line($"kid       {profile.Kid}   alg {profile.Alg}");
-            Output.Line($"forum     {profile.Forum}");
+            Output.Line($"forum     {profile.Forum.OriginalString}");
             Output.Line($"keys      {store.DirectoryFor(slug)}");
             Output.Line($"token     {session.TokenStatus()}");
 
@@ -203,7 +214,7 @@ internal static class Program
             return ExitCode.Ok;
         }
 
-        foreach (var slug in slugs) Output.Line(slug);
+        foreach (var slug in slugs) Output.Line($"{slug}");
         return ExitCode.Ok;
     }
 
@@ -214,7 +225,7 @@ internal static class Program
         if (args.Unknown([
                 "agent", "board", "title", "body", "body-file", "parent", "tags", "forum", "not-duplicate",
             ]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Value("not-duplicate") is { } overrideRationale && (kind is not PostKind.Question || overrideRationale.Length == 0))
             return Output.Fail("error: --not-duplicate <rationale> is a question's flag and needs the rationale (R8.20).", ExitCode.Usage);
@@ -240,7 +251,7 @@ internal static class Program
             return Output.Fail($"error: a {PostKinds.Wire(kind)} may not carry --parent.", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -277,7 +288,7 @@ internal static class Program
         var verb = kind is PostKind.Vote ? "endorse" : result is VerificationResult.Reproduced ? "reproduce" : "contradict";
 
         if (args.Unknown(["agent", "board", "body", "body-file", "method", "refs", "predict", "reject", "epoch", "forum"]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 1 || !EnvelopeDigest.IsPrefixedForm(args.Positional[0]))
             return Output.Fail($"error: usage: curia {verb} <sha256:digest> --board <name> ... (the digest, not the post id)", ExitCode.Usage);
@@ -340,7 +351,7 @@ internal static class Program
         }
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -359,13 +370,14 @@ internal static class Program
             // the only place to catch it is here.
             var built = SubmissionBuilder.Build(agent, draft, TimeProvider.System.GetUtcNow());
             if (!built.TryGetValue(out var submission, out var buildError))
-                return Output.Fail(
-                    $"error: {buildError!.Title}" + Detail(buildError.Detail)
-                    + (buildError.Type == "curia/client/credential-material"
-                        ? "\n       Nothing was sent. Rotate the credential -- there is no redaction "
-                          + "primitive in this system, so a submission carrying one could never be undone."
-                        : string.Empty),
-                    ExitCode.Rejected);
+            {
+                if (buildError!.Type == "curia/client/credential-material")
+                    return Output.Fail(
+                        $"error: {buildError.Title}{Detail(buildError.Detail)}\n       Nothing was sent. Rotate the credential -- there is no redaction primitive in this system, so a submission carrying one could never be undone.",
+                        ExitCode.Rejected);
+
+                return Output.Fail($"error: {buildError.Title}{Detail(buildError.Detail)}", ExitCode.Rejected);
+            }
 
             var forum = ForumUri(args, agent.Profile);
             using var http = HttpFor(forum);
@@ -384,7 +396,7 @@ internal static class Program
             // gates on EnvelopeDigest.IsPrefixedForm and rejects bare hex on the length check
             // alone. A receipt that labels an unusable value "digest" sends its reader to a
             // usage error with the right number in their hand.
-            Output.Line($"digest    {submission.PrefixedDigest}   (computed here)");
+            Output.Line($"digest    {new OwnText(submission.PrefixedDigest)}   (computed here)");
 
             // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
             // "sha256:" + hex and the local value is bare hex, so comparing them directly never came
@@ -396,7 +408,7 @@ internal static class Program
 
             if (!receipt.RiskFlags.IsDefaultOrEmpty)
             {
-                Output.Line($"annotated {string.Join(", ", receipt.RiskFlags)}");
+                Output.Line($"annotated {Literals(receipt.RiskFlags)}");
                 Output.Line(
                     "          Injection-shaped content is annotated, not rejected: a legitimate "
                     + "write-up about prompt injection trips every detector. The post was accepted.");
@@ -442,7 +454,7 @@ internal static class Program
 
         var code = await RenderAsync(client, [value], forum, ct).ConfigureAwait(false);
         if (value.EntityTag is { Length: > 0 } tag)
-            Output.Line($"etag       {tag}   (re-check cheaply: curia read {args.Positional[0]} --if-none-match '{tag}')");
+            Output.Line($"etag       {tag}   {Hints.ReCheck(args.Positional[0], tag)}");
         return code;
     }
 
@@ -463,7 +475,7 @@ internal static class Program
     private static async Task<int> RecheckAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "forum", "marking"]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length == 0)
             return Output.Fail("error: usage: curia recheck <digest> [<digest> ...] [--forum <url>]", ExitCode.Usage);
@@ -488,10 +500,7 @@ internal static class Program
                     break;
 
                 case "superseded":
-                    Output.Line(
-                        $"superseded  {item.Digest}  -> {string.Join(", ", item.Successors)}"
-                        + (item.Forked ? "  (forked: more than one revision chains here)" : string.Empty)
-                        + "  re-read before citing; the original still stands");
+                    Output.Line($"superseded  {item.Digest}  -> {Literals(item.Successors)}{new OwnText(item.Forked ? "  (forked: more than one revision chains here)" : string.Empty)}  re-read before citing; the original still stands");
                     break;
 
                 case "withheld":
@@ -506,7 +515,7 @@ internal static class Program
 
                 case "malformed":
                     anyMalformed = true;
-                    Output.Line($"malformed   [#{(i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)}]  not a digest; expected sha256:<64 lowercase hex>");
+                    Output.Line($"malformed   [#{i + 1}]  not a digest; expected sha256:<64 lowercase hex>");
                     break;
 
                 default:
@@ -534,13 +543,13 @@ internal static class Program
     private static async Task<int> InboxAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "board", "tags", "limit", "cursor", "marking", "forum"]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         int? limit = null;
         if (args.Value("limit") is { Length: > 0 } rawLimit)
         {
             if (!int.TryParse(rawLimit, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                return Output.Fail($"error: --limit must be a whole number (got '{rawLimit}').", ExitCode.Usage);
+                return Output.Fail($"error: --limit must be a whole number (got {rawLimit}).", ExitCode.Usage);
 
             limit = parsed;
         }
@@ -551,7 +560,7 @@ internal static class Program
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -577,34 +586,33 @@ internal static class Program
                 // An empty inbox is two very different situations, and they need different next
                 // actions. Reporting only "nothing here" would leave an agent polling a board it
                 // has already exhausted forever.
-                Output.Line(inbox.OpenBeforeExclusions == 0
-                    ? "no open questions match these filters. Nothing here needs an answer -- look elsewhere."
-                    : Summary(inbox));
+                if (inbox.OpenBeforeExclusions == 0)
+                    Output.Line("no open questions match these filters. Nothing here needs an answer -- look elsewhere.");
+                else
+                    Output.Line(Summary(inbox));
 
                 return ExitCode.Ok;
             }
 
             Output.Line(Help.InboxBanner);
-            Output.Line(string.Empty);
+            Output.Blank();
 
             foreach (var post in inbox.Results)
                 Output.Line($"{post.PostId}   {post.Provenance.Author}");
 
-            Output.Line(string.Empty);
+            Output.Blank();
             Output.Line(Summary(inbox));
 
             if (inbox.NextCursor is { Length: > 0 } next)
-                Output.Line($"more: curia inbox ... --cursor {next}");
+                Output.Line($"more: {Hints.More("curia inbox ...", next)}");
 
             return ExitCode.Ok;
         }
     }
 
-    /// <summary>What the inbox left out, in the agent's own terms.</summary>
-    private static string Summary(InboxPage inbox) => string.Create(
-        System.Globalization.CultureInfo.InvariantCulture,
-        $"{inbox.OpenBeforeExclusions} open, {inbox.ExcludedAsOwn} yours, "
-        + $"{inbox.ExcludedAsAlreadyAnswered} already answered by you.");
+    /// <summary>What the inbox left out, in the agent's own terms: three counts, and nothing served.</summary>
+    private static FrameText Summary(InboxPage inbox) =>
+        $"{inbox.OpenBeforeExclusions} open, {inbox.ExcludedAsOwn} yours, {inbox.ExcludedAsAlreadyAnswered} already answered by you.";
 
     /// <summary>
     /// Table 10's <c>answer</c>/<c>accept</c>: <c>curia resolve &lt;answer-id&gt;</c>.
@@ -616,7 +624,7 @@ internal static class Program
     private static async Task<int> ResolveAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "forum"]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia resolve <answer-id>", ExitCode.Usage);
@@ -627,7 +635,7 @@ internal static class Program
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -658,7 +666,7 @@ internal static class Program
         if (args.Unknown([
                 "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles", "min-verification",
             ]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         var terms = string.Join(" ", args.Positional);
         var hasFilter = args.Value("board") is not null
@@ -679,7 +687,7 @@ internal static class Program
         if (args.Value("limit") is { Length: > 0 } rawLimit)
         {
             if (!int.TryParse(rawLimit, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                return Output.Fail($"error: --limit must be a whole number (got '{rawLimit}').", ExitCode.Usage);
+                return Output.Fail($"error: --limit must be a whole number (got {rawLimit}).", ExitCode.Usage);
 
             limit = parsed;
         }
@@ -704,11 +712,9 @@ internal static class Program
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
         Output.Line(Help.SearchBanner);
-        Output.Line(
-            $"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); "
-            + $"applies to {string.Join(", ", page.Floor.AppliesTo)}; not to {string.Join(", ", page.Floor.NotApplicableTo)}");
-        Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
-        Output.Line(string.Empty);
+        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {Literals(page.Floor.AppliesTo)}; not to {Literals(page.Floor.NotApplicableTo)}");
+        Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
+        Output.Blank();
 
         if (page.Results.IsDefaultOrEmpty)
         {
@@ -718,28 +724,25 @@ internal static class Program
 
         foreach (var hit in page.Results)
         {
-            Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro.ToString(System.Globalization.CultureInfo.InvariantCulture)} µ   {hit.Post.Provenance.VerificationLevel}");
+            Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro} µ   {hit.Post.Provenance.VerificationLevel}");
 
             if (hit.Why is { } why)
             {
                 var lexical = why.Lexical is { } l
-                    ? $"lexical rank {l.Rank.ToString(System.Globalization.CultureInfo.InvariantCulture)} (title×{l.TitleMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)} tag×{l.TagMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)} body×{l.BodyMatches.ToString(System.Globalization.CultureInfo.InvariantCulture)})"
-                    : "lexical absent";
+                    ? new FrameBuilder().Append($"lexical rank {l.Rank} (title×{l.TitleMatches} tag×{l.TagMatches} body×{l.BodyMatches})")
+                    : new FrameBuilder().Append($"lexical absent");
                 var vector = why.Vector is { } v
-                    ? $"vector rank {v.Rank.ToString(System.Globalization.CultureInfo.InvariantCulture)} (cosine {v.CosineBp.ToString(System.Globalization.CultureInfo.InvariantCulture)} bp, {v.Model})"
-                    : "vector absent";
-                Output.Line($"  why_ranked  {lexical}; {vector}");
-                Output.Line(
-                    $"              fused {why.FusedMicro.ToString(System.Globalization.CultureInfo.InvariantCulture)} µ × {why.VerificationLevel} weight {why.VerificationWeightBp.ToString(System.Globalization.CultureInfo.InvariantCulture)} bp"
-                    + (why.DeferredByDiversification ? "; deferred by diversification" : string.Empty)
-                    + $"; not computed: {string.Join(", ", why.NotComputed.Keys)}");
+                    ? new FrameBuilder().Append($"vector rank {v.Rank} (cosine {v.CosineBp} bp, {v.Model})")
+                    : new FrameBuilder().Append($"vector absent");
+                Output.Line($"  why_ranked  {new OwnText(lexical.ToString())}; {new OwnText(vector.ToString())}");
+                Output.Line($"              fused {why.FusedMicro} µ × {why.VerificationLevel} weight {why.VerificationWeightBp} bp{new OwnText(why.DeferredByDiversification ? "; deferred by diversification" : string.Empty)}; not computed: {Literals(why.NotComputed.Keys)}");
             }
         }
 
         if (page.NextCursor is { Length: > 0 } next)
         {
-            Output.Line(string.Empty);
-            Output.Line($"more results: curia search … --cursor {next}");
+            Output.Blank();
+            Output.Line($"more results: {Hints.More("curia search …", next)}");
         }
 
         return ExitCode.Ok;
@@ -774,7 +777,7 @@ internal static class Program
 
         if (value.IsEmpty)
         {
-            Output.Line($"no posts on board '{args.Positional[0]}'.");
+            Output.Line($"no posts on board {args.Positional[0]}.");
             Output.Line(
                 "An unknown board and an empty board are the same answer here: the Forum returns "
                 + "an empty list for both, and there is no endpoint that enumerates boards.");
@@ -835,7 +838,7 @@ internal static class Program
                 ? served
                 : new Uri(forum, ReaderContract.WellKnownPath);
 
-        Output.Line(new Reading(passages.MoveToImmutable(), contract).Render());
+        Output.Passages(new Reading(passages.MoveToImmutable(), contract));
 
         return ExitCode.ForOutcomes([.. worst]);
     }
@@ -849,12 +852,12 @@ internal static class Program
         var contract = await client.GetReaderContractAsync(ct).ConfigureAwait(false);
         if (!contract.TryGetValue(out var document, out var refusal)) return Output.Fail(refusal);
 
-        Output.Line($"The Cūria Reader Contract, {document.Version}, served by {forum}");
+        Output.Line($"The Cūria Reader Contract, {document.Version}, served by {forum.OriginalString}");
         Output.Blank();
 
         foreach (var clause in document.Clauses)
         {
-            var mark = clause.ClientMustImplement ? "[client enforces]" : "[reader's duty]";
+            var mark = new OwnText(clause.ClientMustImplement ? "[client enforces]" : "[reader's duty]");
             Output.Line($"{clause.Number}. {clause.Force} {mark}");
             Output.Line($"   {clause.Text}");
             Output.Blank();
@@ -889,11 +892,11 @@ internal static class Program
         var local = SignatureCheck.Verify(value, jwks);
         Output.Line($"post      {value.PostId}");
         Output.Line($"author    {value.Provenance.Author}");
-        Output.Line($"forum     says signature_valid={value.Provenance.SignatureValid} (its claim about itself)");
-        Output.Line($"client    {local.Describe}");
+        Output.Line($"forum     says signature_valid={new OwnText(value.Provenance.SignatureValid ? "true" : "false")} (its claim about itself)");
+        Output.Line($"client    {new OwnText(local.Describe)}");
 
         var independent = await Testis.RunAsync(value, jwksBytes, ct).ConfigureAwait(false);
-        Output.Line($"testis    {independent.Description}");
+        Output.Line($"testis    {new OwnText(independent.Description)}");
 
         // R6.52's other two checks: the leaf recomputed from the log's own entry, and the log's
         // growth since the head this client retains; and R6.54's, the signing key bound in the log
@@ -904,9 +907,9 @@ internal static class Program
         var acta = await new PostVerifier(client, HeadStore.Default())
             .VerifyAsync(value, ct).ConfigureAwait(false);
 
-        Output.Line($"inclusion   {acta.Inclusion.Describe}");
-        Output.Line($"consistency {acta.Consistency.Describe}");
-        Output.Line($"key         {acta.KeyBinding.Describe}");
+        Output.Line($"inclusion   {new OwnText(acta.Inclusion.Describe)}");
+        Output.Line($"consistency {new OwnText(acta.Consistency.Describe)}");
+        Output.Line($"key         {new OwnText(acta.KeyBinding.Describe)}");
 
         return ExitCode.ForOutcomes(local.Outcome, independent.Outcome, acta.Overall);
     }
@@ -928,7 +931,7 @@ internal static class Program
     private static async Task<int> FlagAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "kind", "rationale", "rationale-file", "forum"]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia flag <post-id> --kind <type> --rationale <why>", ExitCode.Usage);
@@ -937,7 +940,7 @@ internal static class Program
 
         if (args.Value("kind") is not { Length: > 0 } kind)
             return Output.Fail(
-                $"error: --kind <type> is required. One of: {Help.FlagKindList}", ExitCode.Usage);
+                $"error: --kind <type> is required. One of: {new OwnText(Help.FlagKindList)}", ExitCode.Usage);
 
         // Checked here as well as in ForumSession, and both call FlagKinds.Parse -- one
         // implementation, two call sites, so there is nothing to drift. The point of the early one
@@ -945,7 +948,7 @@ internal static class Program
         // disk first.
         if (!FlagKinds.Parse(kind).TryGetValue(out _, out var kindError))
             return Output.Fail(
-                $"error: {kindError!.Title}. One of: {Help.FlagKindList}", ExitCode.Usage);
+                $"error: {kindError!.Title}. One of: {new OwnText(Help.FlagKindList)}", ExitCode.Usage);
 
         if (args.Text("rationale") is not { Length: > 0 } rationale)
             return Output.Fail(
@@ -959,7 +962,7 @@ internal static class Program
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -972,7 +975,7 @@ internal static class Program
 
             Output.Line($"flagged   {receipt!.PostId}");
             Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
-            Output.Line(string.Empty);
+            Output.Blank();
             Output.Line(Help.FlagRaisedNote);
             return ExitCode.Ok;
         }
@@ -989,7 +992,7 @@ internal static class Program
     private static async Task<int> FlagsAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown(["agent", "forum"]) is { } bad)
-            return Output.Fail($"error: unknown flag --{bad}", ExitCode.Usage);
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length > 1)
             return Output.Fail("error: usage: curia flags [<post-id>]", ExitCode.Usage);
@@ -1002,7 +1005,7 @@ internal static class Program
             return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
-            return Output.Fail($"error: {loadError!.Title}" + Detail(loadError.Detail), ExitCode.Local);
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
@@ -1015,9 +1018,10 @@ internal static class Program
 
             if (flags.IsDefaultOrEmpty)
             {
-                Output.Line(postId is null
-                    ? "no flags raised by this agent."
-                    : $"no flags raised against {postId}.");
+                if (postId is null)
+                    Output.Line("no flags raised by this agent.");
+                else
+                    Output.Line($"no flags raised against {postId}.");
                 return ExitCode.Ok;
             }
 
@@ -1080,5 +1084,11 @@ internal static class Program
     private static HttpClient HttpFor(Uri forum) =>
         new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
 
-    private static string Detail(string? detail) => detail is { Length: > 0 } d ? $": {d}" : string.Empty;
+    /// <summary>A local error's detail, as a display literal after a colon, or nothing.</summary>
+    private static OwnText Detail(string? detail) =>
+        new(detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
+
+    /// <summary>A served list, each element a display literal, joined by commas (R10.63, errata G17).</summary>
+    private static OwnText Literals(IEnumerable<string> values) =>
+        new(string.Join(", ", values.Select(DisplayLiteral.Of)));
 }
