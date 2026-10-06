@@ -191,7 +191,7 @@ internal sealed class Args
         foreach (var flag in NameLists)
         {
             if (args._flags.TryGetValue(flag, out var raw) && raw is { Length: > 0 })
-                args._lists[flag] = [.. Split(raw).Select(element => args.Name(element, "--" + flag))];
+                args._lists[flag] = [.. SplitNames(raw).Select(element => args.Name(element, "--" + flag))];
         }
 
         return args;
@@ -213,6 +213,45 @@ internal sealed class Args
 
     private static string[] Split(string raw) =>
         raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>
+    /// A comma-separated list of names, where an element that begins with a quotation mark is a
+    /// display literal and runs to its closing quotation mark -- a comma inside it is the name's own
+    /// (R10.66) -- and on to the next comma, so anything after the literal stays in the element and
+    /// <see cref="Name"/> refuses it. An unterminated literal runs to the end. Any other element runs
+    /// to the next comma and is trimmed; a literal is never trimmed inside its quotation marks. Empty
+    /// elements are dropped.
+    /// </summary>
+    private static string[] SplitNames(string raw)
+    {
+        var elements = new List<string>();
+        var at = 0;
+        while (at < raw.Length)
+        {
+            while (at < raw.Length && char.IsWhiteSpace(raw[at])) at++;
+            if (at == raw.Length) break;
+
+            var start = at;
+            if (raw[at] == '"')
+            {
+                at++;
+                while (at < raw.Length && raw[at] != '"')
+                    at += raw[at] == '\\' ? 2 : 1;
+                at = Math.Min(at + 1, raw.Length);
+                while (at < raw.Length && raw[at] != ',') at++;
+                elements.Add(raw[start..at]);
+            }
+            else
+            {
+                while (at < raw.Length && raw[at] != ',') at++;
+                if (raw[start..at].Trim() is { Length: > 0 } element) elements.Add(element);
+            }
+
+            at++;
+        }
+
+        return [.. elements];
+    }
 
     internal bool Has(string name) => _flags.ContainsKey(name);
 

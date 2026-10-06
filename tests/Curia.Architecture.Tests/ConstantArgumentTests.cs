@@ -32,6 +32,9 @@ public sealed class ConstantArgumentTests
 {
     private const string ConstantExpected = "System.Diagnostics.CodeAnalysis.ConstantExpectedAttribute";
 
+    /// <summary><c>ldarg.0</c> to <c>ldarg.3</c>, each at the index of the argument slot it loads.</summary>
+    private static readonly Code[] ShortArgumentLoads = [Code.Ldarg_0, Code.Ldarg_1, Code.Ldarg_2, Code.Ldarg_3];
+
     [Fact]
     public void R10_63_NoMethodWhoseParameterMustBeAConstantIsTakenAsADelegate()
     {
@@ -65,6 +68,77 @@ public sealed class ConstantArgumentTests
         Scan(self, new HashSet<string>(StringComparer.Ordinal), own);
         var found = Assert.Single(own, d => guarded.Contains(d.Target));
         Assert.Equal("Curia.Architecture.Tests.ConstantArgumentTests::Bypass", found.Site);
+    }
+
+    /// <summary>
+    /// An <c>OwnText</c> is the client's own words by declaration, and one made from a parameter is
+    /// that only if the parameter is a constant: <c>Hints.More</c>'s command, which the CLI passes as
+    /// <c>"curia inbox ..."</c>. Without <see cref="ConstantExpectedAttribute"/> on it, CA1857 has
+    /// nothing to enforce, the build stays green, and the next caller passes a served value as the
+    /// client's own (Task 5's review). So this fact reads every <c>newobj</c> of
+    /// <c>OwnText(string)</c> whose argument is loaded straight from a parameter, and fails on any such
+    /// parameter that is not so marked -- a rule, not one method, so the next helper of this shape is
+    /// held too.
+    ///
+    /// <para>It sees an <c>OwnText</c> made directly from a parameter. One made from a local, a field,
+    /// or an expression over a parameter (<c>p.Text</c>, <c>a ?? b</c>) is past what it can see, and
+    /// is held by review grepping <c>new OwnText(</c>.</para>
+    /// </summary>
+    [Fact]
+    public void R10_63_AStringParameterAnOwnTextIsMadeFromMustBeAConstant()
+    {
+        const string ownText = "System.Void Curia.Client.OwnText::.ctor(System.String)";
+        var sites = new List<(string Method, ParameterDefinition Parameter)>();
+
+        foreach (var path in ShippedAssemblies())
+        {
+            using var assembly = AssemblyDefinition.ReadAssembly(path);
+            foreach (var type in AllTypes(assembly.MainModule))
+            foreach (var method in type.Methods.Where(m => m.HasBody))
+            {
+                foreach (var instruction in method.Body.Instructions)
+                {
+                    if (instruction.OpCode.Code != Code.Newobj
+                        || instruction.Operand is not MethodReference constructor
+                        || constructor.GetElementMethod().FullName != ownText
+                        || instruction.Previous is not { } loaded
+                        || Loaded(method, loaded) is not { } parameter)
+                        continue;
+
+                    sites.Add((method.FullName, parameter));
+                }
+            }
+        }
+
+        Assert.Contains(sites, site =>
+            site.Method.Contains("Curia.Client.Cli.Hints::More(System.String,System.String)", StringComparison.Ordinal)
+            && site.Parameter.Name == "command");
+        Assert.Contains(sites, site =>
+            site.Method.Contains("Curia.Client.Passage::Standing(", StringComparison.Ordinal)
+            && site.Parameter.Name == "name");
+
+        var unguarded = sites
+            .Where(site => !site.Parameter.CustomAttributes.Any(a => a.AttributeType.FullName == ConstantExpected))
+            .Select(site => $"{site.Method}: {site.Parameter.Name}")
+            .ToList();
+        Assert.True(
+            unguarded.Count == 0,
+            "an OwnText is made from a parameter a caller may pass any string to, which declares a served value the client's own words: "
+            + string.Join("; ", unguarded));
+    }
+
+    /// <summary>The parameter <paramref name="instruction"/> loads, or null when it loads <c>this</c> or is not an <c>ldarg</c>.</summary>
+    private static ParameterDefinition? Loaded(MethodDefinition method, Instruction instruction)
+    {
+        if (instruction.OpCode.Code is Code.Ldarg_S or Code.Ldarg)
+            return instruction.Operand is ParameterDefinition named && named != method.Body.ThisParameter ? named : null;
+
+        var slot = Array.IndexOf(ShortArgumentLoads, instruction.OpCode.Code);
+        if (slot < 0)
+            return null;
+
+        var index = slot - (method.HasThis ? 1 : 0);
+        return index >= 0 ? method.Parameters[index] : null;
     }
 
     /// <summary>The bypass this fact exists to find, held here so the fact can show it finds one.</summary>

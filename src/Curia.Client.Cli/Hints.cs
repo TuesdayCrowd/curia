@@ -11,8 +11,9 @@ namespace Curia.Client.Cli;
 /// <see cref="ShellWord"/>, and a value that is not one leaves the command unprinted: the line says
 /// where the value is instead. Written as a display literal, the value would be a double-quoted word
 /// in which a shell runs <c>$(…)</c>. <c>CommandHintTests</c> fails if a line of this assembly's
-/// source outside this file interpolates a value after <c>curia</c> and a verb; a command split
-/// across lines, or built by concatenation, is past what it can see.</para>
+/// source outside this file is one on which a hole follows <c>curia</c> and a verb, whatever kind of
+/// string holds it; a command whose verb and hole are on different lines, or that is built by
+/// concatenation, is past what it can see.</para>
 /// </summary>
 internal static class Hints
 {
@@ -21,13 +22,13 @@ internal static class Hints
 
     /// <summary>The cheap re-check of a post just read, by its entity tag (§9.3).</summary>
     internal static OwnText ReCheck(string postId, string etag) =>
-        ShellWord.TryOf(postId, out var post) && ShellWord.TryOf(etag, out var tag)
+        TryName(postId, out var post) && ShellWord.TryOf(etag, out var tag)
             ? Said($"(re-check cheaply: curia read {post} --if-none-match {tag})")
             : Said($"(re-check cheaply with curia read and --if-none-match and the tag above; {new OwnText(Withheld)})");
 
     /// <summary>The thread under a root post.</summary>
     internal static OwnText Thread(string postId) =>
-        ShellWord.TryOf(postId, out var post)
+        TryName(postId, out var post)
             ? Said($"curia thread {post}")
             : Said($"curia thread and the post id above ({new OwnText(Withheld)})");
 
@@ -41,4 +42,16 @@ internal static class Hints
             : Said($"{new OwnText(command)} with --cursor and the cursor {cursor} ({new OwnText(Withheld)})");
 
     private static OwnText Said(FrameText text) => new(text.ToString());
+
+    /// <summary>
+    /// A value a command takes as a name (R10.66) as a shell word, and only when it does not begin
+    /// with a quotation mark: run again, one that did would be read as a display literal and name
+    /// another post, or be refused (errata G17, consequence 7). An entity tag and a cursor are not
+    /// names, and go through <see cref="ShellWord.TryOf"/> alone.
+    /// </summary>
+    private static bool TryName(string value, [NotNullWhen(true)] out ShellWord? word)
+    {
+        word = null;
+        return !value.StartsWith('"') && ShellWord.TryOf(value, out word);
+    }
 }

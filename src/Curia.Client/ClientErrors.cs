@@ -96,6 +96,17 @@ public static class ClientErrors
         "The configured external signer could not be used",
         $"{command}: {detail}");
 
+    /// <summary>
+    /// A filter tag the Forum's <c>tags</c> parameter cannot carry: one that is empty, holds a comma,
+    /// or begins or ends with white space. The Forum splits that parameter on commas and trims each
+    /// element (R9.26), so it would read such a tag as another, or as none, and answer a query that
+    /// was never asked. Refused rather than misread; the detail is the tag, quoted as a literal.
+    /// </summary>
+    public static Error TagNotFilterable(string tag) => new(
+        "curia/client/tag-not-filterable",
+        "Tag cannot be named in a filter; the Forum's tags filter is comma-separated and trimmed, so it would read this tag as another (R9.26)",
+        tag);
+
     public static Error Transport(string detail) => new(
         "curia/client/transport",
         "The Forum could not be reached",

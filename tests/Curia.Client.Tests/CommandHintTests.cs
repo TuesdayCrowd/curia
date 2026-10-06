@@ -80,16 +80,60 @@ public sealed class CommandHintTests : IDisposable
     }
 
     /// <summary>
-    /// The rule holds where it is written: no interpolated string in the command-line client outside
-    /// <see cref="Hints"/> writes a value after <c>curia</c> and a verb. Without this, the next hint
-    /// written the old way prints a display literal into a command, as the five lines this stage found
-    /// did. It reads a line at a time, so a command split across lines is past what it can see.
+    /// R10.66 with R10.65: a hint's command, run, gives this client back the post it names. A post id
+    /// that begins with a quotation mark is a shell word, but run again it would be read as a display
+    /// literal -- naming another post when it is one, refused when it is not -- so the hint prints no
+    /// command for it. The facts above go through a shell; this one goes through <see cref="Args"/>
+    /// as well, which is where the command is read.
+    /// </summary>
+    [Theory]
+    [InlineData(PostId)]
+    [InlineData("\"" + PostId + "\"")]
+    [InlineData("\"" + PostId)]
+    public void R10_66_AHintPrintsACommandOnlyWhenTheClientReadsItBackAsTheValueItNamed(string id)
+    {
+        var recheck = Hints.ReCheck(id, "W/\"abc\"").Text;
+
+        foreach (var command in new[] { Hints.Thread(id).Text, recheck["(re-check cheaply: ".Length..^1] })
+        {
+            if (command.Contains(Hints.Withheld, StringComparison.Ordinal)) continue;
+
+            var parsed = Args.Parse(PosixShell.Argv(command), 1);
+            Assert.Null(parsed.Unreadable);
+            Assert.Equal(id, parsed.Positional[0]);
+        }
+    }
+
+    /// <summary>
+    /// The theory above is not vacuous either way: an id that begins with a quotation mark is
+    /// withheld from both hints, and an id that does not is printed in both.
+    /// </summary>
+    [Fact]
+    public void R10_66_APostIdThatBeginsWithAQuotationMarkIsWithheldFromEveryHintAndOneThatDoesNotIsPrinted()
+    {
+        foreach (var id in new[] { "\"" + PostId + "\"", "\"" + PostId })
+        {
+            Assert.Contains(Hints.Withheld, Hints.Thread(id).Text, StringComparison.Ordinal);
+            Assert.Contains(Hints.Withheld, Hints.ReCheck(id, "W/\"abc\"").Text, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain(Hints.Withheld, Hints.Thread(PostId).Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(Hints.Withheld, Hints.ReCheck(PostId, "W/\"abc\"").Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The rule holds where it is written: no line of the command-line client outside
+    /// <see cref="Hints"/> writes a value into a command. Without this, the next hint written the old
+    /// way prints a display literal into a command, as the five lines this stage found did. It finds
+    /// any line on which a hole follows <c>curia</c> and a verb, whatever kind of string holds it; a
+    /// command whose verb and hole are on different lines, or that is built by concatenation, is past
+    /// what it can see.
     /// </summary>
     [Fact]
     public void R10_65_EveryCommandTheCliPrintsWithAValueIsWrittenByHints()
     {
         var cli = Path.Combine(SourceRoot(), "Curia.Client.Cli");
-        var command = new Regex("""\$"(?:[^"\\]|\\.)*\bcuria [a-z]+\b(?:[^"\\{]|\\.)*\{""", RegexOptions.CultureInvariant);
+        var command = new Regex("""\bcuria\s+[a-z]+\b[^{\n]*\{[^}\n]*\}""", RegexOptions.CultureInvariant);
 
         var inHints = File.ReadLines(Path.Combine(cli, "Hints.cs")).Count(command.IsMatch);
         Assert.True(inHints >= 3, $"the pattern finds {inHints} lines in Hints.cs, where four put a command beside a value; a defect in this fact");

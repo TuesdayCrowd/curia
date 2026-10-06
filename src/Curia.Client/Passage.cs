@@ -104,14 +104,14 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
             frame.Line($"code      {envelope.CodeBlocks.Length} code block(s) inside the block below. NOT EXECUTED, NOT INSTALLED (contract clause 3).");
 
         frame.Blank();
-        Standing(frame, Post.Provenance.Warning, Provenance.StandardWarning, "warning");
+        Standing(frame, Post.Provenance.Warning, new OwnText(Provenance.StandardWarning), "warning");
 
         // The caveat that stands is the one this client holds for the marking the Forum says it
         // applied, chosen by the marking and never by the served text, and written when the Forum
         // omitted it; a served caveat is compared against it (Task 4's review, m4).
         var servedCaveat = Post.Provenance.MarkingCaveat is { Length: > 0 } served ? served : null;
         if (PublishedCaveat(Post.Provenance.Marking) is { } caveat)
-            Standing(frame, servedCaveat ?? caveat, caveat, "marking caveat");
+            Standing(frame, servedCaveat ?? caveat.Text, caveat, "marking caveat");
         else if (servedCaveat is not null)
             frame.Line($"the Forum served a marking caveat where the published text has none: {servedCaveat}");
 
@@ -130,28 +130,32 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
     /// A standing sentence the Forum serves and this client also holds (R10.17, R10.15, R10.16):
     /// written as this client's own when the two agree, and quoted beneath a line saying so when they
     /// do not, so that a Forum cannot put its own words in the warning's place.
+    ///
+    /// <para><paramref name="published"/> is an <see cref="OwnText"/> so that the claim the words are
+    /// the client's is made where the text is chosen, from a constant, and never from a parameter a
+    /// caller could fill with a served value (<c>ConstantArgumentTests</c>).</para>
     /// </summary>
-    private static void Standing(FrameBuilder frame, string served, string published, [ConstantExpected] string name)
+    private static void Standing(FrameBuilder frame, string served, OwnText published, [ConstantExpected] string name)
     {
-        if (string.Equals(served, published, StringComparison.Ordinal))
+        if (string.Equals(served, published.Text, StringComparison.Ordinal))
         {
-            frame.Line($"{new OwnText(published)}");
+            frame.Line($"{published}");
             return;
         }
 
         frame.Line($"the Forum served a {new OwnText(name)} that is not the published text: {served}");
-        frame.Line($"{new OwnText(published)}");
+        frame.Line($"{published}");
     }
 
     /// <summary>
-    /// The caveat this client holds for a marking: R10.15's for delimiters alone, R10.16's for
-    /// datamarking, and none where nothing was marked -- the Forum's own choice for each
-    /// (<c>ForumEndpoints</c>).
+    /// The caveat this client holds for a marking, as the client's own words, each made from a
+    /// constant: R10.15's for delimiters alone, R10.16's for datamarking, and none where nothing was
+    /// marked -- the Forum's own choice for each (<c>ForumEndpoints</c>).
     /// </summary>
-    private static string? PublishedCaveat(MarkingMode marking) => marking switch
+    private static OwnText? PublishedCaveat(MarkingMode marking) => marking switch
     {
-        MarkingMode.DelimitersOnly => Provenance.DelimiterOnlyCaveat,
-        MarkingMode.Datamark => Provenance.MarkingIsNotAGuarantee,
+        MarkingMode.DelimitersOnly => new OwnText(Provenance.DelimiterOnlyCaveat),
+        MarkingMode.Datamark => new OwnText(Provenance.MarkingIsNotAGuarantee),
         MarkingMode.None => null,
         _ => null,
     };

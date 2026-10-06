@@ -136,6 +136,21 @@ public sealed class ArgsTests
     }
 
     /// <summary>
+    /// R10.66 for a tag a post carries, which may hold a comma: its literal is one element of
+    /// <c>--tags</c>, not cut at the comma inside it, so the list this client printed reads back as
+    /// the tags it named. A literal left open runs to the end of the list and is refused.
+    /// </summary>
+    [Fact]
+    public void R10_66_ATagHoldingACommaIsTakenBackAsTheLiteralThisClientPrintedForIt()
+    {
+        var listed = Args.Parse(["ask", "--tags", "x," + DisplayLiteral.Of("a,b") + "," + DisplayLiteral.Of("c\"d,e")], 1);
+        Assert.Null(listed.Unreadable);
+        Assert.Equal(["x", "a,b", "c\"d,e"], listed.List("tags"));
+
+        Assert.Equal("--tags", Args.Parse(["ask", "--tags", "\"a,b"], 1).Unreadable);
+    }
+
+    /// <summary>
     /// An argument where a name is read that begins with a quotation mark, and is not a literal
     /// exactly as this client prints one, is refused and named -- never read as some other value.
     /// So is the literal of a surrogate without its pair: no name on the Forum can hold one, and the
