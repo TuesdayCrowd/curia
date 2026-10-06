@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Curia.Canon.Jws;
+using Curia.Domain.Primitives;
 
 namespace Curia.AuthN.Dpop;
 
@@ -26,20 +27,32 @@ namespace Curia.AuthN.Dpop;
 /// </summary>
 public static class JwkPublicKey
 {
+    /// <summary>
+    /// The key a parsed <c>jwk</c> names, or a <see cref="AuthNErrors.MalformedJwk"/> failure when
+    /// its coordinates are not a point on P-256.
+    ///
+    /// <para><b>Why a result, never a throw.</b> <see cref="JwkParser"/> checks a coordinate's
+    /// length, not that the two make a point, and the BCL refuses a point off the curve by throwing.
+    /// The token endpoint binds a token to a proof's key without building it (register D29), so an
+    /// agent could hold a token bound to such a key, and every route behind authentication threw on
+    /// its proof: a 500, which tells a caller to retry and never says what was wrong (R11.33, errata
+    /// G17).</para>
+    /// </summary>
     /// <param name="jwk">The parsed DPoP proof key.</param>
     /// <param name="kid">DPoP proofs carry no separate <c>kid</c> header member (the key <i>is</i>
     /// the embedded <c>jwk</c>); callers pass an empty string or a caller-chosen label purely for
     /// <see cref="PublicKeyMaterial"/>'s constructor, never as anything resolved or trusted.</param>
-    public static PublicKeyMaterial ToPublicKeyMaterial(this Jwk jwk, string kid)
+    public static Result<PublicKeyMaterial> ToPublicKeyMaterial(this Jwk jwk, string kid)
     {
         ArgumentNullException.ThrowIfNull(jwk);
 
         return jwk.Match(
-            okpEd25519: okp => new PublicKeyMaterial("EdDSA", kid, okp.X),
-            ecP256: ec => new PublicKeyMaterial("ES256", kid, BuildSubjectPublicKeyInfo(ec.X.Span, ec.Y.Span)));
+            okpEd25519: okp => Result<PublicKeyMaterial>.Ok(new PublicKeyMaterial("EdDSA", kid, okp.X)),
+            ecP256: ec => BuildSubjectPublicKeyInfo(ec.X.Span, ec.Y.Span)
+                .Map(spki => new PublicKeyMaterial("ES256", kid, spki)));
     }
 
-    private static byte[] BuildSubjectPublicKeyInfo(ReadOnlySpan<byte> x, ReadOnlySpan<byte> y)
+    private static Result<byte[]> BuildSubjectPublicKeyInfo(ReadOnlySpan<byte> x, ReadOnlySpan<byte> y)
     {
         var parameters = new ECParameters
         {
@@ -47,7 +60,14 @@ public static class JwkPublicKey
             Q = new ECPoint { X = x.ToArray(), Y = y.ToArray() },
         };
 
-        using var ecdsa = ECDsa.Create(parameters);
-        return ecdsa.ExportSubjectPublicKeyInfo();
+        try
+        {
+            using var ecdsa = ECDsa.Create(parameters);
+            return Result<byte[]>.Ok(ecdsa.ExportSubjectPublicKeyInfo());
+        }
+        catch (CryptographicException)
+        {
+            return Result<byte[]>.Fail(AuthNErrors.MalformedJwk("'x' and 'y' are not a point on P-256"));
+        }
     }
 }

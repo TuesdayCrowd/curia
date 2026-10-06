@@ -142,7 +142,12 @@ public static class AccessTokenValidator
         if (!string.Equals(proofHeader.Alg, keyAlg, StringComparison.Ordinal))
             return Result<ValidatedRequest>.Fail(AuthNErrors.AlgKeyMismatch(proofHeader.Alg, keyAlg));
 
-        var proofKey = jwk.ToPublicKeyMaterial(kid: "");
+        // R11.33 (errata G17): a jwk whose coordinates are no point on the curve is a malformed
+        // proof, answered as one. The token endpoint binds a token to a proof's key without building
+        // it (register D29), so an agent can hold a token bound to such a key, and this threw.
+        if (!jwk.ToPublicKeyMaterial(kid: "").TryGetValue(out var proofKey, out var proofKeyError))
+            return Result<ValidatedRequest>.Fail(proofKeyError!);
+
         if (!context.VerifiersByAlg.TryGetValue(proofHeader.Alg, out var proofVerifier))
             return Result<ValidatedRequest>.Fail(AuthNErrors.AlgNotAllowed(proofHeader.Alg));
 

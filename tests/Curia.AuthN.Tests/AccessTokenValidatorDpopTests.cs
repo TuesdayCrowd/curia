@@ -80,6 +80,44 @@ public sealed class AccessTokenValidatorDpopTests
         Assert.Equal("curia/authn/alg-not-allowed", error!.Type);
     }
 
+    /// <summary>
+    /// R11.33 (errata G17): a proof whose <c>jwk</c> is no point on P-256, under a token bound to
+    /// that jwk -- which the token endpoint issues, since it reads a proof's key without building it
+    /// (register D29) -- is refused as a malformed key, never thrown. It threw: the key was built with
+    /// <c>ECDsa.Create</c>, which refuses a point off the curve with an exception nothing caught, and
+    /// every route behind authentication answered 500.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown()
+    {
+        var scenario = new AccessTokenScenario();
+        var x = Enumerable.Repeat((byte)1, 32).ToArray();
+        var y = Enumerable.Repeat((byte)2, 32).ToArray();
+        var payload = scenario.ValidAccessTokenPayload();
+        payload["cnf"] = new Dictionary<string, object?> { ["jkt"] = TestThumbprint.ForP256(x, y) };
+        var token = scenario.SignAccessToken(payload: payload);
+        var header = new Dictionary<string, object>
+        {
+            ["alg"] = "ES256",
+            ["typ"] = "dpop+jwt",
+            ["jwk"] = new Dictionary<string, object>
+            {
+                ["kty"] = "EC",
+                ["crv"] = "P-256",
+                ["x"] = System.Buffers.Text.Base64Url.EncodeToString(x),
+                ["y"] = System.Buffers.Text.Base64Url.EncodeToString(y),
+            },
+        };
+        var anyKey = TestKeys.Es256("not-the-embedded-key");
+        var proof = scenario.SignDpopProof(token, header: header, payload: scenario.ValidDpopPayload(token), key: anyKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed-jwk", error!.Type);
+    }
+
     [Fact]
     public async Task DpopBindingMismatchIsRejected_ThumbprintDoesNotMatchCnfJkt()
     {

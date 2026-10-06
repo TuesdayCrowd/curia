@@ -211,13 +211,14 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     /// failure, and ingest and the key set answer 503 <c>curia/log/unreadable</c>, where a 401 would
     /// tell an agent its key had been refused. With a reader that refuses the whole-log read the key
     /// set's positions are folded from, the key set answers 503 too, rather than serving its keys
-    /// without the leaves that bind them. Each names the reader's refusal by its slug, never its text.
+    /// without the leaves that bind them. The token endpoint names the reader's refusal by its slug; a
+    /// 5xx problem names none, and its detail goes to the log (R11.33, errata G17).
     /// </summary>
     [Theory]
     [InlineData("token", "stream", "500 {\"error\":\"server_error\",\"error_description\":\"The event log could not be read\",\"detail\":\"curia/log/unreadable\"}")]
-    [InlineData("question", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":\"test/log-unreadable\"}")]
-    [InlineData("key set", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":\"test/log-unreadable\"}")]
-    [InlineData("key set", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":\"test/log-unreadable\"}")]
+    [InlineData("question", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
+    [InlineData("key set", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
+    [InlineData("key set", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     public async Task R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal(string path, string refuses, string expected)
     {
         var ct = TestContext.Current.CancellationToken;

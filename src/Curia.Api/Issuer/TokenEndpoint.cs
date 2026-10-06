@@ -57,7 +57,28 @@ public static class TokenEndpoint
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
-        var form = await http.ReadFormAsync(cancellationToken).ConfigureAwait(false);
+        // A body that is not a form, a form value holding U+0000 percent-encoded, which the form
+        // reader refuses with InvalidDataException, and a multipart form cut off before its closing
+        // boundary, on which it throws IOException, each answered 500 to a caller holding no
+        // credential (register D25's sweep; R11.33, errata G17). Each is a request this endpoint
+        // cannot read: RFC 6749 §5.2's invalid_request. Multipart stays readable: a token request
+        // may be one, and R5.20's refusal of a NUL identifier is tested through one.
+        if (!http.HasFormContentType)
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+
+        IFormCollection form;
+        try
+        {
+            form = await http.ReadFormAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidDataException)
+        {
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+        }
+        catch (IOException)
+        {
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+        }
 
         var assertion = form["client_assertion"].ToString();
         var assertionType = form["client_assertion_type"].ToString();

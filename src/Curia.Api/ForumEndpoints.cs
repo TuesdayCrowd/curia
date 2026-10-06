@@ -1178,9 +1178,14 @@ public static class ForumEndpoints
         // Withheld posts are removed from the thread, not the thread from the corpus: a reply to a
         // withheld post is still the reply its author signed, and withholding a parent must not
         // silently withhold every answer under it.
+        // A root id of white space alone names no post, so it has no thread: answered as any unknown
+        // thread is. PostProjector.Thread refuses such an id by throwing, and an anonymous
+        // GET /v1/threads/%0A answered 500 (register D25's sweep; R11.33, errata G17).
         var posts = PostProjector.Fold(log);
-        var thread = ImmutableArray.CreateRange(
-            PostProjector.Thread(posts, rootPostId).Where(p => servable(p.PostId) && Discussion(p)));
+        var thread = string.IsNullOrWhiteSpace(rootPostId)
+            ? []
+            : ImmutableArray.CreateRange(
+                PostProjector.Thread(posts, rootPostId).Where(p => servable(p.PostId) && Discussion(p)));
         var standings = AgentStandingProjector.Fold(log);
         var verification = VerificationProjector.Fold(posts, standings, servable);
         var acta = ActaOf(log);
@@ -1294,7 +1299,7 @@ public static class ForumEndpoints
         // but will not fold into a tree publishes the keys without positions rather than no keys: a
         // reader then cannot check the binding, and says so (R6.54's absence is an absence).
         var (acta, failure) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
-        if (failure is JsonHttpResult<Problem> { Value.Type: LogBoundKeys.LogUnreadableType })
+        if (failure is ServerFault { Type: LogBoundKeys.LogUnreadableType })
             return failure;
 
         return Results.Ok(Jwks.ForAgent(keySet.Bound, acta is null ? _ => null : acta.IndexOf));
@@ -2146,6 +2151,13 @@ public static class ForumEndpoints
     private static string AbsoluteUrl(HttpRequest request) =>
         $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
 
+    /// <summary>
+    /// An RFC 9457 problem. A 5xx is served by <see cref="ServerFault"/>, without its detail, which
+    /// goes to the log: a server fault's detail is what the failing component said about itself
+    /// (R11.33, errata G17).
+    /// </summary>
     private static IResult Problem(int status, Error error) =>
-        Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
+        status >= StatusCodes.Status500InternalServerError
+            ? new ServerFault(status, error)
+            : Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
 }
