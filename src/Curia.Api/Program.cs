@@ -287,7 +287,12 @@ public sealed class Program
                 DpopNonceStore: sp.GetRequiredService<IDpopNonceStore>());
         });
 
+        // In Development the binder otherwise throws BadHttpRequestException, and the exception page serves its stack trace as text/plain.
+        builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
+
         var app = builder.Build();
+        app.UseUnreadableRequests();
+        app.UseUtf8JsonBodies();
         TokenEndpoint.Map(app);
         ForumEndpoints.Map(app);
         ActaEndpoints.Map(app);

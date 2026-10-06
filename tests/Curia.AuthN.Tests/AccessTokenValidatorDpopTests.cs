@@ -80,6 +80,158 @@ public sealed class AccessTokenValidatorDpopTests
         Assert.Equal("curia/authn/alg-not-allowed", error!.Type);
     }
 
+    /// <summary>
+    /// R11.33 (errata G17): a proof whose <c>jwk</c> is no point on P-256, under a token bound to
+    /// that jwk -- which the token endpoint issues, since it reads a proof's key without building it
+    /// (register D29) -- is refused as a malformed key, never thrown. It threw: the key was built with
+    /// <c>ECDsa.Create</c>, which refuses a point off the curve with an exception nothing caught, and
+    /// every route behind authentication answered 500.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown()
+    {
+        var scenario = new AccessTokenScenario();
+        var x = Enumerable.Repeat((byte)1, 32).ToArray();
+        var y = Enumerable.Repeat((byte)2, 32).ToArray();
+        var payload = scenario.ValidAccessTokenPayload();
+        payload["cnf"] = new Dictionary<string, object?> { ["jkt"] = TestThumbprint.ForP256(x, y) };
+        var token = scenario.SignAccessToken(payload: payload);
+        var header = new Dictionary<string, object>
+        {
+            ["alg"] = "ES256",
+            ["typ"] = "dpop+jwt",
+            ["jwk"] = new Dictionary<string, object>
+            {
+                ["kty"] = "EC",
+                ["crv"] = "P-256",
+                ["x"] = System.Buffers.Text.Base64Url.EncodeToString(x),
+                ["y"] = System.Buffers.Text.Base64Url.EncodeToString(y),
+            },
+        };
+        var anyKey = TestKeys.Es256("not-the-embedded-key");
+        var proof = scenario.SignDpopProof(token, header: header, payload: scenario.ValidDpopPayload(token), key: anyKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed-jwk", error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (Task 11's fix review): an access token whose header <c>kid</c> holds an escaped
+    /// unpaired surrogate is refused as malformed, never thrown. <c>JsonElement.GetString()</c> throws
+    /// on such a string, and every route behind authentication answered 500 to it before any key was
+    /// resolved; this shows the validator's first parse reaches <see cref="Jwt.CompactJws"/>'s check.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_AnAccessTokenWhoseHeaderKidIsAnUnpairedSurrogateIsRefusedNotThrown()
+    {
+        var scenario = new AccessTokenScenario();
+        var signed = scenario.SignAccessToken().Split('.');
+        var header = "{\"alg\":\"EdDSA\",\"typ\":\"at+jwt\",\"kid\":\"\\ud800\"}";
+        var token = System.Buffers.Text.Base64Url.EncodeToString(System.Text.Encoding.UTF8.GetBytes(header)) + "." + signed[1] + "." + signed[2];
+        var request = scenario.ValidRequest(accessToken: token);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (errata G17): a proof the bound DPoP key genuinely signed, whose <c>iat</c> is a number
+    /// <see cref="DateTimeOffset"/> cannot hold, is refused, never thrown. It reached
+    /// <see cref="DateTimeOffset.FromUnixTimeSeconds"/> unchecked after the signature verified, and
+    /// every route behind authentication answered 500 to any enrolled agent.
+    /// </summary>
+    [Theory]
+    [InlineData(10000000000000L)]
+    [InlineData(-100000000000L)]
+    public async Task R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown(long iat)
+    {
+        var scenario = new AccessTokenScenario();
+        var token = scenario.SignAccessToken();
+        var payload = scenario.ValidDpopPayload(token).WithClaim("iat", iat);
+        var proof = scenario.SignDpopProof(token, payload: payload, key: scenario.DpopKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (the stage's final gate, second round): a proof the bound key genuinely signed, whose
+    /// <c>jti</c> is absent, not a string, empty, white space, holds U+0000 or runs past 256 UTF-8
+    /// bytes, is malformed, and the replay cache never hears of it. Each reached
+    /// <c>PostgresReplayCache</c>, which throws on a blank one, and Postgres, which throws on U+0000 and
+    /// on a key past its btree row; every route behind authentication answered 500 to any enrolled
+    /// agent. The cache here throws as they do, so reaching it is red; the type is asserted exactly,
+    /// because a cache that refused <c>""</c> some other way would make a bare failure vacuous. The
+    /// last row is the bound's other side: a <c>jti</c> of exactly 256 UTF-8 bytes is read.
+    /// </summary>
+    [Theory]
+    [InlineData(UnreadableStrings.Absent, false)]
+    [InlineData("empty", false)]
+    [InlineData("spaces", false)]
+    [InlineData("newline", false)]
+    [InlineData("number", false)]
+    [InlineData("object", false)]
+    [InlineData("nul-inside", false)]
+    [InlineData("ascii-257", false)]
+    [InlineData("ascii-256", true)]
+    public async Task R11_33_AProofWhoseJtiIsNotReadableIsMalformedNotThrown(string row, bool read)
+    {
+        var scenario = new AccessTokenScenario();
+        var context = scenario.Context with { ReplayCache = new RefusingReplayCache() };
+        var token = scenario.SignAccessToken();
+        var payload = scenario.ValidDpopPayload(token).WithRow("jti", row);
+        var proof = scenario.SignDpopProof(token, payload: payload, key: scenario.DpopKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, context, TestContext.Current.CancellationToken);
+
+        if (read)
+        {
+            Assert.True(result.TryGetValue(out _, out var readError), readError?.Detail);
+            return;
+        }
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (the stage's final gate, second round): on a write path, a proof whose <c>nonce</c> the
+    /// Forum could not have issued -- holding U+0000, white space, or longer than 4096 UTF-8 bytes --
+    /// is stale, as a nonce nobody issued is, and the nonce store is never asked. A nonce holding
+    /// U+0000 reached <c>PostgresDpopNonceStore</c>, and Postgres threw 22021 on every write route.
+    /// The store here throws if it is asked; the "never asked" half is what carries information.
+    /// </summary>
+    [Theory]
+    [InlineData("nul-inside")]
+    [InlineData("nul")]
+    [InlineData("space")]
+    [InlineData("ascii-4097")]
+    public async Task R11_33_AWriteProofWhoseNonceCannotBeOneTheForumIssuedIsStaleBeforeTheStoreIsAsked(string row)
+    {
+        var scenario = new AccessTokenScenario();
+        var nonces = new UncallableNonceStore();
+        var context = scenario.Context with { DpopNonceStore = nonces };
+        var token = scenario.SignAccessToken();
+        var payload = scenario.ValidDpopPayload(token).WithRow("nonce", row);
+        var proof = scenario.SignDpopProof(token, payload: payload, key: scenario.DpopKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof, requireNonce: true);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(AuthNErrors.NonceStale().Type, error!.Type);
+        Assert.Equal(0, nonces.Calls);
+    }
+
     [Fact]
     public async Task DpopBindingMismatchIsRejected_ThumbprintDoesNotMatchCnfJkt()
     {

@@ -105,6 +105,8 @@ public sealed class ConformanceIndexTests
     /// generator's own verification pass, and <c>merkle/</c> by
     /// <see cref="MerkleVectorLoader"/> (whose count
     /// <c>Acta.MerkleTreeTests.R6_45_ThisRunnerLoadsEveryMerkleVectorTheIndexDeclares</c> checks
+    /// against the index), and <c>display/</c> by <see cref="DisplayVectorLoader"/> (whose count
+    /// <c>Json.DisplayLiteralTests.R6_45_ThisRunnerLoadsEveryDisplayVectorTheIndexDeclares</c> checks
     /// against the index), none through <c>VectorLoader.Load</c>.
     /// </summary>
     [Fact]
@@ -139,7 +141,7 @@ public sealed class ConformanceIndexTests
 
     /// <summary>
     /// Vector names within a family, by the shape the index declares: one subdirectory per
-    /// vector for <c>directory</c>, <c>envelope</c> and <c>merkle</c>, one <c>input-*.json</c>
+    /// vector for <c>directory</c>, <c>envelope</c>, <c>merkle</c> and <c>display</c>, one <c>input-*.json</c>
     /// per vector for <c>file-pairs</c>. An unrecognized shape fails rather than silently
     /// counting nothing.
     /// </summary>
@@ -148,7 +150,7 @@ public sealed class ConformanceIndexTests
         var dir = Path.Combine(VectorLoader.ConformanceRoot, entry.Name);
         return entry.Shape switch
         {
-            "directory" or "envelope" or "merkle" => [.. Directory.EnumerateDirectories(dir)
+            "directory" or "envelope" or "merkle" or "display" => [.. Directory.EnumerateDirectories(dir)
                 .Select(d => Path.GetFileName(d))
                 .Order(StringComparer.Ordinal)],
             "file-pairs" => [.. Directory.EnumerateFiles(dir, "input-*.json")

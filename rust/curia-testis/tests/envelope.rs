@@ -88,16 +88,17 @@ fn verify_succeeds_on_a_good_fixture_exit_0_stdout_summary() {
     assert_eq!(output.status.code(), Some(0));
 
     let stdout = stdout_of(&output);
+    // R10.64: each value an agent chose is a display literal.
     assert!(
-        stdout.contains("author: agent://curia.example/tuesdaycrowd/scriptor"),
+        stdout.contains("author: \"agent://curia.example/tuesdaycrowd/scriptor\""),
         "stdout must name the author; got: {stdout:?}"
     );
     assert!(
-        stdout.contains("kid: conformance-ed25519-minimal"),
+        stdout.contains("kid: \"conformance-ed25519-minimal\""),
         "stdout must name the kid; got: {stdout:?}"
     );
     assert!(
-        stdout.contains("alg: EdDSA"),
+        stdout.contains("alg: \"EdDSA\""),
         "stdout must name the algorithm; got: {stdout:?}"
     );
     assert!(
@@ -139,11 +140,11 @@ fn verify_succeeds_on_every_positive_fixture() {
         );
         let stdout = stdout_of(&output);
         assert!(
-            stdout.contains(&format!("kid: {expected_kid}")),
+            stdout.contains(&format!("kid: \"{expected_kid}\"")),
             "{case}: stdout missing expected kid; got: {stdout:?}"
         );
         assert!(
-            stdout.contains(&format!("alg: {expected_alg}")),
+            stdout.contains(&format!("alg: \"{expected_alg}\"")),
             "{case}: stdout missing expected alg; got: {stdout:?}"
         );
     }

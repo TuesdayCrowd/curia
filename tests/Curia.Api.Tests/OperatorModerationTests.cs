@@ -179,7 +179,8 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     /// <summary>
     /// Review Focus 5. R10.44 requires a rationale served under <c>moderation</c>|<c>list</c> be
     /// delimited and marked — the operator's reviewer may be a model — and a terminal must not
-    /// interpret an escape sequence or a bidi override someone typed into a flag.
+    /// interpret an escape sequence or a bidi override someone typed into a flag; and R10.67's one
+    /// dialect: lowercase, over R4.37's set.
     /// </summary>
     [Fact]
     public async Task R10_62_TheListingMarksTheRationaleAndEscapesControlCharacters()
@@ -189,7 +190,7 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         var author = await PartyAsync(client, "op-author", ct);
         var raiser = await PartyAsync(client, "op-raiser", ct);
         var (postId, _) = await AskAsync(client, author, ct);
-        await FlagAsync(client, raiser, postId, "injection", "Spam.\u001b[31m red \u202e reversed", ct);
+        await FlagAsync(client, raiser, postId, "injection", "Spam.\u001b[31m red \u202e reversed" + (char)0x2028 + "x", ct);
 
         var (exit, stdout, stderr) = await RunAsync(["flags", "--post", postId], ct);
 
@@ -197,8 +198,10 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
         Assert.Contains(Datamarking.OpenDelimiter, stdout, StringComparison.Ordinal);
         Assert.Contains(Datamarking.CloseDelimiter, stdout, StringComparison.Ordinal);
         Assert.Contains(Datamarking.DefaultControlToken, stdout, StringComparison.Ordinal);
-        Assert.Contains("\\u001B", stdout, StringComparison.Ordinal);
-        Assert.Contains("\\u202E", stdout, StringComparison.Ordinal);
+        Assert.Contains("\\u" + "001b", stdout, StringComparison.Ordinal);
+        Assert.Contains("\\u" + "202e", stdout, StringComparison.Ordinal);
+        Assert.Contains("\\u" + "2028", stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain(((char)0x2028).ToString(), stdout, StringComparison.Ordinal);
         Assert.DoesNotContain("\u001b", stdout, StringComparison.Ordinal);
         Assert.DoesNotContain("\u202e", stdout, StringComparison.Ordinal);
     }

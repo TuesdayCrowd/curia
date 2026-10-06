@@ -92,6 +92,16 @@ public sealed class IngestPipeline : IIngestPipeline
         if (!read.TryGetValue(out var envelope, out var schemaError))
             return Result<VerifiedSubmission>.Fail(schemaError!);
 
+        // An implementation limit of the log, not a ruling on R8.63's value space: PersistAsync writes
+        // `board` and `parent` into the post.accepted payload outside the canonical text, and jsonb
+        // cannot store U+0000 (22P05), so such a post answered 500 to any T0 agent (R11.33). Refused,
+        // never repaired (invariant 1), naming the member and not its value (R6.40). The body and the
+        // title reach jsonb only inside the canonical text, as an escape, and are stored.
+        if (envelope!.Board.Contains('\0', StringComparison.Ordinal))
+            return Result<VerifiedSubmission>.Fail(IngestErrors.UnstorableMember("board"));
+        if (envelope.Parent is not null && envelope.Parent.Contains('\0', StringComparison.Ordinal))
+            return Result<VerifiedSubmission>.Fail(IngestErrors.UnstorableMember("parent"));
+
         // Table 9: `author` "must equal the authenticated principal", and the author is the one the
         // signature covers (R6.55). A valid signature over another agent's name is a valid signature
         // by the wrong agent, so this is checked before the signature rather than after -- there is
@@ -104,6 +114,13 @@ public sealed class IngestPipeline : IIngestPipeline
         if (!header.TryGetValue(out var protectedHeader, out var headerError))
             return Result<VerifiedSubmission>.Fail(headerError!);
 
+        // R11.33: DetachedJws reads an absent or non-string `kid` as "", and enrollment refuses a blank
+        // one, so no key is registered under a `kid` that is empty or white space. It gets the answer an
+        // unregistered `kid` gets, here, before any adapter is asked; PostgresAgentKeyStore's guard
+        // against a blank `kid` threw, and answered 500 to any enrolled agent, and is a bug signal now.
+        if (string.IsNullOrWhiteSpace(protectedHeader!.Kid))
+            return Result<VerifiedSubmission>.Fail(AuthorKeyErrors.NotRegisteredToAgent(envelope.Author, protectedHeader.Kid));
+
         // R6.31 (errata A12): key validity is evaluated at server_ts. This is the Forum's
         // observation of receipt, taken once, here -- not at PERSIST, because a key that expires
         // between VERIFY and PERSIST must not retroactively invalidate a signature the Forum
@@ -111,7 +128,7 @@ public sealed class IngestPipeline : IIngestPipeline
         // rescue one it rejected.
         var serverTs = ServerTimestamp.At(_clock.GetUtcNow());
 
-        var key = await _keys.ResolveAsync(envelope!.Author, protectedHeader.Kid, serverTs, cancellationToken).ConfigureAwait(false);
+        var key = await _keys.ResolveAsync(envelope.Author, protectedHeader.Kid, serverTs, cancellationToken).ConfigureAwait(false);
         if (!key.TryGetValue(out var publicKey, out var keyError))
             return Result<VerifiedSubmission>.Fail(keyError!);
 

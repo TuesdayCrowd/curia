@@ -227,6 +227,117 @@ public sealed class ClientAssertionValidatorTests
         Assert.Equal("curia/authn/ttl-exceeded", error!.Type);
     }
 
+    /// <summary>
+    /// R11.33 (errata G17): an assertion the agent's registered key genuinely signed, whose
+    /// <c>iat</c> or <c>exp</c> is a number <see cref="DateTimeOffset"/> cannot hold, is refused as
+    /// malformed, never thrown. The claims are parsed after the signature verifies, so any enrolled
+    /// agent chooses them; they reached <see cref="DateTimeOffset.FromUnixTimeSeconds"/> unchecked,
+    /// and the token endpoint answered 500. A null row is the scenario's own valid value.
+    /// </summary>
+    [Theory]
+    [InlineData(10000000000000L, 10000000000000L)]
+    [InlineData(null, 10000000000000L)]
+    [InlineData(-100000000000L, null)]
+    public async Task R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown(long? iat, long? exp)
+    {
+        var scenario = new ClientAssertionScenario();
+        var payload = scenario.ValidPayload()
+            .WithClaim("iat", iat ?? TestJwt.ToUnixSeconds(scenario.Iat))
+            .WithClaim("exp", exp ?? TestJwt.ToUnixSeconds(scenario.Exp));
+        var assertion = scenario.SignValid(payload: payload, key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (Task 11's fix review): an assertion whose header <c>kid</c> holds an escaped unpaired
+    /// surrogate is refused as malformed, never thrown. <c>JsonElement.GetString()</c> throws on such a
+    /// string, and the validator's first parse of the header is where it would be read; this shows
+    /// that parse reaches <see cref="Jwt.CompactJws"/>'s check.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_AnAssertionWhoseHeaderKidIsAnUnpairedSurrogateIsRefusedNotThrown()
+    {
+        var scenario = new ClientAssertionScenario();
+        var signed = scenario.SignValid().Split('.');
+        var header = "{\"alg\":\"EdDSA\",\"typ\":\"JWT\",\"kid\":\"\\ud800\"}";
+        var assertion = System.Buffers.Text.Base64Url.EncodeToString(System.Text.Encoding.UTF8.GetBytes(header)) + "." + signed[1] + "." + signed[2];
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/malformed", error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (the stage's final gate, second round): an assertion the agent's registered key
+    /// genuinely signed, whose <c>jti</c> is absent, not a string, empty, white space, holds U+0000 or
+    /// runs past 256 UTF-8 bytes, is malformed, and the replay cache never hears of it. Each reached
+    /// <c>PostgresReplayCache</c> or Postgres, and <c>/oauth/token</c> answered 500 to any enrolled
+    /// agent. The cache here throws as they do; the type is asserted exactly. The last row is the
+    /// bound's other side: a <c>jti</c> of exactly 256 UTF-8 bytes is read.
+    /// </summary>
+    [Theory]
+    [InlineData(UnreadableStrings.Absent, false)]
+    [InlineData("empty", false)]
+    [InlineData("spaces", false)]
+    [InlineData("newline", false)]
+    [InlineData("number", false)]
+    [InlineData("object", false)]
+    [InlineData("nul-inside", false)]
+    [InlineData("ascii-257", false)]
+    [InlineData("ascii-256", true)]
+    public async Task R11_33_AnAssertionWhoseJtiIsNotReadableIsMalformedNotThrown(string row, bool read)
+    {
+        var scenario = new ClientAssertionScenario();
+        var context = scenario.Context with { ReplayCache = new RefusingReplayCache() };
+        var assertion = scenario.SignValid(payload: scenario.ValidPayload().WithRow("jti", row), key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, context, TestContext.Current.CancellationToken);
+
+        if (read)
+        {
+            Assert.True(result.TryGetValue(out _, out var readError), readError?.Detail);
+            return;
+        }
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+    }
+
+    /// <summary>
+    /// R11.33 (the stage's final gate, second round): an assertion whose header <c>kid</c> is absent,
+    /// not a string, empty or white space, or holds U+0000, is malformed before any key is resolved.
+    /// <c>CompactJws.ReadString</c> makes an absent or non-string <c>kid</c> <c>""</c>, and
+    /// <c>PostgresAgentKeyStore</c> refuses a blank one by throwing: <c>/oauth/token</c> answered 500 to
+    /// anyone, before any signature was checked. The in-memory resolver would refuse <c>""</c> as a
+    /// <c>kid</c> not found, so the failure alone is vacuous; that the resolver was never asked is the
+    /// half that carries information.
+    /// </summary>
+    [Theory]
+    [InlineData(UnreadableStrings.Absent)]
+    [InlineData("empty")]
+    [InlineData("space")]
+    [InlineData("tab")]
+    [InlineData("number")]
+    [InlineData("nul-inside")]
+    public async Task R11_33_AnAssertionWhoseKidIsNotReadableIsMalformedBeforeAnyKeyIsResolved(string row)
+    {
+        var scenario = new ClientAssertionScenario();
+        var resolver = new RecordingAgentKeyResolver(scenario.Context.AgentKeyResolver);
+        var context = scenario.Context with { AgentKeyResolver = resolver };
+        var assertion = scenario.SignValid(header: scenario.ValidHeader().WithHeaderRow("kid", row), key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+        Assert.Empty(resolver.Asked);
+    }
+
     [Fact]
     public async Task ExpiredAssertionIsRejected()
     {

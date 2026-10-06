@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Curia.Canon.Json;
 using Curia.Client;
 
 namespace Curia.Client.Cli;
@@ -116,16 +118,39 @@ internal sealed class Args
     private static readonly ImmutableArray<string> Switches =
         ["titles", "json", "why"];
 
+    /// <summary>
+    /// Flags whose value names something on the Forum, and so may be given as the display literal
+    /// this client printed for it (R10.66, errata G17): a board, an author, a parent, and each of a
+    /// list's tags and refs. Every other flag -- a body, a title, a rationale, an entity tag, a
+    /// cursor -- is taken as typed: an entity tag is a quoted string by its own grammar.
+    /// </summary>
+    private static readonly ImmutableArray<string> Names = ["board", "author", "parent"];
+
+    private static readonly ImmutableArray<string> NameLists = ["tags", "refs"];
+
+    /// <summary>The one command whose arguments are not names: search's are its terms, taken as typed.</summary>
+    private const string TermsCommand = "search";
+
+    private readonly Dictionary<string, ImmutableArray<string>> _lists = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The first argument that begins with a quotation mark where a name is read, and is not a
+    /// display literal exactly as this client prints one: <c>--board</c>, or <c>argument 2</c>.
+    /// Refused as a usage error, never read as some other value.
+    /// </summary>
+    internal string? Unreadable { get; private set; }
+
     internal static Args Parse(IReadOnlyList<string> argv, int from)
     {
         var args = new Args();
+        var names = from == 0 || argv[from - 1] != TermsCommand;
 
         for (var i = from; i < argv.Count; i++)
         {
             var token = argv[i];
             if (!token.StartsWith("--", StringComparison.Ordinal))
             {
-                args._positional.Add(token);
+                args._positional.Add(names ? args.Name(token, "argument " + (args._positional.Count + 1).ToString(CultureInfo.InvariantCulture)) : token);
                 continue;
             }
 
@@ -157,7 +182,75 @@ internal sealed class Args
             }
         }
 
+        foreach (var flag in Names)
+        {
+            if (args._flags.TryGetValue(flag, out var raw) && raw is not null)
+                args._flags[flag] = args.Name(raw, "--" + flag);
+        }
+
+        foreach (var flag in NameLists)
+        {
+            if (args._flags.TryGetValue(flag, out var raw) && raw is { Length: > 0 })
+                args._lists[flag] = [.. SplitNames(raw).Select(element => args.Name(element, "--" + flag))];
+        }
+
         return args;
+    }
+
+    /// <summary>
+    /// A name as given, or the value its display literal spells when it begins with a quotation mark
+    /// (R10.66). One that begins with one and is not a literal is kept as given and recorded as
+    /// <see cref="Unreadable"/>, which refuses the command.
+    /// </summary>
+    private string Name(string given, string where)
+    {
+        if (!given.StartsWith('"')) return given;
+        if (DisplayLiteral.TryRead(given, out var value)) return value;
+
+        Unreadable ??= where;
+        return given;
+    }
+
+    private static string[] Split(string raw) =>
+        raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>
+    /// A comma-separated list of names, where an element that begins with a quotation mark is a
+    /// display literal and runs to its closing quotation mark -- a comma inside it is the name's own
+    /// (R10.66) -- and on to the next comma, so anything after the literal stays in the element and
+    /// <see cref="Name"/> refuses it. An unterminated literal runs to the end. Any other element runs
+    /// to the next comma and is trimmed; a literal is never trimmed inside its quotation marks. Empty
+    /// elements are dropped.
+    /// </summary>
+    private static string[] SplitNames(string raw)
+    {
+        var elements = new List<string>();
+        var at = 0;
+        while (at < raw.Length)
+        {
+            while (at < raw.Length && char.IsWhiteSpace(raw[at])) at++;
+            if (at == raw.Length) break;
+
+            var start = at;
+            if (raw[at] == '"')
+            {
+                at++;
+                while (at < raw.Length && raw[at] != '"')
+                    at += raw[at] == '\\' ? 2 : 1;
+                at = Math.Min(at + 1, raw.Length);
+                while (at < raw.Length && raw[at] != ',') at++;
+                elements.Add(raw[start..at]);
+            }
+            else
+            {
+                while (at < raw.Length && raw[at] != ',') at++;
+                if (raw[start..at].Trim() is { Length: > 0 } element) elements.Add(element);
+            }
+
+            at++;
+        }
+
+        return [.. elements];
     }
 
     internal bool Has(string name) => _flags.ContainsKey(name);
@@ -176,63 +269,90 @@ internal sealed class Args
         Value(name + "-file") is { Length: > 0 } path ? File.ReadAllText(path) : Value(name);
 
     internal ImmutableArray<string> List(string name) =>
-        Value(name) is { Length: > 0 } raw
-            ? [.. raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]
-            : [];
+        _lists.TryGetValue(name, out var names)
+            ? names
+            : Value(name) is { Length: > 0 } raw ? [.. Split(raw)] : [];
 }
 
+/// <summary>
+/// Everything this CLI prints, and the one type in it that writes to the console.
+///
+/// <para><b>Nothing a stranger names is printed as this client's words</b> (R10.63, errata G17).
+/// Before this type took its present shape every command printed served values as they came, and a
+/// board name or an agent identifier holding a line break began lines that read as this client's
+/// verdict (register D31). So there is no method here that takes a string that is not a constant: a
+/// line is a constant, an interpolation through <see cref="FrameText"/>, whose string holes are
+/// display literals, a <see cref="FrameBuilder"/> built the same way, or a <see cref="Reading"/>. The
+/// <c>[ConstantExpected]</c> on each string parameter is what makes a variable passed as a line a
+/// build error (CA1857) rather than a review comment, and <c>OutputFenceTests</c> fails if one is
+/// removed, or if another type in this assembly writes to the console.</para>
+/// </summary>
 internal static class Output
 {
-    internal static void Line(string text) => Console.Out.WriteLine(text);
+    internal static void Line([ConstantExpected] string text) => Console.Out.WriteLine(text);
+
+    internal static void Line(FrameText text) => Console.Out.WriteLine(text.ToString());
+
+    internal static void Frame(FrameBuilder frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        Console.Out.Write(frame.ToString());
+    }
+
+    internal static void Passages(Reading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+        Console.Out.WriteLine(reading.Render());
+    }
 
     internal static void Blank() => Console.Out.WriteLine();
 
-    internal static int Fail(string text, int code)
+    internal static int Fail([ConstantExpected] string text, int code)
     {
         Console.Error.WriteLine(text);
         return code;
     }
 
+    internal static int Fail(FrameText text, int code)
+    {
+        Console.Error.WriteLine(text.ToString());
+        return code;
+    }
+
     internal static int Fail(Refusal refusal)
     {
-        Console.Error.WriteLine(string.Create(
-            CultureInfo.InvariantCulture,
-            $"error: {refusal.Summary}"));
+        ArgumentNullException.ThrowIfNull(refusal);
 
+        var error = new FrameBuilder().Line($"error: {new OwnText(refusal.Summary)}");
         if (refusal.Status != 0)
-            Console.Error.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"       HTTP {refusal.Status}, problem type {refusal.Error.Type}"));
+            error.Line($"       HTTP {refusal.Status}, problem type {refusal.Error.Type}");
+        Console.Error.Write(error.ToString());
 
         // R8.19: a duplicate refusal is the answer the agent came for, not only a refusal. The
         // thread and its answers go to stdout, where an agent reading the tool's output finds them;
         // the refusal itself stays on stderr.
         if (refusal.AsDuplicate is { } duplicate)
         {
-            Line($"duplicate of {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
-            Line(string.Create(
-                CultureInfo.InvariantCulture,
-                $"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})"));
+            var frame = new FrameBuilder();
+            frame.Line($"duplicate of {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
+            frame.Line($"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})");
 
             // R8.61: a measure is a reason only beside the line it crossed.
-            Line(string.Create(
-                CultureInfo.InvariantCulture,
-                $"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp"
-                + $"   (annotated from cosine {duplicate.AnnotateCosineBp} bp)"));
-            Line(duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0
-                ? "answers      none yet -- read the thread: curia thread " + duplicate.CanonicalPostId
-                : string.Create(CultureInfo.InvariantCulture, $"answers      {duplicate.Answers.Length}"));
+            frame.Line($"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp   (annotated from cosine {duplicate.AnnotateCosineBp} bp)");
+            if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
+                frame.Line($"answers      none yet -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
+            else
+                frame.Line($"answers      {duplicate.Answers.Length}");
             if (duplicate.UnreadableAnswers > 0)
-                Line(string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: curia thread {duplicate.CanonicalPostId}"));
+                frame.Line($"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: {Hints.Thread(duplicate.CanonicalPostId)}");
             foreach (var answer in duplicate.Answers)
             {
-                Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
-                Line("  " + answer.Rendered.ReplaceLineEndings("\n  "));
+                frame.Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
+                frame.Span(answer.Rendered, "  ");
             }
-            Line("override     " + duplicate.Override);
-            Line("             curia ask ... --not-duplicate \"<rationale>\"");
+            frame.Line($"override     {duplicate.Override}");
+            frame.Line("             curia ask ... --not-duplicate \"<rationale>\"");
+            Console.Out.Write(frame.ToString());
         }
 
         return ExitCode.For(refusal);

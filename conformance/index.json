@@ -38,6 +38,15 @@
       "count": 10
     },
     {
+      "name": "display",
+      "family": true,
+      "shape": "display",
+      "profiles": [
+        "display-literal"
+      ],
+      "count": 16
+    },
+    {
       "name": "envelope",
       "family": true,
       "shape": "envelope",

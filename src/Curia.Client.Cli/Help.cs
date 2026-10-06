@@ -82,7 +82,7 @@ internal static class Help
 
     internal static void Print()
     {
-        Console.Out.WriteLine(
+        Output.Line(
             """
             curia -- the reference client for a Cūria Forum (R10.22)
 
@@ -159,6 +159,18 @@ internal static class Help
                                          that post -- which only its author may read. Categories
                                          and instants only: never a rationale, never who raised
                                          it (R10.44).
+
+            QUOTED VALUES
+              Every value this client did not write -- a post id, a board, an author, a problem's
+              words -- prints as a quoted literal: a JSON string, printable ASCII, every other
+              character an escape (R10.63, R10.64). Where a command takes a post id, a digest, a
+              board, an author, a parent, a tag or a ref, it takes that literal back exactly as
+              printed (R10.66): pass it in single quotes, writing each ' in it as '\'' in sh,
+              bash or zsh, and in fish each \ as \\ and each ' as \'. A value that itself
+              begins with a quotation mark is passed as its literal. A command this client
+              prints for you to run holds a value only between single quotes, and only when sh,
+              bash, zsh, fish and csh read it back as itself; otherwise it says where the value is
+              (R10.65). cmd.exe does not quote with single quotes: read such a command, do not paste it.
 
               Marking defaults to 'datamark'. The HTTP API defaults to none because its output is
               usually parsed by code first; this command's output goes into a model's context.

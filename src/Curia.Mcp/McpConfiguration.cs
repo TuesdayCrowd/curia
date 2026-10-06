@@ -74,7 +74,7 @@ internal sealed record McpConfiguration(Uri Forum, MarkingMode Marking, string? 
                     ? "It is unset. There is deliberately no default: a server launched by an agent " +
                       "framework has no local Forum to assume, and assuming one would point a " +
                       "consuming model at a corpus nobody chose."
-                    : $"received={forum}; it is not an absolute http or https URL."));
+                    : "It is set, and it is not an absolute http or https URL. Its value is not repeated here: it may carry a credential."));
         }
 
         // Set but blank is a mistake, not a request for read-only: an operator who wrote the variable

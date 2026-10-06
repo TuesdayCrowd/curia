@@ -17,6 +17,9 @@
 //!   `meta.json` (R6.23; "The `merkle/` family").
 //! - `acta/<case>/` — the common shape plus `expected.leaf`, the hex leaf
 //!   hash of `expected.canonical` (R6.46; "The `acta/` family").
+//! - `display/<case>/` — `input.json` holding `{"code_points": [...]}`,
+//!   `expected.display` holding the literal's exact bytes, and `meta.json`
+//!   (R10.64; "The `display/` family").
 //!
 //! `conformance/index.json` (R6.45) names every top-level directory and is
 //! loaded by [`Index::load`]; [`Index::check_against_disk`] is what turns a
@@ -109,6 +112,9 @@ pub enum Profile {
     /// [`crate::canonicalize`] (pure RFC 8785, never the NFC profile), then
     /// [`crate::merkle::leaf_hash`]: R6.46's leaf input, frozen by R15.1.
     ActaLeaf,
+    /// [`crate::display::literal`]: the code points in, the exact literal a
+    /// reader prints out (R10.64).
+    DisplayLiteral,
 }
 
 impl Profile {
@@ -124,6 +130,7 @@ impl Profile {
             "envelope" => Ok(Profile::Envelope),
             "merkle-tree" => Ok(Profile::MerkleTree),
             "acta-leaf" => Ok(Profile::ActaLeaf),
+            "display-literal" => Ok(Profile::DisplayLiteral),
             other => Err(LoaderError::UnknownProfile {
                 path: path.to_path_buf(),
                 profile: other.to_string(),
@@ -140,6 +147,7 @@ impl Profile {
             Profile::Envelope => "envelope",
             Profile::MerkleTree => "merkle-tree",
             Profile::ActaLeaf => "acta-leaf",
+            Profile::DisplayLiteral => "display-literal",
         }
     }
 }
@@ -217,6 +225,18 @@ pub struct EnvelopeVector {
     pub expected_digest: String,
 }
 
+/// A vector from the `display/` family: `conformance/README.md`, "The
+/// `display/` family". The input is the string its code points spell; the
+/// expectation is the exact literal a reader prints for it.
+#[derive(Debug, Clone)]
+pub struct DisplayVector {
+    pub case: String,
+    pub requirement: String,
+    pub note: Option<String>,
+    pub input: String,
+    pub expected: String,
+}
+
 /// The whole loaded corpus, one field per top-level `conformance/` directory.
 #[derive(Debug, Clone, Default)]
 pub struct Corpus {
@@ -230,6 +250,7 @@ pub struct Corpus {
     pub envelope: Vec<EnvelopeVector>,
     pub merkle: Vec<MerkleVector>,
     pub acta: Vec<DirectoryVector>,
+    pub display: Vec<DisplayVector>,
 }
 
 /// Every family name this loader enumerates, in the order [`Corpus::load`]
@@ -252,6 +273,7 @@ pub const LOADED_FAMILIES: &[&str] = &[
     "envelope",
     "merkle",
     "acta",
+    "display",
 ];
 
 impl Corpus {
@@ -268,6 +290,7 @@ impl Corpus {
             envelope: load_envelope_family(root)?,
             merkle: load_merkle_family(root)?,
             acta: load_directory_family(root, "acta")?,
+            display: load_display_family(root)?,
         })
     }
 
@@ -289,6 +312,7 @@ impl Corpus {
             + self.envelope.len()
             + self.merkle.len()
             + self.acta.len()
+            + self.display.len()
     }
 
     /// Whether the corpus holds `<family>/<case>` — the shape
@@ -304,6 +328,7 @@ impl Corpus {
             "rfc8785" => Some(self.rfc8785.iter().any(|v| v.name == case)),
             "envelope" => Some(self.envelope.iter().any(|v| v.case == case)),
             "merkle" => Some(self.merkle.iter().any(|v| v.case == case)),
+            "display" => Some(self.display.iter().any(|v| v.case == case)),
             other => self
                 .directory_family(other)
                 .map(|vectors| vectors.iter().any(|v| v.case == case)),
@@ -414,6 +439,13 @@ pub enum LoaderError {
         path: PathBuf,
         problem: String,
     },
+    /// A `display/` vector's `input.json` is well-formed JSON with the wrong
+    /// shape: no `code_points` array, or an element that is not a Unicode
+    /// scalar value.
+    MalformedDisplayVector {
+        path: PathBuf,
+        problem: String,
+    },
     /// A `conformance/rfc8785/input-<name>.json` has no matching
     /// `output-<name>.json`, or vice versa.
     UnpairedRfc8785Vector {
@@ -465,7 +497,7 @@ impl fmt::Display for LoaderError {
                     f,
                     "{}: unknown profile `{profile}` (expected one of: rfc8785, \
                      canonicalize-with-nfc, admit, admit-accept, envelope, merkle-tree, \
-                     acta-leaf)",
+                     acta-leaf, display-literal)",
                     path.display()
                 )
             }
@@ -487,6 +519,9 @@ impl fmt::Display for LoaderError {
                 write!(f, "{}: submission is missing `{field}`", path.display())
             }
             LoaderError::MalformedMerkleVector { path, problem } => {
+                write!(f, "{}: {problem}", path.display())
+            }
+            LoaderError::MalformedDisplayVector { path, problem } => {
                 write!(f, "{}: {problem}", path.display())
             }
             LoaderError::UnpairedRfc8785Vector { path, name } => {
@@ -916,6 +951,71 @@ fn load_merkle_family(root: &Path) -> Result<Vec<MerkleVector>, LoaderError> {
     Ok(vectors)
 }
 
+fn load_display_family(root: &Path) -> Result<Vec<DisplayVector>, LoaderError> {
+    let family_dir = root.join("display");
+    let mut vectors = Vec::new();
+    for path in list_dir_sorted(&family_dir)? {
+        if !path.is_dir() {
+            continue;
+        }
+        let case = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or(LoaderError::NotUtf8 { path: path.clone() })?
+            .to_string();
+
+        let meta_path = path.join("meta.json");
+        let meta = load_meta(&meta_path)?;
+        // As for `merkle/`: a `display/` case that declares anything but
+        // `display-literal` is reported, never routed elsewhere or skipped.
+        match Profile::parse(&meta.profile, &meta_path)? {
+            Profile::DisplayLiteral => {}
+            _ => {
+                return Err(LoaderError::UnknownProfile {
+                    path: meta_path,
+                    profile: meta.profile,
+                })
+            }
+        }
+
+        let input_path = path.join("input.json");
+        let input = parse_meta_value(&read_file(&input_path)?, &input_path)?;
+        let malformed = |problem: &str| LoaderError::MalformedDisplayVector {
+            path: input_path.clone(),
+            problem: problem.to_string(),
+        };
+        let mut text = String::new();
+        for point in input
+            .get("code_points")
+            .and_then(Value::as_array)
+            .ok_or_else(|| malformed("missing array `code_points`"))?
+        {
+            let scalar = point
+                .as_u64()
+                .and_then(|p| u32::try_from(p).ok())
+                .and_then(char::from_u32)
+                .ok_or_else(|| malformed("a code point is not a Unicode scalar value"))?;
+            text.push(scalar);
+        }
+
+        let expected =
+            String::from_utf8(read_file(&path.join("expected.display"))?).map_err(|_| {
+                LoaderError::NotUtf8 {
+                    path: path.join("expected.display"),
+                }
+            })?;
+
+        vectors.push(DisplayVector {
+            case,
+            requirement: meta.requirement,
+            note: meta.note,
+            input: text,
+            expected,
+        });
+    }
+    Ok(vectors)
+}
+
 fn json_array<'a>(
     value: &'a Value,
     key: &'static str,
@@ -1165,7 +1265,7 @@ impl Index {
 
         let shape = entry.shape.as_deref().unwrap_or_default();
         let actual = match shape {
-            "directory" | "envelope" | "merkle" => {
+            "directory" | "envelope" | "merkle" | "display" => {
                 let cases: Vec<PathBuf> = list_dir_sorted(dir)?
                     .into_iter()
                     .filter(|p| p.is_dir())
@@ -1210,7 +1310,7 @@ impl Index {
             other => {
                 problems.push(format!(
                     "`{name}` declares unknown shape `{other}` (expected one of: \
-                     directory, file-pairs, envelope, merkle)"
+                     directory, file-pairs, envelope, merkle, display)"
                 ));
                 return Ok(());
             }

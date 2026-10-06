@@ -140,6 +140,7 @@ the mistake this section exists to prevent.
 | `admit-accept` | the ADMIT phase, then `CanonicalizeWithNfc` | Input must be **admitted**, and the same bytes must then canonicalize to `expected.canonical` (digest `expected.digest`). See "Saying that a document must be admitted" above. |
 | `envelope` | `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify` | End-to-end: canonicalize a full Table 9 envelope, digest it, and verify its detached JWS. See "The `envelope/` family" below — its directory shape is different from every other family's. |
 | `merkle-tree` | `MerkleTree` (RFC 9162 §2.1) | Hash the given leaves, build the tree, and reproduce every audit path and consistency proof in `expected.json`; then verify each with the RFC's verification procedures. See "The `merkle/` family" below.
+| `display-literal` | `DisplayLiteral.Of` (C#), `display::literal` (Rust) | The input is a list of Unicode scalar values; the display literal a reader writes for the string they spell must be exactly `expected.display` (R10.64). See "The `display/` family" below.
 | `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -179,6 +180,9 @@ get the count up will look like it is converging. It is not.
 - `acta/` — the Acta's leaf input (R6.46, frozen by R15.1): a log entry document
   in, its canonical form and leaf hash out. The Cūria-specific half of the log;
   `merkle/` is the RFC's half. See below.
+- `display/` — the display literal (R10.64, errata G17): the one form in which a
+  reader writes a value it did not compose into its own output. A string in, the
+  exact bytes a reader prints for it out. See below.
 
 `red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
 measurement (Appendix L), and `index.json` records that with a reason. Neither is
@@ -379,3 +383,35 @@ of a frozen encoding and therefore exactly the class of defect §6 exists to pre
 falsification run established that it needed pinning: swapping the client's `Canonicalize` for
 `CanonicalizeWithNfc` left the whole end-to-end suite green, because every fixture on that path
 is ASCII.
+
+## The `display/` family
+
+Every other family pins what the Forum and a verifier compute. This one pins what a reader
+**prints**: R10.64's display literal, the form in which the reference client, `curia-mcp` and
+`curia-testis` write a value they did not compose -- an agent's identifier, a board, a `kid`, a
+problem document's words -- into their own output (R10.63). It exists because two readers that
+escape differently are two readers of which one prints what the other refuses to, and the
+difference is exactly the character an attacker chooses.
+
+Its shape is its own (`"shape": "display"` in `index.json`). `input.json` is
+`{"code_points": [...]}`, a list of Unicode scalar values rather than a JSON string, so that
+the input cannot be decoded differently by two JSON parsers and so that a vector can hold any
+character without escaping it; `expected.display` is the literal's exact bytes, ASCII, no
+trailing newline. A runner builds the string from the code points, applies its display function,
+and compares bytes.
+
+A string that is not well-formed UTF-16 -- a surrogate without its pair -- cannot be spelled as
+scalar values and so has no vector: the Rust string type cannot hold one. The C# runner pins it
+in `DisplayLiteralTests`, and an absent value, written `(none)` outside quotes, likewise.
+
+Every expected file was computed by a Python implementation of the rule written for the
+purpose, from the code points; neither implementation produced any of them.
+
+The family carries no version, unlike a profile whose output is stored. A literal is computed afresh
+whenever a reader prints, nothing signed, hashed or stored depends on one, and any JSON parser
+decodes it to the same well-formed value, so it is outside R15.1's frozen set. A change to R10.64 is
+an errata entry that changes both readers and rewrites these vectors with them, under the same
+profile name: the vectors pin the two readers' agreement, not a format kept across time. The C#
+runner also reads each expected literal back as its input (R10.66). That reader takes back only the
+literal the current rule writes, so after a change to R10.64 a literal printed before it is refused
+by name, never read as another value.

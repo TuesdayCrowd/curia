@@ -25,9 +25,11 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use serde_json::error::Category;
 use serde_json::value::RawValue;
 use serde_json::Value;
 
+use crate::display;
 use crate::envelope::VerifyEnvelopeError;
 use crate::jwk::{JwkError, JwkSet};
 use crate::jws::{self, JwsError};
@@ -165,7 +167,9 @@ impl fmt::Display for ActaError {
             ActaError::KidMismatch { stated, signed } => {
                 write!(
                     f,
-                    "head names kid `{stated}` but its signature was made under `{signed}`"
+                    "head names kid {} but its signature was made under {}",
+                    display::literal(stated),
+                    display::literal(signed)
                 )
             }
             ActaError::LeafMismatch => write!(
@@ -196,10 +200,18 @@ impl fmt::Display for ActaError {
                 )
             }
             ActaError::NotAPost { event_type } => {
-                write!(f, "the post entry is `{event_type}`, not `{POST_ACCEPTED}`")
+                write!(
+                    f,
+                    "the post entry is {}, not `{POST_ACCEPTED}`",
+                    display::literal(event_type)
+                )
             }
             ActaError::NotAKeyBinding { event_type } => {
-                write!(f, "the key entry is `{event_type}`, not `{KEY_BOUND}`")
+                write!(
+                    f,
+                    "the key entry is {}, not `{KEY_BOUND}`",
+                    display::literal(event_type)
+                )
             }
             ActaError::BindingMismatch(detail) => {
                 write!(f, "the key entry does not bind the post's key: {detail}")
@@ -213,7 +225,8 @@ impl fmt::Display for ActaError {
             }
             ActaError::KeyNotCarried { kid } => write!(
                 f,
-                "the log names kid `{kid}` only in the author's enrollment, which carries no key"
+                "the log names kid {} only in the author's enrollment, which carries no key",
+                display::literal(kid)
             ),
             ActaError::TreeMismatch { post, key } => write!(
                 f,
@@ -263,7 +276,7 @@ pub fn verify_head(head_json: &[u8], log_jwks: &[u8]) -> Result<VerifiedHead, Ac
 
     let fields: Value = serde_json::from_str(head_raw.get()).map_err(|e| ActaError::Malformed {
         what: "head",
-        detail: e.to_string(),
+        detail: json_error(&e),
     })?;
     Ok(VerifiedHead {
         root: digest_member(&fields, "root_hash", "head")?,
@@ -311,7 +324,7 @@ pub fn verify_inclusion(
 
     let proof: Value = serde_json::from_slice(proof_json).map_err(|e| ActaError::Malformed {
         what: "proof",
-        detail: e.to_string(),
+        detail: json_error(&e),
     })?;
     let log_index = u64_member(&proof, "log_index", "proof")?;
     let tree_size = u64_member(&proof, "tree_size", "proof")?;
@@ -324,7 +337,7 @@ pub fn verify_inclusion(
     // material contradicting itself.
     let stated: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
         what: "entry document",
-        detail: e.to_string(),
+        detail: json_error(&e),
     })?;
     if stated.get("leaf_hash").is_some()
         && digest_member(&stated, "leaf_hash", "entry document")? != leaf
@@ -366,7 +379,7 @@ pub struct VerifiedConsistency {
 pub fn verify_consistency(proof_json: &[u8]) -> Result<VerifiedConsistency, ActaError> {
     let proof: Value = serde_json::from_slice(proof_json).map_err(|e| ActaError::Malformed {
         what: "consistency proof",
-        detail: e.to_string(),
+        detail: json_error(&e),
     })?;
     let from_size = u64_member(&proof, "from_size", "consistency proof")?;
     let to_size = u64_member(&proof, "to_size", "consistency proof")?;
@@ -476,7 +489,7 @@ fn author_under(
     // the submission is rebuilt around it verbatim, never re-encoded.
     let signature_json = serde_json::to_string(signature).map_err(|e| ActaError::Malformed {
         what: "post entry",
-        detail: e.to_string(),
+        detail: json_error(&e),
     })?;
     let submission = format!("{{\"envelope\":{canonical},\"signature\":{signature_json}}}");
     // ADMIT, as the signature check does: an envelope no Forum could have
@@ -503,7 +516,12 @@ fn author_under(
     // whichever type it is.
     if aggregate != bound_agent || bound_agent != post_author || bound_kid != post_kid {
         return Err(ActaError::BindingMismatch(format!(
-            "the entry binds kid `{bound_kid}` to `{bound_agent}` in stream `{aggregate}`, and the post is `{post_author}`'s under kid `{post_kid}`"
+            "the entry binds kid {} to {} in stream {}, and the post is {}'s under kid {}",
+            display::literal(bound_kid),
+            display::literal(bound_agent),
+            display::literal(aggregate),
+            display::literal(&post_author),
+            display::literal(&post_kid)
         )));
     }
 
@@ -532,7 +550,7 @@ fn author_under(
     let jwks = serde_json::to_vec(&serde_json::json!({ "keys": [jwk] })).map_err(|e| {
         ActaError::Malformed {
             what: "key entry",
-            detail: e.to_string(),
+            detail: json_error(&e),
         }
     })?;
     let provenance =
@@ -560,7 +578,7 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
         what: "post entry",
         detail,
     };
-    let envelope: Value = serde_json::from_str(canonical).map_err(|e| malformed(e.to_string()))?;
+    let envelope: Value = serde_json::from_str(canonical).map_err(|e| malformed(json_error(&e)))?;
     let author = envelope
         .get("author")
         .and_then(Value::as_str)
@@ -577,7 +595,7 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
     crate::json::parse(&header_bytes)
         .map_err(|e| malformed(format!("the signature's protected header: {e}")))?;
     let header: Value =
-        serde_json::from_slice(&header_bytes).map_err(|e| malformed(e.to_string()))?;
+        serde_json::from_slice(&header_bytes).map_err(|e| malformed(json_error(&e)))?;
     let kid = header
         .get("kid")
         .and_then(Value::as_str)
@@ -589,7 +607,7 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
 fn entry_fields(entry_json: &[u8]) -> Result<Value, ActaError> {
     let document: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
         what: "entry document",
-        detail: e.to_string(),
+        detail: json_error(&e),
     })?;
     document
         .get("entry")
@@ -664,13 +682,28 @@ pub fn format_digest(hash: &Hash) -> String {
     s
 }
 
+/// R10.63: what a serde_json error says, in this verifier's own words.
+/// serde_json's message can quote the document it refused -- `invalid type:
+/// string "..."`, in Rust's debug form, where a look-alike letter stands
+/// for itself -- so it is never written: the refusal names the kind of error
+/// and where it is, and no value.
+fn json_error(e: &serde_json::Error) -> String {
+    let kind = match e.classify() {
+        Category::Io => "unreadable",
+        Category::Syntax => "not well-formed JSON",
+        Category::Data => "JSON of the wrong shape",
+        Category::Eof => "JSON that ends before its value does",
+    };
+    format!("{kind}, at line {}, column {}", e.line(), e.column())
+}
+
 fn raw_members(
     json: &[u8],
     what: &'static str,
 ) -> Result<HashMap<String, Box<RawValue>>, ActaError> {
     serde_json::from_slice(json).map_err(|e| ActaError::Malformed {
         what,
-        detail: e.to_string(),
+        detail: json_error(&e),
     })
 }
 

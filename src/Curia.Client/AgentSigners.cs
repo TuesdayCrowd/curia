@@ -80,7 +80,11 @@ public sealed class InProcessSigner : IAgentSigner, IDisposable
 /// <para><b>The protocol.</b> <c>&lt;command&gt; describe</c> writes one line of JSON to stdout —
 /// <c>{"alg":…,"kid":…,"public_key":…}</c>, the public key base64 SubjectPublicKeyInfo — and
 /// <c>&lt;command&gt; sign</c> reads the signing input as base64url on stdin and writes the
-/// signature as base64url on stdout. Both streams are redirected, because a signer that wrote to a
+/// signature as base64url on stdout. Both are read as UTF-8 by R10.64's rule, through
+/// <see cref="ProgramOutput"/>, so a byte order mark is kept as U+FEFF and refused as the start of the
+/// output rather than dropped: a signer writes its output without one, as RFC 8259 §8.1 asks of JSON.
+/// Until Task 10's review the process's own reader dropped it, and such a signer was accepted (Task
+/// 10's fix review). Both streams are redirected, because a signer that wrote to a
 /// terminal would corrupt the MCP transport (stdout is JSON-RPC there).</para>
 /// </summary>
 public sealed class ExternalSigner : IAgentSigner
@@ -203,8 +207,7 @@ public sealed class ExternalSigner : IAgentSigner
                 process.StandardInput.Close();
             }
 
-            var stdout = process.StandardOutput.ReadToEnd();
-            var stderr = process.StandardError.ReadToEnd();
+            var (stdout, stderr) = ProgramOutput.Read(process);
             process.WaitForExit();
 
             return process.ExitCode == 0

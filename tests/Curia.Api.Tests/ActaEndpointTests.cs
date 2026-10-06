@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Curia.Canon.Json;
 using Curia.OperatorTool;
 using Xunit;
 
@@ -132,7 +133,8 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
 
         var verified = await AuthorAsync(postId, author, "own");
         Assert.StartsWith("exit 0:", verified, StringComparison.Ordinal);
-        Assert.Contains($"author: {author.AgentId}", verified, StringComparison.Ordinal);
+        Assert.Contains($"author: {DisplayLiteral.Of(author.AgentId)}", verified, StringComparison.Ordinal);
+        Assert.Contains($"kid: {DisplayLiteral.Of(author.Kid)}", verified, StringComparison.Ordinal);
         Assert.Contains($"key_index: {await KeyIndexAsync(author)}", verified, StringComparison.Ordinal);
 
         var refused = await AuthorAsync(postId, other, "other");
@@ -175,6 +177,18 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         var (code, verified, failure) = TestisBinary.Run(verifier, $"log head --head \"{headPath}\" --log-jwks \"{jwksPath}\"");
         Assert.True(code == 0, failure);
         Assert.Contains($"tree_size={treeSize}", verified, StringComparison.Ordinal);
+
+        // R10.64: the head's kid, algorithm and timestamp are values the verifier read, each printed
+        // as a display literal. The algorithm is the one the signature's protected header names.
+        var headKid = head.GetProperty("kid").GetString()!;
+        var timestamp = head.GetProperty("head").GetProperty("timestamp").GetString()!;
+        using var protectedHeader = JsonDocument.Parse(
+            System.Buffers.Text.Base64Url.DecodeFromChars(head.GetProperty("signature").GetString()!.Split('.')[0]));
+        var alg = protectedHeader.RootElement.GetProperty("alg").GetString()!;
+        Assert.Contains(
+            $"kid={DisplayLiteral.Of(headKid)} alg={DisplayLiteral.Of(alg)} timestamp={DisplayLiteral.Of(timestamp)}",
+            verified,
+            StringComparison.Ordinal);
 
         // One digit inside the signed object, and the head is somebody else's.
         var served = await File.ReadAllTextAsync(headPath, ct);

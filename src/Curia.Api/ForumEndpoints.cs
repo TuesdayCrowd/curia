@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -388,11 +389,15 @@ public static class ForumEndpoints
     /// the log binds none (<c>curia/enroll/keys-ambiguous</c>, errata G16). And a lost key row is
     /// registered again only with the key the log binds (R4.31 rev., R4.34), unless another identity
     /// took its <c>kid</c>; for an identity enrolled before R4.34, whose log binds the <c>kid</c>
-    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first.</para>
+    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first. Neither is open
+    /// to an identity enrolled before R4.36 or R4.37 whose agent identifier or <c>kid</c> those rules
+    /// refuse: the checks below run before anything is read, so its re-announcement is refused with
+    /// theirs and a lost key row of its is never registered again. It keeps the rows it has.</para>
     ///
     /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
     /// before anything is read or written, each refused 400 by name: the two identifiers' text
     /// (R6.15's condition, and U+0000); the agent identifier's normalization form, NFC (R4.36);
+    /// a control, format or separator character in either (R4.37, errata G17);
     /// their length, at most
     /// <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8 bytes each; the algorithm, against the
     /// allow-list the Forum verifies with (R4.15); and then the key, which must be present, base64,
@@ -410,7 +415,7 @@ public static class ForumEndpoints
         IReadOnlyDictionary<string, IContentVerifier> verifiers,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
+        if (string.IsNullOrEmpty(request.AgentId) || string.IsNullOrEmpty(request.Kid))
             return Results.BadRequest(new Problem(
                 "curia/enroll/invalid", "agent_id and kid are required", null));
 
@@ -423,6 +428,22 @@ public static class ForumEndpoints
         // travels in a protected header signed as its bytes, and is never canonicalized.
         if (NotInNfc(request.AgentId, "agent_id") is { } formError)
             return Problem(StatusCodes.Status400BadRequest, formError);
+
+        // R4.37 (errata G17): an identifier is printed wherever an agent or a key is named -- in the
+        // log, the key set, a token's subject, every reader's frame -- and a control, format or
+        // separator character there begins a line, reorders one, or hides. Refused in both fields,
+        // after RefusedText, so U+0000 keeps its own name and no lone surrogate reaches the walk.
+        if ((ControlCharacter(request.AgentId, "agent_id") ?? ControlCharacter(request.Kid, "kid")) is { } controlError)
+            return Problem(StatusCodes.Status400BadRequest, controlError);
+
+        // A blank identifier of characters outside Cc, Cf, Zl and Zp (Zs: U+0020, U+00A0, U+3000) is
+        // still refused here, as required, unless an earlier check names a truer reason: an agent_id of
+        // U+2000 or U+2001, which NFC maps to U+2002 and U+2003, is refused by R4.36's name. Asked after
+        // R4.37, so an identifier made only of a control or separator character that is also white
+        // space (U+000A, U+0085, U+2028) is refused by R4.37's name, which is its true reason, and not
+        // as missing (Task 10's review).
+        if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
+            return Results.BadRequest(new Problem("curia/enroll/invalid", "agent_id and kid are required", null));
 
         if ((TooLong(request.AgentId, "agent_id") ?? TooLong(request.Kid, "kid")) is { } lengthError)
             return Problem(StatusCodes.Status400BadRequest, lengthError);
@@ -513,6 +534,33 @@ public static class ForumEndpoints
         value.IsNormalized(NormalizationForm.FormC) ? null : EnrollmentErrors.IdentifierNotNfc(field);
 
     /// <summary>
+    /// The refusal for an identifier holding a character of general category Cc, Cf, Zl or Zp, or
+    /// null (R4.37). Walks scalar values, so a format character beyond the Basic Multilingual Plane --
+    /// a tag character, say -- is found as itself rather than as two surrogate halves. Asked after
+    /// <see cref="RefusedText"/>, so every value it walks is well-formed. The category is the
+    /// runtime's Unicode tables' (<see cref="Rune.GetUnicodeCategory"/>), and only these four are
+    /// refused: a variation selector (Mn), a Hangul filler (Lo) and an unassigned code point (Cn) are
+    /// not seen either, and enroll (errata G17, "What this costs" 5).
+    /// </summary>
+    private static Error? ControlCharacter(string value, string field)
+    {
+        foreach (var rune in value.EnumerateRunes())
+        {
+            var category = Rune.GetUnicodeCategory(rune);
+            var name = category == UnicodeCategory.Control ? "Cc"
+                : category == UnicodeCategory.Format ? "Cf"
+                : category == UnicodeCategory.LineSeparator ? "Zl"
+                : category == UnicodeCategory.ParagraphSeparator ? "Zp"
+                : null;
+
+            if (name is not null)
+                return EnrollmentErrors.IdentifierControlCharacter(field, rune.Value, name);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The refusal for an identifier over <see cref="EnrollmentErrors.MaxIdentifierBytes"/> UTF-8
     /// bytes, or null. Asked after <see cref="RefusedText"/>, so the count never meets a lone surrogate.
     /// </summary>
@@ -579,14 +627,17 @@ public static class ForumEndpoints
         // principal" is now a comparison against a token the client proved possession of, rather
         // than against the envelope's own claim about itself -- which is the difference PEP-1 makes.
         // A log that could not be read decides nothing about the key (R4.35), so it is a 503, never
-        // the 401 that tells an agent its key was refused.
+        // the 401 that tells an agent its key was refused. A member the log cannot store is a 422: the
+        // request was well formed and signed, and was refused on its content (R11.33), never a 401.
         var verified = await pipeline.VerifyAsync(a!, subject, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
         {
             return Problem(
                 string.Equals(verifyError!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
                     ? StatusCodes.Status503ServiceUnavailable
-                    : StatusCodes.Status401Unauthorized,
+                    : string.Equals(verifyError.Type, IngestErrors.UnstorableMemberType, StringComparison.Ordinal)
+                        ? StatusCodes.Status422UnprocessableEntity
+                        : StatusCodes.Status401Unauthorized,
                 verifyError);
         }
 
@@ -1139,9 +1190,14 @@ public static class ForumEndpoints
         // Withheld posts are removed from the thread, not the thread from the corpus: a reply to a
         // withheld post is still the reply its author signed, and withholding a parent must not
         // silently withhold every answer under it.
+        // A root id of white space alone names no post, so it has no thread: answered as any unknown
+        // thread is. PostProjector.Thread refuses such an id by throwing, and an anonymous
+        // GET /v1/threads/%0A answered 500 (register D25's sweep; R11.33, errata G17).
         var posts = PostProjector.Fold(log);
-        var thread = ImmutableArray.CreateRange(
-            PostProjector.Thread(posts, rootPostId).Where(p => servable(p.PostId) && Discussion(p)));
+        var thread = string.IsNullOrWhiteSpace(rootPostId)
+            ? []
+            : ImmutableArray.CreateRange(
+                PostProjector.Thread(posts, rootPostId).Where(p => servable(p.PostId) && Discussion(p)));
         var standings = AgentStandingProjector.Fold(log);
         var verification = VerificationProjector.Fold(posts, standings, servable);
         var acta = ActaOf(log);
@@ -1255,7 +1311,7 @@ public static class ForumEndpoints
         // but will not fold into a tree publishes the keys without positions rather than no keys: a
         // reader then cannot check the binding, and says so (R6.54's absence is an absence).
         var (acta, failure) = await ActaEndpoints.FoldAsync(events, cancellationToken).ConfigureAwait(false);
-        if (failure is JsonHttpResult<Problem> { Value.Type: LogBoundKeys.LogUnreadableType })
+        if (failure is ServerFault { Type: LogBoundKeys.LogUnreadableType })
             return failure;
 
         return Results.Ok(Jwks.ForAgent(keySet.Bound, acta is null ? _ => null : acta.IndexOf));
@@ -2107,6 +2163,13 @@ public static class ForumEndpoints
     private static string AbsoluteUrl(HttpRequest request) =>
         $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
 
+    /// <summary>
+    /// An RFC 9457 problem. A 5xx is served by <see cref="ServerFault"/>, without its detail, which
+    /// goes to the log: a server fault's detail is what the failing component said about itself
+    /// (R11.33, errata G17).
+    /// </summary>
     private static IResult Problem(int status, Error error) =>
-        Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
+        status >= StatusCodes.Status500InternalServerError
+            ? new ServerFault(status, error)
+            : Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
 }

@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "The decomposed spelling of the previous vector prints differently from it: two values that differ never print alike."
+}

@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "U+0000 is an escape."
+}

@@ -225,19 +225,18 @@ public static class ActaEndpoints
     internal static async Task<(ActaLog? Acta, IResult? Failure)> FoldAsync(IEventReader events, CancellationToken cancellationToken)
     {
         var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        // Both are the server's fault, so each is served without its detail and the detail is logged
+        // (R11.33, errata G17): the reader's refusal names its store, and a fold's names the entry it
+        // could not place.
         if (!read.TryGetValue(out var log, out var readError))
         {
-            return (null, Results.Json(
-                new Problem("curia/log/unreadable", "The event log could not be read", readError!.Type),
-                statusCode: StatusCodes.Status503ServiceUnavailable));
+            return (null, new ServerFault(
+                StatusCodes.Status503ServiceUnavailable,
+                new Error("curia/log/unreadable", "The event log could not be read", readError!.Type)));
         }
 
         if (!ActaLog.Fold(log!).TryGetValue(out var acta, out var foldError))
-        {
-            return (null, Results.Json(
-                new Problem(foldError!.Type, foldError.Title, foldError.Detail),
-                statusCode: StatusCodes.Status500InternalServerError));
-        }
+            return (null, new ServerFault(StatusCodes.Status500InternalServerError, foldError!));
 
         return (acta, null);
     }
@@ -258,7 +257,7 @@ public static class ActaEndpoints
         CanonicalJson.Canonicalize(key.Jwk).Bind(bytes =>
         {
             using var document = JsonDocument.Parse(bytes.ToArray());
-            return JwkParser.Parse(document.RootElement).Map(jwk => jwk.ToPublicKeyMaterial(key.Kid));
+            return JwkParser.Parse(document.RootElement).Bind(jwk => jwk.ToPublicKeyMaterial(key.Kid));
         });
 
     /// <summary>Canon's JSON tree as a System.Text.Json node, member order preserved; the verifier canonicalizes what it receives.</summary>

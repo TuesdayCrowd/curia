@@ -238,10 +238,11 @@ public sealed class DetachedJws
         if (!Base64Url.IsValid(headerSegment))
             return Result<JwsProtectedHeader>.Fail(JwsErrors.Malformed("protected header is not base64url"));
 
+        var headerBytes = Base64Url.DecodeFromChars(headerSegment);
         JsonDocument doc;
         try
         {
-            doc = JsonDocument.Parse(Base64Url.DecodeFromChars(headerSegment));
+            doc = JsonDocument.Parse(headerBytes);
         }
         catch (JsonException)
         {
@@ -250,6 +251,9 @@ public sealed class DetachedJws
 
         using (doc)
         {
+            if (!AllStringsDecode(headerBytes))
+                return Result<JwsProtectedHeader>.Fail(JwsErrors.Malformed("protected header holds a string that is not valid UTF-16"));
+
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
                 return Result<JwsProtectedHeader>.Fail(JwsErrors.Malformed("protected header must be a JSON object"));
@@ -261,6 +265,28 @@ public sealed class DetachedJws
                 B64: ReadB64(root),
                 Crit: ReadCrit(root)));
         }
+    }
+
+    /// <summary>
+    /// R11.33: <see cref="JsonDocument.Parse(ReadOnlyMemory{byte}, JsonDocumentOptions)"/> accepts an
+    /// escaped unpaired surrogate and a string whose bytes are not UTF-8, and
+    /// <see cref="JsonElement.GetString"/> then throws <see cref="InvalidOperationException"/> on it, so a
+    /// header holding one in any member name or string value is refused here, before any reader asks for
+    /// a string. Any enrolled agent could send one on <c>POST /v1/posts</c>, and a Forum could serve one
+    /// to the reference readers (the strangers stage's final gate, third round). The twin of
+    /// <c>CompactJws.EveryStringDecodes</c> in <c>Curia.AuthN</c>, which this assembly may not reference;
+    /// the catch's scope is one string's decoding and nothing else.
+    /// </summary>
+    private static bool AllStringsDecode(ReadOnlySpan<byte> json)
+    {
+        var reader = new Utf8JsonReader(json);
+        while (reader.Read())
+        {
+            if (reader.TokenType is not (JsonTokenType.String or JsonTokenType.PropertyName)) continue;
+            try { _ = reader.GetString(); }
+            catch (InvalidOperationException) { return false; }
+        }
+        return true;
     }
 
     /// <summary>Missing or wrong-kind reads as empty rather than throwing — see the type remarks.</summary>

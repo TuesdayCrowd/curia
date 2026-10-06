@@ -25,6 +25,10 @@ public sealed record ValidatedRequest(AccessTokenClaims Claims, string DpopKeyTh
 /// </summary>
 public static class AccessTokenValidator
 {
+    /// <summary>The most UTF-8 bytes a proof's <c>nonce</c> may hold: far above the 128-bit base64url
+    /// nonces the Forum mints, and below any index row.</summary>
+    private const int MaxNonceUtf8Bytes = 4096;
+
     public static async Task<Result<ValidatedRequest>> ValidateRequestAsync(
         IncomingRequest request,
         AccessTokenValidationContext context,
@@ -142,7 +146,12 @@ public static class AccessTokenValidator
         if (!string.Equals(proofHeader.Alg, keyAlg, StringComparison.Ordinal))
             return Result<ValidatedRequest>.Fail(AuthNErrors.AlgKeyMismatch(proofHeader.Alg, keyAlg));
 
-        var proofKey = jwk.ToPublicKeyMaterial(kid: "");
+        // R11.33 (errata G17): a jwk whose coordinates are no point on the curve is a malformed
+        // proof, answered as one. The token endpoint binds a token to a proof's key without building
+        // it (register D29), so an agent can hold a token bound to such a key, and this threw.
+        if (!jwk.ToPublicKeyMaterial(kid: "").TryGetValue(out var proofKey, out var proofKeyError))
+            return Result<ValidatedRequest>.Fail(proofKeyError!);
+
         if (!context.VerifiersByAlg.TryGetValue(proofHeader.Alg, out var proofVerifier))
             return Result<ValidatedRequest>.Fail(AuthNErrors.AlgNotAllowed(proofHeader.Alg));
 
@@ -171,6 +180,12 @@ public static class AccessTokenValidator
         {
             if (proofClaims.Nonce is not { } nonce)
                 return Result<ValidatedRequest>.Fail(AuthNErrors.NonceMissing());
+
+            // R11.33 (errata G17): a nonce the Forum could not have issued is a stale one, answered
+            // with a fresh nonce as any other is, and the store is never asked: Postgres text cannot
+            // hold U+0000 (22021), and the store threw on every write route.
+            if (CompactJws.IdentifierRefusal(nonce, "nonce", MaxNonceUtf8Bytes) is not null)
+                return Result<ValidatedRequest>.Fail(AuthNErrors.NonceStale());
 
             var currentResult = await nonceStore.IsCurrentAsync(nonce, cancellationToken).ConfigureAwait(false);
             if (!currentResult.TryGetValue(out var isCurrent, out var currentError))

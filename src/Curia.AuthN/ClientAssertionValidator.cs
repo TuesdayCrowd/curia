@@ -53,6 +53,13 @@ public static class ClientAssertionValidator
         if (header.Typ != "JWT")
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.TypMismatch("JWT", header.Typ));
 
+        // R11.33 (errata G17): CompactJws.ReadString makes an absent or non-string kid "", and the
+        // key store refuses a blank one by throwing, so the token endpoint answered 500 to anyone
+        // before any signature was checked. A kid no store can be asked about is malformed here; the
+        // store keeps its own guard, as a bug signal rather than a request path.
+        if (CompactJws.IdentifierRefusal(header.Kid, "kid", null) is { } kidError)
+            return Result<ClientAssertionClaims>.Fail(kidError);
+
         // R6.31/A12: an agent key's validity is evaluated at server_ts, never at submission time
         // and never at the assertion's own iat -- so the governing instant has to exist before
         // resolution can even be attempted. Reading it here, immediately after the alg/typ pins

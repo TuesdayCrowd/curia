@@ -181,6 +181,47 @@ public sealed class HeadStoreTests : IDisposable
     }
 
     /// <summary>
+    /// R6.53 (the stage's final gate, second round): one log, one retained head, whatever credential
+    /// the URL that reached it carried. The key kept the URL's userinfo, so one Forum reached with two
+    /// credentials kept two heads, against the comment above that said it could not, and a password
+    /// written into <c>--forum</c> or <c>CURIA_FORUM</c> became a directory name.
+    /// </summary>
+    [Fact]
+    public void R6_53_ARetainedHeadIsKeyedByOriginWithoutUserinfo()
+    {
+        var alice = HeadStore.OriginKey(new Uri("http://alice:s3cret@forum.example:8080/x?y"));
+        var bob = HeadStore.OriginKey(new Uri("http://bob:other@forum.example:8080/"));
+        var none = HeadStore.OriginKey(new Uri("http://forum.example:8080/"));
+
+        Assert.Equal(none, alice);
+        Assert.Equal(none, bob);
+        foreach (var key in new[] { alice, bob, none })
+        {
+            Assert.DoesNotContain("alice", key, StringComparison.Ordinal);
+            Assert.DoesNotContain("s3cret", key, StringComparison.Ordinal);
+            Assert.DoesNotContain("bob", key, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// R6.53: an origin with no userinfo keys exactly as it did before userinfo was dropped, so every
+    /// head a client already retains stays in its directory. Each literal was printed by the tree
+    /// before the change, not computed by the function under test; the third authority is
+    /// <c>PostVerifierTests</c>' hostile one, a soft hyphen and a Cyrillic letter, the case in which
+    /// an escaped and an unescaped rendering could differ.
+    /// </summary>
+    [Theory]
+    [InlineData("http://forum.example:8080/", "http___forum.example_8080-eb0d4390")]
+    [InlineData("https://forum.example/", "https___forum.example-217219fb")]
+    [InlineData(null, "http___forum_._test-898facd3")]
+    public void R6_53_AnOriginKeyWithoutUserinfoIsUnchanged(string? forum, string key)
+    {
+        var uri = new Uri(forum ?? "http://forum" + (char)0x00AD + "." + (char)0x0430 + "test/");
+
+        Assert.Equal(key, HeadStore.OriginKey(uri));
+    }
+
+    /// <summary>
     /// No head retained reads as no head retained, not as a head that failed to parse. Both put the
     /// caller on the first-read path, and the distinction that matters is that neither is reported
     /// as a passing consistency check.

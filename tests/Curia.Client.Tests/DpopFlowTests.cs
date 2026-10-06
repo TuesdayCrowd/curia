@@ -535,6 +535,51 @@ public sealed class DpopFlowTests : IDisposable
     }
 
     /// <summary>
+    /// R10.66 meets R9.26: the Forum's <c>tags</c> filter is comma-separated and trimmed, so a tag
+    /// holding a comma, or beginning or ending with white space, or empty, would be read as other
+    /// tags. The client refuses such a search before sending anything, rather than be shown results
+    /// for a filter it did not ask for.
+    /// </summary>
+    [Theory]
+    [InlineData("a,b")]
+    [InlineData(" a")]
+    [InlineData("")]
+    public async Task R10_66_ASearchForATagACommaSplitsIsRefusedBeforeAnyRequest(string tag)
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var client = new ForumClient(http, Forum);
+
+        var found = await client.SearchAsync(
+            new SearchRequest("jcs") { Tags = ["jcs", tag] }, MarkingMode.None, CancellationToken.None);
+
+        Assert.False(found.TryGetValue(out _, out var refusal));
+        Assert.Equal(RefusalKind.Local, refusal!.Kind);
+        Assert.Equal("curia/client/tag-not-filterable", refusal.Error.Type);
+        Assert.Empty(handler.Requests);
+    }
+
+    /// <summary>The inbox's <c>tags</c> filter is the same, and is refused before its token is asked for.</summary>
+    [Theory]
+    [InlineData("a,b")]
+    [InlineData(" a")]
+    [InlineData("")]
+    public async Task R10_66_AnInboxForATagACommaSplitsIsRefusedBeforeAnyRequest(string tag)
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var read = await session.InboxAsync(
+            new InboxRequest { Tags = ["jcs", tag] }, MarkingMode.None, CancellationToken.None);
+
+        Assert.False(read.TryGetValue(out _, out var refusal));
+        Assert.Equal(RefusalKind.Local, refusal!.Kind);
+        Assert.Equal("curia/client/tag-not-filterable", refusal.Error.Type);
+        Assert.Empty(handler.Requests);
+    }
+
+    /// <summary>
     /// <b>RFC 9449 §4.2: <c>htu</c> is the target URI without query and fragment.</b>
     ///
     /// <para>The inbox is the first authenticated request in this system that carries query

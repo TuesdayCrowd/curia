@@ -66,6 +66,7 @@ fn scaffold_empty_corpus(root: &Path) {
         "envelope",
         "merkle",
         "acta",
+        "display",
     ] {
         fs::create_dir_all(root.join(family)).expect("can scaffold an empty family dir");
     }
@@ -322,9 +323,12 @@ fn non_utf8_bytes_in_a_slug_file_are_reported_not_panicked() {
 /// runner loads, listed with the right shape and profiles and a count of
 /// zero. Tests below break exactly one thing about it.
 fn write_matching_index(root: &Path) {
-    write(
-        &root.join("index.json"),
-        r#"{
+    write(&root.join("index.json"), MATCHING_INDEX);
+}
+
+/// The text [`write_matching_index`] writes. A test that needs one more entry
+/// builds on this rather than on a copy, so a family added here reaches it.
+const MATCHING_INDEX: &str = r#"{
   "directories": [
     {"name": "rfc8785", "family": true, "shape": "file-pairs", "profiles": ["rfc8785"], "count": 0},
     {"name": "c4", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
@@ -335,11 +339,10 @@ fn write_matching_index(root: &Path) {
     {"name": "admit-accept", "family": true, "shape": "directory", "profiles": ["admit-accept"], "count": 0},
     {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0},
     {"name": "merkle", "family": true, "shape": "merkle", "profiles": ["merkle-tree"], "count": 0},
-    {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0}
+    {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0},
+    {"name": "display", "family": true, "shape": "display", "profiles": ["display-literal"], "count": 0}
   ]
-}"#,
-    );
-}
+}"#;
 
 fn index_of(root: &Path) -> Index {
     Index::load(root).expect("the scaffolded index loads")
@@ -429,24 +432,14 @@ fn family_in_the_index_that_no_runner_loads_is_reported() {
     // looks, in a passing test-run log, exactly like a family that ran.
     let root = scratch_dir("index-unloaded-family");
     scaffold_empty_corpus(&root);
-    write(
-        &root.join("index.json"),
-        r#"{
-  "directories": [
-    {"name": "rfc8785", "family": true, "shape": "file-pairs", "profiles": ["rfc8785"], "count": 0},
-    {"name": "c4", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
-    {"name": "ordering", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
-    {"name": "unicode", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
-    {"name": "numbers", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0},
-    {"name": "admit-reject", "family": true, "shape": "directory", "profiles": ["admit"], "count": 0},
-    {"name": "admit-accept", "family": true, "shape": "directory", "profiles": ["admit-accept"], "count": 0},
-    {"name": "envelope", "family": true, "shape": "envelope", "profiles": ["envelope"], "count": 0},
-    {"name": "merkle", "family": true, "shape": "merkle", "profiles": ["merkle-tree"], "count": 0},
-    {"name": "acta", "family": true, "shape": "directory", "profiles": ["acta-leaf"], "count": 0},
-    {"name": "newfam", "family": true, "shape": "directory", "profiles": ["canonicalize-with-nfc"], "count": 0}
-  ]
-}"#,
+    // The matching index and one entry more, so this breaks exactly one thing
+    // however many families the matching index lists.
+    let index = MATCHING_INDEX.replace(
+        "\n  ]\n}",
+        ",\n    {\"name\": \"newfam\", \"family\": true, \"shape\": \"directory\", \"profiles\": [\"canonicalize-with-nfc\"], \"count\": 0}\n  ]\n}",
     );
+    assert_ne!(index, MATCHING_INDEX, "the new entry was not added");
+    write(&root.join("index.json"), &index);
     fs::create_dir_all(root.join("newfam")).expect("can create the new family dir");
 
     let err = index_of(&root)
@@ -454,10 +447,10 @@ fn family_in_the_index_that_no_runner_loads_is_reported() {
         .expect_err("a family no runner loads must not agree with disk");
     let problems = mismatch_problems(err);
     assert!(
-        problems
-            .iter()
-            .any(|p| p.contains("newfam") && p.contains("does not enumerate")),
-        "expected the unenumerated family to be named, got: {problems:?}"
+        problems.len() == 1
+            && problems[0].contains("newfam")
+            && problems[0].contains("does not enumerate"),
+        "expected the unenumerated family, and only it, to be named, got: {problems:?}"
     );
 }
 

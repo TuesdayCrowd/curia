@@ -49,8 +49,15 @@ internal sealed class ForumWriter(EnrolledAgent agent, ForumSession session, Tim
 
         return Result<EnrolledAgent>.Fail(new Error(
             "curia/mcp/agent-enrolled-elsewhere",
-            $"The identity '{slug}' is enrolled at a different Forum",
-            $"it enrolled at {enrolledAt} and {McpConfiguration.ForumVariable} is {forum}. " +
+            "The identity is enrolled at a different Forum",
+            $"the identity '{slug}' enrolled at {Named(enrolledAt)} and {McpConfiguration.ForumVariable} is {Named(forum)}. " +
             "Its key is registered there and nowhere else, so this Forum would refuse every write."));
     }
+
+    /// <summary>
+    /// A Forum as this refusal names it: its origin, with no userinfo (<see cref="HeadStore.Origin"/>),
+    /// then its path, since the comparison above reads the path too and two Forums that differ only
+    /// there must not be named alike. A credential in <c>CURIA_FORUM</c> is printed nowhere.
+    /// </summary>
+    private static string Named(Uri forum) => HeadStore.Origin(forum) + forum.AbsolutePath;
 }

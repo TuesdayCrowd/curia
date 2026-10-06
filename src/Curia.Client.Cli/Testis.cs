@@ -64,7 +64,7 @@ internal static class Testis
         }
         catch (IOException ex)
         {
-            return new TestisResult(CheckOutcome.CouldNotCheck, $"could not stage input files: {ex.Message}");
+            return new TestisResult(CheckOutcome.CouldNotCheck, Said($"could not stage input files: {ex.Message}"));
         }
         finally
         {
@@ -122,9 +122,11 @@ internal static class Testis
         {
             return new TestisResult(
                 CheckOutcome.CouldNotCheck,
-                $"not run ({ex.Message}). Build it with 'cargo build --bin curia-testis' and point "
-                + "$CURIA_TESTIS_BIN at the binary, or put it on PATH. This is a missing second "
-                + "opinion, not a failed one.");
+                new FrameBuilder()
+                    .Append($"not run ({ex.Message}). Build it with 'cargo build --bin curia-testis' and point ")
+                    .Append($"$CURIA_TESTIS_BIN at the binary, or put it on PATH. This is a missing second ")
+                    .Append($"opinion, not a failed one.")
+                    .ToString());
         }
 
         if (process is null)
@@ -132,26 +134,27 @@ internal static class Testis
 
         using (process)
         {
-            var stdout = await process.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
-            var stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+            var (stdout, stderr) = await ProgramOutput.ReadAsync(process, ct).ConfigureAwait(false);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
 
             return process.ExitCode switch
             {
+                // The verifier's output is another program's words: quoted, as a served value is
+                // (R10.63, errata G17), after its lines are joined so none begins a line here.
                 0 => new TestisResult(
                     CheckOutcome.Verified,
-                    "independently verified. " + Compact(stdout)),
+                    Said($"independently verified. {Compact(stdout)}")),
                 1 => new TestisResult(
                     CheckOutcome.Failed,
-                    "INDEPENDENT VERIFICATION FAILED. " + Compact(stderr)),
+                    Said($"INDEPENDENT VERIFICATION FAILED. {Compact(stderr)}")),
                 _ => new TestisResult(
                     CheckOutcome.CouldNotCheck,
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"no verdict from the verifier (exit {process.ExitCode}): {Compact(stderr)}")),
+                    Said($"no verdict from the verifier (exit {process.ExitCode}): {Compact(stderr)}")),
             };
         }
     }
+
+    private static string Said(FrameText text) => text.ToString();
 
     private static string Compact(string text) =>
         string.Join(" ", text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));

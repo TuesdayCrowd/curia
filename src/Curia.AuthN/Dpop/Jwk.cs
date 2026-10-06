@@ -60,7 +60,11 @@ public abstract record Jwk
 /// <summary>Parses the two R4.28 JWK shapes from a DPoP proof's embedded <c>jwk</c> header
 /// member. Attacker-controlled input at this point (the proof is not yet signature-verified when
 /// the algorithm reads <c>proof.header.jwk</c>) -- every branch below is a <see cref="Result{T}"/>
-/// failure, never a thrown exception or a length-mismatched key silently truncated/padded.</summary>
+/// failure, never a thrown exception or a length-mismatched key silently truncated/padded.
+/// <para>Its precondition: the element belongs to a document whose strings decode, as those
+/// <see cref="Jwt.CompactJws"/> parses are and as <c>ActaEndpoints</c>' canonical bytes are.
+/// <see cref="JsonElement.GetString"/> throws on an escaped unpaired surrogate, and this parser does
+/// not look for one (R11.33).</para></summary>
 public static class JwkParser
 {
     private const int Ed25519KeyLength = 32;

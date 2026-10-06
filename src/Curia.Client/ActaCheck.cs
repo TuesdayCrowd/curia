@@ -63,55 +63,19 @@ public sealed record Check(CheckOutcome Outcome, string Detail)
 
     /// <summary>
     /// A value this client did not write -- a string the Forum served, or one an agent put in the
-    /// log -- as a detail carries it: a JSON string literal, so nothing inside it can end the line it
-    /// sits on or begin another.
+    /// log -- as a detail carries it: <see cref="DisplayLiteral.Of"/>'s JSON string literal, so
+    /// nothing inside it can end the line it sits on or begin another.
     ///
     /// <para><b>Why every such value, and why one helper.</b> A detail is a line a reader reads, often
     /// a model through <c>curia_verify</c> (R11.29), and the values it names come from the material
     /// under check: an entry type, an agent's identifier, a <c>kid</c>, a digest, a Forum problem
     /// document. Printed raw, a value holding a newline begins a line that reads as this client's
-    /// own, a forged <c>verified:</c> or <c>VERIFIED.</c>. Quoted, it stays inside the literal:
-    /// <c>"</c> and <c>\</c> are escaped with a backslash, and every control or format character,
-    /// both Unicode separators and half a surrogate pair as <c>\u</c> and four hex digits. One helper,
-    /// so no site escapes less than another. A null value is the absence <c>(none)</c>, unquoted,
-    /// which no quoted value can be mistaken for.</para>
+    /// own, a forged <c>verified:</c> or <c>VERIFIED.</c>. Quoted, it stays inside the literal. Since
+    /// errata G17 the literal is R10.64's, the one every reader writes: printable ASCII stands for
+    /// itself and every other code unit is an escape, so a look-alike prints as what it is. A null
+    /// value is the absence <c>(none)</c>, unquoted, which no quoted value can be mistaken for.</para>
     /// </summary>
-    public static string Quote(string? value)
-    {
-        if (value is null) return "(none)";
-
-        var quoted = new StringBuilder(value.Length + 2).Append('"');
-        for (var i = 0; i < value.Length; i++)
-        {
-            var c = value[i];
-            if (c is '"' or '\\')
-                quoted.Append('\\').Append(c);
-            else if (Escaped(value, i))
-                quoted.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:x4}");
-            else
-                quoted.Append(c);
-        }
-
-        return quoted.Append('"').ToString();
-    }
-
-    /// <summary>
-    /// Whether <see cref="Quote"/> writes the character at <paramref name="i"/> as an escape: a
-    /// control or format character, a line or paragraph separator, or a surrogate without its pair.
-    /// </summary>
-    private static bool Escaped(string value, int i)
-    {
-        var category = char.GetUnicodeCategory(value[i]);
-        if (category is UnicodeCategory.Control or UnicodeCategory.Format
-            or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator)
-            return true;
-
-        if (category is not UnicodeCategory.Surrogate) return false;
-
-        return char.IsHighSurrogate(value[i])
-            ? !char.IsSurrogatePair(value, i)
-            : i == 0 || !char.IsHighSurrogate(value[i - 1]);
-    }
+    public static string Quote(string? value) => DisplayLiteral.Of(value);
 }
 
 /// <summary>

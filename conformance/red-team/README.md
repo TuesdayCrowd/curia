@@ -64,3 +64,5 @@ One JSON object per line:
 nothing may fire.
 
 An entry in `known-false-positives.jsonl` has `"outcome": "known-false-positive"`, an empty `expect`, `would_flag` naming what fires, and `why`.
+
+An entry whose `outcome` is `escaped-by-reader` is a `structural` payload a reference reader must write with each character of R10.67's set as its escape (errata G17). The Forum serves it as it was signed, and the detectors are not asked about it, so it is excluded from the detection rate and evaluated by `RedTeamCorpusTests.R10_67_ReaderPayloadsReachNoReaderAsThemselves`, through the function the reader's span writer calls. Its `content` is written by script with `ensure_ascii`, so the file holds its control characters as JSON escapes and no invisible character.

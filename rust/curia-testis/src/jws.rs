@@ -55,6 +55,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use p256::ecdsa::signature::Verifier as _;
 
+use crate::display;
 use crate::json::{self, Value};
 use crate::jwk::{JwkError, JwkSet, PublicKey};
 
@@ -540,7 +541,8 @@ impl std::fmt::Display for JwsError {
             JwsError::AlgorithmNotAllowed { alg: Some(alg) } => {
                 write!(
                     f,
-                    "algorithm `{alg}` is not allowed (only EdDSA and ES256 are)"
+                    "algorithm {} is not allowed (only EdDSA and ES256 are)",
+                    display::literal(alg)
                 )
             }
             JwsError::AlgorithmNotAllowed { alg: None } => {
@@ -554,7 +556,9 @@ impl std::fmt::Display for JwsError {
             JwsError::KidMissing => write!(f, "header has no `kid`"),
             JwsError::SignatureNotBase64 => write!(f, "signature segment is not valid base64url"),
             JwsError::Key(inner) => write!(f, "{inner}"),
-            JwsError::KeyNotFound { kid } => write!(f, "no key found for kid `{kid}`"),
+            JwsError::KeyNotFound { kid } => {
+                write!(f, "no key found for kid {}", display::literal(kid))
+            }
             JwsError::KeyAlgorithmMismatch => {
                 write!(
                     f,

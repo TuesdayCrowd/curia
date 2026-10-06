@@ -31,4 +31,16 @@ public static class IngestErrors
             "it cannot be redacted after signing, so nothing was stored.",
             detail);
     }
+
+    /// <summary>The slug of <see cref="UnstorableMember"/>, which the submit route maps to 422.</summary>
+    public const string UnstorableMemberType = "curia/ingest/unstorable-member";
+
+    /// <summary>
+    /// A signed member the log cannot store (R11.33). jsonb refuses U+0000, and <c>board</c> and
+    /// <c>parent</c> are written into the <c>post.accepted</c> payload outside the canonical text, so a
+    /// post naming one of them with U+0000 cannot be kept, whatever R8.63 says of their value space.
+    /// The detail names the member and never its value (R6.40).
+    /// </summary>
+    public static Error UnstorableMember(string member) =>
+        new(UnstorableMemberType, "The log cannot store this member's value", $"member={member}");
 }

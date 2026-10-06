@@ -205,6 +205,72 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R11.33 (errata G17; the strangers stage's final gate, third round): a flag against a post id of
+    /// white space alone names no post, and is answered as <c>accept</c> and <c>GET …/flags</c> answer
+    /// it, 404 <c>curia/flag/no-such-post</c>. <c>RaiseFlag.RecordAsync</c> threw on such an id, which
+    /// answered 500 to any credentialed agent; the request sweep never saw it, because every flag it
+    /// sent carried a <c>kind</c> the route refuses first (trap 26). Each id is sent with a body the
+    /// route would accept. A post id of U+0000 is not a row: the test host's client refuses a path
+    /// holding it before sending it ("The path contains null characters"), so the register records it
+    /// as traced, not run.
+    /// </summary>
+    [Theory]
+    [InlineData("%20")]
+    [InlineData("%0A")]
+    [InlineData("%09")]
+    [InlineData("%0B")]
+    [InlineData("%0C")]
+    [InlineData("%0D")]
+    [InlineData("%20%20")]
+    [InlineData("%C2%85")]
+    [InlineData("%C2%A0")]
+    [InlineData("%E1%9A%80")]
+    [InlineData("%E2%80%A8")]
+    [InlineData("%E2%80%A9")]
+    [InlineData("%E3%80%80")]
+    public async Task R11_33_AFlagAgainstAPostIdOfWhiteSpaceAloneIsNoSuchPost(string postId)
+    {
+        ArgumentNullException.ThrowIfNull(postId);
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var reporter = ForumAgent.Create(Unique("blank-id"), "blank-id-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        await forum.AttestOwnerAsync(reporter.AgentId, ct);
+
+        using var response = await RaiseAsync(client, dpop, token, postId, "spam", "r", ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        Assert.True(response.StatusCode == HttpStatusCode.NotFound, $"{(int)response.StatusCode} ({postId}): {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/flag/no-such-post", problem.RootElement.GetProperty("type").GetString());
+    }
+
+    /// <summary>
+    /// R11.33, pre-flighted by the strangers stage's final gate, third round: a flag rationale holding
+    /// U+0000, raised against a real post, was traced to the private store's <c>text</c> column and an
+    /// expected 503. It answered 400 <c>curia/flag/detail-unstorable</c>: <c>FlagDetailRules.Admit</c>
+    /// refuses U+0000 in every member before the store is asked. No rule was added; this keeps it so.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_AFlagRationaleTheStoreCannotHoldIsRefusedNotThrown()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+
+        var reporter = ForumAgent.Create(Unique("nul-rationale"), "nul-rationale-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        using var response = await RaiseAsync(client, dpop, token, postId, "spam", "r\0", ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{(int)response.StatusCode}: {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/flag/detail-unstorable", problem.RootElement.GetProperty("type").GetString());
+    }
+
+    /// <summary>
     /// R10.36: withheld content stops being served. The remedy is <b>withholding plus a moderation
     /// event</b>, never deletion — the post stays in the log exactly as signed, and the read path
     /// declines to serve it.

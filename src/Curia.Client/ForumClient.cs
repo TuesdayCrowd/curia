@@ -146,6 +146,9 @@ public sealed class ForumClient
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (UnfilterableTag(request.Tags) is { } unfilterable)
+            return Task.FromResult(ForumResult<SearchPage>.Local(ClientErrors.TagNotFilterable(unfilterable)));
+
         var parameters = new List<string>();
 
         void Add(string name, string? value)
@@ -181,6 +184,21 @@ public sealed class ForumClient
         var query = parameters.Count == 0 ? string.Empty : "?" + string.Join("&", parameters);
         return GetAsync($"/v1/search{query}", ForumDocuments.ReadSearchPage, ct);
     }
+
+    /// <summary>
+    /// A tag the Forum's <c>tags</c> filter cannot carry, or null when every one can. The Forum
+    /// splits that parameter on commas and trims each element (R9.26), so a tag that is empty, holds
+    /// a comma, or is not its own trimmed self would be read as another tag, or none: the agent would
+    /// be shown results for a filter it never asked for. Refused before any request, as a term
+    /// holding <c>&amp;</c> is percent-encoded rather than sent raw.
+    /// </summary>
+    internal static string? UnfilterableTag(ImmutableArray<string> tags) =>
+        tags.IsDefaultOrEmpty
+            ? null
+            : tags.FirstOrDefault(tag =>
+                tag.Length == 0
+                || tag.Contains(',', StringComparison.Ordinal)
+                || !string.Equals(tag, tag.Trim(), StringComparison.Ordinal));
 
     public Task<ForumResult<ImmutableArray<ForumJwk>>> GetJwksAsync(string agentId, CancellationToken ct) =>
         GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadJwks, ct);
@@ -273,7 +291,7 @@ public sealed class ForumClient
         catch (HttpRequestException ex)
         {
             return ForumResult<ReadOnlyMemory<byte>>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: {ex.Message}")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: {ex.Message}")));
         }
 
         using (response)
@@ -336,12 +354,12 @@ public sealed class ForumClient
         catch (HttpRequestException ex)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: {ex.Message}")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: {ex.Message}")));
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: timed out ({ex.Message})")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: timed out ({ex.Message})")));
         }
 
         using (response)
@@ -366,12 +384,12 @@ public sealed class ForumClient
         catch (HttpRequestException ex)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: {ex.Message}")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: {ex.Message}")));
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
             return ForumResult<T>.Refused(new Refusal(
-                RefusalKind.Transport, 0, ClientErrors.Transport($"{Forum}: timed out ({ex.Message})")));
+                RefusalKind.Transport, 0, ClientErrors.Transport($"{HeadStore.Origin(Forum)}: timed out ({ex.Message})")));
         }
 
         using (response)

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Serving;
 using ModelContextProtocol;
@@ -196,16 +197,22 @@ internal sealed partial class ForumTools(
     /// another session, another client, an earlier conversation. A mismatch is stated in the
     /// strongest terms the result has, because everything below it is true of the wrong
     /// document.</para>
+    ///
+    /// <para>Composed through the frame, so the digest the caller gave and the one the Forum served
+    /// are each a display literal (R10.63): neither is this adapter's words.</para>
     /// </summary>
     private static string Pinned(string? expectedDigest, PostVerification verification)
     {
         if (string.IsNullOrWhiteSpace(expectedDigest)) return string.Empty;
 
-        return string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal)
-            ? $"pinned      to the digest you supplied, {Check.Quote(expectedDigest)}\n"
-            : $"pinned      FAILED. You asked about {Check.Quote(expectedDigest)} and the Forum served "
-              + $"{verification.Digest ?? "(no canonical form)"} under this id. These are different "
-              + "documents. Nothing below is about the one you asked about.\n";
+        var frame = new FrameBuilder();
+        if (string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal))
+            return frame.Line($"pinned      to the digest you supplied, {expectedDigest}").ToString();
+
+        return (verification.Digest is { } served
+                ? frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served} under this id. These are different documents. Nothing below is about the one you asked about.")
+                : frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served no canonical form under this id. Nothing below is about the one you asked about."))
+            .ToString();
     }
 
     /// <summary>Keeps the served post, evicting the oldest once the session's cap is reached.</summary>
@@ -228,10 +235,12 @@ internal sealed partial class ForumTools(
     {
         ArgumentNullException.ThrowIfNull(criteria);
 
+        // The criterion's own words can come from a post the model read, so they are quoted like any
+        // value this adapter did not write (R10.63, errata G17).
         if (!criteria.ToRequest().TryGetValue(out var request, out var invalid))
             throw new McpException(invalid!.Detail is { Length: > 0 } detail
-                ? $"{invalid.Title}. {detail}"
-                : invalid.Title);
+                ? Said($"{invalid.Title}. {detail}")
+                : Said($"{invalid.Title}"));
 
         var found = await _forum.SearchAsync(request!, _marking, cancellationToken).ConfigureAwait(false);
         if (!found.TryGetValue(out var page, out var refusal)) throw Refused(refusal!);
@@ -254,6 +263,10 @@ internal sealed partial class ForumTools(
     /// differently — one string, each passage inside its own delimited span — and G12 records that a
     /// single transport string is not the defect. This is the stronger form because the transport
     /// offers it.</para>
+    ///
+    /// <para>The <c>uri</c> carries the post id the Forum served, which the model reads beside the
+    /// passage, so it is percent-encoded (R10.63, errata G17): a display literal cannot sit in a URI,
+    /// and an id holding a line break began a line of what the model read.</para>
     /// </summary>
     private static CallToolResult Rendered(ImmutableArray<Passage> passages, string? preamble = null)
     {
@@ -269,7 +282,7 @@ internal sealed partial class ForumTools(
             {
                 Resource = new TextResourceContents
                 {
-                    Uri = "curia://post/" + passage.Post.PostId,
+                    Uri = "curia://post/" + Uri.EscapeDataString(passage.Post.PostId),
                     MimeType = "text/plain",
                     Text = passage.Render(),
                 },
@@ -284,11 +297,14 @@ internal sealed partial class ForumTools(
     /// it, whether that was the published default, and the kinds it applied to. A floor a caller
     /// cannot read back is one it cannot distinguish from an empty corpus.
     /// </summary>
-    private static string Floor(SearchPage page) => string.Create(
-        CultureInfo.InvariantCulture,
-        $"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} " +
-        $"source={page.Floor.Source} applies_to={string.Join(",", page.Floor.AppliesTo)} " +
-        $"model={page.Model} results={page.Results.Length}");
+    private static string Floor(SearchPage page) => new FrameBuilder()
+        .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
+        .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
+        .Append($"model={page.Model} results={page.Results.Length}")
+        .ToString();
+
+    /// <summary>A line or sentence of this adapter's own, with every served value quoted.</summary>
+    private static string Said(FrameText text) => text.ToString();
 
     /// <summary>
     /// A refusal reaches the model as an <see cref="McpException"/>, whose message the SDK forwards

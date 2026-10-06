@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "A line feed is an escape, so the text after it cannot begin a line of the reader's output (register D31)."
+}

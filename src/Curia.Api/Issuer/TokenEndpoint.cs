@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Curia.Api.Adapters;
 using Curia.Application.Credentials;
@@ -5,6 +6,7 @@ using Curia.Application.Ports;
 using Curia.Application.Projections;
 using Curia.AuthN;
 using Curia.AuthN.Dpop;
+using Curia.AuthN.Jwt;
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain;
@@ -57,7 +59,36 @@ public static class TokenEndpoint
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
-        var form = await http.ReadFormAsync(cancellationToken).ConfigureAwait(false);
+        // A body that is not a form, a form value holding U+0000 percent-encoded, which the form
+        // reader refuses with InvalidDataException, and a multipart form cut off before its closing
+        // boundary, on which it throws IOException, each answered 500 to a caller holding no
+        // credential (register D25's sweep; R11.33, errata G17). Each is a request this endpoint
+        // cannot read: RFC 6749 §5.2's invalid_request. Multipart stays readable: a token request
+        // may be one, and R5.20's refusal of a NUL identifier is tested through one. A charset the
+        // platform will not decode (UTF-7 and its aliases; SYSLIB0001), declared on the form or on
+        // any multipart part, throws NotSupportedException from MediaTypeHeaderValue.Encoding inside
+        // the form reader, and answered 500 to anyone too (the stage's final gate, second round).
+        // JsonCharset exempts /oauth, so this catch is the only refusal.
+        if (!http.HasFormContentType)
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+
+        IFormCollection form;
+        try
+        {
+            form = await http.ReadFormAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidDataException)
+        {
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+        }
+        catch (IOException)
+        {
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+        }
+        catch (NotSupportedException)
+        {
+            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+        }
 
         var assertion = form["client_assertion"].ToString();
         var assertionType = form["client_assertion_type"].ToString();
@@ -155,27 +186,18 @@ public static class TokenEndpoint
     /// denial, not an escalation. The proof itself is verified on every resource request, which is
     /// where possession actually has to hold.</para>
     /// </summary>
-    private static string? DpopThumbprintOf(string proof)
-    {
-        var parts = proof.Split('.');
-        if (parts.Length != 3) return null;
+    private static string? DpopThumbprintOf(string proof) =>
+        CompactJws.Split(proof)
+            .Bind(parts => CompactJws.ParseHeader(parts, ProofKey))
+            .TryGetValue(out var key, out _)
+            ? JwkThumbprint.Compute(key!)
+            : null;
 
-        try
-        {
-            var headerJson = System.Text.Encoding.UTF8.GetString(
-                System.Buffers.Text.Base64Url.DecodeFromChars(parts[0]));
-
-            using var header = System.Text.Json.JsonDocument.Parse(headerJson);
-            if (!header.RootElement.TryGetProperty("jwk", out var jwk)) return null;
-
-            var parsed = JwkParser.Parse(jwk);
-            return parsed.TryGetValue(out var key, out _) ? JwkThumbprint.Compute(key!) : null;
-        }
-        catch (Exception ex) when (ex is System.Text.Json.JsonException or FormatException)
-        {
-            return null;
-        }
-    }
+    /// <summary>The proof's <c>jwk</c>, read through <see cref="CompactJws"/> as every other compact JWS is (R5.13). A header that is not an object, or that holds a string which does not decode, is a key that cannot be read (R11.33), never a throw: the endpoint keeps no parse of its own to fall behind CompactJws's.</summary>
+    private static Result<Jwk> ProofKey(JsonElement header) =>
+        header.TryGetProperty("jwk", out var jwk) && jwk.ValueKind == JsonValueKind.Object
+            ? JwkParser.Parse(jwk)
+            : Result<Jwk>.Fail(AuthNErrors.MalformedJwk("missing jwk header parameter"));
 
     /// <summary>
     /// The absolute token-endpoint URL, which the assertion's <c>aud</c> must match.

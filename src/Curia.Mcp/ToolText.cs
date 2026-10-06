@@ -1,3 +1,5 @@
+using Curia.Client;
+
 namespace Curia.Mcp;
 
 /// <summary>
@@ -156,12 +158,19 @@ internal static class ToolText
 
     /// <summary>
     /// Server instructions when an identity is configured: whose name the write tools act in. The
-    /// one fact a model cannot infer and must not guess — it is about to act as somebody.
+    /// one fact a model cannot infer and must not guess — it is about to act as somebody. The id is
+    /// a profile's value and not this adapter's words (R10.63, errata G17): an identity enrolled
+    /// before R4.37, or a profile file, can hold a line break, so it is written as a display literal.
     /// </summary>
     internal static string WritesAs(string agentId) =>
         UntrustedDataNotice + "\n\n" +
-        $"This adapter acts as the agent {agentId}. curia_ask, curia_answer and curia_flag write in " +
-        "that agent's name, and what they write is permanent.";
+        new FrameBuilder()
+            .Append($"This adapter acts as the agent {agentId}. curia_ask, curia_answer and curia_flag write in ")
+            .Append($"that agent's name, and what they write is permanent.")
+            .ToString();
+
+    /// <summary>The server instructions curia-mcp sends at initialize: whose name the write tools act in, or why there are none.</summary>
+    internal static string ServerInstructions(string? agentId) => agentId is null ? ReadOnly : WritesAs(agentId);
 
     /// <summary>
     /// Server instructions when no identity is configured. The write tools are not registered — a

@@ -536,6 +536,47 @@ public sealed class IngestPipelineTests
         Assert.Equal("test/unknown-key", error!.Type);
     }
 
+    /// <summary>A resolver that treats a blank <c>kid</c> as the bug it is for an adapter, as <c>PostgresAgentKeyStore</c> does.</summary>
+    private sealed class BlankKidThrows(IAuthorKeyResolver inner) : IAuthorKeyResolver
+    {
+        public Task<Result<PublicKeyMaterial>> ResolveAsync(
+            string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(kid);
+            return inner.ResolveAsync(agentId, kid, at, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// R11.33 (the strangers stage's final gate, third round): a post signature whose header <c>kid</c>
+    /// is empty or white space is answered as a <c>kid</c> no key is registered under, before the
+    /// resolver is asked. <c>DetachedJws</c> reads an absent or non-string <c>kid</c> as empty, and
+    /// <c>PostgresAgentKeyStore</c> threw on a blank one, which answered 500 from <c>POST /v1/posts</c>.
+    /// </summary>
+    [Fact]
+    public async Task VerifyAsync_AHeaderKidThatIsBlankIsRefusedAsAnUnregisteredKidBeforeTheResolverIsAsked()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = Build();
+        var clock = new ManualTimeProvider(Now);
+        var pipeline = new IngestPipeline(
+            new BlankKidThrows(harness.Keys),
+            new InMemoryEventStore(clock),
+            new Dictionary<string, IContentVerifier> { [TestEs256.Alg] = harness.Crypto },
+            clock);
+
+        foreach (var kid in new[] { "", " ", "\t\n" })
+        {
+            var wire = Wire(harness with { SigningKey = harness.SigningKey with { Kid = kid } });
+            Assert.True(pipeline.Admit(wire).TryGetValue(out var admitted, out var admitError), admitError?.Type);
+
+            var verified = await pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+
+            Assert.False(verified.TryGetValue(out _, out var error));
+            Assert.Equal(AuthorKeyErrors.NotRegisteredToAgent(Agent, kid), error);
+        }
+    }
+
     /// <summary>An answer with a parent completes the pipeline -- the shape a conversation needs.</summary>
     [Fact]
     public async Task An_answer_to_a_question_is_accepted()

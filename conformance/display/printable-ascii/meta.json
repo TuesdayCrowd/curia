@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "Every character from U+0020 to U+007E other than the quote and the backslash, which quote-and-backslash pins, stands for itself, inside the quotes."
+}

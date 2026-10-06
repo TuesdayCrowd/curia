@@ -275,6 +275,15 @@ internal sealed class StubLog : IDisposable
             ? signed!.Compact
             : throw new InvalidOperationException("the second key would not sign");
 
+        LogThePostWithSignature(signature);
+    }
+
+    /// <summary>
+    /// Log the post with <paramref name="signature"/> in place of its own, and rebuild the tree around
+    /// it: the log's own record of the post carries whatever compact JWS a hostile Forum chose.
+    /// </summary>
+    internal void LogThePostWithSignature(string signature)
+    {
         var payload = (JsonValue.Object)Entry.Members.First(m => m.Key == LogLeaf.PayloadMember).Value;
         var resigned = new JsonValue.Object(
         [
@@ -418,6 +427,62 @@ internal sealed class StubLog : IDisposable
     internal bool RefusesAsDuplicate { get; set; }
 
     /// <summary>
+    /// R10.63 (errata G17): what a hostile Forum appends to a value it serves. With
+    /// <see cref="HostileMember"/> set, only the strings at that member of the documents the stub
+    /// serves carry it; with <see cref="RefusesEverythingWith"/> set, every refusal's words do.
+    /// </summary>
+    internal string? HostileSuffix { get; set; }
+
+    /// <summary>
+    /// R10.67 (errata G17): content a hostile Forum puts inside the delimiters of every post it serves,
+    /// in place of the canonical form an honest Forum renders there. A reader checks the delimiters and
+    /// does not derive the span from the canonical form, so this is what it writes.
+    /// </summary>
+    internal string? RenderedContent { get; set; }
+
+    /// <summary>
+    /// One member of one served document, as <see cref="ServedStringMembers"/> names it
+    /// (<c>/v1/posts/X#provenance.author</c>): the strings there end with <see cref="HostileSuffix"/>.
+    /// The token response is never touched: a token is never printed, and one holding a line break
+    /// fails the HTTP stack before any reader runs.
+    /// </summary>
+    internal string? HostileMember { get; set; }
+
+    /// <summary>
+    /// With <see cref="HostileSuffix"/> set, every request but the token's is refused with this status
+    /// and a problem document whose type, title and detail each end with the suffix.
+    /// </summary>
+    internal HttpStatusCode? RefusesEverythingWith { get; set; }
+
+    /// <summary>
+    /// What a hostile refusal's <c>detail</c> begins with, before <see cref="HostileSuffix"/>. The
+    /// client tells a Table 11 budget exhaustion from a Table 10 denial by this prefix alone
+    /// (<c>ForumClient.Classify</c>), so a gate reaches the rate-budget refusal only by setting it.
+    /// </summary>
+    internal string HostileDetail { get; set; } = "because";
+
+    /// <summary>
+    /// What a hostile refusal's <c>type</c> begins with, before <see cref="HostileSuffix"/>. The client
+    /// takes a 403 to be the Forum's only when its type is <c>curia/</c>-namespaced (<c>ForumClient.Classify</c>),
+    /// so a gate reaches the not-the-Forum Transport arm, whose detail names the type it was served, only by setting it.
+    /// </summary>
+    internal string HostileType { get; set; } = "curia/stub/hostile";
+
+    /// <summary>
+    /// With <see cref="HostileSuffix"/> set, the token endpoint refuses with this status, in RFC 6749's
+    /// shape plus the <c>detail</c> the Forum adds, each member ending with the suffix: the one
+    /// refusal a write tool meets before it reaches a route.
+    /// </summary>
+    internal HttpStatusCode? RefusesTokenWith { get; set; }
+
+    /// <summary>
+    /// Every member of every JSON document the stub has served that holds a string, named by route
+    /// and member path, array elements as <c>[]</c>: what a gate iterates to make each one hostile in
+    /// turn.
+    /// </summary>
+    internal HashSet<string> ServedStringMembers { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Refuse every submission as the Forum refuses a Table 10 denial: <c>403</c>,
     /// <c>curia/authz/denied</c>, the reason and the tier the request was evaluated at, and no
     /// criterion by which that tier could change — which is exactly what R11.26 says an MCP tool must
@@ -548,7 +613,7 @@ internal sealed class StubLog : IDisposable
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(canonical)}},"signature":"{{Answer.Signature}}",
-        "rendered":{{JsonString(Datamarking.Render(canonical, MarkingMode.None))}},"accepted":false,
+        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? canonical, MarkingMode.None))}},"accepted":false,
         "log_index":{{AnswerIndex}},"inclusion_proof":{{ProofAt(AnswerIndex, AnswerIndex < HeadTreeSize ? HeadTreeSize : Leaves.Length)}}}
         """.ReplaceLineEndings(string.Empty);
     }
@@ -663,7 +728,7 @@ internal sealed class StubLog : IDisposable
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Submission.PrefixedDigest}}",
         "canonical":{{JsonString(Canonical)}},"signature":"{{Submission.Signature}}",
-        "rendered":{{JsonString(Datamarking.Render(Canonical, MarkingMode.None))}},"accepted":false,
+        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":false,
         "log_index":{{PostIndex}},"inclusion_proof":{{proof}}}
         """.ReplaceLineEndings(string.Empty);
     }
@@ -926,6 +991,34 @@ internal sealed class StubLog : IDisposable
                 ? Written(log, path, request)
                 : Answered(Answer(log, path, query));
 
+            if (path != "/oauth/token")
+            {
+                if (log.HostileSuffix is { } suffix && log.RefusesEverythingWith is { } refused)
+                {
+                    (status, challenge) = (refused, null);
+                    body = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+                    {
+                        ["type"] = log.HostileType + suffix,
+                        ["title"] = "Refused" + suffix,
+                        ["detail"] = log.HostileDetail + suffix,
+                    });
+                }
+                else
+                {
+                    body = Members(body, path, log.ServedStringMembers, log.HostileMember, log.HostileSuffix);
+                }
+            }
+            else if (log.HostileSuffix is { } suffix && log.RefusesTokenWith is { } refused)
+            {
+                (status, challenge) = (refused, null);
+                body = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+                {
+                    ["error"] = "invalid_client" + suffix,
+                    ["error_description"] = "Refused" + suffix,
+                    ["detail"] = "because" + suffix,
+                });
+            }
+
             var response = new HttpResponseMessage(status)
             {
                 Content = new StringContent(
@@ -947,6 +1040,84 @@ internal sealed class StubLog : IDisposable
             }
 
             return Task.FromResult(response);
+        }
+
+        /// <summary>
+        /// Records every string member of <paramref name="body"/> under <paramref name="route"/>, and
+        /// returns the body with <paramref name="suffix"/> appended to the strings at
+        /// <paramref name="hostile"/>, or unchanged.
+        /// </summary>
+        private static string Members(string body, string route, HashSet<string> served, string? hostile, string? suffix)
+        {
+            System.Text.Json.Nodes.JsonNode? node;
+            try
+            {
+                node = System.Text.Json.Nodes.JsonNode.Parse(body);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return body;
+            }
+
+            if (node is null) return body;
+            var changed = Walk(node, route + "#");
+            return changed ? node.ToJsonString() : body;
+
+            bool Walk(System.Text.Json.Nodes.JsonNode current, string at)
+            {
+                var any = false;
+                switch (current)
+                {
+                    case System.Text.Json.Nodes.JsonObject obj:
+                        foreach (var name in obj.Select(member => member.Key).ToArray())
+                        {
+                            if (obj[name] is not { } child) continue;
+                            var member = at.EndsWith('#') ? at + name : at + "." + name;
+                            if (child is System.Text.Json.Nodes.JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.String)
+                            {
+                                served.Add(member);
+                                if (member == hostile && suffix is not null)
+                                {
+                                    obj[name] = value.GetValue<string>() + suffix;
+                                    any = true;
+                                }
+                            }
+                            else
+                            {
+                                any |= Walk(child, member);
+                            }
+                        }
+
+                        break;
+
+                    case System.Text.Json.Nodes.JsonArray array:
+                        for (var i = 0; i < array.Count; i++)
+                        {
+                            if (array[i] is not { } child) continue;
+                            var member = at + "[]";
+                            if (child is System.Text.Json.Nodes.JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.String)
+                            {
+                                served.Add(member);
+                                if (member == hostile && suffix is not null)
+                                {
+                                    array[i] = value.GetValue<string>() + suffix;
+                                    any = true;
+                                }
+                            }
+                            else
+                            {
+                                any |= Walk(child, member);
+                            }
+                        }
+
+                        break;
+
+                    default:
+                        break;
+                }
+
+                return any;
+            }
         }
 
         private static (HttpStatusCode Status, string Body, string? Challenge) Answered(

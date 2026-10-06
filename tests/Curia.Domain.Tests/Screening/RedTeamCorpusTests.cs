@@ -51,9 +51,10 @@ public sealed class RedTeamCorpusTests
         internal const string EscapedAtServing = "escaped-at-serving";
         internal const string ExpectedToPass = "expected-to-pass";
         internal const string KnownFalsePositive = "known-false-positive";
+        internal const string EscapedByReader = "escaped-by-reader";
 
         internal static readonly ImmutableArray<string> Known =
-            [Flagged, NotFlagged, EscapedAtServing, ExpectedToPass, KnownFalsePositive];
+            [Flagged, NotFlagged, EscapedAtServing, EscapedByReader, ExpectedToPass, KnownFalsePositive];
     }
 
     /// <summary>
@@ -593,6 +594,60 @@ public sealed class RedTeamCorpusTests
                 Assert.Contains("-ESCAPED>>>", rendered, StringComparison.Ordinal);
         }
     }
+
+    /// <summary>
+    /// The evaluator R10.57 requires for the `escaped-by-reader` outcome (R10.67, errata G17): a
+    /// `structural` payload that drives the terminal behind a reader reaches none as itself. It
+    /// evaluates the function the reader's span writer calls, <see cref="SpanText.Block"/>, over the
+    /// span as each marking renders it, and not the frame: <c>FrameBuilder.Span</c>'s own call is held
+    /// by the Client, Mcp and Api facts named R10_67.
+    /// </summary>
+    [Fact]
+    public void R10_67_ReaderPayloadsReachNoReaderAsThemselves()
+    {
+        var payloads = Load("payloads.jsonl")
+            .Where(c => c.Outcome == Outcomes.EscapedByReader)
+            .ToArray();
+
+        // A loop over nothing passes. These are the rows that fail if the outcome empties out.
+        Assert.NotEmpty(payloads);
+        Assert.Contains(payloads, c => c.Id.Contains("osc-52", StringComparison.Ordinal));
+        Assert.Contains(payloads, c => c.Id.Contains("tag-characters", StringComparison.Ordinal));
+
+        foreach (var c in payloads)
+        {
+            foreach (var mode in new[] { MarkingMode.Datamark, MarkingMode.DelimitersOnly, MarkingMode.None })
+            {
+                var written = SpanText.Block(Datamarking.Render(c.Content, mode));
+
+                var survivors = written.EnumerateRunes()
+                    .Where(r => r.Value is not (0x0A or 0x09) && IsOfTheSet(r))
+                    .Select(r => "U+" + r.Value.ToString("X4", CultureInfo.InvariantCulture))
+                    .ToArray();
+                Assert.True(
+                    survivors.Length == 0,
+                    $"{c.Id} ({mode}): the reader would write {string.Join(", ", survivors)} as itself (R10.67)");
+
+                foreach (var r in c.Content.EnumerateRunes().Where(r => r.Value is not (0x0A or 0x09) && IsOfTheSet(r)))
+                {
+                    var escape = string.Concat(r.ToString().Select(u => "\\u" + ((int)u).ToString("x4", CultureInfo.InvariantCulture)));
+                    Assert.True(
+                        written.Contains(escape, StringComparison.Ordinal),
+                        $"{c.Id} ({mode}): U+{r.Value.ToString("X4", CultureInfo.InvariantCulture)} is not written as {escape} (R10.67)");
+                }
+
+                Assert.True(
+                    Occurrences(written, Datamarking.OpenDelimiter) == 1 && Occurrences(written, Datamarking.CloseDelimiter) == 1,
+                    $"{c.Id} ({mode}): the written span does not hold exactly one opening and one closing delimiter");
+            }
+        }
+    }
+
+    private static bool IsOfTheSet(Rune rune) =>
+        Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control
+            or UnicodeCategory.Format
+            or UnicodeCategory.LineSeparator
+            or UnicodeCategory.ParagraphSeparator;
 
     private static int Occurrences(string haystack, string needle)
     {

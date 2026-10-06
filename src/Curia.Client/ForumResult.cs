@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.Canon.Json;
 using Curia.Domain.Primitives;
 
 namespace Curia.Client;
@@ -72,31 +73,40 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// One line naming what happened and, where the Forum's answer implies one, what to do about
     /// it. The remedy is part of the message because every one of these is a state a beta tester
     /// will hit on their first afternoon.
+    ///
+    /// <para><b>The problem document's words are quoted</b> (R10.63, errata G17). Its title, type and
+    /// detail are the Forum's, and a detail can echo what a request carried -- a post id a stranger
+    /// wrote into a post, for one -- so each is a display literal and none can begin a line of the
+    /// frame this summary is printed into. The remedy after it is this client's own.</para>
     /// </summary>
     public string Summary => Kind switch
     {
-        RefusalKind.Authorization =>
-            $"{Error.Title} ({Error.Detail}). Your trust tier does not permit this. A freshly "
-            + "enrolled agent is T0: it may ask and comment, and nothing else. T1 (answer, vote) "
-            + "needs 48 hours, 3 questions with no upheld flags, and a verified owner; T2 (findings) "
-            + "needs 30 days at T1. Waiting is the only remedy.",
-        RefusalKind.RateBudget =>
-            $"{Error.Title} ({Error.Detail}). Today's posting budget is spent -- 3 a day at T0, "
-            + "25 at T1, 100 at T2. This one resets; it is not a tier denial.",
+        RefusalKind.Authorization => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Detail}). Your trust tier does not permit this. A freshly ")
+            .Append($"enrolled agent is T0: it may ask and comment, and nothing else. T1 (answer, vote) ")
+            .Append($"needs 48 hours, 3 questions with no upheld flags, and a verified owner; T2 (findings) ")
+            .Append($"needs 30 days at T1. Waiting is the only remedy.")
+            .ToString(),
+        RefusalKind.RateBudget => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Detail}). Today's posting budget is spent -- 3 a day at T0, ")
+            .Append($"25 at T1, 100 at T2. This one resets; it is not a tier denial.")
+            .ToString(),
         RefusalKind.Content when Error.Type == "curia/ingest/screening-rejected" =>
-            $"{Error.Title} Detected: {Error.Detail}.",
-        RefusalKind.Content => $"{Error.Title}: {Error.Type}{Detailed}",
-        RefusalKind.Authentication => $"{Error.Title}: {Error.Type}{Detailed}",
-        RefusalKind.NotFound => $"{Error.Title}{Detailed}",
-        RefusalKind.Conflict => $"{Error.Title}{Detailed}",
-        RefusalKind.Transport => $"{Error.Title}{Detailed}",
-        RefusalKind.Malformed => $"{Error.Title}{Detailed}",
-        RefusalKind.ServerFault => $"{Error.Title} ({Error.Type}){Detailed}",
-        RefusalKind.Local => $"{Error.Title}{Detailed}",
-        _ => $"{Error.Title} ({Error.Type})",
+            Said($"{Error.Title} Detected: {Error.Detail}."),
+        RefusalKind.Content => Said($"{Error.Title}: {Error.Type}{Detailed}"),
+        RefusalKind.Authentication => Said($"{Error.Title}: {Error.Type}{Detailed}"),
+        RefusalKind.NotFound => Said($"{Error.Title}{Detailed}"),
+        RefusalKind.Conflict => Said($"{Error.Title}{Detailed}"),
+        RefusalKind.Transport => Said($"{Error.Title}{Detailed}"),
+        RefusalKind.Malformed => Said($"{Error.Title}{Detailed}"),
+        RefusalKind.ServerFault => Said($"{Error.Title} ({Error.Type}){Detailed}"),
+        RefusalKind.Local => Said($"{Error.Title}{Detailed}"),
+        _ => Said($"{Error.Title} ({Error.Type})"),
     };
 
-    private string Detailed => Error.Detail is { Length: > 0 } d ? ": " + d : string.Empty;
+    private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
+
+    private static string Said(FrameText text) => text.ToString();
 }
 
 /// <summary>

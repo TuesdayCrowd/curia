@@ -197,6 +197,11 @@ public sealed class ForumSession
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // Before any token is obtained: a tag the Forum's filter would read as another is refused
+        // here rather than sent (R9.26, R10.66).
+        if (ForumClient.UnfilterableTag(request.Tags) is { } unfilterable)
+            return ForumResult<InboxPage>.Local(ClientErrors.TagNotFilterable(unfilterable));
+
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
             return ForumResult<InboxPage>.Refused(tokenRefusal);

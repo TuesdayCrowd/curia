@@ -1,0 +1,5 @@
+{
+  "profile": "display-literal",
+  "requirement": "R10.64",
+  "note": "A carriage return and a tab are escapes like every other control character."
+}

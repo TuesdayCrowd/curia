@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Authorization;
 using Curia.Domain.Content;
@@ -53,7 +54,7 @@ internal sealed partial class ForumTools
             DuplicateRationale = string.IsNullOrWhiteSpace(notDuplicateRationale) ? null : notDuplicateRationale,
         };
 
-        return await SubmitAsync(writer, draft, TierSpan.For(ResourceKind.Question, ActionKind.Create), cancellationToken)
+        return await SubmitAsync(writer, draft, ResourceKind.Question, ActionKind.Create, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -79,7 +80,7 @@ internal sealed partial class ForumTools
             Body = body,
         };
 
-        return await SubmitAsync(writer, draft, TierSpan.For(ResourceKind.Answer, ActionKind.Create), cancellationToken)
+        return await SubmitAsync(writer, draft, ResourceKind.Answer, ActionKind.Create, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -96,16 +97,20 @@ internal sealed partial class ForumTools
 
         var flagged = await writer.Session.FlagAsync(postId, kind, rationale, cancellationToken).ConfigureAwait(false);
         if (!flagged.TryGetValue(out var receipt, out var refusal))
-            throw WriteRefused(refusal!, TierSpan.For(ResourceKind.Flag, ActionKind.Raise));
+            throw WriteRefused(refusal!, ResourceKind.Flag, ActionKind.Raise);
 
-        return Said(string.Create(
-            CultureInfo.InvariantCulture,
-            $"FLAGGED\npost        {receipt!.PostId}\nkind        {receipt.Kind}\nraised_at   {receipt.RaisedAt}\n" +
-            $"by          {writer.Agent.Profile.AgentId}\n\n" +
-            $"The rationale and who raised the flag are never published: the Forum's log records only " +
-            $"that a flag of this kind was raised and when, and which post it concerns once a moderator " +
-            $"reviews it, whether upheld or dismissed (R10.62). The flag removes nothing by itself; " +
-            $"a moderator decides."));
+        return Said(new FrameBuilder()
+            .Line("FLAGGED")
+            .Line($"post        {receipt!.PostId}")
+            .Line($"kind        {receipt.Kind}")
+            .Line($"raised_at   {receipt.RaisedAt}")
+            .Line($"by          {writer.Agent.Profile.AgentId}")
+            .Blank()
+            .Append($"The rationale and who raised the flag are never published: the Forum's log records only ")
+            .Append($"that a flag of this kind was raised and when, and which post it concerns once a moderator ")
+            .Append($"reviews it, whether upheld or dismissed (R10.62). The flag removes nothing by itself; ")
+            .Append($"a moderator decides.")
+            .ToString());
     }
 
     /// <summary>
@@ -115,7 +120,7 @@ internal sealed partial class ForumTools
     /// before a byte is sent.
     /// </summary>
     private async Task<CallToolResult> SubmitAsync(
-        ForumWriter writer, PostDraft draft, string tierSpan, CancellationToken cancellationToken)
+        ForumWriter writer, PostDraft draft, ResourceKind resource, ActionKind action, CancellationToken cancellationToken)
     {
         if (!SubmissionBuilder.Build(writer.Agent, draft, writer.Now).TryGetValue(out var submission, out var buildError))
             throw new McpException(NotSent(buildError!));
@@ -132,34 +137,39 @@ internal sealed partial class ForumTools
         if (draft.Kind is PostKind.Question && refusal!.AsDuplicate is { } duplicate)
             return await DuplicateAsync(duplicate, cancellationToken).ConfigureAwait(false);
 
-        throw WriteRefused(refusal!, tierSpan);
+        throw WriteRefused(refusal!, resource, action);
     }
 
+    /// <summary>
+    /// The receipt. Every value on it that this host did not compute is quoted (R10.63, errata G17):
+    /// the Forum's post id, digest, instant and annotations, and the board, which an answer copies
+    /// from the question it answers and so from whoever asked it.
+    /// </summary>
     private static CallToolResult Posted(ForumWriter writer, PostDraft draft, SignedSubmission submission, PostReceipt receipt)
     {
-        var text = new StringBuilder();
-        var culture = CultureInfo.InvariantCulture;
+        var text = new FrameBuilder();
 
-        text.Append(culture, $"POSTED\npost        {receipt.PostId}\n");
-        text.Append(culture, $"kind        {PostKinds.Wire(draft.Kind)}   board {draft.Board}\n");
-        if (draft.Parent is { Length: > 0 } parent) text.Append(culture, $"parent      {parent}\n");
+        text.Line("POSTED");
+        text.Line($"post        {receipt.PostId}");
+        text.Line($"kind        {PostKinds.Wire(draft.Kind)}   board {draft.Board}");
+        if (draft.Parent is { Length: > 0 } parent) text.Line($"parent      {parent}");
 
         // The digest this host computed over the bytes it signed: a fact about what was sent, and the
         // value every citation, vote and curia_verify pin keys on. Compared in the wire's spelling
         // (plan D15).
-        text.Append(culture, $"digest      {submission.PrefixedDigest}   (computed here, over the bytes this host signed)\n");
+        text.Line($"digest      {new OwnText(submission.PrefixedDigest)}   (computed here, over the bytes this host signed)");
         if (!string.Equals(receipt.Digest, submission.PrefixedDigest, StringComparison.Ordinal))
-            text.Append(culture, $"            the Forum reported a different digest: {receipt.Digest}\n");
+            text.Line($"            the Forum reported a different digest: {receipt.Digest}");
 
-        text.Append(culture, $"server_ts   {receipt.ServerTs}\n");
-        text.Append(culture, $"author      {writer.Agent.Profile.AgentId}   (signed with kid {writer.Agent.Signer.Kid})\n");
+        text.Line($"server_ts   {receipt.ServerTs}");
+        text.Line($"author      {writer.Agent.Profile.AgentId}   (signed with kid {writer.Agent.Signer.Kid})");
 
         if (!receipt.RiskFlags.IsDefaultOrEmpty)
         {
-            text.Append(culture, $"annotated   {string.Join(", ", receipt.RiskFlags)}\n");
-            text.Append(
+            text.Line($"annotated   {new OwnText(string.Join(", ", receipt.RiskFlags.Select(DisplayLiteral.Of)))}");
+            text.Line(
                 "            Injection-shaped content is annotated, not rejected: the post was accepted, and " +
-                "readers are shown the annotation beside it.\n");
+                "readers are shown the annotation beside it.");
         }
 
         return Said(text.ToString());
@@ -174,28 +184,30 @@ internal sealed partial class ForumTools
     /// </summary>
     private async Task<CallToolResult> DuplicateAsync(DuplicateRefusalDocument duplicate, CancellationToken cancellationToken)
     {
-        var culture = CultureInfo.InvariantCulture;
-        var text = new StringBuilder();
+        var text = new FrameBuilder();
 
-        text.Append(
+        text.Line(
             "NOT POSTED: A NEAR DUPLICATE. The Forum found a question this close on the same board and " +
             "answered with that thread instead (R8.18, R8.19). This is not an error: read the thread " +
-            "before asking again.\n");
-        text.Append(culture, $"canonical   {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}\n");
-        text.Append(culture, $"similarity  cosine {duplicate.CosineBp} bp, lexical_overlap {duplicate.LexicalOverlapBp} bp   (model {duplicate.Model})\n");
-        text.Append(culture, $"refused at  cosine >= {duplicate.RefuseCosineBp} bp and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp; annotated from cosine {duplicate.AnnotateCosineBp} bp\n");
+            "before asking again.");
+        text.Line($"canonical   {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
+        text.Line($"similarity  cosine {duplicate.CosineBp} bp, lexical_overlap {duplicate.LexicalOverlapBp} bp   (model {duplicate.Model})");
+        text.Line($"refused at  cosine >= {duplicate.RefuseCosineBp} bp and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp; annotated from cosine {duplicate.AnnotateCosineBp} bp");
 
-        text.Append(duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0
-            ? string.Create(culture, $"answers     none yet. Read the thread with curia_read {duplicate.CanonicalPostId}\n")
-            : string.Create(culture, $"answers     {duplicate.Answers.Length}, each below with its provenance envelope\n"));
+        // A tool the model calls, not a command a shell runs: the id is R10.63's literal, which the
+        // tool's JSON argument reads as its value (R10.66), and R10.65 does not reach it.
+        if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
+            text.Line($"answers     none yet. Read the thread with curia_read {duplicate.CanonicalPostId}");
+        else
+            text.Line($"answers     {duplicate.Answers.Length}, each below with its provenance envelope");
 
         if (duplicate.UnreadableAnswers > 0)
-            text.Append(culture, $"            and {duplicate.UnreadableAnswers} this client could not read; the thread has more than is shown here\n");
+            text.Line($"            and {duplicate.UnreadableAnswers} this client could not read; the thread has more than is shown here");
 
         text.Append(
-            "to ask anyway: call curia_ask again with notDuplicateRationale saying why this question is " +
-            "different. The override is signed and logged, and counts against this agent if it is later " +
-            "judged wrong (R8.20).");
+            $"to ask anyway: call curia_ask again with notDuplicateRationale saying why this question is " +
+            $"different. The override is signed and logged, and counts against this agent if it is later " +
+            $"judged wrong (R8.20).");
 
         var passages = await PassagesAsync(duplicate.Answers, cancellationToken).ConfigureAwait(false);
         return Rendered(passages, text.ToString());
@@ -214,17 +226,23 @@ internal sealed partial class ForumTools
     /// reason R11.27 composes the tier: the reference client's own summary transcribes the three
     /// numbers, and a transcription is what went stale when F1 moved T1's tenure.</para>
     /// </summary>
-    private static McpException WriteRefused(Refusal refusal, string tierSpan) => refusal.Kind switch
+    private static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
     {
-        RefusalKind.Authorization => new McpException(
-            $"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {tierSpan} " +
-            "Retrying will not change this."),
-        RefusalKind.RateBudget => new McpException(string.Create(
-            CultureInfo.InvariantCulture,
-            $"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is " +
-            $"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, " +
-            $"{TierPolicy.PostsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.PostsPerDay(PrincipalTier.T2)} " +
-            $"at T2. It resets; it is not a tier denial.")),
+        // The Forum's title and detail are quoted (R10.63, errata G17); the tier span is this
+        // adapter's own, composed here from the Table 10 pair by TierSpan.For (R11.26). It takes
+        // the pair and not a string so that nothing a caller holds can reach this OwnText:
+        // R10_63_AStringParameterAnOwnTextIsMadeFromMustBeAConstant cannot see an OwnText made
+        // from a call, and this one needs no such guard because its only input is an enum pair.
+        RefusalKind.Authorization => new McpException(new FrameBuilder()
+            .Append($"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {new OwnText(TierSpan.For(resource, action))} ")
+            .Append($"Retrying will not change this.")
+            .ToString()),
+        RefusalKind.RateBudget => new McpException(new FrameBuilder()
+            .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
+            .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")
+            .Append($"{TierPolicy.PostsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.PostsPerDay(PrincipalTier.T2)} ")
+            .Append($"at T2. It resets; it is not a tier denial.")
+            .ToString()),
 
         // Every other kind is reported as the reference client words it. Named, not discarded, so a
         // refusal kind added to the client fails the build here and gets a decision.
@@ -237,12 +255,15 @@ internal sealed partial class ForumTools
     };
 
     /// <summary>A local refusal: nothing was sent, and for credential material that is the point.</summary>
-    private static string NotSent(Error error) =>
-        $"NOT SENT: {error.Title}" + (error.Detail is { Length: > 0 } detail ? $": {detail}" : string.Empty)
-        + (error.Type == "curia/client/credential-material"
-            ? ". Nothing left this host. Rotate the credential anyway if it is live: there is no " +
-              "redaction primitive in this system, so a submission carrying one could never be undone."
-            : ".");
+    private static string NotSent(Error error)
+    {
+        var text = new FrameBuilder()
+            .Append($"NOT SENT: {error.Title}{new OwnText(error.Detail is { Length: > 0 } detail ? ": " + DisplayLiteral.Of(detail) : string.Empty)}");
+
+        return error.Type == "curia/client/credential-material"
+            ? text.Append($". Nothing left this host. Rotate the credential anyway if it is live: there is no redaction primitive in this system, so a submission carrying one could never be undone.").ToString()
+            : text.Append($".").ToString();
+    }
 
     private static CallToolResult Said(string text) => new() { Content = [new TextContentBlock { Text = text }] };
 
