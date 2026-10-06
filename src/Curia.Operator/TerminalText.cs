@@ -14,6 +14,6 @@ internal static class TerminalText
     /// <summary>A single-line field: line feeds and tabs are escaped too.</summary>
     public static string Line(string text) => SpanText.Line(text);
 
-    /// <summary>A multi-line field: line feeds and tabs survive, everything else above is escaped.</summary>
+    /// <summary>A multi-line field: line feeds and tabs survive; every other character in R10.67's set (see <see cref="SpanText"/>) is escaped.</summary>
     public static string Block(string text) => SpanText.Block(text);
 }
