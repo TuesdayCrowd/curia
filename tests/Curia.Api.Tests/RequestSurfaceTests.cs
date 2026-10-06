@@ -143,6 +143,13 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// None answers a server fault, or a 4xx that is no problem document (Task 8's second review, I2),
     /// and none is stopped at authentication, or the handlers behind it were never reached and the
     /// first assertion would hold of nothing.
+    ///
+    /// <para>A route that reads a post id from its path and binds a body is also sent each hostile id
+    /// with a body it would accept (<see cref="AcceptedBody"/>). A sweep row whose body the route
+    /// refuses before it reads the path can carry no information about the path (trap 26): until the
+    /// stage's final gate, third round, every flag this sweep sent had a <c>kind</c> of a line break,
+    /// refused first, so a post id of white space alone, which answered 500, was never read. Each such
+    /// route must answer some hostile id as a post that does not exist, or no request reached the path.</para>
     /// </summary>
     [Fact]
     public async Task R11_33_NoRequestAnEnrolledAgentCanSendIsAnsweredAsAServerFault()
@@ -154,16 +161,22 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
 
         var faults = new List<string>();
         var unauthenticated = new List<string>();
+        var pathRead = routes
+            .Where(r => AcceptedBody(r.Method, r.Pattern) is not null)
+            .ToDictionary(r => r.Pattern, _ => 0);
         var sent = 0;
 
         foreach (var (method, pattern, parameters) in routes)
         {
+            var plain = Plain(pattern, parameters);
             foreach (var target in Targets(pattern, parameters, method == "GET"))
             {
                 // RFC 9449 §4.2: a proof's htu is the URL without its query.
                 var htu = "http://localhost" + target.Split('?')[0];
+                var accepted = AcceptedBody(method, pattern);
+                var requests = accepted is null ? Requests(method, target) : Requests(method, target).Append(accepted(target));
 
-                foreach (var make in Requests(method, target))
+                foreach (var make in requests)
                 {
                     using var response = await SendAsAgentAsync(client, make, dpop, token, method, htu, ct);
                     if (response is null) continue;
@@ -177,6 +190,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                         unauthenticated.Add($"{method} {target}");
                     else if (NotAProblem(target, status, body) is { } reason)
                         faults.Add($"{status} {method} {target}: {reason}: {body[..Math.Min(body.Length, 160)]}");
+                    else if (accepted is not null && target != plain && body.Contains("/no-such-post\"", StringComparison.Ordinal))
+                        pathRead[pattern]++;
                 }
             }
         }
@@ -184,7 +199,23 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         Assert.True(sent > routes.Count * Hostile.Length, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
         Assert.True(unauthenticated.Count == 0, "requests an enrolled agent sent were stopped at authentication, so nothing behind it was reached:\n" + string.Join('\n', unauthenticated));
         Assert.True(faults.Count == 0, "requests an enrolled agent sent answered as a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', faults));
+        Assert.True(pathRead.Count >= 2, $"only {pathRead.Count} routes read a post id and bind a body; the flag and accept routes were not found");
+        Assert.True(
+            pathRead.Values.All(n => n > 0),
+            "no hostile post id got past the body of: " + string.Join(", ", pathRead.Where(p => p.Value == 0).Select(p => p.Key)) + "; the path was never read (trap 26)");
     }
+
+    /// <summary>
+    /// A body the route would accept, for a write that reads a post id from its path: a flag a T0
+    /// agent may raise, and the empty object an accept is sent. Null for every other route.
+    /// </summary>
+    private static Func<string, Func<HttpRequestMessage>>? AcceptedBody(string method, string pattern) =>
+        method != "POST" || !pattern.Contains("{postId}", StringComparison.Ordinal) ? null
+        : pattern.EndsWith("/flags", StringComparison.Ordinal)
+            ? target => () => Post(new Uri(target, UriKind.Relative), new StringContent("{\"kind\":\"spam\",\"rationale\":\"r\"}", Encoding.UTF8, "application/json"))
+        : pattern.EndsWith("/accept", StringComparison.Ordinal)
+            ? target => () => Post(new Uri(target, UriKind.Relative), new StringContent("{}", Encoding.UTF8, "application/json"))
+        : throw new InvalidOperationException($"{method} {pattern} reads a post id and has no accepted body here; give it one");
 
     /// <summary>
     /// R11.33's headers. Every route is sent, with no credential, hostile <c>Authorization</c> and
@@ -582,6 +613,159 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         Assert.True(status == HttpStatusCode.Unauthorized, $"{(int)status} {target} ({claim} {row}): {body[..Math.Min(body.Length, 240)]}");
         using var problem = JsonDocument.Parse(body);
         Assert.Equal(claim == "nonce" ? "curia/authn/nonce-stale" : "curia/authn/malformed", problem.RootElement.GetProperty("type").GetString());
+    }
+
+    /// <summary>The JSON escape of a lone high surrogate, built rather than written, so no tool between this file and the compiler decodes it.</summary>
+    private const string LoneSurrogate = "\\" + "ud800";
+
+    /// <summary>The JSON escape of U+0000, built the same way.</summary>
+    private const string NulEscape = "\\" + "u0000";
+
+    /// <summary>A post signature's protected header for one row of <see cref="R11_33_ASignedPostWhoseSignatureHeaderItCannotReadIsRefusedNotThrown"/>.</summary>
+    private static byte[] PostSignatureHeader(string row)
+    {
+        static byte[] Full(string kid) => Encoding.UTF8.GetBytes(
+            "{\"alg\":\"ES256\",\"kid\":" + kid + ",\"typ\":\"curia-post+jws\",\"b64\":false,\"crit\":[\"b64\"]}");
+
+        return row switch
+        {
+            "kid-surrogate" => Full("\"" + LoneSurrogate + "\""),
+            "typ-surrogate" => Encoding.UTF8.GetBytes(
+                "{\"alg\":\"ES256\",\"kid\":\"k\",\"typ\":\"" + LoneSurrogate + "\",\"b64\":false,\"crit\":[\"b64\"]}"),
+            "crit-surrogate" => Encoding.UTF8.GetBytes(
+                "{\"alg\":\"ES256\",\"kid\":\"k\",\"typ\":\"curia-post+jws\",\"b64\":false,\"crit\":[\"" + LoneSurrogate + "\"]}"),
+            "kid-raw-ff" => [.. Encoding.ASCII.GetBytes("{\"kid\":\""), 0xFF, .. Encoding.ASCII.GetBytes("\"}")],
+            "empty-object" => Encoding.ASCII.GetBytes("{}"),
+            "kid-space" => Full("\" \""),
+            "kid-number" => Full("1e999"),
+            "kid-nul" => Full("\"" + NulEscape + "\""),
+            _ => throw new ArgumentOutOfRangeException(nameof(row), row, "no such row"),
+        };
+    }
+
+    /// <summary>A signed submission with only its signature replaced: <paramref name="header"/>, an empty payload, and 64 zero bytes.</summary>
+    private static byte[] WithSignatureHeader(byte[] wire, byte[] header)
+    {
+        using var parsed = JsonDocument.Parse(wire);
+        var compact = parsed.RootElement.GetProperty("signature").GetString()!;
+        var text = Encoding.UTF8.GetString(wire);
+        Assert.Equal(1, text.Split(compact).Length - 1);
+        return Encoding.UTF8.GetBytes(text.Replace(
+            compact,
+            Base64Url.EncodeToString(header) + ".." + Base64Url.EncodeToString(new byte[64]),
+            StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R11.33 for a post signature's own protected header (the stage's final gate, third round). An
+    /// enrolled T0 agent signs a valid question, and only the signature on the wire is replaced. The
+    /// first four rows hold a string that does not decode -- a lone surrogate escape in <c>kid</c>, in
+    /// <c>typ</c> and as a <c>crit</c> element, and a <c>kid</c> whose bytes are not UTF-8 --
+    /// <c>DetachedJws</c> threw on each, and each answered 500. The next three hold a <c>kid</c> that is
+    /// absent, white space or a number, which reached the key store's guard and answered 500; they are
+    /// answered as the last row is, a <c>kid</c> holding U+0000, which no key is registered under:
+    /// 401, <c>curia/keys/not-registered-to-agent</c>, the same type and title.
+    /// </summary>
+    [Theory]
+    [InlineData("kid-surrogate")]
+    [InlineData("typ-surrogate")]
+    [InlineData("crit-surrogate")]
+    [InlineData("kid-raw-ff")]
+    [InlineData("empty-object")]
+    [InlineData("kid-space")]
+    [InlineData("kid-number")]
+    [InlineData("kid-nul")]
+    public async Task R11_33_ASignedPostWhoseSignatureHeaderItCannotReadIsRefusedNotThrown(string row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create("https://agents.example/signature-header-" + suffix, "signature-header-" + suffix);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        async Task<(HttpStatusCode Status, string Body)> SendAsync(string header)
+        {
+            var wire = WithSignatureHeader(
+                agent.SignQuestion("signature-header-" + suffix, "A question " + Guid.NewGuid().ToString("N"), "A title", forum.Now),
+                PostSignatureHeader(header));
+            using var response = await dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, ct);
+            return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));
+        }
+
+        var (status, body) = await SendAsync(row);
+        Assert.True((int)status is >= 400 and < 500, $"{(int)status} ({row}): {body[..Math.Min(body.Length, 240)]}");
+
+        if (row is not ("empty-object" or "kid-space" or "kid-number" or "kid-nul"))
+            return;
+
+        var (controlStatus, controlBody) = await SendAsync("kid-nul");
+        Assert.Equal(HttpStatusCode.Unauthorized, controlStatus);
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+        using var control = JsonDocument.Parse(controlBody);
+        using var answer = JsonDocument.Parse(body);
+        Assert.Equal("curia/keys/not-registered-to-agent", control.RootElement.GetProperty("type").GetString());
+        Assert.Equal(control.RootElement.GetProperty("type").GetString(), answer.RootElement.GetProperty("type").GetString());
+        Assert.Equal(control.RootElement.GetProperty("title").GetString(), answer.RootElement.GetProperty("title").GetString());
+    }
+
+    /// <summary>
+    /// R11.33 for a signed post's <c>board</c> and <c>parent</c> (the stage's final gate, third round).
+    /// ADMIT accepts the escape of U+0000, and <c>PersistAsync</c> writes both members into the
+    /// <c>post.accepted</c> payload outside the canonical text, where jsonb refuses U+0000 (22P05), so
+    /// each answered 500 to any T0 agent. Each is <c>curia/ingest/unstorable-member</c> 422 now, naming
+    /// the member and never its value, and nothing is appended. A comment reaches <c>parent</c> at T0.
+    /// </summary>
+    [Theory]
+    [InlineData("board", "b\0", null)]
+    [InlineData("parent", "board", "\0")]
+    [InlineData("parent", "board", "p\0q")]
+    public async Task R11_33_ASignedPostWhoseBoardOrParentTheLogCannotStoreIsRefusedNotThrown(string member, string board, string? parent)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(board);
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create("https://agents.example/unstorable-" + suffix, "unstorable-" + suffix);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var log = forum.Services.GetRequiredService<Curia.Application.Ports.IEventReader>();
+
+        var wire = parent is null
+            ? agent.SignQuestion(board, "A question " + suffix, "A title", forum.Now)
+            : agent.Sign(Curia.Domain.Content.PostKind.Comment, board + suffix, "A comment " + suffix, title: null, parent, forum.Now);
+
+        Assert.True((await Curia.Application.Ports.EventReaderExtensions.ReadAllAsync(log, ct)).TryGetValue(out var before, out _));
+        using var response = await dpop.PostAsync(client, PostsUrl, token, wire, forum.Now, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        Assert.True((await Curia.Application.Ports.EventReaderExtensions.ReadAllAsync(log, ct)).TryGetValue(out var after, out _));
+
+        Assert.True(response.StatusCode == HttpStatusCode.UnprocessableEntity, $"{(int)response.StatusCode} ({member}): {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/ingest/unstorable-member", problem.RootElement.GetProperty("type").GetString());
+        Assert.Equal("member=" + member, problem.RootElement.GetProperty("detail").GetString());
+        Assert.Equal(before!.Count, after!.Count);
+    }
+
+    /// <summary>
+    /// The other side of <see cref="R11_33_ASignedPostWhoseBoardOrParentTheLogCannotStoreIsRefusedNotThrown"/>:
+    /// a body or title holding U+0000 reaches jsonb only inside the canonical text, as an escape, and is
+    /// stored. The refusal is of the two members written outside it, and no wider.
+    /// </summary>
+    [Fact]
+    public async Task R11_33_ABodyOrTitleHoldingU0000IsStoredInsideTheCanonicalText()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create("https://agents.example/nul-body-" + suffix, "nul-body-" + suffix);
+        var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        using var response = await dpop.PostAsync(
+            client, PostsUrl, token, agent.SignQuestion("nul-body-" + suffix, "a\0b " + suffix, "t\0" + suffix, forum.Now), forum.Now, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.Created, $"{(int)response.StatusCode}: {body[..Math.Min(body.Length, 240)]}");
     }
 
     /// <summary>

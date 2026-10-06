@@ -627,14 +627,17 @@ public static class ForumEndpoints
         // principal" is now a comparison against a token the client proved possession of, rather
         // than against the envelope's own claim about itself -- which is the difference PEP-1 makes.
         // A log that could not be read decides nothing about the key (R4.35), so it is a 503, never
-        // the 401 that tells an agent its key was refused.
+        // the 401 that tells an agent its key was refused. A member the log cannot store is a 422: the
+        // request was well formed and signed, and was refused on its content (R11.33), never a 401.
         var verified = await pipeline.VerifyAsync(a!, subject, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
         {
             return Problem(
                 string.Equals(verifyError!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
                     ? StatusCodes.Status503ServiceUnavailable
-                    : StatusCodes.Status401Unauthorized,
+                    : string.Equals(verifyError.Type, IngestErrors.UnstorableMemberType, StringComparison.Ordinal)
+                        ? StatusCodes.Status422UnprocessableEntity
+                        : StatusCodes.Status401Unauthorized,
                 verifyError);
         }
 

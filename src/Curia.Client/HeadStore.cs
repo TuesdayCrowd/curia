@@ -55,7 +55,8 @@ public sealed class HeadStore
     /// A Forum's origin: its scheme, host and port, with no userinfo, path or query. R6.53 retains one
     /// head per log, and a log is the Forum's, not the credential's a caller reached it with; and a
     /// password written into <c>--forum</c> or <c>CURIA_FORUM</c> must not reach a line a reader sees.
-    /// Every place the client names a Forum it was configured with names it through this.
+    /// Every place the client names a Forum it was configured with names it through this, the fallback
+    /// Reader Contract (<see cref="ReaderContractLocation.For"/>) among them.
     /// </summary>
     public static string Origin(Uri forum)
     {

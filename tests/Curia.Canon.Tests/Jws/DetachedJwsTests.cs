@@ -31,6 +31,10 @@ internal sealed class CountingCrypto : IContentVerifier
     }
 }
 
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class DetachedJwsTests
 {
     private static readonly StubCrypto Stub = new();
@@ -282,5 +286,53 @@ public sealed class DetachedJwsTests
         var forged = new JwsSignature($"{h}.not-empty.{Base64Url(new byte[32])}");
         Assert.Equal("curia/jws/malformed",
             Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
+    }
+
+    /// <summary>
+    /// The JSON escape of a lone high surrogate, built rather than written, so that no tool or editor
+    /// between this file and the compiler can decode it.
+    /// </summary>
+    private const string LoneSurrogate = "\\" + "ud800";
+
+    /// <summary>
+    /// The finding's four protected headers (the strangers stage's final gate, third round): a lone
+    /// surrogate escape in <c>kid</c>, in <c>typ</c> and as a <c>crit</c> element, and a <c>kid</c> whose
+    /// raw bytes are not UTF-8. <see cref="System.Text.Json.JsonDocument"/> parses each, and
+    /// <c>GetString</c> throws on the string.
+    /// </summary>
+    internal static byte[] UndecodableHeader(string row) => row switch
+    {
+        "kid" => Encoding.UTF8.GetBytes(
+            "{\"alg\":\"EdDSA\",\"kid\":\"" + LoneSurrogate + "\",\"typ\":\"curia-post+jws\",\"b64\":false,\"crit\":[\"b64\"]}"),
+        "typ" => Encoding.UTF8.GetBytes(
+            "{\"alg\":\"EdDSA\",\"kid\":\"agent-key-2026-08\",\"typ\":\"" + LoneSurrogate + "\",\"b64\":false,\"crit\":[\"b64\"]}"),
+        "crit" => Encoding.UTF8.GetBytes(
+            "{\"alg\":\"EdDSA\",\"kid\":\"agent-key-2026-08\",\"typ\":\"curia-post+jws\",\"b64\":false,\"crit\":[\"" + LoneSurrogate + "\"]}"),
+        "raw-ff" => [.. Encoding.ASCII.GetBytes("{\"kid\":\""), 0xFF, .. Encoding.ASCII.GetBytes("\"}")],
+        _ => throw new ArgumentOutOfRangeException(nameof(row), row, "no such row"),
+    };
+
+    /// <summary>
+    /// R11.33 (the strangers stage's final gate, third round): a protected header holding a string that
+    /// does not decode -- an escaped unpaired surrogate, or bytes that are not UTF-8 -- is malformed, as
+    /// <c>CompactJws</c> has refused such a segment since Task 11's fix review. <c>DetachedJws</c> read
+    /// <c>alg</c>, <c>kid</c>, <c>typ</c> and <c>crit</c> through <c>GetString</c>, which threw, so any
+    /// enrolled agent's post carrying one answered 500, and a Forum serving one would have thrown in the
+    /// reference readers' <c>SignatureCheck</c> and <c>ActaCheck</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("kid")]
+    [InlineData("typ")]
+    [InlineData("crit")]
+    [InlineData("raw-ff")]
+    public void R11_33_AProtectedHeaderHoldingAStringThatDoesNotDecodeIsMalformedNotThrown(string row)
+    {
+        var forged = new JwsSignature($"{Base64Url(UndecodableHeader(row))}..{Base64Url(new byte[64])}");
+
+        var read = DetachedJws.ReadProtectedHeader(forged);
+        Assert.Equal("curia/jws/malformed", read.Match(_ => "read", e => e.Type));
+
+        var verified = Jws().Verify(Canonical("""{"a":1}"""), forged, Pub);
+        Assert.Equal("curia/jws/malformed", verified.Match(_ => "verified", e => e.Type));
     }
 }

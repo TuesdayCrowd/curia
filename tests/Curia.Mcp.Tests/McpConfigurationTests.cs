@@ -195,4 +195,43 @@ public sealed class McpConfigurationTests
         Assert.Contains(Forged, text, StringComparison.Ordinal);
         Assert.DoesNotContain(text.Split('\n'), line => line.TrimStart().StartsWith(Forged, StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// R10.63 (the strangers stage's final gate, third round): <c>ForumWriter</c>'s refusal of an
+    /// identity enrolled elsewhere names the configured Forum without its userinfo. The second round
+    /// made it so, and the register said so, with no fact behind it.
+    /// </summary>
+    [Fact]
+    public void R10_63_AnEnrolledElsewhereRefusalNamesTheForumWithoutItsUserinfo()
+    {
+        using var log = new StubLog();
+
+        var elsewhere = ForumWriter.Load(log.Store, "alice", new Uri("https://alice:s3cretPW@another-forum.example/"));
+        Assert.False(elsewhere.TryGetValue(out _, out var error));
+        var text = StartupError.Describe(error!);
+
+        Assert.Equal("curia/mcp/agent-enrolled-elsewhere", error!.Type);
+        Assert.Contains("another-forum.example", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.63 (the strangers stage's final gate, third round): a <c>CURIA_FORUM</c> refused as no http
+    /// or https URL is not echoed. The second round kept the echo on the premise that such a value has
+    /// no userinfo to find; each of these does, and the operator holds the value already.
+    /// </summary>
+    [Theory]
+    [InlineData("htps://alice:s3cretPW@forum.example/")]
+    [InlineData("ftp://alice:s3cretPW@forum.example/")]
+    [InlineData("alice:s3cretPW@forum.example")]
+    [InlineData("not a url s3cretPW")]
+    public void R10_63_AForumValueThatIsRefusedIsNotEchoed(string forum)
+    {
+        Assert.False(McpConfiguration.Read(forum, null).TryGetValue(out _, out var error));
+        var text = StartupError.Describe(error!);
+
+        Assert.Equal("curia/mcp/forum-not-configured", error!.Type);
+        Assert.DoesNotContain("s3cret", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("alice", text, StringComparison.Ordinal);
+    }
 }

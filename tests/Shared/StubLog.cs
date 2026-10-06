@@ -275,6 +275,15 @@ internal sealed class StubLog : IDisposable
             ? signed!.Compact
             : throw new InvalidOperationException("the second key would not sign");
 
+        LogThePostWithSignature(signature);
+    }
+
+    /// <summary>
+    /// Log the post with <paramref name="signature"/> in place of its own, and rebuild the tree around
+    /// it: the log's own record of the post carries whatever compact JWS a hostile Forum chose.
+    /// </summary>
+    internal void LogThePostWithSignature(string signature)
+    {
         var payload = (JsonValue.Object)Entry.Members.First(m => m.Key == LogLeaf.PayloadMember).Value;
         var resigned = new JsonValue.Object(
         [

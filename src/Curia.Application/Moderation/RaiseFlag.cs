@@ -80,8 +80,14 @@ public sealed class RaiseFlag
         string rationale,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        ArgumentNullException.ThrowIfNull(postId);
         ArgumentException.ThrowIfNullOrWhiteSpace(raisedBy);
+
+        // An id of white space names no post, and is answered as accept and GET …/flags answer it
+        // (R11.33, errata G17): the route hands it on unrefused, and this threw on it, which answered
+        // 500 to any credentialed agent. Before screening, so such an id costs no screen (D32).
+        if (string.IsNullOrWhiteSpace(postId))
+            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));
 
         if (string.IsNullOrWhiteSpace(rationale))
             return Result<FlagRaised>.Fail(ModerationErrors.RationaleRequired());

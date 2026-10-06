@@ -276,6 +276,66 @@ public sealed class ReaderContractTests : IDisposable
         Assert.Contains("the Forum reported a different value", rendered, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// R11.33 in the reference reader (the strangers stage's final gate, third round): a served post
+    /// whose signature header holds a string that does not decode is a verdict that did not verify,
+    /// never an exception. <c>DetachedJws.ReadProtectedHeader</c> threw on it, so a hostile Forum could
+    /// stop <c>curia read</c>, <c>thread</c>, <c>verify</c> and <c>curia_verify</c> where each should
+    /// have reported a failed signature.
+    /// </summary>
+    [Fact]
+    public void R11_33_AServedSignatureWhoseHeaderDoesNotDecodeIsAFailedVerdictNotAnException()
+    {
+        var post = Serve("body", MarkingMode.None) with { Signature = UndecodableSignature() };
+
+        var verdict = SignatureCheck.Verify(post, Jwks());
+
+        Assert.False(verdict.Verified);
+        Assert.Equal(CheckOutcome.Failed, verdict.Outcome);
+    }
+
+    /// <summary>A compact detached JWS whose header's <c>kid</c> is a lone surrogate escape, built so no tool decodes it.</summary>
+    internal static string UndecodableSignature()
+    {
+        var header = "{\"alg\":\"ES256\",\"kid\":\"" + "\\" + "ud800" + "\",\"typ\":\"curia-post+jws\",\"b64\":false,\"crit\":[\"b64\"]}";
+        return Base64Url.EncodeToString(Encoding.UTF8.GetBytes(header)) + ".." + Base64Url.EncodeToString(new byte[64]);
+    }
+
+    /// <summary>
+    /// R10.63 (the strangers stage's final gate, third round): the Reader Contract a reading names when
+    /// the Forum served none that is an absolute URI is built from the configured Forum's origin, so a
+    /// password in <c>--forum</c> or <c>CURIA_FORUM</c> never reaches the line. It had been built from
+    /// the configured URL, and <c>curia read</c>, <c>thread</c>, <c>board</c> and <c>search</c> printed
+    /// the userinfo.
+    /// </summary>
+    [Fact]
+    public void R10_63_TheFallbackReaderContractNamesTheForumWithoutItsUserinfo()
+    {
+        var contract = ReaderContractLocation.For(new Uri("http://alice:s3cretPW@forum.test/"), "not-a-url");
+
+        Assert.DoesNotContain("alice", contract.OriginalString, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", contract.OriginalString, StringComparison.Ordinal);
+        Assert.Equal(new Uri("http://forum.test/.well-known/reader-contract/v1"), contract);
+
+        var rendered = new Reading([new Passage(Serve("body", MarkingMode.None), new SignatureVerdict(true, "alice-1", "ok", "d"))], contract).Render();
+        Assert.DoesNotContain("s3cret", rendered, StringComparison.Ordinal);
+        Assert.Contains("forum.test/.well-known/reader-contract/v1", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other side: a Forum URL with no userinfo falls back to exactly the URI it did before the
+    /// change, path or no path, since a well-known URI is rooted at the origin (RFC 8615); and a
+    /// contract the Forum served as an absolute URI is the one named.
+    /// </summary>
+    [Theory]
+    [InlineData("http://forum.example:8080/", null, "http://forum.example:8080/.well-known/reader-contract/v1")]
+    [InlineData("https://forum.example/base/path/", "relative", "https://forum.example/.well-known/reader-contract/v1")]
+    [InlineData("https://forum.example/", "https://elsewhere.example/contract", "https://elsewhere.example/contract")]
+    public void R10_63_AnOriginWithoutUserinfoFallsBackExactlyAsBefore(string forum, string? served, string expected)
+    {
+        Assert.Equal(expected, ReaderContractLocation.For(new Uri(forum), served).OriginalString);
+    }
+
     // ---- helpers -------------------------------------------------------------------------
 
     private ImmutableArray<ForumJwk> Jwks()

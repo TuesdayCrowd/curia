@@ -833,10 +833,7 @@ internal static class Program
             passages.Add(new Passage(post, verdict));
         }
 
-        var contract = posts.Length > 0 && Uri.TryCreate(
-            posts[0].Provenance.ReaderContract, UriKind.Absolute, out var served)
-                ? served
-                : new Uri(forum, ReaderContract.WellKnownPath);
+        var contract = ReaderContractLocation.For(forum, posts.Length > 0 ? posts[0].Provenance.ReaderContract : null);
 
         Output.Passages(new Reading(passages.MoveToImmutable(), contract));
 

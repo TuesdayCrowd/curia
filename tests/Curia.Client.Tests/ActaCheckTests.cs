@@ -176,6 +176,22 @@ public sealed class ActaCheckTests : IDisposable
     }
 
     /// <summary>
+    /// R11.33 in the reference reader (the strangers stage's final gate, third round): a log whose own
+    /// record of the post carries a signature whose header holds a string that does not decode is a
+    /// failed check, never an exception, as <see cref="SignatureCheck"/> answers the served copy.
+    /// </summary>
+    [Fact]
+    public void R11_33_ALoggedSignatureWhoseHeaderDoesNotDecodeIsAFailedCheckNotAnException()
+    {
+        _log.LogThePostWithSignature(ReaderContractTests.UndecodableSignature());
+
+        var record = ActaCheck.PostOfRecord(Post(), Entry(), Proof(), Head());
+
+        Assert.Equal(CheckOutcome.Failed, record.Outcome);
+        Assert.Contains("no readable protected header", record.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Every document below is fetched through <see cref="ForumClient"/>'s public log methods and
     /// parsed by the client's own readers, rather than constructed here. A document assembled in a
     /// test is a shape the wire may never carry, and this project has already shipped one covering

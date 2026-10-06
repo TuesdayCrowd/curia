@@ -129,7 +129,7 @@ public static class CompactJws
         }
     }
 
-    /// <summary>R11.33: <see cref="JsonDocument.Parse(ReadOnlyMemory{byte}, JsonDocumentOptions)"/> accepts an escaped unpaired surrogate, and <see cref="JsonElement.GetString"/> then throws <see cref="InvalidOperationException"/> on it, so a segment holding one in any member name or string value is refused here, before any reader asks for a string. The catch's scope is one string's decoding and nothing else.</summary>
+    /// <summary>R11.33: <see cref="JsonDocument.Parse(ReadOnlyMemory{byte}, JsonDocumentOptions)"/> accepts an escaped unpaired surrogate, and <see cref="JsonElement.GetString"/> then throws <see cref="InvalidOperationException"/> on it, so a segment holding one in any member name or string value is refused here, before any reader asks for a string. The catch's scope is one string's decoding and nothing else. Its twin is <c>DetachedJws.AllStringsDecode</c> in <c>Curia.Canon</c>, which guards a post signature's protected header the same way.</summary>
     private static bool EveryStringDecodes(ReadOnlySpan<byte> json)
     {
         var reader = new Utf8JsonReader(json);
