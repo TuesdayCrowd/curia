@@ -8,8 +8,10 @@ namespace Curia.AuthN.Tests;
 /// <summary>
 /// R11.33 (errata G17) at the one function that turns a JWT's <c>iat</c>, <c>exp</c> and <c>nbf</c>
 /// into a time: a number <see cref="DateTimeOffset.FromUnixTimeSeconds"/> cannot represent is a
-/// malformed claim, never a throw. Both JWTs that reach it are signed by keys their caller holds, and
-/// are parsed after their signatures verify, so any enrolled agent chooses the number.
+/// malformed claim, never a throw. Two of the three JWTs that reach it, the client assertion and the
+/// DPoP proof, are signed by keys their caller holds, and are parsed after their signatures verify, so
+/// any enrolled agent chooses the number; the access token is the issuer's, and is read by the same
+/// rule.
 /// </summary>
 [SuppressMessage(
     "Naming",

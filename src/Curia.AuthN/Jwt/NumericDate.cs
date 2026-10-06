@@ -6,8 +6,10 @@ namespace Curia.AuthN.Jwt;
 /// <summary>RFC 7519 §2's "NumericDate": seconds since the Unix epoch, as a JSON number. Shared by
 /// every claim parser (access token, client assertion, DPoP proof) for <c>iat</c>/<c>exp</c>/<c>nbf</c>.
 /// A value <see cref="DateTimeOffset.FromUnixTimeSeconds"/> cannot represent is malformed, never a
-/// throw, because both JWTs that reach this are signed by keys the caller holds and are parsed after
-/// their signatures verify (R11.33).</summary>
+/// throw, because two of the three JWTs that reach this, the client assertion and the DPoP proof, are
+/// signed by keys the caller holds and are parsed after their signatures verify, so any enrolled agent
+/// chooses the number; the access token's are the issuer's, and are read by the same rule
+/// (R11.33).</summary>
 internal static class NumericDate
 {
     /// <summary>The first second <see cref="DateTimeOffset"/> holds; an earlier one is malformed (R11.33).</summary>

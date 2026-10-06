@@ -107,7 +107,7 @@
 | `src/Curia.Client.Cli/Cli.cs`, `Hints.cs` (new), `Program.cs`, `Help.cs`, `Testis.cs`, `tests/Curia.Architecture.Tests/OutputFenceTests.cs` (new), `tests/Curia.Client.Tests/CommandHintTests.cs` (new), `ArgsTests.cs` | The CLI behind its fence; the commands it prints (R10.65); the literals it takes back (R10.66) | 5 |
 | `src/Curia.Mcp/ForumTools.cs`, `WriteTools.cs`, `StartupError.cs` (new), `Program.cs`, `ToolText.cs`, `ForumWriter.cs`, `tests/Shared/StubLog.cs`, `tests/Curia.Mcp.Tests/ReaderFrameToolTests.cs` (new), `WriteToolTests.cs`, `McpConfigurationTests.cs`, `tests/Curia.Api.Tests/McpWriteEndToEndTests.cs` | The adapter's own words, and its gate | 6 |
 | `src/Curia.Application/Credentials/EnrollAgent.cs`, `src/Curia.Api/ForumEndpoints.cs`, `tests/Curia.Api.Tests/EnrollmentIdentifierTests.cs` | R4.37 | 7 |
-| `src/Curia.Api/ServerFault.cs` (new), `JsonCharset.cs` (new), `ForumEndpoints.cs`, `ActaEndpoints.cs`, `Issuer/TokenEndpoint.cs`, `Program.cs`, `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, `AccessTokenValidator.cs`, `Jwt/NumericDate.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs` (new), `ServerFaultTests.cs` (new), `KeyBindingTests.cs`, `DpopClient.cs`, `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs`, `ClientAssertionValidatorTests.cs`, `NumericDateTests.cs` (new) | R11.33 and D25, headers, signed claims and a JSON body's charset included | 8 |
+| `src/Curia.Api/ServerFault.cs` (new), `JsonCharset.cs` (new), `UnreadableRequests.cs` (new), `ForumEndpoints.cs`, `ActaEndpoints.cs`, `Issuer/TokenEndpoint.cs`, `Program.cs`, `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, `AccessTokenValidator.cs`, `Jwt/NumericDate.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs` (new), `ServerFaultTests.cs` (new), `KeyBindingTests.cs`, `DpopClient.cs`, `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs`, `ClientAssertionValidatorTests.cs`, `NumericDateTests.cs` (new) | R11.33 and D25, headers, signed claims, a JSON body's charset and a 4xx's problem document included | 8 |
 | `tests/Curia.Api.Tests/ReaderFrameTests.cs` (new) | Both probes, every reader, the real Forum | 9 |
 | `IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `README.md` | Register D31, D25, D4; traps 23 to 26; what comes next; what works | 11 |
 
@@ -8962,19 +8962,31 @@ but commit -b strangers-stay-in-quotes -m "$(printf 'R4.37: an enrollment refuse
 ### Task 8: A server fault says only what it is, and no request causes one (R11.33, register D25)
 
 **Files:**
-- Create: `src/Curia.Api/ServerFault.cs`, `src/Curia.Api/JsonCharset.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs`, `tests/Curia.Api.Tests/ServerFaultTests.cs`, `tests/Curia.AuthN.Tests/NumericDateTests.cs`
+- Create: `src/Curia.Api/ServerFault.cs`, `src/Curia.Api/JsonCharset.cs`, `src/Curia.Api/UnreadableRequests.cs`, `tests/Curia.Api.Tests/RequestSurfaceTests.cs`, `tests/Curia.Api.Tests/ServerFaultTests.cs`, `tests/Curia.AuthN.Tests/NumericDateTests.cs`
 - Modify: `src/Curia.Api/ForumEndpoints.cs`, `src/Curia.Api/ActaEndpoints.cs`, `src/Curia.Api/Issuer/TokenEndpoint.cs`, `src/Curia.Api/Program.cs`, `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, `src/Curia.AuthN/AccessTokenValidator.cs`, `src/Curia.AuthN/Jwt/NumericDate.cs`, `tests/Curia.Api.Tests/DpopClient.cs`, `tests/Curia.Api.Tests/KeyBindingTests.cs`, `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs`, `tests/Curia.AuthN.Tests/ClientAssertionValidatorTests.cs`
 
 **Interfaces:**
 - Produces: `ServerFault(int status, Error error) : IResult`, which logs the detail (event 5000) and serves type and title; its `Type`. `ForumEndpoints.Problem` returns one for every 5xx, and `ActaEndpoints.FoldAsync` for its two faults. `JwkPublicKey.ToPublicKeyMaterial` returns `Result<PublicKeyMaterial>`: a jwk whose coordinates are no point on P-256 is `curia/authn/malformed-jwk`, which a route answers 401, never a throw.
 - Produces: `NumericDate.ReadRequired`/`ReadOptional` answer a value outside `DateTimeOffset`'s range (-62135596800..253402300799) `curia/authn/malformed`, never a throw.
 - Produces: `JsonCharset.UseUtf8JsonBodies` refuses a JSON body whose declared charset is anything but the bare token utf-8 (case-insensitive; a quoted `"utf-8"` included) with 415 `curia/request/unsupported-charset`, before binding; `/oauth` is exempt.
+- Produces: `UnreadableRequests.UseUnreadableRequests`, registered before `UseUtf8JsonBodies`, answers every 4xx a handler did not compose, outside `/oauth`, with a problem document whose type and title it picks by status, and no detail; a 5xx stays `ServerFault`'s. `RouteHandlerOptions.ThrowOnBadRequest` is false in every environment, so the binder refuses in Development as it does in Production, rather than throwing to the exception page (Task 8's second review, I2).
 
-**Why the sweep sends fourteen bodies, and as an enrolled agent too.** This plan's first sweep sent four bodies anonymously. A pre-flight sent six more and found one the first fix missed: a `multipart/form-data` token body cut off before its closing boundary, on which ASP.NET's form reader throws `IOException` rather than `InvalidDataException`, answering 500 to anyone. The sweep sends all ten now. Task 8's review found that a JSON `Content-Type` naming a charset the binder cannot read made the minimal-API binder throw `InvalidOperationException`, answering 500 from `POST /v1/agents` and `/v1/posts/batch` to anyone (and from `POST /v1/posts/{id}/flags`, whose body is bound before authentication). That includes `charset="utf-8"`, because the binder does not unquote, and an empty `charset=`. So `JsonCharset` compares the raw parameter and refuses the quoted form rather than reading the header more generously than the binder does; `utf-16` was already a 400 and is now a 415. The sweep sends fourteen bodies since: those ten, and `{}` declared as `charset=bogus-xyz`, `charset=utf-16`, `charset="utf-8"` and `charset=`, the last two through `Declared`, which writes the header unvalidated because the test client's parser refuses an empty charset. Refusing every token body but `application/x-www-form-urlencoded`, which RFC 6749 §3.2 has a client send, would be the shorter fix, and is not taken here: `TokenSubjectBindingTests` sends a multipart token request on purpose, to carry U+0000 past the form reader into R5.20's check, and closing that door is a decision about R5.20, not R11.33. And without a credential, every route that needs one answers 401 before it reads its path, its query or its body, so an anonymous sweep of those routes tests authentication and nothing behind it. Enrollment costs nothing, so a request only an enrolled agent can send is one anyone can send: the sweep runs again with a T1 agent's DPoP-bound token (T1 because a tier may do everything a lesser one may), asserts that none of its requests stopped at authentication, and fails on any 5xx. Against b4bfe31 it finds the same two routes as the anonymous pass and no third; case 39 shows what only it can see.
+| Status | `type` | `title` |
+|---|---|---|
+| 400 | `curia/request/unreadable` | The request could not be read |
+| 404 | `curia/request/no-route` | No route reads this request |
+| 405 | `curia/request/method-not-allowed` | This route does not take this method |
+| 413 | `curia/request/too-large` | The request is larger than this route reads |
+| 415 | `curia/request/unsupported-media-type` | This route does not read this media type |
+| any other 4xx | `curia/request/refused` | The request was refused |
 
-**Why headers too** (Task 1's review, I3). The sweep's first form sent only well-formed headers, and reported "no third" of what it sent. The register already held a third, traced and not run: a DPoP proof whose `jwk` names P-256 with coordinates that are no point on it. The token endpoint binds a token to that key without building it (D29), and `AccessTokenValidator` then built it with `ECDsa.Create`, which throws for a point off the curve, so every route behind authentication answered 500 to any enrolled agent's request. `JwkPublicKey` is total now, and its two callers read its result (`ActaEndpoints` binds it where it mapped). `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown` pins the validator; `RequestSurfaceTests.R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault` sends every route hostile `Authorization` and `DPoP` headers without a credential, and the token the endpoint issues for such a proof with a proof carrying that key, and needs every answer below 500 and some at 401. A JSON body's declared charset is swept since Task 8's review (four bodies, and `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` for both sides); `If-None-Match`, read by one handler, is named in the sweep's remarks as not varied.
+**Why the sweep sends fifteen bodies, and as an enrolled agent too.** This plan's first sweep sent four bodies anonymously. A pre-flight sent six more and found one the first fix missed: a `multipart/form-data` token body cut off before its closing boundary, on which ASP.NET's form reader throws `IOException` rather than `InvalidDataException`, answering 500 to anyone. The sweep sends all ten now. Task 8's review found that a JSON `Content-Type` naming a charset the binder cannot read made the minimal-API binder throw `InvalidOperationException`, answering 500 from `POST /v1/agents` and `/v1/posts/batch` to anyone (and from `POST /v1/posts/{id}/flags`, whose body is bound before authentication). That includes `charset="utf-8"`, because the binder does not unquote, and an empty `charset=`. So `JsonCharset` compares the raw parameter and refuses the quoted form rather than reading the header more generously than the binder does; `utf-16` was already a 400 and is now a 415. The sweep sends fifteen bodies since: those ten, and `{}` declared as `charset=bogus-xyz`, `charset=utf-16`, `charset="utf-8"` and `charset=`, the last two through `Declared`, which writes the header unvalidated because the test client's parser refuses an empty charset. The fifteenth is `{}` declared as `application/vnd.x+json; charset=bogus-xyz`, because the binder treats any +json suffix as JSON and an unpinned suffix clause could be deleted silently (Task 8's second review, I1). Refusing every token body but `application/x-www-form-urlencoded`, which RFC 6749 §3.2 has a client send, would be the shorter fix, and is not taken here: `TokenSubjectBindingTests` sends a multipart token request on purpose, to carry U+0000 past the form reader into R5.20's check, and closing that door is a decision about R5.20, not R11.33. And without a credential, every route that needs one answers 401 before it reads its path, its query or its body, so an anonymous sweep of those routes tests authentication and nothing behind it. Enrollment costs nothing, so a request only an enrolled agent can send is one anyone can send: the sweep runs again with a T1 agent's DPoP-bound token (T1 because a tier may do everything a lesser one may), asserts that none of its requests stopped at authentication, and fails on any 5xx. Against b4bfe31 it finds the same two routes as the anonymous pass and no third; case 39 shows what only it can see.
+
+**Why headers too** (Task 1's review, I3). The sweep's first form sent only well-formed headers, and reported "no third" of what it sent. The register already held a third, traced and not run: a DPoP proof whose `jwk` names P-256 with coordinates that are no point on it. The token endpoint binds a token to that key without building it (D29), and `AccessTokenValidator` then built it with `ECDsa.Create`, which throws for a point off the curve, so every route behind authentication answered 500 to any enrolled agent's request. `JwkPublicKey` is total now, and its two callers read its result (`ActaEndpoints` binds it where it mapped). `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown` pins the validator; `RequestSurfaceTests.R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault` sends every route hostile `Authorization` and `DPoP` headers without a credential, and the token the endpoint issues for such a proof with a proof carrying that key, and needs every answer below 500 and some at 401. A JSON body's declared charset is swept since Task 8's review (five bodies, and `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` for both sides); `If-None-Match`, read by one handler, is named in the sweep's remarks as not varied.
 
 **Why the claims too** (Task 8's review, C1). The header sweep varied only a proof's `jwk`, never a claim. `NumericDate` handed `iat`, `exp` and `nbf` to `DateTimeOffset.FromUnixTimeSeconds` unchecked, after the signature verified, and that throws `ArgumentOutOfRangeException` outside -62135596800..253402300799. So an assertion with `exp` 1e13 answered 500 from `/oauth/token`, and a proof with `iat` 1e13 or -1e11 answered 500 from `GET /v1/inbox`, `GET /v1/flags` and `POST /v1/posts` (and every other route behind authentication), to any enrolled agent. The fix is in `NumericDate` alone: `AccessTokenValidator` and `ClientAssertionValidator` only do arithmetic on values already in range (`ClientAssertionValidator.cs:118` runs only after lines 109 and 113 have capped `iat` and `exp`). Four facts hold it: `NumericDateTests.R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead` and `R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown` for both readers, `ClientAssertionValidatorTests.R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown`, `AccessTokenValidatorDpopTests.R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown`, and through the host `RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault`.
+
+**Why a 4xx carries a problem document** (Task 8's second review, I2). R11.33's first sentence names the document: a route answers a request it cannot read with a 4xx that is an RFC 9457 problem document. The binder's 400 and 415, and routing's 404 for a hostile value in `{index:long}` (`ActaEndpoints.cs:83`, `:91`), are written by the framework before any Forum code runs. In Production they had empty bodies; in Development the binder threw `BadHttpRequestException`, and the exception page served its stack trace as `text/plain`. The sweeps checked only for 5xx, so they saw neither. `UnreadableRequests.UseUnreadableRequests` registers `UseStatusCodePages`, which fires only on a response that has no body, so it gives each such 4xx a type and a title and no detail, echoes nothing the framework said, and leaves every response a handler composed untouched; `/oauth` is left to the token endpoint, which composes RFC 6749's errors itself, and a 5xx to `ServerFault`. `RouteHandlerOptions.ThrowOnBadRequest` is set false, so Development answers as Production does. The three sweep facts now also fail on a 4xx that is no problem document (`NotAProblem`: a string `error` member under `/oauth`, a non-empty string `type` elsewhere, of any prefix, since composed types such as `table-10/denied` exist), and `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` pins the binder's 400 and 415 and routing's 404 against the Development host, so the binder's throw is pinned as well. Cases 67 and 68 hold the two halves.
 
 **Why the key set's match changes.** `GetJwks` answered an unreadable log 503 by matching the fold's failure as `JsonHttpResult<Problem>` with the log-unreadable slug. When the fold returned a `ServerFault` instead, the match stopped matching, and an unreadable log was answered `200` with the keys and no positions — the key set's documented answer to a log that reads but will not fold. `KeyBindingTests`' `key set`/`whole` row caught it during the build-check. It matches `ServerFault` by its slug now, and falsification case 25 holds it.
 
@@ -9032,7 +9044,7 @@ namespace Curia.Api.Tests;
 /// the two every route reads first are probed, <c>Authorization</c> and <c>DPoP</c>
 /// (<see cref="R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault"/>); a header a single
 /// handler reads, a conditional read's <c>If-None-Match</c>, is not swept. A JSON body's declared
-/// charset is swept, the quoted form included (Task 8's review, I1): four of <see cref="Requests"/>'
+/// charset is swept, the quoted form included (Task 8's review, I1): five of <see cref="Requests"/>'
 /// bodies name one other than the bare token utf-8, and
 /// <see cref="R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound"/> holds both sides.
 /// Claims inside a JWT the agent signs are probed by
@@ -9069,7 +9081,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// <summary>
     /// Every route, anonymous, with each hostile value in each route parameter and, for a read, in
     /// each query parameter; and every write with each of <see cref="Requests"/>' bodies. None
-    /// answers 5xx.
+    /// answers a server fault, or a 4xx that is no problem document (Task 8's second review, I2).
     /// </summary>
     [Fact]
     public async Task R11_33_NoRequestACallerWithoutACredentialCanSendIsAnsweredAsAServerFault()
@@ -9101,22 +9113,27 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                     using (response)
                     {
                         sent++;
-                        if ((int)response.StatusCode >= 500)
-                            faults.Add($"{(int)response.StatusCode} {method} {request.RequestUri}");
+                        var status = (int)response.StatusCode;
+                        var body = await response.Content.ReadAsStringAsync(ct);
+                        if (status >= 500)
+                            faults.Add($"{status} {method} {request.RequestUri}");
+                        else if (NotAProblem(target, status, body) is { } reason)
+                            faults.Add($"{status} {method} {request.RequestUri}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                     }
                 }
             }
         }
 
         Assert.True(sent > routes.Count * Hostile.Length, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
-        Assert.True(faults.Count == 0, "anonymous requests answered as a server fault:\n" + string.Join('\n', faults));
+        Assert.True(faults.Count == 0, "anonymous requests answered as a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', faults));
     }
 
     /// <summary>
     /// The same requests from an enrolled agent: each carries its DPoP-bound token and a proof over
     /// the URL it was sent to, and a write's is sent again with the nonce the Forum asks for (R5.19).
-    /// None answers 5xx, and none is stopped at authentication, or the handlers behind it were never
-    /// reached and the first assertion would hold of nothing.
+    /// None answers a server fault, or a 4xx that is no problem document (Task 8's second review, I2),
+    /// and none is stopped at authentication, or the handlers behind it were never reached and the
+    /// first assertion would hold of nothing.
     /// </summary>
     [Fact]
     public async Task R11_33_NoRequestAnEnrolledAgentCanSendIsAnsweredAsAServerFault()
@@ -9143,17 +9160,21 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                     if (response is null) continue;
 
                     sent++;
-                    if ((int)response.StatusCode >= 500)
-                        faults.Add($"{(int)response.StatusCode} {method} {target}");
+                    var status = (int)response.StatusCode;
+                    var body = await response.Content.ReadAsStringAsync(ct);
+                    if (status >= 500)
+                        faults.Add($"{status} {method} {target}");
                     else if (response.StatusCode == HttpStatusCode.Unauthorized)
                         unauthenticated.Add($"{method} {target}");
+                    else if (NotAProblem(target, status, body) is { } reason)
+                        faults.Add($"{status} {method} {target}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                 }
             }
         }
 
         Assert.True(sent > routes.Count * Hostile.Length, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
         Assert.True(unauthenticated.Count == 0, "requests an enrolled agent sent were stopped at authentication, so nothing behind it was reached:\n" + string.Join('\n', unauthenticated));
-        Assert.True(faults.Count == 0, "requests an enrolled agent sent answered as a server fault:\n" + string.Join('\n', faults));
+        Assert.True(faults.Count == 0, "requests an enrolled agent sent answered as a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', faults));
     }
 
     /// <summary>
@@ -9347,7 +9368,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// and answered 500 to anyone. A JSON body is read as UTF-8 only (RFC 8259 §8.1), so one that
     /// declares another charset is refused 415 before it is bound, a quoted <c>"utf-8"</c> included,
     /// since the binder does not unquote it and threw there too; one that declares none, or the bare
-    /// token utf-8 in any case, is bound as before.
+    /// token utf-8 in any case, is bound as before. The binder reads any +json media type as JSON, so
+    /// the guard covers the suffix and the rows pin it (Task 8's second review, I1).
     /// </summary>
     [Theory]
     [InlineData("/v1/agents", "application/json; charset=bogus-xyz", true)]
@@ -9362,6 +9384,9 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     [InlineData("/v1/posts/batch", "application/json; charset=utf-8", false)]
     [InlineData("/v1/posts/batch", "application/json; charset=UTF-8", false)]
     [InlineData("/v1/posts/batch", "application/json; charset=\"utf-8\"", true)]
+    [InlineData("/v1/agents", "application/vnd.x+json; charset=bogus-xyz", true)]
+    [InlineData("/v1/posts/batch", "application/vnd.x+json; charset=bogus-xyz", true)]
+    [InlineData("/v1/agents", "application/vnd.x+json; charset=utf-8", false)]
     public async Task R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound(string path, string contentType, bool refused)
     {
         var ct = TestContext.Current.CancellationToken;
@@ -9384,6 +9409,74 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 response.StatusCode != HttpStatusCode.UnsupportedMediaType && (int)response.StatusCode < 500,
                 $"{(int)response.StatusCode} {body}");
         }
+    }
+
+    /// <summary>
+    /// R11.33's problem document (Task 8's second review, I2): a request no handler can read, refused
+    /// by the binder or by routing before any Forum code runs, is answered with the status the
+    /// framework chose and an RFC 9457 problem document, with no detail, so nothing the framework said
+    /// is echoed. It runs against the Development host on purpose: there the binder would throw, and
+    /// the exception page serve its stack trace as text, unless it is told not to.
+    /// </summary>
+    [Theory]
+    [InlineData("POST", "/v1/agents", "application/json", "{", 400, "curia/request/unreadable")]
+    [InlineData("POST", "/v1/posts/batch", "application/json", "[", 400, "curia/request/unreadable")]
+    [InlineData("POST", "/v1/agents", "text/plain", "{}", 415, "curia/request/unsupported-media-type")]
+    [InlineData("GET", "/v1/log/entries/x", "", "", 404, "curia/request/no-route")]
+    public async Task R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument(
+        string method, string path, string contentType, string body, int status, string type)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        if (!string.IsNullOrEmpty(contentType))
+        {
+            request.Content = new ByteArrayContent(Encoding.UTF8.GetBytes(body));
+            Assert.True(request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType));
+        }
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var served = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True((int)response.StatusCode == status, $"{(int)response.StatusCode} {served[..Math.Min(served.Length, 160)]}");
+        using var json = JsonDocument.Parse(served);
+        Assert.Equal(type, json.RootElement.GetProperty("type").GetString());
+        Assert.True(
+            !json.RootElement.TryGetProperty("detail", out var detail) || detail.ValueKind == JsonValueKind.Null,
+            $"the problem document carries a detail: {served}");
+    }
+
+    /// <summary>
+    /// Null when an answer is no 4xx, or is a 4xx in the form its route owes; otherwise why it is not
+    /// (Task 8's second review, I2). The token endpoint answers RFC 6749 §5.2's error object; every
+    /// other route an RFC 9457 problem document, whose type need not be one of <c>curia/</c>'s.
+    /// </summary>
+    private static string? NotAProblem(string path, int status, string body)
+    {
+        if (status < 400 || status > 499) return null;
+
+        JsonElement root;
+        try
+        {
+            using var json = JsonDocument.Parse(body);
+            root = json.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return "not JSON";
+        }
+
+        if (root.ValueKind != JsonValueKind.Object) return "not a JSON object";
+
+        if (path.StartsWith("/oauth", StringComparison.Ordinal))
+        {
+            return root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String
+                ? null
+                : "no string error member";
+        }
+
+        return root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString()!.Length > 0
+            ? null
+            : "no non-empty string type member";
     }
 
     /// <summary>
@@ -9420,7 +9513,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
 
     /// <summary>
     /// The anonymous requests to a host running as production does, which has no developer exception
-    /// page: no body carries the framework's or a backend's words. The Api test host runs in
+    /// page: no body carries the framework's or a backend's words, and none is a server fault, or a
+    /// 4xx that is no problem document (Task 8's second review, I2). The Api test host runs in
     /// Development, whose exception page serves a binding failure's exception text; what a deployed
     /// Forum serves had not been probed (register D25).
     /// </summary>
@@ -9462,18 +9556,21 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                     {
                         sent++;
                         var body = await response.Content.ReadAsStringAsync(ct);
+                        var status = (int)response.StatusCode;
                         if (body.Contains("Exception", StringComparison.Ordinal)
                             || body.Contains("Microsoft.AspNetCore", StringComparison.Ordinal)
                             || body.Contains("Npgsql", StringComparison.Ordinal)
-                            || (int)response.StatusCode >= 500)
-                            leaks.Add($"{(int)response.StatusCode} {method} {request.RequestUri}: {body[..Math.Min(body.Length, 160)]}");
+                            || status >= 500)
+                            leaks.Add($"{status} {method} {request.RequestUri}: {body[..Math.Min(body.Length, 160)]}");
+                        else if (NotAProblem(target, status, body) is { } reason)
+                            leaks.Add($"{status} {method} {request.RequestUri}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                     }
                 }
             }
         }
 
         Assert.True(sent > 0, "no request was sent to the production host; the sweep did not run");
-        Assert.True(leaks.Count == 0, "a production host served text it did not compose, or a server fault:\n" + string.Join('\n', leaks));
+        Assert.True(leaks.Count == 0, "a production host served text it did not compose, a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', leaks));
     }
 
     /// <summary>
@@ -9589,13 +9686,14 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 .Replace("{" + name + "}", "x", StringComparison.Ordinal));
 
     /// <summary>
-    /// For a read, one GET. For a write, fourteen bodies, each made fresh so a request can be sent again:
+    /// For a read, one GET. For a write, fifteen bodies, each made fresh so a request can be sent again:
     /// none; an empty object; an object whose members hold U+0000 and a line break; a form whose
     /// values hold U+0000; a multipart form cut off before its closing boundary; JSON cut off; JSON
     /// nested two hundred deep; JSON whose bytes are not UTF-8; an empty object whose Content-Type
     /// names a charset no encoder knows, one naming UTF-16, one naming a quoted "utf-8", and one
-    /// naming an empty charset (Task 8's review, I1); a multipart form with no boundary; and a form
-    /// whose key is five thousand bytes.
+    /// naming an empty charset (Task 8's review, I1); an empty object declared as a +json media type
+    /// in a charset no encoder knows (Task 8's second review, I1); a multipart form with no boundary;
+    /// and a form whose key is five thousand bytes.
     /// </summary>
     private static IEnumerable<Func<HttpRequestMessage>> Requests(string method, string target)
     {
@@ -9624,6 +9722,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=utf-16"));
         yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=\"utf-8\""));
         yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset="));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/vnd.x+json; charset=bogus-xyz"));
         yield return () => Post(uri, Typed(
             new StringContent("--b\r\nContent-Disposition: form-data; name=\"client_id\"\r\n\r\na\r\n--b--\r\n", Encoding.ASCII),
             "multipart/form-data"));
@@ -9916,8 +10015,10 @@ namespace Curia.AuthN.Tests;
 /// <summary>
 /// R11.33 (errata G17) at the one function that turns a JWT's <c>iat</c>, <c>exp</c> and <c>nbf</c>
 /// into a time: a number <see cref="DateTimeOffset.FromUnixTimeSeconds"/> cannot represent is a
-/// malformed claim, never a throw. Both JWTs that reach it are signed by keys their caller holds, and
-/// are parsed after their signatures verify, so any enrolled agent chooses the number.
+/// malformed claim, never a throw. Two of the three JWTs that reach it, the client assertion and the
+/// DPoP proof, are signed by keys their caller holds, and are parsed after their signatures verify, so
+/// any enrolled agent chooses the number; the access token is the issuer's, and is read by the same
+/// rule.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -10005,7 +10106,7 @@ In `tests/Curia.Api.Tests/DpopClient.cs`, replace (Task 8's review, C1: the swee
             ["htm"] = method,
             ["htu"] = url,
             ["iat"] = now.ToUnixTimeSeconds(),
-            ```
+```
 
 with:
 
@@ -10059,7 +10160,7 @@ with:
             ["htm"] = method,
             ["htu"] = url,
             ["iat"] = iat,
-            ```
+```
 
 - [ ] **Step 2: Run them**
 
@@ -10068,7 +10169,9 @@ dotnet test tests/Curia.Api.Tests -c Release --nologo --filter "FullyQualifiedNa
 dotnet test tests/Curia.AuthN.Tests -c Release --nologo --filter "FullyQualifiedName~R11_33" 2>&1 | grep -E "Passed!|Failed!|^\s+Failed "
 ```
 
-Task 8's review added the claims and the charset (C1, I1). Against the tree before them, with every other Step 3 change in place, the AuthN filter is `Failed:     9, Passed:     3`: the four rejecting rows of `R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown`, the three rows of `R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown` and the two of `R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown`, each with `ArgumentOutOfRangeException` from `FromUnixTimeSeconds`; the accepting rows and the off-curve fact pass. `RequestSurfaceTests` is `Failed:    10, Passed:     8`: the six refused rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` (bogus-xyz and quoted `"utf-8"` with 500 `InvalidOperationException ... is not a known encoding`, utf-16 with 400), both sweep facts and production's (500 on `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`, three times a target: bogus-xyz, the quoted `"utf-8"` and the empty charset), and `R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault` (500 from `/oauth/token` for all three assertions, and from every route behind authentication for both proofs). The theory's accepting rows pass.
+Task 8's review added the claims and the charset (C1, I1). Against the tree before them, with every other Step 3 change in place, the AuthN filter is `Failed:     9, Passed:     3`: the four rejecting rows of `R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown`, the three rows of `R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown` and the two of `R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown`, each with `ArgumentOutOfRangeException` from `FromUnixTimeSeconds`; the accepting rows and the off-curve fact pass. With Step 1 as it now stands, the second review's rows and its problem document included (and `UnreadableRequests` in place), the Api filter is `Failed:    12, Passed:    18`, every failure in `RequestSurfaceTests`: the eight refused rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` (bogus-xyz, the `+json` bogus-xyz and quoted `"utf-8"` with 500 `InvalidOperationException ... is not a known encoding`, utf-16 with 400), both sweep facts and production's (500 on `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`, four times a target: bogus-xyz, the `+json` bogus-xyz, the quoted `"utf-8"` and the empty charset), and `R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault` (500 from `/oauth/token` for all three assertions, and from every route behind authentication for both proofs). The theory's seven accepting rows pass, and so do the four rows of `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument`, the query-parameter and header facts, and the five `ServerFaultTests` and 503 facts the filter also names. (Before the second review the same run was `Failed:    10, Passed:     8` over `RequestSurfaceTests`' eighteen.)
+
+Task 8's second review added the `+json` rows and the problem document (I1, I2). Against the tree before it, with every other Step 3 change in place, `RequestSurfaceTests` is `Failed:     7, Passed:    18`: the four rows of `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` (the binder's 400s for `{` and `[` served as the exception page's `BadHttpRequestException` text, its 415 for `text/plain` and routing's 404 for `/v1/log/entries/x` with no body), and the three sweep facts, each naming the binder's 400 and 415 from `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`, its 400 from `GET /v1/jwks`, `/v1/log/consistency` and `/v1/log/proof/{index:long}` for a query parameter it could not bind, and routing's 404 from `/v1/log/{proof,entries}/{index:long}`, each with an empty body or the exception page's text. The three `+json` rows pass, because `JsonCharset` already covered the suffix; case 66 shows what they hold.
 
 Expected: eight Api facts fail: `ServerFaultTests.R11_33_AnAnonymousSearchTheIndexFailsIsServedWithoutTheBackendsWords` (`"detail":"22000: NaN not allowed i"···`), the three 503 rows of `R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal` (`"detail":"test/log-unreadable"`), the three sweep facts -- the anonymous one, the enrolled agent's and production's -- and the header fact (`Failed:     8, Passed:     2`; the two that pass are the query-parameter fact and the token row). Each sweep names the token endpoint ten times, once a body, and the thread route three times; production names what each threw: `InvalidOperationException` for the six bodies that are not forms, `InvalidDataException` for the three forms the reader refuses, and `IOException` for the multipart form cut off before its boundary. The gate prints each request as its URL, not its body; errata G17 names the bodies. The header fact names seven requests `(a token bound to a proof key off the curve)`: the six routes behind authentication -- `POST /v1/posts`, `POST /v1/posts/x/flags`, `POST /v1/posts/x/accept`, `GET /v1/inbox`, `GET /v1/flags` and `GET /v1/posts/x/flags` -- each of which threw building the key, and `POST /oauth/token`, whose JSON body is not a form. Then the validator's fact fails with the platform's `CryptographicException` (`Failed:     1, Passed:     0`). After Step 3 the six routes answer 401 and no other route reads the token.
 
@@ -10367,8 +10470,10 @@ namespace Curia.AuthN.Jwt;
 /// <summary>RFC 7519 §2's "NumericDate": seconds since the Unix epoch, as a JSON number. Shared by
 /// every claim parser (access token, client assertion, DPoP proof) for <c>iat</c>/<c>exp</c>/<c>nbf</c>.
 /// A value <see cref="DateTimeOffset.FromUnixTimeSeconds"/> cannot represent is malformed, never a
-/// throw, because both JWTs that reach this are signed by keys the caller holds and are parsed after
-/// their signatures verify (R11.33).</summary>
+/// throw, because two of the three JWTs that reach this, the client assertion and the DPoP proof, are
+/// signed by keys the caller holds and are parsed after their signatures verify, so any enrolled agent
+/// chooses the number; the access token's are the issuer's, and are read by the same rule
+/// (R11.33).</summary>
 internal static class NumericDate
 {
     /// <summary>The first second <see cref="DateTimeOffset"/> holds; an earlier one is malformed (R11.33).</summary>
@@ -10459,6 +10564,50 @@ internal static class JsonCharset
 }
 ```
 
+Create `src/Curia.Api/UnreadableRequests.cs` (Task 8's second review, I2):
+
+```csharp
+namespace Curia.Api;
+
+/// <summary>
+/// R11.33 (errata G17): a request no handler can read is answered with a 4xx that is an RFC 9457
+/// problem document. The binder's refusals (400, 415) and routing's (404, 405) are written by the
+/// framework before any Forum code runs, with no body; this gives each one a type and a title, and
+/// no detail, so nothing the framework said is echoed. <c>UseStatusCodePages</c> fires only on a
+/// response that has no body, so every response a handler composed is untouched. A 5xx stays
+/// <see cref="ServerFault"/>'s, and <c>/oauth</c> is left alone, because the token endpoint composes
+/// RFC 6749's errors itself (Task 8's second review, I2).
+/// </summary>
+internal static class UnreadableRequests
+{
+    public static WebApplication UseUnreadableRequests(this WebApplication app)
+    {
+        app.UseStatusCodePages(async context =>
+        {
+            var http = context.HttpContext;
+            var status = http.Response.StatusCode;
+            if (status < 400 || status > 499) return;
+            if (http.Request.Path.StartsWithSegments("/oauth", StringComparison.Ordinal)) return;
+
+            var (type, title) = status switch
+            {
+                StatusCodes.Status400BadRequest => ("curia/request/unreadable", "The request could not be read"),
+                StatusCodes.Status404NotFound => ("curia/request/no-route", "No route reads this request"),
+                StatusCodes.Status405MethodNotAllowed => ("curia/request/method-not-allowed", "This route does not take this method"),
+                StatusCodes.Status413PayloadTooLarge => ("curia/request/too-large", "The request is larger than this route reads"),
+                StatusCodes.Status415UnsupportedMediaType => ("curia/request/unsupported-media-type", "This route does not read this media type"),
+                _ => ("curia/request/refused", "The request was refused"),
+            };
+
+            await Results.Json(new Problem(type, title, null), statusCode: status)
+                .ExecuteAsync(http)
+                .ConfigureAwait(false);
+        });
+        return app;
+    }
+}
+```
+
 In `src/Curia.Api/Program.cs`, replace:
 
 ```csharp
@@ -10466,10 +10615,14 @@ In `src/Curia.Api/Program.cs`, replace:
         TokenEndpoint.Map(app);
 ```
 
-with:
+with (Task 8's second review, I2: the binder told not to throw, and a bodiless 4xx answered with a problem document):
 
 ```csharp
+        // In Development the binder otherwise throws BadHttpRequestException, and the exception page serves its stack trace as text/plain.
+        builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
+
         var app = builder.Build();
+        app.UseUnreadableRequests();
         app.UseUtf8JsonBodies();
         TokenEndpoint.Map(app);
 ```
@@ -10482,7 +10635,7 @@ dotnet test tests/Curia.Api.Tests -c Release --no-build --nologo 2>&1 | grep -E 
 dotnet test tests/Curia.AuthN.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
 ```
 
-Expected: `0 Warning(s)`, `0 Error(s)`; `Passed!  - Failed:     0, Passed:   267` for `Curia.Api.Tests.dll` (237 before: eleven R4.37 rows, five sweep facts and the fault fact, and from Task 8's review the claims fact and the charset theory's twelve rows); `Passed!  - Failed:     0, Passed:    80` for `Curia.AuthN.Tests.dll` (68 before: the off-curve fact, and from Task 8's review `NumericDateTests`' six rows, the assertion theory's three and the proof theory's two). No existing fact asserted 400 for a UTF-16 JSON body, so none moved to 415.
+Expected: `0 Warning(s)`, `0 Error(s)`; `Passed!  - Failed:     0, Passed:   274` for `Curia.Api.Tests.dll` (237 before: eleven R4.37 rows, five sweep facts and the fault fact, from Task 8's review the claims fact and the charset theory's twelve rows, and from its second review the charset theory's three `+json` rows and the problem-document theory's four); `Passed!  - Failed:     0, Passed:    80` for `Curia.AuthN.Tests.dll` (68 before: the off-curve fact, and from Task 8's review `NumericDateTests`' six rows, the assertion theory's three and the proof theory's two). No existing fact asserted 400 for a UTF-16 JSON body, so none moved to 415.
 
 - [ ] **Step 5: Commit**
 
@@ -10807,6 +10960,7 @@ CLIENT_HINTS = "FullyQualifiedName~CommandHintTests"
 CLIENT_ARGS = "FullyQualifiedName~ArgsTests"
 MCP_STARTUP = "FullyQualifiedName~R10_63_AStartupRefusalQuotesItsDetail"
 API_CHARSET = "FullyQualifiedName~R11_33_AJsonBodyInACharsetOtherThanUtf8"
+API_UNREADABLE = "FullyQualifiedName~R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument"
 
 RUNE_WALK = ("        foreach (var rune in value.EnumerateRunes())\n"
              "        {\n"
@@ -11111,6 +11265,18 @@ CASES = [
     dict(id="65", what="the guard unquotes the charset and the binder does not",
          cmds=[dotnet(API, API_SWEEP), dotnet(API, API_CHARSET)],
          edits=[(JSON_CHARSET, "StringSegment.Equals(media.Charset,", "StringSegment.Equals(HeaderUtilities.RemoveQuotes(media.Charset),")]),
+    dict(id="66", what="the guard does not cover a +json media type",
+         cmds=[dotnet(API, API_SWEEP), dotnet(API, API_CHARSET)],
+         edits=[(JSON_CHARSET, ")\n            || type.EndsWith(\"+json\", StringComparison.OrdinalIgnoreCase);", ");")]),
+    dict(id="67", what="a bodiless 4xx is served as it is",
+         cmds=[dotnet(API, API_SWEEP), dotnet(API, API_UNREADABLE)],
+         edits=[(PROGRAM_API, "        app.UseUnreadableRequests();\n", "")]),
+    dict(id="68", what="the binder throws in Development",
+         cmds=[dotnet(API, API_SWEEP), dotnet(API, API_UNREADABLE)],
+         edits=[(PROGRAM_API,
+                 "        // In Development the binder otherwise throws BadHttpRequestException, and the exception page serves its stack trace as text/plain.\n"
+                 "        builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);\n",
+                 "")]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -11249,7 +11415,7 @@ grep -E "^\[|runner exit|NOT RED|DID NOT RUN|falsify.py exit" <scratchpad>/falsi
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped.
 
-Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are sixty-five cases in eighty-one suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 60 came with Task 6's second fix round, which ran it, with cases 8, 17 and 58, whose class filter the round's new theory falls under, from the repository root with the round's changes in place: RED on the facts the table names (case 58's Passed count now 66), each restore byte-identical to its kept copy, the tree rebuilt with --no-incremental and the suite green after, and runner exit: 0. Cases 61–65 came with Task 8's review round (its rulings C1 and I1), which ran them from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names, each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 61's first form wrote `long.MinValue` and `long.MaxValue` and did not build (CA1802), which is why it goes through `Math.Min`/`Math.Max`.
+Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are sixty-eight cases in eighty-seven suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 60 came with Task 6's second fix round, which ran it, with cases 8, 17 and 58, whose class filter the round's new theory falls under, from the repository root with the round's changes in place: RED on the facts the table names (case 58's Passed count now 66), each restore byte-identical to its kept copy, the tree rebuilt with --no-incremental and the suite green after, and runner exit: 0. Cases 61–65 came with Task 8's review round (its rulings C1 and I1), which ran them from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names, each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 61's first form wrote `long.MinValue` and `long.MaxValue` and did not build (CA1802), which is why it goes through `Math.Min`/`Math.Max`. Cases 66–68 came with Task 8's second review round (its rulings I1 and I2), which ran them, with case 63, whose guard now also refuses the `+json` body, from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names (case 63 at `Failed: 11, Passed: 14` and `Failed: 8, Passed: 7`), each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 68's 415 row stayed green, where the ruling expected it red, because the binder writes that refusal without throwing.
 
 | Case | Must fail, by name |
 |---|---|
@@ -11315,9 +11481,12 @@ Each case must print `RED` for every command it runs, then `restore clean` — w
 | 60 | All six rows of ReaderFrameToolTests.R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel, one per registered tool (Failed: 6, Passed: 0). Every row reaches Refusal.Summary's Transport arm, through ForumTools.Refused for the read tools and WriteTools' named fall-through for the write tools (Task 6's second review) |
 | 61 | The four rejecting rows of `NumericDateTests.R11_33_ANumericDateOneBeyondTheRangeIsMalformedNotThrown`, the three rows of `ClientAssertionValidatorTests.R11_33_AnAssertionWhoseNumericDateIsOutOfRangeIsRefusedNotThrown` and the two of `AccessTokenValidatorDpopTests.R11_33_AProofWhoseIatIsOutOfRangeIsRefusedNotThrown` (`ArgumentOutOfRangeException` from `FromUnixTimeSeconds`); `RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault`. The accepting rows of `R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead` stay green, and should. The bounds are widened through `Math.Min`/`Math.Max` rather than written as `long.MinValue`/`long.MaxValue`, which CA1802 refuses to build as a `static readonly` initializer (Task 8's review, C1) |
 | 62 | The two `253402300799` rows of `R11_33_ANumericDateAtTheEdgeOfTheRangeIsRead`, by both readers in one row, alone: the accepting side is pinned (Task 8's review, C1) |
-| 63 | The three sweep facts -- the anonymous one, the enrolled agent's and production's -- on `charset=bogus-xyz`, the quoted `"utf-8"` and the empty charset (500 from `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`), and the six refused rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound`, utf-16's because 400 is not 415. The accepting rows stay green, and should (Task 8's review, I1) |
+| 63 | The three sweep facts -- the anonymous one, the enrolled agent's and production's -- on `charset=bogus-xyz`, the `application/vnd.x+json; charset=bogus-xyz` body, the quoted `"utf-8"` and the empty charset (500 from `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`), and the eight refused rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound`, utf-16's because 400 is not 415. The accepting rows stay green, and should (Task 8's review, I1; the `+json` rows from its second review) |
 | 64 | The two `charset=UTF-8` accepting rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` alone: the accepting side is pinned (Task 8's review, I1) |
 | 65 | The two quoted `"utf-8"` refused rows of the theory, and the three sweep facts, each with a 500 from the binder: the first ruling's guard reproduced (Task 8's review, I1) |
+| 66 | The two `application/vnd.x+json; charset=bogus-xyz` refused rows of `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound`, and the three sweep facts, each with the binder's 500 from `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`. The `+json; charset=utf-8` accepting row stays green, and should (Task 8's second review, I1) |
+| 67 | All four rows of `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument`, and the three sweep facts -- the anonymous one, the enrolled agent's and production's -- on the binder's empty 400 and 415 and routing's empty 404 from `/v1/log/{proof,entries}/{index:long}` (Task 8's second review, I2) |
+| 68 | The two 400 rows of `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` (`{` and `[`, answered with the exception page's `text/plain` stack trace), and the anonymous and enrolled sweeps (`Failed: 4, Passed: 21`). The `text/plain` 415 row stays green, and should: the binder writes its 415 without throwing, so `UseUnreadableRequests` still serves it a document. So do the 404 row and the production fact: routing's 404 throws nothing, and outside Development the binder does not throw (Task 8's second review, I2) |
 
 - [ ] **Step 3: Prove the tree is what was committed, and green**
 
@@ -11331,7 +11500,7 @@ dotnet test Curia.sln -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Fai
 
 Expected: `git status --porcelain` prints nothing; `no residue`; the verifier builds; `0 Warning(s)`, `0 Error(s)`; and eleven `Passed!` lines, the counts Task 12 states.
 
-The residue grep looks for the token each patch adds, and it was checked both ways: on the finished tree it prints `no residue`, and with each such case's patch applied it names the patched line. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. A patch that only removes something -- cases 2, 12–14, 18–20, 24, 29–31, 33, 44, 45, 47, 48, 51, 52 and 63 -- leaves no token to find; `git status --porcelain` and each restore's `git diff --quiet` are what prove it gone.
+The residue grep looks for the token each patch adds, and it was checked both ways: on the finished tree it prints `no residue`, and with each such case's patch applied it names the patched line. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. A patch that only removes something -- cases 2, 12–14, 18–20, 24, 29–31, 33, 44, 45, 47, 48, 51, 52, 63 and 66–68 -- leaves no token to find; `git status --porcelain` and each restore's `git diff --quiet` are what prove it gone.
 
 - [ ] **Step 4: Nothing to commit**
 
@@ -11373,9 +11542,11 @@ grep -n 'MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();\|MinSeconds =
 grep -n 'app.UseUtf8JsonBodies();' src/Curia.Api/Program.cs
 grep -n 'StringComparison.OrdinalIgnoreCase' src/Curia.Api/JsonCharset.cs
 grep -n 'StringSegment.Equals(media.Charset,' src/Curia.Api/JsonCharset.cs
+grep -n 'app.UseStatusCodePages(' src/Curia.Api/UnreadableRequests.cs
+grep -n 'app.UseUnreadableRequests();\|options.ThrowOnBadRequest = false' src/Curia.Api/Program.cs
 ```
 
-Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `536:`, `1185:`, `2159:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`; `14:` and `17:`; `291:`; `20:`, `21:` and `24:`; `24:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
+Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `536:`, `1185:`, `2159:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`; `16:` and `19:`; `295:`; `20:`, `21:` and `24:`; `24:`; `16:`; `291:` and `294:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
 
 - [ ] **Step 2: Write the register, the trap and what comes next**
 
@@ -11495,16 +11666,20 @@ Task 8's review found two more, and the stage closed both. The fifth is a signed
 `NumericDate` handed `iat`, `exp` and `nbf` to `FromUnixTimeSeconds` unchecked after the signature
 verified, so an assertion with `exp` 1e13 answered 500 from `/oauth/token`, and a proof with `iat`
 1e13 or -1e11 answered 500 from every route behind authentication, to any enrolled agent; a value
-outside `DateTimeOffset`'s range is `curia/authn/malformed` now (`src/Curia.AuthN/Jwt/NumericDate.cs:14`,
-`:17`), held by `NumericDateTests`, the assertion and proof theories, and
+outside `DateTimeOffset`'s range is `curia/authn/malformed` now (`src/Curia.AuthN/Jwt/NumericDate.cs:16`,
+`:19`), held by `NumericDateTests`, the assertion and proof theories, and
 `RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault` (falsification
 cases 61 and 62). The sixth is a JSON body's declared charset, the quoted form included: the
 minimal-API binder threw for a charset it cannot read -- `bogus-xyz`, an empty one, and `"utf-8"`,
 since it does not unquote -- answering 500 to anyone from `POST /v1/agents`, `/v1/posts/batch` and
 `/v1/posts/{id}/flags`; `JsonCharset` refuses anything but the bare token utf-8 with 415 before
-binding (`src/Curia.Api/JsonCharset.cs:24`, registered at `src/Curia.Api/Program.cs:291`), held by
-`R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` and four sweep bodies (cases
-63–65). A
+binding (`src/Curia.Api/JsonCharset.cs:24`, registered at `src/Curia.Api/Program.cs:295`), held by
+`R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` and five sweep bodies, a +json
+media type included (cases 63–66). A 4xx no handler composed is a problem document now
+(`src/Curia.Api/UnreadableRequests.cs:16`, registered at `src/Curia.Api/Program.cs:294`, with the
+binder told not to throw at `:291`), held by
+`R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` and the three sweeps (cases 67,
+68). A
 host running as production serves no framework or backend text on any anonymous request. Held by
 `ServerFaultTests`, `RequestSurfaceTests` and
 `AccessTokenValidatorDpopTests.R11_33_AProofKeyThatIsNoPointOnTheCurveIsRefusedNotThrown`.*

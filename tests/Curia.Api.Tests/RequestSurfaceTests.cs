@@ -47,7 +47,7 @@ namespace Curia.Api.Tests;
 /// the two every route reads first are probed, <c>Authorization</c> and <c>DPoP</c>
 /// (<see cref="R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault"/>); a header a single
 /// handler reads, a conditional read's <c>If-None-Match</c>, is not swept. A JSON body's declared
-/// charset is swept, the quoted form included (Task 8's review, I1): four of <see cref="Requests"/>'
+/// charset is swept, the quoted form included (Task 8's review, I1): five of <see cref="Requests"/>'
 /// bodies name one other than the bare token utf-8, and
 /// <see cref="R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound"/> holds both sides.
 /// Claims inside a JWT the agent signs are probed by
@@ -84,7 +84,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// <summary>
     /// Every route, anonymous, with each hostile value in each route parameter and, for a read, in
     /// each query parameter; and every write with each of <see cref="Requests"/>' bodies. None
-    /// answers 5xx.
+    /// answers a server fault, or a 4xx that is no problem document (Task 8's second review, I2).
     /// </summary>
     [Fact]
     public async Task R11_33_NoRequestACallerWithoutACredentialCanSendIsAnsweredAsAServerFault()
@@ -116,22 +116,27 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                     using (response)
                     {
                         sent++;
-                        if ((int)response.StatusCode >= 500)
-                            faults.Add($"{(int)response.StatusCode} {method} {request.RequestUri}");
+                        var status = (int)response.StatusCode;
+                        var body = await response.Content.ReadAsStringAsync(ct);
+                        if (status >= 500)
+                            faults.Add($"{status} {method} {request.RequestUri}");
+                        else if (NotAProblem(target, status, body) is { } reason)
+                            faults.Add($"{status} {method} {request.RequestUri}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                     }
                 }
             }
         }
 
         Assert.True(sent > routes.Count * Hostile.Length, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
-        Assert.True(faults.Count == 0, "anonymous requests answered as a server fault:\n" + string.Join('\n', faults));
+        Assert.True(faults.Count == 0, "anonymous requests answered as a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', faults));
     }
 
     /// <summary>
     /// The same requests from an enrolled agent: each carries its DPoP-bound token and a proof over
     /// the URL it was sent to, and a write's is sent again with the nonce the Forum asks for (R5.19).
-    /// None answers 5xx, and none is stopped at authentication, or the handlers behind it were never
-    /// reached and the first assertion would hold of nothing.
+    /// None answers a server fault, or a 4xx that is no problem document (Task 8's second review, I2),
+    /// and none is stopped at authentication, or the handlers behind it were never reached and the
+    /// first assertion would hold of nothing.
     /// </summary>
     [Fact]
     public async Task R11_33_NoRequestAnEnrolledAgentCanSendIsAnsweredAsAServerFault()
@@ -158,17 +163,21 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                     if (response is null) continue;
 
                     sent++;
-                    if ((int)response.StatusCode >= 500)
-                        faults.Add($"{(int)response.StatusCode} {method} {target}");
+                    var status = (int)response.StatusCode;
+                    var body = await response.Content.ReadAsStringAsync(ct);
+                    if (status >= 500)
+                        faults.Add($"{status} {method} {target}");
                     else if (response.StatusCode == HttpStatusCode.Unauthorized)
                         unauthenticated.Add($"{method} {target}");
+                    else if (NotAProblem(target, status, body) is { } reason)
+                        faults.Add($"{status} {method} {target}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                 }
             }
         }
 
         Assert.True(sent > routes.Count * Hostile.Length, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
         Assert.True(unauthenticated.Count == 0, "requests an enrolled agent sent were stopped at authentication, so nothing behind it was reached:\n" + string.Join('\n', unauthenticated));
-        Assert.True(faults.Count == 0, "requests an enrolled agent sent answered as a server fault:\n" + string.Join('\n', faults));
+        Assert.True(faults.Count == 0, "requests an enrolled agent sent answered as a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', faults));
     }
 
     /// <summary>
@@ -362,7 +371,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// and answered 500 to anyone. A JSON body is read as UTF-8 only (RFC 8259 §8.1), so one that
     /// declares another charset is refused 415 before it is bound, a quoted <c>"utf-8"</c> included,
     /// since the binder does not unquote it and threw there too; one that declares none, or the bare
-    /// token utf-8 in any case, is bound as before.
+    /// token utf-8 in any case, is bound as before. The binder reads any +json media type as JSON, so
+    /// the guard covers the suffix and the rows pin it (Task 8's second review, I1).
     /// </summary>
     [Theory]
     [InlineData("/v1/agents", "application/json; charset=bogus-xyz", true)]
@@ -377,6 +387,9 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     [InlineData("/v1/posts/batch", "application/json; charset=utf-8", false)]
     [InlineData("/v1/posts/batch", "application/json; charset=UTF-8", false)]
     [InlineData("/v1/posts/batch", "application/json; charset=\"utf-8\"", true)]
+    [InlineData("/v1/agents", "application/vnd.x+json; charset=bogus-xyz", true)]
+    [InlineData("/v1/posts/batch", "application/vnd.x+json; charset=bogus-xyz", true)]
+    [InlineData("/v1/agents", "application/vnd.x+json; charset=utf-8", false)]
     public async Task R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound(string path, string contentType, bool refused)
     {
         var ct = TestContext.Current.CancellationToken;
@@ -399,6 +412,74 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 response.StatusCode != HttpStatusCode.UnsupportedMediaType && (int)response.StatusCode < 500,
                 $"{(int)response.StatusCode} {body}");
         }
+    }
+
+    /// <summary>
+    /// R11.33's problem document (Task 8's second review, I2): a request no handler can read, refused
+    /// by the binder or by routing before any Forum code runs, is answered with the status the
+    /// framework chose and an RFC 9457 problem document, with no detail, so nothing the framework said
+    /// is echoed. It runs against the Development host on purpose: there the binder would throw, and
+    /// the exception page serve its stack trace as text, unless it is told not to.
+    /// </summary>
+    [Theory]
+    [InlineData("POST", "/v1/agents", "application/json", "{", 400, "curia/request/unreadable")]
+    [InlineData("POST", "/v1/posts/batch", "application/json", "[", 400, "curia/request/unreadable")]
+    [InlineData("POST", "/v1/agents", "text/plain", "{}", 415, "curia/request/unsupported-media-type")]
+    [InlineData("GET", "/v1/log/entries/x", "", "", 404, "curia/request/no-route")]
+    public async Task R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument(
+        string method, string path, string contentType, string body, int status, string type)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        if (!string.IsNullOrEmpty(contentType))
+        {
+            request.Content = new ByteArrayContent(Encoding.UTF8.GetBytes(body));
+            Assert.True(request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType));
+        }
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var served = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True((int)response.StatusCode == status, $"{(int)response.StatusCode} {served[..Math.Min(served.Length, 160)]}");
+        using var json = JsonDocument.Parse(served);
+        Assert.Equal(type, json.RootElement.GetProperty("type").GetString());
+        Assert.True(
+            !json.RootElement.TryGetProperty("detail", out var detail) || detail.ValueKind == JsonValueKind.Null,
+            $"the problem document carries a detail: {served}");
+    }
+
+    /// <summary>
+    /// Null when an answer is no 4xx, or is a 4xx in the form its route owes; otherwise why it is not
+    /// (Task 8's second review, I2). The token endpoint answers RFC 6749 §5.2's error object; every
+    /// other route an RFC 9457 problem document, whose type need not be one of <c>curia/</c>'s.
+    /// </summary>
+    private static string? NotAProblem(string path, int status, string body)
+    {
+        if (status < 400 || status > 499) return null;
+
+        JsonElement root;
+        try
+        {
+            using var json = JsonDocument.Parse(body);
+            root = json.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return "not JSON";
+        }
+
+        if (root.ValueKind != JsonValueKind.Object) return "not a JSON object";
+
+        if (path.StartsWith("/oauth", StringComparison.Ordinal))
+        {
+            return root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String
+                ? null
+                : "no string error member";
+        }
+
+        return root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString()!.Length > 0
+            ? null
+            : "no non-empty string type member";
     }
 
     /// <summary>
@@ -435,7 +516,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
 
     /// <summary>
     /// The anonymous requests to a host running as production does, which has no developer exception
-    /// page: no body carries the framework's or a backend's words. The Api test host runs in
+    /// page: no body carries the framework's or a backend's words, and none is a server fault, or a
+    /// 4xx that is no problem document (Task 8's second review, I2). The Api test host runs in
     /// Development, whose exception page serves a binding failure's exception text; what a deployed
     /// Forum serves had not been probed (register D25).
     /// </summary>
@@ -477,18 +559,21 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                     {
                         sent++;
                         var body = await response.Content.ReadAsStringAsync(ct);
+                        var status = (int)response.StatusCode;
                         if (body.Contains("Exception", StringComparison.Ordinal)
                             || body.Contains("Microsoft.AspNetCore", StringComparison.Ordinal)
                             || body.Contains("Npgsql", StringComparison.Ordinal)
-                            || (int)response.StatusCode >= 500)
-                            leaks.Add($"{(int)response.StatusCode} {method} {request.RequestUri}: {body[..Math.Min(body.Length, 160)]}");
+                            || status >= 500)
+                            leaks.Add($"{status} {method} {request.RequestUri}: {body[..Math.Min(body.Length, 160)]}");
+                        else if (NotAProblem(target, status, body) is { } reason)
+                            leaks.Add($"{status} {method} {request.RequestUri}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                     }
                 }
             }
         }
 
         Assert.True(sent > 0, "no request was sent to the production host; the sweep did not run");
-        Assert.True(leaks.Count == 0, "a production host served text it did not compose, or a server fault:\n" + string.Join('\n', leaks));
+        Assert.True(leaks.Count == 0, "a production host served text it did not compose, a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', leaks));
     }
 
     /// <summary>
@@ -604,13 +689,14 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 .Replace("{" + name + "}", "x", StringComparison.Ordinal));
 
     /// <summary>
-    /// For a read, one GET. For a write, fourteen bodies, each made fresh so a request can be sent again:
+    /// For a read, one GET. For a write, fifteen bodies, each made fresh so a request can be sent again:
     /// none; an empty object; an object whose members hold U+0000 and a line break; a form whose
     /// values hold U+0000; a multipart form cut off before its closing boundary; JSON cut off; JSON
     /// nested two hundred deep; JSON whose bytes are not UTF-8; an empty object whose Content-Type
     /// names a charset no encoder knows, one naming UTF-16, one naming a quoted "utf-8", and one
-    /// naming an empty charset (Task 8's review, I1); a multipart form with no boundary; and a form
-    /// whose key is five thousand bytes.
+    /// naming an empty charset (Task 8's review, I1); an empty object declared as a +json media type
+    /// in a charset no encoder knows (Task 8's second review, I1); a multipart form with no boundary;
+    /// and a form whose key is five thousand bytes.
     /// </summary>
     private static IEnumerable<Func<HttpRequestMessage>> Requests(string method, string target)
     {
@@ -639,6 +725,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=utf-16"));
         yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset=\"utf-8\""));
         yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/json; charset="));
+        yield return () => Post(uri, Declared(new StringContent("{}", Encoding.UTF8), "application/vnd.x+json; charset=bogus-xyz"));
         yield return () => Post(uri, Typed(
             new StringContent("--b\r\nContent-Disposition: form-data; name=\"client_id\"\r\n\r\na\r\n--b--\r\n", Encoding.ASCII),
             "multipart/form-data"));
