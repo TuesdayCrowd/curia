@@ -27,6 +27,18 @@ internal static class Oracle
         "curia/authn/missing-dpop-proof",
     ];
 
+    /// <summary>
+    /// The refusals that say a value was stopped by the first parser that read it, so it reached
+    /// nothing behind that parser.
+    /// </summary>
+    internal static readonly string[] ParserRefusals =
+    [
+        "curia/admit/invalid-utf8",
+        "curia/jws/malformed",
+        "curia/authn/malformed",
+        "curia/request/unreadable",
+    ];
+
     /// <summary>Null when the answer passes clauses 1–3; otherwise why it does not.</summary>
     internal static string? Verdict(string pattern, HttpStatusCode status, string body, TimeSpan elapsed, bool warmUp)
     {
@@ -64,6 +76,21 @@ internal static class Oracle
         {
             return string.Empty;
         }
+    }
+
+    /// <summary>
+    /// Whether an answer shows a value got past the first parser that read it: a 2xx, or a problem
+    /// type that is neither a parser's refusal nor the credential's or the signature's (the random
+    /// pass's floor; review of 9411deb).
+    /// </summary>
+    internal static bool PastFirstParser(HttpStatusCode status, string problemType)
+    {
+        ArgumentNullException.ThrowIfNull(problemType);
+        var code = (int)status;
+        if (code is >= 200 and < 300) return true;
+        return problemType.Length > 0
+            && !AuthenticationAndSignatureRefusals.Any(r => problemType.Contains(r, StringComparison.Ordinal))
+            && !ParserRefusals.Any(r => problemType.Contains(r, StringComparison.Ordinal));
     }
 
     /// <summary>Whether an answer shows a variation got past the credential and the signature (clause 5).</summary>

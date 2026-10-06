@@ -94,6 +94,36 @@ internal static class FuzzRun
     /// </summary>
     internal static bool Ledgerable(FuzzFailure failure) => !failure.Budget && !string.Equals(failure.Part, "exemplar", StringComparison.Ordinal);
 
+    /// <summary>The variable naming the JSONL file every pass appends its failures to (spec §4.10, "Files").</summary>
+    internal const string FailuresVariable = "CURIA_FUZZ_FAILURES";
+
+    /// <summary>
+    /// Appends one failure to the <see cref="FailuresVariable"/> file, when it is set, in the closed
+    /// pass's schema: the random and Kestrel passes' failures reach it as the closed pass's do.
+    /// </summary>
+    internal static async Task AppendFailureAsync(
+        string route, string variant, string part, string variation, string copy, int status, string problemType, long elapsedMs, bool ledgered, CancellationToken ct)
+    {
+        if (Environment.GetEnvironmentVariable(FailuresVariable) is not { } failures) return;
+        await File.AppendAllTextAsync(failures, FailureRow(route, variant, part, variation, copy, status, problemType, elapsedMs, ledgered) + "\n", ct);
+    }
+
+    /// <summary>One line of the failures file; the schema exists only here.</summary>
+    private static string FailureRow(
+        string route, string variant, string part, string variation, string copy, int status, string problemType, long elapsedMs, bool ledgered) =>
+        new JsonObject
+        {
+            ["route"] = route,
+            ["variant"] = variant,
+            ["part"] = part,
+            ["variation"] = variation,
+            ["copy"] = copy,
+            ["status"] = status,
+            ["problemType"] = problemType,
+            ["elapsedMs"] = elapsedMs,
+            ["ledgered"] = ledgered,
+        }.ToJsonString();
+
     /// <summary>The variation ids that leave an envelope with no canonical form; see <see cref="MayBeSuperseded"/>.</summary>
     internal static readonly IReadOnlySet<string> NoCanonicalForm = new HashSet<string>(StringComparer.Ordinal) { "nul-raw", "lone-high", "lone-high-raw", "lone-low", "lone-low-raw", "bad-utf8", "overlong", "1e400" };
 
@@ -420,7 +450,8 @@ internal static class FuzzRun
                     lines.Add($"ledger: {row.Register} is not D33-<n>");
                 if (string.Equals(row.Part, "exemplar", StringComparison.Ordinal))
                     lines.Add($"ledger: {row.Register} names an exemplar send, which may never be ledgered");
-                if (!matched.Contains(row))
+                // A random-N row is the random pass's to judge stale (review of 9411deb).
+                if (!ExpectedFaults.IsRandom(row) && !matched.Contains(row))
                     lines.Add($"ledger: {row.Register} ({row.Route} [{row.Variant}] {row.Part} {row.Variation} {row.Copy}) was not observed failing (stale)");
             }
 
@@ -443,26 +474,17 @@ internal static class FuzzRun
                 await File.AppendAllTextAsync(timings, slowest.ToString(), ct);
             }
 
-            if (Environment.GetEnvironmentVariable("CURIA_FUZZ_FAILURES") is { } failures)
+            if (Environment.GetEnvironmentVariable(FailuresVariable) is { } failures)
             {
                 var text = new StringBuilder();
                 foreach (var f in Failures)
                 {
-                    text.Append(new JsonObject
-                    {
-                        ["route"] = f.Route,
-                        ["variant"] = f.Variant,
-                        ["part"] = f.Part,
-                        ["variation"] = f.Variation,
-                        ["copy"] = f.Copy,
-                        ["status"] = f.Status,
-                        ["problemType"] = f.ProblemType,
-                        ["elapsedMs"] = f.ElapsedMs,
-                        ["ledgered"] = Ledgerable(f) && Ledgered(f) is not null,
-                    }.ToJsonString()).Append('\n');
+                    text.Append(FailureRow(f.Route, f.Variant, f.Part, f.Variation, f.Copy, f.Status, f.ProblemType, f.ElapsedMs, Ledgerable(f) && Ledgered(f) is not null))
+                        .Append('\n');
                 }
 
-                await File.WriteAllTextAsync(failures, text.ToString(), ct);
+                // Appended, never truncated: the random and Kestrel passes append to the same file, in whatever order the classes run, so whoever sets the variable deletes the file before the run.
+                await File.AppendAllTextAsync(failures, text.ToString(), ct);
             }
 
             if (Environment.GetEnvironmentVariable("CURIA_FUZZ_ANSWERS") is { } answers)

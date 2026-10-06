@@ -23,7 +23,9 @@ public sealed class KestrelForumFixture : ForumFixture
 
 /// <summary>
 /// R14.10's Kestrel pass (spec §4.10): raw path bytes, percent-encoded and not, written into the
-/// request line of every route with a path parameter, over a <see cref="TcpClient"/>.
+/// request line of every route with a path parameter, over a <see cref="TcpClient"/>. It asserts that a
+/// row of every route gets past Kestrel's parser. Whether the route's own path parser is reached is the
+/// closed pass's clause 5, which sends authenticated, percent-encoded path variations.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -61,7 +63,7 @@ public sealed class RequestFuzzKestrelTests(KestrelForumFixture forum) : IClassF
         foreach (var (method, pattern, parameters) in routes)
         {
             var route = $"{method} {pattern}";
-            var reached = false;
+            var passedKestrel = false;
             var answers = new List<string>();
             foreach (var parameter in parameters)
             {
@@ -70,18 +72,24 @@ public sealed class RequestFuzzKestrelTests(KestrelForumFixture forum) : IClassF
                     var stopwatch = Stopwatch.StartNew();
                     var (status, body) = await SendAsync(address, method, PathWith(pattern, parameter, bytes), ct);
                     stopwatch.Stop();
-                    slowest[route] = Math.Max(slowest.GetValueOrDefault(route), (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds));
+                    var ms = (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds);
+                    slowest[route] = Math.Max(slowest.GetValueOrDefault(route), ms);
                     answers.Add($"{name} {status.ToString(CultureInfo.InvariantCulture)}");
                     if (status is < 100 or >= 500)
+                    {
                         failures.Add($"{route} path:{parameter} {name}: {status.ToString(CultureInfo.InvariantCulture)}, a server fault or no status line");
 
-                    // Kestrel's own refusal is a 400 with an empty body; a handler's 4xx is a problem document.
-                    if (status is >= 100 and < 500 && !(status == 400 && body.Length == 0)) reached = true;
+                        // No problem type: the body may be chunk-framed, and this pass does not de-chunk it.
+                        await FuzzRun.AppendFailureAsync(route, "kestrel", $"path:{parameter}", name, "plain", status, string.Empty, ms, ledgered: false, ct);
+                    }
+
+                    // Kestrel's own refusal is a 400 with an empty body. Any other answer, a 5xx included, means the request got past Kestrel's parser into the application, though not necessarily to the route's path parser: authentication, the body binder or routing may answer first.
+                    if (status >= 100 && !(status == 400 && body.Length == 0)) passedKestrel = true;
                 }
             }
 
-            if (!reached)
-                failures.Add($"{route}: Kestrel refused everything, so no row reached a handler ({string.Join(", ", answers)})");
+            if (!passedKestrel)
+                failures.Add($"{route}: Kestrel refused every row, so no path byte got past its parser ({string.Join(", ", answers)})");
             TestContext.Current.TestOutputHelper?.WriteLine($"{route}: {string.Join(", ", answers)}");
         }
 

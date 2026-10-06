@@ -33,6 +33,14 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
     internal const int Draws = 2_000;
 
     /// <summary>
+    /// The floor on JSON and JWS draws past the first parser: at least one in <c>Divisor</c>. Measured
+    /// on the first run with the per-string generator (review of 9411deb): 643 of 1,151, a fraction of
+    /// 0.559; half of it is 0.279, and 4 is the smallest integer whose reciprocal is at most that. The
+    /// per-unit generator before it measured 87 of 1,100 (0.079) with the same seed.
+    /// </summary>
+    internal const int Divisor = 4;
+
+    /// <summary>
     /// The only pass that combines hostile parts: one draw can land in a JWS whose claims are already
     /// hostile, or beside a header another part's value made strange. The closed pass varies one part
     /// at a time against a well-formed exemplar, so nothing else here sends two hostile parts at once.
@@ -60,6 +68,10 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
         var statuses = new SortedDictionary<int, int>();
         var sent = 0;
         var unsent = 0;
+        var jsonOrJws = 0;
+        var pastParser = 0;
+        var matchedRandom = new HashSet<FaultRow>();
+        int? stoppedAt = null;
         string? failure = null;
 
         for (var draw = 0; draw < Draws && failure is null; draw++)
@@ -127,25 +139,51 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
             statuses[status] = statuses.GetValueOrDefault(status) + 1;
             var ms = (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds);
             if (!warmUp) slowest[row.Route] = Math.Max(slowest.GetValueOrDefault(row.Route), ms);
+            var problemType = Oracle.ProblemType(row.Pattern, body);
+            if (part.Kind is PartKind.Json or PartKind.Jws)
+            {
+                jsonOrJws++;
+                if (thrown is null && Oracle.PastFirstParser((HttpStatusCode)status, problemType)) pastParser++;
+            }
 
             var reason = thrown is null
                 ? Oracle.Verdict(row.Pattern, (HttpStatusCode)status, body, stopwatch.Elapsed, warmUp)
                 : thrown is nameof(TaskCanceledException) ? Oracle.Budget(stopwatch.Elapsed) + " (the client's 120 s timeout)" : "the send threw " + thrown;
             if (reason is null) continue;
 
-            var label = "random-" + draw.ToString(CultureInfo.InvariantCulture);
-            var ledgered = ExpectedFaults.Rows.Any(r =>
+            var label = ExpectedFaults.RandomPrefix + draw.ToString(CultureInfo.InvariantCulture);
+            var ledgeredRow = ExpectedFaults.Rows.FirstOrDefault(r =>
                 r.Route == row.Route && r.Variant == row.Variant && r.Part == part.Address && r.Variation == label && r.Copy == Copies.Wire(copy));
-            if (ledgered && !reason.StartsWith(Oracle.OverBudget, StringComparison.Ordinal)) continue;
+            var ledgered = ledgeredRow is not null && !reason.StartsWith(Oracle.OverBudget, StringComparison.Ordinal);
+            await FuzzRun.AppendFailureAsync(row.Route, row.Variant, part.Address, label, Copies.Wire(copy), status, problemType, ms, ledgered, ct);
+            if (ledgered)
+            {
+                matchedRandom.Add(ledgeredRow!);
+                continue;
+            }
 
+            stoppedAt = draw;
             failure =
                 $"seed {Seed}, draw {label} of {Draws.ToString(CultureInfo.InvariantCulture)}: " +
                 $"{status.ToString(CultureInfo.InvariantCulture)} {row.Route} [{row.Variant}] {part.Address} {Copies.Wire(copy)}: {reason} " +
                 $"({ms.ToString(CultureInfo.InvariantCulture)} ms); the value: {text.Describe()}";
         }
 
+        // A random-N ledger row is this pass's to judge stale; the closed pass judges every other row (review of 9411deb).
+        var stale = new List<string>();
+        if (stoppedAt is { } stop)
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine($"stale check skipped: the pass stopped at draw {stop.ToString(CultureInfo.InvariantCulture)}");
+        }
+        else
+        {
+            foreach (var row in ExpectedFaults.Rows.Where(r => ExpectedFaults.IsRandom(r) && !matchedRandom.Contains(r)))
+                stale.Add($"ledger: {row.Register} ({row.Route} [{row.Variant}] {row.Part} {row.Variation} {row.Copy}) was not observed failing in the random pass (stale)");
+        }
+
         TestContext.Current.TestOutputHelper?.WriteLine(
-            $"seed {Seed}: {sent.ToString(CultureInfo.InvariantCulture)} sent, {unsent.ToString(CultureInfo.InvariantCulture)} unsent; answers: " +
+            $"seed {Seed}: {sent.ToString(CultureInfo.InvariantCulture)} sent, {unsent.ToString(CultureInfo.InvariantCulture)} unsent; " +
+            $"{pastParser.ToString(CultureInfo.InvariantCulture)} of {jsonOrJws.ToString(CultureInfo.InvariantCulture)} JSON and JWS draws past the first parser; answers: " +
             string.Join(", ", statuses.Select(s => $"{s.Key.ToString(CultureInfo.InvariantCulture)} x{s.Value.ToString(CultureInfo.InvariantCulture)}")));
         if (Environment.GetEnvironmentVariable("CURIA_FUZZ_TIMINGS") is { } timings)
         {
@@ -156,6 +194,10 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
         }
 
         Assert.True(failure is null, failure);
+        Assert.True(stale.Count == 0, string.Join('\n', stale));
+        Assert.True(
+            pastParser * Divisor >= jsonOrJws,
+            $"seed {Seed}: {pastParser.ToString(CultureInfo.InvariantCulture)} of {jsonOrJws.ToString(CultureInfo.InvariantCulture)} JSON and JWS draws got past the first parser; the pass combines nothing past it");
         Assert.True(
             unsent * 10 <= Draws,
             $"seed {Seed}: {unsent.ToString(CultureInfo.InvariantCulture)} of {Draws.ToString(CultureInfo.InvariantCulture)} draws could not be built, so the pass sent too little to mean anything");
@@ -194,8 +236,29 @@ internal sealed class HostileText
 
     private static Gen<Unit> CodePoints(Gen<int> gen) => gen.Select(c => new Unit(c, null));
 
-    /// <summary>Weighted toward each hostile class, with printable ASCII the largest single class.</summary>
-    private static readonly Gen<Unit> UnitGen = Gen.Frequency(
+    /// <summary>
+    /// Every class in spec §4.10's list but the two that no decoder accepts, weighted toward each
+    /// hostile class, with printable ASCII the largest single class. C0, U+0000 included, stays: an
+    /// escaped NUL passes the JSON parser and reaches the reader after it.
+    /// </summary>
+    private static readonly Gen<Unit> CleanUnitGen = Gen.Frequency(
+        (2, CodePoints(Gen.Int[0x00, 0x1F])),                                             // C0
+        (1, CodePoints(Gen.Int[0x80, 0x9F])),                                             // C1
+        (1, CodePoints(Gen.Int[0xFDD0, 0xFDEF])),                                         // noncharacters
+        (1, CodePoints(Gen.Int[0, 16].Select(Gen.Int[0, 1], (plane, low) => (plane << 16) | 0xFFFE | low))), // noncharacters, plane ends
+        (2, CodePoints(Gen.OneOfConst(Format))),                                          // Cf
+        (1, CodePoints(Gen.OneOfConst(0x2028, 0x2029))),                                  // Zl, Zp
+        (2, CodePoints(Gen.Int[0x0300, 0x036F])),                                         // combining marks
+        (2, CodePoints(Gen.Int[0x10000, 0x10FFFF])),                                      // astral
+        (6, CodePoints(Gen.Int[0x20, 0x7E])));                                            // printable ASCII
+
+    /// <summary>
+    /// The full mixture: every class in spec §4.10's list, raw invalid bytes and lone surrogates among
+    /// them. Either one refuses the whole value at the first parser (escaped or raw), so they are drawn
+    /// in one string in five (<see cref="Generator"/>), and the other four in five can pass that parser
+    /// (review of 9411deb: drawn per unit at 2 of 22 each, they were in nearly every string).
+    /// </summary>
+    private static readonly Gen<Unit> DecodingHostileUnitGen = Gen.Frequency(
         (2, CodePoints(Gen.Int[0x00, 0x1F])),                                             // C0
         (1, CodePoints(Gen.Int[0x80, 0x9F])),                                             // C1
         (2, CodePoints(Gen.Int[0xD800, 0xDFFF])),                                         // lone surrogates
@@ -211,8 +274,20 @@ internal sealed class HostileText
     /// <summary>A length in bytes: 0 to 300, and one draw in twenty between 4 KiB and 64 KiB.</summary>
     private static readonly Gen<int> LengthGen = Gen.Frequency((19, Gen.Int[0, 300]), (1, Gen.Int[4_096, 65_536]));
 
-    /// <summary>A string of at most the drawn length in bytes: units are drawn, then the longest prefix within the length is kept.</summary>
-    internal static readonly Gen<HostileText> Generator = LengthGen.SelectMany(n => UnitGen.Array[n]).Select(units =>
+    // Properties, not fields, so falsification F27 (plan Task A6), which leaves CleanStrings unread, still builds (a field unread is CA1823, an error here).
+    private static Gen<HostileText> CleanStrings => LengthGen.SelectMany(n => CleanUnitGen.Array[n]).Select(WithinLength);
+
+    private static Gen<HostileText> DecodingHostileStrings => LengthGen.SelectMany(n => DecodingHostileUnitGen.Array[n]).Select(WithinLength);
+
+    /// <summary>
+    /// A string of at most the drawn length in bytes. Every class in spec §4.10's list is still drawn,
+    /// and raw bytes and lone surrogates are drawn in one string in five, so the other four in five can
+    /// pass the first parser.
+    /// </summary>
+    internal static readonly Gen<HostileText> Generator = Gen.Frequency((4, CleanStrings), (1, DecodingHostileStrings));
+
+    /// <summary>Units are drawn, as many as the length, then the longest prefix within the length in bytes is kept.</summary>
+    private static HostileText WithinLength(Unit[] units)
     {
         var limit = units.Length;
         var kept = new List<Unit>(units.Length);
@@ -225,7 +300,7 @@ internal sealed class HostileText
         }
 
         return new HostileText(kept);
-    });
+    }
 
     /// <summary>The value at <paramref name="part"/>, in that position's rendering (spec §4.10).</summary>
     internal VariedValue At(Part part)

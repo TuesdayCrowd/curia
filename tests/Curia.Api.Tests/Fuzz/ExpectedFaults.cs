@@ -17,5 +17,18 @@ internal sealed record FaultRow(string Route, string Variant, string Part, strin
 /// </summary>
 internal static class ExpectedFaults
 {
+    /// <summary>The variation prefix of a row the random pass found: <c>random-N</c>, N the draw.</summary>
+    internal const string RandomPrefix = "random-";
+
     internal static readonly ImmutableArray<FaultRow> Rows = [];
+
+    /// <summary>
+    /// Whether a row is the random pass's: a random row is judged by the random pass, stale included,
+    /// and every other row by the closed pass (review of 9411deb).
+    /// </summary>
+    internal static bool IsRandom(FaultRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.Variation.StartsWith(RandomPrefix, StringComparison.Ordinal);
+    }
 }
