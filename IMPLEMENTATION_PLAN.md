@@ -4477,22 +4477,33 @@ entry is written):
 record every 500 it finds here as this entry's instances. They are the stage's baseline, and the
 evidence that the class was open at the merge.
 
-- **The red baseline (Task A1, 2026-10-06): no instance.** The closed pass at the base (2c26477), 30
-  rows over 23 routes, 35,004 planned sends, each sent or counted unsent, answered no 5xx and no 4xx that is no problem
-  document, so the ledger (`tests/Curia.Api.Tests/Fuzz/ExpectedFaults.cs`) holds no row and D33 has
-  no `D33-<n>` yet. It failed on 91 budget rows, all D32's, left failing for Task A3: every
-  `long-r-262144` and `long-comment-262144` variation, and some `long-self-262144` ones, of a string
-  the screener reads -- 88 envelope strings across the seven `POST /v1/posts` rows, re-signed, and the
-  flag's `json:/rationale` three times (about 7.3 s each for `r` and `self`, 2.9 s for `<!--`, against
-  2 s). Step 4 failed on 91 budget rows and Step 6's rerun on 92; the one row that flapped,
-  `201 POST /v1/posts [verification] json:/envelope/nonce long-self-262144 re-signed: over budget: 3081 ms against 2000 ms`,
-  is D32 and not ledgered (a `long-self` of a Fresh part repeats a value regenerated on every send).
-  Watch item for A3 Step 7: a difference in status or problem type on a Fresh-part `long-*` variation
-  between `/tmp/answers-A3.json` and `/tmp/answers-A1.json` is a finding (content-dependent screening,
-  possibly a secret-scanner false positive on random hex), never a flap. The coverage of reads, the
-  reach clause and the restart check passed. D25's fifteen fixes held
-  on the base, which is why A5 must revert them to see the fuzzer go red. Observed beside it, and not a
-  fault the oracle names: a flag is accepted against any aggregate that has events, so the enrollment
+- **The red baseline (Task A1, 2026-10-06; regenerated after the review of 7bf1160): no instance.**
+  The closed pass at the base (2c26477), with the fuzzer as the review rounds left it, 30 rows over
+  23 routes and 35,314 planned sends, each sent, counted unsent, or counted superseded, answered no
+  5xx and no 4xx that is no problem document. So the ledger
+  (`tests/Curia.Api.Tests/Fuzz/ExpectedFaults.cs`) holds no row, and D33 has no `D33-<n>` yet. A
+  superseded copy is a re-signed copy of an envelope variation with no canonical form: 520 in the
+  pass, across nine variation ids (nul-raw, lone-high, lone-high-raw, lone-low, lone-low-raw,
+  bad-utf8 and overlong, 72 each; 1e400, 9; `removed` of the `json:/envelope` root, 7), bounded by
+  `R14_10_OnlyAVariationWithNoCanonicalFormIsSuperseded`. It failed only on budget rows, all D32's,
+  left failing for Task A3: 101 in the first run and 103 in the second. The two extra rows are
+  comment and verification `json:/envelope/nonce long-self-262144 re-signed`, a Fresh part. They are
+  every `long-r-262144` and `long-comment-262144` variation, and some `long-self-262144` ones, of a
+  string the screener reads: envelope strings across the seven `POST /v1/posts` rows, re-signed, and
+  the flag's `json:/rationale` three times (about 8 s for `r` and `self` and 3 s for `<!--`, against
+  2 s). The plan's Task A1 Step 6 holds the second run's lines verbatim. Watch item for A3 Step 7: a
+  difference in status or problem type on a Fresh-part `long-*` variation between
+  `/tmp/answers-A3.json` and `/tmp/answers-A1.json` is a finding (content-dependent screening,
+  possibly a secret-scanner false positive on random hex), never a flap. The coverage of reads, now
+  per route and both ways with `RefusedQuery`, the reach clause and the restart check passed. The
+  restart check on the `vote` row asks only `GET /health`, because a vote is never served (R8.55).
+  D25's fifteen fixes held on the base, which is why A5 must revert them to see the fuzzer go red.
+  The first baseline, at 7bf1160 (35,004 sends, 91 and 92 budget rows), is withdrawn, not merely
+  superseded. It sent 15,991 re-signed copies of raw-byte envelope variations carrying the original
+  signature and credited them with reach. Its query coverage compared names only, so `/v1/search`'s
+  reads made nine `RequestReadQuery` entries unfalsifiable, and `/v1/search`'s `verification` and
+  `environment_version` reads went unlisted. Its "coverage passed" was a probe that could not fail.
+  Observed beside it, and not a fault the oracle names: a flag is accepted against any aggregate that has events, so the enrollment
   row's accepted `agent_id` variations could be flagged as though they were posts
   (`RaiseFlag.cs:109`–`:114` reads the stream and never asks that it is a post's).
 

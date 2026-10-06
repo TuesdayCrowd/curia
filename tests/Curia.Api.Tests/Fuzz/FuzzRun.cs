@@ -94,6 +94,23 @@ internal static class FuzzRun
     /// </summary>
     internal static bool Ledgerable(FuzzFailure failure) => !failure.Budget && !string.Equals(failure.Part, "exemplar", StringComparison.Ordinal);
 
+    /// <summary>The variation ids that leave an envelope with no canonical form; see <see cref="MayBeSuperseded"/>.</summary>
+    internal static readonly IReadOnlySet<string> NoCanonicalForm = new HashSet<string>(StringComparer.Ordinal) { "nul-raw", "lone-high", "lone-high-raw", "lone-low", "lone-low-raw", "bad-utf8", "overlong", "1e400" };
+
+    /// <summary>
+    /// Whether a re-signed copy may be superseded (clause 5): only a variation with no canonical form
+    /// (a lone surrogate, escaped or raw, or a string that is not UTF-8, which have no NFC/JCS form;
+    /// 1e400, which has no IEEE double), or removing the signed root itself, which leaves nothing to
+    /// sign. A superseded copy sits outside the unsent ceiling, so any other one is a renderer
+    /// regression moving a legitimate variation out of the signed-envelope test (review of 0277b97).
+    /// </summary>
+    internal static bool MayBeSuperseded(Part part, Variation variation, string signedPointer)
+    {
+        ArgumentNullException.ThrowIfNull(part);
+        ArgumentNullException.ThrowIfNull(variation);
+        return NoCanonicalForm.Contains(variation.Id) || (variation.Id == "removed" && part.Address == "json:" + signedPointer);
+    }
+
     /// <summary>The outcome of a closed pass.</summary>
     internal sealed record Outcome(IReadOnlyList<string> Failures, IReadOnlyList<FuzzFailure> Answered, IReadOnlyList<string> Plan);
 
@@ -182,7 +199,7 @@ internal static class FuzzRun
         }
 
         if (pass.SupersededTotal == 0)
-            pass.Lines.Add("superseded: no re-signed copy was superseded in the whole pass, so no raw-byte variation reached a signed envelope");
+            pass.Lines.Add("superseded: no re-signed copy was superseded in the whole pass, so no variation without a canonical form (a raw or escaped lone surrogate, invalid UTF-8, 1e400, or the signed root removed) reached a signed envelope");
 
         await pass.WriteFilesAsync(timings, ct);
         return new Outcome(pass.Judge(), pass.Failures, plan);
@@ -288,6 +305,8 @@ internal static class FuzzRun
                 state.Superseded[part.Address] = state.Superseded.GetValueOrDefault(part.Address) + 1;
                 state.SupersededTotal++;
                 SupersededTotal++;
+                if (!MayBeSuperseded(part, variation!, ((JsonBody)model.Body!).SignedPointer!))
+                    Lines.Add($"superseded: {row.Route} [{row.Variant}] {part.Address} {variation!.Id} has no re-signed copy, and it is not a variation without a canonical form");
                 return;
             }
             catch (Exception) when (part is not null)

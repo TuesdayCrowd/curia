@@ -124,6 +124,65 @@ public sealed class RequestFuzzClosedTests(FuzzForumFixture forum) : IClassFixtu
     }
 
     /// <summary>
+    /// Spec §4.10, clause 5: a superseded copy sits outside the unsent ceiling, so the set of
+    /// variations that may be superseded is bounded here against a list stated by hand, not against
+    /// FuzzRun's own constant (review of 0277b97). Over the seven POST /v1/posts rows: 520 in all,
+    /// 72 each for nul-raw, lone-high, lone-high-raw, lone-low, lone-low-raw, bad-utf8 and overlong,
+    /// 9 for 1e400, and 7 for removed of the json:/envelope root.
+    /// </summary>
+    [Fact]
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "A copy no request can be built for is unsent, which clause 5 bounds elsewhere; this fact counts only superseded copies.")]
+    public async Task R14_10_OnlyAVariationWithNoCanonicalFormIsSuperseded()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var context = FuzzContext.Offline(forum);
+        var rows = Exemplars.All.Where(r => r.Route == "POST /v1/posts").ToList();
+        Assert.True(rows.Count == 7, $"expected the seven POST /v1/posts rows, found {rows.Count}");
+
+        var superseded = new List<(string Variant, string Address, string Variation, bool Allowed)>();
+        foreach (var row in rows)
+        {
+            var model = await row.Build(context, ct);
+            var signed = ((JsonBody)model.Body!).SignedPointer!;
+            foreach (var (part, variation, copy) in Mutator.Plan(model))
+            {
+                if (copy != CopyKind.ReSigned) continue;
+                var value = variation.Make(part, model.ValueOf(part));
+                try
+                {
+                    using var request = model.Render(part, value, copy);
+                }
+                catch (NotReSignableException)
+                {
+                    superseded.Add((row.Variant, part.Address, variation.Id, FuzzRun.MayBeSuperseded(part, variation, signed)));
+                }
+                catch (Exception)
+                {
+                    // Unsent (no request can be built); not superseded, and clause 5's ceiling holds it.
+                }
+            }
+        }
+
+        var stated = new HashSet<string>(StringComparer.Ordinal) { "nul-raw", "lone-high", "lone-high-raw", "lone-low", "lone-low-raw", "bad-utf8", "overlong", "1e400" };
+        var onMembers = superseded.Where(s => s.Address != "json:/envelope").Select(s => s.Variation).ToHashSet(StringComparer.Ordinal);
+        var onRoot = superseded.Where(s => s.Address == "json:/envelope").ToList();
+        var problems = new List<string>();
+        problems.AddRange(onMembers.Except(stated).Order(StringComparer.Ordinal).Select(v => $"superseded, and not in the stated list: {v}"));
+        problems.AddRange(stated.Except(onMembers).Order(StringComparer.Ordinal).Select(v => $"in the stated list, and never superseded: {v}"));
+        problems.AddRange(onRoot.Where(s => s.Variation != "removed").Select(s => $"superseded on the root other than by removed: {s.Variant} {s.Variation}"));
+        problems.AddRange(rows.Where(r => onRoot.Count(s => s.Variant == r.Variant && s.Variation == "removed") != 1)
+            .Select(r => $"removed of json:/envelope is not superseded exactly once on {r.Variant}"));
+        problems.AddRange(superseded.Where(s => !s.Allowed).Select(s => $"FuzzRun.MayBeSuperseded refuses {s.Variant} {s.Address} {s.Variation}"));
+        if (superseded.Count != 520)
+        {
+            problems.Add($"{superseded.Count} superseded, not 520: " + string.Join(", ", superseded.GroupBy(s => s.Variation)
+                .OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Key} {g.Count()}")));
+        }
+
+        Assert.True(problems.Count == 0, "superseded copies outside the bound:\n" + string.Join('\n', problems));
+    }
+
+    /// <summary>
     /// Spec §4.10: a clause-4 failure is an exemplar defect and never a ledger row, and a budget
     /// failure (D32) never one either; a variation's server fault may be.
     /// </summary>
