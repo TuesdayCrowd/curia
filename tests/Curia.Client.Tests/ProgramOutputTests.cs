@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Xunit;
@@ -19,6 +20,10 @@ namespace Curia.Client.Tests;
 /// <c>EF BB BF</c> is U+FEFF, kept, since a decoder that applies the rule does not drop it; <c>C3</c>
 /// followed by <c>28</c> is a lead byte cut short, one U+FFFD, then <c>(</c>; and <c>F0 9F 98</c> is
 /// one maximal subpart of a four-byte sequence, so one U+FFFD.</para>
+///
+/// <para>The third theory pins both of <c>ProgramOutput</c>'s readers on both streams, because the
+/// architecture fact allows the process's own getters inside <c>ProgramOutput</c> and so cannot tell a
+/// reader that decodes by the rule from one that detects a mark (Task 10's fix review).</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -79,5 +84,89 @@ public sealed class ProgramOutputTests : IDisposable
 
         Assert.False(described.TryGetValue(out _, out var error), "the signer exited 1, and Describe accepted it");
         Assert.Contains("exited 1: " + expected + ">", error!.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>Every row of <see cref="Rows"/>, once through each of <c>ProgramOutput</c>'s readers.</summary>
+    public static TheoryData<string, string, string> Streams()
+    {
+        var streams = new TheoryData<string, string, string>();
+        foreach (var row in Rows())
+        {
+            foreach (var reader in new[] { "Read", "ReadAsync" })
+                streams.Add(row.Data.Item1, row.Data.Item2, reader);
+        }
+
+        return streams;
+    }
+
+    /// <summary>
+    /// The same rule through both of <c>ProgramOutput</c>'s readers, on both streams: a child that writes
+    /// the row to stdout then <c>&gt;</c>, and the row to stderr then <c>&lt;</c>, with nothing before
+    /// either, and exits 0. Detection fires only at offset 0, so a reader that detected a mark on either
+    /// stream would show the row decoded another way.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Streams))]
+    public async Task R10_64_BothOfAProcesssStreamsAreDecodedAsUtf8WhateverTheyBeginWith(string hex, string expected, string reader)
+    {
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("the child is a POSIX script run through python3");
+
+        var ct = TestContext.Current.CancellationToken;
+        var script = Path.Combine(_directory, "child");
+        await File.WriteAllTextAsync(
+            script,
+            "#!/usr/bin/env python3\n"
+            + "import sys\n"
+            + $"sys.stdout.buffer.write(bytes.fromhex('{hex}') + b'>')\n"
+            + $"sys.stderr.buffer.write(bytes.fromhex('{hex}') + b'<')\n"
+            + "sys.stdout.buffer.flush()\n"
+            + "sys.stderr.buffer.flush()\n"
+            + "sys.exit(0)\n",
+            Encoding.ASCII,
+            ct);
+        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        using var process = Process.Start(new ProcessStartInfo(script)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        }) ?? throw new InvalidOperationException("the child did not start");
+
+        var result = reader == "Read"
+            ? ProgramOutput.Read(process)
+            : await ProgramOutput.ReadAsync(process, ct);
+        await process.WaitForExitAsync(ct);
+
+        Assert.Equal((expected + ">", expected + "<"), result);
+    }
+
+    /// <summary>
+    /// A signer whose <c>describe</c> output begins with <c>EF BB BF</c> and is otherwise a well-formed
+    /// description is refused: the mark is kept as U+FEFF, and no JSON text begins with it. A decoder that
+    /// drops the mark would accept this signer; case 89 is its falsification.
+    /// </summary>
+    [Fact]
+    public void R10_64_ASignerWhoseOutputBeginsWithAByteOrderMarkIsRefused()
+    {
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("the signer is a POSIX script run through python3");
+
+        var script = Path.Combine(_directory, "signer");
+        File.WriteAllText(
+            script,
+            "#!/usr/bin/env python3\n"
+            + "import sys\n"
+            + "sys.stdout.buffer.write(b'\\xef\\xbb\\xbf{\"alg\":\"ES256\",\"kid\":\"k\",\"public_key\":\"AAAA\"}\\n')\n"
+            + "sys.stdout.buffer.flush()\n"
+            + "sys.exit(0)\n",
+            Encoding.ASCII);
+        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        var described = ExternalSigner.Describe(script);
+
+        Assert.False(described.TryGetValue(out _, out var error), "a signer whose output began with a byte order mark was accepted");
+        Assert.Equal("curia/client/signer-unusable", error!.Type);
     }
 }

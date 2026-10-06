@@ -436,10 +436,12 @@ public static class ForumEndpoints
         if ((ControlCharacter(request.AgentId, "agent_id") ?? ControlCharacter(request.Kid, "kid")) is { } controlError)
             return Problem(StatusCodes.Status400BadRequest, controlError);
 
-        // A blank identifier made of characters outside Cc, Cf, Zl and Zp -- U+0020, U+00A0, U+3000
-        // (Zs) -- is still refused as required. Asked after R4.37, so an identifier made only of a
-        // control or separator character that is also white space (U+000A, U+0085, U+2028) is refused
-        // by R4.37's name, which is its true reason, and not as missing (Task 10's review).
+        // A blank identifier of characters outside Cc, Cf, Zl and Zp (Zs: U+0020, U+00A0, U+3000) is
+        // still refused here, as required, unless an earlier check names a truer reason: an agent_id of
+        // U+2000 or U+2001, which NFC maps to U+2002 and U+2003, is refused by R4.36's name. Asked after
+        // R4.37, so an identifier made only of a control or separator character that is also white
+        // space (U+000A, U+0085, U+2028) is refused by R4.37's name, which is its true reason, and not
+        // as missing (Task 10's review).
         if (string.IsNullOrWhiteSpace(request.AgentId) || string.IsNullOrWhiteSpace(request.Kid))
             return Results.BadRequest(new Problem("curia/enroll/invalid", "agent_id and kid are required", null));
 
