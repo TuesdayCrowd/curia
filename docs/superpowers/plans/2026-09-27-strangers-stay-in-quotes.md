@@ -348,7 +348,9 @@ one, or is not seen. R10.63 keeps a reference reader safe from such a value; thi
 from accepting new ones for every other reader, and from carrying them in its own records. It refuses
 a property and chooses no form (R4.5): white space, a letter from another script that only looks like
 a Latin one, and a character outside these categories that is not seen, are not refused. An identity
-enrolled before it keeps its rows (R4.19, R4.32), and R10.63 is what a reader has against it.
+enrolled before it keeps its rows (R4.19, R4.32), and R10.63 is what a reader has against it; the
+route refuses its re-announcement with the rest of its text checks, so a lost key row of its is not
+registered again (R4.31 rev., R4.34).
 
 ### The second finding: a server's own words, and a server fault anyone can cause
 
@@ -420,7 +422,7 @@ request, and this requirement does not change it.
 | §11.5, R11.18 | Annotated. "Unmodified" is kept member by member: a reference reader writes each member as R10.64's literal, which decodes to the value served, and writes a standing warning it does not hold as a literal beneath its own copy (R10.63). |
 | §6.5, R6.19 | Annotated. `curia-testis` prints the author, `kid` and algorithm it verified, a signed head's `kid`, algorithm and timestamp, and the values it names in a refusal, as display literals. |
 | §5.5, R5.12 | Cross-referenced to R11.33, which applies its "log the specific reason internally" to every server fault. |
-| This document's G16, "What this costs" 6 | Annotated. An identifier refused since R4.36 or R4.37 that was enrolled before either keeps its rows, and a reference reader quotes it (R10.63). |
+| This document's G16, "What this costs" 6 | Annotated. An identifier refused since R4.36 or R4.37 that was enrolled before either keeps its rows, cannot be re-announced, and has a lost key row of its registered again by neither rule's route; a reference reader quotes it (R10.63). |
 | `conformance/README.md` | The `display/` family: its profile, `display-literal`, and its shape, code points in and a literal's bytes out; and why it carries no version. |
 
 ### What this costs
@@ -450,7 +452,11 @@ request, and this requirement does not change it.
    variation selector and U+034F (Mn), a Hangul filler (Lo) and an unassigned code point such as
    U+2065 (Cn) enroll, and R10.64 is what shows them. The same character percent-encoded is not
    refused, and the refusal says so; admitting joiners in context, and refusing what is not seen
-   whatever its category, are decisions about R4.5's form.
+   whatever its category, are decisions about R4.5's form. An identity enrolled before R4.37 whose
+   identifier or `kid` holds such a character keeps its rows (R4.19, R4.32), but, as this document's
+   G16 says of R4.36 ("What this costs" 6), the route refuses its re-announcement with the rest of
+   its text checks, so it cannot re-announce its enrollment and a lost key row of its is not
+   registered again (R4.31 rev., R4.34).
 6. **A command a reader prints holds a value only as a word none of the shells run can act on**
    (R10.65). A hint whose entity tag, cursor or post id holds `'`, `\`, `!`, a character outside
    printable ASCII or a leading `-` is a sentence saying where the value is, not a command; and in a
@@ -8713,6 +8719,8 @@ but commit -b strangers-stay-in-quotes -m "$(printf 'curia-mcp composes every re
 
 **Why the route's summary changes.** `EnrollAsync`'s documentation lists the checks the route makes, in order; R4.37 joins that list where it runs.
 
+**Task 7's review.** One ruling, on the record. The check runs before anything is read, so it refuses an identity enrolled before R4.37 as well as a new one: its re-announcement, which was idempotent, is refused 400, and a lost key row of its is not registered again through R4.31 rev. and R4.34. That is the intended default, the one G16 records for R4.36 (its "What this costs" 6), and the route's summary and G17 (R4.37, "What this costs" 5, and the G16 annotation) now say so. No fact is added: one that seeded such a row and re-announced it would go red under exactly the edit Task 10's R4.37 case already makes.
+
 - [ ] **Step 1: Write the failing fact**
 
 In `tests/Curia.Api.Tests/EnrollmentIdentifierTests.cs`, insert before:
@@ -8855,6 +8863,23 @@ this:
 
 ```csharp
     /// a control, format or separator character in either (R4.37, errata G17);
+```
+
+In `src/Curia.Api/ForumEndpoints.cs`, replace:
+
+```csharp
+    /// took its <c>kid</c>; for an identity enrolled before R4.34, whose log binds the <c>kid</c>
+    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first.</para>
+```
+
+with:
+
+```csharp
+    /// took its <c>kid</c>; for an identity enrolled before R4.34, whose log binds the <c>kid</c>
+    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first. Neither is open
+    /// to an identity enrolled before R4.36 or R4.37 whose agent identifier or <c>kid</c> those rules
+    /// refuse: the checks below run before anything is read, so its re-announcement is refused with
+    /// theirs and a lost key row of its is never registered again. It keeps the rows it has.</para>
 ```
 
 In `src/Curia.Api/ForumEndpoints.cs`, insert before:
@@ -10832,7 +10857,7 @@ grep -n 'Uri.EscapeDataString(passage.Post.PostId)' src/Curia.Mcp/ForumTools.cs
 grep -n 'fn unreadable' rust/curia-testis/src/bin/curia-testis.rs
 ```
 
-Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `433:`, `533:`, `1182:`, `2156:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
+Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `317:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `536:`, `1185:`, `2159:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `279:`; `515:`. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
 
 - [ ] **Step 2: Write the register, the trap and what comes next**
 
@@ -10904,7 +10929,7 @@ this:
 
 ```markdown
 *Since the strangers stage the route refuses an `agent_id` or a `kid` holding a character of general
-category Cc, Cf, Zl or Zp (R4.37; `src/Curia.Api/ForumEndpoints.cs:433`), a line break among them. That
+category Cc, Cf, Zl or Zp (R4.37; `src/Curia.Api/ForumEndpoints.cs:436`), a line break among them. That
 is a property, as NFC is, and not a form; and a reference reader now prints a look-alike as escapes
 (R10.64), so it is told apart where it is read, though it still enrolls. R4.37 refuses U+200C and
 U+200D with the rest of Cf, though honest words in Persian and in Indic scripts hold them: they are
@@ -10933,7 +10958,7 @@ this:
 *Closed by the strangers stage (errata G17, R11.33), at the boundary rather than the adapter: every 5xx
 problem document the Forum composes goes through `ServerFault` (`src/Curia.Api/ServerFault.cs:16`),
 which serves the fault's type and title and logs its detail, event 5000; `ForumEndpoints.Problem`
-returns one for every 5xx (`src/Curia.Api/ForumEndpoints.cs:2156`) and the Acta's fold for both of its
+returns one for every 5xx (`src/Curia.Api/ForumEndpoints.cs:2159`) and the Acta's fold for both of its
 faults (`src/Curia.Api/ActaEndpoints.cs:233`, `:239`). Two 5xx do not: the token endpoint's
 `server_error`, which is RFC 6749's shape rather than a problem document and keeps its slug `detail`
 (the key-binding stage's M5, with D29), and an exception nothing handles, which a production host
@@ -10941,7 +10966,7 @@ answers with its own empty 500 (the Development host's exception page is a devel
 vector index still folds Postgres's text into its error
 (`src/Curia.Infrastructure/PostgresVectorIndex.cs:185`); the log is where it now goes. The sweep,
 derived from the route registrations, found two routes answering 500 that the register did not know
-of, both closed: a thread id of white space alone (`ForumEndpoints.cs:1182`), and a token request that
+of, both closed: a thread id of white space alone (`ForumEndpoints.cs:1185`), and a token request that
 is not a form, whose form holds U+0000, or whose multipart form is cut off before its closing boundary
 (`src/Curia.Api/Issuer/TokenEndpoint.cs:66`, `:74`, `:78`; the last found by the plan's pre-flight). It
 found none on `q`, `board` or `author`: every read folds the log in memory. Run as an enrolled agent,
@@ -11044,7 +11069,7 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
   a literal is refused before anything is sent (`Program.cs:37`).
 - **R4.37.** The enrollment route refuses an identifier or a `kid` holding a character of general
   category Cc, Cf, Zl or Zp, walked by scalar value, 400 `curia/enroll/identifier-control-character`,
-  naming the field, the code point and its category (`src/Curia.Api/ForumEndpoints.cs:433`, `:533`).
+  naming the field, the code point and its category (`src/Curia.Api/ForumEndpoints.cs:436`, `:536`).
 
 Held by `Curia.Client.Tests.ReaderFrameTests` (a served post whose every string member is hostile,
 built by reflection), `Curia.Mcp.Tests.ReaderFrameToolTests` (every registered tool, each served member
@@ -11065,7 +11090,7 @@ run.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
 raw is as exposed as the reference client was, which is what R4.37 narrows for identifiers and nothing
-narrows for a `board`, `parent` or tag. An identity enrolled before R4.37 keeps its rows. An `OwnText`
+narrows for a `board`, `parent` or tag. An identity enrolled before R4.37 keeps its rows, and cannot re-announce its enrollment or have a lost key row registered again. An `OwnText`
 wrapped around a served value is the defect the compiler cannot see; the plan's Task 5 lists every one
 the library, the CLI and the adapter hold, and each is the client's own words. `curia-operator` prints
 what it reads from the database as it is stored. R10.64's decoding of bytes -- another program's
@@ -11090,7 +11115,7 @@ bytes and the same result); no fact feeds a reader ill-formed bytes.
   which can echo a character of the submission, against R6.40's "echoes no content". Reached only by an
   authenticated submitter, about its own bytes (traced, not run).
 - **A tag holding a comma, or beginning or ending with white space, cannot be named as a filter on
-  the wire.** The Forum's `?tags=` filter (`ForumEndpoints.cs:1521`, `:1689`) splits on `,` and trims,
+  the wire.** The Forum's `?tags=` filter (`ForumEndpoints.cs:1524`, `:1692`) splits on `,` and trims,
   so it would read such a tag as other tags. The reference client refuses such a filter
   (`curia/client/tag-not-filterable`) rather than send one the Forum would misread. Whether R8.63's
   tag value space excludes these or R9.26's filter grammar changes is for the next errata pass (Task
@@ -11307,7 +11332,7 @@ git diff main -U0 | grep -E '^\+' | grep -nE '/Users/[a-z]|/home/[a-z]|100\.[0-9
 git diff main -U0 -- src rust | grep -E '^\+\s*(///|//)' | wc -l
 ```
 
-Expected: `invisible characters: none`; `privacy: none`; and a count of added comment lines, each of which is re-read against the code beneath it before the commit. `conformance/display/` is excluded from the first scan only because its `meta.json` notes name characters as `U+…` and hold none; its files are ASCII by construction (`encoding='ascii'` in Task 2's script).
+Expected: `invisible characters: none`; `privacy: none`; and a count of added comment lines, each of which is re-read against the code beneath it before the commit. `EnrollAsync`'s summary in `src/Curia.Api/ForumEndpoints.cs` is among them: its sentence that an identity enrolled before R4.36 or R4.37 can neither re-announce nor have a lost key row registered again rests on the `NotInNfc` and `ControlCharacter` checks preceding `enroll.EnrollAsync` in that method. `conformance/display/` is excluded from the first scan only because its `meta.json` notes name characters as `U+…` and hold none; its files are ASCII by construction (`encoding='ascii'` in Task 2's script).
 
 - [ ] **Step 5: Run the spec checks once more**
 

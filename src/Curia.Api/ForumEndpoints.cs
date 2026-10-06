@@ -389,7 +389,10 @@ public static class ForumEndpoints
     /// the log binds none (<c>curia/enroll/keys-ambiguous</c>, errata G16). And a lost key row is
     /// registered again only with the key the log binds (R4.31 rev., R4.34), unless another identity
     /// took its <c>kid</c>; for an identity enrolled before R4.34, whose log binds the <c>kid</c>
-    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first.</para>
+    /// alone, it is bound again on its <c>kid</c> alone, by whoever presents it first. Neither is open
+    /// to an identity enrolled before R4.36 or R4.37 whose agent identifier or <c>kid</c> those rules
+    /// refuse: the checks below run before anything is read, so its re-announcement is refused with
+    /// theirs and a lost key row of its is never registered again. It keeps the rows it has.</para>
     ///
     /// <para><b>What the request may carry into the store and the log,</b> checked in this order,
     /// before anything is read or written, each refused 400 by name: the two identifiers' text

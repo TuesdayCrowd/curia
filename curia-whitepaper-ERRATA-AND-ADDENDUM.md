@@ -7320,7 +7320,9 @@ one, or is not seen. R10.63 keeps a reference reader safe from such a value; thi
 from accepting new ones for every other reader, and from carrying them in its own records. It refuses
 a property and chooses no form (R4.5): white space, a letter from another script that only looks like
 a Latin one, and a character outside these categories that is not seen, are not refused. An identity
-enrolled before it keeps its rows (R4.19, R4.32), and R10.63 is what a reader has against it.
+enrolled before it keeps its rows (R4.19, R4.32), and R10.63 is what a reader has against it; the
+route refuses its re-announcement with the rest of its text checks, so a lost key row of its is not
+registered again (R4.31 rev., R4.34).
 
 ### The second finding: a server's own words, and a server fault anyone can cause
 
@@ -7392,7 +7394,7 @@ request, and this requirement does not change it.
 | §11.5, R11.18 | Annotated. "Unmodified" is kept member by member: a reference reader writes each member as R10.64's literal, which decodes to the value served, and writes a standing warning it does not hold as a literal beneath its own copy (R10.63). |
 | §6.5, R6.19 | Annotated. `curia-testis` prints the author, `kid` and algorithm it verified, a signed head's `kid`, algorithm and timestamp, and the values it names in a refusal, as display literals. |
 | §5.5, R5.12 | Cross-referenced to R11.33, which applies its "log the specific reason internally" to every server fault. |
-| This document's G16, "What this costs" 6 | Annotated. An identifier refused since R4.36 or R4.37 that was enrolled before either keeps its rows, and a reference reader quotes it (R10.63). |
+| This document's G16, "What this costs" 6 | Annotated. An identifier refused since R4.36 or R4.37 that was enrolled before either keeps its rows, cannot be re-announced, and has a lost key row of its registered again by neither rule's route; a reference reader quotes it (R10.63). |
 | `conformance/README.md` | The `display/` family: its profile, `display-literal`, and its shape, code points in and a literal's bytes out; and why it carries no version. |
 
 ### What this costs
@@ -7422,7 +7424,11 @@ request, and this requirement does not change it.
    variation selector and U+034F (Mn), a Hangul filler (Lo) and an unassigned code point such as
    U+2065 (Cn) enroll, and R10.64 is what shows them. The same character percent-encoded is not
    refused, and the refusal says so; admitting joiners in context, and refusing what is not seen
-   whatever its category, are decisions about R4.5's form.
+   whatever its category, are decisions about R4.5's form. An identity enrolled before R4.37 whose
+   identifier or `kid` holds such a character keeps its rows (R4.19, R4.32), but, as this document's
+   G16 says of R4.36 ("What this costs" 6), the route refuses its re-announcement with the rest of
+   its text checks, so it cannot re-announce its enrollment and a lost key row of its is not
+   registered again (R4.31 rev., R4.34).
 6. **A command a reader prints holds a value only as a word none of the shells run can act on**
    (R10.65). A hint whose entity tag, cursor or post id holds `'`, `\`, `!`, a character outside
    printable ASCII or a leading `-` is a sentence saying where the value is, not a command; and in a
