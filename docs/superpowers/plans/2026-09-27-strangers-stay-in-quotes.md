@@ -7623,6 +7623,8 @@ Expected: eight MCP facts fail: `ReaderFrameToolTests.R10_63_NoServedValueBegins
 
 - [ ] **Step 3: Compose the adapter's words through the frame, and quote a startup refusal's detail**
 
+The tier span is passed to `WriteRefused` as its Table 10 pair, not as a string, because the Task 5 review's fact (eab1958) fails an `OwnText` made from a string parameter, and every caller's span is computed, so `[ConstantExpected]` cannot hold.
+
 In `src/Curia.Mcp/ForumTools.cs`, insert before:
 
 ```csharp
@@ -7928,6 +7930,92 @@ with:
 In `src/Curia.Mcp/WriteTools.cs`, replace:
 
 ```csharp
+        return await SubmitAsync(writer, draft, TierSpan.For(ResourceKind.Question, ActionKind.Create), cancellationToken)
+```
+
+with:
+
+```csharp
+        return await SubmitAsync(writer, draft, ResourceKind.Question, ActionKind.Create, cancellationToken)
+```
+
+In `src/Curia.Mcp/WriteTools.cs`, replace:
+
+```csharp
+        return await SubmitAsync(writer, draft, TierSpan.For(ResourceKind.Answer, ActionKind.Create), cancellationToken)
+```
+
+with:
+
+```csharp
+        return await SubmitAsync(writer, draft, ResourceKind.Answer, ActionKind.Create, cancellationToken)
+```
+
+In `src/Curia.Mcp/WriteTools.cs`, replace:
+
+```csharp
+            throw WriteRefused(refusal!, TierSpan.For(ResourceKind.Flag, ActionKind.Raise));
+```
+
+with:
+
+```csharp
+            throw WriteRefused(refusal!, ResourceKind.Flag, ActionKind.Raise);
+```
+
+In `src/Curia.Mcp/WriteTools.cs`, replace:
+
+```csharp
+    private async Task<CallToolResult> SubmitAsync(
+        ForumWriter writer, PostDraft draft, string tierSpan, CancellationToken cancellationToken)
+    {
+        if (!SubmissionBuilder.Build(writer.Agent, draft, writer.Now).TryGetValue(out var submission, out var buildError))
+            throw new McpException(NotSent(buildError!));
+
+        // Marking travels with the write (R10.51, R11.28): a duplicate refusal carries other agents'
+        // answers, and the Forum is the party that marks them.
+        var posted = await writer.Session.SubmitAsync(submission!.Wire, _marking, cancellationToken).ConfigureAwait(false);
+
+        if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!);
+
+        // R8.19: the refusal that answers the question. A success of its own shape, not an error: an
+        // error gets retried, and retrying this one with the override the Forum names turns a found
+        // answer into a signed, logged, penalised duplicate.
+        if (draft.Kind is PostKind.Question && refusal!.AsDuplicate is { } duplicate)
+            return await DuplicateAsync(duplicate, cancellationToken).ConfigureAwait(false);
+
+        throw WriteRefused(refusal!, tierSpan);
+```
+
+with:
+
+```csharp
+    private async Task<CallToolResult> SubmitAsync(
+        ForumWriter writer, PostDraft draft, ResourceKind resource, ActionKind action, CancellationToken cancellationToken)
+    {
+        if (!SubmissionBuilder.Build(writer.Agent, draft, writer.Now).TryGetValue(out var submission, out var buildError))
+            throw new McpException(NotSent(buildError!));
+
+        // Marking travels with the write (R10.51, R11.28): a duplicate refusal carries other agents'
+        // answers, and the Forum is the party that marks them.
+        var posted = await writer.Session.SubmitAsync(submission!.Wire, _marking, cancellationToken).ConfigureAwait(false);
+
+        if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!);
+
+        // R8.19: the refusal that answers the question. A success of its own shape, not an error: an
+        // error gets retried, and retrying this one with the override the Forum names turns a found
+        // answer into a signed, logged, penalised duplicate.
+        if (draft.Kind is PostKind.Question && refusal!.AsDuplicate is { } duplicate)
+            return await DuplicateAsync(duplicate, cancellationToken).ConfigureAwait(false);
+
+        throw WriteRefused(refusal!, resource, action);
+```
+
+In `src/Curia.Mcp/WriteTools.cs`, replace:
+
+```csharp
+    private static McpException WriteRefused(Refusal refusal, string tierSpan) => refusal.Kind switch
+    {
         RefusalKind.Authorization => new McpException(
             $"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {tierSpan} " +
             "Retrying will not change this."),
@@ -7960,10 +8048,15 @@ In `src/Curia.Mcp/WriteTools.cs`, replace:
 with:
 
 ```csharp
+    private static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
+    {
         // The Forum's title and detail are quoted (R10.63, errata G17); the tier span is this
-        // adapter's own, composed from the published tables (R11.26).
+        // adapter's own, composed here from the Table 10 pair by TierSpan.For (R11.26). It takes
+        // the pair and not a string so that nothing a caller holds can reach this OwnText:
+        // R10_63_AStringParameterAnOwnTextIsMadeFromMustBeAConstant cannot see an OwnText made
+        // from a call, and this one needs no such guard because its only input is an enum pair.
         RefusalKind.Authorization => new McpException(new FrameBuilder()
-            .Append($"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {new OwnText(tierSpan)} ")
+            .Append($"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {new OwnText(TierSpan.For(resource, action))} ")
             .Append($"Retrying will not change this.")
             .ToString()),
         RefusalKind.RateBudget => new McpException(new FrameBuilder()
@@ -8090,10 +8183,11 @@ dotnet build Curia.sln -c Release --nologo 2>&1 | grep -E "Warning\(s\)|Error\(s
 dotnet test tests/Curia.Mcp.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
 dotnet test tests/Curia.Client.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
 dotnet test tests/Curia.Api.Tests -c Release --no-build --nologo --filter "FullyQualifiedName~McpWriteEndToEndTests" 2>&1 | grep -E "Passed!|Failed!"
+dotnet test tests/Curia.Architecture.Tests -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Failed!"
 grep -n "OwnText" src/Curia.Mcp/*.cs
 ```
 
-Expected: `0 Warning(s)`, `0 Error(s)`; `Passed:   111` for `Curia.Mcp.Tests.dll` (74 before: six tools served hostile members, thirty refusal rows and the startup refusal); `Passed:   270` for the client; `Passed:     5` for the Api's MCP facts; and every `OwnText` in the adapter, each its own words: `ForumTools.cs:296` (the floor's `applies_to`, each a display literal, joined by commas), `StartupError.cs:21` (a local refusal's slug and title, the reference client's constants), `WriteTools.cs:160` (the digest this host computed), `:169` (the annotations, each a literal, joined), `:234` (the tier span, composed from the published tables) and `:258` (a local error's detail as a literal after a colon).
+Expected: `0 Warning(s)`, `0 Error(s)`; `Passed:   111` for `Curia.Mcp.Tests.dll` (74 before: six tools served hostile members, thirty refusal rows and the startup refusal); `Passed:   270` for the client; `Passed:     5` for the Api's MCP facts; `Passed:    34` for `Curia.Architecture.Tests.dll`; and every `OwnText` in the adapter, each its own words: `ForumTools.cs:296` (the floor's `applies_to`, each a display literal, joined by commas), `StartupError.cs:21` (a local refusal's slug and title, the reference client's constants), `WriteTools.cs:160` (the digest this host computed), `:169` (the annotations, each a literal, joined), `:237` (the tier span, composed inside WriteRefused by TierSpan.For from the Table 10 pair it is passed; no string parameter reaches it) and `:261` (a local error's detail as a literal after a colon). The grep also lists `WriteTools.cs:233` and `:234`, the comment above the Authorization arm, which names `OwnText` in prose and makes none.
 
 - [ ] **Step 5: Commit**
 

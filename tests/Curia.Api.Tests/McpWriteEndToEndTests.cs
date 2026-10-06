@@ -163,7 +163,9 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         var text = Flatten(result);
         Assert.StartsWith("POSTED", text, StringComparison.Ordinal);
 
-        var postId = Line(text, "post");
+        // The receipt quotes the Forum's post id (R10.63): a display literal is a JSON string, so a
+        // JSON parser recovers the value exactly.
+        var postId = JsonSerializer.Deserialize<string>(Line(text, "post"))!;
         var printedDigest = Line(text, "digest").Split(' ')[0];
 
         // The post as any reader gets it, and the key from the Forum's JWKS (R4.16 rev.).

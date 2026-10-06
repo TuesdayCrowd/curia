@@ -333,7 +333,7 @@ public sealed class WriteToolTests : IDisposable
 
         Assert.StartsWith("POSTED", text, StringComparison.Ordinal);
         Assert.Equal(2, signer.Signatures);
-        Assert.Contains("signed with kid delegated-1", text, StringComparison.Ordinal);
+        Assert.Contains("signed with kid \"delegated-1\"", text, StringComparison.Ordinal);
     }
 
     /// <summary>

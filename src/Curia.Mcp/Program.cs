@@ -18,9 +18,8 @@ using ModelContextProtocol.Server;
 var configured = McpConfiguration.FromEnvironment();
 if (!configured.TryGetValue(out var config, out var error))
 {
-    await Console.Error.WriteLineAsync($"{error!.Type}: {error.Title}").ConfigureAwait(false);
-    if (error.Detail is { Length: > 0 } detail)
-        await Console.Error.WriteLineAsync(detail).ConfigureAwait(false);
+    // Its detail as a display literal: it can carry an external signer's words (R10.63, errata G17).
+    await Console.Error.WriteAsync(StartupError.Describe(error!)).ConfigureAwait(false);
 
     return 1;
 }
@@ -50,9 +49,7 @@ if (config.Agent is { } slug)
     var store = ProfileStore.Default();
     if (!ForumWriter.Load(store, slug, config.Forum).TryGetValue(out identity, out var identityError))
     {
-        await Console.Error.WriteLineAsync($"{identityError!.Type}: {identityError.Title}").ConfigureAwait(false);
-        if (identityError.Detail is { Length: > 0 } detail)
-            await Console.Error.WriteLineAsync(detail).ConfigureAwait(false);
+        await Console.Error.WriteAsync(StartupError.Describe(identityError!)).ConfigureAwait(false);
 
         return 1;
     }
