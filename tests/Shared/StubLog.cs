@@ -425,6 +425,13 @@ internal sealed class StubLog : IDisposable
     internal string? HostileSuffix { get; set; }
 
     /// <summary>
+    /// R10.67 (errata G17): content a hostile Forum puts inside the delimiters of every post it serves,
+    /// in place of the canonical form an honest Forum renders there. A reader checks the delimiters and
+    /// does not derive the span from the canonical form, so this is what it writes.
+    /// </summary>
+    internal string? RenderedContent { get; set; }
+
+    /// <summary>
     /// One member of one served document, as <see cref="ServedStringMembers"/> names it
     /// (<c>/v1/posts/X#provenance.author</c>): the strings there end with <see cref="HostileSuffix"/>.
     /// The token response is never touched: a token is never printed, and one holding a line break
@@ -597,7 +604,7 @@ internal sealed class StubLog : IDisposable
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(canonical)}},"signature":"{{Answer.Signature}}",
-        "rendered":{{JsonString(Datamarking.Render(canonical, MarkingMode.None))}},"accepted":false,
+        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? canonical, MarkingMode.None))}},"accepted":false,
         "log_index":{{AnswerIndex}},"inclusion_proof":{{ProofAt(AnswerIndex, AnswerIndex < HeadTreeSize ? HeadTreeSize : Leaves.Length)}}}
         """.ReplaceLineEndings(string.Empty);
     }
@@ -712,7 +719,7 @@ internal sealed class StubLog : IDisposable
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Submission.PrefixedDigest}}",
         "canonical":{{JsonString(Canonical)}},"signature":"{{Submission.Signature}}",
-        "rendered":{{JsonString(Datamarking.Render(Canonical, MarkingMode.None))}},"accepted":false,
+        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":false,
         "log_index":{{PostIndex}},"inclusion_proof":{{proof}}}
         """.ReplaceLineEndings(string.Empty);
     }

@@ -11070,7 +11070,7 @@ In `PostJson()`, replace `Datamarking.Render(Canonical, MarkingMode.None)` with 
 ```
 
 **`tests/Curia.Api.Tests/ReaderFrameTests.cs`.** Add `using System.Globalization;`.
-- Change `AskAsync` to the 4-argument form `AskAsync(ForumAgent agent, string board, string body, CancellationToken ct)`, passing `body` to `SignQuestion` in place of `"An ordinary question?"`.
+- Change `AskAsync` to the 4-argument form `AskAsync(ForumAgent agent, string board, string body, CancellationToken ct)`, passing `body` to `SignQuestion` in place of `"An ordinary question?"`, and rename its local `body`, the response text, to `answer` (the parameter would otherwise collide with it: CS0136).
 - Add the overload `private Task<string> AskAsync(ForumAgent agent, string board, CancellationToken ct) => AskAsync(agent, board, "An ordinary question?", ct);`.
 - Change `ReadEverywhereAsync` to the 4-argument form `(string postId, string board, MarkingMode marking, CancellationToken ct)`. Use `marking` in `client.GetPostAsync(postId, marking, ct)` and in `new ForumTools(client, marking, new HeadStore(_home))`.
 - Add the overload `private Task<Dictionary<string, string>> ReadEverywhereAsync(string postId, string board, CancellationToken ct) => ReadEverywhereAsync(postId, board, MarkingMode.Datamark, ct);`.

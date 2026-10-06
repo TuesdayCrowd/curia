@@ -7,7 +7,7 @@
 | enveloped after a line | **100.0 %** (57/57) | **0.0 %** (0/34) |
 
 - Detector versions: secrets/2026-09-26, injection/2026-09-26
-- Excluded from the detection rate: **6** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
+- Excluded from the detection rate: **18** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
 
 ## The shapes (register D19)
 

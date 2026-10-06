@@ -228,7 +228,7 @@ public readonly ref struct FrameText
 /// <item>A <see cref="ShellWord"/>: printable ASCII between single quotation marks, which cannot end
 /// a line.</item>
 /// <item>A number, an enum or an instant, formatted invariantly (see <see cref="FrameText"/>).</item>
-/// <item>The Forum's span, once <see cref="IsDelimitedSpan"/> says the Forum delimited it.</item>
+/// <item>The Forum's span, once <see cref="IsDelimitedSpan"/> says the Forum delimited it, with its control, format and separator characters written as escapes (<see cref="SpanText"/>, R10.67).</item>
 /// <item>Another passage's frame, through <c>Passage</c>, built the same way.</item>
 /// </list>
 /// </summary>
@@ -276,14 +276,21 @@ public sealed class FrameBuilder
     }
 
     /// <summary>
-    /// A post's content as the Forum rendered it: written as served when it is one span the Forum
-    /// delimited (R10.12), and otherwise as one literal under a line saying why.
+    /// A post's content as the Forum rendered it: when it is one span the Forum delimited (R10.12),
+    /// written with its control, format and separator characters as escapes (R10.67), and otherwise
+    /// as one literal under a line saying why.
     ///
     /// <para><b>Why the delimiters are checked here.</b> The span is the one thing this client writes
     /// unquoted that it did not compose. It is safe to because its delimiters mark it as data and the
     /// Forum escapes any delimiter inside it (<see cref="Datamarking.Delimit"/>). A span without them,
     /// or with one inside, is text in this client's frame like any other served value, and is quoted
     /// like one.</para>
+    ///
+    /// <para><b>Why the span is not written as served.</b> The delimiters are a boundary to what parses
+    /// the text and not to a terminal, which acts on a control wherever it sits; and the Forum, which
+    /// renders the span, is not a party this client trusts to have escaped it (§6.5). The check runs on
+    /// the span as served, and the escapes cannot make or unmake a delimiter: each begins with a
+    /// backslash, and neither delimiter holds one. After them only line feeds remain to indent.</para>
     /// </summary>
     /// <param name="rendered">The served <c>rendered</c> member.</param>
     /// <param name="indent">Written before every line of the span.</param>
@@ -293,9 +300,8 @@ public sealed class FrameBuilder
 
         if (rendered is not null && IsDelimitedSpan(rendered))
         {
-            // Verbatim unless indented: the span is the Forum's, and only a caller that asked for an
-            // indent has its line breaks rewritten, as the duplicate refusal's answers always were.
-            _text.Append(indent).Append(indent.Length == 0 ? rendered : rendered.ReplaceLineEndings("\n" + indent)).Append('\n');
+            var written = SpanText.Block(rendered);
+            _text.Append(indent).Append(indent.Length == 0 ? written : written.Replace("\n", "\n" + indent, StringComparison.Ordinal)).Append('\n');
             return this;
         }
 
