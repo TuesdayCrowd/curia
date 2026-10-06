@@ -86,7 +86,7 @@ public sealed class ReaderFrameToolTests : IDisposable
     /// Every tool against a refusal of every kind <c>ForumClient.Classify</c> gives a Forum's answer:
     /// 400 Content, 401 Authentication, 403 Authorization, 403 with a Table 11 detail RateBudget,
     /// 404 NotFound, 409 Conflict, 418 Malformed, 503 ServerFault. A kind added to Classify is a row
-    /// missing here; the 403 that is not the Forum's is Transport and names no word of the refusal.
+    /// missing here. The 403 that is not the Forum's is Transport, and its detail names the problem type it was served, so R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel drives it.
     /// </summary>
     public static TheoryData<string, int, string> RegisteredToolsAndRefusals()
     {
@@ -116,6 +116,29 @@ public sealed class ReaderFrameToolTests : IDisposable
             text.Contains(Forged, StringComparison.Ordinal),
             $"{name} said none of the refusal's words, so its having no forged line proves nothing; a defect in this fact:\n{text}");
         AssertNoForgedLine(name, text);
+    }
+
+    /// <summary>
+    /// A 403 typed outside <c>curia/</c> is not the Forum's: the client reports it as Transport, and
+    /// <c>ClientErrors.NotTheForum</c> names the type it was served in the detail. So whatever answers on
+    /// the Forum's address writes a word the model reads, and that word must be quoted like any other.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RegisteredTools))]
+    public async Task R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel(string name)
+    {
+        _log.RefusesEverythingWith = HttpStatusCode.Forbidden;
+        _log.HostileType = "about:blank";
+
+        var text = await InvokeAsync(name);
+
+        Assert.True(
+            text.Contains("without a Forum problem document", StringComparison.Ordinal),
+            $"{name} did not report the not-the-Forum refusal, so this fact did not reach the arm it exists for; a defect in this fact:\n{text}");
+        Assert.True(
+            text.Contains(Forged, StringComparison.Ordinal),
+            $"{name} said none of the refusal's words, so its having no forged line proves nothing; a defect in this fact:\n{text}");
+        AssertNoForgedLine($"{name} refused by something that is not the Forum", text);
     }
 
     /// <summary>

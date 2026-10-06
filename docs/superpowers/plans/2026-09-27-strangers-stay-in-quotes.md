@@ -80,7 +80,7 @@
 2. **Quoting is the default, and the CLI cannot print a variable as a line.** `OutputFenceTests` holds the fence; case 12–14. `ConstantArgumentTests` holds it where the analyzer cannot see, against a constant-only method taken as a delegate (Task 4's review, m1). The compiler found the CLI's unquoted sites itself (Task 5, Step 3's list). Review every `OwnText` the stage constructs, `new OwnText(` and a target-typed `new(` alike: each is the client's own words, and one around a served value is the defect the fence cannot see. Task 5, Step 5 lists the library's and the CLI's; Task 6, Step 4 the adapter's.
 3. **The two readers print the same bytes.** `conformance/display/`, sixteen vectors in both runners, counted in the index, and a Rust fact over every scalar value; cases 1–4, 30, 31 and 42. `printable-ascii` holds the 93 printable characters that stand for themselves: its first form held 21, and a reader that escaped `<` or `$` passed both runners (Task 2's review).
 4. **The span is written raw only once its delimiters are checked, and the standing warning only when it is the published text.** `Curia.Client.Tests.ReaderFrameTests`; cases 9–11 and 49.
-5. **Every tool, every served member, every refusal, and the server instructions sent at initialize.** `ReaderFrameToolTests` derives its tools from `ToolCatalogue` and its members from what the stub served, and reads each resource's URI with its text. It drives every `RefusalKind` `ForumClient.Classify` can return for a Forum answer (400, 401, 403, 403 with a Table 11 detail, 404, 409, 418 and 503), plus the token endpoint's refusal for each tool that requests a token, and the digest `curia_verify` is given; cases 5, 8, 15–17, 44, 56, 58 and 59. Its first draft poisoned every member at once, the client refused the documents whole, and the non-vacuity guard failed it — which is why it poisons one member at a time. Its second drove five statuses and no token refusal, and a raw concatenation in the rate-budget arm left every fact green (Task 6's review).
+5. **Every tool, every served member, every refusal, and the server instructions sent at initialize.** `ReaderFrameToolTests` derives its tools from `ToolCatalogue` and its members from what the stub served, and reads each resource's URI with its text. It drives every `RefusalKind` `ForumClient.Classify` can return for a Forum answer (400, 401, 403, 403 with a Table 11 detail, 404, 409, 418 and 503), the 403 typed outside curia/ that it reports as Transport (whose detail names the type it was served), plus the token endpoint's refusal for each tool that requests a token, and the digest `curia_verify` is given; cases 5, 8, 15–17, 44, 56 and 58–60. Its first draft poisoned every member at once, the client refused the documents whole, and the non-vacuity guard failed it — which is why it poisons one member at a time. Its second drove five statuses and no token refusal, and a raw concatenation in the rate-budget arm left every fact green (Task 6's review). Its third named the not-the-Forum 403 as one that "names no word of the refusal"; its detail names the problem type, and no row drove it (Task 6's second review).
 6. **R4.37 walks scalar values and asks both fields.** A tag character (U+E0041) is two surrogates to a UTF-16 walk. It refuses U+200C with the rest of Cf, and the percent-encoded form its refusal names enrolls (spec §4.14); a variation selector, not seen and of category Mn, enrolls too, which pins the rule's reach. `EnrollmentIdentifierTests.R4_37_…`; cases 21 and 22.
 7. **A 5xx says what it is, and nothing its component said.** `ServerFaultTests`, the four `R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal` rows; cases 23–25. Case 25 is a defect the build-check introduced and the suite caught: the key set matched the fold's failure by its result type, and changing that type made an unreadable log answer 200.
 8. **No request is a server fault, whoever sends it, and a production host serves no framework text.** `RequestSurfaceTests`, anonymously and as an enrolled agent, headers included; `AccessTokenValidatorDpopTests.R11_33_…`; cases 26–29, 32, 39 and 46. Case 46 is Task 1's review: a proof key off the curve, under a token bound to it, threw on every route behind authentication. Case 32 is the pre-flight's: a multipart token body cut off before its boundary still answered 500. Case 39 is why the enrolled agent's pass exists: a handler behind authentication that throws turns it red and leaves the anonymous pass green.
@@ -7223,7 +7223,7 @@ but commit -b strangers-stay-in-quotes -m "$(printf 'The CLI prints a line only 
 
 **Interfaces:**
 - Consumes: `FrameBuilder`, `FrameText`, `OwnText`, `DisplayLiteral`.
-- Produces: `StubLog.HostileSuffix`, `HostileMember`, `RefusesEverythingWith`, `HostileDetail`, `RefusesTokenWith` and `ServedStringMembers`; every value a tool result or refusal message did not compose written through `FrameBuilder`; curia_verify's result is three parts joined, its subject (a constant), its pin (a frame) and the verification's own `Render()`; a passage's resource URI with its post id percent-encoded; `StartupError.Describe(Error)`, what `curia-mcp` writes to stderr when it cannot start; `ToolText.ServerInstructions(string?)`, the server instructions with the configured agent id written as a display literal.
+- Produces: `StubLog.HostileSuffix`, `HostileMember`, `RefusesEverythingWith`, `HostileDetail`, `HostileType`, `RefusesTokenWith` and `ServedStringMembers`; every value a tool result or refusal message did not compose written through `FrameBuilder`; curia_verify's result is three parts joined, its subject (a constant), its pin (a frame) and the verification's own `Render()`; a passage's resource URI with its post id percent-encoded; `StartupError.Describe(Error)`, what `curia-mcp` writes to stderr when it cannot start; `ToolText.ServerInstructions(string?)`, the server instructions with the configured agent id written as a display literal.
 
 **Why the startup refusal is quoted too.** `curia-mcp` wrote a refusal's detail to stderr as it came, and a profile that signs through an external signer (R11.20) reaches the signer at startup, whose stderr the detail carries (`AgentSigners`). R10.63 names another program's output. The detail is joined onto one line before it gets here, so the risk is low and the reader is whoever reads the host's log; it is quoted all the same, through a helper a fact can reach, since `Program.cs` is top-level statements no test runs. The fact and the helper are written together in Step 3, and case 40 turns the fact red.
 
@@ -7286,6 +7286,13 @@ this:
     internal string HostileDetail { get; set; } = "because";
 
     /// <summary>
+    /// What a hostile refusal's <c>type</c> begins with, before <see cref="HostileSuffix"/>. The client
+    /// takes a 403 to be the Forum's only when its type is <c>curia/</c>-namespaced (<c>ForumClient.Classify</c>),
+    /// so a gate reaches the not-the-Forum Transport arm, whose detail names the type it was served, only by setting it.
+    /// </summary>
+    internal string HostileType { get; set; } = "curia/stub/hostile";
+
+    /// <summary>
     /// With <see cref="HostileSuffix"/> set, the token endpoint refuses with this status, in RFC 6749's
     /// shape plus the <c>detail</c> the Forum adds, each member ending with the suffix: the one
     /// refusal a write tool meets before it reaches a route.
@@ -7316,7 +7323,7 @@ this:
                     (status, challenge) = (refused, null);
                     body = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
                     {
-                        ["type"] = "curia/stub/hostile" + suffix,
+                        ["type"] = log.HostileType + suffix,
                         ["title"] = "Refused" + suffix,
                         ["detail"] = log.HostileDetail + suffix,
                     });
@@ -7339,7 +7346,7 @@ this:
 
 ```
 
-(Task 6's review added `HostileDetail` and `RefusesTokenWith` to these two blocks. Nothing reads either before Step 3b, and with neither set the stub answers as it did.)
+(Task 6's review added `HostileDetail` and `RefusesTokenWith` to these two blocks, and its second review `HostileType`. Nothing reads any of them before Step 3b, and with none set the stub answers as it did.)
 
 In `tests/Shared/StubLog.cs`, insert before:
 
@@ -8307,7 +8314,7 @@ public sealed class ReaderFrameToolTests : IDisposable
     /// Every tool against a refusal of every kind <c>ForumClient.Classify</c> gives a Forum's answer:
     /// 400 Content, 401 Authentication, 403 Authorization, 403 with a Table 11 detail RateBudget,
     /// 404 NotFound, 409 Conflict, 418 Malformed, 503 ServerFault. A kind added to Classify is a row
-    /// missing here; the 403 that is not the Forum's is Transport and names no word of the refusal.
+    /// missing here. The 403 that is not the Forum's is Transport, and its detail names the problem type it was served, so R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel drives it.
     /// </summary>
     public static TheoryData<string, int, string> RegisteredToolsAndRefusals()
     {
@@ -8337,6 +8344,29 @@ public sealed class ReaderFrameToolTests : IDisposable
             text.Contains(Forged, StringComparison.Ordinal),
             $"{name} said none of the refusal's words, so its having no forged line proves nothing; a defect in this fact:\n{text}");
         AssertNoForgedLine(name, text);
+    }
+
+    /// <summary>
+    /// A 403 typed outside <c>curia/</c> is not the Forum's: the client reports it as Transport, and
+    /// <c>ClientErrors.NotTheForum</c> names the type it was served in the detail. So whatever answers on
+    /// the Forum's address writes a word the model reads, and that word must be quoted like any other.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RegisteredTools))]
+    public async Task R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel(string name)
+    {
+        _log.RefusesEverythingWith = HttpStatusCode.Forbidden;
+        _log.HostileType = "about:blank";
+
+        var text = await InvokeAsync(name);
+
+        Assert.True(
+            text.Contains("without a Forum problem document", StringComparison.Ordinal),
+            $"{name} did not report the not-the-Forum refusal, so this fact did not reach the arm it exists for; a defect in this fact:\n{text}");
+        Assert.True(
+            text.Contains(Forged, StringComparison.Ordinal),
+            $"{name} said none of the refusal's words, so its having no forged line proves nothing; a defect in this fact:\n{text}");
+        AssertNoForgedLine($"{name} refused by something that is not the Forum", text);
     }
 
     /// <summary>
@@ -10543,6 +10573,10 @@ CASES = [
          cmds=[dotnet(MCP, "FullyQualifiedName~R10_63_CuriaVerifyQuotesTheDigestItWasGiven")],
          edits=[(FORUM_TOOLS, '$"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served}',
                               '$"pinned      FAILED. You asked about {new OwnText(expectedDigest)} and the Forum served {served}')]),
+    dict(id="60", what="the not-the-Forum refusal writes its detail, and the problem type in it, raw",
+         cmds=[dotnet(MCP, "FullyQualifiedName~R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel")],
+         edits=[(RESULT, '        RefusalKind.Transport => Said($"{Error.Title}{Detailed}"),',
+                         '        RefusalKind.Transport => Said($"{Error.Title}{new OwnText(": " + Error.Detail)}"),')]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -10681,7 +10715,7 @@ grep -E "^\[|runner exit|NOT RED|DID NOT RUN|falsify.py exit" <scratchpad>/falsi
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped.
 
-Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are fifty-nine cases in seventy-two suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`.
+Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45 and 48 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are sixty cases in seventy-three suite runs. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 60 came with Task 6's second fix round, which ran it, with cases 8, 17 and 58, whose class filter the round's new theory falls under, from the repository root with the round's changes in place: RED on the facts the table names (case 58's Passed count now 66), each restore byte-identical to its kept copy, the tree rebuilt with --no-incremental and the suite green after, and runner exit: 0.
 
 | Case | Must fail, by name |
 |---|---|
@@ -10742,8 +10776,9 @@ Each case must print `RED` for every command it runs, then `restore clean` — w
 | 55 | `ConstantArgumentTests.R10_63_AStringParameterAnOwnTextIsMadeFromMustBeAConstant` alone, naming `Passage::Standing`'s `published` twice: the tree as it stood before Task 5's review, which is how the fact was first seen red. The build stays green, and should (Task 5's review) |
 | 56 | `ReaderFrameToolTests.R10_63_ServerInstructionsQuoteTheAgentTheyName` alone: the instructions' second paragraph ends at the agent id's line break, and the forged sentence begins a line (Task 6's review) |
 | 57 | `McpConfigurationTests.R10_63_AStartupRefusalQuotesTheSlugItWasGiven` alone: the title is written as the adapter's own words, so the slug's line break puts the forged sentence at the start of the second line (Task 6's review) |
-| 58 | The `403`, `table-11/rate-budget-exhausted` rows of `R10_63_NoRefusalsWordsBeginALineOfWhatAToolTellsTheModel` for `curia_ask` and `curia_flag` (`Failed: 2, Passed: 60`). `curia_answer`'s row stays green, and should: it reads the question first, and that read's refusal is a read tool's, not `WriteRefused`'s (Task 6's review) |
+| 58 | The `403`, `table-11/rate-budget-exhausted` rows of `R10_63_NoRefusalsWordsBeginALineOfWhatAToolTellsTheModel` for `curia_ask` and `curia_flag` (`Failed: 2, Passed: 66`). `curia_answer`'s row stays green, and should: it reads the question first, and that read's refusal is a read tool's, not `WriteRefused`'s (Task 6's review). The Passed count rose from 60 to 66 when Task 6's second review added the not-the-Forum theory to the class, whose six rows stay green under this patch because they reach Refusal.Summary's Transport arm, not WriteTools' rate-budget arm |
 | 59 | `ReaderFrameToolTests.R10_63_CuriaVerifyQuotesTheDigestItWasGiven` alone (Task 6's review) |
+| 60 | All six rows of ReaderFrameToolTests.R10_63_NoNotTheForumRefusalsWordsBeginALineOfWhatAToolTellsTheModel, one per registered tool (Failed: 6, Passed: 0). Every row reaches Refusal.Summary's Transport arm, through ForumTools.Refused for the read tools and WriteTools' named fall-through for the write tools (Task 6's second review) |
 
 - [ ] **Step 3: Prove the tree is what was committed, and green**
 
@@ -11013,7 +11048,7 @@ what a sweep finds, not a rule that finds the next site. Trap 23.
 
 Held by `Curia.Client.Tests.ReaderFrameTests` (a served post whose every string member is hostile,
 built by reflection), `Curia.Mcp.Tests.ReaderFrameToolTests` (every registered tool, each served member
-hostile in turn, its resource URIs read with its text, and five hostile refusals), `OutputFenceTests`,
+hostile in turn, its resource URIs read with its text, and every refusal kind the client classifies, the 403 typed outside curia/ among them), `OutputFenceTests`,
 `CommandHintTests` (every word run through `/bin/sh`), `ArgsTests`' R10.66 facts,
 `DisplayLiteralTests`, the Rust `display` vectors and `display.rs`' walk of every scalar value,
 `display_output.rs` (the refusals, and the binary run with a hostile argument),
@@ -11024,7 +11059,9 @@ Forum, `Curia.Api.Tests.ReaderFrameTests`, which reads a hostile board and a hos
 **Falsified:** the strangers stage's Task 10 ran fifty-nine cases in seventy-two suite runs in a
 git-backed copy: every command printed `RED` on the facts its table names, every restore printed
 `restore clean` with both proofs and, after each of the nine Rust restores, `curia-testis rebuilt:
-yes`, and the run's last lines were `runner exit: 0` and `falsify.py exit 0`.
+yes`, and the run's last lines were `runner exit: 0` and `falsify.py exit 0`. Case 60, added by Task
+6's second review, was run separately with cases 8, 17 and 58 (Task 10's narrative), not in that full
+run.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
 raw is as exposed as the reference client was, which is what R4.37 narrows for identifiers and nothing
@@ -11086,6 +11123,12 @@ bytes and the same result); no fact feeds a reader ill-formed bytes.
 - **A cleanup keyed on a directory's name deletes source.** `find . -name bin -exec rm -rf` removed
   `rust/curia-testis/src/bin` during the stage's build-check. Build output lives under `src/*/`,
   `tests/*/` and `tools/*/`; clean those, or nothing.
+- **The not-the-Forum refusal echoes the type a stranger served.** ClientErrors.NotTheForum puts
+  "problem type " + the served type into its detail (ClientErrors.cs:124), and ReadProblem takes it
+  unchecked from "type" or OAuth's "error". The reference readers quote it (R10.63, gated since Task
+  6's second review). Whether a refusal the client attributes to something that is not the Forum
+  should echo that thing's words at all, or name only that it was not curia/-typed, is for the next
+  errata pass.
 
 ```
 

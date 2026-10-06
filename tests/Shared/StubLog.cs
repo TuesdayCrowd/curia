@@ -446,6 +446,13 @@ internal sealed class StubLog : IDisposable
     internal string HostileDetail { get; set; } = "because";
 
     /// <summary>
+    /// What a hostile refusal's <c>type</c> begins with, before <see cref="HostileSuffix"/>. The client
+    /// takes a 403 to be the Forum's only when its type is <c>curia/</c>-namespaced (<c>ForumClient.Classify</c>),
+    /// so a gate reaches the not-the-Forum Transport arm, whose detail names the type it was served, only by setting it.
+    /// </summary>
+    internal string HostileType { get; set; } = "curia/stub/hostile";
+
+    /// <summary>
     /// With <see cref="HostileSuffix"/> set, the token endpoint refuses with this status, in RFC 6749's
     /// shape plus the <c>detail</c> the Forum adds, each member ending with the suffix: the one
     /// refusal a write tool meets before it reaches a route.
@@ -975,7 +982,7 @@ internal sealed class StubLog : IDisposable
                     (status, challenge) = (refused, null);
                     body = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
                     {
-                        ["type"] = "curia/stub/hostile" + suffix,
+                        ["type"] = log.HostileType + suffix,
                         ["title"] = "Refused" + suffix,
                         ["detail"] = log.HostileDetail + suffix,
                     });
