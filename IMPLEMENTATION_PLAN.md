@@ -191,7 +191,11 @@ set; SP scores recorded even if not yet weighted.*
 > 500, a thread id of white space and a token request that is not a form, whose form holds U+0000, or
 > whose multipart form is cut off, all now 4xx; and a header this register had recorded and not run,
 > a DPoP proof whose key is no point on P-256 under a token bound to it, answered 500 on every route
-> behind authentication, and is now 401.
+> behind authentication, and is now 401; a signed NumericDate outside DateTimeOffset's range answered
+> 500 to any enrolled agent, on /oauth/token and every route behind authentication, a JSON body's
+> declared charset the binder could not read answered 500 to anyone from POST /v1/agents,
+> /v1/posts/batch and /v1/posts/{id}/flags, and a token request's DPoP proof whose header is JSON but
+> not an object answered 500 to anyone; all three are now 4xx.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -1910,23 +1914,30 @@ of, both closed: a thread id of white space alone (`ForumEndpoints.cs:1194`), an
 is not a form, whose form holds U+0000, or whose multipart form is cut off before its closing boundary
 (`src/Curia.Api/Issuer/TokenEndpoint.cs:66`, `:74`, `:78`; the last found by the plan's pre-flight). It
 found none on `q`, `board` or `author`: every read folds the log in memory. Run as an enrolled agent,
-whose requests reach the handlers behind authentication, it found the same two and no third among
-well-formed headers. The third was a header, recorded under "Observed during the enrollment stage" and
+whose requests reach the handlers behind authentication, it found the same two and no other among
+well-formed headers. A third was a header, recorded under "Observed during the enrollment stage" and
 closed by the same stage: a DPoP proof whose key is no point on P-256, under a token bound to it.
-Task 8's review found two more, and the stage closed both. The fifth is a signed claim out of range:
+Task 8's review found two more, and the stage closed both. The fourth is a signed claim out of range:
 `NumericDate` handed `iat`, `exp` and `nbf` to `FromUnixTimeSeconds` unchecked after the signature
 verified, so an assertion with `exp` 1e13 answered 500 from `/oauth/token`, and a proof with `iat`
 1e13 or -1e11 answered 500 from every route behind authentication, to any enrolled agent; a value
 outside `DateTimeOffset`'s range is `curia/authn/malformed` now (`src/Curia.AuthN/Jwt/NumericDate.cs:16`,
 `:19`), held by `NumericDateTests`, the assertion and proof theories, and
 `RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault` (falsification
-cases 61 and 62). The sixth is a JSON body's declared charset, the quoted form included: the
+cases 61 and 62). The fifth is a JSON body's declared charset, the quoted form included: the
 minimal-API binder threw for a charset it cannot read -- `bogus-xyz`, an empty one, and `"utf-8"`,
 since it does not unquote -- answering 500 to anyone from `POST /v1/agents`, `/v1/posts/batch` and
 `/v1/posts/{id}/flags`; `JsonCharset` refuses anything but the bare token utf-8 with 415 before
 binding (`src/Curia.Api/JsonCharset.cs:24`, registered at `src/Curia.Api/Program.cs:295`), held by
 `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` and five sweep bodies, a +json
-media type included (cases 63–66). A 4xx no handler composed is a problem document now
+media type included (cases 63–66). The sixth, found by Task 11's review, is anonymous: a token
+request whose DPoP proof's header is JSON but not an object (`[1]`, a number, a string, `null`)
+answered 500 before any credential was read, because the sweep sent its hostile proofs to
+`/oauth/token` with no form and never reached the parse; the proof is now `invalid_dpop_proof`
+(`src/Curia.Api/Issuer/TokenEndpoint.cs:191`), held by
+`RequestSurfaceTests.R11_33_ATokenRequestsDpopProofWhoseHeaderIsNotAnObjectIsRefusedNotThrown` and
+the sweep's form-carrying pass (falsification case 90). A 4xx no handler composed is a problem
+document now
 (`src/Curia.Api/UnreadableRequests.cs:16`, registered at `src/Curia.Api/Program.cs:294`, with the
 binder told not to throw at `:291`), held by
 `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` and the three sweeps (cases 67,
@@ -4126,13 +4137,14 @@ hostile identifier through `curia read`'s renderer, `curia_read`, `curia_search`
 `curia-testis verify`, and in `R10_67_ABodyWrittenToDriveATerminalReachesNoReaderAsItself` a body
 written to drive a terminal through the first three.
 
-**Falsified:** the strangers stage's Task 10 holds eighty-nine cases in one hundred and sixteen suite
-runs, its review rounds' cases included, and Task 11 ran all of them in one run of its runner from the
-repository root, on 1045f08's source: every one of the 116 commands printed `RED`, every restore
+**Falsified:** the strangers stage's Task 10 holds ninety cases in one hundred and seventeen suite
+runs, its review rounds' cases included. Task 11 ran the first eighty-nine in one run of its runner
+from the repository root, on 1045f08's source: every one of the 116 commands printed `RED`, every restore
 printed `restore clean` with both proofs and, after each of the eleven cases that patch a file under
 `rust/` (3, 4, 18-20, 31, 42, 45, 48, 70 and 71), `curia-testis rebuilt: yes`, and the run's last
-lines were `runner exit: 0` and `falsify.py exit 0`. How each round first ran the cases it added is
-in Task 10's narrative.
+lines were `runner exit: 0` and `falsify.py exit 0`. Case 90 came with Task 11's review, which ran it
+alone: `RED`, `restore clean` with both proofs, and `runner exit: 0`. How each round first ran the
+cases it added is in Task 10's narrative.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
 raw is as exposed as the reference client was, which is what R4.37 narrows for identifiers and nothing
@@ -4174,7 +4186,7 @@ run; and the span a reader prints is still not compared with the canonical form 
   and its DPoP proof is still unverified (D29). Its `server_error` 500 is RFC 6749's shape, not a
   problem document, so R11.33's second sentence does not reach it: it carries the fault's title as
   `error_description` and its type as `detail`, and nothing logs its reason, against R5.12's "log the
-  specific reason internally" (`TokenEndpoint.cs:220`). All three are at one endpoint and ride with
+  specific reason internally" (`TokenEndpoint.cs:222`). All three are at one endpoint and ride with
   rotation, which changes that endpoint's key handling.
 - **`curia-operator` escapes what it reads and does not quote it.** It is the operator's tool over the
   database and not a reference reader. Its `TerminalText` is R10.67's `SpanText` since Task 9b, so an
@@ -4191,9 +4203,12 @@ run; and the span a reader prints is still not compared with the canonical form 
   8's review, a JSON body's declared charset and the NumericDates in a JWT an agent signs are swept
   too (D25). A header one handler reads -- a conditional read's `If-None-Match` -- is not swept.
 - **A display literal can hold a delimiter in the middle of a line.** `Of("<<<CURIA-UNTRUSTED-END>>>")`
-  is that text between quotation marks (the Task 2 review ran it). A literal never begins a line, so a
-  span check that reads whole lines, as `IsDelimitedSpan` does, is not deceived; a consumer that finds
-  a span by searching for the delimiter's text anywhere would be. No reader here does.
+  is that text between quotation marks (the Task 2 review ran it). A literal never begins a line, and
+  `IsDelimitedSpan` (`src/Curia.Client/Frame.cs:323`) runs only on the Forum's served `rendered`
+  member, never on a frame's output, where a literal would sit; it also requires each outer delimiter
+  on a line of its own and refuses a span whose inner text holds either delimiter anywhere. A consumer
+  that found a span in a frame's output by searching for the delimiter's text anywhere would be
+  deceived; no reader here does.
 - **`curia-mcp` names tools with a post id in them** (`Read the thread with curia_read "…"`). They are
   tool calls, whose arguments are JSON, not commands a shell runs, so R10.65 does not reach them (its
   text says "in a shell" since the Task 1 review); the id is a display literal, which a JSON argument
@@ -5652,7 +5667,10 @@ enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers st
     "and no third". Every header it sent was well formed, and this register already held a header
     500, traced and not run: a proof key off the curve, on every route behind authentication. The
     verdict was true of the requests, not of the surface. **Name the dimensions a sweep holds fixed
-    beside what it found**, and run what the register already suspects in them.
+    beside what it found**, and run what the register already suspects in them. Task 11's review
+    found its second instance the same way: the sweep sent its hostile proofs to `/oauth/token` with
+    no form, which the endpoint refuses before it reads a proof, so a proof whose header is not an
+    object answered 500 on a request the sweep never sent (D25).
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

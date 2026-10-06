@@ -225,6 +225,19 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             }
         }
 
+        // The token endpoint reads its form before its proof, so a request with no form never reaches
+        // the proof. Each hostile token and proof above is sent again as the proof on a token request
+        // whose form is well formed (Task 11's review, I1; trap 26).
+        foreach (var proof in hostile.Select(h => h.Authorization?.Split(' ', 2)[1]).Concat(hostile.Select(h => h.Proof)).OfType<string>().Distinct())
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = WellFormedTokenForm() };
+            request.Headers.TryAddWithoutValidation("DPoP", proof);
+            using var response = await client.SendAsync(request, ct);
+            sent++;
+            if ((int)response.StatusCode >= 500)
+                faults.Add($"{(int)response.StatusCode} POST /oauth/token (anonymous, a well-formed form, DPoP {proof[..Math.Min(proof.Length, 64)]})");
+        }
+
         // An agent's token bound to a proof key that is no point on the curve.
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create("https://agents.example/off-curve-" + suffix, "off-curve-" + suffix);
@@ -301,6 +314,44 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     private static string Segment(string json) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(json));
+
+    /// <summary>A token request's form that passes the endpoint's form checks, so what follows them is read.</summary>
+    private static FormUrlEncodedContent WellFormedTokenForm() =>
+        new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = "x",
+            ["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+            ["client_assertion"] = "a.b.c",
+        });
+
+    /// <summary>
+    /// R11.33 for a token request's DPoP proof whose header is JSON but not an object (Task 11's
+    /// review, I1). The token endpoint read the header's <c>jwk</c> without asking what the header
+    /// was, and <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> throws
+    /// <see cref="InvalidOperationException"/> on any other kind, so a request carrying no credential
+    /// answered 500 before its assertion was read. The sweep had sent the same proof with no form, and
+    /// the endpoint refused the form first (trap 26). The proof's key cannot be read, so it is
+    /// <c>invalid_dpop_proof</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("[1]")]
+    [InlineData("1")]
+    [InlineData("\"s\"")]
+    [InlineData("null")]
+    public async Task R11_33_ATokenRequestsDpopProofWhoseHeaderIsNotAnObjectIsRefusedNotThrown(string header)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = WellFormedTokenForm() };
+        request.Headers.TryAddWithoutValidation("DPoP", Segment(header) + ".e30.AA");
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{(int)response.StatusCode} {body[..Math.Min(body.Length, 240)]}");
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal("invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
+    }
 
     /// <summary>
     /// R11.33's claims (Task 8's review, C1). The header fact varies a proof's <c>jwk</c> and no claim;

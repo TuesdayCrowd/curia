@@ -187,6 +187,8 @@ public static class TokenEndpoint
                 System.Buffers.Text.Base64Url.DecodeFromChars(parts[0]));
 
             using var header = System.Text.Json.JsonDocument.Parse(headerJson);
+            // A non-object header is a proof whose key cannot be read (R11.33): the check CompactJws and DpopProof.ParseJwk make.
+            if (header.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
             if (!header.RootElement.TryGetProperty("jwk", out var jwk)) return null;
 
             var parsed = JwkParser.Parse(jwk);

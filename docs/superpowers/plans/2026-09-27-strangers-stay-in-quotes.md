@@ -9769,6 +9769,19 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             }
         }
 
+        // The token endpoint reads its form before its proof, so a request with no form never reaches
+        // the proof. Each hostile token and proof above is sent again as the proof on a token request
+        // whose form is well formed (Task 11's review, I1; trap 26).
+        foreach (var proof in hostile.Select(h => h.Authorization?.Split(' ', 2)[1]).Concat(hostile.Select(h => h.Proof)).OfType<string>().Distinct())
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = WellFormedTokenForm() };
+            request.Headers.TryAddWithoutValidation("DPoP", proof);
+            using var response = await client.SendAsync(request, ct);
+            sent++;
+            if ((int)response.StatusCode >= 500)
+                faults.Add($"{(int)response.StatusCode} POST /oauth/token (anonymous, a well-formed form, DPoP {proof[..Math.Min(proof.Length, 64)]})");
+        }
+
         // An agent's token bound to a proof key that is no point on the curve.
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create("https://agents.example/off-curve-" + suffix, "off-curve-" + suffix);
@@ -9845,6 +9858,44 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     private static string Segment(string json) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(json));
+
+    /// <summary>A token request's form that passes the endpoint's form checks, so what follows them is read.</summary>
+    private static FormUrlEncodedContent WellFormedTokenForm() =>
+        new(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = "x",
+            ["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+            ["client_assertion"] = "a.b.c",
+        });
+
+    /// <summary>
+    /// R11.33 for a token request's DPoP proof whose header is JSON but not an object (Task 11's
+    /// review, I1). The token endpoint read the header's <c>jwk</c> without asking what the header
+    /// was, and <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> throws
+    /// <see cref="InvalidOperationException"/> on any other kind, so a request carrying no credential
+    /// answered 500 before its assertion was read. The sweep had sent the same proof with no form, and
+    /// the endpoint refused the form first (trap 26). The proof's key cannot be read, so it is
+    /// <c>invalid_dpop_proof</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("[1]")]
+    [InlineData("1")]
+    [InlineData("\"s\"")]
+    [InlineData("null")]
+    public async Task R11_33_ATokenRequestsDpopProofWhoseHeaderIsNotAnObjectIsRefusedNotThrown(string header)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = WellFormedTokenForm() };
+        request.Headers.TryAddWithoutValidation("DPoP", Segment(header) + ".e30.AA");
+
+        using var response = await forum.Client.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{(int)response.StatusCode} {body[..Math.Min(body.Length, 240)]}");
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal("invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
+    }
 
     /// <summary>
     /// R11.33's claims (Task 8's review, C1). The header fact varies a proof's <c>jwk</c> and no claim;
@@ -10720,6 +10771,8 @@ Task 8's review added the claims and the charset (C1, I1). Against the tree befo
 
 Task 8's second review added the `+json` rows and the problem document (I1, I2). Against the tree before it, with every other Step 3 change in place, `RequestSurfaceTests` is `Failed:     7, Passed:    18`: the four rows of `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` (the binder's 400s for `{` and `[` served as the exception page's `BadHttpRequestException` text, its 415 for `text/plain` and routing's 404 for `/v1/log/entries/x` with no body), and the three sweep facts, each naming the binder's 400 and 415 from `POST /v1/agents`, `/v1/posts/batch` and `/v1/posts/{id}/flags`, its 400 from `GET /v1/jwks`, `/v1/log/consistency` and `/v1/log/proof/{index:long}` for a query parameter it could not bind, and routing's 404 from `/v1/log/{proof,entries}/{index:long}`, each with an empty body or the exception page's text. The three `+json` rows pass, because `JsonCharset` already covered the suffix; case 66 shows what they hold.
 
+Task 11's review added `R11_33_ATokenRequestsDpopProofWhoseHeaderIsNotAnObjectIsRefusedNotThrown` and the header fact's pass that carries a well-formed form (I1). Against the tree before Step 3's `ValueKind` guard in `TokenEndpoint.cs`, those two facts are `Failed:     5, Passed:     0`: the theory's four rows, each 500 with `InvalidOperationException` naming `Array`, `Number`, `String` or `Null`, and the header fact naming one request, `500 POST /oauth/token (anonymous, a well-formed form, DPoP WzFd.e30.AA)`; the other hostile proofs were already refused. With the guard, `RequestSurfaceTests` is `Passed:    29`.
+
 Expected: eight Api facts fail: `ServerFaultTests.R11_33_AnAnonymousSearchTheIndexFailsIsServedWithoutTheBackendsWords` (`"detail":"22000: NaN not allowed i"···`), the three 503 rows of `R4_35_ALogThatCannotBeReadIsAServerFaultNeverARefusal` (`"detail":"test/log-unreadable"`), the three sweep facts -- the anonymous one, the enrolled agent's and production's -- and the header fact (`Failed:     8, Passed:     2`; the two that pass are the query-parameter fact and the token row). Each sweep names the token endpoint ten times, once a body, and the thread route three times; production names what each threw: `InvalidOperationException` for the six bodies that are not forms, `InvalidDataException` for the three forms the reader refuses, and `IOException` for the multipart form cut off before its boundary. The gate prints each request as its URL, not its body; errata G17 names the bodies. The header fact names seven requests `(a token bound to a proof key off the curve)`: the six routes behind authentication -- `POST /v1/posts`, `POST /v1/posts/x/flags`, `POST /v1/posts/x/accept`, `GET /v1/inbox`, `GET /v1/flags` and `GET /v1/posts/x/flags` -- each of which threw building the key, and `POST /oauth/token`, whose JSON body is not a form. Then the validator's fact fails with the platform's `CryptographicException` (`Failed:     1, Passed:     0`). After Step 3 the six routes answer 401 and no other route reads the token.
 
 - [ ] **Step 3: Serve a fault without its detail, and refuse as a client's error every request the sweep found the Forum failing on**
@@ -10900,6 +10953,24 @@ with:
             return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
         }
 ```
+
+In `src/Curia.Api/Issuer/TokenEndpoint.cs` (Task 11's review, I1), replace:
+
+```csharp
+            using var header = System.Text.Json.JsonDocument.Parse(headerJson);
+            if (!header.RootElement.TryGetProperty("jwk", out var jwk)) return null;
+```
+
+with:
+
+```csharp
+            using var header = System.Text.Json.JsonDocument.Parse(headerJson);
+            // A non-object header is a proof whose key cannot be read (R11.33): the check CompactJws and DpopProof.ParseJwk make.
+            if (header.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+            if (!header.RootElement.TryGetProperty("jwk", out var jwk)) return null;
+```
+
+A token request's DPoP proof whose header is JSON but not an object (`[1]`, a number, a string, `null`) threw `InvalidOperationException` from `TryGetProperty` and answered 500 to a caller holding no credential, since nothing before it authenticates. The catch is not widened: catching `InvalidOperationException` would hide the next unchecked read as well. The sweep missed it because it sent its hostile proofs to `/oauth/token` with no form, which the endpoint refuses first (trap 26).
 
 In `src/Curia.AuthN/Dpop/JwkPublicKey.cs`, insert before:
 
@@ -12445,6 +12516,9 @@ CASES = [
          cmds=[dotnet(CLIENT, "FullyQualifiedName~ProgramOutputTests")],
          edits=[(PROGRAM_OUTPUT, "        var output = ReadAll(process.StandardOutput.BaseStream);",
                                  "        var output = process.StandardOutput.ReadToEnd();")]),
+    dict(id="90", what="the token endpoint asks a DPoP proof's header for its jwk without asking whether it is an object",
+         cmds=[dotnet(API, API_SWEEP)],
+         edits=[(TOKEN, "            if (header.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return null;\n", "")]),
 ]
 
 # A case id that names no case would otherwise run nothing and still end "runner exit: 0".
@@ -12583,7 +12657,7 @@ grep -E "^\[|runner exit|NOT RED|DID NOT RUN|falsify.py exit" <scratchpad>/falsi
 
 `-u` because a redirected Python buffers its output, and a log that is empty until the run ends looks like a run that has stopped.
 
-Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45, 48, 70 and 71 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are eighty-nine cases in one hundred and sixteen suite runs; cases 73–78 (Task 9b) touch no file under `rust/`, and their reds in the table are traced from the facts: record the run's names and counts, as earlier rounds did. The Domain runs regenerate `conformance/red-team/RESULTS.md`; no case changes its contents, so `git diff --quiet` holds, and if it does not, that is a finding. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 60 came with Task 6's second fix round, which ran it, with cases 8, 17 and 58, whose class filter the round's new theory falls under, from the repository root with the round's changes in place: RED on the facts the table names (case 58's Passed count now 66), each restore byte-identical to its kept copy, the tree rebuilt with --no-incremental and the suite green after, and runner exit: 0. Cases 61–65 came with Task 8's review round (its rulings C1 and I1), which ran them from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names, each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 61's first form wrote `long.MinValue` and `long.MaxValue` and did not build (CA1802), which is why it goes through `Math.Min`/`Math.Max`. Cases 66–68 came with Task 8's second review round (its rulings I1 and I2), which ran them, with case 63, whose guard now also refuses the `+json` body, from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names (case 63 at `Failed: 11, Passed: 14` and `Failed: 8, Passed: 7`), each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 68's 415 row stayed green, where the ruling expected it red, because the binder writes that refusal without throwing. Cases 69 and 70 came with Task 9's review round, which ran them, with cases 5, 6, 7 and 18, whose gate the round's assertion replaced, from the repository root with the round's changes in place and not yet committed, through this runner: `RED` on the facts the table names, and cases 5, 6, 7 and 18 still `RED`; each restore byte-identical to its kept copy, and `git diff --quiet` held, since neither case patches a file the round changed; `curia-testis rebuilt: yes` for 18 and 70; the tree rebuilt with `--no-incremental` and the suite green after; and `runner exit: 0`. Cases 71 and 72 came with Task 9's second review round, which ran them, with cases 5, 6, 7, 18, 69 and 70, whose gate the round changed, from the repository root after the round's commit, through this runner: `RED` on the facts the table names for all eight (case 69's Client run at `Failed: 1, Passed: 5`, now that Task 4's block carries the board and author literal assertions; case 72's Client run at `Failed: 3, Passed: 3`, where the ruling expected one fact); each restore byte-identical to its kept copy, with `git diff --quiet` holding; `curia-testis rebuilt: yes` for 18, 70 and 71; the tree rebuilt with `--no-incremental` and the suite green after; and `runner exit: 0`. Cases 79–87 came with Task 10's review round, which ran them, with cases 21, 22, 52 and 55, whose gates the round changed (the enrollment route's two guards, and `ConstantArgumentTests`' shipped-assembly list, moved to `Shipped`), from the repository root with the round's changes in place and staged in the index, so that `git diff --quiet` compared each restore against them, through this runner: `RED` on the facts the table names for all thirteen (case 21 at `Failed: 6, Passed: 13`, the new theory's three control `kid` rows beside the first theory's three); each restore byte-identical to its kept copy, with `git diff --quiet` holding; the tree rebuilt with `--no-incremental` and the suite green after; and `runner exit: 0`. Case 86's first run went red on its fact's non-vacuity guard (`Testis`'s call to `ProgramOutput.ReadAsync` missing) rather than naming `Testis`, so the fact now reports offenders before its guards, and case 86 ran again: `RED` naming `Testis`, `restore clean` with both proofs, and `runner exit: 0`. Cases 88 and 89 came with Task 10's fix review, which ran them, with case 85, whose class filter the round's new theory and fact fall under, from the repository root with the round's changes in place and not yet committed, through this runner: `RED` on the facts the table names, at the counts it gives (case 85 at `Failed: 9, Passed: 12`, case 88 at `Failed: 2, Passed: 19`, case 89 at `Failed: 3, Passed: 18`, each as the review predicted); each restore byte-identical to its kept copy, with `git diff --quiet` holding, since none patches a file the round changed; and `runner exit: 0`. The same review ran `Curia.Architecture.Tests.ProgramOutputTests` under each of 88's and 89's patches, by a scratch copy-patch-restore: the build at 0 errors and warnings, and the fact green (`Passed: 1`) both times.
+Each case must print `RED` for every command it runs, then `restore clean` — with `curia-testis rebuilt: yes` for cases 3, 4, 18–20, 31, 42, 45, 48, 70 and 71 — and the last lines must be `runner exit: 0` and `falsify.py exit 0`. There are ninety cases in one hundred and seventeen suite runs; cases 73–78 (Task 9b) touch no file under `rust/`, and their reds in the table are traced from the facts: record the run's names and counts, as earlier rounds did. The Domain runs regenerate `conformance/red-team/RESULTS.md`; no case changes its contents, so `git diff --quiet` holds, and if it does not, that is a finding. When the amended plan was build-checked, this runner, as printed here, ran every case in a git-backed copy of the finished tree (its code byte-identical to this plan applied to a `git archive` of b4bfe31 with the workspace `global.json`; `git init`, one commit): every case printed `RED` for every command, the red facts were those the table names, every restore printed `restore clean` with both proofs and, for the six cases that touch `rust/`, `curia-testis rebuilt: yes`, and the last lines were `runner exit: 0` and `falsify.py exit 0`. The first form of this plan ran its thirty-one cases the same way; an earlier run of that form, identical but for case 19's prep, failed on case 19 alone (`GREEN -- bad patch or a gap`), which is why the prep exists. The second amendment ran all forty-seven the same way, in a git-backed copy of its own finished tree, with the result the table gives; its first run of case 46 went red on the header fact's non-vacuity guard, because every route behind authentication answered 500 and none answered 401, so the fact now reports its faults before that guard. Case 48 came with Task 3's fix round (its review's I1), which ran it alone with this runner in a git-backed copy of its own tree: `RED` on the facts the table names, `restore clean` with both proofs and `curia-testis rebuilt: yes`, and `runner exit: 0`. Case 49 came with Task 4's fix round (its review's I2), which ran it alone with this runner from the repository root after the round's commit: `RED` on the fact the table names, `restore clean` with both proofs, and `runner exit: 0`. Cases 50–55 came with Task 5's fix round (its review's rulings 1–4, and the restructure of `Passage.Standing` that ruling 3's fact forced), which ran them with cases 9, 34 and 35, whose anchors or gates the round moved, with this runner in a git-backed copy of the round's tree: `RED` on the facts the table names for all nine, `restore clean` with both proofs, and `runner exit: 0`. Cases 56–59 came with Task 6's fix round (its review's four rulings), which ran them from the repository root with the round's changes in place and not yet committed, through a scratch runner holding these four cases' edits byte for byte: `RED` on the facts the table names, each restore byte-identical to its kept copy (the `git diff --quiet` proof cannot hold over an uncommitted round, and was not claimed), the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 60 came with Task 6's second fix round, which ran it, with cases 8, 17 and 58, whose class filter the round's new theory falls under, from the repository root with the round's changes in place: RED on the facts the table names (case 58's Passed count now 66), each restore byte-identical to its kept copy, the tree rebuilt with --no-incremental and the suite green after, and runner exit: 0. Cases 61–65 came with Task 8's review round (its rulings C1 and I1), which ran them from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names, each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 61's first form wrote `long.MinValue` and `long.MaxValue` and did not build (CA1802), which is why it goes through `Math.Min`/`Math.Max`. Cases 66–68 came with Task 8's second review round (its rulings I1 and I2), which ran them, with case 63, whose guard now also refuses the `+json` body, from the repository root with the round's changes in place and not yet committed, through this runner with the `git diff --quiet` proof dropped: `RED` on the facts the table names (case 63 at `Failed: 11, Passed: 14` and `Failed: 8, Passed: 7`), each restore byte-identical to its kept copy, the tree rebuilt with `--no-incremental` and the suite green after, and `runner exit: 0`. Case 68's 415 row stayed green, where the ruling expected it red, because the binder writes that refusal without throwing. Cases 69 and 70 came with Task 9's review round, which ran them, with cases 5, 6, 7 and 18, whose gate the round's assertion replaced, from the repository root with the round's changes in place and not yet committed, through this runner: `RED` on the facts the table names, and cases 5, 6, 7 and 18 still `RED`; each restore byte-identical to its kept copy, and `git diff --quiet` held, since neither case patches a file the round changed; `curia-testis rebuilt: yes` for 18 and 70; the tree rebuilt with `--no-incremental` and the suite green after; and `runner exit: 0`. Cases 71 and 72 came with Task 9's second review round, which ran them, with cases 5, 6, 7, 18, 69 and 70, whose gate the round changed, from the repository root after the round's commit, through this runner: `RED` on the facts the table names for all eight (case 69's Client run at `Failed: 1, Passed: 5`, now that Task 4's block carries the board and author literal assertions; case 72's Client run at `Failed: 3, Passed: 3`, where the ruling expected one fact); each restore byte-identical to its kept copy, with `git diff --quiet` holding; `curia-testis rebuilt: yes` for 18, 70 and 71; the tree rebuilt with `--no-incremental` and the suite green after; and `runner exit: 0`. Cases 79–87 came with Task 10's review round, which ran them, with cases 21, 22, 52 and 55, whose gates the round changed (the enrollment route's two guards, and `ConstantArgumentTests`' shipped-assembly list, moved to `Shipped`), from the repository root with the round's changes in place and staged in the index, so that `git diff --quiet` compared each restore against them, through this runner: `RED` on the facts the table names for all thirteen (case 21 at `Failed: 6, Passed: 13`, the new theory's three control `kid` rows beside the first theory's three); each restore byte-identical to its kept copy, with `git diff --quiet` holding; the tree rebuilt with `--no-incremental` and the suite green after; and `runner exit: 0`. Case 86's first run went red on its fact's non-vacuity guard (`Testis`'s call to `ProgramOutput.ReadAsync` missing) rather than naming `Testis`, so the fact now reports offenders before its guards, and case 86 ran again: `RED` naming `Testis`, `restore clean` with both proofs, and `runner exit: 0`. Cases 88 and 89 came with Task 10's fix review, which ran them, with case 85, whose class filter the round's new theory and fact fall under, from the repository root with the round's changes in place and not yet committed, through this runner: `RED` on the facts the table names, at the counts it gives (case 85 at `Failed: 9, Passed: 12`, case 88 at `Failed: 2, Passed: 19`, case 89 at `Failed: 3, Passed: 18`, each as the review predicted); each restore byte-identical to its kept copy, with `git diff --quiet` holding, since none patches a file the round changed; and `runner exit: 0`. The same review ran `Curia.Architecture.Tests.ProgramOutputTests` under each of 88's and 89's patches, by a scratch copy-patch-restore: the build at 0 errors and warnings, and the fact green (`Passed: 1`) both times. Case 90 came with Task 11's review round (its ruling I1), which ran it alone from the repository root with the round's changes in place and its two code files staged in the index, so that `git diff --quiet` compared the restore against them, through this runner: `RED` on the facts the table names (`Failed: 5, Passed: 24`: the theory's four rows, each 500 with `InvalidOperationException` naming `Number`, `Array`, `String` and `Null`, and the header fact naming `500 POST /oauth/token (anonymous, a well-formed form, DPoP WzFd.e30.AA)`); `restore clean` with both proofs (bytes equal to the kept copy: 1/1; `git diff --quiet`: yes); and `runner exit: 0` and `falsify.py exit 0`.
 
 | Case | Must fail, by name |
 |---|---|
@@ -12676,6 +12750,7 @@ Each case must print `RED` for every command it runs, then `restore clean` — w
 | 87 | The five white-space rows of `EnrollmentIdentifierTests.R4_37_AnIdentifierMadeOnlyOfSuchCharactersIsRefusedByR4_37sName` (U+000A, U+2029, U+2028, U+0085, and U+0009 with U+000D), each answered `400 curia/enroll/invalid` (`Failed: 5, Passed: 14`). The U+001F and blank rows and `R4_37_AnIdentifierHoldingAControlFormatOrSeparatorCharacterIsRefusedBeforeAnythingIsWritten` stay green, and should: U+001F is not white space, a blank identifier is refused as required either way, and every row of the first theory carries a suffix (Task 10's review) |
 | 88 | The `FFFE4100` and `EFBBBF61` rows of `Curia.Client.Tests.ProgramOutputTests.R10_64_BothOfAProcesssStreamsAreDecodedAsUtf8WhateverTheyBeginWith` with reader `ReadAsync`, each stream read as UTF-16LE (`A` and a U+FFFD) or with its mark dropped (`Failed: 2, Passed: 19`). The `Read` rows stay green, and should: the patch reaches `ReadAsync` alone. The build stays at 0 warnings and `Curia.Architecture.Tests.ProgramOutputTests` stays green (`Passed: 1`), because the fact allows the process's own getters inside `ProgramOutput`: that is the gap this case closes (Task 10's fix review) |
 | 89 | The `FFFE4100` and `EFBBBF61` rows of `R10_64_BothOfAProcesssStreamsAreDecodedAsUtf8WhateverTheyBeginWith` with reader `Read`, stdout alone decoded another way and stderr still by the rule, and `R10_64_ASignerWhoseOutputBeginsWithAByteOrderMarkIsRefused`, the signer accepted (`Failed: 3, Passed: 18`). The `ReadAsync` rows and the stderr theory stay green, and should: the patch reaches `Read`'s stdout alone. The build stays at 0 warnings and the architecture fact stays green (`Passed: 1`), for the same reason as case 88 (Task 10's fix review) |
+| 90 | The four rows of `RequestSurfaceTests.R11_33_ATokenRequestsDpopProofWhoseHeaderIsNotAnObjectIsRefusedNotThrown`, each 500 with `InvalidOperationException` naming `Array`, `Number`, `String` or `Null`, and `R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault`, naming `500 POST /oauth/token (anonymous, a well-formed form, DPoP WzFd.e30.AA)` (`Failed: 5, Passed: 24`). The header fact's other proofs stay refused, and should: none is a header that parses as JSON other than an object (Task 11's review, I1) |
 
 - [ ] **Step 3: Prove the tree is what was committed, and green**
 
@@ -12689,7 +12764,7 @@ dotnet test Curia.sln -c Release --no-build --nologo 2>&1 | grep -E "Passed!|Fai
 
 Expected: `git status --porcelain` prints nothing; `no residue`; the verifier builds; `0 Warning(s)`, `0 Error(s)`; and eleven `Passed!` lines, the counts Task 12 states.
 
-The residue grep looks for the token each patch adds. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. Task 10's review ran the check both ways: a `git archive` of the round's tree into a scratch copy; then, for each of the eighty-seven cases, a fresh copy of that tree with only that case's edits applied, every anchor matching exactly once, and the greps above run exactly as printed. The finished tree printed `no residue`. Every case printed its patched line but twenty, and each of those is a pure removal, its patched text the anchor with characters deleted, which leaves no token to find: cases 2, 12, 13, 18–20, 29, 31, 33, 44, 45, 47, 48, 51, 52, 63, 66–68 and 78. `git status --porcelain` and each restore's `git diff --quiet` are what prove those gone. The same run found three cases that printed `no residue` and are not removals, and the grep gained a token for each before the run that this paragraph quotes: case 14 (`Console.Out.WriteLine(` ending its line, in `Help.cs`), case 24 (the server fault's `Problem` given `error.Detail`) and case 30 (`"count": 15` in `conformance/index.json`, which no family declares, read by a third grep). Cases 60, 69 and 70 had no token before the review (70 was listed as a removal, though it prints the raw kid), and cases 79–87 came with it; each now has one, or, for case 79, the existing `OwnText\((…|Error\.Title|…)\)` alternative. Cases 88 and 89 came with Task 10's fix review, and the grep gained a token for each, `StandardOutput\.ReadToEndAsync\(ct\)` and `StandardOutput\.ReadToEnd\(\)` in `ProgramOutput.cs`, though the existing `process\.StandardOutput\.ReadToEnd` alternative matches both too. The review ran the greps as printed over a fresh copy of the round's tree (`src`, `rust/curia-testis/src` and `conformance/index.json`) with only that case's edit applied: each printed its patched line, `ProgramOutput.cs:38` for case 88 and `ProgramOutput.cs:49` for case 89; and the round's tree, with its rewritten enrollment comment, printed `no residue`.
+The residue grep looks for the token each patch adds. Its first form matched seven lines that were always there (`"curia/…/no-such-…"` slugs and `no-such-kid` in Rust fixtures) and so could never print `no residue`. Task 10's review ran the check both ways: a `git archive` of the round's tree into a scratch copy; then, for each of the eighty-seven cases, a fresh copy of that tree with only that case's edits applied, every anchor matching exactly once, and the greps above run exactly as printed. The finished tree printed `no residue`. Every case printed its patched line but twenty, and each of those is a pure removal, its patched text the anchor with characters deleted, which leaves no token to find: cases 2, 12, 13, 18–20, 29, 31, 33, 44, 45, 47, 48, 51, 52, 63, 66–68 and 78. `git status --porcelain` and each restore's `git diff --quiet` are what prove those gone. The same run found three cases that printed `no residue` and are not removals, and the grep gained a token for each before the run that this paragraph quotes: case 14 (`Console.Out.WriteLine(` ending its line, in `Help.cs`), case 24 (the server fault's `Problem` given `error.Detail`) and case 30 (`"count": 15` in `conformance/index.json`, which no family declares, read by a third grep). Cases 60, 69 and 70 had no token before the review (70 was listed as a removal, though it prints the raw kid), and cases 79–87 came with it; each now has one, or, for case 79, the existing `OwnText\((…|Error\.Title|…)\)` alternative. Cases 88 and 89 came with Task 10's fix review, and the grep gained a token for each, `StandardOutput\.ReadToEndAsync\(ct\)` and `StandardOutput\.ReadToEnd\(\)` in `ProgramOutput.cs`, though the existing `process\.StandardOutput\.ReadToEnd` alternative matches both too. The review ran the greps as printed over a fresh copy of the round's tree (`src`, `rust/curia-testis/src` and `conformance/index.json`) with only that case's edit applied: each printed its patched line, `ProgramOutput.cs:38` for case 88 and `ProgramOutput.cs:49` for case 89; and the round's tree, with its rewritten enrollment comment, printed `no residue`. Case 90, which came with Task 11's review, is a pure removal, the guard's line deleted, and so has no token.
 
 - [ ] **Step 4: Nothing to commit**
 
@@ -12721,7 +12796,7 @@ grep -n 'if (args.Unreadable is' src/Curia.Client.Cli/Program.cs
 grep -n 'ControlCharacter(request.AgentId\|private static Error? ControlCharacter\|var thread = string.IsNullOrWhiteSpace\|private static IResult Problem(int status' src/Curia.Api/ForumEndpoints.cs
 grep -n 'internal sealed partial class ServerFault' src/Curia.Api/ServerFault.cs
 grep -n 'new ServerFault' src/Curia.Api/ActaEndpoints.cs
-grep -n 'HasFormContentType\|catch (InvalidDataException)\|catch (IOException)\|private static IResult OAuthError' src/Curia.Api/Issuer/TokenEndpoint.cs
+grep -n 'HasFormContentType\|catch (InvalidDataException)\|catch (IOException)\|JsonValueKind.Object) return null\|private static IResult OAuthError' src/Curia.Api/Issuer/TokenEndpoint.cs
 grep -n 'RetrievalErrors.IndexUnavailable' src/Curia.Infrastructure/PostgresVectorIndex.cs
 grep -n 'CanonErrors.Malformed(ex.Message)' src/Curia.Canon/Json/JsonReader.cs
 grep -n 'public static Result<PublicKeyMaterial> ToPublicKeyMaterial\|catch (CryptographicException)' src/Curia.AuthN/Dpop/JwkPublicKey.cs
@@ -12738,7 +12813,7 @@ grep -n 'var written = SpanText.Block(rendered);' src/Curia.Client/Frame.cs
 grep -n 'SpanText' src/Curia.Operator/TerminalText.cs
 ```
 
-Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `323:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `545:`, `1194:`, `2168:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:` and `220:`; `185:`; `161:`; `45:` and `68:`; `285:`; `515:`; `16:` and `19:`; `295:`; `20:`, `21:` and `24:`; `24:`; `16:`; `291:` and `294:`; and, for Task 9b's three, what they print, since Task 9b's code was not build-checked with this plan. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
+Expected: the register's last entries are D29 and D30, so the new one is **D31** — **if not, stop**, another writer has been active. Then, in order: `100:` and `128:`; `36:` and `70:`; `20:`; `21:`, `46:`, `60:`, `117:`, `235:`, `323:`; `57:`, `138:` and `179:`; `66:`; `82:`; `94:` and `290:`; `18:`; `37:`; `436:`, `545:`, `1194:`, `2168:`; `16:`; `233:` and `239:`; `66:`, `74:`, `78:`, `191:` and `222:`; `185:`; `161:`; `45:` and `68:`; `285:`; `515:`; `16:` and `19:`; `295:`; `20:`, `21:` and `24:`; `24:`; `16:`; `291:` and `294:`; and, for Task 9b's three, what they print, since Task 9b's code was not build-checked with this plan. These are the lines the text below cites. The citations of b4bfe31's lines (`Passage.cs:56-62`, `SignatureCheck.cs:63`, `curia-testis.rs:324-325` and `:507-508`) are to the pre-fix files, as every closed entry's are; check them with `git show b4bfe31:<path> | grep -n …`.
 
 - [ ] **Step 2: Write the register, the trap and what comes next**
 
@@ -12769,7 +12844,11 @@ this:
 > 500, a thread id of white space and a token request that is not a form, whose form holds U+0000, or
 > whose multipart form is cut off, all now 4xx; and a header this register had recorded and not run,
 > a DPoP proof whose key is no point on P-256 under a token bound to it, answered 500 on every route
-> behind authentication, and is now 401.
+> behind authentication, and is now 401; a signed NumericDate outside DateTimeOffset's range answered
+> 500 to any enrolled agent, on /oauth/token and every route behind authentication, a JSON body's
+> declared charset the binder could not read answered 500 to anyone from POST /v1/agents,
+> /v1/posts/batch and /v1/posts/{id}/flags, and a token request's DPoP proof whose header is JSON but
+> not an object answered 500 to anyone; all three are now 4xx.
 >
 ```
 
@@ -12851,23 +12930,30 @@ of, both closed: a thread id of white space alone (`ForumEndpoints.cs:1194`), an
 is not a form, whose form holds U+0000, or whose multipart form is cut off before its closing boundary
 (`src/Curia.Api/Issuer/TokenEndpoint.cs:66`, `:74`, `:78`; the last found by the plan's pre-flight). It
 found none on `q`, `board` or `author`: every read folds the log in memory. Run as an enrolled agent,
-whose requests reach the handlers behind authentication, it found the same two and no third among
-well-formed headers. The third was a header, recorded under "Observed during the enrollment stage" and
+whose requests reach the handlers behind authentication, it found the same two and no other among
+well-formed headers. A third was a header, recorded under "Observed during the enrollment stage" and
 closed by the same stage: a DPoP proof whose key is no point on P-256, under a token bound to it.
-Task 8's review found two more, and the stage closed both. The fifth is a signed claim out of range:
+Task 8's review found two more, and the stage closed both. The fourth is a signed claim out of range:
 `NumericDate` handed `iat`, `exp` and `nbf` to `FromUnixTimeSeconds` unchecked after the signature
 verified, so an assertion with `exp` 1e13 answered 500 from `/oauth/token`, and a proof with `iat`
 1e13 or -1e11 answered 500 from every route behind authentication, to any enrolled agent; a value
 outside `DateTimeOffset`'s range is `curia/authn/malformed` now (`src/Curia.AuthN/Jwt/NumericDate.cs:16`,
 `:19`), held by `NumericDateTests`, the assertion and proof theories, and
 `RequestSurfaceTests.R11_33_NoNumericDateAnEnrolledAgentSignsIsAnsweredAsAServerFault` (falsification
-cases 61 and 62). The sixth is a JSON body's declared charset, the quoted form included: the
+cases 61 and 62). The fifth is a JSON body's declared charset, the quoted form included: the
 minimal-API binder threw for a charset it cannot read -- `bogus-xyz`, an empty one, and `"utf-8"`,
 since it does not unquote -- answering 500 to anyone from `POST /v1/agents`, `/v1/posts/batch` and
 `/v1/posts/{id}/flags`; `JsonCharset` refuses anything but the bare token utf-8 with 415 before
 binding (`src/Curia.Api/JsonCharset.cs:24`, registered at `src/Curia.Api/Program.cs:295`), held by
 `R11_33_AJsonBodyInACharsetOtherThanUtf8IsRefusedBeforeItIsBound` and five sweep bodies, a +json
-media type included (cases 63–66). A 4xx no handler composed is a problem document now
+media type included (cases 63–66). The sixth, found by Task 11's review, is anonymous: a token
+request whose DPoP proof's header is JSON but not an object (`[1]`, a number, a string, `null`)
+answered 500 before any credential was read, because the sweep sent its hostile proofs to
+`/oauth/token` with no form and never reached the parse; the proof is now `invalid_dpop_proof`
+(`src/Curia.Api/Issuer/TokenEndpoint.cs:191`), held by
+`RequestSurfaceTests.R11_33_ATokenRequestsDpopProofWhoseHeaderIsNotAnObjectIsRefusedNotThrown` and
+the sweep's form-carrying pass (falsification case 90). A 4xx no handler composed is a problem
+document now
 (`src/Curia.Api/UnreadableRequests.cs:16`, registered at `src/Curia.Api/Program.cs:294`, with the
 binder told not to throw at `:291`), held by
 `R11_33_ARequestNoHandlerCanReadIsAnsweredWithAProblemDocument` and the three sweeps (cases 67,
@@ -13013,13 +13099,14 @@ hostile identifier through `curia read`'s renderer, `curia_read`, `curia_search`
 `curia-testis verify`, and in `R10_67_ABodyWrittenToDriveATerminalReachesNoReaderAsItself` a body
 written to drive a terminal through the first three.
 
-**Falsified:** the strangers stage's Task 10 holds eighty-nine cases in one hundred and sixteen suite
-runs, its review rounds' cases included, and Task 11 ran all of them in one run of its runner from the
-repository root, on 1045f08's source: every one of the 116 commands printed `RED`, every restore
+**Falsified:** the strangers stage's Task 10 holds ninety cases in one hundred and seventeen suite
+runs, its review rounds' cases included. Task 11 ran the first eighty-nine in one run of its runner
+from the repository root, on 1045f08's source: every one of the 116 commands printed `RED`, every restore
 printed `restore clean` with both proofs and, after each of the eleven cases that patch a file under
 `rust/` (3, 4, 18-20, 31, 42, 45, 48, 70 and 71), `curia-testis rebuilt: yes`, and the run's last
-lines were `runner exit: 0` and `falsify.py exit 0`. How each round first ran the cases it added is
-in Task 10's narrative.
+lines were `runner exit: 0` and `falsify.py exit 0`. Case 90 came with Task 11's review, which ran it
+alone: `RED`, `restore clean` with both proofs, and `runner exit: 0`. How each round first ran the
+cases it added is in Task 10's narrative.
 
 **What it does not close.** A reference reader quotes; a third-party reader that prints served values
 raw is as exposed as the reference client was, which is what R4.37 narrows for identifiers and nothing
@@ -13061,7 +13148,7 @@ run; and the span a reader prints is still not compared with the canonical form 
   and its DPoP proof is still unverified (D29). Its `server_error` 500 is RFC 6749's shape, not a
   problem document, so R11.33's second sentence does not reach it: it carries the fault's title as
   `error_description` and its type as `detail`, and nothing logs its reason, against R5.12's "log the
-  specific reason internally" (`TokenEndpoint.cs:220`). All three are at one endpoint and ride with
+  specific reason internally" (`TokenEndpoint.cs:222`). All three are at one endpoint and ride with
   rotation, which changes that endpoint's key handling.
 - **`curia-operator` escapes what it reads and does not quote it.** It is the operator's tool over the
   database and not a reference reader. Its `TerminalText` is R10.67's `SpanText` since Task 9b, so an
@@ -13078,9 +13165,12 @@ run; and the span a reader prints is still not compared with the canonical form 
   8's review, a JSON body's declared charset and the NumericDates in a JWT an agent signs are swept
   too (D25). A header one handler reads -- a conditional read's `If-None-Match` -- is not swept.
 - **A display literal can hold a delimiter in the middle of a line.** `Of("<<<CURIA-UNTRUSTED-END>>>")`
-  is that text between quotation marks (the Task 2 review ran it). A literal never begins a line, so a
-  span check that reads whole lines, as `IsDelimitedSpan` does, is not deceived; a consumer that finds
-  a span by searching for the delimiter's text anywhere would be. No reader here does.
+  is that text between quotation marks (the Task 2 review ran it). A literal never begins a line, and
+  `IsDelimitedSpan` (`src/Curia.Client/Frame.cs:323`) runs only on the Forum's served `rendered`
+  member, never on a frame's output, where a literal would sit; it also requires each outer delimiter
+  on a line of its own and refuses a span whose inner text holds either delimiter anywhere. A consumer
+  that found a span in a frame's output by searching for the delimiter's text anywhere would be
+  deceived; no reader here does.
 - **`curia-mcp` names tools with a post id in them** (`Read the thread with curia_read "…"`). They are
   tool calls, whose arguments are JSON, not commands a shell runs, so R10.65 does not reach them (its
   text says "in a shell" since the Task 1 review); the id is a display literal, which a JSON argument
@@ -13263,7 +13353,10 @@ this:
     "and no third". Every header it sent was well formed, and this register already held a header
     500, traced and not run: a proof key off the curve, on every route behind authentication. The
     verdict was true of the requests, not of the surface. **Name the dimensions a sweep holds fixed
-    beside what it found**, and run what the register already suspects in them.
+    beside what it found**, and run what the register already suspects in them. Task 11's review
+    found its second instance the same way: the sweep sent its hostile proofs to `/oauth/token` with
+    no form, which the endpoint refuses before it reads a proof, so a proof whose header is not an
+    object answered 500 on a request the sweep never sent (D25).
 
 ```
 
@@ -13282,7 +13375,8 @@ was bound to its author before it, where the read tools verify under the key set
 in quotes (errata G17: `curia`, `curia-mcp` and `curia-testis` write every value they did not compose
 as a display literal, `curia` and `curia-mcp` write a post's control, format and separator characters
 as escapes, so its content cannot drive a terminal, a command `curia` prints holds a value only as a
-shell word, and a server fault carries no detail), the
+shell word, and a server fault served as a problem document carries no detail (the token
+endpoint's RFC 6749 server_error still carries its slug, register D29)), the
 ```
 
 In `README.md`, replace:
@@ -13356,7 +13450,7 @@ node tools/differential-oracle/compare.mjs --fail-on-divergence > <scratchpad>/d
 grep -E '"divergences"' <scratchpad>/differential.log
 ```
 
-Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 35, Domain.Primitives 39, AuthN 80, Infrastructure 106, Mcp 147, Client 293, Api 284, Canon 322, Application 299, Domain 610 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    35` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 244 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree, but for Architecture and Client, which Task 5's review raised from 33 and 259, and AuthN and Api, which Task 8's two reviews raised from 69 and 256 (eleven AuthN rows; for Api the claims fact and the charset theory's twelve rows, then the second review's three `+json` charset rows and four problem-document rows). 256 already counted Task 9's two facts: 274 after Task 8, plus 2. Task 9b then raised Canon from 284 to 322 (twenty-two and thirteen theory rows and three facts), Client from 270 to 272 (two facts), Mcp from 144 to 147 (one theory, three rows), Api from 276 to 277 (one fact) and Domain from 609 to 610 (the red-team outcome kind), the counts its own Step 5 predicts and the Release run on 0a2d5b3 printed. Task 10's review then raised Architecture from 34 to 35 (the `ProgramOutput` fact), Client from 272 to 282 (two theories of five rows) and Api from 277 to 284 (one theory of seven rows), as the Release run on the round's tree printed. Task 10's fix review then raised Client from 282 to 293 (one theory of ten rows and one fact), as the Release run on that round's tree printed.
+Expected: the restore ends without an error; `0 Warning(s)`, `0 Error(s)`; eleven `Passed!` lines with `Failed:     0` — Canon.Sodium 32, Architecture 35, Domain.Primitives 39, AuthN 80, Infrastructure 106, Mcp 147, Client 293, Api 288, Canon 322, Application 299, Domain 610 (from 32 / 30 / 39 / 68 / 106 / 74 / 230 / 237 / 262 / 299 / 609 at b4bfe31; count the assemblies, not the sum); the Debug build at `0 Warning(s)`, `0 Error(s)` and the architecture project `Passed:    35` in Debug; `spec-checks: clean` and `falsify: all 4 checks went red naming their cell; working tree untouched`; `fmt clean`; clippy's `Finished …`; `passed 244 failed 0 binaries 19`; both differential endpoints built at 0 warnings; `compare.mjs exit 0` and `"divergences": [],` — it compared 22,520 lines. This is what the build-check printed on the finished tree, but for Architecture and Client, which Task 5's review raised from 33 and 259, and AuthN and Api, which Task 8's two reviews raised from 69 and 256 (eleven AuthN rows; for Api the claims fact and the charset theory's twelve rows, then the second review's three `+json` charset rows and four problem-document rows). 256 already counted Task 9's two facts: 274 after Task 8, plus 2. Task 9b then raised Canon from 284 to 322 (twenty-two and thirteen theory rows and three facts), Client from 270 to 272 (two facts), Mcp from 144 to 147 (one theory, three rows), Api from 276 to 277 (one fact) and Domain from 609 to 610 (the red-team outcome kind), the counts its own Step 5 predicts and the Release run on 0a2d5b3 printed. Task 10's review then raised Architecture from 34 to 35 (the `ProgramOutput` fact), Client from 272 to 282 (two theories of five rows) and Api from 277 to 284 (one theory of seven rows), as the Release run on the round's tree printed. Task 10's fix review then raised Client from 282 to 293 (one theory of ten rows and one fact), as the Release run on that round's tree printed. Task 11's review then raised Api from 284 to 288 (one theory of four rows; the header fact's new pass adds no test), as the Release run on that round's tree printed.
 
 - [ ] **Step 2: Push, and open the PR**
 

@@ -26,7 +26,8 @@ was bound to its author before it, where the read tools verify under the key set
 in quotes (errata G17: `curia`, `curia-mcp` and `curia-testis` write every value they did not compose
 as a display literal, `curia` and `curia-mcp` write a post's control, format and separator characters
 as escapes, so its content cannot drive a terminal, a command `curia` prints holds a value only as a
-shell word, and a server fault carries no detail), the
+shell word, and a server fault served as a problem document carries no detail (the token
+endpoint's RFC 6749 server_error still carries its slug, register D29)), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every
 event a leaf under a frozen encoding, heads signed by `curia-operator sign-head` with a key the
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs
