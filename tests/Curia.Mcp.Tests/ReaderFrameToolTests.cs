@@ -17,8 +17,11 @@ namespace Curia.Mcp.Tests;
 /// <para><b>The Forum is hostile everywhere at once.</b> In the first mode every string in every
 /// document the stub serves carries a line break and a sentence a stranger would have the adapter
 /// say; in the second every request is refused with a problem document whose type, title and
-/// detail carry it. The tools come from <see cref="ToolCatalogue"/>, so a tool added later is driven
-/// here the day it is registered, and one this class cannot call fails by name.</para>
+/// detail carry it, at a status for every <c>RefusalKind</c> a Forum's answer can be given; in the
+/// third the token endpoint refuses each tool that requests a token, in RFC 6749's shape. The tools
+/// come from <see cref="ToolCatalogue"/>, so a tool added later is driven here the day it is
+/// registered, and one this class cannot call fails by name. The server instructions, which the
+/// model reads before any of them, and the digest <c>curia_verify</c> is given are driven too.</para>
 ///
 /// <para><b>Non-vacuity is part of each assertion.</b> The sentence must reach the tool's output,
 /// quoted, or its never beginning a line says nothing: a tool that printed no served value would
@@ -79,20 +82,33 @@ public sealed class ReaderFrameToolTests : IDisposable
             $"{name} printed none of the {members.Length} members it was served, so its having no forged line proves nothing; a defect in this fact");
     }
 
-    public static TheoryData<string, int> RegisteredToolsAndRefusals()
+    /// <summary>
+    /// Every tool against a refusal of every kind <c>ForumClient.Classify</c> gives a Forum's answer:
+    /// 400 Content, 401 Authentication, 403 Authorization, 403 with a Table 11 detail RateBudget,
+    /// 404 NotFound, 409 Conflict, 418 Malformed, 503 ServerFault. A kind added to Classify is a row
+    /// missing here; the 403 that is not the Forum's is Transport and names no word of the refusal.
+    /// </summary>
+    public static TheoryData<string, int, string> RegisteredToolsAndRefusals()
     {
-        var data = new TheoryData<string, int>();
+        var data = new TheoryData<string, int, string>();
+        var refusals = new[]
+        {
+            (400, "because"), (401, "because"), (403, "because"), (403, "table-11/rate-budget-exhausted"),
+            (404, "because"), (409, "because"), (418, "because"), (503, "because"),
+        };
+
         foreach (var name in ToolNames())
-            foreach (var status in new[] { 400, 403, 404, 409, 503 })
-                data.Add(name, status);
+            foreach (var (status, detail) in refusals)
+                data.Add(name, status, detail);
         return data;
     }
 
     [Theory]
     [MemberData(nameof(RegisteredToolsAndRefusals))]
-    public async Task R10_63_NoRefusalsWordsBeginALineOfWhatAToolTellsTheModel(string name, int status)
+    public async Task R10_63_NoRefusalsWordsBeginALineOfWhatAToolTellsTheModel(string name, int status, string detail)
     {
         _log.RefusesEverythingWith = (HttpStatusCode)status;
+        _log.HostileDetail = detail;
 
         var text = await InvokeAsync(name);
 
@@ -102,27 +118,80 @@ public sealed class ReaderFrameToolTests : IDisposable
         AssertNoForgedLine(name, text);
     }
 
+    /// <summary>
+    /// The token endpoint's refusal, for each tool that requests a token. A tool that requests none
+    /// must be one the catalogue registers without an identity: a write tool that stopped requesting
+    /// a token fails here by name rather than passing for having met no refusal.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RegisteredTools))]
+    public async Task R10_63_NoTokenRefusalsWordsBeginALineOfWhatAToolTellsTheModel(string name)
+    {
+        using (var probe = new StubLog())
+        {
+            await InvokeAsync(probe, name);
+            if (!probe.Requests.Contains("POST /oauth/token"))
+            {
+                Assert.Contains(name, ReadOnlyToolNames());
+                return;
+            }
+        }
+
+        _log.RefusesTokenWith = HttpStatusCode.Unauthorized;
+
+        var text = await InvokeAsync(name);
+
+        Assert.True(
+            text.Contains(Forged, StringComparison.Ordinal),
+            $"{name} said none of the token refusal's words, so its having no forged line proves nothing; a defect in this fact:\n{text}");
+        AssertNoForgedLine($"{name} refused a token", text);
+    }
+
+    /// <summary>R10.63 over the text the model reads first: the server instructions name the configured agent as a literal.</summary>
+    [Fact]
+    public void R10_63_ServerInstructionsQuoteTheAgentTheyName()
+    {
+        var agentId = "https://agents.example/a\n" + Forged;
+        var text = ToolText.ServerInstructions(agentId);
+        Assert.True(text.Contains(Curia.Canon.Json.DisplayLiteral.Of(agentId), StringComparison.Ordinal),
+            $"the instructions do not name the agent as a literal, so their having no forged line proves nothing; a defect in this fact:\n{text}");
+        AssertNoForgedLine("server instructions", text);
+    }
+
+    /// <summary>R10.63: curia_verify echoes the digest its caller gave only as a literal.</summary>
+    [Fact]
+    public async Task R10_63_CuriaVerifyQuotesTheDigestItWasGiven()
+    {
+        var expected = "sha256:x\n" + Forged;
+        var (tools, agent) = Tools(_log);
+        using var owned = agent;
+
+        var text = Flatten(await tools.VerifyAsync(StubLog.PostId, expected, TestContext.Current.CancellationToken));
+
+        Assert.True(text.Contains(Curia.Canon.Json.DisplayLiteral.Of(expected), StringComparison.Ordinal),
+            $"curia_verify did not echo the digest as a literal, so its having no forged line proves nothing; a defect in this fact:\n{text}");
+        AssertNoForgedLine("curia_verify with a hostile expectedDigest", text);
+    }
+
     private static void AssertNoForgedLine(string name, string text)
     {
         var forged = text.Split('\n').Where(line => line.TrimStart().StartsWith(Forged, StringComparison.Ordinal)).ToArray();
         Assert.True(forged.Length == 0, $"{name} printed a line in its own voice that a stranger wrote:\n{text}");
     }
 
-    /// <summary>
-    /// One call per registered tool: its result's text, or the message of the refusal it raised --
-    /// which is what the SDK hands the model (<c>ForumTools.Refused</c>).
-    /// </summary>
-    private async Task<string> InvokeAsync(string name)
-    {
-        var loaded = _log.Store.Load("alice");
-        Assert.True(loaded.TryGetValue(out var agent, out var error), error?.Detail);
-        using var owned = agent;
+    private Task<string> InvokeAsync(string name) => InvokeAsync(_log, name);
 
-        var writer = new ForumWriter(agent!, new ForumSession(_log.Client(), agent!, _log.Store, TimeProvider.System), TimeProvider.System);
-        var tools = new ForumTools(_log.Client(), MarkingMode.None, new HeadStore(_home), writer);
+    /// <summary>
+    /// One call per registered tool, over <paramref name="log"/>: its result's text, or the message
+    /// of the refusal it raised -- which is what the SDK hands the model (<c>ForumTools.Refused</c>).
+    /// </summary>
+    private async Task<string> InvokeAsync(StubLog log, string name)
+    {
+        var (tools, agent) = Tools(log);
+        using var owned = agent;
         var ct = TestContext.Current.CancellationToken;
 
-        _log.RefusesAsDuplicate = name == "curia_ask";
+        log.RefusesAsDuplicate = name == "curia_ask";
 
         try
         {
@@ -141,6 +210,37 @@ public sealed class ReaderFrameToolTests : IDisposable
         catch (McpException refused)
         {
             return refused.Message;
+        }
+    }
+
+    /// <summary>
+    /// The tools as <c>curia-mcp</c> builds them with an identity configured, over <paramref name="log"/>,
+    /// and the identity, which the caller disposes.
+    /// </summary>
+    private (ForumTools Tools, EnrolledAgent Agent) Tools(StubLog log)
+    {
+        var loaded = log.Store.Load("alice");
+        Assert.True(loaded.TryGetValue(out var agent, out var error), error?.Detail);
+
+        var writer = new ForumWriter(agent!, new ForumSession(log.Client(), agent!, log.Store, TimeProvider.System), TimeProvider.System);
+        return (new ForumTools(log.Client(), MarkingMode.None, new HeadStore(_home), writer), agent!);
+    }
+
+    /// <summary>The tools the catalogue registers when no identity is configured.</summary>
+    private static string[] ReadOnlyToolNames()
+    {
+        using var log = new StubLog();
+        var home = Directory.CreateTempSubdirectory("curia-mcp-frame-catalogue-").FullName;
+
+        try
+        {
+            return ToolCatalogue.Build(new ForumTools(log.Client(), MarkingMode.None, new HeadStore(home)))
+                .Select(t => t.ProtocolTool.Name)
+                .ToArray();
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
         }
     }
 

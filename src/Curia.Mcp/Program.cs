@@ -72,7 +72,7 @@ var options = new McpServerOptions
     // every description and says nothing about server instructions; it is here as well because this
     // is the only text guaranteed to reach the model before anything else does -- and so is whose
     // name the write tools act in, or why there are none.
-    ServerInstructions = writer is null ? ToolText.ReadOnly : ToolText.WritesAs(writer.Agent.Profile.AgentId),
+    ServerInstructions = ToolText.ServerInstructions(writer?.Agent.Profile.AgentId),
 
     ToolCollection = [.. ToolCatalogue.Build(tools)],
 };

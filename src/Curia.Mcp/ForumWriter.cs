@@ -49,8 +49,8 @@ internal sealed class ForumWriter(EnrolledAgent agent, ForumSession session, Tim
 
         return Result<EnrolledAgent>.Fail(new Error(
             "curia/mcp/agent-enrolled-elsewhere",
-            $"The identity '{slug}' is enrolled at a different Forum",
-            $"it enrolled at {enrolledAt} and {McpConfiguration.ForumVariable} is {forum}. " +
+            "The identity is enrolled at a different Forum",
+            $"the identity '{slug}' enrolled at {enrolledAt} and {McpConfiguration.ForumVariable} is {forum}. " +
             "Its key is registered there and nowhere else, so this Forum would refuse every write."));
     }
 }

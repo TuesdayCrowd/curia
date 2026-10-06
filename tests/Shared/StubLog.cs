@@ -439,6 +439,20 @@ internal sealed class StubLog : IDisposable
     internal HttpStatusCode? RefusesEverythingWith { get; set; }
 
     /// <summary>
+    /// What a hostile refusal's <c>detail</c> begins with, before <see cref="HostileSuffix"/>. The
+    /// client tells a Table 11 budget exhaustion from a Table 10 denial by this prefix alone
+    /// (<c>ForumClient.Classify</c>), so a gate reaches the rate-budget refusal only by setting it.
+    /// </summary>
+    internal string HostileDetail { get; set; } = "because";
+
+    /// <summary>
+    /// With <see cref="HostileSuffix"/> set, the token endpoint refuses with this status, in RFC 6749's
+    /// shape plus the <c>detail</c> the Forum adds, each member ending with the suffix: the one
+    /// refusal a write tool meets before it reaches a route.
+    /// </summary>
+    internal HttpStatusCode? RefusesTokenWith { get; set; }
+
+    /// <summary>
     /// Every member of every JSON document the stub has served that holds a string, named by route
     /// and member path, array elements as <c>[]</c>: what a gate iterates to make each one hostile in
     /// turn.
@@ -963,13 +977,23 @@ internal sealed class StubLog : IDisposable
                     {
                         ["type"] = "curia/stub/hostile" + suffix,
                         ["title"] = "Refused" + suffix,
-                        ["detail"] = "because" + suffix,
+                        ["detail"] = log.HostileDetail + suffix,
                     });
                 }
                 else
                 {
                     body = Members(body, path, log.ServedStringMembers, log.HostileMember, log.HostileSuffix);
                 }
+            }
+            else if (log.HostileSuffix is { } suffix && log.RefusesTokenWith is { } refused)
+            {
+                (status, challenge) = (refused, null);
+                body = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+                {
+                    ["error"] = "invalid_client" + suffix,
+                    ["error_description"] = "Refused" + suffix,
+                    ["detail"] = "because" + suffix,
+                });
             }
 
             var response = new HttpResponseMessage(status)

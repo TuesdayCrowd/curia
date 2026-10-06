@@ -197,16 +197,22 @@ internal sealed partial class ForumTools(
     /// another session, another client, an earlier conversation. A mismatch is stated in the
     /// strongest terms the result has, because everything below it is true of the wrong
     /// document.</para>
+    ///
+    /// <para>Composed through the frame, so the digest the caller gave and the one the Forum served
+    /// are each a display literal (R10.63): neither is this adapter's words.</para>
     /// </summary>
     private static string Pinned(string? expectedDigest, PostVerification verification)
     {
         if (string.IsNullOrWhiteSpace(expectedDigest)) return string.Empty;
 
-        return string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal)
-            ? $"pinned      to the digest you supplied, {Check.Quote(expectedDigest)}\n"
-            : $"pinned      FAILED. You asked about {Check.Quote(expectedDigest)} and the Forum served "
-              + $"{verification.Digest ?? "(no canonical form)"} under this id. These are different "
-              + "documents. Nothing below is about the one you asked about.\n";
+        var frame = new FrameBuilder();
+        if (string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal))
+            return frame.Line($"pinned      to the digest you supplied, {expectedDigest}").ToString();
+
+        return (verification.Digest is { } served
+                ? frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served} under this id. These are different documents. Nothing below is about the one you asked about.")
+                : frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served no canonical form under this id. Nothing below is about the one you asked about."))
+            .ToString();
     }
 
     /// <summary>Keeps the served post, evicting the oldest once the session's cap is reached.</summary>
