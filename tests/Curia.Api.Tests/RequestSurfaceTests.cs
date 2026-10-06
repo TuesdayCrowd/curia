@@ -14,6 +14,8 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
+using Curia.Api.Tests.Fuzz;
+
 namespace Curia.Api.Tests;
 
 /// <summary>
@@ -77,17 +79,6 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     ];
 
     /// <summary>
-    /// Every query parameter a Forum handler reads: those it binds (checked against the handlers by
-    /// <see cref="EveryQueryParameterAHandlerBindsIsProbed"/>) and those search and the batch read from
-    /// the request itself.
-    /// </summary>
-    private static readonly string[] QueryParameters =
-    [
-        "q", "board", "author", "kind", "tags", "cursor", "limit", "why", "min_verification", "marking",
-        "agent", "tree_size", "from", "to",
-    ];
-
-    /// <summary>
     /// Every route, anonymous, with each hostile value in each route parameter and, for a read, in
     /// each query parameter; and every write with each of <see cref="Requests"/>' bodies. None
     /// answers a server fault, or a 4xx that is no problem document (Task 8's second review, I2).
@@ -96,7 +87,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     public async Task R11_33_NoRequestACallerWithoutACredentialCanSendIsAnsweredAsAServerFault()
     {
         var ct = TestContext.Current.CancellationToken;
-        var routes = Routes(forum);
+        var routes = SurfaceInventory.Routes(forum);
         Assert.NotEmpty(routes);
 
         var faults = new List<string>();
@@ -126,7 +117,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                         var body = await response.Content.ReadAsStringAsync(ct);
                         if (status >= 500)
                             faults.Add($"{status} {method} {request.RequestUri}");
-                        else if (NotAProblem(target, status, body) is { } reason)
+                        else if (ProblemShape.NotAProblem(target, status, body) is { } reason)
                             faults.Add($"{status} {method} {request.RequestUri}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                     }
                 }
@@ -156,8 +147,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
-        var routes = Routes(forum);
-        var (dpop, token) = await EnrolledAtT1Async(client, ct);
+        var routes = SurfaceInventory.Routes(forum);
+        var (_, dpop, token) = await FuzzRun.EnrolledAtT1Async(forum, client, ct);
 
         var faults = new List<string>();
         var unauthenticated = new List<string>();
@@ -188,7 +179,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                         faults.Add($"{status} {method} {target}");
                     else if (response.StatusCode == HttpStatusCode.Unauthorized)
                         unauthenticated.Add($"{method} {target}");
-                    else if (NotAProblem(target, status, body) is { } reason)
+                    else if (ProblemShape.NotAProblem(target, status, body) is { } reason)
                         faults.Add($"{status} {method} {target}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                     else if (accepted is not null && target != plain && body.Contains("/no-such-post\"", StringComparison.Ordinal))
                         pathRead[pattern]++;
@@ -236,7 +227,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
-        var routes = Routes(forum);
+        var routes = SurfaceInventory.Routes(forum);
 
         (string? Authorization, string? Proof)[] hostile =
         [
@@ -460,7 +451,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
-        var routes = Routes(forum);
+        var routes = SurfaceInventory.Routes(forum);
 
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create("https://agents.example/numeric-date-" + suffix, "numeric-date-" + suffix);
@@ -913,40 +904,6 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
-    /// Null when an answer is no 4xx, or is a 4xx in the form its route owes; otherwise why it is not
-    /// (Task 8's second review, I2). The token endpoint answers RFC 6749 §5.2's error object; every
-    /// other route an RFC 9457 problem document, whose type need not be one of <c>curia/</c>'s.
-    /// </summary>
-    private static string? NotAProblem(string path, int status, string body)
-    {
-        if (status < 400 || status > 499) return null;
-
-        JsonElement root;
-        try
-        {
-            using var json = JsonDocument.Parse(body);
-            root = json.RootElement.Clone();
-        }
-        catch (JsonException)
-        {
-            return "not JSON";
-        }
-
-        if (root.ValueKind != JsonValueKind.Object) return "not a JSON object";
-
-        if (path.Equals("/oauth/token", StringComparison.Ordinal))
-        {
-            return root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.String
-                ? null
-                : "no string error member";
-        }
-
-        return root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString()!.Length > 0
-            ? null
-            : "no non-empty string type member";
-    }
-
-    /// <summary>
     /// The one hand-written list is held to the handlers: a parameter a handler binds from the query
     /// and the list does not name would go unprobed, so it fails here by name.
     /// </summary>
@@ -969,7 +926,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
 
                 bound++;
                 var name = parameter.GetCustomAttribute<FromQueryAttribute>()?.Name ?? parameter.Name!;
-                if (!QueryParameters.Contains(name, StringComparer.Ordinal))
+                if (!SurfaceInventory.QueryParameters.Contains(name, StringComparer.Ordinal))
                     unprobed.Add($"{endpoint.RoutePattern.RawText} binds '{name}'");
             }
         }
@@ -995,7 +952,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         var leaks = new List<string>();
         var sent = 0;
 
-        foreach (var (method, pattern, parameters) in Routes(forum))
+        foreach (var (method, pattern, parameters) in SurfaceInventory.Routes(forum))
         {
             foreach (var target in Targets(pattern, parameters, method == "GET"))
             {
@@ -1029,7 +986,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                             || body.Contains("Npgsql", StringComparison.Ordinal)
                             || status >= 500)
                             leaks.Add($"{status} {method} {request.RequestUri}: {body[..Math.Min(body.Length, 160)]}");
-                        else if (NotAProblem(target, status, body) is { } reason)
+                        else if (ProblemShape.NotAProblem(target, status, body) is { } reason)
                             leaks.Add($"{status} {method} {request.RequestUri}: {reason}: {body[..Math.Min(body.Length, 160)]}");
                     }
                 }
@@ -1038,35 +995,6 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
 
         Assert.True(sent > 0, "no request was sent to the production host; the sweep did not run");
         Assert.True(leaks.Count == 0, "a production host served text it did not compose, a server fault, or a 4xx that is no problem document:\n" + string.Join('\n', leaks));
-    }
-
-    /// <summary>
-    /// An agent enrolled through the route and raised to T1 as Table 11 raises one: its owner
-    /// attested (R4.30), three questions asked, and 49 hours on the fixture's clock. T1 because a tier
-    /// may do everything a lesser one may, so its requests reach every handler a T0 agent's reach, and
-    /// those a T0 agent is refused before.
-    /// </summary>
-    private async Task<(DpopClient Dpop, string Token)> EnrolledAtT1Async(HttpClient client, CancellationToken ct)
-    {
-        var suffix = Guid.NewGuid().ToString("N")[..8];
-        var agent = ForumAgent.Create("https://agents.example/surface-" + suffix, "surface-" + suffix);
-        var (dpop, _) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
-        await forum.AttestOwnerAsync(agent.AgentId, ct);
-
-        for (var i = 0; i < 3; i++)
-        {
-            using var asked = await dpop.PostAsync(
-                client,
-                PostsUrl,
-                await dpop.GetTokenAsync(client, TokenEndpoint, forum.Now, ct),
-                agent.SignQuestion("surface-" + suffix, "A warm-up question " + Guid.NewGuid().ToString("N"), "Warm-up " + i, forum.Now),
-                forum.Now,
-                ct);
-            Assert.Equal(HttpStatusCode.Created, asked.StatusCode);
-        }
-
-        forum.Clock.Advance(TimeSpan.FromHours(49));
-        return (dpop, await dpop.GetTokenAsync(client, TokenEndpoint, forum.Now, ct));
     }
 
     /// <summary>
@@ -1110,12 +1038,6 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     private static bool NotSent(InvalidOperationException refused) =>
         refused.Message.Contains("null characters", StringComparison.Ordinal);
 
-    /// <summary>Every route the host registers: its method, its pattern and its route parameters.</summary>
-    private static List<(string Method, string Pattern, string[] Parameters)> Routes(ForumFixture forum) =>
-        [.. forum.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
-            .SelectMany(e => (e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? ["GET"])
-                .Select(m => (m, e.RoutePattern.RawText ?? "", e.RoutePattern.Parameters.Select(p => p.Name).ToArray())))];
-
     /// <summary>
     /// The URLs to send for one route: each hostile value in each route parameter, the others filled
     /// with a plain value; and for a read, each hostile value in each query parameter.
@@ -1141,7 +1063,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             yield break;
         }
 
-        foreach (var name in QueryParameters)
+        foreach (var name in SurfaceInventory.QueryParameters)
             foreach (var value in Hostile)
                 yield return $"{plain}?{name}={value}";
     }
