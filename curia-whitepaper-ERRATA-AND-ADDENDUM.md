@@ -7870,8 +7870,13 @@ place. The probes the requirements need are owed, each with the break that must 
   the fact refusing the eleventh flag in a day must go red, and so must the fact comparing the policy's
   three numbers with the ones this entry publishes. Let the hold always succeed, or release it before
   the count; the fact sending forty concurrent flags from one T0 raiser, and the fact sending ten
-  identical flags at once, must go red, and with the hold released early the gate's own contract facts
-  stay green, which is why both kinds exist.
+  identical flags at once, must go red. Release it after the decision but before the flag's append
+  commits; the fact reading the log and the private store at the moment of release must go red on a
+  single request, where the concurrent facts went green in six runs of seven. With the hold released
+  early, at either point, the gate's own contract facts stay green, which is why both kinds exist.
+  Give the gate the Forum's own connection pool; the fact sending one flag from each of more raisers
+  than the pool holds, beside an unrelated read, must go red on a server fault or a stalled read, while
+  the gate's contract facts stay green.
 - **R10.70.** Compare the post alone, or the raiser alone; the fact refusing a second flag of one type by
   one raiser against one post, or the fact permitting one of another type, or one by another raiser,
   must go red.

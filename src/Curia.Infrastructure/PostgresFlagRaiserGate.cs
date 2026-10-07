@@ -24,6 +24,12 @@ namespace Curia.Infrastructure;
 /// <para><b>Try, never wait.</b> A blocking <c>pg_advisory_xact_lock</c> would hold one pooled
 /// connection for every waiting request, so one identity sending a burst of flags could drain the
 /// pool for every agent. A refused entry gives its connection back at once.</para>
+///
+/// <para><b>A pool of its own</b> (review of 980fb0e). <see cref="PostgresAdapters"/> builds this gate
+/// on a data source of its own, a quarter of the Forum's pool, because a hold keeps its connection
+/// while the flag's reads and append draw on the Forum's. The try-lock bounds one raiser to one flag in
+/// flight; the separate pool bounds the number of raisers in flight, and keeps the order of acquisition
+/// gate before Forum, so the two pools cannot deadlock each other.</para>
 /// </summary>
 /// <remarks>
 /// The <c>schema</c> parameter exists for per-test isolation; see <see cref="PostgresEventStore"/>'s

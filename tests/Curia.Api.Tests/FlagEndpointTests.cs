@@ -4,6 +4,10 @@ using System.Text;
 using System.Text.Json;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
+using Curia.Infrastructure;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -585,12 +589,26 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         if ((int)response.StatusCode is >= 200 and < 300)
             return ((int)response.StatusCode, null, null, body);
 
-        using var problem = JsonDocument.Parse(body);
-        return (
-            (int)response.StatusCode,
-            problem.RootElement.TryGetProperty("type", out var type) ? type.GetString() : null,
-            problem.RootElement.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
-            body);
+        // An unhandled server fault is not a problem document; it is reported by its status and body
+        // rather than thrown as a parse error, so a fact's histogram can name it (review of 980fb0e).
+        JsonDocument problem;
+        try
+        {
+            problem = JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            return ((int)response.StatusCode, null, null, body);
+        }
+
+        using (problem)
+        {
+            return (
+                (int)response.StatusCode,
+                problem.RootElement.TryGetProperty("type", out var type) ? type.GetString() : null,
+                problem.RootElement.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
+                body);
+        }
     }
 
     /// <summary>
@@ -689,5 +707,183 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
             string.Equals(r.PostId, postId, StringComparison.Ordinal)
             && string.Equals(r.RaisedBy, reporter.AgentId, StringComparison.Ordinal));
         Assert.Equal(leavesBefore + 1, await CommittedFlagLeavesAsync(ct));
+    }
+
+    /// <summary>The status histogram of a set of answers, in (e)'s form: <c>201 x2, 409 curia/flag/already-raised x8</c>.</summary>
+    private static string Tally(IEnumerable<(int Status, string? Type, string? Detail, string Body)> answers) =>
+        string.Join(", ", answers.GroupBy(a => $"{a.Status} {a.Type}".TrimEnd()).Select(g => $"{g.Key} x{g.Count()}"));
+
+    /// <summary>
+    /// R10.70 and R7.22 (errata G18, review of 980fb0e): ten identical <c>spam</c> flags by one raiser
+    /// against one post, started <c>d</c> milliseconds apart for d in 1, 2, 4 and 8, record one. Where
+    /// (e) sends all ten at once, this spreads them across the hold, so some arrive while the first is
+    /// being recorded and some after it. A fresh author and a fresh raiser for each d: T0 may post three
+    /// questions a day. Timing-dependent, as (d) and (e) are; (g) is the deterministic fact.
+    /// </summary>
+    [Fact]
+    public async Task R10_70_IdenticalFlagsSpreadAcrossTheHoldRecordOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var failures = new List<string>();
+
+        foreach (var d in new[] { 1, 2, 4, 8 })
+        {
+            var (_, _, _, postId) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+            var reporter = ForumAgent.Create(Unique("spread"), "spread-" + Guid.NewGuid().ToString("N")[..8]);
+            var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+            var leavesBefore = await CommittedFlagLeavesAsync(ct);
+
+            var answers = await Task.WhenAll(Enumerable.Range(0, 10).Select(async i =>
+            {
+                await Task.Delay(i * d, ct);
+                return await RaiseAndReadAsync(client, dpop, token, postId, "spam", "spread spam", ct);
+            }));
+
+            var created = answers.Count(a => a.Status == 201);
+            var tally = Tally(answers);
+            if (created != 1)
+                failures.Add($"d={d}ms created {created} of 10: {tally}");
+
+            foreach (var answer in answers.Where(a => a.Status != 201))
+            {
+                if (!(answer.Status == 409 && answer.Type is "curia/flag/raise-in-flight" or "curia/flag/already-raised"))
+                    failures.Add($"d={d}ms {answer.Status}: {Excerpt(answer.Body)} ({tally})");
+            }
+
+            var joined = (await JoinedFlagsByAsync(reporter.AgentId, ct))
+                .Count(f => string.Equals(f.PostId, postId, StringComparison.Ordinal));
+            if (joined != 1)
+                failures.Add($"d={d}ms the join holds {joined} flags for (post, raiser): {tally}");
+
+            var leaves = await CommittedFlagLeavesAsync(ct) - leavesBefore;
+            if (leaves != 1)
+                failures.Add($"d={d}ms the log gained {leaves} flag.committed leaves: {tally}");
+        }
+
+        Assert.True(failures.Count == 0, string.Join("; ", failures));
+    }
+
+    /// <summary>
+    /// R7.22 (errata G18, review of 980fb0e): the raiser hold is released only after the flag is
+    /// recorded. F39 pins where the hold starts; this pins where it ends. The real gate is wrapped in
+    /// <see cref="ObservingFlagRaiserGate"/>, which reads the log joined with the private store as the
+    /// hold is released, so a release anywhere before the append commits reads 0 on a single request,
+    /// without depending on two requests overlapping. Deterministic: one raiser, one post, one flag.
+    /// </summary>
+    [Fact]
+    public async Task R7_22_TheRaiserHoldIsReleasedOnlyAfterTheFlagIsRecorded()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        ObservingFlagRaiserGate? observer = null;
+        await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton<IFlagRaiserGate>(sp => observer = new ObservingFlagRaiserGate(
+                sp.GetRequiredService<PostgresAdapters>().FlagRaiserGate,
+                sp.GetRequiredService<IEventReader>(),
+                sp.GetRequiredService<IFlagDetailStore>()))));
+        using var client = host.CreateClient();
+
+        var (_, _, _, postId) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+        var reporter = ForumAgent.Create(Unique("release"), "release-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var answer = await RaiseAndReadAsync(client, dpop, token, postId, "spam", "released after the append", ct);
+        Assert.True(answer.Status == 201, $"{answer.Status}: {Excerpt(answer.Body)}");
+
+        Assert.NotNull(observer);
+        Assert.True(
+            observer.Releases.TryGetValue(reporter.AgentId, out var releases) && !releases.IsEmpty,
+            "the hold was never released through the observing gate");
+
+        var atFirstRelease = releases.First();
+        Assert.True(atFirstRelease != ObservingFlagRaiserGate.ReadFailed, "observer read failed");
+        Assert.True(atFirstRelease == 1, $"hold released with {atFirstRelease} of 1 flags recorded");
+        Assert.True(releases.Count == 1, $"the hold was released {releases.Count} times");
+    }
+
+    /// <summary>
+    /// R7.22 and P6 (errata G18, review of 980fb0e): a fleet of raisers as large as the pool does not
+    /// stall the Forum. At 4b3e91a each hold kept one of the Forum's pooled connections while the
+    /// flag's reads and append drew others from the same pool, so as many raisers in flight as the
+    /// pool held deadlocked it until Npgsql's timeout: every flag inside answered 500, and an
+    /// unrelated read stalled. Here the pool is four connections with a three-second timeout, sixteen
+    /// distinct T0 raisers flag one post at once, and an anonymous read is sent 300 ms in. No answer
+    /// may be a 500; each flag is 201 or 503 raiser-gate-unavailable, at least one is 201, the join
+    /// holds exactly the 201s, and the read answers 200 in under half the timeout.
+    /// </summary>
+    [Fact]
+    public async Task R7_22_AFleetOfRaisersAsLargeAsThePoolDoesNotStallTheForum()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string Pool = "Maximum Pool Size=4";
+
+        ObservingFlagRaiserGate? observer = null;
+        await using var host = forum.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:Events", forum.ConnectionString + ";" + Pool + ";Timeout=3");
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IFlagRaiserGate>(sp => observer = new ObservingFlagRaiserGate(
+                    sp.GetRequiredService<PostgresAdapters>().FlagRaiserGate)));
+        });
+        using var client = host.CreateClient();
+
+        // The precondition: a pool left at Npgsql's default of 100 would pass with or without the fix.
+        var configured = host.Services.GetRequiredService<IConfiguration>().GetConnectionString("Events");
+        Assert.True(configured?.Contains(Pool, StringComparison.Ordinal) == true, "the test host's pool size was not applied");
+
+        var (_, _, _, postId) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+        var raisers = new List<(ForumAgent Agent, DpopClient Dpop, string Token)>();
+        for (var i = 0; i < 16; i++)
+        {
+            var raiser = ForumAgent.Create(Unique("fleet"), "fleet-" + Guid.NewGuid().ToString("N")[..8]);
+            var (dpop, token) = await raiser.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+            raisers.Add((raiser, dpop, token));
+        }
+
+#pragma warning disable CA2025 // The burst is awaited below, before the client and the host are disposed.
+        var burst = Task.WhenAll(raisers
+            .Select(r => RaiseAndReadAsync(client, r.Dpop, r.Token, postId, "spam", "fleet spam", ct)));
+#pragma warning restore CA2025
+
+        await Task.Delay(300, ct);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        int readStatus;
+        using (var read = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct))
+            readStatus = (int)read.StatusCode;
+        clock.Stop();
+
+        var answers = await burst;
+
+        // A 500 is told apart by whether its raiser's flag reached the gate: before it is authentication
+        // or the kind, under it is the hold.
+        Assert.NotNull(observer);
+        var labelled = answers.Select((a, i) => a.Status == 500
+            ? (a.Status, Type: (string?)(observer.Entered.ContainsKey(raisers[i].Agent.AgentId) ? "under the hold" : "before the gate"), a.Detail, a.Body)
+            : a).ToArray();
+        var tally = Tally(labelled);
+        var context = $"GET answered {readStatus} in {clock.ElapsedMilliseconds} ms; flags: {tally}";
+        TestContext.Current.TestOutputHelper?.WriteLine(context);
+
+        Assert.True(answers.All(a => a.Status != 500), context);
+        Assert.True(
+            answers.All(a => a.Status == 201 || (a.Status == 503 && a.Type == "curia/flag/raiser-gate-unavailable")),
+            context);
+
+        var created = answers.Count(a => a.Status == 201);
+        Assert.True(created >= 1, context);
+
+        var log = (await host.Services.GetRequiredService<IEventReader>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        var rows = (await host.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        var onPost = FlagDirectory.Join(log, rows).Flags.Count(f => string.Equals(f.PostId, postId, StringComparison.Ordinal));
+        Assert.True(onPost == created, $"the join holds {onPost} flags on the post against {created} created; {context}");
+
+        Assert.True(readStatus == 200 && clock.ElapsedMilliseconds < 1500, context);
     }
 }
