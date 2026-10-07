@@ -292,6 +292,33 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     }
 
     /// <summary>
+    /// R10.68's order on the moderation path (errata G18): the cap is checked before the reason is
+    /// screened and before the post is looked up, which costs a read of the whole log and every flag
+    /// row. The reason carries a credential, which screening would refuse as <c>rationale-rejected</c>,
+    /// and the post does not exist, which the lookup would refuse as <c>no-such-post</c>. The answer
+    /// is neither.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongModerationReasonIsRefusedBeforeItIsScreenedOrAPostIsRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var before = await LogSizeAsync(client, ct);
+
+        var reason = ("ghp_" + "A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o").PadRight(5_000, ' ');
+        Assert.Equal(5_000, Encoding.UTF8.GetByteCount(reason));
+
+        var (exit, _, stderr) = await RunAsync(Moderate("01JNOSUCHPOST00000000000001", "withhold", "credential_leak", reason), ct);
+
+        Assert.Equal(ExitCode.Refused, exit);
+        Assert.Contains("curia/moderation/rationale-too-long", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("curia/moderation/rationale-rejected", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("curia/moderation/no-such-post", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("ghp_", stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await LogSizeAsync(client, ct));
+    }
+
+    /// <summary>
     /// A usage error is refused before anything is written. It is aimed at a real, servable post, so
     /// a verb that defaulted the missing category would have withheld it: the log would grow and the
     /// post would stop being served. Against a post that does not exist, "writes nothing" would hold
