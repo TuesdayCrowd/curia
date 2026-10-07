@@ -64,12 +64,23 @@ public static partial class InjectionDetector
     {
         ArgumentNullException.ThrowIfNull(derivedCopy);
 
+        foreach (var flag in ScanPatterns(derivedCopy))
+            yield return flag;
+
+        foreach (var i in HiddenTextOffsets(derivedCopy))
+            yield return new RiskFlag(RiskCategory.HiddenText, i, 1, Version);
+    }
+
+    /// <summary>
+    /// <see cref="Rules"/> over <paramref name="derivedCopy"/>: <see cref="Scan"/>'s first step.
+    /// <see cref="ContentScreener"/> runs the two steps itself so that it can drop a hidden-text
+    /// offset it has already seen before allocating a flag for it (R10.69, D32).
+    /// </summary>
+    internal static IEnumerable<RiskFlag> ScanPatterns(string derivedCopy)
+    {
         foreach (var (pattern, category) in Rules)
             foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
                 yield return new RiskFlag(category, match.Index, match.Length, Version);
-
-        foreach (var flag in HiddenTextFlags(derivedCopy))
-            yield return flag;
     }
 
     /// <summary>
@@ -84,11 +95,11 @@ public static partial class InjectionDetector
     /// unimplemented clause rather than approximated, so nobody reads a clean scan as evidence
     /// there is no homoglyph.</para>
     /// </summary>
-    private static IEnumerable<RiskFlag> HiddenTextFlags(string text)
+    internal static IEnumerable<int> HiddenTextOffsets(string text)
     {
         for (var i = 0; i < text.Length; i++)
             if (HiddenCharacters.Contains(text[i]))
-                yield return new RiskFlag(RiskCategory.HiddenText, i, 1, Version);
+                yield return i;
     }
 
     [GeneratedRegex(

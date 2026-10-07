@@ -56,8 +56,20 @@ public sealed class ScreeningCostTests
     /// from R10.69's form, linear, not from a measured duration, so it holds on any machine running
     /// this class alone: load from other processes between samples is not linear work. The fact is
     /// judged in CI's isolated screening-cost step.
+    ///
+    /// <para>Caveat: this ceiling alone would not catch a reversion of the zero-width-space row to
+    /// the hidden-text path before keep-first dedup (D32), one flag per hidden character per derived
+    /// view held live until the screener concluded, which read about 15 idle and about 20 under
+    /// load. A3's reading stop of 16 is what catches that.</para>
     /// </summary>
     private const double MaxScalingRatio = 24;
+
+    /// <summary>
+    /// The scaling fact's ceiling on min(allocated, large) / min(allocated, small), on every row:
+    /// linear allocation is 8. Allocation does not depend on host load, so no headroom for noise is
+    /// owed, and fixed per-call costs only lower the ratio.
+    /// </summary>
+    private const double MaxAllocationRatio = 9;
 
     /// <summary>The scaling fact's smaller input: an eighth of R6.39's cap.</summary>
     private const int SmallBytes = CapBytes / 8;
@@ -157,7 +169,9 @@ public sealed class ScreeningCostTests
     /// screening-cost step): each row's cost at R6.39's cap is at most
     /// <see cref="MaxScalingRatio"/> times its cost at an eighth of it. Small and large inputs
     /// alternate, three of each, and the fastest of each size is compared, so a pause lands on one
-    /// sample rather than on the ratio. Every call runs under <see cref="Guarded"/>'s timeout. It
+    /// sample rather than on the ratio. Each sample's allocation is compared too, against
+    /// <see cref="MaxAllocationRatio"/>, on every row. Every call runs under
+    /// <see cref="Guarded"/>'s timeout, after <see cref="Settle"/>. It
     /// writes the scaling file <c>CURIA_SCREEN_SCALING</c> names, one line per call, and never the
     /// timing file: the stop reads the budget theory's timings only.
     /// </summary>
@@ -203,20 +217,53 @@ public sealed class ScreeningCostTests
     {
         var smallMin = double.MaxValue;
         var largeMin = double.MaxValue;
+        var smallAllocated = long.MaxValue;
+        var largeAllocated = long.MaxValue;
+        var fastestLarge = default(Sample);
         for (var i = 0; i < 3; i++)
         {
-            smallMin = Math.Min(smallMin, await Guarded(row, call, small).ConfigureAwait(false));
-            largeMin = Math.Min(largeMin, await Guarded(row, call, large).ConfigureAwait(false));
+            Settle();
+            var smallSample = await Guarded(row, call, small).ConfigureAwait(false);
+            smallMin = Math.Min(smallMin, smallSample.Ticks);
+            smallAllocated = Math.Min(smallAllocated, smallSample.AllocatedBytes);
+
+            Settle();
+            var largeSample = await Guarded(row, call, large).ConfigureAwait(false);
+            if (largeSample.Ticks < largeMin)
+            {
+                largeMin = largeSample.Ticks;
+                fastestLarge = largeSample;
+            }
+
+            largeAllocated = Math.Min(largeAllocated, largeSample.AllocatedBytes);
         }
 
         var ratio = largeMin / Math.Max(smallMin, 1);
+        Assert.True(
+            smallAllocated > 0,
+            $"{row}: {call} allocated nothing at {SmallBytes} bytes: the allocation was read on the wrong thread");
+        var allocationRatio = (double)largeAllocated / smallAllocated;
         TestContext.Current.TestOutputHelper?.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"{row}: {call} ratio {ratio:F2} ({largeMin:F0} / {smallMin:F0} ticks; {Machine()})"));
+            $"{row}: {call} ratio {ratio:F2} ({largeMin:F0} / {smallMin:F0} ticks), allocation ratio {allocationRatio:F2} "
+            + $"({largeAllocated} / {smallAllocated} bytes); {Machine()}"));
 
         // CI's logger prints no passing row's output, so CI names a file for the ratios too.
         if (Environment.GetEnvironmentVariable("CURIA_SCREEN_SCALING") is { Length: > 0 } scaling)
-            await Record(scaling, ScalingLine(row, call, smallMin, largeMin, ratio)).ConfigureAwait(false);
+        {
+            await Record(
+                scaling,
+                ScalingLine(row, call, smallMin, largeMin, ratio, smallAllocated, largeAllocated, allocationRatio, fastestLarge))
+                .ConfigureAwait(false);
+        }
+
+        Assert.True(
+            allocationRatio <= MaxAllocationRatio,
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{row}: {call} at {CapBytes} bytes allocated {allocationRatio:F2}x what it allocated at {SmallBytes} bytes "
+                + $"(fewest {largeAllocated} vs {smallAllocated} bytes of 3); linear is 8, ceiling {MaxAllocationRatio} "
+                + $"(R10.69: screening is linear on every path; running on {Machine()})"));
 
         Assert.True(
             ratio <= MaxScalingRatio,
@@ -248,16 +295,42 @@ public sealed class ScreeningCostTests
 
     /// <summary>
     /// One TSV line: row, call, small and large UTF-8 bytes, the fastest Stopwatch ticks of each,
-    /// the ratio, architecture, processors. Never the screened text.
+    /// the wall ratio, the fewest bytes allocated at each size and their ratio, the gen0/gen1/gen2
+    /// collections during the fastest large sample, architecture and processors. Never the screened
+    /// text.
     /// </summary>
-    private static string ScalingLine(string row, string call, double smallMin, double largeMin, double ratio) => string.Create(
+    private static string ScalingLine(
+        string row,
+        string call,
+        double smallMin,
+        double largeMin,
+        double ratio,
+        long smallAllocated,
+        long largeAllocated,
+        double allocationRatio,
+        Sample fastestLarge) => string.Create(
         CultureInfo.InvariantCulture,
-        $"{row}\t{call}\t{SmallBytes}\t{CapBytes}\t{smallMin:F0}\t{largeMin:F0}\t{ratio:F2}\t{RuntimeInformation.ProcessArchitecture}\t{Environment.ProcessorCount}\n");
+        $"{row}\t{call}\t{SmallBytes}\t{CapBytes}\t{smallMin:F0}\t{largeMin:F0}\t{ratio:F2}\t"
+        + $"{smallAllocated}\t{largeAllocated}\t{allocationRatio:F2}\t"
+        + $"{fastestLarge.Gen0}\t{fastestLarge.Gen1}\t{fastestLarge.Gen2}\t"
+        + $"{RuntimeInformation.ProcessArchitecture}\t{Environment.ProcessorCount}\n");
+
+    /// <summary>
+    /// Collects before a scaling sample, outside its stopwatch, so each sample pays only for its own
+    /// work and not for the previous sample's garbage (up to about 35 MB a call at the cap). It makes readings steadier; it is not what makes any row pass, and the budget
+    /// theory never calls it.
+    /// </summary>
+    private static void Settle()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
 
     /// <summary>One call held to the budget, in milliseconds.</summary>
     private static async Task<long> Timed(string row, string call, Func<Result<ScreeningResult>> screen)
     {
-        var elapsed = (long)(await Guarded(row, call, screen).ConfigureAwait(false) * 1000 / Stopwatch.Frequency);
+        var elapsed = (long)((await Guarded(row, call, screen).ConfigureAwait(false)).Ticks * 1000 / Stopwatch.Frequency);
 
         Assert.True(
             elapsed <= BudgetMilliseconds,
@@ -268,11 +341,13 @@ public sealed class ScreeningCostTests
     }
 
     /// <summary>
-    /// Runs one screening call on its own thread, returning its Stopwatch ticks, and fails at five
-    /// budgets rather than waiting for a quadratic rule to finish: a timed-out call keeps running
-    /// until the process ends, which is why the red run is filtered to this class alone.
+    /// Runs one screening call on its own thread, returning its <see cref="Sample"/>, and fails at
+    /// five budgets rather than waiting for a quadratic rule to finish: a timed-out call keeps
+    /// running until the process ends, which is why the red run is filtered to this class alone.
+    /// The allocation is read on the worker thread, around the call, because the screener runs on
+    /// the thread that calls it.
     /// </summary>
-    private static async Task<double> Guarded(string row, string call, Func<Result<ScreeningResult>> screen)
+    private static async Task<Sample> Guarded(string row, string call, Func<Result<ScreeningResult>> screen)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         cts.CancelAfter(BudgetMilliseconds * 5);
@@ -280,9 +355,19 @@ public sealed class ScreeningCostTests
         var work = Task.Run(
             () =>
             {
+                var gen0 = GC.CollectionCount(0);
+                var gen1 = GC.CollectionCount(1);
+                var gen2 = GC.CollectionCount(2);
+                var allocated = GC.GetAllocatedBytesForCurrentThread();
                 var stopwatch = Stopwatch.StartNew();
                 Assert.True(screen().TryGetValue(out _, out var error), error?.Type);
-                return (double)stopwatch.ElapsedTicks;
+                var ticks = (double)stopwatch.ElapsedTicks;
+                return new Sample(
+                    ticks,
+                    GC.GetAllocatedBytesForCurrentThread() - allocated,
+                    GC.CollectionCount(0) - gen0,
+                    GC.CollectionCount(1) - gen1,
+                    GC.CollectionCount(2) - gen2);
             },
             CancellationToken.None);
 
@@ -298,6 +383,12 @@ public sealed class ScreeningCostTests
             throw;
         }
     }
+
+    /// <summary>
+    /// One screening call: its Stopwatch ticks, the bytes its thread allocated, and the gen0/gen1/gen2
+    /// collections the process ran while it did.
+    /// </summary>
+    private readonly record struct Sample(double Ticks, long AllocatedBytes, int Gen0, int Gen1, int Gen2);
 
     private static string Machine() => string.Create(
         CultureInfo.InvariantCulture,
