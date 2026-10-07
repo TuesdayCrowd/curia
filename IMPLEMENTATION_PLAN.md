@@ -4399,6 +4399,24 @@ of three) inside the full solution, a 24.8× ratio to 32 KiB; the ~107 MB of fla
 grows with host load. A caller choosing that input costs about 1 s of CPU and 107 MB per call on a
 contended 4-core host, an input to D35's coalescing decision, not cured in A3.
 
+**The zero-width-space ratio's cause, measured and fixed (review of c31ce24, 2026-10-07).** A3's
+zero-width-space ratio was caused by per-view `RiskFlag`s kept live until `Conclude`: one flag per hidden
+character in each of about five derived views, about 437,000 objects at the cap, which the collector
+re-traced as the live set grew with the input (gen0/1/2 10/5/1 at the cap), so wall time was mildly
+superlinear while allocation stayed linear. Fixed by keep-first dedup before allocation: `ContentScreener`
+applies `Conclude`'s keep-first (category, offset) rule as flags are found, and the hidden-text step yields
+offsets, so a flag is allocated only for an offset not yet seen. Output-identical (the red-team corpus
+console byte-identical before and after, the request fuzzer's answers byte-identical to A1's, and a
+reference screener compared on the corpus, 2,000 generated inputs and a base64-wrapped U+200B), no
+detector-version change, no errata entry; 106.6 → 34.8 MB at the cap, no collections. Every one of
+the 20 scaling rows asserts its wall ratio again (ceiling 24, reading stop 16, allocation ratio 9);
+the exemption the previous ruling proposed for this row was withdrawn with its premise fact, which
+would have stayed green after its cause was gone. CI runs 37596130961, 37601395004 and 37606333636 (X64,
+4 processors, the class alone, head 5d7a00a) read zero-width-space at 8.79/8.86, 9.14/9.05 and
+9.40/8.81 (ScreenEnvelope/ScreenText), every row at most 9.40, every allocation ratio at most 8.39,
+no collections on any row at the cap, 20 rows in each artifact, and slowest timing rows of 111, 117
+and 94 ms.
+
 ### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06)*
 
 **Found by not converging.** The strangers stage closed fifteen 500s under D25, and each round of its
@@ -4736,7 +4754,7 @@ tag characters. Two causes, both read in the tree at 0059010. `HiddenCharacters.
 (`src/Curia.Domain/Screening/HiddenCharacters.cs:27`–`:36`) lists the soft hyphen, U+200B–U+200F,
 U+202A–U+202E, U+2060, U+2066–U+2069 and U+FEFF, and its remarks leave the rest of the class out until
 a measurement admits it (R10.10). And `InjectionDetector.HiddenTextFlags`
-(`src/Curia.Domain/Screening/InjectionDetector.cs:85`–`:90`) walks UTF-16 code units, so no list can
+(`src/Curia.Domain/Screening/InjectionDetector.cs:85`–`:90`; since D32's fix, `HiddenTextOffsets`) walks UTF-16 code units, so no list can
 match a character above U+FFFF: a tag character arrives as two surrogates, neither of which is a
 member. The reference readers escape tag characters (R10.67, D31), so a reader using them sees the
 escapes; a consumer that decodes `canonical` itself hands them to its model, and `risk_flags` is
@@ -4754,6 +4772,11 @@ character; it is red today.
 **The flag volume's cost, measured.** D32's "A3's stop fired on CI" paragraph records CI run
 37575114798: zero-width-space at the cap costs about 1 s of CPU and 107 MB per call on a contended
 4-core host, an input to the coalescing decision this entry shares with D32.
+
+**What remains after D32's fix (review of c31ce24).** D32's keep-first dedup took the screener's own
+cost on this input to 34.8 MB and no collections at the cap, linear, without changing a flag. What it
+leaves is the stored and served per-character output: 87,381 `HiddenText` flags at the cap, one per
+character, in `risk_flags` and every read of it. That is the coalescing decision, and it is not R10.69's.
 
 ### D36 — the board listing answers a board whole *(opened by the five-agent exercise, 2026-10-06)*
 

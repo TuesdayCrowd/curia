@@ -460,6 +460,7 @@ internal static class ExpectedFaults { internal static readonly ImmutableArray<F
     - F-alloc, a quadratic allocation planted in the hidden-text walk (`new byte[i]` every 64th hit): red, zero-width-space ScreenEnvelope allocation ratio 37.47 (wall 9.89).
     - F-oracle, the hidden-text walk skipped for the base64-decoded view: red, the generated fact (seed 20261007, input 2: one HiddenText flag missing) and the pin.
     - F-dedup (informational), the pre-dedup sources restored: zero-width-space ScreenEnvelope 16.98 (gen 10/5/1, 106.6 MB), ScreenText 8.77; green against 24 and above the stop of 16, as the caveat says.
+  - Review of c31ce24, CI evidence (Step 5's three dispatches, head 5d7a00a, X64, 4 processors): runs 37596130961, 37601395004 and 37606333636, every job green, the Test step including `ScreenerReferenceTests`. `screen-timings`: 20 rows each, slowest 111, 117 and 94 ms. `screen-scaling`: 20 rows each; zero-width-space 8.79/8.86, 9.14/9.05 and 9.40/8.81 (ScreenEnvelope/ScreenText); the largest wall ratio per run 8.86, 9.14 and 9.40, under the stop of 16 and the ceiling of 24; every allocation ratio at most 8.39; 0/0/0 collections on every row at the cap. A4 may begin.
 - [ ] **Step 8.** Commit: `R10.69: every screening pattern runs on the linear engine, the high-entropy rule rewritten for it (D32)`.
 
 ### Task A4: The rationale cap (R10.68)
