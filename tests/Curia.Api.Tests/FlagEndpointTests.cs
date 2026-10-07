@@ -559,4 +559,135 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         var spamBody = await spamByB.Content.ReadAsStringAsync(ct);
         Assert.True(spamByB.StatusCode == HttpStatusCode.Created, $"{(int)spamByB.StatusCode}: {Excerpt(spamBody)}");
     }
+
+    private async Task<IReadOnlyList<RaisedFlag>> JoinedFlagsByAsync(string raisedBy, CancellationToken ct)
+    {
+        var log = (await forum.Services.GetRequiredService<IEventReader>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        return [.. FlagDirectory.Join(log, rows).Flags.Where(f => string.Equals(f.RaisedBy, raisedBy, StringComparison.Ordinal))];
+    }
+
+    private async Task<(int Status, string? Type, string? Detail, string Body)> RaiseAndReadAsync(
+        HttpClient client, DpopClient dpop, string token, string postId, string kind, string rationale,
+        CancellationToken ct)
+    {
+        using var response = await RaiseAsync(client, dpop, token, postId, kind, rationale, ct);
+        return await ReadAnswerAsync(response, ct);
+    }
+
+    /// <summary>The status, the problem type and the detail of one answer, read once.</summary>
+    private static async Task<(int Status, string? Type, string? Detail, string Body)> ReadAnswerAsync(
+        HttpResponseMessage response, CancellationToken ct)
+    {
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if ((int)response.StatusCode is >= 200 and < 300)
+            return ((int)response.StatusCode, null, null, body);
+
+        using var problem = JsonDocument.Parse(body);
+        return (
+            (int)response.StatusCode,
+            problem.RootElement.TryGetProperty("type", out var type) ? type.GetString() : null,
+            problem.RootElement.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
+            body);
+    }
+
+    /// <summary>
+    /// R7.22 (errata G18, review of 4b3e91a): one raiser's flags are counted and recorded one at a
+    /// time. Forty concurrent <c>spam</c> flags from one fresh T0 agent, one per post, against a
+    /// budget of ten: before the raiser gate, every request counted the same zero and all forty were
+    /// created. Now at most ten are, every other answer is the gate's 409 or the budget's 403 and
+    /// none is a 5xx, and the private join holds exactly as many flags as were created. Then flags
+    /// are sent one at a time until the budget refuses one, and the join holds exactly ten, so a gate
+    /// that refused everything cannot pass this.
+    /// </summary>
+    [Fact]
+    public async Task R7_22_ConcurrentFlagsByOneRaiserNeverExceedTheBudget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var posts = new List<string>();
+        for (var i = 0; i < 40; i++)
+        {
+            var (_, _, _, seeded) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+            posts.Add(seeded);
+        }
+
+        var reporter = ForumAgent.Create(Unique("burst"), "burst-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var answers = await Task.WhenAll(posts.Select(p => RaiseAndReadAsync(client, dpop, token, p, "spam", "concurrent spam", ct)));
+
+        var created = answers.Count(a => a.Status == 201);
+        var tally = string.Join(", ", answers.GroupBy(a => $"{a.Status} {a.Type}").Select(g => $"{g.Key} x{g.Count()}"));
+        Assert.True(created is >= 1 and <= 10, $"created {created} of 40 against T0's 10: {tally}");
+
+        foreach (var answer in answers.Where(a => a.Status != 201))
+        {
+            var allowed =
+                (answer.Status == 409 && answer.Type == "curia/flag/raise-in-flight")
+                || (answer.Status == 403 && answer.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true);
+            Assert.True(allowed, $"{answer.Status}: {Excerpt(answer.Body)} ({tally})");
+        }
+
+        var joined = await JoinedFlagsByAsync(reporter.AgentId, ct);
+        Assert.Equal(created, joined.Count);
+
+        var flagged = joined.Select(f => f.PostId).ToHashSet(StringComparer.Ordinal);
+        var refused = false;
+        foreach (var post in posts.Where(p => !flagged.Contains(p)))
+        {
+            var answer = await RaiseAndReadAsync(client, dpop, token, post, "spam", "one at a time", ct);
+            if (answer.Status == 201) continue;
+
+            Assert.True(
+                answer.Status == 403 && answer.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true,
+                $"{answer.Status}: {Excerpt(answer.Body)}");
+            refused = true;
+            break;
+        }
+
+        Assert.True(refused, "the budget never refused a flag sent one at a time");
+        Assert.Equal(10, (await JoinedFlagsByAsync(reporter.AgentId, ct)).Count);
+    }
+
+    /// <summary>
+    /// R10.70 and R7.22 (errata G18, review of 4b3e91a): ten identical <c>spam</c> flags by one raiser
+    /// against one post, sent concurrently, record one. Each of the other nine is refused, by the
+    /// raiser gate while the first is in flight or by R10.70's repeat check after it, and the store and
+    /// the log each gained exactly one entry.
+    /// </summary>
+    [Fact]
+    public async Task R10_70_IdenticalFlagsRaisedAtOnceRecordOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var (_, _, _, postId) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+        var reporter = ForumAgent.Create(Unique("twin"), "twin-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var leavesBefore = await CommittedFlagLeavesAsync(ct);
+
+        var answers = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => RaiseAndReadAsync(client, dpop, token, postId, "spam", "identical spam", ct)));
+
+        var tally = string.Join(", ", answers.GroupBy(a => $"{a.Status} {a.Type}").Select(g => $"{g.Key} x{g.Count()}"));
+        Assert.True(answers.Count(a => a.Status == 201) == 1, $"created {answers.Count(a => a.Status == 201)} of 10 identical flags: {tally}");
+
+        foreach (var answer in answers.Where(a => a.Status != 201))
+        {
+            Assert.True(
+                answer.Status == 409 && answer.Type is "curia/flag/raise-in-flight" or "curia/flag/already-raised",
+                $"{answer.Status}: {Excerpt(answer.Body)} ({tally})");
+        }
+
+        var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        Assert.Single(rows, r =>
+            string.Equals(r.PostId, postId, StringComparison.Ordinal)
+            && string.Equals(r.RaisedBy, reporter.AgentId, StringComparison.Ordinal));
+        Assert.Equal(leavesBefore + 1, await CommittedFlagLeavesAsync(ct));
+    }
 }

@@ -217,4 +217,23 @@ public static class FlagErrors
         "curia/flag/already-raised",
         "This agent has already raised a flag of this type against this post",
         $"kind={FlagKinds.Wire(kind)} raised_at={at.Value:o}");
+
+    /// <summary>
+    /// R7.22 (errata G18, review of 4b3e91a): another flag by this raiser is being counted and
+    /// recorded. Names no post and no kind; nothing was spent, and the flag may be sent again.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Design",
+        "CA1030:Use events where appropriate",
+        Justification = "Names the condition curia/flag/raise-in-flight, as its siblings name theirs; it raises nothing.")]
+    public static Error RaiseInFlight() => new(
+        "curia/flag/raise-in-flight",
+        "Another flag by this agent is being recorded",
+        "retry once it completes (R7.22)");
+
+    /// <summary>The raiser gate's store could not be reached, so the flag was neither counted nor written.</summary>
+    public static Error RaiserGateUnavailable() => new(
+        "curia/flag/raiser-gate-unavailable",
+        "The flag could not be serialized",
+        "the raiser gate's store could not be reached; nothing was written");
 }

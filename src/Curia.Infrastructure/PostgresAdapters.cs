@@ -67,6 +67,9 @@ public sealed class PostgresAdapters : IAsyncDisposable
     /// <summary>The private half of every flag (R10.62, R11.32): append-only, like the event log it is bound to.</summary>
     public IFlagDetailStore FlagDetails => new PostgresFlagDetailStore(_dataSource);
 
+    /// <summary>R7.22, R10.70 (errata G18): one raiser's flags counted and recorded one at a time, by a try-only advisory lock.</summary>
+    public IFlagRaiserGate FlagRaiserGate => new PostgresFlagRaiserGate(_dataSource);
+
     public async ValueTask DisposeAsync()
     {
         await _dataSource.DisposeAsync().ConfigureAwait(false);

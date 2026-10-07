@@ -315,6 +315,29 @@ public sealed class WriteToolTests : IDisposable
         Assert.DoesNotContain(_log.Requests, r => r.EndsWith("/flags", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// R7.22 (errata G18, review of 4b3e91a): a flag refused because another by the same agent is
+    /// being recorded is worded as a retry. The adapter reports a <c>Conflict</c> as the reference
+    /// client words it, so the client's summary is what reaches the model; a model told only that the
+    /// Forum refused it would never send the flag again.
+    /// </summary>
+    [Fact]
+    public async Task R7_22_AFlagInFlightIsWordedAsARetry()
+    {
+        _log.HostileSuffix = string.Empty;
+        _log.HostileType = "curia/flag/raise-in-flight";
+        _log.HostileDetail = "retry once it completes (R7.22)";
+        _log.RefusesEverythingWith = System.Net.HttpStatusCode.Conflict;
+
+        var refused = await Assert.ThrowsAsync<McpException>(
+            () => Tools().FlagAsync(StubLog.PostId, "spam", "Spam.", Ct));
+
+        Assert.Contains("still being recorded", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("nothing was spent", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("Retry once it completes", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("flag budget", refused.Message, StringComparison.Ordinal);
+    }
+
     // ---- custody -------------------------------------------------------------------------------
 
     /// <summary>

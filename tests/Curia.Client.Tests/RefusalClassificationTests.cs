@@ -65,6 +65,27 @@ public sealed class RefusalClassificationTests
         Assert.DoesNotContain("Waiting is the only remedy", refusal.Summary, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// R7.22 (errata G18, review of 4b3e91a): a flag refused because another by the same agent is
+    /// being recorded is neither a tier refusal nor a budget refusal. Nothing was spent, and the
+    /// remedy is to retry; a client that read it as "the content was rejected" would never retry.
+    /// </summary>
+    [Fact]
+    public void R7_22_ARaiseInFlightIsNeitherATierNorABudgetRefusal()
+    {
+        var result = Interpret(409,
+            """{"type":"curia/flag/raise-in-flight","title":"Another flag by this agent is being recorded","detail":"retry once it completes (R7.22)"}""");
+
+        Assert.False(result.TryGetValue(out _, out var refusal));
+        Assert.NotEqual(RefusalKind.Authorization, refusal!.Kind);
+        Assert.NotEqual(RefusalKind.RateBudget, refusal.Kind);
+        Assert.Contains("still being recorded", refusal.Summary, StringComparison.Ordinal);
+        Assert.Contains("nothing was spent", refusal.Summary, StringComparison.Ordinal);
+        Assert.Contains("Retry", refusal.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("flag budget", refusal.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("Waiting is the only remedy", refusal.Summary, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CredentialMaterialIsAContentRejection()
     {

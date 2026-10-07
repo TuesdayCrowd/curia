@@ -4742,8 +4742,9 @@ private store; it is never refused for a spent posting budget and never counted 
 flag of one type by one raiser against one post is refused (409 `curia/flag/already-raised`) after
 screening and the post's existence and before anything is written. No table, event or grant changes.
 
-**Not closed by it.** A fleet of identities has a budget each (D7). Two identical flags raised at once
-can both pass the repeat check (G18, "What this deliberately does not change").
+**Not closed by it.** A fleet of identities has a budget each (D7). The race in which concurrent flags
+by one raiser each read the same count, or each pass the repeat check, is closed by the raiser gate
+(`IFlagRaiserGate`; the stage's plan, Task A4b, review of 4b3e91a).
 
 ### D35 — SCREEN does not annotate a hidden character outside the Basic Multilingual Plane *(opened by the five-agent exercise, 2026-10-06)*
 

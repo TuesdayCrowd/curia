@@ -438,15 +438,16 @@ Any case that is not RED fails the acceptance. The remedy for a miss is limited 
 
 **A missing count is a failure, not zero.** `AuthorizationRequest` gains `int? FlagsToday = null`. `AccessPolicy` evaluating `flag` | `raise` with a null count returns a failure, never an allow, so a call site that forgets it cannot pass for one that counted (vacuity question 3). `PostsToday`'s `= 0` default is the shape this avoids; changing it is out of scope.
 
-**Order in `RaiseFlag.RecordAsync`.** Post id, rationale required, R10.68's cap, screening, the post exists, R10.70's repeat, then the write. The repeat check reads the whole log and the store, so it comes after the cheap refusals.
+**Order in `RaiseFlag.RecordAsync`.** Post id, rationale required, R10.68's cap, screening, the post exists, R10.70's repeat, then the write. The repeat check reads the whole log and the store, so it comes after the cheap refusals. The route counts the budget and calls `RecordAsync` under the raiser's hold (`IFlagRaiserGate`, review of 4b3e91a), taken after the kind is parsed and released after the append has committed, so one raiser's flags are counted and recorded one at a time.
 
 **Wire.**
 - Budget: 403 `curia/authz/denied`, detail `table-11/flag-budget-exhausted tier=<T>`. The client classifies it as a budget refusal, beside `table-11/rate-budget-exhausted` (`src/Curia.Client/ForumClient.cs:456`).
 - Repeat: 409 `curia/flag/already-raised`, detail `kind=<wire kind> raised_at=<ISO 8601>`.
+- In flight: 409 `curia/flag/raise-in-flight`, when another flag by the same raiser is being counted and recorded. Nothing is spent; the client words it as a retry. 503 `curia/flag/raiser-gate-unavailable` when the gate's store cannot be reached.
 
 **The fuzzer.** The flag row is a consumed row (§4.10), so neither rule refuses a variation and clause 4 holds. The snapshot after A4b must equal A4's.
 
-**Not covered.** Two identical flags raised at once (§8, races); a fleet of identities (register D7).
+**Not covered.** A fleet of identities (register D7).
 
 ## 5. Gates, and what turns each red
 
