@@ -921,4 +921,33 @@ public sealed class ApplyModerationTests
         Assert.Equal(DomainErrors.ConcurrencyConflictType, error!.Type);
         Assert.Single(await LogAsync(world, ct), e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
     }
+
+    /// <summary>
+    /// R10.68's order (errata G18): an overlong reason is refused before the log or any flag row is
+    /// read, which is the cost the order exists to avoid. The at-cap control shows the counters count.
+    /// The Api fact cannot see this: a post that does not exist answers the same either side of the read.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongRationaleIsRefusedBeforeTheLogOrAnyFlagRowIsRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+        var events = new CountingEventStore(world.Store);
+        var details = new CountingFlagDetailStore(world.Details);
+        var moderate = new ApplyModeration(events, details, world.Clock);
+
+        var refused = await moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Operator, ct);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-too-long", error!.Type);
+        Assert.Equal(0, events.Reads);
+        Assert.Equal(0, details.Reads);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+
+        Require(await moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_096), Operator, ct));
+
+        Assert.True(events.Reads > 0);
+        Assert.True(details.Reads > 0);
+    }
 }

@@ -293,10 +293,12 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
 
     /// <summary>
     /// R10.68's order on the moderation path (errata G18): the cap is checked before the reason is
-    /// screened and before the post is looked up, which costs a read of the whole log and every flag
-    /// row. The reason carries a credential, which screening would refuse as <c>rationale-rejected</c>,
-    /// and the post does not exist, which the lookup would refuse as <c>no-such-post</c>. The answer
-    /// is neither.
+    /// screened and before the lookup can answer. The reason carries a credential, which screening
+    /// would refuse as <c>rationale-rejected</c>. The post does not exist, which the lookup would
+    /// refuse as <c>no-such-post</c>. The answer is neither. Whether the whole log was read before the
+    /// cap is something this fact cannot see, since a missing post answers the same either side of
+    /// the read. <c>ApplyModerationTests.R10_68_AnOverlongRationaleIsRefusedBeforeTheLogOrAnyFlagRowIsRead</c>
+    /// holds that.
     /// </summary>
     [Fact]
     public async Task R10_68_AnOverlongModerationReasonIsRefusedBeforeItIsScreenedOrAPostIsRead()

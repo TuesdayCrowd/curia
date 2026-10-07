@@ -213,4 +213,31 @@ public sealed class RaiseFlagTests
         Assert.Empty(FlagEvents(await LogAsync(store, ct)));
         Assert.Empty(Require(await details.ReadAllAsync(ct)));
     }
+
+    /// <summary>
+    /// R10.68's order (errata G18): an overlong rationale is refused before the post's stream is read,
+    /// which is the cost the order exists to avoid. The control flag shows the counter counts. No
+    /// flag-detail store is counted: RaiseFlag reads no flag rows on any path, so there is nothing to count.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+        await PostExistsAsync(store, ct);
+        var events = new CountingEventStore(store);
+        var raise = new RaiseFlag(events, new InMemoryFlagDetailStore(), clock, () => FixedSalt);
+
+        var refused = await raise.RecordAsync(Post, Reporter, FlagKind.Spam, new string('a', 4_097), ct);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/flag/rationale-too-long", error!.Type);
+        Assert.Equal(0, events.Reads);
+        Assert.Empty(FlagEvents(await LogAsync(store, ct)));
+
+        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
+
+        Assert.True(events.Reads > 0);
+    }
 }
