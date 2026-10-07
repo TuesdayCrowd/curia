@@ -303,7 +303,8 @@ public sealed class ApplyModerationTests
     /// nor adjudicated by that withholding, and the next withholding is a record rather than a no-op,
     /// because it adjudicates the late flag. R10.60 has a reviewing record name every flag of its
     /// category raised before it, so that record names the first flag again; the late flag is the only
-    /// one it adjudicates for the first time.
+    /// one it adjudicates for the first time. The late flag is another raiser's, since R10.70 (errata
+    /// G18) refuses one raiser a second flag of one type against one post.
     /// </summary>
     [Fact]
     public async Task R10_61_ALateFlagIsNotUpheldByAnEarlierWithholdingAndTheNextWithholdingAdjudicatesIt()
@@ -315,7 +316,7 @@ public sealed class ApplyModerationTests
         var withheld = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
         Assert.Equal([first], withheld.Adjudicates);
 
-        var late = await FlagAsync(world, FlagKind.Spam, ct);
+        var late = await FlagAsync(world, FlagKind.Spam, "https://agents.example/late-reporter", "reported", ct);
         var between = await ModerationAsync(world, ct);
         Assert.Equal([first], between.UpheldFlags);
         Assert.DoesNotContain(late, ModerationPolicy.AdjudicatedFlags(between.History));

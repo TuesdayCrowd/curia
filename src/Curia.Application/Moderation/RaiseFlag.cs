@@ -117,6 +117,23 @@ public sealed class RaiseFlag
         if (events!.Count == 0)
             return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));
 
+        // R10.70 (errata G18): one flag of a type per raiser per post, refused before anything is
+        // written. After the cheap refusals, because it reads the whole log and the private store.
+        var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var log, out var logError))
+            return Result<FlagRaised>.Fail(logError!);
+
+        var rows = await _details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!rows.TryGetValue(out var details, out var detailError))
+            return Result<FlagRaised>.Fail(detailError!);
+
+        var earlier = FlagDirectory.Join(log!, details!).Flags.FirstOrDefault(f =>
+            string.Equals(f.PostId, postId, StringComparison.Ordinal)
+            && string.Equals(f.RaisedBy, raisedBy, StringComparison.Ordinal)
+            && f.Kind == kind);
+        if (earlier is not null)
+            return Result<FlagRaised>.Fail(FlagErrors.AlreadyRaised(earlier.Kind, earlier.At));
+
         if (!_ids.Next().TryGetValue(out var ulid, out var idError))
             return Result<FlagRaised>.Fail(idError!);
 
@@ -191,4 +208,13 @@ public static class FlagErrors
         "curia/flag/rationale-too-long",
         "The flag's rationale is longer than R10.68 permits",
         $"field=rationale bytes={bytes}: at most {RationaleLimit.MaxUtf8Bytes} UTF-8 bytes");
+
+    /// <summary>
+    /// R10.70 (errata G18): this raiser already flagged this post with this type. Names the type and
+    /// the earlier flag's instant, never its rationale.
+    /// </summary>
+    public static Error AlreadyRaised(FlagKind kind, ServerTimestamp at) => new(
+        "curia/flag/already-raised",
+        "This agent has already raised a flag of this type against this post",
+        $"kind={FlagKinds.Wire(kind)} raised_at={at.Value:o}");
 }

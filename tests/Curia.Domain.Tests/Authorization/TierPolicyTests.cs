@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Curia.Domain.Authorization;
 using Curia.Domain.Credentials;
 using Xunit;
@@ -10,7 +12,7 @@ namespace Curia.Domain.Tests.Authorization;
     "Naming",
     "CA1707:Identifiers should not contain underscores",
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
-public sealed class TierPolicyTests
+public sealed partial class TierPolicyTests
 {
     private static readonly DateTimeOffset Enrolled = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
@@ -98,6 +100,56 @@ public sealed class TierPolicyTests
         Assert.Null(PublishedTable11.Rows["T3"].ReadsPerMinute);
         Assert.Equal(int.MaxValue, TierPolicy.PostsPerDay(PrincipalTier.T3));
     }
+
+    private const string Errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
+    private const string R7_22Paragraph = "**R7.22**";
+
+    /// <summary>
+    /// R7.22 (errata G18): the flag budgets are the published ones. The first fact to read the
+    /// errata: the numbers are published there ("10 flags at T0, 50 at T1 and 200 at T2") and not yet
+    /// in the white paper's Table 11. Found by walking up, as <see cref="PublishedTable11"/> finds the
+    /// white paper.
+    /// </summary>
+    [Fact]
+    public void R7_22_TheFlagBudgetsAreThePublishedOnes()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata)))
+            dir = dir.Parent;
+
+        Assert.True(dir is not null, $"{Errata} not found above {AppContext.BaseDirectory}");
+        var text = File.ReadAllText(Path.Combine(dir!.FullName, Errata));
+
+        var start = text.IndexOf(R7_22Paragraph, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"{Errata} has no {R7_22Paragraph} paragraph");
+
+        var end = text.IndexOf("\n\n", start, StringComparison.Ordinal);
+        var paragraph = end < 0 ? text[start..] : text[start..end];
+
+        var matches = FlagBudgets().Matches(paragraph);
+        Assert.True(
+            matches.Count == 1,
+            $"{Errata}'s {R7_22Paragraph} paragraph yields {matches.Count} flag-budget sentences, expected one naming three numbers");
+
+        var published = matches[0].Groups.Values.Skip(1)
+            .Select(g => int.Parse(g.Value, CultureInfo.InvariantCulture))
+            .ToArray();
+        Assert.True(
+            published.Length == 3,
+            $"{Errata}'s {R7_22Paragraph} paragraph yields {published.Length} flag budgets, expected three");
+
+        Assert.Equal(
+            published,
+            new[]
+            {
+                TierPolicy.FlagsPerDay(PrincipalTier.T0),
+                TierPolicy.FlagsPerDay(PrincipalTier.T1),
+                TierPolicy.FlagsPerDay(PrincipalTier.T2),
+            });
+    }
+
+    [GeneratedRegex(@"(\d+)\s+flags\s+at\s+T0,\s+(\d+)\s+at\s+T1\s+and\s+(\d+)\s+at\s+T2", RegexOptions.CultureInvariant)]
+    private static partial Regex FlagBudgets();
 
     /// <summary>Table 11's Quarantined row publishes "10 reads/min" and no posting budget.</summary>
     [Fact]

@@ -198,11 +198,13 @@ public sealed class CachingPolicyDecisionPointTests
     /// default nobody noticed; pinning the key to enum-typed fields is what keeps the cache bounded,
     /// and the product below is its ceiling. <c>PostsToday</c> is deliberately on one list and not
     /// the other: reads never consult it (<c>AccessPolicyTests.Read_decisions_do_not_consult_the_posting_count</c>).
+    /// <c>FlagsToday</c> is too (R7.22, errata G18): only <c>flag</c>/<c>raise</c> consults it, which is
+    /// a write, and a write is never cached.
     /// </summary>
     [Fact]
     public void The_cache_key_carries_every_request_field_except_the_instant_and_the_post_count()
     {
-        string[] requestFields = ["Action", "CredentialState", "PostsToday", "Resource", "Tier"];
+        string[] requestFields = ["Action", "CredentialState", "FlagsToday", "PostsToday", "Resource", "Tier"];
         string[] keyFields = ["Action", "CredentialState", "Resource", "Tier"];
 
         var request = FieldsOf(typeof(AuthorizationRequest));

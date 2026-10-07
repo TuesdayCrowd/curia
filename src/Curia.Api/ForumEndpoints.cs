@@ -764,6 +764,7 @@ public static class ForumEndpoints
         RaiseFlag flags,
         IPolicyDecisionPoint pdp,
         IEventReader events,
+        IFlagDetailStore details,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
@@ -805,13 +806,19 @@ public static class ForumEndpoints
         var now = clock.GetUtcNow();
         var tier = TierPolicy.Evaluate(facts!, now);
 
+        // R7.22 (errata G18): the flag budget is counted from the log joined with the private store.
+        var (raisedFlags, flagsProblem) = await FlagsAsync(log, details, cancellationToken).ConfigureAwait(false);
+        if (flagsProblem is not null)
+            return flagsProblem;
+
         var decision = await pdp.EvaluateAsync(
             new AuthorizationRequest(
                 tier,
                 facts!.CredentialState,
                 ResourceKind.Flag,
                 ActionKind.Raise,
-                PostsToday: PostsInBudgetWindow(log, subject, now)),
+                PostsToday: PostsInBudgetWindow(log, subject, now),
+                FlagsToday: FlagsInBudgetWindow(raisedFlags, subject, now)),
             cancellationToken).ConfigureAwait(false);
 
         if (!decision.TryGetValue(out var d, out var decisionError))
@@ -853,6 +860,9 @@ public static class ForumEndpoints
         "curia/flag/rationale-rejected" => StatusCodes.Status422UnprocessableEntity,
         "curia/flag/rationale-too-long" => StatusCodes.Status422UnprocessableEntity,
         "curia/moderation/rationale-required" => StatusCodes.Status400BadRequest,
+
+        // R10.70 (errata G18): this raiser already flagged this post with this type.
+        "curia/flag/already-raised" => StatusCodes.Status409Conflict,
 
         // The private store could not be written; nothing was, in either store (R10.62).
         "curia/flag/detail-store-unavailable" => StatusCodes.Status503ServiceUnavailable,
@@ -2147,6 +2157,24 @@ public static class ForumEndpoints
         return PostProjector.Fold(log).Count(p =>
             string.Equals(p.Author, agentId, StringComparison.Ordinal)
             && p.ServerTimestamp.Value > since);
+    }
+
+    /// <summary>
+    /// R7.22's flag count (errata G18): the flags the agent raised in the posting budget's trailing
+    /// 24 hours.
+    ///
+    /// <para><b>Counted from the joined directory, not the log alone.</b> A <c>flag.committed</c>
+    /// leaf names its kind and a commitment and never its raiser (R10.62), so the log cannot say whose
+    /// a flag is; the private store's row supplies the raiser, as it does for the flag listings.</para>
+    /// </summary>
+    private static int FlagsInBudgetWindow(
+        ImmutableArray<RaisedFlag> flags, string agentId, DateTimeOffset now)
+    {
+        var since = now - TimeSpan.FromDays(1);
+
+        return flags.Count(f =>
+            string.Equals(f.RaisedBy, agentId, StringComparison.Ordinal)
+            && f.At.Value > since);
     }
 
     /// <summary>R10.20's stable well-known URL, so every envelope points a reader at the contract.</summary>

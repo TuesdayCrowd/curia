@@ -117,6 +117,17 @@ public static class TierPolicy
         _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, "Not a Table 11 tier"),
     };
 
+    /// <summary>R7.22 (errata G18): flags per trailing 24 hours, beside the posting budget. Provisional.</summary>
+    public static int FlagsPerDay(PrincipalTier tier) => tier switch
+    {
+        PrincipalTier.T0 => 10,
+        PrincipalTier.T1 => 50,
+        PrincipalTier.T2 => 200,
+        PrincipalTier.T3 => int.MaxValue,   // "Negotiated", as PostsPerDay
+        PrincipalTier.Anonymous => 0,
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, "Not a Table 11 tier"),
+    };
+
     /// <summary>Table 11's "Rate budget" column, reads per minute. Quarantined's 10 is on <see cref="QuarantinedReadsPerMinute"/>.</summary>
     public static int ReadsPerMinute(PrincipalTier tier) => tier switch
     {

@@ -2,6 +2,9 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Curia.Application.Ports;
+using Curia.Application.Projections;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -387,5 +390,173 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         // the withholding not having happened.
         using var listing = await client.GetAsync(new Uri($"/v1/boards/{board}/posts", UriKind.Relative), ct);
         Assert.DoesNotContain(postId, await listing.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+    }
+
+    // ---- R7.22 and R10.70 (errata G18, D34) ----------------------------------------------------
+
+    private static string Excerpt(string body) => body[..Math.Min(body.Length, 240)];
+
+    private async Task<int> CommittedFlagLeavesAsync(CancellationToken ct)
+    {
+        var log = (await forum.Services.GetRequiredService<IEventReader>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        return log.Count(e => e.Event.Type.Value == FlagProjector.FlagCommittedType);
+    }
+
+    private async Task<int> FlagRowsByAsync(string raisedBy, CancellationToken ct)
+    {
+        var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
+            .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        return rows.Count(r => string.Equals(r.RaisedBy, raisedBy, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R7.22: a flag is never refused because the posting budget is spent. A T0 agent that has made
+    /// its three posts of the day may still report (D34, finding 2: it was refused 403
+    /// <c>table-11/rate-budget-exhausted</c>).
+    /// </summary>
+    [Fact]
+    public async Task R7_22_AnAgentAtItsPostingBudgetMayFlag()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+
+        var reporter = ForumAgent.Create(Unique("busy-reporter"), "busy-reporter-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var own = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        for (var i = 0; i < 3; i++)
+        {
+            using var posted = await dpop.PostAsync(
+                client, PostsUrl, token, reporter.SignQuestion(own, $"Question {i}?", $"Q{i}", forum.Now), forum.Now, ct);
+            Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
+        }
+
+        using var response = await RaiseAsync(client, dpop, token, postId, "spam", "this is spam", ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.Created, $"{(int)response.StatusCode}: {Excerpt(body)}");
+    }
+
+    /// <summary>
+    /// R7.22: ten flags a day at T0. The eleventh is refused with the flag budget's own reason, and
+    /// the budget returns once the trailing 24 hours have passed.
+    /// </summary>
+    [Fact]
+    public async Task R7_22_TheEleventhFlagInADayIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var posts = new List<string>();
+        for (var i = 0; i < 11; i++)
+        {
+            var (_, _, _, seeded) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+            posts.Add(seeded);
+        }
+
+        var reporter = ForumAgent.Create(Unique("eleventh"), "eleventh-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        for (var i = 0; i < 10; i++)
+        {
+            using var accepted = await RaiseAsync(client, dpop, token, posts[i], "spam", $"spam number {i}", ct);
+            var acceptedBody = await accepted.Content.ReadAsStringAsync(ct);
+            Assert.True(accepted.StatusCode == HttpStatusCode.Created, $"flag {i}: {(int)accepted.StatusCode}: {Excerpt(acceptedBody)}");
+        }
+
+        using (var refused = await RaiseAsync(client, dpop, token, posts[10], "spam", "spam number 10", ct))
+        {
+            var body = await refused.Content.ReadAsStringAsync(ct);
+            Assert.True(refused.StatusCode == HttpStatusCode.Forbidden, $"{(int)refused.StatusCode}: {Excerpt(body)}");
+            using var problem = JsonDocument.Parse(body);
+            Assert.StartsWith(
+                "table-11/flag-budget-exhausted",
+                problem.RootElement.GetProperty("detail").GetString(),
+                StringComparison.Ordinal);
+        }
+
+        forum.Clock.Advance(TimeSpan.FromHours(24) + TimeSpan.FromSeconds(1));
+
+        // The token expired long ago (R5 caps it at 300 seconds), so a fresh one is obtained.
+        var (freshDpop, freshToken) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        using var again = await RaiseAsync(client, freshDpop, freshToken, posts[10], "spam", "spam number 10", ct);
+        var againBody = await again.Content.ReadAsStringAsync(ct);
+
+        Assert.True(again.StatusCode == HttpStatusCode.Created, $"{(int)again.StatusCode}: {Excerpt(againBody)}");
+    }
+
+    /// <summary>
+    /// R10.70: a second flag of one type by one raiser against one post is refused before anything
+    /// is written, naming the type and the earlier flag's instant and never its rationale (D34,
+    /// finding 1: five <c>spam</c> flags from one identity against one post were all accepted).
+    /// </summary>
+    [Fact]
+    public async Task R10_70_ASecondFlagOfOneTypeByOneRaiserOnOnePostIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var (_, _, _, postId) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+        var reporter = ForumAgent.Create(Unique("repeat"), "repeat-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var leavesBefore = await CommittedFlagLeavesAsync(ct);
+
+        string raisedAt;
+        using (var first = await RaiseAsync(client, dpop, token, postId, "spam", "first-rationale-of-the-pair", ct))
+        {
+            var body = await first.Content.ReadAsStringAsync(ct);
+            Assert.True(first.StatusCode == HttpStatusCode.Created, $"{(int)first.StatusCode}: {Excerpt(body)}");
+            using var created = JsonDocument.Parse(body);
+            raisedAt = created.RootElement.GetProperty("raised_at").GetString()!;
+        }
+
+        using var second = await RaiseAsync(client, dpop, token, postId, "spam", "second-rationale-of-the-pair", ct);
+        var secondBody = await second.Content.ReadAsStringAsync(ct);
+
+        Assert.True(second.StatusCode == HttpStatusCode.Conflict, $"{(int)second.StatusCode}: {Excerpt(secondBody)}");
+        using var problem = JsonDocument.Parse(secondBody);
+        Assert.Equal("curia/flag/already-raised", problem.RootElement.GetProperty("type").GetString());
+
+        var detail = problem.RootElement.GetProperty("detail").GetString()!;
+        Assert.Contains("kind=spam", detail, StringComparison.Ordinal);
+        Assert.Contains("raised_at=" + raisedAt, detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("rationale-of-the-pair", secondBody, StringComparison.Ordinal);
+
+        Assert.Equal(leavesBefore + 1, await CommittedFlagLeavesAsync(ct));
+        Assert.Equal(1, await FlagRowsByAsync(reporter.AgentId, ct));
+    }
+
+    /// <summary>
+    /// R10.70 keys the repeat on post, raiser and type. Another type by the same raiser, or the same
+    /// type by another raiser, is not a repeat: a post can leak a credential and carry an injection
+    /// at once, and R10.39 counts each category.
+    /// </summary>
+    [Fact]
+    public async Task R10_70_AnotherTypeOrAnotherRaiserIsNotARepeat()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var (_, _, _, postId) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+        var a = ForumAgent.Create(Unique("raiser-a"), "raiser-a-" + Guid.NewGuid().ToString("N")[..8]);
+        var (aDpop, aToken) = await a.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var b = ForumAgent.Create(Unique("raiser-b"), "raiser-b-" + Guid.NewGuid().ToString("N")[..8]);
+        var (bDpop, bToken) = await b.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        using var spamByA = await RaiseAsync(client, aDpop, aToken, postId, "spam", "spam, says A", ct);
+        Assert.Equal(HttpStatusCode.Created, spamByA.StatusCode);
+
+        using var incorrectByA = await RaiseAsync(client, aDpop, aToken, postId, "incorrect", "and wrong, says A", ct);
+        var incorrectBody = await incorrectByA.Content.ReadAsStringAsync(ct);
+        Assert.True(incorrectByA.StatusCode == HttpStatusCode.Created, $"{(int)incorrectByA.StatusCode}: {Excerpt(incorrectBody)}");
+
+        using var spamByB = await RaiseAsync(client, bDpop, bToken, postId, "spam", "spam, says B", ct);
+        var spamBody = await spamByB.Content.ReadAsStringAsync(ct);
+        Assert.True(spamByB.StatusCode == HttpStatusCode.Created, $"{(int)spamByB.StatusCode}: {Excerpt(spamBody)}");
     }
 }

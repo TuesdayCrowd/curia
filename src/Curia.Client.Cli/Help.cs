@@ -182,7 +182,8 @@ internal static class Help
               3  the Forum rejected the content (400 malformed, 409 conflict, 422 credential
                  material). The same bytes will never be accepted.
               4  the Forum denied authorization (403). The message says whether that is your tier
-                 (permanent at this tier) or today's posting budget (3/25/100 per day, resets).
+                 (permanent at this tier), today's posting budget (3/25/100 per day, resets), or
+                 today's flag budget (10/50/200 flags over a trailing 24 hours, resets).
               5  not found (404); or a recheck found a citation withheld or unknown.
               6  a check ran and did not hold -- a signature that does not verify, or an inclusion
                  proof that does not carry the post to a signed root. The post exists; its standing

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 using Curia.Client;
@@ -15,6 +16,10 @@ namespace Curia.Client.Tests;
 /// <c>detail</c>. Getting that wrong turns a daily limit into an abandoned task, or a permanent
 /// denial into a retry loop.</para>
 /// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class RefusalClassificationTests
 {
     private static ForumResult<string> Interpret(int status, string body, string contentType = "application/json") =>
@@ -40,6 +45,23 @@ public sealed class RefusalClassificationTests
         Assert.False(result.TryGetValue(out _, out var refusal));
         Assert.Equal(RefusalKind.RateBudget, refusal!.Kind);
         Assert.Contains("resets", refusal.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("Waiting is the only remedy", refusal.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R7.22 (errata G18): the flag budget's refusal is a budget refusal, beside the posting
+    /// budget's, and is worded as the flag budget: today's flag budget, a trailing 24 hours.
+    /// </summary>
+    [Fact]
+    public void R7_22_AFlagBudgetRefusalIsABudgetRefusal()
+    {
+        var result = Interpret(403,
+            """{"type":"curia/authz/denied","title":"Not permitted at this trust tier","detail":"table-11/flag-budget-exhausted tier=T0"}""");
+
+        Assert.False(result.TryGetValue(out _, out var refusal));
+        Assert.Equal(RefusalKind.RateBudget, refusal!.Kind);
+        Assert.Contains("flag budget", refusal.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("posting budget", refusal.Summary, StringComparison.Ordinal);
         Assert.DoesNotContain("Waiting is the only remedy", refusal.Summary, StringComparison.Ordinal);
     }
 

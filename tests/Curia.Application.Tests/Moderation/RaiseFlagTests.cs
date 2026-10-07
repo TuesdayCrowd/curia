@@ -111,7 +111,11 @@ public sealed class RaiseFlagTests
         Assert.Equal(Require(FlagCommitment.Of(Post, Reporter, Rationale, FixedSalt)), commitment);
     }
 
-    /// <summary>Review Focus 2: the same text flagged twice commits differently, so a reader cannot count one raiser's repeats.</summary>
+    /// <summary>
+    /// Review Focus 2: the same text flagged twice commits differently, so a reader cannot count one
+    /// raiser's repeats. The second flag is of another type, since R10.70 (errata G18) refuses a
+    /// second of one type; the commitment does not cover the type, so its inputs are identical.
+    /// </summary>
     [Fact]
     public async Task R10_62_TwoIdenticalFlagsCommitDifferently()
     {
@@ -123,7 +127,7 @@ public sealed class RaiseFlagTests
 
         var raise = new RaiseFlag(store, details, clock);
         Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
-        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
+        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Incorrect, Rationale, ct));
 
         var salts = Require(await details.ReadAllAsync(ct)).Select(d => d.Salt).ToArray();
         Assert.Equal(2, salts.Distinct(StringComparer.Ordinal).Count());

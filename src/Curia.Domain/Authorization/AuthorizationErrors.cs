@@ -32,4 +32,14 @@ public static class AuthorizationErrors
         "curia/authz/owner-authentication-required",
         "Table 10 decides this action by owner authentication, not by trust tier",
         $"resource={ResourceActionNames.Wire(resource)} action={ResourceActionNames.Wire(action)}");
+
+    /// <summary>
+    /// R7.22 (errata G18): <c>flag</c>/<c>raise</c> was evaluated without a flag count. A failure
+    /// rather than a decision, so a call site that forgot to count cannot pass for one that counted
+    /// zero.
+    /// </summary>
+    public static Error FlagCountMissing() => new(
+        "curia/authz/flag-count-missing",
+        "The flag budget was not counted",
+        "flag/raise was evaluated without FlagsToday (R7.22)");
 }
