@@ -108,9 +108,17 @@ jobs:
           # R14.10's closed pass writes the elapsed time of every send, by row and send index, and
           # the slowest per route, so growth from folding shows as a slope (spec §4.10).
           CURIA_FUZZ_TIMINGS: ${{ runner.temp }}/fuzz-timings.tsv
-          # R10.69's timing theory writes each row's screening times here (A3 Step 5): the logger prints no passing row's output.
-          CURIA_SCREEN_TIMINGS: ${{ runner.temp }}/screen-timings.tsv
         run: dotnet test Curia.sln --no-build --configuration Release
+
+      # R10.69 (A3 Step 5): the screening cost tests alone, so the stop reads the screener and not
+      # eleven test hosts on four cores; the timings file comes from this step only.
+      - name: Screening cost, alone (R10.69)
+        if: ${{ !cancelled() }}
+        env:
+          CURIA_SCREEN_TIMINGS: ${{ runner.temp }}/screen-timings.tsv
+        run: |
+          dotnet test tests/Curia.Domain.Tests --no-build --configuration Release --filter "FullyQualifiedName~ScreeningCostTests"
+          test "$(wc -l < "$CURIA_SCREEN_TIMINGS")" -eq 20
 
       - name: Upload the fuzzer's timings
         if: always()

@@ -4370,6 +4370,31 @@ cost, and it cannot go green until the screener is linear. So D32 is the first t
 A cap is still not chosen in this register: it is a new normative number, and it goes in that stage's
 errata entry.
 
+**A3's stop fired on CI, and R10.69 holds** (`curia-architect`'s ruling, 2026-10-06, on 95b38b8 and CI
+run 37566876224). CI's screen-timings artifact (X64, 4 processors) read 1,508 ms for zero-width-space
+ScreenEnvelope and 1,499 ms for tab ScreenEnvelope against the 2,000 ms budget, past A3 Step 5's 500 ms
+stop. A scratch console against the Release `Curia.Domain.dll` at 95b38b8 (Apple M3 Max, not the CI
+runner) timed every slow row from 32 KiB to 512 KiB: each doubles at about 2.0, zero-width-space at an
+exponent of about 1.03 over a sixteenfold range, so no row is superlinear and R10.69 holds. Three
+constants, none a pattern, make up CI's number: the first screening call in a process builds the fifteen
+non-backtracking automata at run time (`[GeneratedRegex]` emits no code for that engine) and JITs the
+path, about 100 ms locally, charged to whichever row runs first (tab, on CI); the solution's eleven test
+assemblies run at once on CI's four cores; and zero-width-space at the cap raises 436,905 hidden-text
+flags across five views before de-duplication, about 107 MB allocated per call, which is the flag volume
+recorded above under "Beside it", now with a CPU cost as well as a storage cost. The attribution to
+contention is inferred from the artifact's run order, not measured on a four-core machine.
+The stop did its job: it guards the margin of the gate CI enforces, and a budget at 75% on the runner
+that enforces it is a gate that goes red without a defect, whose predictable remedy is a larger budget.
+The budget stays 2,000 ms and is not raised, because raising it answers the runner, not the screener.
+What happens instead, as one commit on A3 before A4: one untimed screening call per process before any
+row is timed (the fuzzer's precedent, which excludes each row's first send); a scaling fact that holds
+R10.69's own claim, linear, on any machine; and a CI step that reruns the screening cost tests alone,
+whose timings alone are the stop's reading. The proposal to run hidden-text detection on the original
+view alone, said to give an identical result, does not: the base64-decoded view maps every decoded
+character to its run's start (`DerivedViews.cs:265`), so a zero-width character carried in base64 is
+flagged only there, and that change would drop it. The flag volume is the coalescing decision's, with
+D35, and is not cured inside A3.
+
 ### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06)*
 
 **Found by not converging.** The strangers stage closed fifteen 500s under D25, and each round of its
