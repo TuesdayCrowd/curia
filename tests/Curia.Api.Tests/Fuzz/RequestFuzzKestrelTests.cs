@@ -47,6 +47,7 @@ public sealed class RequestFuzzKestrelTests(KestrelForumFixture forum) : IClassF
     ];
 
     [Fact]
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "A send that hangs past 30 s or is reset is a failure carrying its type, recorded like any other (review of 6cbfa9f).")]
     public async Task R14_10_NoRawPathByteIsAServerFault()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -70,14 +71,27 @@ public sealed class RequestFuzzKestrelTests(KestrelForumFixture forum) : IClassF
                 foreach (var (name, bytes) in Values)
                 {
                     var stopwatch = Stopwatch.StartNew();
-                    var (status, body) = await SendAsync(address, method, PathWith(pattern, parameter, bytes), ct);
+                    int status;
+                    string body;
+                    string? thrown = null;
+                    try
+                    {
+                        (status, body) = await SendAsync(address, method, PathWith(pattern, parameter, bytes), ct);
+                    }
+                    catch (Exception e) when (!ct.IsCancellationRequested)
+                    {
+                        thrown = e.GetType().Name;
+                        status = 0;
+                        body = string.Empty;
+                    }
+
                     stopwatch.Stop();
                     var ms = (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds);
                     slowest[route] = Math.Max(slowest.GetValueOrDefault(route), ms);
                     answers.Add($"{name} {status.ToString(CultureInfo.InvariantCulture)}");
                     if (status is < 100 or >= 500)
                     {
-                        failures.Add($"{route} path:{parameter} {name}: {status.ToString(CultureInfo.InvariantCulture)}, a server fault or no status line");
+                        failures.Add($"{route} path:{parameter} {name}: {status.ToString(CultureInfo.InvariantCulture)}, " + (thrown is null ? "a server fault or no status line" : $"the send threw {thrown}"));
 
                         // No problem type: the body may be chunk-framed, and this pass does not de-chunk it.
                         await FuzzRun.AppendFailureAsync(route, "kestrel", $"path:{parameter}", name, "plain", status, string.Empty, ms, ledgered: false, ct);

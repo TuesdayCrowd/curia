@@ -34,11 +34,22 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
 
     /// <summary>
     /// The floor on JSON and JWS draws past the first parser: at least one in <c>Divisor</c>. Measured
-    /// on the first run with the per-string generator (review of 9411deb): 643 of 1,151, a fraction of
-    /// 0.559; half of it is 0.279, and 4 is the smallest integer whose reciprocal is at most that. The
-    /// per-unit generator before it measured 87 of 1,100 (0.079) with the same seed.
+    /// with every ADMIT refusal and the token endpoint's proof refusals counted as stopped there, and
+    /// noncharacters drawn only in the decoding-hostile strings (review of 6cbfa9f): 643 of 1,217, a
+    /// fraction of 0.528; half of it is 0.264, and 4 is the smallest integer whose reciprocal is at
+    /// most that. The figure first recorded here, 643 of 1,151 (0.559), counted 149 ADMIT refusals
+    /// (139 curia/admit/noncharacter) as past the parser (review of 6cbfa9f). The per-unit generator
+    /// before both measured 87 of 1,100 (0.079) with the same seed.
     /// </summary>
     internal const int Divisor = 4;
+
+    /// <summary>
+    /// The floor on POST /v1/posts <c>json:/envelope/*</c> draws past ADMIT, the route the pass exists
+    /// to combine on: at least one in <c>EnvelopeDivisor</c>. Measured in the same run as
+    /// <see cref="Divisor"/> (review of 6cbfa9f): 103 of 132, a fraction of 0.780; half of it is 0.390,
+    /// and 3 is the smallest integer whose reciprocal is at most that.
+    /// </summary>
+    internal const int EnvelopeDivisor = 3;
 
     /// <summary>
     /// The only pass that combines hostile parts: one draw can land in a JWS whose claims are already
@@ -70,6 +81,8 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
         var unsent = 0;
         var jsonOrJws = 0;
         var pastParser = 0;
+        var envelopeDraws = 0;
+        var envelopePast = 0;
         var matchedRandom = new HashSet<FaultRow>();
         int? stoppedAt = null;
         string? failure = null;
@@ -143,7 +156,13 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
             if (part.Kind is PartKind.Json or PartKind.Jws)
             {
                 jsonOrJws++;
-                if (thrown is null && Oracle.PastFirstParser((HttpStatusCode)status, problemType)) pastParser++;
+                var past = thrown is null && Oracle.PastFirstParser((HttpStatusCode)status, problemType);
+                if (past) pastParser++;
+                if (row.Route == "POST /v1/posts" && part.Kind == PartKind.Json && part.Address.StartsWith("json:/envelope/", StringComparison.Ordinal))
+                {
+                    envelopeDraws++;
+                    if (past) envelopePast++;
+                }
             }
 
             var reason = thrown is null
@@ -183,7 +202,8 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
 
         TestContext.Current.TestOutputHelper?.WriteLine(
             $"seed {Seed}: {sent.ToString(CultureInfo.InvariantCulture)} sent, {unsent.ToString(CultureInfo.InvariantCulture)} unsent; " +
-            $"{pastParser.ToString(CultureInfo.InvariantCulture)} of {jsonOrJws.ToString(CultureInfo.InvariantCulture)} JSON and JWS draws past the first parser; answers: " +
+            $"{pastParser.ToString(CultureInfo.InvariantCulture)} of {jsonOrJws.ToString(CultureInfo.InvariantCulture)} JSON and JWS draws past the first parser; " +
+            $"{envelopePast.ToString(CultureInfo.InvariantCulture)} of {envelopeDraws.ToString(CultureInfo.InvariantCulture)} POST /v1/posts envelope draws past ADMIT; answers: " +
             string.Join(", ", statuses.Select(s => $"{s.Key.ToString(CultureInfo.InvariantCulture)} x{s.Value.ToString(CultureInfo.InvariantCulture)}")));
         if (Environment.GetEnvironmentVariable("CURIA_FUZZ_TIMINGS") is { } timings)
         {
@@ -198,6 +218,9 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
         Assert.True(
             pastParser * Divisor >= jsonOrJws,
             $"seed {Seed}: {pastParser.ToString(CultureInfo.InvariantCulture)} of {jsonOrJws.ToString(CultureInfo.InvariantCulture)} JSON and JWS draws got past the first parser; the pass combines nothing past it");
+        Assert.True(
+            envelopeDraws > 0 && envelopePast * EnvelopeDivisor >= envelopeDraws,
+            $"seed {Seed}: {envelopePast.ToString(CultureInfo.InvariantCulture)} of {envelopeDraws.ToString(CultureInfo.InvariantCulture)} POST /v1/posts envelope draws got past ADMIT; the pass combines nothing past it on the envelope");
         Assert.True(
             unsent * 10 <= Draws,
             $"seed {Seed}: {unsent.ToString(CultureInfo.InvariantCulture)} of {Draws.ToString(CultureInfo.InvariantCulture)} draws could not be built, so the pass sent too little to mean anything");
@@ -237,15 +260,14 @@ internal sealed class HostileText
     private static Gen<Unit> CodePoints(Gen<int> gen) => gen.Select(c => new Unit(c, null));
 
     /// <summary>
-    /// Every class in spec §4.10's list but the two that no decoder accepts, weighted toward each
-    /// hostile class, with printable ASCII the largest single class. C0, U+0000 included, stays: an
-    /// escaped NUL passes the JSON parser and reaches the reader after it.
+    /// Every class in spec §4.10's list except the four that ADMIT refuses wherever they appear (raw
+    /// invalid bytes, lone surrogates and both noncharacter classes, curia/admit/noncharacter; review of
+    /// 6cbfa9f), weighted toward each hostile class, with printable ASCII the largest single class. C0,
+    /// U+0000 included, stays: an escaped NUL passes the JSON parser and reaches the reader after it.
     /// </summary>
     private static readonly Gen<Unit> CleanUnitGen = Gen.Frequency(
         (2, CodePoints(Gen.Int[0x00, 0x1F])),                                             // C0
         (1, CodePoints(Gen.Int[0x80, 0x9F])),                                             // C1
-        (1, CodePoints(Gen.Int[0xFDD0, 0xFDEF])),                                         // noncharacters
-        (1, CodePoints(Gen.Int[0, 16].Select(Gen.Int[0, 1], (plane, low) => (plane << 16) | 0xFFFE | low))), // noncharacters, plane ends
         (2, CodePoints(Gen.OneOfConst(Format))),                                          // Cf
         (1, CodePoints(Gen.OneOfConst(0x2028, 0x2029))),                                  // Zl, Zp
         (2, CodePoints(Gen.Int[0x0300, 0x036F])),                                         // combining marks
@@ -253,10 +275,11 @@ internal sealed class HostileText
         (6, CodePoints(Gen.Int[0x20, 0x7E])));                                            // printable ASCII
 
     /// <summary>
-    /// The full mixture: every class in spec §4.10's list, raw invalid bytes and lone surrogates among
-    /// them. Either one refuses the whole value at the first parser (escaped or raw), so they are drawn
-    /// in one string in five (<see cref="Generator"/>), and the other four in five can pass that parser
-    /// (review of 9411deb: drawn per unit at 2 of 22 each, they were in nearly every string).
+    /// The full mixture: every class in spec §4.10's list, raw invalid bytes, lone surrogates and
+    /// noncharacters among them. Each refuses the whole value at ADMIT, the first parser (escaped or
+    /// raw), so they are drawn in one string in five (<see cref="Generator"/>), and the other four
+    /// strings in five can pass ADMIT's parser (reviews of 9411deb and 6cbfa9f: drawn per unit, or
+    /// noncharacters in every string, they refused nearly every value).
     /// </summary>
     private static readonly Gen<Unit> DecodingHostileUnitGen = Gen.Frequency(
         (2, CodePoints(Gen.Int[0x00, 0x1F])),                                             // C0
@@ -280,9 +303,9 @@ internal sealed class HostileText
     private static Gen<HostileText> DecodingHostileStrings => LengthGen.SelectMany(n => DecodingHostileUnitGen.Array[n]).Select(WithinLength);
 
     /// <summary>
-    /// A string of at most the drawn length in bytes. Every class in spec §4.10's list is still drawn,
-    /// and raw bytes and lone surrogates are drawn in one string in five, so the other four in five can
-    /// pass the first parser.
+    /// A string of at most the drawn length in bytes. Every class in spec §4.10's list is still drawn;
+    /// raw invalid bytes, lone surrogates and noncharacters are drawn in one string in five, so the
+    /// other four strings in five can pass ADMIT's parser (review of 6cbfa9f).
     /// </summary>
     internal static readonly Gen<HostileText> Generator = Gen.Frequency((4, CleanStrings), (1, DecodingHostileStrings));
 
