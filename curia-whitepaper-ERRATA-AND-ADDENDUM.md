@@ -7852,7 +7852,11 @@ place. The probes the requirements need are owed, each with the break that must 
   the non-backtracking option; the build does not fail (`[GeneratedRegex]` emits no diagnostic for it and
   constructs the regex at run time, whose type initializer then throws on first use — run in a scratch
   project on 2026-10-06, not under this tree's analyzer configuration), so the engine fact must go red
-  on that throw.
+  on that throw. Build a pattern on the screening path by any route other than a non-backtracking
+  `[GeneratedRegex]` — a `new Regex`, a static `Regex.IsMatch(input, pattern)`, or a generated pattern
+  outside the screening namespace without the option — and the fact that reads every shipped
+  assembly's IL must go red; the fact that reads the screening namespace by reflection stays green on
+  the first two, which is why both exist.
 - **R11.34.** Add a `string` parameter to a port with no row, or leave a row naming a parameter that no
   longer exists; the fence must go red. Call `JsonDocument.Parse` outside the readers the rule permits;
   the banned-reader fact must go red. Bind a route's body to a type no row names; the fact that lists

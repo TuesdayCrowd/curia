@@ -108,6 +108,8 @@ jobs:
           # R14.10's closed pass writes the elapsed time of every send, by row and send index, and
           # the slowest per route, so growth from folding shows as a slope (spec §4.10).
           CURIA_FUZZ_TIMINGS: ${{ runner.temp }}/fuzz-timings.tsv
+          # R10.69's timing theory writes each row's screening times here (A3 Step 5): the logger prints no passing row's output.
+          CURIA_SCREEN_TIMINGS: ${{ runner.temp }}/screen-timings.tsv
         run: dotnet test Curia.sln --no-build --configuration Release
 
       - name: Upload the fuzzer's timings
@@ -117,6 +119,14 @@ jobs:
           name: fuzz-timings
           path: ${{ runner.temp }}/fuzz-timings.tsv
           if-no-files-found: warn
+
+      - name: Upload the screening timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screen-timings
+          path: ${{ runner.temp }}/screen-timings.tsv
+          if-no-files-found: error
 
       # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
       # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in

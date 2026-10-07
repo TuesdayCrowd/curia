@@ -32,10 +32,15 @@ namespace Curia.Domain.Tests.Screening;
 public sealed class ScreeningCostTests
 {
     /// <summary>
-    /// The budget this test owns, per screening call at R6.39's cap. Measured under the linear
-    /// engine at well under a quarter of this; the 4x margin is the assumption A3 records.
+    /// The budget this test owns, per screening call at R6.39's cap, set in Release on an Apple M3
+    /// Max (Arm64, 16 processors), where the slowest row measured 173 ms (zero-width-space,
+    /// ScreenEnvelope); the 4x margin is the assumption A3 records, and the failure message names
+    /// both that machine and the one running.
     /// </summary>
     private const int BudgetMilliseconds = 2_000;
+
+    /// <summary>R10.69: the budget "is stated with the machine it was measured on".</summary>
+    private const string BudgetMachine = "set in Release on an Apple M3 Max, Arm64, 16 processors";
 
     /// <summary>R6.39's per-string cap, in UTF-8 bytes.</summary>
     private const int CapBytes = 262_144;
@@ -43,6 +48,14 @@ public sealed class ScreeningCostTests
     /// <summary>8 in SecretScanner, 6 in InjectionDetector, 1 in DerivedViews.</summary>
     private const int ExpectedPatternCount = 15;
 
+    /// <summary>Serialises the timing file's appends: theory rows may run in parallel.</summary>
+    private static readonly SemaphoreSlim TimingsLock = new(1, 1);
+
+    /// <summary>
+    /// The engine fact, by reflection over the screening namespace: it invokes each pattern, which
+    /// the IL-wide rule cannot. That rule, which sees a field, a <c>new Regex</c> or a static call
+    /// anywhere under <c>src/</c>, lives in <c>Curia.Architecture.Tests/RegexEngineTests.cs</c>.
+    /// </summary>
     [Fact]
     public void R10_69_EveryScreeningPatternRunsOnTheLinearEngine()
     {
@@ -99,7 +112,34 @@ public sealed class ScreeningCostTests
         TestContext.Current.TestOutputHelper?.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{row}: {utf8.Length} bytes, ScreenEnvelope {envelopeMs} ms, ScreenText {textMs} ms ({Machine()})"));
+
+        // A3 Step 5: CI's logger prints no passing row's output, so CI names a file to read instead.
+        if (Environment.GetEnvironmentVariable("CURIA_SCREEN_TIMINGS") is { Length: > 0 } timings)
+        {
+            await Record(
+                timings,
+                TimingLine(row, "ScreenEnvelope", utf8.Length, envelopeMs) + TimingLine(row, "ScreenText", utf8.Length, textMs));
+        }
     }
+
+    /// <summary>Appends <paramref name="lines"/> to the timing file, one row's calls at a time.</summary>
+    private static async Task Record(string path, string lines)
+    {
+        await TimingsLock.WaitAsync(TestContext.Current.CancellationToken).ConfigureAwait(false);
+        try
+        {
+            await File.AppendAllTextAsync(path, lines, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            TimingsLock.Release();
+        }
+    }
+
+    /// <summary>One TSV line: row, call, UTF-8 bytes, elapsed ms, architecture, processors. Never the screened text.</summary>
+    private static string TimingLine(string row, string call, int bytes, long elapsed) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{row}\t{call}\t{bytes}\t{elapsed}\t{RuntimeInformation.ProcessArchitecture}\t{Environment.ProcessorCount}\n");
 
     /// <summary>
     /// Runs one screening call on its own thread and fails at five budgets rather than waiting for
@@ -129,7 +169,7 @@ public sealed class ScreeningCostTests
         {
             Assert.Fail(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{row}: {call} did not finish within {BudgetMilliseconds * 5} ms (budget {BudgetMilliseconds} ms; {Machine()})"));
+                $"{row}: {call} did not finish within {BudgetMilliseconds * 5} ms (budget {BudgetMilliseconds} ms {BudgetMachine}; running on {Machine()})"));
             throw;
         }
 
@@ -137,7 +177,7 @@ public sealed class ScreeningCostTests
             elapsed <= BudgetMilliseconds,
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"{row}: {call} took {elapsed} ms against a budget of {BudgetMilliseconds} ms ({Machine()})"));
+                $"{row}: {call} took {elapsed} ms against a budget of {BudgetMilliseconds} ms {BudgetMachine}; running on {Machine()}"));
         return elapsed;
     }
 

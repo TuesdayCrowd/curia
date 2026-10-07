@@ -31,9 +31,8 @@ public static partial class InjectionDetector
     /// what the version is for.
     /// 2026-09-26: U+2060 (word joiner) joined the hidden-text set, which is now
     /// <see cref="HiddenCharacters"/>, shared with the line-joined view (register D17).
-    /// 2026-10-06: every rule runs on the non-backtracking engine (R10.69, errata G18); the
-    /// high-entropy rule's keyword boundary is consumed rather than looked behind. Verdicts on the
-    /// red-team corpus are unchanged; on other input they may not be.
+    /// 2026-10-06: every rule runs on the non-backtracking engine (R10.69, errata G18). Verdicts on
+    /// the red-team corpus are unchanged; on other input they may not be.
     /// </summary>
     public const string Version = "injection/2026-10-06";
 
