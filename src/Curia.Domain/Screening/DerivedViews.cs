@@ -167,7 +167,7 @@ public static partial class DerivedViews
         return new DerivedView(name, text.ToString(), indexes.ToImmutable());
     }
 
-    [GeneratedRegex(@"[ \t]*[\r\n\u000B\u000C\u0085\u2028\u2029]+[ \t]*(?:(?:[>│|#+*;]|/{2,}|--)[ \t]*)*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"[ \t]*[\r\n\u000B\u000C\u0085\u2028\u2029]+[ \t]*(?:(?:[>│|#+*;]|/{2,}|--)[ \t]*)*", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex LineBreakWithGutter();
 
     /// <summary>Drops the invisible characters <see cref="HiddenCharacters"/> names, for the line-joined view.</summary>
