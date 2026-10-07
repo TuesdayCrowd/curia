@@ -92,6 +92,10 @@ public sealed class RaiseFlag
         if (string.IsNullOrWhiteSpace(rationale))
             return Result<FlagRaised>.Fail(ModerationErrors.RationaleRequired());
 
+        // R10.68 (errata G18): before screening and before the post's stream is read.
+        if (RationaleLimit.Over(rationale) is { } bytes)
+            return Result<FlagRaised>.Fail(FlagErrors.RationaleTooLong(bytes));
+
         // SCREEN, before anything is written. The screener takes a span, which cannot be stored in
         // a field, so this phase structurally cannot retain what it screened.
         var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(rationale));
@@ -181,4 +185,10 @@ public static class FlagErrors
         "curia/flag/rationale-rejected",
         "The flag's rationale was rejected by ingest screening",
         annotations);
+
+    /// <summary>R10.68 (errata G18): names the field and the byte count, never the value.</summary>
+    public static Error RationaleTooLong(int bytes) => new(
+        "curia/flag/rationale-too-long",
+        "The flag's rationale is longer than R10.68 permits",
+        $"field=rationale bytes={bytes}: at most {RationaleLimit.MaxUtf8Bytes} UTF-8 bytes");
 }

@@ -271,6 +271,94 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R10.68 (errata G18): a flag's rationale is at most 4,096 UTF-8 bytes. One at the cap is
+    /// accepted; one byte over is refused 422, naming the field and the byte count, never the value.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_ARationaleAtTheCapIsAcceptedAndOneByteOverIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+
+        var atCap = ForumAgent.Create(Unique("cap-at"), "cap-at-" + Guid.NewGuid().ToString("N")[..8]);
+        var (atDpop, atToken) = await atCap.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        using var accepted = await RaiseAsync(client, atDpop, atToken, postId, "spam", new string('a', 4_096), ct);
+        var acceptedBody = await accepted.Content.ReadAsStringAsync(ct);
+        Assert.True(accepted.StatusCode == HttpStatusCode.Created, $"{(int)accepted.StatusCode}: {acceptedBody[..Math.Min(acceptedBody.Length, 240)]}");
+
+        var over = ForumAgent.Create(Unique("cap-over"), "cap-over-" + Guid.NewGuid().ToString("N")[..8]);
+        var (overDpop, overToken) = await over.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        using var refused = await RaiseAsync(client, overDpop, overToken, postId, "spam", new string('a', 4_097), ct);
+        var body = await refused.Content.ReadAsStringAsync(ct);
+
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, $"{(int)refused.StatusCode}: {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/flag/rationale-too-long", problem.RootElement.GetProperty("type").GetString());
+        Assert.Contains("bytes=4097", problem.RootElement.GetProperty("detail").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("aaaa", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.68 counts UTF-8 bytes, not characters: 1,365 three-byte characters and one ASCII byte are
+    /// 4,096 bytes and accepted; with a second ASCII byte, 4,097, refused. A cap counted in UTF-16
+    /// code units would accept both.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_TheCapCountsUtf8BytesNotCharacters()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+        var wide = new string((char)0x4E2D, 1_365);
+
+        var atCap = ForumAgent.Create(Unique("cap-wide-at"), "cap-wide-at-" + Guid.NewGuid().ToString("N")[..8]);
+        var (atDpop, atToken) = await atCap.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        using var accepted = await RaiseAsync(client, atDpop, atToken, postId, "spam", wide + "a", ct);
+        var acceptedBody = await accepted.Content.ReadAsStringAsync(ct);
+        Assert.True(accepted.StatusCode == HttpStatusCode.Created, $"{(int)accepted.StatusCode}: {acceptedBody[..Math.Min(acceptedBody.Length, 240)]}");
+
+        var over = ForumAgent.Create(Unique("cap-wide-over"), "cap-wide-over-" + Guid.NewGuid().ToString("N")[..8]);
+        var (overDpop, overToken) = await over.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        using var refused = await RaiseAsync(client, overDpop, overToken, postId, "spam", wide + "ab", ct);
+        var body = await refused.Content.ReadAsStringAsync(ct);
+
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, $"{(int)refused.StatusCode}: {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/flag/rationale-too-long", problem.RootElement.GetProperty("type").GetString());
+        Assert.Contains("bytes=4097", problem.RootElement.GetProperty("detail").GetString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.68's order: the cap is checked before screening and before the post is looked up. The
+    /// rationale carries a credential, which screening would refuse as <c>rationale-rejected</c>, and
+    /// the post does not exist, which the lookup would refuse as <c>no-such-post</c>; the answer is
+    /// neither, because an overlong rationale is never screened and costs no read of the log.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongRationaleIsRefusedBeforeItIsScreenedOrAPostIsRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var reporter = ForumAgent.Create(Unique("cap-order"), "cap-order-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        var rationale = ("ghp_" + "A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o").PadRight(5_000, ' ');
+        Assert.Equal(5_000, Encoding.UTF8.GetByteCount(rationale));
+
+        using var response = await RaiseAsync(client, dpop, token, "01JNOSUCHPOST00000000000001", "credential_leak", rationale, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.UnprocessableEntity, $"{(int)response.StatusCode}: {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/flag/rationale-too-long", problem.RootElement.GetProperty("type").GetString());
+        Assert.DoesNotContain("ghp_", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// R10.36: withheld content stops being served. The remedy is <b>withholding plus a moderation
     /// event</b>, never deletion — the post stays in the log exactly as signed, and the read path
     /// declines to serve it.

@@ -851,6 +851,7 @@ public static class ForumEndpoints
         // Screening refused it. 422 rather than 400 for the reason the submit path uses it: the
         // request was well-formed and was rejected on its content.
         "curia/flag/rationale-rejected" => StatusCodes.Status422UnprocessableEntity,
+        "curia/flag/rationale-too-long" => StatusCodes.Status422UnprocessableEntity,
         "curia/moderation/rationale-required" => StatusCodes.Status400BadRequest,
 
         // The private store could not be written; nothing was, in either store (R10.62).
