@@ -53,14 +53,16 @@ public sealed class ScreeningCostTests
     /// <summary>
     /// The scaling fact's ceiling on min(large) / min(small) for an eightfold longer input: linear
     /// work gives about 8 (measured 7.1 to 8.5 on the M3 Max), quadratic about 64. It is derived
-    /// from R10.69's form, linear, not from a measured duration, so it holds on any machine.
+    /// from R10.69's form, linear, not from a measured duration, so it holds on any machine running
+    /// this class alone: load from other processes between samples is not linear work. The fact is
+    /// judged in CI's isolated screening-cost step.
     /// </summary>
     private const double MaxScalingRatio = 24;
 
     /// <summary>The scaling fact's smaller input: an eighth of R6.39's cap.</summary>
     private const int SmallBytes = CapBytes / 8;
 
-    /// <summary>Serialises the timing file's appends: theory rows may run in parallel.</summary>
+    /// <summary>Serialises the timing and scaling files' appends: theory rows may run in parallel.</summary>
     private static readonly SemaphoreSlim TimingsLock = new(1, 1);
 
     /// <summary>
@@ -150,11 +152,14 @@ public sealed class ScreeningCostTests
     }
 
     /// <summary>
-    /// R10.69's own claim, linear, checked on any machine: each row's cost at R6.39's cap is at most
+    /// R10.69's own claim, linear, checked on any machine running this class alone (load from other
+    /// processes between samples is not linear work; the fact is judged in CI's isolated
+    /// screening-cost step): each row's cost at R6.39's cap is at most
     /// <see cref="MaxScalingRatio"/> times its cost at an eighth of it. Small and large inputs
     /// alternate, three of each, and the fastest of each size is compared, so a pause lands on one
     /// sample rather than on the ratio. Every call runs under <see cref="Guarded"/>'s timeout. It
-    /// writes no timing file: the stop reads the budget theory's timings only.
+    /// writes the scaling file <c>CURIA_SCREEN_SCALING</c> names, one line per call, and never the
+    /// timing file: the stop reads the budget theory's timings only.
     /// </summary>
     [Theory]
     [InlineData("r")]
@@ -208,6 +213,11 @@ public sealed class ScreeningCostTests
         TestContext.Current.TestOutputHelper?.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{row}: {call} ratio {ratio:F2} ({largeMin:F0} / {smallMin:F0} ticks; {Machine()})"));
+
+        // CI's logger prints no passing row's output, so CI names a file for the ratios too.
+        if (Environment.GetEnvironmentVariable("CURIA_SCREEN_SCALING") is { Length: > 0 } scaling)
+            await Record(scaling, ScalingLine(row, call, smallMin, largeMin, ratio)).ConfigureAwait(false);
+
         Assert.True(
             ratio <= MaxScalingRatio,
             string.Create(
@@ -235,6 +245,14 @@ public sealed class ScreeningCostTests
     private static string TimingLine(string row, string call, int bytes, long elapsed) => string.Create(
         CultureInfo.InvariantCulture,
         $"{row}\t{call}\t{bytes}\t{elapsed}\t{RuntimeInformation.ProcessArchitecture}\t{Environment.ProcessorCount}\n");
+
+    /// <summary>
+    /// One TSV line: row, call, small and large UTF-8 bytes, the fastest Stopwatch ticks of each,
+    /// the ratio, architecture, processors. Never the screened text.
+    /// </summary>
+    private static string ScalingLine(string row, string call, double smallMin, double largeMin, double ratio) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{row}\t{call}\t{SmallBytes}\t{CapBytes}\t{smallMin:F0}\t{largeMin:F0}\t{ratio:F2}\t{RuntimeInformation.ProcessArchitecture}\t{Environment.ProcessorCount}\n");
 
     /// <summary>One call held to the budget, in milliseconds.</summary>
     private static async Task<long> Timed(string row, string call, Func<Result<ScreeningResult>> screen)

@@ -175,8 +175,8 @@ Key encoding idioms — the point of each is to make an invariant a compile erro
 
 ```bash
 dotnet build Curia.sln                      # 0 warnings is the standard, not an aspiration
-dotnet test Curia.sln                       # needs a reachable Postgres with pgvector (see below)
-CURIA_SCREEN_TIMINGS=… dotnet test tests/Curia.Domain.Tests -c Release --filter "FullyQualifiedName~ScreeningCostTests"   # R10.69's stop reads this run alone
+dotnet test Curia.sln --filter "FullyQualifiedName!~ScreeningCostTests"   # needs a reachable Postgres with pgvector (see below)
+CURIA_SCREEN_TIMINGS=… CURIA_SCREEN_SCALING=… dotnet test tests/Curia.Domain.Tests -c Release --filter "FullyQualifiedName~ScreeningCostTests"   # R10.69's stop reads this run alone
 dotnet restore Curia.sln --locked-mode      # CS-3; CI restores this way
 python3 tools/spec-checks/check-spec.py     # cross-reference checks over the three documents
 python3 tools/spec-checks/falsify-spec-checks.py   # CI runs this beside check-spec

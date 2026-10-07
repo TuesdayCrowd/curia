@@ -4393,7 +4393,11 @@ whose timings alone are the stop's reading. The proposal to run hidden-text dete
 view alone, said to give an identical result, does not: the base64-decoded view maps every decoded
 character to its run's start (`DerivedViews.cs:265`), so a zero-width character carried in base64 is
 flagged only there, and that change would drop it. The flag volume is the coalescing decision's, with
-D35, and is not cured inside A3.
+D35, and is not cured inside A3. CI run 37575114798 (X64, 4 processors, e166e59) measured the contention
+A3 inferred: zero-width-space ScreenEnvelope at the cap took 309 ms alone and at least 1,010 ms (fastest
+of three) inside the full solution, a 24.8× ratio to 32 KiB; the ~107 MB of flags per call is a cost that
+grows with host load. A caller choosing that input costs about 1 s of CPU and 107 MB per call on a
+contended 4-core host, an input to D35's coalescing decision, not cured in A3.
 
 ### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06)*
 
@@ -4746,6 +4750,10 @@ admits, measured, under a new detector version. It changes the same annotation D
 paragraph leaves to the next errata pass, so the two are one decision there. The probe that carries
 information: screen `"a"` + U+E0041 + `"b"` and assert a `HiddenText` flag covering the tag
 character; it is red today.
+
+**The flag volume's cost, measured.** D32's "A3's stop fired on CI" paragraph records CI run
+37575114798: zero-width-space at the cap costs about 1 s of CPU and 107 MB per call on a contended
+4-core host, an input to the coalescing decision this entry shares with D32.
 
 ### D36 — the board listing answers a board whole *(opened by the five-agent exercise, 2026-10-06)*
 
