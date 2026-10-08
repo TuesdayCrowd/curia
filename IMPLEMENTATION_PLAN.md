@@ -4012,7 +4012,9 @@ proof, the requirement holds there without a word changed, and errata G16 says s
 the token request's proof through the one proof validator (R5.13): the resource path's proof checks,
 with the endpoint's own `htu` and without `ath` or `cnf.jkt`, answering `invalid_dpop_proof`, with
 the replay cache. That is a behaviour change to the token endpoint, with a fact for each row above.
-"What comes next" carries it.
+"What comes next" carries it. Since Task A5 (406a5ed), the fuzzer's `perturbed-first` class exercises this
+on every closed pass: the 8 POST /oauth/token rows for `jws:proof:header/jwk/x` and `/y`, re-signed and
+unsigned, answer 200 for an off-curve key.
 
 ### D30 — an identifier NFC maps onto another's got a post accepted signed in the other identity's name *(pre-existing; found by the key-binding stage's final review, 2026-09-27; opened and closed by that stage's final wave; errata G16, R6.55, R4.36)*
 
@@ -4559,8 +4561,14 @@ evidence that the class was open at the merge.
   `AccessTokenValidator` refuses a `cnf.jkt` that is not the proof jwk's thumbprint
   (`src/Curia.AuthN/AccessTokenValidator.cs:139`–`:141`, `curia/authn/binding-mismatch`) before it builds
   the key (`:152`), and the fuzzer's token was always bound to the agent's real key
-  (`tests/Curia.Api.Tests/Fuzz/FuzzContext.cs:182`), so every re-signed variation of a proof's jwk stopped
-  at the binding. The request is reachable from the wire: the token endpoint binds a token to any jwk it
+  (`tests/Curia.Api.Tests/Fuzz/FuzzContext.cs:182`), so no re-signed variation of a proof's jwk built a
+  key: at 7b2afce, counted from its answer map, every one on an authenticated route answered
+  `curia/authn/malformed` (336 rows) or `curia/authn/malformed-jwk` (1,428), and every one at
+  `POST /oauth/token` answered `invalid_dpop_proof` (294). `perturbed` set only a padding bit, and of the Long
+  variations `long-r-*` and `long-self-*` decoded to other lengths and `long-space-*` and `long-comment-*`
+  are not base64url, so the JWS parse, the jwk parser or `JwkParser.TryDecode` refused every one on an
+  authenticated route before the binding check, and clause 5 credited those parts with reach on that
+  parser refusal. The request is reachable from the wire: the token endpoint binds a token to any jwk it
   can read without building the key (D29), the two-request path recorded under D25 and closed by
   777db55. Two remedies, by curia-architect's ruling (spec §4.10 Signing, §4.11):
   1. *Rebinding.* The re-signed copy of a variation of `jws:proof:header/jwk/…` rebinds the token's
@@ -4568,7 +4576,9 @@ evidence that the class was open at the merge.
      (`RequestModel.ReboundTokenClaims`, `RequestModel.JktOf`), as `htu` and `ath` are derived. Alone,
      it left case 3 GREEN (probe 1): `perturbed` changes the last character of a 43-character base64url
      coordinate, which holds two padding bits a canonical encoding leaves zero, so every such value set
-     only a padding bit and `Base64Url.IsValid` refused it. No variation changed a coordinate's bytes.
+     only a padding bit and `Base64Url.IsValid` refused it. No variation produced a different 32-byte
+     coordinate: `long-r-*` and `long-self-*` decode to other lengths and `long-space-*` and
+     `long-comment-*` are not base64url, and `JwkParser.TryDecode` refuses both.
   2. *A variation class, `perturbed-first`:* the first character, by `perturbed`'s rule, on every string
      part. With it, case 3 is RED (probe 2): `3: RED  e.g. {"route": "GET /v1/inbox", "variant":
      "plain", "part": "jws:proof:header/jwk/x", "variation": "perturbed-first", "copy": "re-signed",
@@ -4576,7 +4586,8 @@ evidence that the class was open at the merge.
      fuzzer differs from 7b2afce's only by 919 new `perturbed-first` rows. Unpatched, the suite stays
      green with the class.
   Falsified both ways by records that exist: GREEN without them at 7b2afce (run 1, case 3, 0 failure
-  rows) and RED with them. Facts: `TokenRebindingTests` (three), falsified by hand once. Two rounds of
+  rows) and RED with them. Facts: `TokenRebindingTests` (three), falsified by hand once; runner rows F43
+  (rebinding) and F44 (perturbed-first), Task A6. Two rounds of
   §4.11's three.
 - **Acceptance (Task A5, R14.10): the fuzzer alone goes red on every one of D25's fifteen fixes.**
   Run 2, at 406a5ed (2026-10-08), unfiltered, is the record; run 1 at 7b2afce is history (plan, Task
@@ -4608,14 +4619,19 @@ evidence that the class was open at the merge.
   ```
   `acceptance: 20 cases, 0 not RED`. The closed set's one addition is `perturbed-first` (case 3,
   above); the ledger is unchanged.
-- **Observed, not acted on (Task A5): the reach clause counts a refusal at the binding check as reach.**
-  `Oracle.AuthenticationAndSignatureRefusals` (`tests/Curia.Api.Tests/Fuzz/Oracle.cs:23`–`:29`) does not
-  list `curia/authn/binding-mismatch`, so at 7b2afce every re-signed `jws:proof:header/jwk/*` variation
-  was refused at the binding and clause 5 still credited those parts with reach. That is why the fuzzer
-  did not report case 3's miss itself: a probe that could not fail. Adding the slug alone would turn the
-  baseline red on `jws:token:claims/cnf/jkt`, whose only reader is the binding check, so the fix needs a
-  reasoned exemption for a part whose only consumer is a binding check, which is a design decision. With
-  the rebinding and its facts, the jwk parts' reach is real and pinned.
+- **Observed, not acted on (Task A5): the reach clause counts a parser refusal as reach.**
+  `Oracle.Reached` (`tests/Curia.Api.Tests/Fuzz/Oracle.cs`) excludes only the
+  `AuthenticationAndSignatureRefusals` slugs (`Oracle.cs:23`–`:29`), so any `ParserRefusals` slug,
+  `curia/authn/malformed-jwk` included, counts as reach, though that refusal comes before signature
+  verification. At 7b2afce every re-signed `jws:proof:header/jwk/*` variation was credited that way
+  (case 3, above). That is why the fuzzer did not report case 3's miss itself, and why adding
+  `curia/authn/binding-mismatch` to the list would not have exposed it: no such row answered it.
+  Whether a parser refusal should count as reach is a design decision: excluding `ParserRefusals` would
+  turn the baseline red on every part whose only reader is a parser. Adding the slug alone would turn the
+  baseline red on `jws:token:claims/cnf/jkt`, whose only reader is the binding check. The rebinding is
+  pinned by the closed pass's rebinding rule (a re-signed jwk variation answering binding-mismatch is a
+  failure) and by TokenRebindingTests, falsified by F43 and F45; perturbed-first's place in the closed
+  set by F44.
 - **Observed, not acted on (Task A5): two rows of the answer map flap between runs.** `GET
   /v1/posts/{postId}` and `GET /v1/threads/{rootPostId}` `path:… perturbed plain` answer `200` or
   `404 …/not-found` by run, with no change to the code. The fixture's clock is fixed, so

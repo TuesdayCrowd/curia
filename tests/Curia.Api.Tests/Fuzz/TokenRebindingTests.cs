@@ -1,7 +1,9 @@
 using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Curia.AuthN.Dpop;
 using Xunit;
 
 namespace Curia.Api.Tests.Fuzz;
@@ -10,9 +12,13 @@ namespace Curia.Api.Tests.Fuzz;
 /// R14.10: the re-signed copy of a variation of a proof's <c>jwk</c> rebinds the token's
 /// <c>cnf.jkt</c> to the key the proof now carries (spec §4.10, Signing). Without it every such copy
 /// was refused at the binding check before the key was built, and reverting 777db55's catch went
-/// unseen (Task A5, case 3). The expected thumbprint is <see cref="JwsBuilder.Thumbprint"/>, computed
-/// from the key's ECDsa parameters, a different artifact from the rendered strings the rebinding reads.
-/// The model is built here, not from the Forum's fixture, so these facts send nothing.
+/// unseen (Task A5, case 3). For the exemplar's own key the expected thumbprint is
+/// <see cref="JwsBuilder.Thumbprint"/>, computed from the key's ECDsa parameters, a different artifact
+/// from the rendered strings the rebinding reads. For a varied key it is Curia.AuthN's thumbprint
+/// (<see cref="JwkParser.Parse"/>, then <see cref="JwkThumbprint.Compute"/>) of the jwk the sent proof
+/// carries, which is the artifact the token endpoint and <c>AccessTokenValidator</c> compare, not
+/// <see cref="RequestModel.JktOf"/>. The model is built here, not from the Forum's fixture, so these
+/// facts send nothing.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -49,10 +55,13 @@ public sealed class TokenRebindingTests
         var varied = Variations.PerturbFirst(exemplar);
         Assert.False(Base64Url.DecodeFromChars(varied).AsSpan().SequenceEqual(Base64Url.DecodeFromChars(exemplar)), "the variation did not change the decoded bytes");
 
-        var value = Variations.Closed.Single(v => v.Id == "perturbed-first").Make(part, exemplar);
-        var (token, _) = Sent(model, part, value, CopyKind.ReSigned);
+        var perturbedFirst = Variations.Closed.SingleOrDefault(v => v.Id == "perturbed-first");
+        Assert.True(perturbedFirst is not null, "perturbed-first is not in the closed set");
+        var value = perturbedFirst.Make(part, exemplar);
+        var (token, proof) = Sent(model, part, value, CopyKind.ReSigned);
 
         Assert.NotEqual(original, Jkt(token));
+        Assert.Equal(AuthNThumbprintOf(proof), Jkt(token));
     }
 
     [Fact]
@@ -92,6 +101,14 @@ public sealed class TokenRebindingTests
         using var request = model.Render(part, value, copy);
         var authorization = request.Headers.GetValues("Authorization").Single();
         return (authorization["DPoP ".Length..], request.Headers.GetValues("DPoP").Single());
+    }
+
+    /// <summary>Curia.AuthN's RFC 7638 thumbprint of the jwk in the proof as sent: its header's bytes, decoded.</summary>
+    private static string AuthNThumbprintOf(string proof)
+    {
+        using var header = JsonDocument.Parse(Base64Url.DecodeFromChars(proof.AsSpan(0, proof.IndexOf('.', StringComparison.Ordinal))));
+        Assert.True(JwkParser.Parse(header.RootElement.GetProperty("jwk")).TryGetValue(out var jwk, out var error), error?.ToString());
+        return JwkThumbprint.Compute(jwk);
     }
 
     private static string? Jkt(string token) => (string?)JwsBuilder.Segment(token, 1)["cnf"]!["jkt"];

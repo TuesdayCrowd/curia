@@ -355,7 +355,7 @@ jws:<token|proof|assertion|post>:<header|claims><pointer>
 
 Details:
 - `perturbed` replaces the exemplar value's last character with the next character in its own class: digit, lowercase, uppercase, each wrapping; any other character becomes `x`.
-- `perturbed-first` replaces the first character by the same rule. Added by §4.11's remedy at Task A5, case 3, and recorded under D33: the last character of a base64url P-256 coordinate (43 characters) carries two padding bits, which every canonical encoding leaves zero, so `perturbed` only ever sets a padding bit and `Base64Url.IsValid` refuses the result. No variation in the set changed the bytes a coordinate decodes to, so none could carry a key off the curve.
+- `perturbed-first` replaces the first character by the same rule. Added by §4.11's remedy at Task A5, case 3, and recorded under D33: the last character of a base64url P-256 coordinate (43 characters) carries two padding bits, which every canonical encoding leaves zero, so `perturbed` only ever sets a padding bit and `Base64Url.IsValid` refuses the result. No variation in the set produced a different 32-byte coordinate. `perturbed` sets only a padding bit, which `Base64Url.IsValid` refuses. Of the Long variations of a JWS part (n = 1,024, 65,536, 262,144, each divisible by 4), `long-r-*` and `long-self-*` are valid base64url but decode to other lengths, which `JwkParser.TryDecode` refuses (`src/Curia.AuthN/Dpop/Jwk.cs:123`–`:129`), and `long-space-*` and `long-comment-*` are not base64url, which it refuses first (`:116`–`:121`). So none could carry a key off the curve.
 - `comment` fills with `<!--`. `self` repeats the exemplar's own value.
 - Rendering depends on the position:
 

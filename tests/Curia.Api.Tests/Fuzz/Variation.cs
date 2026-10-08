@@ -60,8 +60,8 @@ internal static class Variations
         all.Add(new("perturbed", p => p.ValueKind == PartValueKind.String, (p, v) => Text(p, Perturb(v ?? string.Empty))));
 
         // The first character too: a base64url value's last character carries padding bits that a
-        // strict decoder refuses to see set, so only a change at the front alters the bytes it decodes
-        // to (Task A5, case 3).
+        // strict decoder refuses to see set, so `perturbed` never yields a different value of the same
+        // length; a change at any other position does (Task A5, case 3).
         all.Add(new("perturbed-first", p => p.ValueKind == PartValueKind.String, (p, v) => Text(p, PerturbFirst(v ?? string.Empty))));
 
         // Long: four fills, grown to the lengths of the part's position.

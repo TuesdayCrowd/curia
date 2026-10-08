@@ -132,7 +132,12 @@ internal static partial class Oracle
             && !string.Equals(problemType, TokenEndpointProofRefusal, StringComparison.Ordinal);
     }
 
-    /// <summary>Whether an answer shows a variation got past the credential and the signature (clause 5).</summary>
+    /// <summary>
+    /// Whether an answer shows a variation reached (clause 5): a 2xx, or a 4xx refusal other than the
+    /// credential and signature refusals (<see cref="AuthenticationAndSignatureRefusals"/>). A parser
+    /// refusal counts, though it comes before signature verification (register D33, "Observed, not acted
+    /// on (Task A5): the reach clause counts a parser refusal as reach").
+    /// </summary>
     internal static bool Reached(HttpStatusCode status, string problemType)
     {
         var code = (int)status;

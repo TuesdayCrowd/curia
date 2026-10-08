@@ -389,12 +389,25 @@ internal static class FuzzRun
             if (reason is not null)
                 Failures.Add(new FuzzFailure(row.Route, row.Variant, address, label, Copies.Wire(copy), status, problemType, ms, reason));
 
+            // The rebinding (R14.10, D33): the re-signed copy of a variation of a proof's jwk, on a request
+            // carrying a token, was rebound to the key it carries, so a refusal at the binding check is the
+            // rebinding broken. A line of its own, never a failure the ledger could absorb (Task A5, case 3).
+            if (part is not null && copy == CopyKind.ReSigned && thrown is null && IsProofJwk(part.Address) && model.Jws.ContainsKey("token")
+                && string.Equals(Oracle.Slug(problemType), BindingMismatch, StringComparison.Ordinal))
+                Lines.Add($"rebinding: the re-signed copy of {part.Address} {label} on {row.Route} was refused at the binding");
+
             if (part is not null && copy != CopyKind.Unsigned && thrown is null && Oracle.Reached((HttpStatusCode)status, problemType))
                 state.Reached.Add(part.Address);
 
             // Only a submission creates a post: a flag's or an acceptance's 201 names a post it did not create.
             if (row.CreatesPosts && status == 201 && PostIdOf(body) is { } created) state.Created.Add(created);
         }
+
+        private const string BindingMismatch = "curia/authn/binding-mismatch";
+
+        private static bool IsProofJwk(string address) =>
+            string.Equals(address, "jws:proof:header/jwk", StringComparison.Ordinal)
+            || address.StartsWith("jws:proof:header/jwk/", StringComparison.Ordinal);
 
         private static string? PostIdOf(string body)
         {
