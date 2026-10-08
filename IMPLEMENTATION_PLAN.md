@@ -4554,6 +4554,46 @@ evidence that the class was open at the merge.
   row's accepted `agent_id` variations could be flagged as though they were posts
   (`RaiseFlag.cs:109`–`:114` reads the stream and never asks that it is a post's).
 
+- **Acceptance (Task A5), case 3: a miss at a binding, remedied by rebinding and by `perturbed-first`.**
+  Run 1 at 7b2afce left case 3 (777db55's catch in `JwkPublicKey.cs:68`) GREEN, with 0 failure rows.
+  `AccessTokenValidator` refuses a `cnf.jkt` that is not the proof jwk's thumbprint
+  (`src/Curia.AuthN/AccessTokenValidator.cs:139`–`:141`, `curia/authn/binding-mismatch`) before it builds
+  the key (`:152`), and the fuzzer's token was always bound to the agent's real key
+  (`tests/Curia.Api.Tests/Fuzz/FuzzContext.cs:182`), so every re-signed variation of a proof's jwk stopped
+  at the binding. The request is reachable from the wire: the token endpoint binds a token to any jwk it
+  can read without building the key (D29), the two-request path recorded under D25 and closed by
+  777db55. Two remedies, by curia-architect's ruling (spec §4.10 Signing, §4.11):
+  1. *Rebinding.* The re-signed copy of a variation of `jws:proof:header/jwk/…` rebinds the token's
+     `cnf.jkt` to the RFC 7638 thumbprint the fuzzer computes from the rendered jwk's four strings
+     (`RequestModel.ReboundTokenClaims`, `RequestModel.JktOf`), as `htu` and `ath` are derived. Alone,
+     it left case 3 GREEN (probe 1): `perturbed` changes the last character of a 43-character base64url
+     coordinate, which holds two padding bits a canonical encoding leaves zero, so every such value set
+     only a padding bit and `Base64Url.IsValid` refused it. No variation changed a coordinate's bytes.
+  2. *A variation class, `perturbed-first`:* the first character, by `perturbed`'s rule, on every string
+     part. With it, case 3 is RED (probe 2): `3: RED  e.g. {"route": "GET /v1/inbox", "variant":
+     "plain", "part": "jws:proof:header/jwk/x", "variation": "perturbed-first", "copy": "re-signed",
+     "status": 500, …}`, 24 rows of 500 across every authenticated route, and the answer map at the new
+     fuzzer differs from 7b2afce's only by 919 new `perturbed-first` rows. Unpatched, the suite stays
+     green with the class.
+  Falsified both ways by records that exist: GREEN without them at 7b2afce (run 1, case 3, 0 failure
+  rows) and RED with them. Facts: `TokenRebindingTests` (three), falsified by hand once. Two rounds of
+  §4.11's three.
+- **Observed, not acted on (Task A5): the reach clause counts a refusal at the binding check as reach.**
+  `Oracle.AuthenticationAndSignatureRefusals` (`tests/Curia.Api.Tests/Fuzz/Oracle.cs:23`–`:29`) does not
+  list `curia/authn/binding-mismatch`, so at 7b2afce every re-signed `jws:proof:header/jwk/*` variation
+  was refused at the binding and clause 5 still credited those parts with reach. That is why the fuzzer
+  did not report case 3's miss itself: a probe that could not fail. Adding the slug alone would turn the
+  baseline red on `jws:token:claims/cnf/jkt`, whose only reader is the binding check, so the fix needs a
+  reasoned exemption for a part whose only consumer is a binding check, which is a design decision. With
+  the rebinding and its facts, the jwk parts' reach is real and pinned.
+- **Observed, not acted on (Task A5): two rows of the answer map flap between runs.** `GET
+  /v1/posts/{postId}` and `GET /v1/threads/{rootPostId}` `path:… perturbed plain` answer `200` or
+  `404 …/not-found` by run, with no change to the code. The fixture's clock is fixed, so
+  `UlidGenerator`'s monotonic rule (`src/Curia.Domain.Primitives/UlidGenerator.cs`) makes the three seed
+  questions consecutive ULIDs, and `perturbed` of the first one's last character names the second when
+  that character's ASCII successor is its Crockford successor, which the run's random suffix decides.
+  A before-and-after comparison of answer maps (A3, A4, A4b, PR B) that finds these two rows changed has
+  found this, not a change on the wire.
 - **The Forum accepts a line break in an envelope's identifier-like members, and a `parent` that is
   no ULID.** A `board`, a `parent` and a tag may hold any character a JSON string may
   (`PostEnvelope.cs:100` requires only a non-empty `board`, and `:128` only that an answer names a

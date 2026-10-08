@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
@@ -50,7 +51,10 @@ internal sealed record FormBody(IReadOnlyList<FormField> Fields, bool Multipart)
 /// One request as a tree of parts (spec §4.10). <see cref="Parts"/> walks it; nothing is listed by
 /// hand. <see cref="Render"/> writes it with at most one part varied, signs every JWS over what it
 /// will carry, and derives what a proof binds -- <c>htu</c> from the path the host will read, and
-/// <c>ath</c> from the token sent -- unless that claim is the part being varied.
+/// <c>ath</c> from the token sent -- unless that claim is the part being varied. The re-signed copy
+/// of a variation of the proof's <c>jwk</c> also rebinds the token's <c>cnf.jkt</c> to the key the
+/// proof now carries (<see cref="ReboundTokenClaims"/>), so it is not stopped at a binding its own
+/// request carries (spec §4.10, Signing; Task A5, case 3).
 /// </summary>
 internal sealed class RequestModel(string method, string pattern)
 {
@@ -269,9 +273,10 @@ internal sealed class RequestModel(string method, string pattern)
         var htu = Origin + PathString.FromUriComponent(new Uri(Origin + path)).ToUriComponent();
 
         var compacts = new Dictionary<string, string>(StringComparer.Ordinal);
+        var rebound = ReboundTokenClaims(address, value, copy);
         foreach (var name in JwsNames)
         {
-            var entry = Jws[name];
+            var entry = name == "token" && rebound is not null ? Jws[name] with { Claims = rebound } : Jws[name];
             if (name == "proof" && entry.Claims is { } proofClaims)
             {
                 if (proofClaims.ContainsKey("htu")) proofClaims["htu"] = htu;
@@ -302,6 +307,73 @@ internal sealed class RequestModel(string method, string pattern)
             body = replaced.Bytes.Length == 0 ? [] : replaced.Bytes;
 
         return new Rendered(url, compacts, body);
+    }
+
+    /// <summary>
+    /// The token's claims rebound to the proof's varied key, or null when the token keeps its binding.
+    /// Only the re-signed copy of a variation of <c>jws:proof:header/jwk</c> or a member under it, on a
+    /// request carrying both a token and a proof, is rebound: a re-signed copy stopped by a binding its
+    /// own request carries has not reached past verification, which is what re-signing is for (R14.10),
+    /// and the token endpoint binds a token to any jwk it can read (register D29). The unre-signed copy
+    /// keeps the token as issued. The claims are a copy; the exemplar's are never changed.
+    /// </summary>
+    private JsonObject? ReboundTokenClaims(string? address, VariedValue? value, CopyKind copy)
+    {
+        const string Jwk = "jws:proof:header/jwk";
+        if (copy != CopyKind.ReSigned || address is null) return null;
+        if (!string.Equals(address, Jwk, StringComparison.Ordinal) && !address.StartsWith(Jwk + "/", StringComparison.Ordinal)) return null;
+        if (!Jws.TryGetValue("token", out var token) || !Jws.TryGetValue("proof", out var proof)) return null;
+        if (token.Claims?["cnf"] is not JsonObject) return null;
+
+        var header = RawJson.Write(proof.Header, address["jws:proof:header".Length..], value);
+        if (JktOf(header) is not { } jkt) return null;
+
+        var claims = (JsonObject)token.Claims.DeepClone();
+        ((JsonObject)claims["cnf"]!)["jkt"] = jkt;
+        return claims;
+    }
+
+    /// <summary>
+    /// RFC 7638's thumbprint of the <c>jwk</c> in a proof header's bytes, computed by the fuzzer from
+    /// the four strings as rendered: <c>base64url(SHA-256({"crv":…,"kty":…,"x":…,"y":…}))</c>, members
+    /// in lexicographic order, each value written by <see cref="RawJson.String"/>. Null when the header
+    /// is no JSON object, has no <c>jwk</c> object, or any of the four is missing or not a string. It
+    /// never uses the product's JwkParser or JwkThumbprint: the derivation comes from a different
+    /// artifact than the code it exercises, and it re-encodes nothing, so a coordinate the product
+    /// would decode and re-encode to other text gets another thumbprint here.
+    /// </summary>
+    internal static string? JktOf(byte[] proofHeader)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(proofHeader);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+            if (!document.RootElement.TryGetProperty("jwk", out var jwk) || jwk.ValueKind != JsonValueKind.Object) return null;
+
+            var members = new List<string>(4);
+            foreach (var name in (string[])["crv", "kty", "x", "y"])
+            {
+                if (!jwk.TryGetProperty(name, out var member) || member.ValueKind != JsonValueKind.String) return null;
+                members.Add(member.GetString()!);
+            }
+
+            using var input = new MemoryStream();
+            input.Write("{\"crv\":"u8);
+            input.Write(RawJson.String(members[0]));
+            input.Write(",\"kty\":"u8);
+            input.Write(RawJson.String(members[1]));
+            input.Write(",\"x\":"u8);
+            input.Write(RawJson.String(members[2]));
+            input.Write(",\"y\":"u8);
+            input.Write(RawJson.String(members[3]));
+            input.Write("}"u8);
+            return JwsBuilder.B64(SHA256.HashData(input.ToArray()));
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            // Bytes that are no JSON, or a string holding an unpaired surrogate: no key to bind to.
+            return null;
+        }
     }
 
     private static string ReplaceParameter(string path, string name, string text)

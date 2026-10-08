@@ -59,6 +59,11 @@ internal static class Variations
 
         all.Add(new("perturbed", p => p.ValueKind == PartValueKind.String, (p, v) => Text(p, Perturb(v ?? string.Empty))));
 
+        // The first character too: a base64url value's last character carries padding bits that a
+        // strict decoder refuses to see set, so only a change at the front alters the bytes it decodes
+        // to (Task A5, case 3).
+        all.Add(new("perturbed-first", p => p.ValueKind == PartValueKind.String, (p, v) => Text(p, PerturbFirst(v ?? string.Empty))));
+
         // Long: four fills, grown to the lengths of the part's position.
         foreach (var fill in (string[])["r", "space", "comment", "self"])
         {
@@ -157,20 +162,22 @@ internal static class Variations
     };
 
     /// <summary>The exemplar's value with its last character replaced by the next one of its own class, each wrapping; any other character becomes <c>x</c>.</summary>
-    internal static string Perturb(string value)
+    internal static string Perturb(string value) =>
+        value.Length == 0 ? "x" : string.Concat(value.AsSpan(0, value.Length - 1), Next(value[^1]).ToString());
+
+    /// <summary>The exemplar's value with its first character replaced as <see cref="Perturb"/> replaces the last.</summary>
+    internal static string PerturbFirst(string value) =>
+        value.Length == 0 ? "x" : string.Concat(Next(value[0]).ToString(), value.AsSpan(1));
+
+    /// <summary>The next character of a character's own class (digit, lowercase, uppercase), each wrapping; any other character becomes <c>x</c>.</summary>
+    private static char Next(char c) => c switch
     {
-        if (value.Length == 0) return "x";
-        var last = value[^1];
-        var next = last switch
-        {
-            >= '0' and < '9' or >= 'a' and < 'z' or >= 'A' and < 'Z' => (char)(last + 1),
-            '9' => '0',
-            'z' => 'a',
-            'Z' => 'A',
-            _ => 'x',
-        };
-        return string.Concat(value.AsSpan(0, value.Length - 1), next.ToString());
-    }
+        >= '0' and < '9' or >= 'a' and < 'z' or >= 'A' and < 'Z' => (char)(c + 1),
+        '9' => '0',
+        'z' => 'a',
+        'Z' => 'A',
+        _ => 'x',
+    };
 
     private static string Fill(string fill, int n, string? exemplar)
     {

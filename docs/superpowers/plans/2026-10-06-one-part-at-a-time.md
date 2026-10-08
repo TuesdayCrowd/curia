@@ -633,47 +633,59 @@ Errors:
 
 ### Task A5: Acceptance, by reverting D25's fixes (R14.10)
 
-**The runner** is `/tmp/fuzz-accept.py`. It is not committed: after PR B, the fixes it reverts no longer exist. Every replacement carries the marker comment `/* ACCEPTANCE-PATCH */`. The runner refuses to start on a tree whose `src/` differs from HEAD or holds the marker. It sets a timeout on every subprocess, and it ends with a checked rebuild and an unpatched run.
+**The runner** is `fuzz-accept.py` in the session scratchpad, run as `python3 <scratchpad>/fuzz-accept.py . [id ...]`; it derives every path it writes (the failures file, each `accept-<id>.orig`) from its own directory, never `/tmp` (as built at run 1). It is not committed: after PR B, the fixes it reverts no longer exist. Every replacement carries the marker comment `/* ACCEPTANCE-PATCH */`. The runner refuses to start on a tree whose `src/` differs from HEAD or holds the marker. It sets a timeout on every subprocess, and it ends with a checked rebuild and an unpatched run.
 
-**Before running, fill every empty expected route and part prefix in `CASES`** (cases 2c, 3, 4, 5, 7, 10 and 16) with the exact route and part address the case's D25 commit exercised, read from that commit's own test. No expectation may be empty, and the runner refuses one that is. If a case cannot be stated as a route and a part, stop and report.
+As built at run 1, three additions are diagnostic only and change no verdict: each case's failures file is copied to `fuzz-failures-<id>.jsonl` and its test output to `test-<id>.log`, and every result line is printed with `flush=True`, so a polled log shows each case as it ends. Added after run 1: an optional list of case ids after the repository (`ONLY`), which restricts the run to those cases and prints `PROBE, filtered to …: not an acceptance record`. It is for probes only; the acceptance record is never a filtered run.
+
+**Before running, fill every empty expected route and part prefix in `CASES`** (cases 2c, 3, 4, 5, 7, 8a, 10 and 16) with the exact route and part address the case's D25 commit exercised, read from that commit's own test. No expectation may be empty, and the runner refuses one that is. If a case cannot be stated as a route and a part, stop and report. *Filled at run 1, and the rows below carry them: each value is the route and part address of the request in the case's D25 commit's own test, as the run 1 implementer read them (2c `POST /oauth/token` `form:`; 3 `GET /v1/inbox` `jws:proof:header/jwk/`; 4 and 7 `POST /oauth/token` `jws:`; 5 `POST /v1/agents` `header:Content-Type;charset`; 8a `GET /v1/inbox` `jws:proof:claims/jti`; 10 `POST /v1/posts` `jws:proof:claims/nonce`; 16 `POST /v1/agents` `json:`). Case 8a was empty too, though this list left it out.*
+
+**Rows 10 and 15, amended after run 1 (curia-architect's ruling).** Row 10's replacement was `if (nonce == "no-such-nonce")`, which dropped the only use of `MaxNonceUtf8Bytes`, and the build failed: `AccessTokenValidator.cs(30,23): error CA1823: Unused field 'MaxNonceUtf8Bytes'`. It is now the 8a/9 form, `nonce == "no-such-nonce" && CompactJws.IdentifierRefusal(nonce, "nonce", MaxNonceUtf8Bytes) is not null`. Row 15's replacement disabled only the guard f914059 added, and f914059 had also replaced `ArgumentException.ThrowIfNullOrWhiteSpace(postId)` with `ArgumentNullException.ThrowIfNull(postId)`, so a white-space id fell through to `AggregateId.Create`, which returns a Fail: the fix stayed in force and the run wrote 0 failure rows. It now restores the replaced throw verbatim ahead of the sentinel guard, per spec §4.11 step 1 as amended. The anchor is unchanged.
 
 ```python
 #!/usr/bin/env python3
 import filecmp, json, os, pathlib, re, shutil, subprocess, sys
 REPO = pathlib.Path(sys.argv[1]).resolve()
+SCRATCH = pathlib.Path(__file__).resolve().parent
 FILTER = "FullyQualifiedName~Curia.Api.Tests.Fuzz"
 CASES = [  # (id, file, anchor, replacement, expected route, expected part prefix)
  ("1",  "src/Curia.Api/ForumEndpoints.cs", "var thread = string.IsNullOrWhiteSpace(rootPostId)", "var thread = rootPostId == \"no-such-root-id\"", "GET /v1/threads/{rootPostId}", "path:rootPostId"),
  ("2a", "src/Curia.Api/Issuer/TokenEndpoint.cs", "if (!http.HasFormContentType)", "if (http.ContentLength == -1)", "POST /oauth/token", "header:Content-Type"),
  ("2b", "src/Curia.Api/Issuer/TokenEndpoint.cs", "catch (InvalidDataException)", "catch (InvalidDataException) when (http.ContentLength == -1)", "POST /oauth/token", "form:"),
- ("2c", "src/Curia.Api/Issuer/TokenEndpoint.cs", "catch (IOException)", "catch (IOException) when (http.ContentLength == -1)", "POST /oauth/token", ""),  # body-truncated, multipart row
- ("3",  "src/Curia.AuthN/Dpop/JwkPublicKey.cs", "catch (CryptographicException)", "catch (CryptographicException) when (x.Length == -1)", "", "jws:proof:header/jwk/"),
- ("4",  "src/Curia.AuthN/Jwt/NumericDate.cs", "if (seconds < MinSeconds || seconds > MaxSeconds)\n            return Result<DateTimeOffset>.Fail", "if (seconds == long.MinValue + 7)\n            return Result<DateTimeOffset>.Fail", "", "jws:"),
- ("5",  "src/Curia.Api/Program.cs", "app.UseUtf8JsonBodies();", "// no charset guard (acceptance case 5)", "", "header:Content-Type;charset"),
+ ("2c", "src/Curia.Api/Issuer/TokenEndpoint.cs", "catch (IOException)", "catch (IOException) when (http.ContentLength == -1)", "POST /oauth/token", "form:"),  # body-truncated, multipart row
+ ("3",  "src/Curia.AuthN/Dpop/JwkPublicKey.cs", "catch (CryptographicException)", "catch (CryptographicException) when (x.Length == -1)", "GET /v1/inbox", "jws:proof:header/jwk/"),
+ ("4",  "src/Curia.AuthN/Jwt/NumericDate.cs", "if (seconds < MinSeconds || seconds > MaxSeconds)\n            return Result<DateTimeOffset>.Fail", "if (seconds == long.MinValue + 7)\n            return Result<DateTimeOffset>.Fail", "POST /oauth/token", "jws:"),
+ ("5",  "src/Curia.Api/Program.cs", "app.UseUtf8JsonBodies();", "// no charset guard (acceptance case 5)", "POST /v1/agents", "header:Content-Type;charset"),
  ("6",  "src/Curia.AuthN/Jwt/CompactJws.cs", "return root.ValueKind != JsonValueKind.Object", "return root.ValueKind == JsonValueKind.Undefined", "POST /oauth/token", "jws:proof:header"),
- ("7",  "src/Curia.AuthN/Jwt/CompactJws.cs", "if (!EveryStringDecodes(bytes))", "if (bytes.Length == -1)", "", "jws:"),
- ("8a", "src/Curia.AuthN/Dpop/DpopProof.cs", "if (CompactJws.IdentifierRefusal(jti, \"jti\", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)", "if (jti == \"no-such-jti\" && CompactJws.IdentifierRefusal(jti, \"jti\", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)", "", "jws:proof:claims/jti"),
+ ("7",  "src/Curia.AuthN/Jwt/CompactJws.cs", "if (!EveryStringDecodes(bytes))", "if (bytes.Length == -1)", "POST /oauth/token", "jws:"),
+ ("8a", "src/Curia.AuthN/Dpop/DpopProof.cs", "if (CompactJws.IdentifierRefusal(jti, \"jti\", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)", "if (jti == \"no-such-jti\" && CompactJws.IdentifierRefusal(jti, \"jti\", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)", "GET /v1/inbox", "jws:proof:claims/jti"),
  ("8b", "src/Curia.AuthN/ClientAssertionClaims.cs", "if (CompactJws.IdentifierRefusal(jti, \"jti\", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)", "if (jti == \"no-such-jti\" && CompactJws.IdentifierRefusal(jti, \"jti\", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)", "POST /oauth/token", "jws:assertion:claims/jti"),
  ("9",  "src/Curia.AuthN/ClientAssertionValidator.cs", "if (CompactJws.IdentifierRefusal(header.Kid, \"kid\", null) is { } kidError)", "if (header.Kid == \"no-such-kid\" && CompactJws.IdentifierRefusal(header.Kid, \"kid\", null) is { } kidError)", "POST /oauth/token", "jws:assertion:header/kid"),
- ("10", "src/Curia.AuthN/AccessTokenValidator.cs", "if (CompactJws.IdentifierRefusal(nonce, \"nonce\", MaxNonceUtf8Bytes) is not null)", "if (nonce == \"no-such-nonce\")", "", "jws:proof:claims/nonce"),
+ ("10", "src/Curia.AuthN/AccessTokenValidator.cs", "if (CompactJws.IdentifierRefusal(nonce, \"nonce\", MaxNonceUtf8Bytes) is not null)", "if (nonce == \"no-such-nonce\" && CompactJws.IdentifierRefusal(nonce, \"nonce\", MaxNonceUtf8Bytes) is not null)", "POST /v1/posts", "jws:proof:claims/nonce"),
  ("11", "src/Curia.Api/Issuer/TokenEndpoint.cs", "catch (NotSupportedException)", "catch (NotSupportedException) when (http.ContentLength == -1)", "POST /oauth/token", "header:Content-Type;charset"),
  ("12", "src/Curia.Canon/Jws/DetachedJws.cs", "if (!AllStringsDecode(headerBytes))", "if (headerBytes.Length == -1)", "POST /v1/posts", "jws:post:header"),
  ("13", "src/Curia.Application/Ingest/IngestPipeline.cs", "if (string.IsNullOrWhiteSpace(protectedHeader!.Kid))", "if (protectedHeader!.Kid == \"no-such-kid\")", "POST /v1/posts", "jws:post:header/kid"),
  ("14a","src/Curia.Application/Ingest/IngestPipeline.cs", "if (envelope!.Board.Contains('\\0', StringComparison.Ordinal))", "if (envelope!.Board == \"no-such-board\")", "POST /v1/posts", "json:/envelope/board"),
  ("14b","src/Curia.Application/Ingest/IngestPipeline.cs", "if (envelope.Parent is not null && envelope.Parent.Contains('\\0', StringComparison.Ordinal))", "if (envelope.Parent == \"no-such-parent\")", "POST /v1/posts", "json:/envelope/parent"),
- ("15", "src/Curia.Application/Moderation/RaiseFlag.cs", "if (string.IsNullOrWhiteSpace(postId))\n            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));", "if (postId == \"no-such-post-id\")\n            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));", "POST /v1/posts/{postId}/flags", "path:postId"),
- ("16", "src/Curia.Api/Program.cs", "app.UseUnreadableRequests();", "// no problem documents for unread requests (acceptance case 16)", "", ""),
+ ("15", "src/Curia.Application/Moderation/RaiseFlag.cs", "if (string.IsNullOrWhiteSpace(postId))\n            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));", "ArgumentException.ThrowIfNullOrWhiteSpace(postId);\n        if (postId == \"no-such-post-id\")\n            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));", "POST /v1/posts/{postId}/flags", "path:postId"),
+ ("16", "src/Curia.Api/Program.cs", "app.UseUnreadableRequests();", "// no problem documents for unread requests (acceptance case 16)", "POST /v1/agents", "json:"),
 ]
-FAIL_FILE = pathlib.Path("/tmp/fuzz-failures.jsonl")
+ONLY = set(sys.argv[2:])  # probes only: the acceptance record is never a filtered run
+if ONLY:
+    unknown = ONLY - {c[0] for c in CASES}
+    if unknown: sys.exit(f"no such case: {sorted(unknown)}")
+    CASES = [c for c in CASES if c[0] in ONLY]
+    print(f"PROBE, filtered to {sorted(ONLY)}: not an acceptance record", flush=True)
+FAIL_FILE = SCRATCH / "fuzz-failures.jsonl"
 MARK = "/* ACCEPTANCE-PATCH */"
 def run(cmd, timeout=5400): return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout, env={**os.environ, "CURIA_FUZZ_FAILURES": str(FAIL_FILE)})
 def clean_tree(): return run(["git", "diff", "--quiet", "--", "src/"]).returncode == 0 and run(["grep", "-rl", "ACCEPTANCE-PATCH", "src/"]).returncode != 0
-if not clean_tree(): sys.exit("tree differs from HEAD under src/ or holds ACCEPTANCE-PATCH: restore from /tmp/accept-*.orig by hand, then rerun")
+if not clean_tree(): sys.exit(f"tree differs from HEAD under src/ or holds ACCEPTANCE-PATCH: restore from {SCRATCH}/accept-*.orig by hand, then rerun")
 if run(["dotnet", "build", "Curia.sln", "-c", "Release", "--no-incremental"]).returncode != 0: sys.exit("unpatched build failed")
 if "Failed!" in run(["dotnet", "test", "tests/Curia.Api.Tests", "-c", "Release", "--no-build", "--filter", FILTER]).stdout: sys.exit("unpatched fuzz suite is not green")
+print("unpatched fuzz suite green", flush=True)
 failures = 0
 for cid, rel, anchor, repl, route, part in CASES:
-    path = REPO / rel; keep = pathlib.Path(f"/tmp/accept-{cid}.orig"); shutil.copyfile(path, keep)
+    path = REPO / rel; keep = SCRATCH / f"accept-{cid}.orig"; shutil.copyfile(path, keep)
     text = path.read_text()
     if not route or not part: print(f"{cid}: EXPECTATION EMPTY"); failures += 1; continue
     if text.count(anchor) != 1: print(f"{cid}: ANCHOR MISMATCH ({text.count(anchor)})"); failures += 1; continue
@@ -683,10 +695,12 @@ for cid, rel, anchor, repl, route, part in CASES:
         b = run(["dotnet", "build", "Curia.sln", "-c", "Release", "--no-incremental"])
         if b.returncode != 0 or re.search(r"error CS\d+", b.stdout): print(f"{cid}: BUILD FAILED"); failures += 1; continue
         t = run(["dotnet", "test", "tests/Curia.Api.Tests", "-c", "Release", "--no-build", "--filter", FILTER])
+        if FAIL_FILE.exists(): shutil.copyfile(FAIL_FILE, SCRATCH / f"fuzz-failures-{cid}.jsonl")
+        (SCRATCH / f"test-{cid}.log").write_text(t.stdout)
         rows = [json.loads(l) for l in FAIL_FILE.read_text().splitlines() if l.strip()] if FAIL_FILE.exists() else []
         lines = [json.dumps(r) for r in rows if not r["ledgered"] and r["route"] == route and r["part"].startswith(part)]
         red = "Failed!" in t.stdout and bool(lines)
-        print(f"{cid}: {'RED' if red else 'GREEN — the fuzzer missed it'}" + (f"  e.g. {lines[0].strip()[:200]}" if lines else ""))
+        print(f"{cid}: {'RED' if red else 'GREEN — the fuzzer missed it'}" + (f"  e.g. {lines[0].strip()[:200]}" if lines else ""), flush=True)
         failures += 0 if red else 1
     finally:
         shutil.copyfile(keep, path)
@@ -703,10 +717,74 @@ Before running, re-read each anchor at the commit. For case 4, read `NumericDate
 
 The failures file is JSONL (one FailureRow per line, Task A1). Every pass in FILTER appends to it, so it is read line by line and deleted before each case's run (review of 6cbfa9f). Checked once at the review of 6cbfa9f against files in a scratch directory: a two-row file reads 2 rows, a one-row file 1, and an absent file 0; the `json.loads` read it replaces raised `Extra data` on the two-row file.
 
-- [ ] Run `python3 /tmp/fuzz-accept.py .` in the background, with output to `/tmp/accept.log`. Expected: `acceptance: 20 cases, 0 not RED`.
-- [ ] **If a case is GREEN, the only allowed remedy is the one in spec §4.11.** Add a position-independent variation class to `Variations.Closed`, rerun the whole acceptance, and record in D33 the class, the case that forced it, and that case's red line. Never add a route- or part-specific row. If a third remedy round is needed, stop and report.
+- [ ] Run `python3 <scratchpad>/fuzz-accept.py .` in the background, with output to `<scratchpad>/accept.log`, and poll the log; never wait on `tail -f`. Expected: `acceptance: 20 cases, 0 not RED`. Do not touch `src/` while it runs (run 1's case 12, below).
+- [ ] **If a case is GREEN, the only allowed remedy is the one in spec §4.11.** Add a position-independent variation class to `Variations.Closed`, rerun the whole acceptance, and record in D33 the class, the case that forced it, and that case's red line. Never add a route- or part-specific row. If a third remedy round is needed, stop and report. A miss because a re-signed copy stopped at a binding its own request carries takes the rebinding remedy instead, in `RequestModel`'s Signing, per spec §4.11 (case 3, below); it counts as remedy round 1.
 - [ ] Record all 20 result lines in the register (A7).
 - [ ] Commit any closed-set additions: `R14.10: acceptance — the fuzzer alone goes red on every fix D25 recorded` (or with no code change, only the register record goes into A7).
+
+**Run 1 at 7b2afce (2026-10-07). It is NOT the acceptance record:** the fuzzer changed after it (the rebinding below), so its 17 RED results were measured against a different fuzzer and do not carry over. The runner was the as-built one above with the plan's original rows 10 and 15. Its log, verbatim (each `e.g.` row is cut at 200 characters by the runner):
+
+```
+unpatched fuzz suite green
+1: RED  e.g. {"route": "GET /v1/threads/{rootPostId}", "variant": "plain", "part": "path:rootPostId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 5, "ledgered": false}
+2a: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "header:Content-Type", "variation": "random-269", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+2b: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "form:client_assertion_type", "variation": "random-33", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": f
+2c: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "form:", "variation": "random-63", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": false}
+3: GREEN — the fuzzer missed it
+4: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:claims/iat", "variation": "2^53+1", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": fa
+5: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "header:Content-Type;charset", "variation": "empty", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered": false}
+6: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:proof:header", "variation": "null", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 2, "ledgered": false}
+7: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/alg", "variation": "lone-high", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered":
+8a: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:claims/jti", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+8b: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "jws:assertion:claims/jti", "variation": "random-1645", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 10, "ledgered
+9: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": f
+10: BUILD FAILED
+11: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "header:Content-Type;charset", "variation": "disabled-encoding", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "led
+12: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "jws:post:header/typ", "variation": "random-233", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered": false}
+13: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:post:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+14a: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "json:/envelope/board", "variation": "random-508", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 37, "ledgered": false}
+14b: RED  e.g. {"route": "POST /v1/posts", "variant": "answer", "part": "json:/envelope/parent", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 41, "ledgered": false}
+15: GREEN — the fuzzer missed it
+16: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "json:", "variation": "removed", "copy": "plain", "status": 400, "problemType": "", "elapsedMs": 0, "ledgered": false}
+acceptance: 20 cases, 3 not RED
+```
+
+The three not RED:
+- **3, GREEN.** With 777db55's catch disabled the fuzz suite passed (Passed 14) and wrote 0 failure rows on any route. `AccessTokenValidator` computes the thumbprint of the proof's jwk and refuses a `cnf.jkt` mismatch (`AccessTokenValidator.cs:139`–`:141`, `curia/authn/binding-mismatch`) before it builds the key (`:152`). The fuzzer's token was always bound to the agent's real key (`FuzzContext.cs:182`), so every re-signed variation of `jws:proof:header/jwk/*` stopped at the binding check. The token endpoint binds a token to any jwk it can read without building the key (register D29), so the request is reachable from the wire in two steps; no single-part variation could produce it. Ruled: rebind (spec §4.10, Signing; §4.11).
+- **10, BUILD FAILED**: `AccessTokenValidator.cs(30,23): error CA1823: Unused field 'MaxNonceUtf8Bytes'`. The row's defect; amended above.
+- **15, GREEN**, 0 failure rows: the row disabled half of f914059's fix; amended above.
+
+The diagnostic run (the two corrected rows alone, by a copy of the runner, with its unpatched baseline before and after green), verbatim:
+
+```
+10x: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:proof:claims/nonce", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 2, "ledgered": false}
+15x: RED  e.g. {"route": "POST /v1/posts/{postId}/flags", "variant": "plain", "part": "path:postId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+```
+
+**Deviation, case 12.** During the first seconds of case 12's `--no-incremental` build, the implementer patched `AccessTokenValidator.cs` to reproduce case 10. Case 12's RED was probably right, but its build cannot be shown to have read clean source, which is why run 1 cannot be cited even for its RED cases, and why nothing touches `src/` while the runner runs.
+
+**Case 3's remedy, after run 1 (2026-10-08), two rounds of the three.** Each was checked by a probe: the runner restricted to case 3, with `CURIA_FUZZ_ANSWERS` set so the final unpatched run writes the after-map, and the after-map diffed against `answers-7b2afce.json`, written by the unpatched Release fuzz suite on the unedited tree beforehand (Passed 14, 0 failure rows). Probes are not the acceptance record.
+
+- **Round 1, rebinding (spec §4.10, Signing; §4.11).** `RequestModel.ReboundTokenClaims`: on the re-signed copy of a variation of `jws:proof:header/jwk` or a member under it, on a request carrying a token and a proof, the token's `cnf.jkt` is set, on a copy of its claims, to `RequestModel.JktOf` of the rendered proof header: RFC 7638 over the rendered `crv`, `kty`, `x` and `y` strings, when all four are strings, computed with `JsonDocument` and `RawJson.String`, never the product's `JwkParser` or `JwkThumbprint`. The token is signed, then `ath` is derived from it, then the proof is signed. The unre-signed copy keeps the token as issued. Facts: `TokenRebindingTests` (i) the re-signed copy of the exemplar's own `x` is bound to `JwsBuilder.Thumbprint(dpop)`, computed from the key's ECDsa parameters, with the token issued for another key, and its `ath` is the sent token's; (ii) below; (iii) the unre-signed copy keeps the issued binding. Falsified (i) by hand: with the rebinding returning the token's original `jkt`, (i) failed `Expected: "oN-pQrfvlu1Ryrvxv0B18iERjD_KFI4p3Mc_295nLYM"` / `Actual: "jQt2GQxo9O61yt5PAbACseO9heO9GYlB9d2F_yptPiQ"` and (iii) stayed green; restored by plain copy. Probe 1, verbatim:
+
+  ```
+  PROBE, filtered to ['3']: not an acceptance record
+  unpatched fuzz suite green
+  3: GREEN — the fuzzer missed it
+  acceptance: 1 cases, 1 not RED
+  ```
+
+  No `jws:proof:header/jwk` row changed in the after-map, as predicted: a P-256 coordinate is 43 base64url characters, the last of which carries two padding bits that a canonical encoding leaves zero, and `perturbed` increments that character, so it sets only a padding bit, and `Base64Url.IsValid` refuses every such value (checked in a scratch console: 0 of 200 fresh keys' perturbed `x` was valid). No variation in the set changed the bytes a coordinate decodes to. Two other rows did change: `GET /v1/posts/{postId}` and `GET /v1/threads/{rootPostId}` `path:… perturbed plain`, `404 …/not-found` at 7b2afce and `200` after. Not the rebinding, which returns before any address outside `jws:proof:header/jwk`. The fixture's clock is fixed, so `UlidGenerator`'s monotonic rule makes the three seed questions consecutive ULIDs, and `perturbed` of the first one's last character names the second whenever that character's successor in ASCII is its successor in Crockford's alphabet, which depends on the run's random suffix. Five earlier answer maps of this branch, kept in the session scratchpad (A4b's review and its round 1 among them), all read `200` there; 7b2afce's `404` is the outlier. Recorded as a deviation from the probe's stop rule (any other change stops), on that evidence, and under D33.
+- **Round 2, `perturbed-first` (spec §4.10's closed set; §4.11's variation-class remedy).** `Variations.PerturbFirst` replaces the first character by `perturbed`'s rule, applied to every string part. Fact (ii): a `perturbed-first` variation of `jws:proof:header/jwk/x`, which changes the decoded bytes (asserted), rebinds the token to a `jkt` other than the original. Probe 2, verbatim:
+
+  ```
+  PROBE, filtered to ['3']: not an acceptance record
+  unpatched fuzz suite green
+  3: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:header/jwk/x", "variation": "perturbed-first", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered": fals
+  acceptance: 1 cases, 0 not RED
+  ```
+
+  The patched run failed with 25 failures (24 rows of 500, every authenticated route's re-signed `jwk/x` and `jwk/y` `perturbed-first`, and the coverage line `the header Accept is read, and no exemplar varies it and TransportHeaders does not list it`, which run 1's failing cases printed too and green runs do not), and the after-map differs from `answers-7b2afce.json` only by 919 new `perturbed-first` rows (34,838 keys before, 35,757 after); no existing row changed. With the fix in place, every re-signed `jwk/x` and `jwk/y` `perturbed-first` row answers `401 curia/authn/malformed-jwk` from the key build ("not a point on P-256") and every unre-signed one `401 curia/authn/binding-mismatch`, so the rebinding reaches past the binding check, and the unpatched suite stays green with the new class.
 
 ### Task A6: Falsify every new gate in PR A
 

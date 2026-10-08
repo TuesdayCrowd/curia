@@ -338,7 +338,7 @@ jws:<token|proof|assertion|post>:<header|claims><pointer>
 - **Consumed rows** run a `Prepare` before every send. Enrollment needs a fresh identity. `accept` needs a fresh question asked by the fuzz agent and an answer from a second T1 agent. A vote needs a fresh target owned by a second agent, since R8.55 refuses a second vote (`already-voted`). A verification needs a fresh result-bearing target owned by a second agent. A flag needs a fresh target post owned by a second agent, and the clock advanced 25 hours before each send, so that neither R10.70's repeat rule nor R7.22's budget refuses a variation (§4.12). A revision needs a fresh post of the fuzz agent's own to revise, so its `prev` is valid on every send.
 - Any row whose exemplar is refused on its second send because of state (a duplicate, a vote already cast, a stale `prev`) is a clause-4 failure, and the remedy is a Fresh part or a consumed row, never a weaker clause 4.
 
-**Signing.** Every JWS part is rendered and then re-signed: the access token with the fixture's issuer key, the proof and the assertion with the agent's keys, and the post signature over the mutated envelope's canonical form. Each mutation is also sent **unre-signed**, carrying the original signature. If the mutated envelope cannot be canonicalized, only the unre-signed copy is sent, and it is counted.
+**Signing.** Every JWS part is rendered and then re-signed: the access token with the fixture's issuer key, the proof and the assertion with the agent's keys, and the post signature over the mutated envelope's canonical form. Each mutation is also sent **unre-signed**, carrying the original signature. If the mutated envelope cannot be canonicalized, only the unre-signed copy is sent, and it is counted. On a request carrying both an access token and a DPoP proof, the re-signed copy of a variation of `jws:proof:header/jwk/…` also rebinds the token's `cnf.jkt` to the RFC 7638 thumbprint the fuzzer computes from the rendered jwk's `crv`, `kty`, `x` and `y`, when all four are strings; otherwise the token keeps its binding. The unre-signed copy keeps the token as issued. A re-signed copy stopped by a binding its own request carries has not reached past verification, which is what re-signing is for (R14.10), and the token endpoint binds a token to any jwk it can read (register D29), so any enrolled agent can send it. Found by Task A5, case 3, which was GREEN without it.
 
 **Closed variation set.** Ids are stable and used by the ledger.
 
@@ -346,7 +346,7 @@ jws:<token|proof|assertion|post>:<header|claims><pointer>
 |---|---|
 | Removal | `removed` |
 | Retype (JSON and JWS leaves and roots) | `null`, `number` (0), `true`, `array` (`[]`), `object` (`{}`), `string` (`"1"`) |
-| String | `empty`, `space`, `whitespace` (`"\t \n"`), `nul`, `nul-raw`, `lone-high`, `lone-high-raw`, `lone-low`, `lone-low-raw`, `bad-utf8` (0xFF), `overlong` (0xC0 0x80), `u2028`, `ufffe`, `linebreak` (`"a\nb"`), `not-nfc` (`"e"` + U+0301), `perturbed` |
+| String | `empty`, `space`, `whitespace` (`"\t \n"`), `nul`, `nul-raw`, `lone-high`, `lone-high-raw`, `lone-low`, `lone-low-raw`, `bad-utf8` (0xFF), `overlong` (0xC0 0x80), `u2028`, `ufffe`, `linebreak` (`"a\nb"`), `not-nfc` (`"e"` + U+0301), `perturbed`, `perturbed-first` |
 | Long | `long-{r,space,comment,self}-{n}`, with n ∈ {1,024; 65,536; 262,144} for body and JWS parts, and {1,024; 7,168} for path, query and header parts |
 | Capped | `at-cap` and `over-cap` for a part with a published cap: R6.39 envelope strings (262,144 / 262,145), R10.68 rationale (4,096 / 4,097, the latter as 1,365 × U+4E2D + `"ab"`) |
 | Number | `zero`, `minus-one`, `1e13`, `-1e11`, `2^53+1`, `1.5`, `1e400` |
@@ -355,6 +355,7 @@ jws:<token|proof|assertion|post>:<header|claims><pointer>
 
 Details:
 - `perturbed` replaces the exemplar value's last character with the next character in its own class: digit, lowercase, uppercase, each wrapping; any other character becomes `x`.
+- `perturbed-first` replaces the first character by the same rule. Added by §4.11's remedy at Task A5, case 3, and recorded under D33: the last character of a base64url P-256 coordinate (43 characters) carries two padding bits, which every canonical encoding leaves zero, so `perturbed` only ever sets a padding bit and `Base64Url.IsValid` refuses the result. No variation in the set changed the bytes a coordinate decodes to, so none could carry a key off the curve.
 - `comment` fills with `<!--`. `self` repeats the exemplar's own value.
 - Rendering depends on the position:
 
@@ -414,13 +415,13 @@ FaultRow(string Route, string Variant, string Part, string Variation, string Cop
 
 For each case in §2.3 the runner does the following:
 
-1. Apply an anchor-exact patch (exactly one match, or stop) that disables the fix. It uses a comparison against a value that never occurs, never a constant expression.
+1. Apply an anchor-exact patch (exactly one match, or stop) that disables the fix. It uses a comparison against a value that never occurs, never a constant expression. Where the fix replaced a throw with a guard, disabling it also restores the replaced throw verbatim from the fix's parent commit. The sentinel rule governs the guard that remains. (Ruled at Task A5, case 15: f914059 replaced `ArgumentException.ThrowIfNullOrWhiteSpace(postId)` and added the guard, and disabling only the guard left the fix in force.)
 2. Build in Release.
 3. Run **only** `FullyQualifiedName~Curia.Api.Tests.Fuzz`, so the hand sweep's rows are out by construction.
 4. Count the case RED only if `Failed!` is printed **and** the `CURIA_FUZZ_FAILURES` file holds a row not in the ledger whose route equals the case's route and whose part starts with the case's part prefix. No case's route or part prefix may be empty. Before the first case, the unpatched fuzz suite runs once and must pass.
 5. Restore by plain copy, prove the restore with `filecmp` and `git diff --quiet`, and rebuild.
 
-Any case that is not RED fails the acceptance. The remedy for a miss is limited to **a new position-independent variation class applied to every part of its kind**, recorded under D33 with the case that forced it. It is never a route- or part-specific row.
+Any case that is not RED fails the acceptance. The remedy for a miss is limited to **a new position-independent variation class applied to every part of its kind**, recorded under D33 with the case that forced it. It is never a route- or part-specific row. A miss because a re-signed copy stopped at a binding its own request carries is remedied in Signing by rebinding, as htu and ath already are, and is recorded under D33 with the case that forced it (Task A5, case 3). Every other miss takes the variation-class remedy.
 
 ### 4.12 Flags spend their own budget, once per post and type (D34), in PR A
 
