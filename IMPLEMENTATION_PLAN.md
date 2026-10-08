@@ -4578,6 +4578,36 @@ evidence that the class was open at the merge.
   Falsified both ways by records that exist: GREEN without them at 7b2afce (run 1, case 3, 0 failure
   rows) and RED with them. Facts: `TokenRebindingTests` (three), falsified by hand once. Two rounds of
   §4.11's three.
+- **Acceptance (Task A5, R14.10): the fuzzer alone goes red on every one of D25's fifteen fixes.**
+  Run 2, at 406a5ed (2026-10-08), unfiltered, is the record; run 1 at 7b2afce is history (plan, Task
+  A5), because the fuzzer changed after it. The log is the session scratchpad's
+  `a5r2/accept/accept.log`; no `DIRTY RESTORE`, no `FINAL STATE NOT CLEAN`. Its 20 lines, verbatim
+  (each `e.g.` row cut at 200 characters by the runner):
+
+  ```
+  1: RED  e.g. {"route": "GET /v1/threads/{rootPostId}", "variant": "plain", "part": "path:rootPostId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 5, "ledgered": false}
+  2a: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "header:Content-Type", "variation": "random-269", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": false}
+  2b: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "form:client_assertion_type", "variation": "random-33", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": f
+  2c: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "form:", "variation": "random-63", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": false}
+  3: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:header/jwk/x", "variation": "perturbed-first", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 8, "ledgered": fals
+  4: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:claims/iat", "variation": "2^53+1", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": fa
+  5: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "header:Content-Type;charset", "variation": "empty", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered": false}
+  6: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:proof:header", "variation": "null", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered": false}
+  7: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/alg", "variation": "lone-high", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered":
+  8a: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:claims/jti", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+  8b: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "jws:assertion:claims/jti", "variation": "random-1645", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered"
+  9: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered": f
+  10: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:proof:claims/nonce", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+  11: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "header:Content-Type;charset", "variation": "disabled-encoding", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "led
+  12: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "jws:post:header/typ", "variation": "random-233", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+  13: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:post:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 4, "ledgered": false}
+  14a: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "json:/envelope/board", "variation": "random-508", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 41, "ledgered": false}
+  14b: RED  e.g. {"route": "POST /v1/posts", "variant": "answer", "part": "json:/envelope/parent", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 42, "ledgered": false}
+  15: RED  e.g. {"route": "POST /v1/posts/{postId}/flags", "variant": "plain", "part": "path:postId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+  16: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "json:", "variation": "removed", "copy": "plain", "status": 400, "problemType": "", "elapsedMs": 0, "ledgered": false}
+  ```
+  `acceptance: 20 cases, 0 not RED`. The closed set's one addition is `perturbed-first` (case 3,
+  above); the ledger is unchanged.
 - **Observed, not acted on (Task A5): the reach clause counts a refusal at the binding check as reach.**
   `Oracle.AuthenticationAndSignatureRefusals` (`tests/Curia.Api.Tests/Fuzz/Oracle.cs:23`–`:29`) does not
   list `curia/authn/binding-mismatch`, so at 7b2afce every re-signed `jws:proof:header/jwk/*` variation

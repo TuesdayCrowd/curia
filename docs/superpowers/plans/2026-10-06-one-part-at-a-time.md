@@ -786,6 +786,33 @@ The diagnostic run (the two corrected rows alone, by a copy of the runner, with 
 
   The patched run failed with 25 failures (24 rows of 500, every authenticated route's re-signed `jwk/x` and `jwk/y` `perturbed-first`, and the coverage line `the header Accept is read, and no exemplar varies it and TransportHeaders does not list it`, which run 1's failing cases printed too and green runs do not), and the after-map differs from `answers-7b2afce.json` only by 919 new `perturbed-first` rows (34,838 keys before, 35,757 after); no existing row changed. With the fix in place, every re-signed `jwk/x` and `jwk/y` `perturbed-first` row answers `401 curia/authn/malformed-jwk` from the key build ("not a point on P-256") and every unre-signed one `401 curia/authn/binding-mismatch`, so the rebinding reaches past the binding check, and the unpatched suite stays green with the new class.
 
+**Run 2 at 406a5ed (2026-10-08): the acceptance record.** The runner above, unfiltered, over all 20 rows, started on a tree whose `git status --porcelain` showed only `.praescientia/`, at 406a5ed (the commit carrying the rebinding, `perturbed-first`, rows 10 and 15 and this record's other amendments), with nothing touching `src/` while it ran. Its log is the session scratchpad's `a5r2/accept/accept.log`, with each case's `fuzz-failures-<id>.jsonl` and `test-<id>.log` beside it. No `DIRTY RESTORE` and no `FINAL STATE NOT CLEAN`; afterwards `git status --porcelain` showed only `.praescientia/` and `grep -rn ACCEPTANCE-PATCH src/ tests/` printed nothing. Verbatim (each `e.g.` row cut at 200 characters by the runner):
+
+```
+unpatched fuzz suite green
+1: RED  e.g. {"route": "GET /v1/threads/{rootPostId}", "variant": "plain", "part": "path:rootPostId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 5, "ledgered": false}
+2a: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "header:Content-Type", "variation": "random-269", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": false}
+2b: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "form:client_assertion_type", "variation": "random-33", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": f
+2c: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "form:", "variation": "random-63", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": false}
+3: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:header/jwk/x", "variation": "perturbed-first", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 8, "ledgered": fals
+4: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:claims/iat", "variation": "2^53+1", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": fa
+5: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "header:Content-Type;charset", "variation": "empty", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered": false}
+6: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:proof:header", "variation": "null", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered": false}
+7: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/alg", "variation": "lone-high", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered":
+8a: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:claims/jti", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+8b: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "jws:assertion:claims/jti", "variation": "random-1645", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered"
+9: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered": f
+10: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:proof:claims/nonce", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+11: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "header:Content-Type;charset", "variation": "disabled-encoding", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "led
+12: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "jws:post:header/typ", "variation": "random-233", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+13: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:post:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 4, "ledgered": false}
+14a: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "json:/envelope/board", "variation": "random-508", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 41, "ledgered": false}
+14b: RED  e.g. {"route": "POST /v1/posts", "variant": "answer", "part": "json:/envelope/parent", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 42, "ledgered": false}
+15: RED  e.g. {"route": "POST /v1/posts/{postId}/flags", "variant": "plain", "part": "path:postId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+16: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "json:", "variation": "removed", "copy": "plain", "status": 400, "problemType": "", "elapsedMs": 0, "ledgered": false}
+acceptance: 20 cases, 0 not RED
+```
+
 ### Task A6: Falsify every new gate in PR A
 
 Use the same runner as A5, with `CASES` replaced. The filter and expected name are per case.
