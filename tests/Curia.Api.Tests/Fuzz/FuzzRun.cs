@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -296,6 +297,10 @@ internal static class FuzzRun
                     Lines.Add($"reach: {row.Route} [{row.Variant}] {address}: no re-signed or plain variation was answered 2xx or refused past the credential and the signature");
             }
 
+            // The rebinding rule's non-vacuity: a row carrying a token and a proof sends at least one probe.
+            if (exemplar.Jws.ContainsKey("token") && exemplar.Jws.ContainsKey("proof") && !state.RebindingProbed)
+                Lines.Add($"rebinding: no re-signed perturbed-first copy of jws:proof:header/jwk/x or /y was sent on {row.Route} [{row.Variant}]");
+
             var line = new StringBuilder();
             for (var i = 0; i < state.Elapsed.Count; i++)
                 line.Append(CultureInfo.InvariantCulture, $"{row.Route}\t{row.Variant}\t{i}\t{state.Elapsed[i]}\n");
@@ -389,12 +394,25 @@ internal static class FuzzRun
             if (reason is not null)
                 Failures.Add(new FuzzFailure(row.Route, row.Variant, address, label, Copies.Wire(copy), status, problemType, ms, reason));
 
-            // The rebinding (R14.10, D33): the re-signed copy of a variation of a proof's jwk, on a request
-            // carrying a token, was rebound to the key it carries, so a refusal at the binding check is the
-            // rebinding broken. A line of its own, never a failure the ledger could absorb (Task A5, case 3).
-            if (part is not null && copy == CopyKind.ReSigned && thrown is null && IsProofJwk(part.Address) && model.Jws.ContainsKey("token")
-                && string.Equals(Oracle.Slug(problemType), BindingMismatch, StringComparison.Ordinal))
-                Lines.Add($"rebinding: the re-signed copy of {part.Address} {label} on {row.Route} was refused at the binding");
+            // The rebinding (R14.10, D33; Task A5, case 3), a positive requirement. The re-signed perturbed-first
+            // copy of a proof jwk's x or y, on a request carrying a token, decodes to another 32-byte coordinate,
+            // which the harness checks first, so JwkParser passes it. The token was rebound to the key the proof
+            // carries, so the binding check passes; alg is unchanged, so alg-key passes; and the point (x', y) is
+            // off P-256 except with negligible probability, so the key build refuses it: curia/authn/malformed-jwk
+            // with the detail JwkPublicKey gives a point off the curve. Every earlier refusal (an expired token,
+            // its issuer, its signature, curia/authn/binding-mismatch; or the jwk parser's malformed-jwk, which
+            // carries another detail) means the rebound request is broken. A send that throws is a line too. A
+            // line of its own, never a failure the ledger could absorb.
+            if (part is not null && copy == CopyKind.ReSigned && IsRebindingProbe(part.Address, variation!.Id) && model.Jws.ContainsKey("token"))
+            {
+                state.RebindingProbed = true;
+                if (!DecodesToAnotherCoordinate(value, model.ValueOf(part)))
+                    Lines.Add($"rebinding: the re-signed copy of {part.Address} {label} on {row.Route} did not decode to a different 32-byte coordinate");
+                else if (thrown is not null
+                    || !string.Equals(Oracle.Slug(problemType), MalformedJwk, StringComparison.Ordinal)
+                    || DetailOf(body)?.Contains(OffTheCurve, StringComparison.Ordinal) != true)
+                    Lines.Add($"rebinding: the re-signed copy of {part.Address} {label} on {row.Route} answered {status.ToString(CultureInfo.InvariantCulture)} {problemType} ({DetailOf(body) ?? "no detail"}), not the key build's curia/authn/malformed-jwk");
+            }
 
             if (part is not null && copy != CopyKind.Unsigned && thrown is null && Oracle.Reached((HttpStatusCode)status, problemType))
                 state.Reached.Add(part.Address);
@@ -403,11 +421,51 @@ internal static class FuzzRun
             if (row.CreatesPosts && status == 201 && PostIdOf(body) is { } created) state.Created.Add(created);
         }
 
-        private const string BindingMismatch = "curia/authn/binding-mismatch";
+        private const string MalformedJwk = "curia/authn/malformed-jwk";
 
-        private static bool IsProofJwk(string address) =>
-            string.Equals(address, "jws:proof:header/jwk", StringComparison.Ordinal)
-            || address.StartsWith("jws:proof:header/jwk/", StringComparison.Ordinal);
+        /// <summary>The detail JwkPublicKey gives a point off P-256, the key build's refusal; JwkParser's malformed-jwk carries others.</summary>
+        private const string OffTheCurve = "are not a point on P-256";
+
+        private static bool IsRebindingProbe(string address, string variationId) =>
+            string.Equals(variationId, "perturbed-first", StringComparison.Ordinal)
+            && (string.Equals(address, "jws:proof:header/jwk/x", StringComparison.Ordinal)
+                || string.Equals(address, "jws:proof:header/jwk/y", StringComparison.Ordinal));
+
+        /// <summary>Whether the sent coordinate is a JSON string of strict base64url decoding to 32 bytes other than the exemplar's.</summary>
+        private static bool DecodesToAnotherCoordinate(VariedValue? value, string? exemplar)
+        {
+            if (value is not VariedValue.RawJson raw || exemplar is null) return false;
+            string? sent;
+            try
+            {
+                using var json = JsonDocument.Parse(raw.Bytes);
+                sent = json.RootElement.ValueKind == JsonValueKind.String ? json.RootElement.GetString() : null;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+
+            if (sent is null || !Base64Url.IsValid(sent, out var length) || length != 32) return false;
+            return !Base64Url.DecodeFromChars(sent).AsSpan().SequenceEqual(Base64Url.DecodeFromChars(exemplar));
+        }
+
+        /// <summary>A problem document's <c>detail</c>, or null.</summary>
+        private static string? DetailOf(string body)
+        {
+            try
+            {
+                using var json = JsonDocument.Parse(body);
+                return json.RootElement.ValueKind == JsonValueKind.Object
+                    && json.RootElement.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String
+                    ? detail.GetString()
+                    : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
 
         private static string? PostIdOf(string body)
         {
@@ -529,5 +587,8 @@ internal static class FuzzRun
         internal int UnsentTotal { get; set; }
 
         internal int SupersededTotal { get; set; }
+
+        /// <summary>Whether a re-signed perturbed-first copy of the proof jwk's x or y was sent on a token-carrying request.</summary>
+        internal bool RebindingProbed { get; set; }
     }
 }

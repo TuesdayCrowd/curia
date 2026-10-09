@@ -10,9 +10,11 @@ namespace Curia.Api.Tests.Fuzz;
 
 /// <summary>
 /// R14.10: the re-signed copy of a variation of a proof's <c>jwk</c> rebinds the token's
-/// <c>cnf.jkt</c> to the key the proof now carries (spec §4.10, Signing). Without it every such copy
-/// was refused at the binding check before the key was built, and reverting 777db55's catch went
-/// unseen (Task A5, case 3). For the exemplar's own key the expected thumbprint is
+/// <c>cnf.jkt</c> to the key the proof now carries (spec §4.10, Signing). Without it, a re-signed
+/// variation that decodes to a different 32-byte coordinate (`perturbed-first`, added with it) is
+/// refused at the binding check before the key is built. At 7b2afce, before both, no such variation
+/// existed: every re-signed jwk variation was refused by the JWS parse, the jwk parser or
+/// `JwkParser.TryDecode`, and reverting 777db55's catch went unseen (Task A5, case 3). For the exemplar's own key the expected thumbprint is
 /// <see cref="JwsBuilder.Thumbprint"/>, computed from the key's ECDsa parameters, a different artifact
 /// from the rendered strings the rebinding reads. For a varied key it is Curia.AuthN's thumbprint
 /// (<see cref="JwkParser.Parse"/>, then <see cref="JwkThumbprint.Compute"/>) of the jwk the sent proof

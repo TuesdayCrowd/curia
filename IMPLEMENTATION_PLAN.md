@@ -4556,7 +4556,7 @@ evidence that the class was open at the merge.
   row's accepted `agent_id` variations could be flagged as though they were posts
   (`RaiseFlag.cs:109`–`:114` reads the stream and never asks that it is a post's).
 
-- **Acceptance (Task A5), case 3: a miss at a binding, remedied by rebinding and by `perturbed-first`.**
+- **Acceptance (Task A5), case 3: a miss behind the jwk parser, remedied by `perturbed-first` and by rebinding.**
   Run 1 at 7b2afce left case 3 (777db55's catch in `JwkPublicKey.cs:68`) GREEN, with 0 failure rows.
   `AccessTokenValidator` refuses a `cnf.jkt` that is not the proof jwk's thumbprint
   (`src/Curia.AuthN/AccessTokenValidator.cs:139`–`:141`, `curia/authn/binding-mismatch`) before it builds
@@ -4629,9 +4629,10 @@ evidence that the class was open at the merge.
   Whether a parser refusal should count as reach is a design decision: excluding `ParserRefusals` would
   turn the baseline red on every part whose only reader is a parser. Adding the slug alone would turn the
   baseline red on `jws:token:claims/cnf/jkt`, whose only reader is the binding check. The rebinding is
-  pinned by the closed pass's rebinding rule (a re-signed jwk variation answering binding-mismatch is a
-  failure) and by TokenRebindingTests, falsified by F43 and F45; perturbed-first's place in the closed
-  set by F44.
+  pinned by the closed pass's rebinding rule (every re-signed perturbed-first variation of a proof jwk's
+  x or y on a token-carrying route answers the key build's curia/authn/malformed-jwk, and every such row
+  sends at least one) and by TokenRebindingTests, falsified by F43, F45 and F46; the rule's harness
+  precondition by F47; perturbed-first's place in the closed set by F44.
 - **Observed, not acted on (Task A5): two rows of the answer map flap between runs.** `GET
   /v1/posts/{postId}` and `GET /v1/threads/{rootPostId}` `path:… perturbed plain` answer `200` or
   `404 …/not-found` by run, with no change to the code. The fixture's clock is fixed, so
