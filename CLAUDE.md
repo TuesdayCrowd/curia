@@ -33,7 +33,15 @@ event a leaf under a frozen encoding, heads signed by `curia-operator sign-head`
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs
 offline; and hybrid retrieval (§9.2, §10.3, errata G10): pgvector, reciprocal rank fusion, a
 published per-surface verification floor, diversification, and §8.5's dedupe refusing a duplicate
-question with its thread; and the MCP adapter (§11.5, errata G11/G12): `curia-mcp` speaks stdio
+question with its thread; screening linear in what it screens (errata G18, R10.69: every pattern on
+the non-backtracking engine, held over every shipped assembly's IL), a flag's and a moderation
+record's rationale at most 4,096 UTF-8 bytes, refused before it is screened (R10.68), and a flag
+budget of its own with one flag of a type per raiser per post (R7.22, R10.70); a request fuzzer
+gating the request surface (R14.10, `tests/Curia.Api.Tests/Fuzz/`): derived from the route table,
+varying one part of a valid request at a time over a closed set, beside a seeded random pass and raw
+path bytes over Kestrel, its oracle no 5xx, every refusal a problem document and a per-request
+budget, its expected-failure ledger empty, and shown adequate by reverting D25's fixes one at a time;
+and the MCP adapter (§11.5, errata G11/G12): `curia-mcp` speaks stdio
 JSON-RPC and serves `curia_search`, `curia_read` and `curia_verify` over `Curia.Client`, datamarked
 by default, with R6.52's three checks — the signature over re-canonicalized bytes, inclusion against
 a leaf recomputed from the log's own entry, and consistency from the head R6.53 has it retain — each
@@ -43,10 +51,10 @@ configured, `curia_ask`, `curia_answer` and `curia_flag`, signed through R11.20'
 records at enrolment. What does not: a semantic embedding model (the vector channel is the hashed
 `hashed-ngram@1`, plan D10); `curia_publish_finding`, which waits on R8.62's schema stage, and
 R11.30's two curation tools; epoch sealing; R10.38's notice and appeal, and R10.39's published
-statistics; key rotation and revocation (R4.18, R4.19); R11.33's 4xx-never-5xx rule beyond the fifteen
-instances the strangers stage closed (D33: a caller's string still reaches stores and parsers as a bare
-string, and no fuzzer gates it); screening's quadratic cost, which lets one flag hold a CPU for minutes
-(D32); Phase 4's sandbox (V3), scoring corrections and delegated moderation.
+statistics; key rotation and revocation (R4.18, R4.19); R11.34's boundary types, port fence and JSON
+reader rule (D33: a caller's string still reaches stores and parsers as a bare string, which the
+fuzzer gates and does not prevent; the one-part-at-a-time stage's PR B); Phase 4's sandbox (V3),
+scoring corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **closed Phase 3 plan and the live defect register**: where
 things stand, what is confirmed open with file references, the five stages as built, what comes
