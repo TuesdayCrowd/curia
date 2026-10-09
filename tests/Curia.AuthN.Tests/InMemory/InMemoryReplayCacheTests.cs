@@ -7,10 +7,12 @@ namespace Curia.AuthN.Tests.InMemory;
 
 /// <summary>
 /// R11.4: the in-memory adapter is a first-class implementation with its own tests, not merely a
-/// fixture other tests happen to use. R5.17 is specifically about atomicity, so this class proves
-/// two things: the real adapter survives a concurrent race on one <c>jti</c> with exactly one
-/// winner, and (via <see cref="NaiveCheckThenInsertReplayCache"/>) that the same test genuinely
-/// would have failed a non-atomic implementation -- the task's own bar for this port.
+/// fixture other tests happen to use. R5.17 is specifically about atomicity, so this class races one
+/// <c>jti</c> two hundred ways against the real adapter and requires exactly one winner, and races
+/// <see cref="NaiveCheckThenInsertReplayCache"/> the same way to show that the race can be lost. The
+/// fan-out catches a check-then-insert adapter that yields between check and insert in about 99.5% of
+/// single races. An adapter with no await between check and insert completes each call on the test
+/// thread, and this fan-out does not catch it at all (review of 19c64dd).
 /// </summary>
 public sealed class InMemoryReplayCacheTests
 {
@@ -43,11 +45,12 @@ public sealed class InMemoryReplayCacheTests
     /// <summary>
     /// R5.17: "Cache insertion SHALL be atomic (compare-and-set / SET NX). A check-then-insert
     /// sequence is a race that a concurrent replay wins." Two hundred concurrent callers race to
-    /// insert the *same* <c>jti</c>; exactly one may ever see <see langword="true"/>. This would
-    /// fail immediately for a check-then-insert implementation -- see
-    /// <see cref="ANaiveCheckThenInsertImplementationLosesThisRace"/> just below, which runs the
-    /// identical race against exactly such an implementation and asserts it loses, proving this
-    /// test is not vacuous against the real one.
+    /// insert the *same* <c>jti</c>; exactly one may ever see <see langword="true"/>. Against a
+    /// check-then-insert adapter that yields between check and insert, one race like this fails about
+    /// 99.5% of the time; <see cref="ANaiveCheckThenInsertImplementationLosesThisRace"/> measures that
+    /// against exactly such an adapter. Against one with no await between check and insert it never
+    /// fails: the fan-out starts each insert on the test thread, and each runs to completion before
+    /// the next begins.
     /// </summary>
     [Fact]
     public async Task ConcurrentInsertionOfTheSameJtiHasExactlyOneWinner()
@@ -100,8 +103,8 @@ public sealed class InMemoryReplayCacheTests
     }
 
     /// <summary>Deliberately not atomic: a plain dictionary read followed, after a forced yield,
-    /// by a plain dictionary write -- the exact shape R5.17 forbids. Exists only to prove
-    /// <see cref="ConcurrentInsertionOfTheSameJtiHasExactlyOneWinner"/> is a meaningful test, per
+    /// by a plain dictionary write -- the exact shape R5.17 forbids. Exists only to show that the race
+    /// <see cref="ConcurrentInsertionOfTheSameJtiHasExactlyOneWinner"/> runs can be lost by an adapter of this shape, per
     /// <see cref="ANaiveCheckThenInsertImplementationLosesThisRace"/>; never referenced by
     /// production code or by <see cref="IReplayCache"/> callers.</summary>
     private sealed class NaiveCheckThenInsertReplayCache

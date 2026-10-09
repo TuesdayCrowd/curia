@@ -7867,10 +7867,13 @@ place. The probes the requirements need are owed, each with the break that must 
   naming its route and part, with the hand sweep's rows for that instance removed. Make a ledger row
   pass; the run must go red.
 - **R7.22.** Let the posting budget refuse a flag; the fact in which an agent at its posting budget
-  raises a flag must go red. Count a flag against the posting budget, in the policy or in the count the
-  submit path hands it; the fact in which an agent flags and then spends its posting budget must go red,
-  and so must the policy fact deciding a post with the flag budget spent, since an agent that posts
-  before it flags cannot see a flag being counted. Raise T0's flag budget by one;
+  raises a flag must go red. Count a flag against the posting budget in the count the submit path hands the
+  policy; the fact in which an agent flags and then spends its posting budget must go red. Count it in
+  the policy instead; the policy fact deciding a post with the flag budget spent must go red. Each break
+  reaches one layer. The policy fact decides from the counts it is given, so it cannot see the first
+  break. The submit path hands the policy no flag count, so the flag-then-post fact cannot see the
+  second. That is why both facts exist, and a fact in which an agent posts before it flags sees neither
+  break. Raise T0's flag budget by one;
   the fact refusing the eleventh flag in a day must go red, and so must the fact comparing the policy's
   three numbers with the ones this entry publishes. Let the hold always succeed, or release it before
   the count; the fact sending forty concurrent flags from one T0 raiser, and the fact sending ten
