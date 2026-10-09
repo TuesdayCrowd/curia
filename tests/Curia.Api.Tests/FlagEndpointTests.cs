@@ -350,7 +350,7 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     /// <c>RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead</c> holds that.
     /// </summary>
     [Fact]
-    public async Task R10_68_AnOverlongRationaleIsRefusedBeforeItIsScreenedOrAPostIsRead()
+    public async Task R10_68_AnOverlongRationaleIsRefusedBeforeScreeningOrNoSuchPost()
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;
@@ -368,6 +368,74 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         using var problem = JsonDocument.Parse(body);
         Assert.Equal("curia/flag/rationale-too-long", problem.RootElement.GetProperty("type").GetString());
         Assert.DoesNotContain("ghp_", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.68 (errata G18): "The check follows authentication and authorization, which read the log
+    /// and are not reordered for it." The "after" half on the flag path, at authentication: an overlong flag sent
+    /// with no token is refused 401 by PEP-1, not 422 by the cap. The <c>DoesNotContain</c> below is
+    /// close to vacuous, since a 401 body may be empty; the status is what discriminates. Falsified by
+    /// F55.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnUnauthenticatedOverlongFlagIsRefusedByAuthenticationFirst()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+
+        using var content = new ByteArrayContent(Json("spam", new string('a', 4_097)));
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        using var response = await client.PostAsync(new Uri($"/v1/posts/{postId}/flags", UriKind.Relative), content, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.Unauthorized, $"{(int)response.StatusCode}: {Excerpt(body)}");
+        Assert.DoesNotContain("rationale-too-long", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.68 (errata G18): "The check follows authentication and authorization, which read the log
+    /// and are not reordered for it." The "after" half on the flag path, at authorization: a T0 reporter who has
+    /// spent R7.22's ten flags sends an eleventh with an overlong rationale, and the PDP refuses it 403
+    /// <c>curia/authz/denied</c> with the flag budget's reason, not 422 by the cap. Falsified by F55 and
+    /// F56; under F56, which puts the cap after authentication and before the PDP, the unauthenticated
+    /// fact above stays green.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongFlagPastTheFlagBudgetIsRefusedByAuthorizationFirst()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var posts = new List<string>();
+        for (var i = 0; i < 11; i++)
+        {
+            var (_, _, _, seeded) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+            posts.Add(seeded);
+        }
+
+        var reporter = ForumAgent.Create(Unique("cap-denied"), "cap-denied-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        for (var i = 0; i < 10; i++)
+        {
+            using var accepted = await RaiseAsync(client, dpop, token, posts[i], "spam", $"spam number {i}", ct);
+            var acceptedBody = await accepted.Content.ReadAsStringAsync(ct);
+            Assert.True(accepted.StatusCode == HttpStatusCode.Created, $"flag {i}: {(int)accepted.StatusCode}: {Excerpt(acceptedBody)}");
+        }
+
+        using var refused = await RaiseAsync(client, dpop, token, posts[10], "spam", new string('a', 4_097), ct);
+        var body = await refused.Content.ReadAsStringAsync(ct);
+
+        Assert.True(refused.StatusCode == HttpStatusCode.Forbidden, $"{(int)refused.StatusCode}: {Excerpt(body)}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/authz/denied", problem.RootElement.GetProperty("type").GetString());
+        Assert.StartsWith(
+            "table-11/flag-budget-exhausted",
+            problem.RootElement.GetProperty("detail").GetString(),
+            StringComparison.Ordinal);
     }
 
     /// <summary>

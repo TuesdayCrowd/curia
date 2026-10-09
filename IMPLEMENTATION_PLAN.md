@@ -4458,19 +4458,27 @@ its operator-name and rationale-required checks and before any read of the log.
   `DetectorTests.R10_25_TheHighEntropyRuleReportsTheValueNotTheKeyword`. R10.68:
   `FlagEndpointTests.R10_68_ARationaleAtTheCapIsAcceptedAndOneByteOverIsRefused`,
   `R10_68_TheCapCountsUtf8BytesNotCharacters` and
-  `R10_68_AnOverlongRationaleIsRefusedBeforeItIsScreenedOrAPostIsRead`;
+  `R10_68_AnOverlongRationaleIsRefusedBeforeScreeningOrNoSuchPost`;
   `OperatorModerationTests.R10_68_AModerationReasonOverTheCapIsRefused` and the moderation order fact,
-  `R10_68_AnOverlongModerationReasonIsRefusedBeforeItIsScreenedOrAPostIsRead` (review of a403a3c);
-  `RationaleLimitTests` (five); and the two Application read-counting facts,
+  `R10_68_AnOverlongModerationReasonIsRefusedBeforeScreeningOrNoSuchPost` (review of a403a3c);
+  `RationaleLimitTests` (five); the two Application read-counting facts,
   `ApplyModerationTests.R10_68_AnOverlongRationaleIsRefusedBeforeTheLogOrAnyFlagRowIsRead` and
   `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead` (review of the A4
-  round-1 fix).
+  round-1 fix); and the five "after" facts (review of the A7 round-1 fix), the moderation path's
+  `ApplyModerationTests.R10_68_AnOverlongReasonFromANonOperatorIsRefusedAsNotAnOperator`,
+  `R10_68_AnOverlongReasonUnderABlankOperatorNameIsRefusedAsBlank` and
+  `R10_68_AnOverlongBlankReasonIsRefusedAsRequired`, and the flag path's
+  `FlagEndpointTests.R10_68_AnUnauthenticatedOverlongFlagIsRefusedByAuthenticationFirst` and
+  `R10_68_AnOverlongFlagPastTheFlagBudgetIsRefusedByAuthorizationFirst`.
 - *The falsification cases* (the plan's Task A6, run 2, `falsify: 53 cases, 0 not RED`): F1, F2, F3
   and F13 (the engine, the budget row, the value's span); F31-F33, the IL-wide engine fact, each green
   on the Domain reflection fact (review of 1b0d423); F4-F7 (the cap, its unit, and the order on each
   path); F34 (review of a403a3c) and, beside it, F48 (review of A6), the screening half of R10.68's
-  order on the moderation path and on the flag path; F35, its lookup half; and F36 and F37, the two
-  read-counting facts (review of the A4 round-1 fix).
+  order on the moderation path and on the flag path; F35, its lookup half; F36 and F37, the two
+  read-counting facts (review of the A4 round-1 fix); and F54, the moderation half of R10.68's
+  "after" order (the operator-name and rationale-required checks), and F55 and F56, its flag half
+  (authentication, then authorization) (review of the A7 round-1 fix). Run 3, over all 56 cases, is
+  owed on the committed fix.
 - *Observed and acted on (review of A6).*
   `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead`'s summary said
   RaiseFlag reads no flag rows on any path; since R10.70 it reads `IFlagDetailStore.ReadAllAsync`
@@ -4491,6 +4499,21 @@ its operator-name and rationale-required checks and before any read of the log.
   false. The summary now says what the fact sees and names
   `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead` as the fact that
   holds the no-read property, at the Application layer.
+- *Observed and acted on (review of the A7 round-1 fix).* The review of c6a49b9 said the corrected
+  closure's ordering claims were already falsified by F34-F37 and F48. That held for the "before"
+  halves only: each of those cases moves the cap later. A cap hoisted above `ApplyModeration`'s
+  operator checks left `Curia.Application.Tests` at `Passed: 310`, and no fact sent an
+  unauthenticated or denied flag with an overlong rationale: under F55 and under F56, applied before
+  the new facts existed, the whole of `Curia.Api.Tests` was run and no fact went red on the order
+  (every failure, seven under F55 and one under F56, was an absent or null rationale reaching the
+  patched cap and answering 500, or the closed pass's `Accept` coverage line the patched early
+  return adds; the plan's ruling bullet lists them). Five facts now pin the order:
+  `ApplyModerationTests`' (a) `R10_68_AnOverlongReasonFromANonOperatorIsRefusedAsNotAnOperator`, (b)
+  `R10_68_AnOverlongReasonUnderABlankOperatorNameIsRefusedAsBlank` and (c)
+  `R10_68_AnOverlongBlankReasonIsRefusedAsRequired`, and `FlagEndpointTests`' (d)
+  `R10_68_AnUnauthenticatedOverlongFlagIsRefusedByAuthenticationFirst` and (e)
+  `R10_68_AnOverlongFlagPastTheFlagBudgetIsRefusedByAuthorizationFirst`, falsified by F54 ((a)-(c)),
+  F55 ((d) and (e)) and F56 ((e) alone, (d) green). Both R10.68 order facts were renamed from ...BeforeItIsScreenedOrAPostIsRead to ...BeforeScreeningOrNoSuchPost: each sees the cap precede screening and the no-such-post answer, and neither can see a log or stream read, which the two Application read-counting facts hold (F36, F37).
 
 **Left open: the amplification paragraph** ("Beside it, not a cost of time", with its serving half).
 R10.69 bounds the screener's work, and the keep-first dedup its allocation; neither changes how many

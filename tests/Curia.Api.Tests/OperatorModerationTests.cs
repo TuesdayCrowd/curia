@@ -301,7 +301,7 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     /// holds that.
     /// </summary>
     [Fact]
-    public async Task R10_68_AnOverlongModerationReasonIsRefusedBeforeItIsScreenedOrAPostIsRead()
+    public async Task R10_68_AnOverlongModerationReasonIsRefusedBeforeScreeningOrNoSuchPost()
     {
         var ct = TestContext.Current.CancellationToken;
         var client = forum.Client;

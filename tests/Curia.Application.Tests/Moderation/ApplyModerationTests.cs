@@ -951,4 +951,69 @@ public sealed class ApplyModerationTests
         Assert.True(events.Reads > 0);
         Assert.True(details.Reads > 0);
     }
+
+    /// <summary>
+    /// Pins the "after" half of R10.68's order on the moderation path (errata G18: "The check follows
+    /// authentication and authorization, which read the log and are not reordered for it"). The operator-name check is
+    /// the moderation path's authorization, and R10.68 has the cap follow it: a reason over the cap from
+    /// an actor who is not an operator is refused as <c>not-an-operator</c>, not as
+    /// <c>rationale-too-long</c>, and nothing is appended. Falsified by F54.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongReasonFromANonOperatorIsRefusedAsNotAnOperator()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Require(ActorId.Create("https://agents.example/moderator")), ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/not-an-operator", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// Pins the "after" half of R10.68's order on the moderation path. The operator-name check is the
+    /// moderation path's authorization, and R10.68 has the cap follow it: a reason over the cap under
+    /// <c>operator:</c> and a blank name is refused as <c>blank-operator-name</c>, not as
+    /// <c>rationale-too-long</c>, and nothing is appended. Falsified by F54.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongReasonUnderABlankOperatorNameIsRefusedAsBlank()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Require(ActorId.Create("operator:   ")), ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/blank-operator-name", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// Pins the rest of the moderation cap's "after" order as D32's corrected closure states it: the cap
+    /// follows the operator-name and rationale-required checks. The rationale-required check is input
+    /// validation, not authorization. A reason of 4,097 spaces is over the cap and also blank; it is
+    /// refused as <c>rationale-required</c>, not as <c>rationale-too-long</c>, and nothing is appended.
+    /// Falsified by F54.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongBlankReasonIsRefusedAsRequired()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, new string(' ', 4_097), Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-required", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
 }
