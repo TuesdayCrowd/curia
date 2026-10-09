@@ -4427,9 +4427,12 @@ here": every screening pattern runs on the non-backtracking engine (R10.69), and
 `HighEntropyAssignment` was rewritten for it, its keyword boundary consumed rather than looked behind
 and its flag reporting the value's span, not the keyword's (`src/Curia.Domain/Screening/SecretScanner.cs`).
 Part (2): a flag's and a moderation record's rationale is at most 4,096 UTF-8 bytes (R10.68,
-`RationaleLimit.MaxUtf8Bytes`, `src/Curia.Domain/Moderation/RationaleLimit.cs`), refused with 422
-`curia/flag/rationale-too-long` or `curia/moderation/rationale-too-long` after authentication and
-authorization, before screening and before the post is looked up, on both paths.
+`RationaleLimit.MaxUtf8Bytes`, `src/Curia.Domain/Moderation/RationaleLimit.cs`), refused before
+screening and before the post is looked up, on both paths: over HTTP with 422
+`curia/flag/rationale-too-long`, after authentication, and after authorization, which reads the
+whole log and the private flag store under the raiser's hold; and by `curia-operator moderate`,
+which has no HTTP route, with `curia/moderation/rationale-too-long` as a refusal on stderr, after
+its operator-name and rationale-required checks and before any read of the log.
 - *The A3 timings (A3 Step 5).* The local reading, Release, the class alone (Arm64, 16 processors):
   slowest row zero-width-space ScreenEnvelope, 173 ms at A3 and 55 ms after the keep-first dedup
   (review of c31ce24). The CI reading, Step 5's three dispatches at head 5d7a00a (X64, 4 processors;
@@ -4475,6 +4478,19 @@ authorization, before screening and before the post is looked up, on both paths.
   reads, so the fact held, but the sentence was false; it now reads "RaiseFlag reads the
   flag-detail store only after the post's stream, so zero post reads implies zero detail reads."
   (`tests/Curia.Application.Tests/Moderation/RaiseFlagTests.cs:224`–`:225`).
+- *Observed and acted on (review of c6a49b9).* This closure first said both rationale slugs were
+  refused with 422 after authentication and authorization. That holds on the flag path only. The
+  moderation path is `curia-operator moderate`, out of band, with no HTTP status and no token step,
+  and its cap follows the operator-name and rationale-required checks
+  (`ApplyModeration.cs:79`–`:93`). The sentence now separates the two paths. Separately,
+  `FlagEndpointTests.R10_68_AnOverlongRationaleIsRefusedBeforeItIsScreenedOrAPostIsRead`'s summary
+  said an overlong flag "costs no read of the log". On the HTTP route the endpoint takes the
+  raiser's hold, reads the whole log and the private flag store, and runs the PDP before
+  `RaiseFlag.RecordAsync` reaches the cap (`ForumEndpoints.cs:801`, `:809`, `:820`, `:824`, `:843`;
+  `RaiseFlag.cs:96`). R10.68 permits those reads, so the code was correct and the sentence was
+  false. The summary now says what the fact sees and names
+  `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead` as the fact that
+  holds the no-read property, at the Application layer.
 
 **Left open: the amplification paragraph** ("Beside it, not a cost of time", with its serving half).
 R10.69 bounds the screener's work, and the keep-first dedup its allocation; neither changes how many

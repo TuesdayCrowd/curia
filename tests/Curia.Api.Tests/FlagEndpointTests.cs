@@ -339,10 +339,15 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
-    /// R10.68's order: the cap is checked before screening and before the post is looked up. The
-    /// rationale carries a credential, which screening would refuse as <c>rationale-rejected</c>, and
-    /// the post does not exist, which the lookup would refuse as <c>no-such-post</c>; the answer is
-    /// neither, because an overlong rationale is never screened and costs no read of the log.
+    /// R10.68's order on the flag path: the cap is checked before screening and before the post is
+    /// looked up. The rationale carries a credential, which screening would refuse as
+    /// <c>rationale-rejected</c>, and the post does not exist, which the lookup would refuse as
+    /// <c>no-such-post</c>. The answer is neither. The refusal is not free: R10.68 permits the reads
+    /// authorization needs, and this route takes the raiser's hold, reads the whole log and the private
+    /// flag store, and runs the PDP before <c>RaiseFlag</c> reaches the cap. Whether <c>RaiseFlag</c>
+    /// itself reads the post's stream before the cap is something this fact cannot see, since a missing
+    /// post answers the same either side of the read.
+    /// <c>RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead</c> holds that.
     /// </summary>
     [Fact]
     public async Task R10_68_AnOverlongRationaleIsRefusedBeforeItIsScreenedOrAPostIsRead()
