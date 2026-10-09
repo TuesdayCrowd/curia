@@ -221,7 +221,8 @@ public sealed class RaiseFlagTests
     /// <summary>
     /// R10.68's order (errata G18): an overlong rationale is refused before the post's stream is read,
     /// which is the cost the order exists to avoid. The control flag shows the counter counts. No
-    /// flag-detail store is counted: RaiseFlag reads no flag rows on any path, so there is nothing to count.
+    /// flag-detail store is counted: RaiseFlag reads the flag-detail store only after the post's
+    /// stream, so zero post reads implies zero detail reads.
     /// </summary>
     [Fact]
     public async Task R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead()

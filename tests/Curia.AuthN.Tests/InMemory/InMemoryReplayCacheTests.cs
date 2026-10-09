@@ -66,25 +66,37 @@ public sealed class InMemoryReplayCacheTests
 
     /// <summary>
     /// The falsification the task asks for: an implementation that checks presence, then (after
-    /// an intentional yield that forces the race window open rather than hoping the scheduler
-    /// happens to interleave badly) inserts -- exactly the sequence R5.17's own text names as
-    /// the bug. Racing it the same way <see cref="ConcurrentInsertionOfTheSameJtiHasExactlyOneWinner"/>
-    /// races the real adapter reliably produces more than one winner, demonstrating that test
-    /// would have caught this class had it been what shipped.
+    /// an intentional yield that widens the race window) inserts -- exactly the sequence R5.17's own
+    /// text names as the bug. Racing it the same way <see cref="ConcurrentInsertionOfTheSameJtiHasExactlyOneWinner"/>
+    /// races the real adapter produces more than one winner in about 99.5% of single races, not in
+    /// every one: measured at the review of A6, 92 of 20,000 single races outside xUnit had exactly
+    /// one winner, because a pool thread can run the first caller's insert before the test thread
+    /// reaches the second caller's check, and <see cref="Task.Yield"/> does not close that window. So
+    /// this fact runs up to twenty independent races, each against a fresh cache, which puts a false
+    /// red near 0.0046^20 -- assuming the trials are independent, which the measurement (a warm-pool
+    /// loop outside xUnit) did not establish. The same rate is how often
+    /// <see cref="ConcurrentInsertionOfTheSameJtiHasExactlyOneWinner"/>, racing once, would miss a
+    /// naive adapter of this shape (a yield between check and insert); one with no await between them
+    /// runs to completion on the test thread and is not caught by this fan-out at all.
     /// </summary>
     [Fact]
     public async Task ANaiveCheckThenInsertImplementationLosesThisRace()
     {
-        var cache = new NaiveCheckThenInsertReplayCache();
         var expiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
         const int concurrency = 200;
+        const int trials = 20;
         var ct = TestContext.Current.CancellationToken;
 
-        var results = await Task.WhenAll(Enumerable.Range(0, concurrency)
-            .Select(_ => cache.TryInsertAsync("shared-jti", expiresAt, ct)));
+        var maxWinners = 0;
+        for (var trial = 0; trial < trials && maxWinners <= 1; trial++)
+        {
+            var cache = new NaiveCheckThenInsertReplayCache();
+            var results = await Task.WhenAll(Enumerable.Range(0, concurrency)
+                .Select(_ => cache.TryInsertAsync("shared-jti", expiresAt, ct)));
+            maxWinners = Math.Max(maxWinners, results.Count(inserted => inserted));
+        }
 
-        var winners = results.Count(inserted => inserted);
-        Assert.True(winners > 1, "expected the non-atomic check-then-insert implementation to race, but it did not");
+        Assert.True(maxWinners > 1, "expected the non-atomic check-then-insert implementation to race, but it did not in 20 trials");
     }
 
     /// <summary>Deliberately not atomic: a plain dictionary read followed, after a forced yield,
@@ -99,7 +111,7 @@ public sealed class InMemoryReplayCacheTests
         public async Task<bool> TryInsertAsync(string jti, DateTimeOffset expiresAt, CancellationToken cancellationToken)
         {
             var alreadyPresent = _seen.ContainsKey(jti);
-            await Task.Yield(); // widen the check-then-insert window so the race is not scheduler-luck-dependent
+            await Task.Yield(); // widens the check-then-insert window; it does not guarantee the race (see the fact's summary)
             if (alreadyPresent)
                 return false;
 

@@ -446,6 +446,54 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R7.22: a flag is never counted against the posting budget, seen only by a post made after a
+    /// flag (review of A6). A T0 agent posts twice, flags once, and may still make its third post of
+    /// the day; its fourth is refused, so a disabled posting budget cannot pass this fact.
+    /// <see cref="R7_22_AnAgentAtItsPostingBudgetMayFlag"/> posts before it flags and cannot see a
+    /// flag being counted.
+    /// </summary>
+    [Fact]
+    public async Task R7_22_AFlagDoesNotSpendThePostingBudget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var (_, _, _, postId) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+        var reporter = ForumAgent.Create(Unique("flag-then-post"), "flag-then-post-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var own = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        for (var i = 0; i < 2; i++)
+        {
+            using var before = await dpop.PostAsync(
+                client, PostsUrl, token, reporter.SignQuestion(own, $"Question {i}?", $"Q{i}", forum.Now), forum.Now, ct);
+            var beforeBody = await before.Content.ReadAsStringAsync(ct);
+            Assert.True(before.StatusCode == HttpStatusCode.Created, $"post {i} before a flag: {(int)before.StatusCode}: {Excerpt(beforeBody)}");
+        }
+
+        using (var flagged = await RaiseAsync(client, dpop, token, postId, "spam", "this is spam", ct))
+        {
+            var flaggedBody = await flagged.Content.ReadAsStringAsync(ct);
+            Assert.True(flagged.StatusCode == HttpStatusCode.Created, $"flag: {(int)flagged.StatusCode}: {Excerpt(flaggedBody)}");
+        }
+
+        // Table 11: three posts a day at T0. The flag spent none of them.
+        using (var posted = await dpop.PostAsync(
+            client, PostsUrl, token, reporter.SignQuestion(own, "Question 2?", "Q2", forum.Now), forum.Now, ct))
+        {
+            var body = await posted.Content.ReadAsStringAsync(ct);
+            Assert.True(posted.StatusCode == HttpStatusCode.Created, $"third post after a flag: {(int)posted.StatusCode}: {Excerpt(body)}");
+        }
+
+        using var refused = await dpop.PostAsync(
+            client, PostsUrl, token, reporter.SignQuestion(own, "Question 3?", "Q3", forum.Now), forum.Now, ct);
+        var refusedBody = await refused.Content.ReadAsStringAsync(ct);
+        Assert.True(refused.StatusCode == HttpStatusCode.Forbidden, $"fourth post: {(int)refused.StatusCode}: {Excerpt(refusedBody)}");
+        Assert.Contains("table-11/rate-budget-exhausted", refusedBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// R7.22: ten flags a day at T0. The eleventh is refused with the flag budget's own reason, and
     /// the budget returns once the trailing 24 hours have passed.
     /// </summary>
@@ -562,6 +610,41 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         using var spamByB = await RaiseAsync(client, bDpop, bToken, postId, "spam", "spam, says B", ct);
         var spamBody = await spamByB.Content.ReadAsStringAsync(ct);
         Assert.True(spamByB.StatusCode == HttpStatusCode.Created, $"{(int)spamByB.StatusCode}: {Excerpt(spamBody)}");
+    }
+
+    /// <summary>
+    /// R10.70's key includes the post: the same raiser and type on another post is not a repeat
+    /// (review of A6). The repeat on the first post is still refused, so a key that dropped the
+    /// raiser or the type instead would not pass this fact for the wrong reason.
+    /// </summary>
+    [Fact]
+    public async Task R10_70_AnotherPostIsNotARepeat()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var (_, _, _, first) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+        var (_, _, _, second) = await PostedQuestionAsync(client, "board-" + Guid.NewGuid().ToString("N")[..8], ct);
+
+        var raiser = ForumAgent.Create(Unique("two-posts"), "two-posts-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await raiser.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+
+        using (var onFirst = await RaiseAsync(client, dpop, token, first, "spam", "spam on the first post", ct))
+        {
+            var body = await onFirst.Content.ReadAsStringAsync(ct);
+            Assert.True(onFirst.StatusCode == HttpStatusCode.Created, $"spam on post 1: {(int)onFirst.StatusCode}: {Excerpt(body)}");
+        }
+
+        using (var onSecond = await RaiseAsync(client, dpop, token, second, "spam", "spam on the second post", ct))
+        {
+            var body = await onSecond.Content.ReadAsStringAsync(ct);
+            Assert.True(onSecond.StatusCode == HttpStatusCode.Created, $"spam on another post: {(int)onSecond.StatusCode}: {Excerpt(body)}");
+        }
+
+        using var repeat = await RaiseAsync(client, dpop, token, first, "spam", "spam on the first post again", ct);
+        var repeatBody = await repeat.Content.ReadAsStringAsync(ct);
+        Assert.True(repeat.StatusCode == HttpStatusCode.Conflict, $"repeat on post 1: {(int)repeat.StatusCode}: {Excerpt(repeatBody)}");
+        using var problem = JsonDocument.Parse(repeatBody);
+        Assert.Equal("curia/flag/already-raised", problem.RootElement.GetProperty("type").GetString());
     }
 
     private async Task<IReadOnlyList<RaisedFlag>> JoinedFlagsByAsync(string raisedBy, CancellationToken ct)

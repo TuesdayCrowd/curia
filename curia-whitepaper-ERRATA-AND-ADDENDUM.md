@@ -7843,10 +7843,11 @@ injection at once, and R10.39 counts each category, which is why the rule is per
 `tools/spec-checks/falsify-spec-checks.py` must go red on all four of its checks with the entry in
 place. The probes the requirements need are owed, each with the break that must turn it red:
 
-- **R10.68.** Check the length after screening rather than before, or compare characters rather than
-  UTF-8 bytes; the flag fact timing a rationale at the cap plus one byte, and the fact sending 4,096
-  bytes of a three-byte character plus one, must go red. Drop the check from the moderation path, and
-  the operator fact must go red.
+- **R10.68.** Check the length after screening rather than before; the flag fact sending an overlong
+  rationale that carries a credential against a post that does not exist must go red, answering the
+  screener's refusal. Compare characters rather than UTF-8 bytes; the fact sending 1,365 three-byte
+  characters and two ASCII bytes (4,097 bytes, 1,367 characters) must go red. Drop the check from the
+  moderation path, and the operator fact must go red.
 - **R10.69.** Take the non-backtracking option off one rule; the fact that reads every pattern's engine,
   and the timing row built for that rule, must go red. Restore the high-entropy rule's lookbehind under
   the non-backtracking option; the build does not fail (`[GeneratedRegex]` emits no diagnostic for it and
@@ -7865,8 +7866,11 @@ place. The probes the requirements need are owed, each with the break that must 
 - **R14.10.** Revert any one of the fifteen fixes the register records under D25; the fuzzer must go red
   naming its route and part, with the hand sweep's rows for that instance removed. Make a ledger row
   pass; the run must go red.
-- **R7.22.** Count a flag against the posting budget again, or let the posting budget refuse one; the
-  fact in which an agent at its posting budget raises a flag must go red. Raise T0's flag budget by one;
+- **R7.22.** Let the posting budget refuse a flag; the fact in which an agent at its posting budget
+  raises a flag must go red. Count a flag against the posting budget, in the policy or in the count the
+  submit path hands it; the fact in which an agent flags and then spends its posting budget must go red,
+  and so must the policy fact deciding a post with the flag budget spent, since an agent that posts
+  before it flags cannot see a flag being counted. Raise T0's flag budget by one;
   the fact refusing the eleventh flag in a day must go red, and so must the fact comparing the policy's
   three numbers with the ones this entry publishes. Let the hold always succeed, or release it before
   the count; the fact sending forty concurrent flags from one T0 raiser, and the fact sending ten
