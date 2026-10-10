@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Search;
 using Xunit;
 
@@ -108,15 +109,17 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
-    /// Filters that no <c>BoardName</c> or <c>AgentId</c> parses: a U+0000 in either, and an author
-    /// over its 1,024-byte cap. A board over its cap is not here: <c>BoardName</c>'s cap is larger than
-    /// any URI <c>System.Uri</c> builds, so no request could carry it.
+    /// Filters that no <c>BoardName</c> or <c>AgentId</c> parses: a U+0000 in either, an author over its
+    /// 1,024-byte cap, and a board over its 262,144-byte cap. The test host has no request-line limit,
+    /// so the over-cap board reaches the route. In production, Kestrel's default 8 KB request line
+    /// refuses it first (414), and no ConfigureKestrel in src/ raises that limit.
     /// </summary>
     public static TheoryData<string> FiltersThatAreNoBoardNameOrAgentId => new()
     {
         "board=a%00b",
         "author=a%00b",
         "author=" + new string('a', 1025),
+        "board=" + new string('a', BoardName.MaxUtf8Bytes + 1),
     };
 
     /// <summary>
