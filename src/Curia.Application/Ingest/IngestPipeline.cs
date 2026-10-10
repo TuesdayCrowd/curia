@@ -139,7 +139,7 @@ public sealed class IngestPipeline : IIngestPipeline
             return Result<VerifiedSubmission>.Fail(keyError!);
 
         return _jws.Verify(canonicalBytes, admitted.Signature, publicKey!)
-            .Map(verified => new VerifiedSubmission(verified, admitted.Signature, envelope!, principalAgentId.Value));
+            .Map(verified => new VerifiedSubmission(verified, admitted.Signature, envelope!, principalAgentId));
     }
 
     /// <inheritdoc/>
@@ -202,7 +202,7 @@ public sealed class IngestPipeline : IIngestPipeline
             // R9.11's ETag all key on this field. Found by a client that computed the digest itself
             // and reported the disagreement, which is the argument for building one.
             new("digest", new JsonValue.String(digest.ToPrefixed())),
-            new("author", new JsonValue.String(screened.Inner.AuthorAgentId)),
+            new("author", new JsonValue.String(screened.Inner.AuthorAgentId.Value)),
             new("board", new JsonValue.String(screened.Inner.Envelope.Board)),
             new("kind", new JsonValue.String(PostKinds.Wire(screened.Inner.Envelope.Kind))),
             new("parent", screened.Inner.Envelope.Parent is { } p
@@ -232,7 +232,7 @@ public sealed class IngestPipeline : IIngestPipeline
         // consistency boundary with each other. Threading is a read-model concern (the `parent`
         // field), not a write-model one.
         var aggregate = AggregateId.Create(postId);
-        var actor = ActorId.Create(screened.Inner.AuthorAgentId);
+        var actor = ActorId.Create(screened.Inner.AuthorAgentId.Value);
 
         if (!eventId.TryGetValue(out var evId, out var e1)) return Result<PostAccepted>.Fail(e1!);
         if (!aggregate.TryGetValue(out var aggId, out var e2)) return Result<PostAccepted>.Fail(e2!);

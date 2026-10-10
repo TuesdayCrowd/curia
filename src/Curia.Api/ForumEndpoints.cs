@@ -673,7 +673,7 @@ public static class ForumEndpoints
                 facts!.CredentialState,
                 resource,
                 action,
-                PostsToday: PostsInBudgetWindow(log, v.AuthorAgentId, now)),
+                PostsToday: PostsInBudgetWindow(log, v.AuthorAgentId.Value, now)),
             cancellationToken).ConfigureAwait(false);
 
         if (!decision.TryGetValue(out var d, out var decisionError))
@@ -685,7 +685,7 @@ public static class ForumEndpoints
         // resource. Until this existed, the qualifier was returned and read past: any T0 agent could
         // submit a revision naming another agent's post.
         if (d!.Qualifier is GrantQualifier.OwnResourceOnly)
-            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId));
+            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId.Value));
 
         if (!d.IsAllowed)
             return Problem(
@@ -738,7 +738,7 @@ public static class ForumEndpoints
         {
             var indexed = await indexer.IndexAsync(
                 new SearchablePost(post!.PostId, post.Digest, v.Envelope.Board, v.Envelope.Kind, v.Envelope.Title,
-                    v.Envelope.Body, v.Envelope.Tags, v.AuthorAgentId, post.Sequence),
+                    v.Envelope.Body, v.Envelope.Tags, v.AuthorAgentId.Value, post.Sequence),
                 cancellationToken).ConfigureAwait(false);
             if (!indexed.TryGetValue(out _, out var indexError))
                 return Problem(StatusCodes.Status500InternalServerError, indexError!);
@@ -1929,7 +1929,7 @@ public static class ForumEndpoints
         string? OwnerOf(string agent) => standings.TryGetValue(agent, out var s) ? s.OwnerId : null;
 
         if (VerificationPolicy.Refusal(
-                v.AuthorAgentId, OwnerOf(v.AuthorAgentId), targetPost.Author, OwnerOf(targetPost.Author),
+                v.AuthorAgentId.Value, OwnerOf(v.AuthorAgentId.Value), targetPost.Author, OwnerOf(targetPost.Author),
                 targetKind, v.Envelope.Board, targetPost.Board) is { } refusal)
             return Problem(StatusCodes.Status422UnprocessableEntity, refusal);
 
@@ -1937,7 +1937,7 @@ public static class ForumEndpoints
         // superseded by the same agent's later one (R8.56); a vote may not be recast, because a vote
         // that could be changed after the tally is visible is the thing epoch sealing exists to stop.
         if (v.Envelope.Kind is PostKind.Vote
-            && posts.Any(p => string.Equals(p.Author, v.AuthorAgentId, StringComparison.Ordinal)
+            && posts.Any(p => string.Equals(p.Author, v.AuthorAgentId.Value, StringComparison.Ordinal)
                 && servable(p.PostId)
                 && string.Equals(VerificationProjector.TargetOf(p), target, StringComparison.Ordinal)))
             return Problem(StatusCodes.Status409Conflict, VerificationErrors.AlreadyVoted(target));
