@@ -65,9 +65,13 @@ public static class ClientAssertionValidator
         if (!kidParse.TryGetValue(out var kid, out var kidError))
         {
             return Result<ClientAssertionClaims>.Fail(string.Equals(kidError!.Type, StorableText.TooLongType, StringComparison.Ordinal)
-                ? AuthNErrors.KeyNotRegistered(context.ExpectedSubject.Value, header.Kid)
+                ? AuthNErrors.KeyNotRegistered(context.ExpectedSubject, header.Kid)
                 : CompactJws.AsMalformed(kidError, "kid", null));
         }
+
+        // R11.34 (errata G18): client_id reaches the key resolver only as an AgentId, parsed here, at the step where the store first used it, so a client_id that is no AgentId is answered after alg, typ and kid exactly as the store answered it before the rule existed: no key registered to that agent (spec section 4.7).
+        if (!AgentId.Parse(context.ExpectedSubject, "client_id").TryGetValue(out var expectedSubject, out _))
+            return Result<ClientAssertionClaims>.Fail(AuthNErrors.KeyNotRegistered(context.ExpectedSubject, kid!.Value));
 
         // R6.31/A12: an agent key's validity is evaluated at server_ts, never at submission time
         // and never at the assertion's own iat -- so the governing instant has to exist before
@@ -83,7 +87,7 @@ public static class ClientAssertionValidator
         // some registered key, and only the store knows whose, so a key registered to another agent is
         // refused here exactly as a kid registered to none is. R5.10's principle holds as well: this
         // call passes an agent identifier, the kid and server_ts, never a URL.
-        var keyResult = await context.AgentKeyResolver.ResolveAsync(context.ExpectedSubject, kid!, serverTimestamp, cancellationToken).ConfigureAwait(false);
+        var keyResult = await context.AgentKeyResolver.ResolveAsync(expectedSubject!, kid!, serverTimestamp, cancellationToken).ConfigureAwait(false);
         if (!keyResult.TryGetValue(out var key, out var keyError))
             return Result<ClientAssertionClaims>.Fail(keyError!);
 
@@ -108,7 +112,7 @@ public static class ClientAssertionValidator
 
         // R5.20's other half: the token goes only to the agent the key was resolved for, so sub must
         // name that agent too.
-        if (claims.Sub != context.ExpectedSubject.Value)
+        if (claims.Sub != expectedSubject!.Value)
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.SubjectMismatch());
 
         // R5.1: "The issuer SHALL reject assertions whose aud does not exactly match its own

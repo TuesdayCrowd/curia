@@ -166,7 +166,7 @@ public sealed class ClientAssertionValidatorTests
             (ClientAssertionScenario.AgentId, scenario.AgentKey.Kid, scenario.AgentKey.PublicKey),
             (Mallory, malloryKey.Kid, malloryKey.PublicKey));
         var asScriptor = scenario.Context with { AgentKeyResolver = resolver };
-        var asMallory = asScriptor with { ExpectedSubject = Typed.Agent(Mallory) };
+        var asMallory = asScriptor with { ExpectedSubject = Mallory };
         var malloryHeader = scenario.ValidHeader().With("kid", malloryKey.Kid);
 
         var impersonation = scenario.SignValid(header: malloryHeader, key: malloryKey);
@@ -306,6 +306,7 @@ public sealed class ClientAssertionValidatorTests
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+        Assert.Equal("'jti' must be a non-empty string of at most 256 UTF-8 bytes holding no U+0000", error.Detail);
     }
 
     /// <summary>
@@ -335,6 +336,70 @@ public sealed class ClientAssertionValidatorTests
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+        Assert.Equal("'kid' must be a non-empty string holding no U+0000", error.Detail);
+        Assert.Empty(resolver.Asked);
+    }
+
+    /// <summary>
+    /// R11.34 (errata G18): a <c>client_id</c> that is no <c>AgentId</c> is parsed where the key store
+    /// first used it, at the resolve step, so a request with a second fault in the assertion is
+    /// answered that fault first, as it was before the rule existed (spec section 4.7): alg, then typ,
+    /// then kid. With no other fault it is answered as the store answered it, not registered to that
+    /// agent. The resolver is never asked. The first build parsed it ahead of the assertion's own
+    /// checks; the closed pass, which varies one part at a time, cannot see that.
+    /// </summary>
+    [Theory]
+    [InlineData("over-cap", "alg-none", "curia/authn/alg-not-allowed")]
+    [InlineData("over-cap", "typ-at+jwt", "curia/authn/typ-mismatch")]
+    [InlineData("over-cap", "kid-empty", "curia/authn/malformed")]
+    [InlineData("over-cap", "valid", "curia/keys/not-registered-to-agent")]
+    [InlineData("nul-inside", "valid", "curia/keys/not-registered-to-agent")]
+    public async Task R11_34_AClientIdThatIsNoAgentIdIsAnsweredAfterTheAssertionsOwnChecks(string clientId, string assertionRow, string expectedType)
+    {
+        var scenario = new ClientAssertionScenario();
+        var resolver = new RecordingAgentKeyResolver(scenario.Context.AgentKeyResolver);
+        var context = scenario.Context with
+        {
+            AgentKeyResolver = resolver,
+            ExpectedSubject = clientId == "over-cap" ? new string('a', 1025) : "https://agents.example/n\0x",
+        };
+        var header = assertionRow switch
+        {
+            "alg-none" => scenario.ValidHeader().With("alg", "none"),
+            "typ-at+jwt" => scenario.ValidHeader().With("typ", "at+jwt"),
+            "kid-empty" => scenario.ValidHeader().With("kid", ""),
+            "valid" => scenario.ValidHeader(),
+            _ => throw new ArgumentOutOfRangeException(nameof(assertionRow), assertionRow, "no such row"),
+        };
+        var assertion = scenario.SignValid(header: header, key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(expectedType, error!.Type);
+        Assert.Empty(resolver.Asked);
+    }
+
+    /// <summary>
+    /// R11.34 (errata G18): a <c>kid</c> longer than any enrolled one is no <c>Kid</c>, and is answered
+    /// as the key store answered it before the rule existed: no key with that identifier is registered
+    /// to that agent (spec section 4.7). The type is neither <c>curia/authn/malformed</c> nor the
+    /// in-memory resolver's <c>curia/authn/kid-not-found</c>, so it tells all three apart, and the
+    /// resolver is never asked. Added after review found that only a parity test of two constructors
+    /// guarded this call site.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AnAssertionWhoseKidIsOverAnyEnrolledLengthIsAnsweredAsAnUnregisteredKid()
+    {
+        var scenario = new ClientAssertionScenario();
+        var resolver = new RecordingAgentKeyResolver(scenario.Context.AgentKeyResolver);
+        var context = scenario.Context with { AgentKeyResolver = resolver };
+        var assertion = scenario.SignValid(header: scenario.ValidHeader().With("kid", new string('k', 1025)), key: scenario.AgentKey);
+
+        var result = await ClientAssertionValidator.ValidateAsync(assertion, context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/keys/not-registered-to-agent", error!.Type);
         Assert.Empty(resolver.Asked);
     }
 

@@ -321,6 +321,42 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
+    /// R11.34 (errata G18): an access token whose header <c>kid</c> is absent, empty, white space, a
+    /// number or U+0000 is no <c>Kid</c>, and is answered on an authenticated route as a <c>kid</c> the
+    /// issuer does not hold was answered before the rule existed: 401, not registered to the issuer
+    /// (spec section 4.7). The sweep above asserts only that none of these answers 5xx.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AnAccessTokenWhoseKidIsNoKidIsAnsweredAsAnUnregisteredKidOnTheWire()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        string[] headers =
+        [
+            "{\"alg\":\"ES256\",\"typ\":\"at+jwt\"}",
+            "{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":\"\"}",
+            "{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":\" \"}",
+            "{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":1}",
+            "{\"alg\":\"ES256\",\"typ\":\"at+jwt\",\"kid\":\"\\u0000\"}",
+        ];
+
+        foreach (var header in headers)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/posts")
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            };
+            request.Headers.TryAddWithoutValidation("Authorization", "DPoP " + Segment(header) + ".e30.AA");
+            request.Headers.TryAddWithoutValidation("DPoP", "a.b.c");
+            using var response = await forum.Client.SendAsync(request, ct);
+            var body = await response.Content.ReadAsStringAsync(ct);
+
+            Assert.True(response.StatusCode == HttpStatusCode.Unauthorized, $"{header}: {(int)response.StatusCode} {body[..Math.Min(body.Length, 240)]}");
+            using var problem = JsonDocument.Parse(body);
+            Assert.Equal("curia/keys/not-registered-to-agent", problem.RootElement.GetProperty("type").GetString());
+        }
+    }
+
+    /// <summary>
     /// A DPoP proof whose <c>jwk</c> names P-256 with coordinates that are no point on it, carrying no
     /// valid signature: nothing that reads the key can verify it, and nothing may throw on it.
     /// </summary>

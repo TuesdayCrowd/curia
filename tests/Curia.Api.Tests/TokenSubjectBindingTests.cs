@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
@@ -286,4 +287,59 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);
         Assert.True(ownStatus == HttpStatusCode.OK, $"the holder's key obtains no token of its own, so the refusals above prove nothing: {(int)ownStatus} {ownBody}");
     }
+
+    /// <summary>
+    /// R11.34 (errata G18), the review's probe: a <c>client_id</c> that is no <c>AgentId</c> (here 1,123
+    /// ASCII bytes, past any agent's length) is parsed where the key store first used it, at the
+    /// resolve step, so a request with a second fault in the assertion is answered that fault, as it
+    /// was before the rule existed (spec section 4.7). The first build parsed it ahead of the
+    /// assertion's own checks and answered every such request not-registered-to-agent; the closed pass,
+    /// which varies one part at a time, cannot see that. The control row sends the same alg-none
+    /// assertion under <c>client_id</c> <c>x</c> and is answered the same body.
+    /// </summary>
+    [Theory]
+    [InlineData("alg-none")]
+    [InlineData("kid-nul")]
+    [InlineData("valid")]
+    [InlineData("alg-none-control")]
+    public async Task R11_34_TheTokenEndpointAnswersAClientIdThatIsNoAgentIdAfterTheAssertionsOwnChecks(string row)
+    {
+        const string AlgNotAllowed =
+            "{\"error\":\"invalid_client\",\"error_description\":\"Algorithm not in the allow-list\",\"detail\":\"curia/authn/alg-not-allowed\"}";
+        const string Malformed =
+            "{\"error\":\"invalid_client\",\"error_description\":\"Malformed token\",\"detail\":\"curia/authn/malformed\"}";
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var overCap = "https://agents.example/" + new string('x', 1100);
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create($"https://agents.example/over-cap-{suffix}", $"over-cap-{suffix}");
+        var dpop = DpopClient.For(agent, agent.AssertionKey);
+
+        if (row == "valid")
+        {
+            using (var enrolled = await agent.EnrollAsync(client, ct))
+                Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+        }
+
+        var (status, body) = row switch
+        {
+            "alg-none" => await dpop.RequestTokenAsync(client, TokenEndpoint, forum.Now, overCap, Segment("{\"alg\":\"none\",\"typ\":\"JWT\",\"kid\":\"k\"}") + ".e30.AA", ct),
+            "kid-nul" => await dpop.RequestTokenAsync(client, TokenEndpoint, forum.Now, overCap, Segment("{\"alg\":\"ES256\",\"typ\":\"JWT\",\"kid\":\"k\\u0000x\"}") + ".e30.AA", ct),
+            "valid" => await dpop.RequestTokenAsync(client, TokenEndpoint, forum.Now, overCap, ct),
+            "alg-none-control" => await dpop.RequestTokenAsync(client, TokenEndpoint, forum.Now, "x", Segment("{\"alg\":\"none\",\"typ\":\"JWT\",\"kid\":\"k\"}") + ".e30.AA", ct),
+            _ => throw new ArgumentOutOfRangeException(nameof(row), row, "no such row"),
+        };
+
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+        Assert.Equal(
+            row switch
+            {
+                "alg-none" or "alg-none-control" => AlgNotAllowed,
+                "kid-nul" => Malformed,
+                _ => NotRegisteredToThatAgent,
+            },
+            body);
+    }
+
+    private static string Segment(string json) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(json));
 }
