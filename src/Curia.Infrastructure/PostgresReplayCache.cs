@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.AuthN.Ports;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -113,9 +114,9 @@ public sealed class PostgresReplayCache : IReplayCache
             "instants) is bound through a parameterized NpgsqlParameter and never reaches the " +
             "command text.")]
     public async Task<Result<bool>> TryInsertAsync(
-        string jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default)
+        Jti jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jti);
+        ArgumentNullException.ThrowIfNull(jti);
 
         // CS-9: the only source of "now" in this type. The same value is used for both the
         // expiry predicate and the prune, so a single call cannot decide that an entry is live
@@ -125,7 +126,7 @@ public sealed class PostgresReplayCache : IReplayCache
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(_sql, connection);
 
-        command.Parameters.Add(new NpgsqlParameter("jti", NpgsqlDbType.Text) { Value = jti });
+        command.Parameters.Add(new NpgsqlParameter("jti", NpgsqlDbType.Text) { Value = jti.Value });
         command.Parameters.Add(new NpgsqlParameter("expires", NpgsqlDbType.TimestampTz) { Value = expiresAt });
         command.Parameters.Add(new NpgsqlParameter("now", NpgsqlDbType.TimestampTz) { Value = now });
 

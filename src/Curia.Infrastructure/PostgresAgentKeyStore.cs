@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -306,9 +307,9 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     /// R6.31 (errata A12) for both resolvers: the key registered <b>to this agent</b> under this
     /// <c>kid</c>, valid at <paramref name="at"/> -- a <c>server_ts</c>, never "now". Ingest asks for
     /// a post's author (R6.2, <see cref="IAuthorKeyResolver"/>); the token endpoint asks for the agent
-    /// a request names as its client (R5.20, <c>Curia.AuthN.Ports.IAgentKeyResolver</c>). The two
-    /// ports' signatures are identical, so this one method implements both, and nothing here resolves
-    /// a key by <c>kid</c> alone: a signature shows that its signer holds some registered key, and
+    /// a request names as its client (R5.20, <c>Curia.AuthN.Ports.IAgentKeyResolver</c>), which takes
+    /// the agent and the <c>kid</c> as types (R11.34, errata G18) and is answered by this method through
+    /// the overload below. Nothing here resolves a key by <c>kid</c> alone: a signature shows that its signer holds some registered key, and
     /// only this table says whose (errata G15).
     /// </summary>
     [SuppressMessage(
@@ -343,6 +344,20 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         command.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
 
         return ValidateAt(await ReadOneAsync(command, cancellationToken).ConfigureAwait(false), agentId, kid, at);
+    }
+
+    /// <summary>The token endpoint's question (<c>Curia.AuthN.Ports.IAgentKeyResolver</c>), asked with
+    /// an agent and a <c>kid</c> that have passed R11.34's rule (errata G18).</summary>
+    public Task<Result<PublicKeyMaterial>> ResolveAsync(
+        AgentId agentId,
+        Kid kid,
+        ServerTimestamp at,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        return ResolveAsync(agentId.Value, kid.Value, at, cancellationToken);
     }
 
     /// <summary>

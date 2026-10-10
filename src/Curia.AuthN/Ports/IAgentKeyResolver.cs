@@ -1,5 +1,6 @@
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Ports;
 
@@ -44,5 +45,5 @@ namespace Curia.AuthN.Ports;
 public interface IAgentKeyResolver
 {
     Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default);
+        AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default);
 }

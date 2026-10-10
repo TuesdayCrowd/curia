@@ -43,9 +43,9 @@ public sealed class PostgresDpopNonceStoreTests
 
         var nonce = Require(await store.IssueAsync(ct));
 
-        Assert.NotEmpty(nonce.Value);
+        Assert.NotEmpty(nonce.Value.Value);
         Assert.True(Require(await store.IsCurrentAsync(nonce.Value, ct)));
-        Assert.False(Require(await store.IsCurrentAsync("a-value-this-store-never-issued", ct)));
+        Assert.False(Require(await store.IsCurrentAsync(Typed.Nonce("a-value-this-store-never-issued"), ct)));
     }
 
     /// <summary>

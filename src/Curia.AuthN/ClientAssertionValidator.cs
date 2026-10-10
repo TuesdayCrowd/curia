@@ -1,5 +1,6 @@
 using Curia.AuthN.Jwt;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN;
 
@@ -56,9 +57,17 @@ public static class ClientAssertionValidator
         // R11.33 (errata G17): CompactJws.ReadString makes an absent or non-string kid "", and the
         // key store refuses a blank one by throwing, so the token endpoint answered 500 to anyone
         // before any signature was checked. A kid no store can be asked about is malformed here; the
-        // store keeps its own guard, as a bug signal rather than a request path.
-        if (CompactJws.IdentifierRefusal(header.Kid, "kid", null) is { } kidError)
-            return Result<ClientAssertionClaims>.Fail(kidError);
+        // store keeps its own guard, as a bug signal rather than a request path. R11.34 (errata
+        // G18): the kid reaches the store only as a Kid. One no store could hold because it is longer
+        // than any enrolled kid is answered as a kid the store does not hold, which is what the store
+        // answered it before (spec section 4.7); every other refusal keeps R11.33's text.
+        var kidParse = Kid.Parse(header.Kid);
+        if (!kidParse.TryGetValue(out var kid, out var kidError))
+        {
+            return Result<ClientAssertionClaims>.Fail(string.Equals(kidError!.Type, StorableText.TooLongType, StringComparison.Ordinal)
+                ? AuthNErrors.KeyNotRegistered(context.ExpectedSubject.Value, header.Kid)
+                : CompactJws.AsMalformed(kidError, "kid", null));
+        }
 
         // R6.31/A12: an agent key's validity is evaluated at server_ts, never at submission time
         // and never at the assertion's own iat -- so the governing instant has to exist before
@@ -74,7 +83,7 @@ public static class ClientAssertionValidator
         // some registered key, and only the store knows whose, so a key registered to another agent is
         // refused here exactly as a kid registered to none is. R5.10's principle holds as well: this
         // call passes an agent identifier, the kid and server_ts, never a URL.
-        var keyResult = await context.AgentKeyResolver.ResolveAsync(context.ExpectedSubject, header.Kid, serverTimestamp, cancellationToken).ConfigureAwait(false);
+        var keyResult = await context.AgentKeyResolver.ResolveAsync(context.ExpectedSubject, kid!, serverTimestamp, cancellationToken).ConfigureAwait(false);
         if (!keyResult.TryGetValue(out var key, out var keyError))
             return Result<ClientAssertionClaims>.Fail(keyError!);
 
@@ -99,7 +108,7 @@ public static class ClientAssertionValidator
 
         // R5.20's other half: the token goes only to the agent the key was resolved for, so sub must
         // name that agent too.
-        if (claims.Sub != context.ExpectedSubject)
+        if (claims.Sub != context.ExpectedSubject.Value)
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.SubjectMismatch());
 
         // R5.1: "The issuer SHALL reject assertions whose aud does not exactly match its own

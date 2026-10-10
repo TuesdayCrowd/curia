@@ -1,4 +1,5 @@
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Ports;
 
@@ -11,16 +12,18 @@ namespace Curia.AuthN.Ports;
 /// proof (the <c>jti</c> replay cache already owns that).</summary>
 public interface IDpopNonceStore
 {
-    /// <summary>Issues a fresh nonce, valid until <see cref="DpopNonce.ExpiresAt"/>. Called both to
+    /// <summary>Issues a fresh nonce, valid until <see cref="IssuedDpopNonce.ExpiresAt"/>. Called both to
     /// seed the first nonce a client will see and to hand back a fresh one in the RFC 9449
     /// <c>use_dpop_nonce</c> challenge when <see cref="IsCurrentAsync"/> rejects a request.</summary>
-    Task<Result<DpopNonce>> IssueAsync(CancellationToken cancellationToken = default);
+    Task<Result<IssuedDpopNonce>> IssueAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Whether <paramref name="nonce"/> is a value this store issued and has not yet
     /// expired. Does not consume it -- see the type remarks on why a nonce is not single-use.</summary>
-    Task<Result<bool>> IsCurrentAsync(string nonce, CancellationToken cancellationToken = default);
+    Task<Result<bool>> IsCurrentAsync(DpopNonce nonce, CancellationToken cancellationToken = default);
 }
 
 /// <summary>A server-issued DPoP nonce and the instant it stops being current (R5.19's
-/// "rotation intervals &lt;= 5 minutes" applied to one value).</summary>
-public sealed record DpopNonce(string Value, DateTimeOffset ExpiresAt);
+/// "rotation intervals &lt;= 5 minutes" applied to one value). The value is a
+/// <see cref="DpopNonce"/> (R11.34, errata G18), the type a proof's <c>nonce</c> reaches
+/// <see cref="IDpopNonceStore.IsCurrentAsync"/> as.</summary>
+public sealed record IssuedDpopNonce(DpopNonce Value, DateTimeOffset ExpiresAt);

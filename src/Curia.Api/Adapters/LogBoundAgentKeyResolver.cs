@@ -2,6 +2,7 @@ using Curia.Application.Credentials;
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Api.Adapters;
 
@@ -15,6 +16,11 @@ namespace Curia.Api.Adapters;
 public sealed class LogBoundAgentKeyResolver(LogBoundKeys keys) : IAgentKeyResolver
 {
     public Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default) =>
-        keys.ResolveAsync(agentId, kid, at, cancellationToken);
+        AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        return keys.ResolveAsync(agentId.Value, kid.Value, at, cancellationToken);
+    }
 }

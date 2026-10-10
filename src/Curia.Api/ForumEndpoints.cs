@@ -2131,7 +2131,7 @@ public static class ForumEndpoints
         if (!issued.TryGetValue(out var nonce, out var nonceError))
             return Problem(StatusCodes.Status500InternalServerError, nonceError!);
 
-        return new NonceChallenge(error, nonce!.Value);
+        return new NonceChallenge(error, nonce!.Value.Value);
     }
 
     /// <summary>The 401 that carries a usable nonce back to the client.</summary>

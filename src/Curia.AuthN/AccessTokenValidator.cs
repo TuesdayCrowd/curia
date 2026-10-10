@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Curia.AuthN.Dpop;
 using Curia.AuthN.Jwt;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN;
 
@@ -25,10 +26,6 @@ public sealed record ValidatedRequest(AccessTokenClaims Claims, string DpopKeyTh
 /// </summary>
 public static class AccessTokenValidator
 {
-    /// <summary>The most UTF-8 bytes a proof's <c>nonce</c> may hold: far above the 128-bit base64url
-    /// nonces the Forum mints, and below any index row.</summary>
-    private const int MaxNonceUtf8Bytes = 4096;
-
     public static async Task<Result<ValidatedRequest>> ValidateRequestAsync(
         IncomingRequest request,
         AccessTokenValidationContext context,
@@ -61,8 +58,13 @@ public static class AccessTokenValidator
 
         // R5.10: resolve kid ONLY within the configured issuer JWKS -- IJwsKeyResolver's shape
         // makes "fetch a key from a URL found inside the token" a non-expressible call, not just
-        // an unwritten one; header.Kid is the only field ever passed to it.
-        var keyResult = await context.IssuerKeyResolver.ResolveAsync(header.Kid, cancellationToken).ConfigureAwait(false);
+        // an unwritten one; header.Kid is the only field ever passed to it. R11.34 (errata G18): it is
+        // passed as a Kid, and one that is no Kid is answered exactly as a kid the issuer does not
+        // hold is answered, since no issuer key is named by it (spec section 4.7).
+        if (!Kid.Parse(header.Kid).TryGetValue(out var kid, out _))
+            return Result<ValidatedRequest>.Fail(AuthNErrors.KeyNotRegistered(AuthNConstants.IssuerKeyOwner, header.Kid));
+
+        var keyResult = await context.IssuerKeyResolver.ResolveAsync(kid!, cancellationToken).ConfigureAwait(false);
         if (!keyResult.TryGetValue(out var key, out var keyError))
             return Result<ValidatedRequest>.Fail(keyError!);
 
@@ -183,11 +185,12 @@ public static class AccessTokenValidator
 
             // R11.33 (errata G17): a nonce the Forum could not have issued is a stale one, answered
             // with a fresh nonce as any other is, and the store is never asked: Postgres text cannot
-            // hold U+0000 (22021), and the store threw on every write route.
-            if (CompactJws.IdentifierRefusal(nonce, "nonce", MaxNonceUtf8Bytes) is not null)
+            // hold U+0000 (22021), and the store threw on every write route. R11.34 (errata G18): the
+            // store is asked only about a DpopNonce.
+            if (!DpopNonce.Parse(nonce).TryGetValue(out var typedNonce, out _))
                 return Result<ValidatedRequest>.Fail(AuthNErrors.NonceStale());
 
-            var currentResult = await nonceStore.IsCurrentAsync(nonce, cancellationToken).ConfigureAwait(false);
+            var currentResult = await nonceStore.IsCurrentAsync(typedNonce!, cancellationToken).ConfigureAwait(false);
             if (!currentResult.TryGetValue(out var isCurrent, out var currentError))
                 return Result<ValidatedRequest>.Fail(currentError!);
 

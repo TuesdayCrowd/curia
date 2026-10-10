@@ -1,6 +1,7 @@
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Tests.InMemory;
 
@@ -29,8 +30,8 @@ internal sealed class InMemoryJwsKeyResolver : IJwsKeyResolver
     {
     }
 
-    public Task<Result<PublicKeyMaterial>> ResolveAsync(string kid, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_keysByKid.TryGetValue(kid, out var key)
+    public Task<Result<PublicKeyMaterial>> ResolveAsync(Kid kid, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_keysByKid.TryGetValue(kid.Value, out var key)
             ? Result<PublicKeyMaterial>.Ok(key)
-            : Result<PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(kid)));
+            : Result<PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(kid.Value)));
 }

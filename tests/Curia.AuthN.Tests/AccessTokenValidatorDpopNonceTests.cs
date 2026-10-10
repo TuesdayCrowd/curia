@@ -44,7 +44,7 @@ public sealed class AccessTokenValidatorDpopNonceTests
         Assert.True(issued.TryGetValue(out var nonce, out var issueError), issueError?.Detail);
 
         var token = scenario.SignAccessToken();
-        var proof = scenario.SignDpopProof(token, payload: scenario.ValidDpopPayload(token, nonce: nonce.Value));
+        var proof = scenario.SignDpopProof(token, payload: scenario.ValidDpopPayload(token, nonce: nonce.Value.Value));
         var request = scenario.ValidRequest(accessToken: token, dpopProof: proof, requireNonce: true);
 
         var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, ct);
@@ -65,7 +65,7 @@ public sealed class AccessTokenValidatorDpopNonceTests
         Assert.True(secondIssued.TryGetValue(out _, out _));
 
         var token = scenario.SignAccessToken();
-        var proof = scenario.SignDpopProof(token, payload: scenario.ValidDpopPayload(token, nonce: firstNonce.Value));
+        var proof = scenario.SignDpopProof(token, payload: scenario.ValidDpopPayload(token, nonce: firstNonce.Value.Value));
         var request = scenario.ValidRequest(accessToken: token, dpopProof: proof, requireNonce: true);
 
         var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, ct);

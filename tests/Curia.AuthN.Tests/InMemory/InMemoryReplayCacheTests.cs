@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Curia.AuthN.Ports;
+using Curia.AuthN.Tests.Support;
 using Curia.Domain.Primitives;
 using Xunit;
 
@@ -22,8 +23,8 @@ public sealed class InMemoryReplayCacheTests
         var cache = new InMemoryReplayCache();
         var expiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
 
-        var first = await cache.TryInsertAsync("jti-1", expiresAt, TestContext.Current.CancellationToken);
-        var second = await cache.TryInsertAsync("jti-1", expiresAt, TestContext.Current.CancellationToken);
+        var first = await cache.TryInsertAsync(Typed.Jti("jti-1"), expiresAt, TestContext.Current.CancellationToken);
+        var second = await cache.TryInsertAsync(Typed.Jti("jti-1"), expiresAt, TestContext.Current.CancellationToken);
 
         Assert.True(first.TryGetValue(out var firstInserted, out _) && firstInserted);
         Assert.True(second.TryGetValue(out var secondInserted, out _) && !secondInserted);
@@ -35,8 +36,8 @@ public sealed class InMemoryReplayCacheTests
         var cache = new InMemoryReplayCache();
         var expiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
 
-        var a = await cache.TryInsertAsync("jti-a", expiresAt, TestContext.Current.CancellationToken);
-        var b = await cache.TryInsertAsync("jti-b", expiresAt, TestContext.Current.CancellationToken);
+        var a = await cache.TryInsertAsync(Typed.Jti("jti-a"), expiresAt, TestContext.Current.CancellationToken);
+        var b = await cache.TryInsertAsync(Typed.Jti("jti-b"), expiresAt, TestContext.Current.CancellationToken);
 
         Assert.True(a.TryGetValue(out var aInserted, out _) && aInserted);
         Assert.True(b.TryGetValue(out var bInserted, out _) && bInserted);
@@ -61,7 +62,7 @@ public sealed class InMemoryReplayCacheTests
         var ct = TestContext.Current.CancellationToken;
 
         var results = await Task.WhenAll(Enumerable.Range(0, concurrency)
-            .Select(_ => cache.TryInsertAsync("shared-jti", expiresAt, ct)));
+            .Select(_ => cache.TryInsertAsync(Typed.Jti("shared-jti"), expiresAt, ct)));
 
         var winners = results.Count(r => r.TryGetValue(out var inserted, out _) && inserted);
         Assert.Equal(1, winners);

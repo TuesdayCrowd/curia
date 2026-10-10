@@ -147,12 +147,12 @@ public sealed class AccessTokenValidatorOrderingTests
         public List<string> RequestedKids { get; } = [];
 
         public Task<Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>> ResolveAsync(
-            string requestedKid, CancellationToken cancellationToken = default)
+            Curia.Domain.Primitives.Boundary.Kid requestedKid, CancellationToken cancellationToken = default)
         {
-            RequestedKids.Add(requestedKid);
-            return Task.FromResult(requestedKid == kid
+            RequestedKids.Add(requestedKid.Value);
+            return Task.FromResult(requestedKid.Value == kid
                 ? Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>.Ok(key)
-                : Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(requestedKid)));
+                : Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(requestedKid.Value)));
         }
     }
 }

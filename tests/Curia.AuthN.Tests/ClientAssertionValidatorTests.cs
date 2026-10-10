@@ -166,7 +166,7 @@ public sealed class ClientAssertionValidatorTests
             (ClientAssertionScenario.AgentId, scenario.AgentKey.Kid, scenario.AgentKey.PublicKey),
             (Mallory, malloryKey.Kid, malloryKey.PublicKey));
         var asScriptor = scenario.Context with { AgentKeyResolver = resolver };
-        var asMallory = asScriptor with { ExpectedSubject = Mallory };
+        var asMallory = asScriptor with { ExpectedSubject = Typed.Agent(Mallory) };
         var malloryHeader = scenario.ValidHeader().With("kid", malloryKey.Kid);
 
         var impersonation = scenario.SignValid(header: malloryHeader, key: malloryKey);
@@ -379,7 +379,7 @@ public sealed class ClientAssertionValidatorTests
         var ct = TestContext.Current.CancellationToken;
         var sharedJti = "shared-across-artifact-types";
 
-        var preInserted = await scenario.ReplayCache.TryInsertAsync(sharedJti, scenario.Clock.GetUtcNow().AddMinutes(5), ct);
+        var preInserted = await scenario.ReplayCache.TryInsertAsync(Typed.Jti(sharedJti), scenario.Clock.GetUtcNow().AddMinutes(5), ct);
         Assert.True(preInserted.TryGetValue(out var wasFirst, out _) && wasFirst);
 
         var assertion = scenario.SignValid(payload: scenario.ValidPayload(jti: sharedJti));

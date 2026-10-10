@@ -1,7 +1,9 @@
 using Curia.Application.Ports;
+using Curia.AuthN;
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Api.Adapters;
 
@@ -22,12 +24,13 @@ namespace Curia.Api.Adapters;
 public sealed class IssuerKeyResolver(PublicKeyMaterial key) : IJwsKeyResolver
 {
     public Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string kid, CancellationToken cancellationToken = default)
+        Kid kid, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(kid);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return Task.FromResult(string.Equals(kid, key.Kid, StringComparison.Ordinal)
+        return Task.FromResult(string.Equals(kid.Value, key.Kid, StringComparison.Ordinal)
             ? Result<PublicKeyMaterial>.Ok(key)
-            : Result<PublicKeyMaterial>.Fail(AuthorKeyErrors.NotRegisteredToAgent("issuer", kid)));
+            : Result<PublicKeyMaterial>.Fail(AuthorKeyErrors.NotRegisteredToAgent(AuthNConstants.IssuerKeyOwner, kid.Value)));
     }
 }

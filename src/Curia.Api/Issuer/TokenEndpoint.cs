@@ -12,6 +12,7 @@ using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Api.Issuer;
 
@@ -112,10 +113,19 @@ public static class TokenEndpoint
         if (thumbprint is null)
             return OAuthError("invalid_dpop_proof", "The DPoP proof's key could not be read");
 
+        // R11.34 (errata G18): client_id reaches the key resolver only as an AgentId. One that is no
+        // AgentId names no enrolled agent, and is answered as the key store answered it before the
+        // rule existed: no key registered to that agent (spec section 4.7).
+        if (!AgentId.Parse(clientId, "client_id").TryGetValue(out var expectedSubject, out _))
+        {
+            var unregistered = AuthorKeyErrors.NotRegisteredToAgent(clientId, "");
+            return OAuthError("invalid_client", unregistered.Title, unregistered.Type);
+        }
+
         // R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.
         var context = new ClientAssertionValidationContext(
             TokenEndpointUrl(http),
-            ExpectedSubject: clientId,
+            ExpectedSubject: expectedSubject!,
             agentKeys,
             replayCache,
             verifiers,

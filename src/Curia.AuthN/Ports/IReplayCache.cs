@@ -1,4 +1,5 @@
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Ports;
 
@@ -23,5 +24,5 @@ public interface IReplayCache
     /// <see cref="AccessTokenValidator"/>/<see cref="ClientAssertionValidator"/> for what each
     /// artifact type uses), not by this port.
     /// </summary>
-    Task<Result<bool>> TryInsertAsync(string jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default);
+    Task<Result<bool>> TryInsertAsync(Jti jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default);
 }

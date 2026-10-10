@@ -1,5 +1,6 @@
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN;
 
@@ -41,7 +42,7 @@ public sealed record AccessTokenValidationContext(
 /// </summary>
 public sealed record ClientAssertionValidationContext(
     string TokenEndpoint,
-    string ExpectedSubject,
+    AgentId ExpectedSubject,
     IAgentKeyResolver AgentKeyResolver,
     IReplayCache ReplayCache,
     IReadOnlyDictionary<string, IContentVerifier> VerifiersByAlg,

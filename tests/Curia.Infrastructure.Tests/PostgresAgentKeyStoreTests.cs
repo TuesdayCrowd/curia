@@ -334,13 +334,13 @@ public sealed class PostgresAgentKeyStoreTests
 
         Require(await store.RegisterAsync("agent://forum/alice", key, LastMonth, Today, ct));
 
-        Assert.Equal(key.Kid, Require(await assertionPort.ResolveAsync("agent://forum/alice", key.Kid, insideWindow, ct)).Kid);
+        Assert.Equal(key.Kid, Require(await assertionPort.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid(key.Kid), insideWindow, ct)).Kid);
         Assert.Equal(
             "curia/keys/not-registered-to-agent",
-            Refusal(await assertionPort.ResolveAsync("agent://forum/bob", key.Kid, insideWindow, ct)).Type);
+            Refusal(await assertionPort.ResolveAsync(Typed.Agent("agent://forum/bob"), Typed.Kid(key.Kid), insideWindow, ct)).Type);
         Assert.Equal(
             "curia/keys/no-longer-valid",
-            Refusal(await assertionPort.ResolveAsync("agent://forum/alice", key.Kid, ServerTimestamp.At(Today), ct)).Type);
+            Refusal(await assertionPort.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid(key.Kid), ServerTimestamp.At(Today), ct)).Type);
     }
 
     /// <summary>
