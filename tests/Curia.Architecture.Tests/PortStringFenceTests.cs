@@ -127,6 +127,42 @@ public sealed class PortStringFenceTests
             + Environment.NewLine + string.Join(Environment.NewLine, failures.Order(StringComparer.Ordinal)));
     }
 
+    [Fact]
+    public void R11_34_AGenericTypesConstructorIsKeyedByItsGenericTypeDefinition()
+    {
+        const string Expected = "Curia.Architecture.Tests.PortStringFenceTests+FenceKeyProbe`1..ctor";
+
+        var closedCtor = Assert.Single(typeof(FenceKeyProbe<string>).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Equal(2, closedCtor.GetParameters().Length);
+
+        // A type built over a method's type parameter, as a port's generic method's parameter is: its
+        // FullName is null, which is the case that keyed every such constructor "..ctor".
+        var methodTypeParameter = typeof(Enumerable).GetMethods()
+            .Single(m => m.Name == nameof(Enumerable.Empty) && m.GetParameters().Length == 0)
+            .GetGenericArguments()[0];
+        var openType = typeof(FenceKeyProbe<>).MakeGenericType(methodTypeParameter);
+        Assert.Null(openType.FullName);
+        var openCtor = Assert.Single(openType.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Equal(2, openCtor.GetParameters().Length);
+
+        // Both keys in one assertion, whose message prints both in full, so a run shows which failed.
+        var keys = new[] { ("closed", KeyOf(closedCtor)), ("open", KeyOf(openCtor)) };
+        var wrong = keys.Where(k => k.Item2 != Expected).Select(k => $"{k.Item1} key was \"{k.Item2}\"").ToList();
+        Assert.True(wrong.Count == 0, $"expected each key to be \"{Expected}\"; " + string.Join("; ", wrong));
+        foreach (var (_, key) in keys)
+        {
+            Assert.DoesNotContain("Version=", key, StringComparison.Ordinal);
+            Assert.False(key.StartsWith('.'), $"{key} starts with '.': its type has no name");
+        }
+    }
+
+    /// <summary>A generic type whose constructor <see cref="KeyOf"/> keys, closed and open.</summary>
+    [SuppressMessage(
+        "Performance",
+        "CA1812:Avoid uninstantiated internal classes",
+        Justification = "Only its constructors are read, by reflection.")]
+    private sealed record FenceKeyProbe<T>(T Value, string Name);
+
     private static bool Covers((string Member, string Parameter, string Reason) row, string member, string parameter) =>
         row.Parameter == "*"
             ? member.StartsWith(row.Member[..row.Member.LastIndexOf('.')] + ".", StringComparison.Ordinal)
@@ -199,7 +235,14 @@ public sealed class PortStringFenceTests
         return new FenceScope(members, [.. strings.Distinct()], [.. open.Distinct()]);
     }
 
-    private static string KeyOf(MethodBase method) => method.DeclaringType!.FullName + "." + method.Name;
+    /// <summary>A constructed or open generic type is keyed by its generic type definition, as step 2 keys a TypeSpecification, so that no key is empty or carries a runtime version.</summary>
+    private static string KeyOf(MethodBase method)
+    {
+        var type = method.DeclaringType!;
+        if (type.IsGenericType)
+            type = type.GetGenericTypeDefinition();
+        return type.FullName + "." + method.Name;
+    }
 
     private static Type? FindType(string fullName) =>
         Application.GetType(fullName) ?? AuthN.GetType(fullName);
