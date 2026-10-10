@@ -1019,6 +1019,10 @@ public static Result<PostId> Parse(string? value, string field = "post_id") =>
 
 - [ ] Run. Expected: compile errors (the types do not exist yet). Write the types, then run. Expected: `Passed!`.
 - [ ] Commit: `R11.34: one rule for a caller's string, and the types a port takes`.
+  - Before any change: the closed pass (Release, `RequestFuzzClosedTests`, `Passed: 8`) wrote `/tmp/answers-before-B.json`, 35,757 keys.
+  - Red run: with `src/Curia.Domain.Primitives/Boundary/` moved aside, `Curia.Domain.Primitives.Tests` failed to compile (`CS0234`: `Boundary` does not exist in `Curia.Domain.Primitives`).
+  - Recorded as built: `R11_34_TheRuleRefusesInItsOrder` takes an index into a static case array, not the values. Passed as theory arguments, the three cases holding a lone surrogate reached the fact altered by the runner's serialization and answered `Ok`. The cases are the table's seven plus four that pin the order where two checks fail at once (blank over the cap, NUL over the cap, NUL before a lone surrogate, a lone surrogate over the cap).
+  - Recorded as built: `Rationale`'s facts live in `tests/Curia.Domain.Tests/Moderation/RationaleTests.cs`, since `Curia.Domain.Primitives.Tests` does not reference `Curia.Domain`. `Rationale.Parse` refuses with the generic `curia/input/*` types; B3 maps them to A4's slugs at the use case.
 
 ### Task B2: AuthN and its adapters take types
 
