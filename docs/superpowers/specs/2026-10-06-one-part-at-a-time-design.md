@@ -234,7 +234,7 @@ The fact is `R11_34_NoPortOrHostCalledUseCaseTakesACallersStringWithoutAReason`,
 
 1. Every public interface declared in `Curia.Application` and `Curia.AuthN`, all namespaces, and every method on it.
 2. Every member that `Curia.Api.dll` or `Curia.Operator.dll` references in those two assemblies. These are read as IL `MemberReference`s whose parent, walked through nested `TypeReference`s to the outermost type and through a `TypeSpecification` to its generic type definition, has a resolution scope that is the `Curia.Application` or `Curia.AuthN` assembly reference. They cover methods and constructors.
-3. For each parameter whose type is declared in a `Curia.*` assembly: that type's public constructors' parameters, walked recursively with a visited set.
+3. For each parameter, every type declared in a `Curia.*` assembly that its type names, the type itself or seen through an array, a nullable, a by-reference or a generic instantiation's type arguments, recursively (the positions step 4 looks through): that type's public constructors' parameters, walked recursively with a visited set. A parameter whose type, seen through an array, nullable or by-reference, is a type parameter fails the fact, because the fence cannot see what a host instantiates it with. A type parameter inside a generic instantiation's type arguments (`IReadOnlyList<T>`, `Func<JsonElement, Result<T>>`) is not caught.
 4. A parameter is string-like if its type is `string`, `char[]`, `ReadOnlySpan<char>`, `ReadOnlyMemory<char>`, `Memory<char>` or `StringValues`, or an array, nullable or generic instantiation any of whose element or type arguments is string-like, recursively.
 
 The allowlist is in `tests/Curia.Architecture.Tests/PortStringAllowlist.cs`:

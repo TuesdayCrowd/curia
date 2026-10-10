@@ -12,9 +12,11 @@ namespace Curia.Architecture.Tests;
 /// <para><b>The scope is derived, in four steps.</b> (1) Every public interface declared in
 /// <c>Curia.Application</c> and <c>Curia.AuthN</c>, and every method on it. (2) Every method and
 /// constructor that <c>Curia.Api</c> or <c>curia-operator</c> references in those two assemblies,
-/// read from IL (<see cref="IlCallSites.MemberReferencesInto"/>). (3) For each parameter whose type is
-/// declared in a <c>Curia.*</c> assembly, that type's public constructors' parameters, recursively,
-/// with a visited set. (4) A parameter is string-like if its type is <see cref="string"/>,
+/// read from IL (<see cref="IlCallSites.MemberReferencesInto"/>). (3) For each parameter, every type
+/// declared in a <c>Curia.*</c> assembly that its type names, seen through an array, nullable,
+/// by-reference or a generic instantiation's type arguments: that type's public constructors'
+/// parameters, recursively, with a visited set. A parameter whose type is a type parameter fails the
+/// fact. (4) A parameter is string-like if its type is <see cref="string"/>,
 /// <c>char[]</c>, <c>ReadOnlySpan&lt;char&gt;</c>, <c>ReadOnlyMemory&lt;char&gt;</c>,
 /// <c>Memory&lt;char&gt;</c> or <c>StringValues</c>, or an array, nullable, by-reference or generic
 /// instantiation any of whose element or type arguments is string-like, recursively.</para>
@@ -53,6 +55,16 @@ public sealed class PortStringFenceTests
         ("Curia.Application.Credentials.AttestOwner.RecordAsync", "agentId"),
     ];
 
+    /// <summary>
+    /// Constructors step 3 reaches only as <c>PostEnvelope</c>'s <c>ImmutableArray&lt;&gt;</c> type
+    /// arguments, which must be in scope.
+    /// </summary>
+    private static readonly string[] ReachedThroughATypeArgument =
+    [
+        "Curia.Domain.Content.Reference..ctor",
+        "Curia.Domain.Content.CodeBlock..ctor",
+    ];
+
     /// <summary>Step 2's hosts: <c>Curia.Api</c>, and <c>Curia.Operator</c>, whose assembly is <c>curia-operator</c>.</summary>
     private static readonly string[] Hosts = ["Curia.Api.dll", "curia-operator.dll"];
 
@@ -69,6 +81,8 @@ public sealed class PortStringFenceTests
         Assert.True(hostCount >= 20, $"only {hostCount} host-referenced members were found; the IL read is looking in the wrong place");
         foreach (var sentinel in Sentinels)
             Assert.True(scope.Members.Contains(sentinel), $"{sentinel} is not in the fence's scope; a defect in how the scope is derived");
+        foreach (var m in ReachedThroughATypeArgument)
+            Assert.True(scope.Members.Contains(m), $"{m} is reachable only through a generic type argument and is not in the fence's scope; step 3 is not walking type arguments");
 
         // A Result<T> carries its value in private state, which step 3 must not walk: these two
         // parameters are parse outcomes (B2's ExpectedSubject, B3's attest-owner agent), and if either
@@ -91,6 +105,9 @@ public sealed class PortStringFenceTests
             if (FindType(typeName) is not { } type || !IsErrorFactory(type))
                 failures.Add($"row {member}(*) names {typeName}, which is not a static class whose every public method returns Error");
         }
+
+        foreach (var (member, parameter, type) in scope.OpenParameters)
+            failures.Add($"{member}({parameter}): {type} is a type parameter; the fence cannot see what a host instantiates it with");
 
         foreach (var (member, parameter, type) in scope.StringParameters)
         {
@@ -115,7 +132,10 @@ public sealed class PortStringFenceTests
             ? member.StartsWith(row.Member[..row.Member.LastIndexOf('.')] + ".", StringComparison.Ordinal)
             : row.Member == member && row.Parameter == parameter;
 
-    private sealed record FenceScope(HashSet<string> Members, List<(string Member, string Parameter, string Type)> StringParameters);
+    private sealed record FenceScope(
+        HashSet<string> Members,
+        List<(string Member, string Parameter, string Type)> StringParameters,
+        List<(string Member, string Parameter, string Type)> OpenParameters);
 
     private static FenceScope Scope(out int portCount, out int hostCount)
     {
@@ -146,6 +166,7 @@ public sealed class PortStringFenceTests
 
         var members = new HashSet<string>(StringComparer.Ordinal);
         var strings = new List<(string, string, string)>();
+        var open = new List<(string, string, string)>();
         var visited = new HashSet<Type>();
         var seen = new HashSet<MethodBase>();
         var queue = new Queue<MethodBase>(methods);
@@ -161,15 +182,21 @@ public sealed class PortStringFenceTests
                 if (IsStringLike(parameter.ParameterType))
                     strings.Add((key, parameter.Name ?? "", parameter.ParameterType.ToString()));
 
-                if (CuriaTypeOf(parameter.ParameterType) is { } curia && visited.Add(curia))
+                if (IsOpen(parameter.ParameterType))
+                    open.Add((key, parameter.Name ?? "", parameter.ParameterType.ToString()));
+
+                foreach (var curia in CuriaTypesOf(parameter.ParameterType))
                 {
-                    foreach (var ctor in curia.GetConstructors(BindingFlags.Public | BindingFlags.Instance))
-                        queue.Enqueue(ctor);
+                    if (visited.Add(curia))
+                    {
+                        foreach (var ctor in curia.GetConstructors(BindingFlags.Public | BindingFlags.Instance))
+                            queue.Enqueue(ctor);
+                    }
                 }
             }
         }
 
-        return new FenceScope(members, [.. strings.Distinct()]);
+        return new FenceScope(members, [.. strings.Distinct()], [.. open.Distinct()]);
     }
 
     private static string KeyOf(MethodBase method) => method.DeclaringType!.FullName + "." + method.Name;
@@ -177,17 +204,53 @@ public sealed class PortStringFenceTests
     private static Type? FindType(string fullName) =>
         Application.GetType(fullName) ?? AuthN.GetType(fullName);
 
-    /// <summary>Step 3: the type itself when a <c>Curia.*</c> assembly declares it, seen through a nullable, an array or a reference.</summary>
-    private static Type? CuriaTypeOf(Type type)
+    /// <summary>
+    /// Step 3: every type a <c>Curia.*</c> assembly declares that the parameter's type names: the type
+    /// itself, or seen through an array, a nullable, a by-reference or a generic instantiation's type
+    /// arguments, recursively; the same positions step 4 looks through.
+    /// </summary>
+    private static IEnumerable<Type> CuriaTypesOf(Type type)
     {
         if (type.HasElementType)
-            return CuriaTypeOf(type.GetElementType()!);
+        {
+            foreach (var t in CuriaTypesOf(type.GetElementType()!))
+                yield return t;
+            yield break;
+        }
         if (Nullable.GetUnderlyingType(type) is { } underlying)
-            return CuriaTypeOf(underlying);
+        {
+            foreach (var t in CuriaTypesOf(underlying))
+                yield return t;
+            yield break;
+        }
         if (type.IsGenericParameter)
-            return null;
+            yield break;
 
-        return type.Assembly.GetName().Name?.StartsWith("Curia.", StringComparison.Ordinal) == true ? type : null;
+        if (type.Assembly.GetName().Name?.StartsWith("Curia.", StringComparison.Ordinal) == true)
+            yield return type;
+
+        if (type.IsGenericType)
+        {
+            foreach (var argument in type.GetGenericArguments())
+            {
+                foreach (var t in CuriaTypesOf(argument))
+                    yield return t;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The open-parameter tripwire: a type parameter seen through an array, a nullable or a
+    /// by-reference only (a bare <c>T</c>, <c>T[]</c>, <c>T?</c> or by-ref <c>T</c>). A type parameter
+    /// inside a generic argument, such as <c>Func&lt;JsonElement, Result&lt;T&gt;&gt;</c>, is not counted.
+    /// </summary>
+    private static bool IsOpen(Type type)
+    {
+        if (type.HasElementType)
+            return IsOpen(type.GetElementType()!);
+        if (Nullable.GetUnderlyingType(type) is { } underlying)
+            return IsOpen(underlying);
+        return type.IsGenericParameter;
     }
 
     /// <summary>Step 4.</summary>
