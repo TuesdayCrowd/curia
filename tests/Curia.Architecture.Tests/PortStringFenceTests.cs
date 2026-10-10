@@ -101,7 +101,12 @@ public sealed class PortStringFenceTests
 
         foreach (var (member, _, _) in rows.Where(r => r.Parameter == "*"))
         {
-            var typeName = member[..member.LastIndexOf('.')];
+            if (FactoryTypeOf(member) is not { } typeName)
+            {
+                failures.Add($"row {member}(*) is malformed: a \"*\" row's member is \"<DeclaringType.FullName>.*\"");
+                continue;
+            }
+
             if (FindType(typeName) is not { } type || !IsErrorFactory(type))
                 failures.Add($"row {member}(*) names {typeName}, which is not a static class whose every public method returns Error");
         }
@@ -165,8 +170,12 @@ public sealed class PortStringFenceTests
 
     private static bool Covers((string Member, string Parameter, string Reason) row, string member, string parameter) =>
         row.Parameter == "*"
-            ? member.StartsWith(row.Member[..row.Member.LastIndexOf('.')] + ".", StringComparison.Ordinal)
+            ? FactoryTypeOf(row.Member) is { } factoryType && member.StartsWith(factoryType + ".", StringComparison.Ordinal)
             : row.Member == member && row.Parameter == parameter;
+
+    // A "*" row's Member is exactly "<DeclaringType.FullName>.*"; anything else is malformed, and covers nothing.
+    private static string? FactoryTypeOf(string member) =>
+        member.Length > 2 && member.EndsWith(".*", StringComparison.Ordinal) ? member[..^2] : null;
 
     private sealed record FenceScope(
         HashSet<string> Members,

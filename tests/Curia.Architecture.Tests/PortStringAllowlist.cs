@@ -6,11 +6,12 @@ namespace Curia.Architecture.Tests;
 /// R11.34 (errata G18): the string-like parameters a port or a host-called use case may take, each
 /// with the reason spec section 4.8's classification rule gives it. A row is a decision, read in
 /// review; <see cref="PortStringFenceTests"/> fails on a parameter with no row, a stale row, a
-/// <c>"*"</c> row on a type that is no error factory, and an empty reason.
+/// <c>"*"</c> row on a type that is no error factory, a <c>"*"</c> row whose member is not
+/// <c>&lt;Type&gt;.*</c>, and an empty reason.
 /// </summary>
 internal static class PortStringAllowlist
 {
-    /// Member: "<DeclaringType.FullName>.<Method>" or "<DeclaringType.FullName>..ctor".
+    /// Member: "<DeclaringType.FullName>.<Method>" or "<DeclaringType.FullName>..ctor"; for a "*" row, "<DeclaringType.FullName>.*".
     /// Parameter: the parameter's name, or "*" for an error factory: a static class whose every public method returns Error.
     internal static readonly ImmutableArray<(string Member, string Parameter, string Reason)> Rows =
     [

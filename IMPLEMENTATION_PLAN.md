@@ -6478,8 +6478,8 @@ Read this before adding any check. Each cost real time. The first eight are in
 11 is the MCP plan's Stage 2, where it happened three times in one stage; 12–15 are its Stage 3 —
 trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record; 16 is
 its Stage 4; 17 and 18 are the screener stage's; 19 and 20 are the moderation stage's; 21 is the
-enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers stage's; 27 is the
-one-part-at-a-time stage's.
+enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers stage's; 27 and 28 are
+the one-part-at-a-time stage's.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -6672,6 +6672,15 @@ one-part-at-a-time stage's.
     caught only by the timing row keyed to its anchor word. **Hold a cost property by structure** --
     every regex in shipped IL a generated pattern on the linear engine -- **and keep the derived
     check as the backstop, never as the gate.**
+
+28. **A falsification table written before a review commit must be re-audited against the tree at
+    execution time.** Review commits fold their changes into the code, not into a later task's
+    anchors. B6's FB13 anchor went stale at b75b2bf, which moved `TokenEndpoint`'s parse into a
+    local, and its FB1 was unbuildable under `AnalysisLevel=latest-all` (CA1068 keeps a
+    `CancellationToken` last, and the positional callers broke when a parameter went before it).
+    Both were amended at B6, as was FB2, which named its row by position ("the first row") when
+    c3ae241 had since put a `"*"` row first, so its mutation was a no-op and the fence stayed green.
+    **Count every anchor against the tree before the first case runs, and anchor by literal text.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.
