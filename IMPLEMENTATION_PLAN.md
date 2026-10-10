@@ -4470,15 +4470,15 @@ its operator-name and rationale-required checks and before any read of the log.
   `R10_68_AnOverlongBlankReasonIsRefusedAsRequired`, and the flag path's
   `FlagEndpointTests.R10_68_AnUnauthenticatedOverlongFlagIsRefusedByAuthenticationFirst` and
   `R10_68_AnOverlongFlagPastTheFlagBudgetIsRefusedByAuthorizationFirst`.
-- *The falsification cases* (the plan's Task A6, run 2, `falsify: 53 cases, 0 not RED`): F1, F2, F3
+- *The falsification cases* (the plan's Task A6, run 3, `falsify: 56 cases, 0 not RED`): F1, F2, F3
   and F13 (the engine, the budget row, the value's span); F31-F33, the IL-wide engine fact, each green
   on the Domain reflection fact (review of 1b0d423); F4-F7 (the cap, its unit, and the order on each
   path); F34 (review of a403a3c) and, beside it, F48 (review of A6), the screening half of R10.68's
   order on the moderation path and on the flag path; F35, its lookup half; F36 and F37, the two
   read-counting facts (review of the A4 round-1 fix); and F54, the moderation half of R10.68's
   "after" order (the operator-name and rationale-required checks), and F55 and F56, its flag half
-  (authentication, then authorization) (review of the A7 round-1 fix). Run 3, over all 56 cases, is
-  owed on the committed fix.
+  (authentication, then authorization) (review of the A7 round-1 fix). Run 3 ran all 56 on the
+  committed fix (`4740d34`) and supersedes run 2.
 - *Observed and acted on (review of A6).*
   `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead`'s summary said
   RaiseFlag reads no flag rows on any path; since R10.70 it reads `IFlagDetailStore.ReadAllAsync`
