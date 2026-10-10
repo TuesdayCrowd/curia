@@ -303,7 +303,8 @@ public sealed class ApplyModerationTests
     /// nor adjudicated by that withholding, and the next withholding is a record rather than a no-op,
     /// because it adjudicates the late flag. R10.60 has a reviewing record name every flag of its
     /// category raised before it, so that record names the first flag again; the late flag is the only
-    /// one it adjudicates for the first time.
+    /// one it adjudicates for the first time. The late flag is another raiser's, since R10.70 (errata
+    /// G18) refuses one raiser a second flag of one type against one post.
     /// </summary>
     [Fact]
     public async Task R10_61_ALateFlagIsNotUpheldByAnEarlierWithholdingAndTheNextWithholdingAdjudicatesIt()
@@ -315,7 +316,7 @@ public sealed class ApplyModerationTests
         var withheld = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
         Assert.Equal([first], withheld.Adjudicates);
 
-        var late = await FlagAsync(world, FlagKind.Spam, ct);
+        var late = await FlagAsync(world, FlagKind.Spam, "https://agents.example/late-reporter", "reported", ct);
         var between = await ModerationAsync(world, ct);
         Assert.Equal([first], between.UpheldFlags);
         Assert.DoesNotContain(late, ModerationPolicy.AdjudicatedFlags(between.History));
@@ -920,5 +921,99 @@ public sealed class ApplyModerationTests
         Assert.False(overtaken.TryGetValue(out _, out var error));
         Assert.Equal(DomainErrors.ConcurrencyConflictType, error!.Type);
         Assert.Single(await LogAsync(world, ct), e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
+    }
+
+    /// <summary>
+    /// R10.68's order (errata G18): an overlong reason is refused before the log or any flag row is
+    /// read, which is the cost the order exists to avoid. The at-cap control shows the counters count.
+    /// The Api fact cannot see this: a post that does not exist answers the same either side of the read.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongRationaleIsRefusedBeforeTheLogOrAnyFlagRowIsRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+        var events = new CountingEventStore(world.Store);
+        var details = new CountingFlagDetailStore(world.Details);
+        var moderate = new ApplyModeration(events, details, world.Clock);
+
+        var refused = await moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Operator, ct);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-too-long", error!.Type);
+        Assert.Equal(0, events.Reads);
+        Assert.Equal(0, details.Reads);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+
+        Require(await moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_096), Operator, ct));
+
+        Assert.True(events.Reads > 0);
+        Assert.True(details.Reads > 0);
+    }
+
+    /// <summary>
+    /// Pins the "after" half of R10.68's order on the moderation path (errata G18: "The check follows
+    /// authentication and authorization, which read the log and are not reordered for it"). The operator-name check is
+    /// the moderation path's authorization, and R10.68 has the cap follow it: a reason over the cap from
+    /// an actor who is not an operator is refused as <c>not-an-operator</c>, not as
+    /// <c>rationale-too-long</c>, and nothing is appended. Falsified by F54.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongReasonFromANonOperatorIsRefusedAsNotAnOperator()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Require(ActorId.Create("https://agents.example/moderator")), ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/not-an-operator", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// Pins the "after" half of R10.68's order on the moderation path. The operator-name check is the
+    /// moderation path's authorization, and R10.68 has the cap follow it: a reason over the cap under
+    /// <c>operator:</c> and a blank name is refused as <c>blank-operator-name</c>, not as
+    /// <c>rationale-too-long</c>, and nothing is appended. Falsified by F54.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongReasonUnderABlankOperatorNameIsRefusedAsBlank()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Require(ActorId.Create("operator:   ")), ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/blank-operator-name", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
+    /// Pins the rest of the moderation cap's "after" order as D32's corrected closure states it: the cap
+    /// follows the operator-name and rationale-required checks. The rationale-required check is input
+    /// validation, not authorization. A reason of 4,097 spaces is over the cap and also blank; it is
+    /// refused as <c>rationale-required</c>, not as <c>rationale-too-long</c>, and nothing is appended.
+    /// Falsified by F54.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongBlankReasonIsRefusedAsRequired()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            Post, ModerationEffect.Withhold, FlagKind.Spam, new string(' ', 4_097), Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/moderation/rationale-required", error!.Type);
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
     }
 }

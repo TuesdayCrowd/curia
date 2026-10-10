@@ -36,8 +36,11 @@ public static partial class SecretScanner
     /// 2026-09-26: the line-joined view also deletes invisible characters and rejoins across the
     /// extended line-break and gutter set, and the connection-string URI rule no longer reads it
     /// (register D17). A new name, not 2026-09-25b reused: that one is published and in built DLLs.
+    /// 2026-10-06: every rule runs on the non-backtracking engine (R10.69, errata G18); the
+    /// high-entropy rule's keyword boundary is consumed rather than looked behind. Verdicts on the
+    /// red-team corpus are unchanged; on other input they may not be.
     /// </summary>
-    public const string Version = "secrets/2026-09-26";
+    public const string Version = "secrets/2026-10-06";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -103,8 +106,11 @@ public static partial class SecretScanner
         // assignment; the entropy floor decides whether the assigned run is plausibly a secret at
         // all, which is what keeps `token = "example"` and `secret: TODO-fill-this-in` out.
         foreach (var match in HighEntropyAssignment().Matches(derivedCopy).Cast<Match>())
-            if (LooksHighEntropy(derivedCopy.AsSpan(match.Index, match.Length)))
-                yield return new RiskFlag(RiskCategory.ApiKey, match.Index, match.Length, Version);
+        {
+            var value = match.Groups["value"];
+            if (LooksHighEntropy(derivedCopy.AsSpan(value.Index, value.Length)))
+                yield return new RiskFlag(RiskCategory.ApiKey, value.Index, value.Length, Version);
+        }
     }
 
     /// <summary>
@@ -162,42 +168,45 @@ public static partial class SecretScanner
         return distinct >= Math.Min(16, considered / 2);
     }
 
-    [GeneratedRegex(@"-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY-----", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY-----", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex PrivateKeyPem();
 
     // Vendor prefixes that are documented as key prefixes: GitHub, Stripe, Slack, OpenAI,
     // Anthropic, Google, SendGrid, npm. Extending this list is a version bump (R10.10).
     [GeneratedRegex(
         @"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|SG\.[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{16,}|AIza[A-Za-z0-9_-]{20,})",
-        RegexOptions.CultureInvariant)]
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex ApiKeyPrefix();
 
-    [GeneratedRegex(@"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex CloudCredential();
 
-    [GeneratedRegex(@"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex JwtShape();
 
     // A URI with credentials in the authority. Scan runs it and ScanShapes does not.
     [GeneratedRegex(
         @"(?:[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@)",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex ConnectionStringUriPassword();
 
     // A keyword connection string carrying a password. An assignment, so Scan runs it and
     // ScanShapes does not.
     [GeneratedRegex(
         @"\b(?:password|pwd)\s*=\s*[^\s;""']{4,}",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex ConnectionStringKeywordPassword();
 
     [GeneratedRegex(
         @"https://(?:hooks\.slack\.com/services/[A-Za-z0-9_/-]{20,}|discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}|outlook\.office\.com/webhook/[A-Za-z0-9@/-]{20,})",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex WebhookUrl();
 
     // "high-entropy strings in assignment position": a secret-ish name, an assignment, a long run.
-    // The keyword boundary is (?<![A-Za-z0-9]) rather than \b, and the difference is not cosmetic.
+    // The keyword boundary is a consumed non-alphanumeric, or the start of the text, rather than \b,
+    // and the difference is not cosmetic. It is consumed rather than looked behind because the
+    // linear engine has no lookbehind (R10.69); Scan reports the `value` group's span, so the flag
+    // still covers the assigned run alone.
     // `_` is a word character, so \b never matches between `secret_` and `access_key` -- which meant
     // `aws_secret_access_key = <40 chars>`, the canonical AWS variable name, evaded this rule
     // entirely. So did `my_token = ...` and every other underscore-prefixed form. Treating `_` and
@@ -206,7 +215,7 @@ public static partial class SecretScanner
     //
     // Found by a reference client exercising the scanner from outside, not by this rule's own tests.
     [GeneratedRegex(
-        @"(?<=(?<![A-Za-z0-9])(?:secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential)\s*[:=]\s*[""']?)[A-Za-z0-9+/=_-]{24,}",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        @"(?:^|[^A-Za-z0-9])(?:secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential)\s*[:=]\s*[""']?(?<value>[A-Za-z0-9+/=_-]{24,})",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex HighEntropyAssignment();
 }

@@ -110,12 +110,17 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
 /// so the caller had to know Table 11's numbers, and the policy could not be checked against the
 /// published table. The observation belongs to the caller; the comparison belongs here.</para>
 /// </param>
+/// <param name="FlagsToday">
+/// R7.22 (errata G18): how many flags the principal has raised in the same trailing window.
+/// Required for <c>flag</c>/<c>raise</c>; null there is a failure, never zero.
+/// </param>
 public sealed record AuthorizationRequest(
     EvaluatedTier Tier,
     CredentialState CredentialState,
     ResourceKind Resource,
     ActionKind Action,
-    int PostsToday = 0);
+    int PostsToday = 0,
+    int? FlagsToday = null);   // R7.22: required for flag/raise; null there is a failure, never zero
 
 /// <summary>
 /// §7's decision, composed: Table 6's credential state first, then Table 10's cell. Pure, total
@@ -158,9 +163,16 @@ public static class AccessPolicy
     /// writes, so an action added to Table 10 is budgeted by default: forgetting to add one to a
     /// list yields an unbounded action, while the complement's failure mode is an action that costs
     /// budget it should not -- which an author notices and reports.</para>
+    ///
+    /// <para><b>One exception, and it is not made here:</b> <c>flag</c>/<c>raise</c> is a write that
+    /// spends a budget of its own (R7.22, errata G18), never the posting budget.
+    /// <see cref="Evaluate"/> excludes it by <see cref="IsFlagRaise"/> beside this test.</para>
     /// </summary>
     private static bool IsWrite(ActionKind action) =>
         !ActionKinds.IsRead(action) && action is not ActionKind.Enroll;
+
+    private static bool IsFlagRaise(AuthorizationRequest r) =>
+        r.Resource is ResourceKind.Flag && r.Action is ActionKind.Raise;
 
     /// <summary>
     /// R7.6: anonymous read is an explicit <c>allow</c> decided by this function, never the absence
@@ -213,9 +225,23 @@ public static class AccessPolicy
         // is right rather than plausible.
         if (tierDecision.IsPermitted
             && IsWrite(request.Action)
+            && !IsFlagRaise(request)
             && request.PostsToday >= TierPolicy.PostsPerDay(request.Tier.Tier))
             return Result<AuthorizationDecision>.Ok(new AuthorizationDecision(
                 DecisionEffect.Deny, "table-11/rate-budget-exhausted", GrantQualifier.None));
+
+        // R7.22 (errata G18): a flag spends a budget of its own and never the posting budget. A
+        // missing count is a failure, never an allow. Before the quarantine intersection, as the
+        // posting budget is.
+        if (tierDecision.IsPermitted && IsFlagRaise(request))
+        {
+            if (request.FlagsToday is not { } flagsToday)
+                return Result<AuthorizationDecision>.Fail(AuthorizationErrors.FlagCountMissing());
+
+            if (flagsToday >= TierPolicy.FlagsPerDay(request.Tier.Tier))
+                return Result<AuthorizationDecision>.Ok(new AuthorizationDecision(
+                    DecisionEffect.Deny, "table-11/flag-budget-exhausted", GrantQualifier.None));
+        }
 
         // Appendix F.1: "Quarantine dominates everything." Applied as an intersection with the
         // tier's own answer, never as a grant in its own right: a quarantined principal gets the

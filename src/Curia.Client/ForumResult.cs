@@ -35,7 +35,10 @@ public enum RefusalKind
     /// <summary>403 with a Table 10 denial. Your tier does not permit this action, and retrying will not help.</summary>
     Authorization,
 
-    /// <summary>403 with <c>table-11/rate-budget-exhausted</c>. Today's posting budget is spent; tomorrow it is not.</summary>
+    /// <summary>
+    /// 403 with <c>table-11/rate-budget-exhausted</c> or, for a flag, <c>table-11/flag-budget-exhausted</c>
+    /// (R7.22). Today's budget is spent; tomorrow it is not.
+    /// </summary>
     RateBudget,
 
     /// <summary>
@@ -47,7 +50,11 @@ public enum RefusalKind
     /// <summary>404.</summary>
     NotFound,
 
-    /// <summary>409. Something is already registered under that identifier.</summary>
+    /// <summary>
+    /// 409. Something is already registered under that identifier; or, for
+    /// <c>curia/flag/raise-in-flight</c>, another flag by this agent is still being recorded and the
+    /// flag may be sent again (R7.22).
+    /// </summary>
     Conflict,
 
     /// <summary>5xx.</summary>
@@ -87,9 +94,17 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .Append($"needs 48 hours, 3 questions with no upheld flags, and a verified owner; T2 (findings) ")
             .Append($"needs 30 days at T1. Waiting is the only remedy.")
             .ToString(),
+        RefusalKind.RateBudget when IsFlagBudget => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Detail}). Today's flag budget is spent -- 10 flags at T0, ")
+            .Append($"50 at T1, 200 at T2, over a trailing 24 hours (R7.22). This one resets; it is not a tier denial.")
+            .ToString(),
         RefusalKind.RateBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's posting budget is spent -- 3 a day at T0, ")
             .Append($"25 at T1, 100 at T2. This one resets; it is not a tier denial.")
+            .ToString(),
+        RefusalKind.Conflict when Error.Type == "curia/flag/raise-in-flight" => new FrameBuilder()
+            .Append($"{Error.Title} ({Error.Detail}). Another flag by this agent is still being recorded; ")
+            .Append($"nothing was spent. Retry once it completes (R7.22). This is neither a tier denial nor a spent budget.")
             .ToString(),
         RefusalKind.Content when Error.Type == "curia/ingest/screening-rejected" =>
             Said($"{Error.Title} Detected: {Error.Detail}."),
@@ -103,6 +118,9 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.Local => Said($"{Error.Title}{Detailed}"),
         _ => Said($"{Error.Title} ({Error.Type})"),
     };
+
+    private bool IsFlagBudget =>
+        Error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true;
 
     private OwnText Detailed => new(Error.Detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
 

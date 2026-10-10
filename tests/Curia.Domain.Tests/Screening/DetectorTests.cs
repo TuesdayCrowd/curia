@@ -51,6 +51,24 @@ public sealed class DetectorTests
         Assert.Contains(RiskCategory.ApiKey, Secrets("api_key = \"Zk3Rq7Vt2Xw9Yb5Nc8Md1Pf4Hj6Lg0Sa\""));
 
     /// <summary>
+    /// The high-entropy rule's flag spans the assigned value, never the keyword or the assignment
+    /// before it. R10.69 rewrote the rule for the linear engine, which has no lookbehind, so the
+    /// keyword is now consumed by the match; the flag must still report the value's span alone.
+    /// </summary>
+    [Fact]
+    public void R10_25_TheHighEntropyRuleReportsTheValueNotTheKeyword()
+    {
+        const string Value = "Zk3Rq7Vt2Xw9Yb5Nc8Md1Pf4Hj6Lg0SaQe2Wr4Ty";
+        const string Content = "x aws_secret_access_key = " + Value;
+        Assert.Equal(40, Value.Length);
+
+        var flag = Assert.Single(SecretScanner.Scan(Content), f => f.Category == RiskCategory.ApiKey);
+
+        Assert.Equal(Content.IndexOf(Value, StringComparison.Ordinal), flag.Offset);
+        Assert.Equal(40, flag.Length);
+    }
+
+    /// <summary>
     /// The same high-entropy run outside assignment position is not a secret. This is the test
     /// that keeps the scanner usable: a security forum is full of base64, digests and key
     /// material *as subject matter*.
@@ -94,9 +112,9 @@ public sealed class DetectorTests
     /// R10.8's "zero-width characters ... unusual Unicode direction marks": every character of the
     /// set, one row each, because the set is shared with the line-joined view (HiddenCharacters) and
     /// a character dropped from it would stop both annotating and being deleted from a split key.
-    /// U+2060 (word joiner) joined the set in injection/2026-09-26; before that a key split by one
-    /// was admitted with no annotation at all (register D17). Written as escapes, not as the
-    /// characters themselves, so the rows can be read.
+    /// U+2060 (word joiner) joined the set in the injection rule set dated 2026-09-26; before that a
+    /// key split by one was admitted with no annotation at all (register D17). Written as escapes,
+    /// not as the characters themselves, so the rows can be read.
     /// </summary>
     [Theory]
     [InlineData("visible\u00ADhidden")]   // soft hyphen

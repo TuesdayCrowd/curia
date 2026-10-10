@@ -139,6 +139,14 @@ public static class ContentScreener
         // rejection still reports a location the author can act on (R10.27).
         var found = new List<RiskFlag>();
 
+        // Conclude's keep-first rule for (category, offset), applied as each flag is found, so the
+        // live set stays at its deduplicated size rather than one flag per hidden character per view
+        // (R10.69, D32): the hidden-text step yields offsets, and a flag is allocated only for an
+        // offset not already seen. Output-identical: Conclude still keeps the first of each key, and
+        // a later member of a key's group is all this drops. A zero-length flag bypasses the set
+        // because both offset maps send an empty span to (0, 0), wherever it was found.
+        var seen = new HashSet<(RiskCategory, int)>();
+
         foreach (var view in DerivedViews.Of(text))
         {
             // The line-joined view deletes line breaks, so a phrase pattern over it would match across
@@ -152,12 +160,23 @@ public static class ContentScreener
             // a decorator or a doc-comment `@param` as `user:pass@`.
             var scoped = view.Name is "line-joined"
                 ? SecretScanner.ScanShapes(view.Text)
-                : SecretScanner.Scan(view.Text).Concat(InjectionDetector.Scan(view.Text));
+                : SecretScanner.Scan(view.Text).Concat(InjectionDetector.ScanPatterns(view.Text));
 
             foreach (var flag in scoped)
             {
                 var (offset, length) = view.ToOriginal(flag.Offset, flag.Length);
-                found.Add(flag with { Offset = offset, Length = length });
+                if (length == 0 || seen.Add((flag.Category, offset)))
+                    found.Add(flag with { Offset = offset, Length = length });
+            }
+
+            if (view.Name is "line-joined")
+                continue;
+
+            foreach (var i in InjectionDetector.HiddenTextOffsets(view.Text))
+            {
+                var (offset, length) = view.ToOriginal(i, 1);
+                if (seen.Add((RiskCategory.HiddenText, offset)))
+                    found.Add(new RiskFlag(RiskCategory.HiddenText, offset, length, InjectionDetector.Version));
             }
         }
 
@@ -170,8 +189,7 @@ public static class ContentScreener
         // -- a homoglyph override also appears in the unconfused view and possibly the despaced one --
         // and reporting it three times would inflate every count R10.24 publishes.
         var flags = found
-            .GroupBy(f => (f.Category, f.Offset))
-            .Select(g => g.First())
+            .DistinctBy(f => (f.Category, f.Offset))
             .OrderBy(f => f.Offset)
             .ThenBy(f => f.Category)
             .ToArray();

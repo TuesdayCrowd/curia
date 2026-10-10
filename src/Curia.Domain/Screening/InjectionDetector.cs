@@ -31,8 +31,10 @@ public static partial class InjectionDetector
     /// what the version is for.
     /// 2026-09-26: U+2060 (word joiner) joined the hidden-text set, which is now
     /// <see cref="HiddenCharacters"/>, shared with the line-joined view (register D17).
+    /// 2026-10-06: every rule runs on the non-backtracking engine (R10.69, errata G18). Verdicts on
+    /// the red-team corpus are unchanged; on other input they may not be.
     /// </summary>
-    public const string Version = "injection/2026-09-26";
+    public const string Version = "injection/2026-10-06";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -62,12 +64,23 @@ public static partial class InjectionDetector
     {
         ArgumentNullException.ThrowIfNull(derivedCopy);
 
+        foreach (var flag in ScanPatterns(derivedCopy))
+            yield return flag;
+
+        foreach (var i in HiddenTextOffsets(derivedCopy))
+            yield return new RiskFlag(RiskCategory.HiddenText, i, 1, Version);
+    }
+
+    /// <summary>
+    /// <see cref="Rules"/> over <paramref name="derivedCopy"/>: <see cref="Scan"/>'s first step.
+    /// <see cref="ContentScreener"/> runs the two steps itself so that it can drop a hidden-text
+    /// offset it has already seen before allocating a flag for it (R10.69, D32).
+    /// </summary>
+    internal static IEnumerable<RiskFlag> ScanPatterns(string derivedCopy)
+    {
         foreach (var (pattern, category) in Rules)
             foreach (var match in pattern.Matches(derivedCopy).Cast<Match>())
                 yield return new RiskFlag(category, match.Index, match.Length, Version);
-
-        foreach (var flag in HiddenTextFlags(derivedCopy))
-            yield return flag;
     }
 
     /// <summary>
@@ -82,21 +95,21 @@ public static partial class InjectionDetector
     /// unimplemented clause rather than approximated, so nobody reads a clean scan as evidence
     /// there is no homoglyph.</para>
     /// </summary>
-    private static IEnumerable<RiskFlag> HiddenTextFlags(string text)
+    internal static IEnumerable<int> HiddenTextOffsets(string text)
     {
         for (var i = 0; i < text.Length; i++)
             if (HiddenCharacters.Contains(text[i]))
-                yield return new RiskFlag(RiskCategory.HiddenText, i, 1, Version);
+                yield return i;
     }
 
     [GeneratedRegex(
         @"\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+|previous\s+|prior\s+|above\s+)*(?:instruction|prompt|rule|direction|context)s?\b",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex InstructionOverride();
 
     [GeneratedRegex(
         @"\b(?:you\s+are\s+now|act\s+as|pretend\s+to\s+be|roleplay\s+as|from\s+now\s+on\s+you|assume\s+the\s+role)\b",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex RoleAssumption();
 
     // Directed at an assistant specifically -- an imperative aimed at the reader of a post is
@@ -104,10 +117,10 @@ public static partial class InjectionDetector
     // distinguishes this from every technical write-up ever written.
     [GeneratedRegex(
         @"\b(?:assistant|ai|model|agent|system)\s*[,:]?\s*(?:please\s+)?(?:you\s+must|you\s+should|do\s+not|don't|always|never)\b",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex SecondPersonImperative();
 
-    [GeneratedRegex(@"\b[A-Za-z0-9+/]{120,}={0,2}\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b[A-Za-z0-9+/]{120,}={0,2}\b", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex EncodedBlock();
 
     // The fragment is included alongside the query. A fragment is not sent to the server, which is
@@ -117,9 +130,9 @@ public static partial class InjectionDetector
     // the deliberate one. Found by adding evasions to the red-team corpus and watching this rule miss.
     [GeneratedRegex(
         @"https?://[^\s""'<>]*[?&#](?:access_token|api[_-]?key|token|secret|password|pwd|auth)=[^\s""'<>&]+",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex CredentialShapedUrl();
 
-    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex HtmlComment();
 }

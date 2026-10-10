@@ -133,6 +133,9 @@ public sealed class Program
         // event store's, because what it holds must never become an event: R6.51 serves every event.
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().FlagDetails);
 
+        // R7.22, R10.70 (errata G18): one raiser's flags are counted and recorded under one hold.
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().FlagRaiserGate);
+
         // The vector half of hybrid retrieval (§9.2). The embedder is the dependency-free hashed
         // model (see HashedNGramEmbedding for what it is and is not); the index is pgvector through
         // the same adapters object as every other Postgres port; the reconcile brings the index up

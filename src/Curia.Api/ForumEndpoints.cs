@@ -764,6 +764,8 @@ public static class ForumEndpoints
         RaiseFlag flags,
         IPolicyDecisionPoint pdp,
         IEventReader events,
+        IFlagDetailStore details,
+        IFlagRaiserGate raisers,
         AccessTokenValidationContext authn,
         IDpopNonceStore nonces,
         TimeProvider clock,
@@ -794,49 +796,65 @@ public static class ForumEndpoints
         if (!FlagKinds.Parse(request.Kind).TryGetValue(out var kind, out var kindError))
             return Problem(StatusCodes.Status400BadRequest, kindError!);
 
-        // PEP-2. R7.13 evaluates authorization per request; R7.7 takes the tier from the log rather
-        // than from the token's claim about it.
-        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(log, subject);
+        // R7.22, R10.70 (errata G18): the budget is counted and the flag recorded under one hold per
+        // raiser, so concurrent flags cannot each read the same count. Refused, not queued.
+        var entered = await raisers.TryEnterAsync(subject, cancellationToken).ConfigureAwait(false);
+        if (!entered.TryGetValue(out var hold, out var holdError))
+            return Problem(StatusFor(holdError!), holdError!);
 
-        if (!posture.TryGetValue(out var facts, out var postureError))
-            return Problem(StatusCodes.Status500InternalServerError, postureError!);
+        await using (hold!.ConfigureAwait(false))
+        {
+            // PEP-2. R7.13 evaluates authorization per request; R7.7 takes the tier from the log rather
+            // than from the token's claim about it.
+            var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+            var posture = PostureQuery.Of(log, subject);
 
-        var now = clock.GetUtcNow();
-        var tier = TierPolicy.Evaluate(facts!, now);
+            if (!posture.TryGetValue(out var facts, out var postureError))
+                return Problem(StatusCodes.Status500InternalServerError, postureError!);
 
-        var decision = await pdp.EvaluateAsync(
-            new AuthorizationRequest(
-                tier,
-                facts!.CredentialState,
-                ResourceKind.Flag,
-                ActionKind.Raise,
-                PostsToday: PostsInBudgetWindow(log, subject, now)),
-            cancellationToken).ConfigureAwait(false);
+            var now = clock.GetUtcNow();
+            var tier = TierPolicy.Evaluate(facts!, now);
 
-        if (!decision.TryGetValue(out var d, out var decisionError))
-            return Problem(StatusCodes.Status403Forbidden, decisionError!);
+            // R7.22 (errata G18): the flag budget is counted from the log joined with the private store,
+            // under the raiser's hold, so no other flag by this raiser is counted or recorded meanwhile.
+            var (raisedFlags, flagsProblem) = await FlagsAsync(log, details, cancellationToken).ConfigureAwait(false);
+            if (flagsProblem is not null)
+                return flagsProblem;
 
-        if (!d!.IsAllowed)
-            return Problem(
-                StatusCodes.Status403Forbidden,
-                new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
+            var decision = await pdp.EvaluateAsync(
+                new AuthorizationRequest(
+                    tier,
+                    facts!.CredentialState,
+                    ResourceKind.Flag,
+                    ActionKind.Raise,
+                    PostsToday: PostsInBudgetWindow(log, subject, now),
+                    FlagsToday: FlagsInBudgetWindow(raisedFlags, subject, now)),
+                cancellationToken).ConfigureAwait(false);
 
-        var raised = await flags
-            .RecordAsync(postId, subject, kind, request.Rationale, cancellationToken)
-            .ConfigureAwait(false);
+            if (!decision.TryGetValue(out var d, out var decisionError))
+                return Problem(StatusCodes.Status403Forbidden, decisionError!);
 
-        if (!raised.TryGetValue(out var flag, out var raiseError))
-            return Problem(StatusFor(raiseError!), raiseError!);
+            if (!d!.IsAllowed)
+                return Problem(
+                    StatusCodes.Status403Forbidden,
+                    new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
 
-        return Results.Created(
-            $"/v1/posts/{Uri.EscapeDataString(postId)}",
-            new
-            {
-                post_id = flag!.PostId,
-                kind = FlagKinds.Wire(flag.Kind),
-                raised_at = flag.RaisedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
-            });
+            var raised = await flags
+                .RecordAsync(postId, subject, kind, request.Rationale, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!raised.TryGetValue(out var flag, out var raiseError))
+                return Problem(StatusFor(raiseError!), raiseError!);
+
+            return Results.Created(
+                $"/v1/posts/{Uri.EscapeDataString(postId)}",
+                new
+                {
+                    post_id = flag!.PostId,
+                    kind = FlagKinds.Wire(flag.Kind),
+                    raised_at = flag.RaisedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+                });
+        }
     }
 
     /// <summary>
@@ -851,10 +869,19 @@ public static class ForumEndpoints
         // Screening refused it. 422 rather than 400 for the reason the submit path uses it: the
         // request was well-formed and was rejected on its content.
         "curia/flag/rationale-rejected" => StatusCodes.Status422UnprocessableEntity,
+        "curia/flag/rationale-too-long" => StatusCodes.Status422UnprocessableEntity,
         "curia/moderation/rationale-required" => StatusCodes.Status400BadRequest,
+
+        // R10.70 (errata G18): this raiser already flagged this post with this type.
+        "curia/flag/already-raised" => StatusCodes.Status409Conflict,
+
+        // R7.22 (errata G18): another flag by this raiser is being counted and recorded. Nothing was
+        // spent; the flag may be sent again.
+        "curia/flag/raise-in-flight" => StatusCodes.Status409Conflict,
 
         // The private store could not be written; nothing was, in either store (R10.62).
         "curia/flag/detail-store-unavailable" => StatusCodes.Status503ServiceUnavailable,
+        "curia/flag/raiser-gate-unavailable" => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest,
     };
 
@@ -2146,6 +2173,24 @@ public static class ForumEndpoints
         return PostProjector.Fold(log).Count(p =>
             string.Equals(p.Author, agentId, StringComparison.Ordinal)
             && p.ServerTimestamp.Value > since);
+    }
+
+    /// <summary>
+    /// R7.22's flag count (errata G18): the flags the agent raised in the posting budget's trailing
+    /// 24 hours.
+    ///
+    /// <para><b>Counted from the joined directory, not the log alone.</b> A <c>flag.committed</c>
+    /// leaf names its kind and a commitment and never its raiser (R10.62), so the log cannot say whose
+    /// a flag is; the private store's row supplies the raiser, as it does for the flag listings.</para>
+    /// </summary>
+    private static int FlagsInBudgetWindow(
+        ImmutableArray<RaisedFlag> flags, string agentId, DateTimeOffset now)
+    {
+        var since = now - TimeSpan.FromDays(1);
+
+        return flags.Count(f =>
+            string.Equals(f.RaisedBy, agentId, StringComparison.Ordinal)
+            && f.At.Value > since);
     }
 
     /// <summary>R10.20's stable well-known URL, so every envelope points a reader at the contract.</summary>

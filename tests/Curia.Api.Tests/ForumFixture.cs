@@ -48,7 +48,7 @@ internal sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
 /// <c>Curia.Infrastructure.Tests</c> already records: a green suite that quietly ran nothing is
 /// the exact failure R11.9 exists to prevent.</para>
 /// </summary>
-public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
+public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private const string EnvVarName = "CURIA_TEST_POSTGRES";
 
@@ -295,6 +295,15 @@ public sealed class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetim
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Clock);
+            ConfigureFuzz(services);
         });
+    }
+
+    /// <summary>
+    /// The request fuzzer's hook (R14.10): its fixture installs what records the host's reads of
+    /// headers and query parameters. Nothing else overrides it, and the base adds nothing.
+    /// </summary>
+    protected virtual void ConfigureFuzz(IServiceCollection services)
+    {
     }
 }

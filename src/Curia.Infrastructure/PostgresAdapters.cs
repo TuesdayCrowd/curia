@@ -26,6 +26,7 @@ namespace Curia.Infrastructure;
 public sealed class PostgresAdapters : IAsyncDisposable
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _gateDataSource;
     private readonly TimeProvider _clock;
 
     public PostgresAdapters(string connectionString, TimeProvider clock)
@@ -33,7 +34,21 @@ public sealed class PostgresAdapters : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(clock);
 
+        // R7.22 (errata G18, review of 980fb0e): the raiser gate's pool, a quarter of the Forum's; see
+        // FlagRaiserGate. Refused before either data source is built, so nothing is left to dispose.
+        var main = new NpgsqlConnectionStringBuilder(connectionString);
+        if (main.MaxPoolSize < 2)
+            throw new InvalidOperationException(
+                "The raiser gate needs a connection pool of its own smaller than the Forum's (R7.22): Maximum Pool Size must be at least 2.");
+
+        var gate = new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            MaxPoolSize = Math.Max(1, main.MaxPoolSize / 4),
+            MinPoolSize = 0,
+        };
+
         _dataSource = NpgsqlDataSource.Create(connectionString);
+        _gateDataSource = NpgsqlDataSource.Create(gate.ConnectionString);
         _clock = clock;
     }
 
@@ -67,8 +82,30 @@ public sealed class PostgresAdapters : IAsyncDisposable
     /// <summary>The private half of every flag (R10.62, R11.32): append-only, like the event log it is bound to.</summary>
     public IFlagDetailStore FlagDetails => new PostgresFlagDetailStore(_dataSource);
 
+    /// <summary>
+    /// R7.22, R10.70 (errata G18): one raiser's flags counted and recorded one at a time, by a
+    /// try-only advisory lock, on a connection pool of its own.
+    ///
+    /// <para><b>Why a pool of its own</b> (review of 980fb0e). A hold keeps a gate connection while the
+    /// flag's reads and append draw on the Forum's pool. Were the two one pool, as many raisers in
+    /// flight as the pool holds would each keep a connection and wait for another, and the pool would
+    /// deadlock until the connection timeout, every flag inside answering 500 and every other route
+    /// stalled. So the <see cref="PostgresFlagRaiserGate"/> is built on <c>_gateDataSource</c>, a quarter
+    /// of the Forum's pool: acquisition always runs gate before Forum, never the reverse, so no cycle can
+    /// form and a fleet of raisers as large as either pool cannot deadlock it. At most that quarter of
+    /// the Forum's connections is ever held by flags, one each, leaving the rest to every other route.</para>
+    ///
+    /// <para>A gate pool that is exhausted answers 503 <c>curia/flag/raiser-gate-unavailable</c> after
+    /// the connection timeout, and holds no Forum connection while it waits. Advisory locks are per
+    /// database, so the gate's own data source shares lock space with any other process's gate, as
+    /// <c>R7_22_TheHoldIsSeenAcrossTwoDataSources</c> pins. A Forum pool below two connections cannot
+    /// be split, and the constructor refuses it.</para>
+    /// </summary>
+    public IFlagRaiserGate FlagRaiserGate => new PostgresFlagRaiserGate(_gateDataSource);
+
     public async ValueTask DisposeAsync()
     {
+        await _gateDataSource.DisposeAsync().ConfigureAwait(false);
         await _dataSource.DisposeAsync().ConfigureAwait(false);
         GC.SuppressFinalize(this);
     }

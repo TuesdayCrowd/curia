@@ -62,6 +62,9 @@ public sealed class CachingPolicyDecisionPoint : IPolicyDecisionPoint
     /// their product (a few thousand), and no eviction policy is needed -- which matters because
     /// R7.5's stale-read fallback is deliberately unbounded in age and an eviction by age would
     /// remove exactly the entries it exists to serve.</para>
+    ///
+    /// <para><b><see cref="AuthorizationRequest.FlagsToday"/> is absent for the same reason</b> (R7.22,
+    /// errata G18): only <c>flag</c>/<c>raise</c> consults it, and that is a write, never cached.</para>
     /// </summary>
     internal readonly record struct CacheKey(
         PrincipalTier Tier,

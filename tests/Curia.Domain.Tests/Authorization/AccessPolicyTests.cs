@@ -12,13 +12,19 @@ namespace Curia.Domain.Tests.Authorization;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class AccessPolicyTests
 {
+    /// <summary>
+    /// A request counted at <paramref name="flagsToday"/> flags, zero by default: these facts are about
+    /// Table 10, Table 11's posting budget and quarantine, and a flag evaluated with no count is a
+    /// failure (R7.22), asserted by <see cref="R7_22_AFlagWithNoCountIsAFailureNotADecision"/>.
+    /// </summary>
     private static AuthorizationRequest Request(
         PrincipalTier tier,
         ResourceKind resource,
         ActionKind action,
         CredentialState state = CredentialState.Active,
-        int postsToday = 0) =>
-        new(TierFixture.As(tier), state, resource, action, postsToday);
+        int postsToday = 0,
+        int? flagsToday = 0) =>
+        new(TierFixture.As(tier), state, resource, action, postsToday, flagsToday);
 
     private static AuthorizationDecision Decide(AuthorizationRequest request)
     {
@@ -385,5 +391,68 @@ public sealed class AccessPolicyTests
 
         Assert.False(overBudget.IsPermitted);
         Assert.Equal("table-11/rate-budget-exhausted", overBudget.Reason);
+    }
+
+    // ---- R7.22 (errata G18): a flag spends a budget of its own ---------------------------------
+
+    private static AuthorizationRequest Flag(PrincipalTier tier, int? flagsToday, int postsToday = 0) =>
+        new(TierFixture.As(tier), CredentialState.Active, ResourceKind.Flag, ActionKind.Raise, postsToday, flagsToday);
+
+    /// <summary>
+    /// R7.22: "A flag SHALL NOT be refused because the raiser's posting budget is spent." A T0 agent
+    /// that has made its three posts of the day may still report (D34, finding 2).
+    /// </summary>
+    [Fact]
+    public void R7_22_AFlagIsNotRefusedForASpentPostingBudget()
+    {
+        var decision = Decide(Flag(PrincipalTier.T0, flagsToday: 0, postsToday: 3));
+
+        Assert.Equal(DecisionEffect.Allow, decision.Effect);
+    }
+
+    /// <summary>R7.22: the flag budget binds at its own number, with its own reason.</summary>
+    [Theory]
+    [InlineData(PrincipalTier.T0)]
+    [InlineData(PrincipalTier.T1)]
+    [InlineData(PrincipalTier.T2)]
+    public void R7_22_AFlagIsRefusedAtItsOwnBudget(PrincipalTier tier)
+    {
+        var budget = TierPolicy.FlagsPerDay(tier);
+
+        var under = Decide(Flag(tier, flagsToday: budget - 1));
+        Assert.Equal(DecisionEffect.Allow, under.Effect);
+
+        var at = Decide(Flag(tier, flagsToday: budget));
+        Assert.Equal(DecisionEffect.Deny, at.Effect);
+        Assert.Equal("table-11/flag-budget-exhausted", at.Reason);
+    }
+
+    /// <summary>
+    /// A flag evaluated with no count is a failure, never an allow: a call site that forgot to count
+    /// must not pass for one that counted zero.
+    /// </summary>
+    [Fact]
+    public void R7_22_AFlagWithNoCountIsAFailureNotADecision()
+    {
+        var result = AccessPolicy.Decide(Flag(PrincipalTier.T0, flagsToday: null));
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authz/flag-count-missing", error!.Type);
+    }
+
+    /// <summary>R7.22: a post spends the posting budget, and the flag count is not consulted for it.</summary>
+    [Fact]
+    public void R7_22_APostSpendsThePostingBudgetAndNotTheFlagBudget()
+    {
+        var spent = Decide(new AuthorizationRequest(
+            TierFixture.As(PrincipalTier.T0), CredentialState.Active, ResourceKind.Question, ActionKind.Create,
+            PostsToday: 3, FlagsToday: 0));
+        Assert.Equal(DecisionEffect.Deny, spent.Effect);
+        Assert.Equal("table-11/rate-budget-exhausted", spent.Reason);
+
+        var flagged = Decide(new AuthorizationRequest(
+            TierFixture.As(PrincipalTier.T0), CredentialState.Active, ResourceKind.Question, ActionKind.Create,
+            PostsToday: 0, FlagsToday: 10));
+        Assert.Equal(DecisionEffect.Allow, flagged.Effect);
     }
 }

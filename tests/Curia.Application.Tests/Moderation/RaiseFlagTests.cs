@@ -111,7 +111,11 @@ public sealed class RaiseFlagTests
         Assert.Equal(Require(FlagCommitment.Of(Post, Reporter, Rationale, FixedSalt)), commitment);
     }
 
-    /// <summary>Review Focus 2: the same text flagged twice commits differently, so a reader cannot count one raiser's repeats.</summary>
+    /// <summary>
+    /// Review Focus 2: the same text flagged twice commits differently, so a reader cannot count one
+    /// raiser's repeats. The second flag is of another type, since R10.70 (errata G18) refuses a
+    /// second of one type; the commitment does not cover the type, so its inputs are identical.
+    /// </summary>
     [Fact]
     public async Task R10_62_TwoIdenticalFlagsCommitDifferently()
     {
@@ -123,7 +127,7 @@ public sealed class RaiseFlagTests
 
         var raise = new RaiseFlag(store, details, clock);
         Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
-        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
+        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Incorrect, Rationale, ct));
 
         var salts = Require(await details.ReadAllAsync(ct)).Select(d => d.Salt).ToArray();
         Assert.Equal(2, salts.Distinct(StringComparer.Ordinal).Count());
@@ -212,5 +216,33 @@ public sealed class RaiseFlagTests
         Assert.DoesNotContain("AKIA", error.Detail ?? string.Empty, StringComparison.Ordinal);
         Assert.Empty(FlagEvents(await LogAsync(store, ct)));
         Assert.Empty(Require(await details.ReadAllAsync(ct)));
+    }
+
+    /// <summary>
+    /// R10.68's order (errata G18): an overlong rationale is refused before the post's stream is read,
+    /// which is the cost the order exists to avoid. The control flag shows the counter counts. No
+    /// flag-detail store is counted: RaiseFlag reads the flag-detail store only after the post's
+    /// stream, so zero post reads implies zero detail reads.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+        await PostExistsAsync(store, ct);
+        var events = new CountingEventStore(store);
+        var raise = new RaiseFlag(events, new InMemoryFlagDetailStore(), clock, () => FixedSalt);
+
+        var refused = await raise.RecordAsync(Post, Reporter, FlagKind.Spam, new string('a', 4_097), ct);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal("curia/flag/rationale-too-long", error!.Type);
+        Assert.Equal(0, events.Reads);
+        Assert.Empty(FlagEvents(await LogAsync(store, ct)));
+
+        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
+
+        Assert.True(events.Reads > 0);
     }
 }

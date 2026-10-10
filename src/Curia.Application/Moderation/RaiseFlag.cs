@@ -92,6 +92,10 @@ public sealed class RaiseFlag
         if (string.IsNullOrWhiteSpace(rationale))
             return Result<FlagRaised>.Fail(ModerationErrors.RationaleRequired());
 
+        // R10.68 (errata G18): before screening and before the post's stream is read.
+        if (RationaleLimit.Over(rationale) is { } bytes)
+            return Result<FlagRaised>.Fail(FlagErrors.RationaleTooLong(bytes));
+
         // SCREEN, before anything is written. The screener takes a span, which cannot be stored in
         // a field, so this phase structurally cannot retain what it screened.
         var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(rationale));
@@ -112,6 +116,23 @@ public sealed class RaiseFlag
 
         if (events!.Count == 0)
             return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));
+
+        // R10.70 (errata G18): one flag of a type per raiser per post, refused before anything is
+        // written. After the cheap refusals, because it reads the whole log and the private store.
+        var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var log, out var logError))
+            return Result<FlagRaised>.Fail(logError!);
+
+        var rows = await _details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
+        if (!rows.TryGetValue(out var details, out var detailError))
+            return Result<FlagRaised>.Fail(detailError!);
+
+        var earlier = FlagDirectory.Join(log!, details!).Flags.FirstOrDefault(f =>
+            string.Equals(f.PostId, postId, StringComparison.Ordinal)
+            && string.Equals(f.RaisedBy, raisedBy, StringComparison.Ordinal)
+            && f.Kind == kind);
+        if (earlier is not null)
+            return Result<FlagRaised>.Fail(FlagErrors.AlreadyRaised(earlier.Kind, earlier.At));
 
         if (!_ids.Next().TryGetValue(out var ulid, out var idError))
             return Result<FlagRaised>.Fail(idError!);
@@ -181,4 +202,38 @@ public static class FlagErrors
         "curia/flag/rationale-rejected",
         "The flag's rationale was rejected by ingest screening",
         annotations);
+
+    /// <summary>R10.68 (errata G18): names the field and the byte count, never the value.</summary>
+    public static Error RationaleTooLong(int bytes) => new(
+        "curia/flag/rationale-too-long",
+        "The flag's rationale is longer than R10.68 permits",
+        $"field=rationale bytes={bytes}: at most {RationaleLimit.MaxUtf8Bytes} UTF-8 bytes");
+
+    /// <summary>
+    /// R10.70 (errata G18): this raiser already flagged this post with this type. Names the type and
+    /// the earlier flag's instant, never its rationale.
+    /// </summary>
+    public static Error AlreadyRaised(FlagKind kind, ServerTimestamp at) => new(
+        "curia/flag/already-raised",
+        "This agent has already raised a flag of this type against this post",
+        $"kind={FlagKinds.Wire(kind)} raised_at={at.Value:o}");
+
+    /// <summary>
+    /// R7.22 (errata G18, review of 4b3e91a): another flag by this raiser is being counted and
+    /// recorded. Names no post and no kind; nothing was spent, and the flag may be sent again.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Design",
+        "CA1030:Use events where appropriate",
+        Justification = "Names the condition curia/flag/raise-in-flight, as its siblings name theirs; it raises nothing.")]
+    public static Error RaiseInFlight() => new(
+        "curia/flag/raise-in-flight",
+        "Another flag by this agent is being recorded",
+        "retry once it completes (R7.22)");
+
+    /// <summary>The raiser gate's store could not be reached, so the flag was neither counted nor written.</summary>
+    public static Error RaiserGateUnavailable() => new(
+        "curia/flag/raiser-gate-unavailable",
+        "The flag could not be serialized",
+        "the raiser gate's store could not be reached; nothing was written");
 }

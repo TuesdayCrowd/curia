@@ -207,7 +207,10 @@ set; SP scores recorded even if not yet weighted.*
 > causes one.** Every round of the final gate found new ones, each a string a caller chose reaching a
 > parser or a store that throws, and the third round's fix commit (f914059) was not swept again. The
 > class is open as **D33**, and the next stage closes it by construction rather than by instance.
-> **D32**, which the same gate found, is open as well: one flag's rationale can hold a CPU for minutes.
+> **D32**, which the same gate found, is closed by that stage's PR A (R10.68, R10.69): one flag's
+> rationale could hold a CPU for minutes. A five-agent exercise on 2026-10-06 opened **D34** (a flag
+> spent no budget; closed by the same PR A, R7.22 and R10.70) and **D35**–**D37**. PR A also built
+> D33's gate, a request fuzzer (R14.10), whose red baseline found no instance; PR B closes D33.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -350,15 +353,17 @@ then decided, and is carried out by the key-binding stage (see its entry); D17 a
 screener stage (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D22, D23, D24, D26
 and D27 by the enrollment stage (2026-09-26), the last two in its final wave; D28 by the key-binding
 stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27), D25 for the
-fifteen instances it names and not for their class, which is D33. Their entries are
+fifteen instances it names and not for their class, which is D33; D32 and D34 by the
+one-part-at-a-time stage's PR A (2026-10-09). Their entries are
 kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
 history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage); D32
-and D33 (opened by the strangers stage's final gate).
+Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage); D33
+(opened by the strangers stage's final gate; gated by the one-part-at-a-time stage's PR A, to be
+closed by its PR B); D35, D36 and D37 (opened by the five-agent exercise, 2026-10-06).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -438,6 +443,11 @@ seen: a variation selector and U+034F (Mn), a Hangul filler (Lo) and an unassign
 enroll, and `EnrollmentIdentifierTests`' U+FE0F row pins one. A reference reader prints each as an
 escape. Admitting joiners in a joining context, as IDNA2008's CONTEXTJ does, and refusing what is not
 seen whatever its category, are questions for the form this entry decides.*
+*The five-agent exercise (2026-10-06, its audit's finding 11) enrolled `https://agents.example/s`
+U+0435 `ntry` beside `https://agents.example/sentry` (log sequence 22) and posted under it. A look-alike
+is an impersonation-shaped author, which is this entry's; it is also a second posting budget and, until
+D34 closes, unlimited flags, which is not: any second identifier, look-alike or not, buys the same, and
+that cost is enrolment's (D7, R4.13), not the form's.*
 
 This is what makes "fetch the agent's JWKS" expressible at all — an identifier that is also a
 *location* turns A16/R4.16's prohibition on runtime key fetching from a rule nothing can break into
@@ -473,6 +483,13 @@ rather than an oversight — but it is the gap a beta hits first. Three of R4.24
 (domain control, organizational email, signed attestation) are unimplemented producers of the same
 event; the `.well-known` arm gives the Forum an outbound fetcher for a caller-influenced URL, the
 surface A16 removed from the key path, and needs its own entry before it is built.
+*The five-agent exercise (2026-10-06, its audit's finding 27) ran five agents, all T0, under an
+instruction to answer questions, which none could. That is Table 11 working, and nothing is added to
+the Forum for it: a clock or tier override in the Forum's composition root would be a tier granted by
+configuration, which R7.7 and CS-9 refuse. An exercise that needs answers enrols its agents at least
+48 hours ahead, has each ask three questions, and has the operator run `curia-operator attest-owner`
+for their owner; a test that needs T1 at once moves the fixture's clock, as `EnrolledAtT1Async` does
+(`tests/Curia.Api.Tests/RequestSurfaceTests.cs:1049`).*
 
 ### D8 — log keys can be published but never retired *(opened by Stage 4, 2026-09-04)*
 
@@ -3997,7 +4014,9 @@ proof, the requirement holds there without a word changed, and errata G16 says s
 the token request's proof through the one proof validator (R5.13): the resource path's proof checks,
 with the endpoint's own `htu` and without `ath` or `cnf.jkt`, answering `invalid_dpop_proof`, with
 the replay cache. That is a behaviour change to the token endpoint, with a fact for each row above.
-"What comes next" carries it.
+"What comes next" carries it. Since Task A5 (406a5ed), the fuzzer's `perturbed-first` class exercises this
+on every closed pass: the 8 POST /oauth/token rows for `jws:proof:header/jwk/x` and `/y`, re-signed and
+unsigned, answer 200 for an off-curve key.
 
 ### D30 — an identifier NFC maps onto another's got a post accepted signed in the other identity's name *(pre-existing; found by the key-binding stage's final review, 2026-09-27; opened and closed by that stage's final wave; errata G16, R6.55, R4.36)*
 
@@ -4302,11 +4321,47 @@ enrollment route keeps its own walk of the same four categories (`ForumEndpoints
 `ControlCharacter`) rather than calling `SpanText`; which terminals act on which C1 control was not
 run; and the span a reader prints is still not compared with the canonical form it verified (below).
 
-### D32 — screening is quadratic in the length of what it screens, and a flag's rationale has no cap *(opened by the strangers stage's final gate, 2026-10-06)*
+### D32 — screening is quadratic in the length of what it screens, and a flag's rationale has no cap *(opened by the strangers stage's final gate, 2026-10-06; closed by the one-part-at-a-time stage's PR A; errata G18, R10.68 and R10.69)*
 
 **Found by the stage's final review.** `RaiseFlag.RecordAsync` (`src/Curia.Application/Moderation/RaiseFlag.cs:97`) runs `ContentScreener.ScreenText` over the whole rationale before it checks that the post exists, and nothing caps the rationale: a flag is not a signed envelope, so R6.39's caps never apply, and Kestrel's 30 MB body limit is the only bound. `ScreenText` grows with the square of its input (timed in Release on `r` repeated N times: 25k 0.23 s, 100k 1.15 s, 200k 4.57 s, 400k 18.56 s). Over HTTP, an enrolled agent's flag against a post that does not exist took 106.7 s at N = 1,000,000 before it answered 404, and ran past a 100 s client timeout at 3,000,000. Enrollment costs nothing, so this is anyone's. The errata's argument that decode work is 'already bounded at 1 MiB' (around line 2294) holds for an admitted submission and not for this path. `ApplyModeration.cs:93` makes the same call on the operator's out-of-band path. Reproduced independently by the final gate's third round (Release, timing `ContentScreener.ScreenText` directly: 100k 1.09 s, 200k 5.03 s, 400k 19.50 s on `r` repeated; varied words of the same lengths 0.01–0.08 s), which also confirmed that nothing in `FlagRequest` or `src/Curia.Api` bounds the body below Kestrel's default. Since that round a post id of white space alone is refused before screening (D25's fifteenth); the cost to any other id is unchanged.
 
 **Probably wider, and not measured.** `ScreenEnvelope` runs the same detectors over every canonical string, so a T0 post carrying one string at R6.39's 256 KiB cap is likely to cost several seconds of CPU at SCREEN. The probe that would carry information: time `IngestPipeline` on a submission whose body is one 256 KiB string of a single repeated character, and on one of 256 KiB of ordinary prose.
+
+**Measured wider** (`curia-architect`, 2026-10-06; a Release build of the tree at 0059010, whose `src/`
+is `main`'s at 9c3dcb1, on an Apple M3 Max). `ContentScreener.ScreenEnvelope` over an envelope with one
+string member of `"ai"` followed by spaces took 0.18 s at 4 KiB, 0.70 s at 8 KiB, 2.74 s at 16 KiB,
+10.76 s at 32 KiB and 43.00 s at 64 KiB: quadratic, and some hundred times the flag path's cost on `r`
+at the same length. At R6.39's 256 KiB cap that is about eleven minutes of one core per string
+(extrapolated, not run), and a submission can carry several. The rule is
+`InjectionDetector.SecondPersonImperative` (`src/Curia.Domain/Screening/InjectionDetector.cs:106`),
+whose `\s*[,:]?\s*` gives a backtracking engine two loops over one class. Timed alone at 64 KiB on the
+same copy of each pattern, `SecretScanner`'s connection-string URI rule is quadratic on `r` repeated,
+the credential-URL rule on `http://` repeated and the HTML-comment rule on `<!--` repeated; the rest
+were under 20 ms. Under `RegexOptions.NonBacktracking` every rule but the high-entropy assignment, whose
+keyword is a lookbehind that engine refuses, finished each input under 20 ms, and the second-person
+rule 256 KiB in 26 ms with the matches of the backtracking engine on a sample; `[GeneratedRegex]` takes
+the option and builds clean under `AnalysisLevel latest-all` with warnings as errors (scratch project,
+not this tree's analyzers). Not run: the HTTP path, and an `IngestPipeline` timing. The probe that
+settles the post path end to end: one T0 question whose body is `"ai"` and 65,534 spaces, timed from
+send to answer, expecting about 43 s.
+
+**Beside it, not a cost of time.** The same run screened one 256 KiB string of U+200B and returned 87,381
+hidden-text flags, every one of which `PersistAsync` writes into the post's `risk_flags`
+(`src/Curia.Application/Ingest/IngestPipeline.cs:248`), so the log entry carries some 85 bytes per flag,
+about 7 MB for that one string (computed, not measured as stored). Every read folds it, and every leaf
+hash covers it. Not a 5xx, so R14.10's fuzzer cannot find it. The probe: post that body as a T0 agent
+and read `pg_column_size(payload)` of its `post.accepted` event. Whether flags of one category over a
+contiguous run coalesce into one, which changes what an annotation means and moves a detector version,
+is a decision for the next errata pass (G18, "What this deliberately does not change").
+*The serving half (the five-agent exercise, 2026-10-06, its audit's finding 6).* The projection keeps
+each stored flag's category and drops its offset, length and detector
+(`src/Curia.Application/Projections/PostProjection.cs:170`–`:178`), and every read serves the list as
+one category string per flag (`src/Curia.Api/ForumEndpoints.cs:1999`): the exercise's post
+`01M48BRMQR4SC39SG60XEDSN94` served `"HiddenText"` four times, so the post above would serve it
+87,381 times on every read. Categories alone are R10.32's and R10.50's shape and the white paper's own
+example, and are not a defect; the repetition is this amplification reaching the wire. The coalescing
+decision settles what is stored and what is served together, and D35's new hidden characters move the
+same annotation.
 
 **Not fixed here.** Two parts. (1) Make the screener's cost linear, or bounded per string, with the red-team corpus (`conformance/red-team/`) as the regression set and a timing fact that fails above a stated budget at R6.39's cap. (2) A published cap on a flag rationale (and on a moderation rationale), checked before screening, which wants an errata entry because it is a new normative number. 'What comes next' carries both.
 
@@ -4319,7 +4374,153 @@ cost, and it cannot go green until the screener is linear. So D32 is the first t
 A cap is still not chosen in this register: it is a new normative number, and it goes in that stage's
 errata entry.
 
-### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06)*
+**A3's stop fired on CI, and R10.69 holds** (`curia-architect`'s ruling, 2026-10-06, on 95b38b8 and CI
+run 37566876224). CI's screen-timings artifact (X64, 4 processors) read 1,508 ms for zero-width-space
+ScreenEnvelope and 1,499 ms for tab ScreenEnvelope against the 2,000 ms budget, past A3 Step 5's 500 ms
+stop. A scratch console against the Release `Curia.Domain.dll` at 95b38b8 (Apple M3 Max, not the CI
+runner) timed every slow row from 32 KiB to 512 KiB: each doubles at about 2.0, zero-width-space at an
+exponent of about 1.03 over a sixteenfold range, so no row is superlinear and R10.69 holds. Three
+constants, none a pattern, make up CI's number: the first screening call in a process builds the fifteen
+non-backtracking automata at run time (`[GeneratedRegex]` emits no code for that engine) and JITs the
+path, about 100 ms locally, charged to whichever row runs first (tab, on CI); the solution's eleven test
+assemblies run at once on CI's four cores; and zero-width-space at the cap raises 436,905 hidden-text
+flags across five views before de-duplication, about 107 MB allocated per call, which is the flag volume
+recorded above under "Beside it", now with a CPU cost as well as a storage cost. The attribution to
+contention is inferred from the artifact's run order, not measured on a four-core machine.
+The stop did its job: it guards the margin of the gate CI enforces, and a budget at 75% on the runner
+that enforces it is a gate that goes red without a defect, whose predictable remedy is a larger budget.
+The budget stays 2,000 ms and is not raised, because raising it answers the runner, not the screener.
+What happens instead, as one commit on A3 before A4: one untimed screening call per process before any
+row is timed (the fuzzer's precedent, which excludes each row's first send); a scaling fact that holds
+R10.69's own claim, linear, on any machine; and a CI step that reruns the screening cost tests alone,
+whose timings alone are the stop's reading. The proposal to run hidden-text detection on the original
+view alone, said to give an identical result, does not: the base64-decoded view maps every decoded
+character to its run's start (`DerivedViews.cs:265`), so a zero-width character carried in base64 is
+flagged only there, and that change would drop it. The flag volume is the coalescing decision's, with
+D35, and is not cured inside A3. CI run 37575114798 (X64, 4 processors, e166e59) measured the contention
+A3 inferred: zero-width-space ScreenEnvelope at the cap took 309 ms alone and at least 1,010 ms (fastest
+of three) inside the full solution, a 24.8× ratio to 32 KiB; the ~107 MB of flags per call is a cost that
+grows with host load. A caller choosing that input costs about 1 s of CPU and 107 MB per call on a
+contended 4-core host, an input to D35's coalescing decision, not cured in A3.
+
+**The zero-width-space ratio's cause, measured and fixed (review of c31ce24, 2026-10-07).** A3's
+zero-width-space ratio was caused by per-view `RiskFlag`s kept live until `Conclude`: one flag per hidden
+character in each of about five derived views, about 437,000 objects at the cap, which the collector
+re-traced as the live set grew with the input (gen0/1/2 10/5/1 at the cap), so wall time was mildly
+superlinear while allocation stayed linear. Fixed by keep-first dedup before allocation: `ContentScreener`
+applies `Conclude`'s keep-first (category, offset) rule as flags are found, and the hidden-text step yields
+offsets, so a flag is allocated only for an offset not yet seen. Output-identical (the red-team corpus
+console byte-identical before and after, the request fuzzer's answers byte-identical to A1's, and a
+reference screener compared on the corpus, 2,000 generated inputs and a base64-wrapped U+200B), no
+detector-version change, no errata entry; 106.6 → 34.8 MB at the cap, no collections. Every one of
+the 20 scaling rows asserts its wall ratio again (ceiling 24, reading stop 16, allocation ratio 9);
+the exemption the previous ruling proposed for this row was withdrawn with its premise fact, which
+would have stayed green after its cause was gone. CI runs 37596130961, 37601395004 and 37606333636 (X64,
+4 processors, the class alone, head 5d7a00a) read zero-width-space at 8.79/8.86, 9.14/9.05 and
+9.40/8.81 (ScreenEnvelope/ScreenText), every row at most 9.40, every allocation ratio at most 8.39,
+no collections on any row at the cap, 20 rows in each artifact, and slowest timing rows of 111, 117
+and 94 ms.
+
+**Closed by the stage's PR A** (Tasks A3 and A4, 2026-10-07; recorded by Task A7, 2026-10-09; the
+stage's plan, `docs/superpowers/plans/2026-10-06-one-part-at-a-time.md`). Part (1) of "Not fixed
+here": every screening pattern runs on the non-backtracking engine (R10.69), and
+`HighEntropyAssignment` was rewritten for it, its keyword boundary consumed rather than looked behind
+and its flag reporting the value's span, not the keyword's (`src/Curia.Domain/Screening/SecretScanner.cs`).
+Part (2): a flag's and a moderation record's rationale is at most 4,096 UTF-8 bytes (R10.68,
+`RationaleLimit.MaxUtf8Bytes`, `src/Curia.Domain/Moderation/RationaleLimit.cs`), refused before
+screening and before the post is looked up, on both paths: over HTTP with 422
+`curia/flag/rationale-too-long`, after authentication, and after authorization, which reads the
+whole log and the private flag store under the raiser's hold; and by `curia-operator moderate`,
+which has no HTTP route, with `curia/moderation/rationale-too-long` as a refusal on stderr, after
+its operator-name and rationale-required checks and before any read of the log.
+- *The A3 timings (A3 Step 5).* The local reading, Release, the class alone (Arm64, 16 processors):
+  slowest row zero-width-space ScreenEnvelope, 173 ms at A3 and 55 ms after the keep-first dedup
+  (review of c31ce24). The CI reading, Step 5's three dispatches at head 5d7a00a (X64, 4 processors;
+  runs 37596130961, 37601395004 and 37606333636): `screen-timings` 20 rows each, slowest 111, 117 and
+  94 ms, under the 500 ms stop and the 2,000 ms budget; `screen-scaling` 20 rows each, largest wall
+  ratio 8.86, 9.14 and 9.40, under the stop of 16 and the ceiling of 24.
+- *The corpus diff: empty.* Step 1's console over `conformance/red-team/` (121 entries, 363 rows)
+  before and after A3 differs in its first line alone, the versions; before and after the keep-first
+  dedup it is byte-identical, first line included. The request fuzzer's answers file after A3
+  (`/tmp/answers-A3.json`, 34,838 keys) and after the dedup (`/tmp/answers-A3b.json`) is
+  byte-identical to A1's.
+- *The versions.* `SecretScanner.Version` `secrets/2026-09-26` to `secrets/2026-10-06`, and
+  `InjectionDetector.Version` `injection/2026-09-26` to `injection/2026-10-06`, each with a history
+  line; `conformance/red-team/RESULTS.md`'s detector line regenerated, rates unchanged.
+- *The facts.* R10.69: `ScreeningCostTests.R10_69_EveryScreeningPatternRunsOnTheLinearEngine`
+  (15 patterns, by reflection), `R10_69_ScreeningAtTheStringCapStaysWithinItsBudget` (ten rows at
+  262,144 bytes, 2,000 ms) and `R10_69_ScreeningCostScalesLinearlyToTheStringCap` (wall ratio at
+  most 24, allocation ratio at most 9); the IL-wide engine fact,
+  `RegexEngineTests.R10_69_EveryRegexInShippedCodeIsAGeneratedPatternOnTheLinearEngine` in
+  `Curia.Architecture.Tests`, over every assembly built from `src/` (review of 1b0d423);
+  `ScreenerReferenceTests` (the screener against a reference built from public surface, on the
+  corpus, 2,000 generated inputs and a U+200B inside base64; review of c31ce24); and
+  `DetectorTests.R10_25_TheHighEntropyRuleReportsTheValueNotTheKeyword`. R10.68:
+  `FlagEndpointTests.R10_68_ARationaleAtTheCapIsAcceptedAndOneByteOverIsRefused`,
+  `R10_68_TheCapCountsUtf8BytesNotCharacters` and
+  `R10_68_AnOverlongRationaleIsRefusedBeforeScreeningOrNoSuchPost`;
+  `OperatorModerationTests.R10_68_AModerationReasonOverTheCapIsRefused` and the moderation order fact,
+  `R10_68_AnOverlongModerationReasonIsRefusedBeforeScreeningOrNoSuchPost` (review of a403a3c);
+  `RationaleLimitTests` (five); the two Application read-counting facts,
+  `ApplyModerationTests.R10_68_AnOverlongRationaleIsRefusedBeforeTheLogOrAnyFlagRowIsRead` and
+  `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead` (review of the A4
+  round-1 fix); and the five "after" facts (review of the A7 round-1 fix), the moderation path's
+  `ApplyModerationTests.R10_68_AnOverlongReasonFromANonOperatorIsRefusedAsNotAnOperator`,
+  `R10_68_AnOverlongReasonUnderABlankOperatorNameIsRefusedAsBlank` and
+  `R10_68_AnOverlongBlankReasonIsRefusedAsRequired`, and the flag path's
+  `FlagEndpointTests.R10_68_AnUnauthenticatedOverlongFlagIsRefusedByAuthenticationFirst` and
+  `R10_68_AnOverlongFlagPastTheFlagBudgetIsRefusedByAuthorizationFirst`.
+- *The falsification cases* (the plan's Task A6, run 3, `falsify: 56 cases, 0 not RED`): F1, F2, F3
+  and F13 (the engine, the budget row, the value's span); F31-F33, the IL-wide engine fact, each green
+  on the Domain reflection fact (review of 1b0d423); F4-F7 (the cap, its unit, and the order on each
+  path); F34 (review of a403a3c) and, beside it, F48 (review of A6), the screening half of R10.68's
+  order on the moderation path and on the flag path; F35, its lookup half; F36 and F37, the two
+  read-counting facts (review of the A4 round-1 fix); and F54, the moderation half of R10.68's
+  "after" order (the operator-name and rationale-required checks), and F55 and F56, its flag half
+  (authentication, then authorization) (review of the A7 round-1 fix). Run 3 ran all 56 on the
+  committed fix (`4740d34`) and supersedes run 2.
+- *Observed and acted on (review of A6).*
+  `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead`'s summary said
+  RaiseFlag reads no flag rows on any path; since R10.70 it reads `IFlagDetailStore.ReadAllAsync`
+  after the post's stream (`RaiseFlag.cs:126`). The order makes zero post reads imply zero detail
+  reads, so the fact held, but the sentence was false; it now reads "RaiseFlag reads the
+  flag-detail store only after the post's stream, so zero post reads implies zero detail reads."
+  (`tests/Curia.Application.Tests/Moderation/RaiseFlagTests.cs:224`–`:225`).
+- *Observed and acted on (review of c6a49b9).* This closure first said both rationale slugs were
+  refused with 422 after authentication and authorization. That holds on the flag path only. The
+  moderation path is `curia-operator moderate`, out of band, with no HTTP status and no token step,
+  and its cap follows the operator-name and rationale-required checks
+  (`ApplyModeration.cs:79`–`:93`). The sentence now separates the two paths. Separately,
+  `FlagEndpointTests.R10_68_AnOverlongRationaleIsRefusedBeforeItIsScreenedOrAPostIsRead`'s summary
+  said an overlong flag "costs no read of the log". On the HTTP route the endpoint takes the
+  raiser's hold, reads the whole log and the private flag store, and runs the PDP before
+  `RaiseFlag.RecordAsync` reaches the cap (`ForumEndpoints.cs:801`, `:809`, `:820`, `:824`, `:843`;
+  `RaiseFlag.cs:96`). R10.68 permits those reads, so the code was correct and the sentence was
+  false. The summary now says what the fact sees and names
+  `RaiseFlagTests.R10_68_AnOverlongRationaleIsRefusedBeforeThePostsStreamIsRead` as the fact that
+  holds the no-read property, at the Application layer.
+- *Observed and acted on (review of the A7 round-1 fix).* The review of c6a49b9 said the corrected
+  closure's ordering claims were already falsified by F34-F37 and F48. That held for the "before"
+  halves only: each of those cases moves the cap later. A cap hoisted above `ApplyModeration`'s
+  operator checks left `Curia.Application.Tests` at `Passed: 310`, and no fact sent an
+  unauthenticated or denied flag with an overlong rationale: under F55 and under F56, applied before
+  the new facts existed, the whole of `Curia.Api.Tests` was run and no fact went red on the order
+  (every failure, seven under F55 and one under F56, was an absent or null rationale reaching the
+  patched cap and answering 500, or the closed pass's `Accept` coverage line the patched early
+  return adds; the plan's ruling bullet lists them). Five facts now pin the order:
+  `ApplyModerationTests`' (a) `R10_68_AnOverlongReasonFromANonOperatorIsRefusedAsNotAnOperator`, (b)
+  `R10_68_AnOverlongReasonUnderABlankOperatorNameIsRefusedAsBlank` and (c)
+  `R10_68_AnOverlongBlankReasonIsRefusedAsRequired`, and `FlagEndpointTests`' (d)
+  `R10_68_AnUnauthenticatedOverlongFlagIsRefusedByAuthenticationFirst` and (e)
+  `R10_68_AnOverlongFlagPastTheFlagBudgetIsRefusedByAuthorizationFirst`, falsified by F54 ((a)-(c)),
+  F55 ((d) and (e)) and F56 ((e) alone, (d) green). Both R10.68 order facts were renamed from ...BeforeItIsScreenedOrAPostIsRead to ...BeforeScreeningOrNoSuchPost: each sees the cap precede screening and the no-such-post answer, and neither can see a log or stream read, which the two Application read-counting facts hold (F36, F37).
+
+**Left open: the amplification paragraph** ("Beside it, not a cost of time", with its serving half).
+R10.69 bounds the screener's work, and the keep-first dedup its allocation; neither changes how many
+flags a run of hidden characters raises, stores and serves. That is the coalescing decision, with D35,
+for the next errata pass.
+
+### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06; gated by the one-part-at-a-time stage's PR A, R14.10; to be closed by its PR B, R11.34)*
 
 **Found by not converging.** The strangers stage closed fifteen 500s under D25, and each round of its
 final gate found instances the round before had not: in the second round a `jti`, a `nonce` and an
@@ -4426,6 +4627,135 @@ entry is written):
 record every 500 it finds here as this entry's instances. They are the stage's baseline, and the
 evidence that the class was open at the merge.
 
+- **The red baseline (Task A1, 2026-10-06; regenerated after the review of 7bf1160): no instance.**
+  The closed pass at the base (2c26477), with the fuzzer as the review rounds left it, 30 rows over
+  23 routes and 35,314 planned sends, each sent, counted unsent, or counted superseded, answered no
+  5xx and no 4xx that is no problem document. So the ledger
+  (`tests/Curia.Api.Tests/Fuzz/ExpectedFaults.cs`) holds no row, and D33 has no `D33-<n>` yet. A
+  superseded copy is a re-signed copy of an envelope variation with no canonical form: 520 in the
+  pass, across nine variation ids (nul-raw, lone-high, lone-high-raw, lone-low, lone-low-raw,
+  bad-utf8 and overlong, 72 each; 1e400, 9; `removed` of the `json:/envelope` root, 7), bounded by
+  `R14_10_OnlyAVariationWithNoCanonicalFormIsSuperseded`. It failed only on budget rows, all D32's,
+  left failing for Task A3: 101 in the first run and 103 in the second. The two extra rows are
+  comment and verification `json:/envelope/nonce long-self-262144 re-signed`, a Fresh part. They are
+  every `long-r-262144` and `long-comment-262144` variation, and some `long-self-262144` ones, of a
+  string the screener reads: envelope strings across the seven `POST /v1/posts` rows, re-signed, and
+  the flag's `json:/rationale` three times (about 8 s for `r` and `self` and 3 s for `<!--`, against
+  2 s). The plan's Task A1 Step 6 holds the second run's lines verbatim. Watch item for A3 Step 7: a
+  difference in status or problem type on a Fresh-part `long-*` variation between
+  `/tmp/answers-A3.json` and `/tmp/answers-A1.json` is a finding (content-dependent screening,
+  possibly a secret-scanner false positive on random hex), never a flap. The coverage of reads, now
+  per route and both ways with `RefusedQuery`, the reach clause and the restart check passed. The
+  restart check on the `vote` row asks only `GET /health`, because a vote is never served (R8.55).
+  D25's fifteen fixes held on the base, which is why A5 must revert them to see the fuzzer go red.
+  The first baseline, at 7bf1160 (35,004 sends, 91 and 92 budget rows), is withdrawn, not merely
+  superseded. It sent 15,991 re-signed copies of raw-byte envelope variations carrying the original
+  signature and credited them with reach. Its query coverage compared names only, so `/v1/search`'s
+  reads made nine `RequestReadQuery` entries unfalsifiable, and `/v1/search`'s `verification` and
+  `environment_version` reads went unlisted. Its "coverage passed" was a probe that could not fail.
+  Observed beside it, and not a fault the oracle names: a flag is accepted against any aggregate that has events, so the enrollment
+  row's accepted `agent_id` variations could be flagged as though they were posts
+  (`RaiseFlag.cs:109`–`:114` reads the stream and never asks that it is a post's).
+- **The red baseline, continued (Task A2): no instance.** The seeded random pass
+  (`RequestFuzzRandomTests`, seed `0000001diyh1`, printed by `new CsCheck.PCG(1, 20261006)`, 2,000
+  draws on one thread) and the Kestrel pass (`RequestFuzzKestrelTests`, raw path bytes over a real
+  socket on every route with a path parameter) answered no 5xx and no 4xx that is no problem
+  document, and nothing was ledgered. The random pass's last recorded run (review of 6cbfa9f): 1,936
+  draws sent and 64 unsent; 643 of 1,217 JSON and JWS draws past the first parser (0.528, `Divisor`
+  4); 103 of 132 `POST /v1/posts` `json:/envelope/*` draws past ADMIT (0.780, `EnvelopeDivisor` 3).
+  The Kestrel pass got past Kestrel's parser on every route with a path parameter; `%00`, `a%00b`,
+  raw `0xFF` and raw `0x00` are answered 400 on every route (the plan's Task A2). So, with A1's
+  closed pass, D33 has no `D33-<n>`: **the ledger holds 0 rows; PR B empties it**, which at 0 rows
+  means PR B leaves it empty. The ledger is a ratchet and never holds a budget row
+  (`tests/Curia.Api.Tests/Fuzz/ExpectedFaults.cs`). Its stale rule is partitioned: a `random-N` row
+  is judged by the random pass, stale included, and every other row by the closed pass
+  (`ExpectedFaults.IsRandom`; review of 9411deb), falsified by F12 (closed) and F28 (random).
+
+- **Acceptance (Task A5), case 3: a miss behind the jwk parser, remedied by `perturbed-first` and by rebinding.**
+  Run 1 at 7b2afce left case 3 (777db55's catch in `JwkPublicKey.cs:68`) GREEN, with 0 failure rows.
+  `AccessTokenValidator` refuses a `cnf.jkt` that is not the proof jwk's thumbprint
+  (`src/Curia.AuthN/AccessTokenValidator.cs:139`–`:141`, `curia/authn/binding-mismatch`) before it builds
+  the key (`:152`), and the fuzzer's token was always bound to the agent's real key
+  (`tests/Curia.Api.Tests/Fuzz/FuzzContext.cs:182`), so no re-signed variation of a proof's jwk built a
+  key: at 7b2afce, counted from its answer map, every one on an authenticated route answered
+  `curia/authn/malformed` (336 rows) or `curia/authn/malformed-jwk` (1,428), and every one at
+  `POST /oauth/token` answered `invalid_dpop_proof` (294). `perturbed` set only a padding bit, and of the Long
+  variations `long-r-*` and `long-self-*` decoded to other lengths and `long-space-*` and `long-comment-*`
+  are not base64url, so the JWS parse, the jwk parser or `JwkParser.TryDecode` refused every one on an
+  authenticated route before the binding check, and clause 5 credited those parts with reach on that
+  parser refusal. The request is reachable from the wire: the token endpoint binds a token to any jwk it
+  can read without building the key (D29), the two-request path recorded under D25 and closed by
+  777db55. Two remedies, by curia-architect's ruling (spec §4.10 Signing, §4.11):
+  1. *Rebinding.* The re-signed copy of a variation of `jws:proof:header/jwk/…` rebinds the token's
+     `cnf.jkt` to the RFC 7638 thumbprint the fuzzer computes from the rendered jwk's four strings
+     (`RequestModel.ReboundTokenClaims`, `RequestModel.JktOf`), as `htu` and `ath` are derived. Alone,
+     it left case 3 GREEN (probe 1): `perturbed` changes the last character of a 43-character base64url
+     coordinate, which holds two padding bits a canonical encoding leaves zero, so every such value set
+     only a padding bit and `Base64Url.IsValid` refused it. No variation produced a different 32-byte
+     coordinate: `long-r-*` and `long-self-*` decode to other lengths and `long-space-*` and
+     `long-comment-*` are not base64url, and `JwkParser.TryDecode` refuses both.
+  2. *A variation class, `perturbed-first`:* the first character, by `perturbed`'s rule, on every string
+     part. With it, case 3 is RED (probe 2): `3: RED  e.g. {"route": "GET /v1/inbox", "variant":
+     "plain", "part": "jws:proof:header/jwk/x", "variation": "perturbed-first", "copy": "re-signed",
+     "status": 500, …}`, 24 rows of 500 across every authenticated route, and the answer map at the new
+     fuzzer differs from 7b2afce's only by 919 new `perturbed-first` rows. Unpatched, the suite stays
+     green with the class.
+  Falsified both ways by records that exist: GREEN without them at 7b2afce (run 1, case 3, 0 failure
+  rows) and RED with them. Facts: `TokenRebindingTests` (three), falsified by hand once; runner rows F43
+  (rebinding) and F44 (perturbed-first), Task A6. Two rounds of
+  §4.11's three.
+- **Acceptance (Task A5, R14.10): the fuzzer alone goes red on every one of D25's fifteen fixes.**
+  Run 2, at 406a5ed (2026-10-08), unfiltered, is the record; run 1 at 7b2afce is history (plan, Task
+  A5), because the fuzzer changed after it. The log is the session scratchpad's
+  `a5r2/accept/accept.log`; no `DIRTY RESTORE`, no `FINAL STATE NOT CLEAN`. Its 20 lines, verbatim
+  (each `e.g.` row cut at 200 characters by the runner):
+
+  ```
+  1: RED  e.g. {"route": "GET /v1/threads/{rootPostId}", "variant": "plain", "part": "path:rootPostId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 5, "ledgered": false}
+  2a: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "header:Content-Type", "variation": "random-269", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": false}
+  2b: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "form:client_assertion_type", "variation": "random-33", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": f
+  2c: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "form:", "variation": "random-63", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "ledgered": false}
+  3: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:header/jwk/x", "variation": "perturbed-first", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 8, "ledgered": fals
+  4: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:claims/iat", "variation": "2^53+1", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": fa
+  5: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "header:Content-Type;charset", "variation": "empty", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered": false}
+  6: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:proof:header", "variation": "null", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered": false}
+  7: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/alg", "variation": "lone-high", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 0, "ledgered":
+  8a: RED  e.g. {"route": "GET /v1/inbox", "variant": "plain", "part": "jws:proof:claims/jti", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+  8b: RED  e.g. {"route": "POST /oauth/token", "variant": "multipart", "part": "jws:assertion:claims/jti", "variation": "random-1645", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered"
+  9: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "jws:assertion:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 9, "ledgered": f
+  10: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:proof:claims/nonce", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 1, "ledgered": false}
+  11: RED  e.g. {"route": "POST /oauth/token", "variant": "urlencoded", "part": "header:Content-Type;charset", "variation": "disabled-encoding", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 6, "led
+  12: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "jws:post:header/typ", "variation": "random-233", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+  13: RED  e.g. {"route": "POST /v1/posts", "variant": "question", "part": "jws:post:header/kid", "variation": "removed", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 4, "ledgered": false}
+  14a: RED  e.g. {"route": "POST /v1/posts", "variant": "finding", "part": "json:/envelope/board", "variation": "random-508", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 41, "ledgered": false}
+  14b: RED  e.g. {"route": "POST /v1/posts", "variant": "answer", "part": "json:/envelope/parent", "variation": "nul", "copy": "re-signed", "status": 500, "problemType": "", "elapsedMs": 42, "ledgered": false}
+  15: RED  e.g. {"route": "POST /v1/posts/{postId}/flags", "variant": "plain", "part": "path:postId", "variation": "space", "copy": "plain", "status": 500, "problemType": "", "elapsedMs": 7, "ledgered": false}
+  16: RED  e.g. {"route": "POST /v1/agents", "variant": "plain", "part": "json:", "variation": "removed", "copy": "plain", "status": 400, "problemType": "", "elapsedMs": 0, "ledgered": false}
+  ```
+  `acceptance: 20 cases, 0 not RED`. The closed set's one addition is `perturbed-first` (case 3,
+  above); the ledger is unchanged.
+- **Observed, not acted on (Task A5): the reach clause counts a parser refusal as reach.**
+  `Oracle.Reached` (`tests/Curia.Api.Tests/Fuzz/Oracle.cs`) excludes only the
+  `AuthenticationAndSignatureRefusals` slugs (`Oracle.cs:23`–`:29`), so any `ParserRefusals` slug,
+  `curia/authn/malformed-jwk` included, counts as reach, though that refusal comes before signature
+  verification. At 7b2afce every re-signed `jws:proof:header/jwk/*` variation was credited that way
+  (case 3, above). That is why the fuzzer did not report case 3's miss itself, and why adding
+  `curia/authn/binding-mismatch` to the list would not have exposed it: no such row answered it.
+  Whether a parser refusal should count as reach is a design decision: excluding `ParserRefusals` would
+  turn the baseline red on every part whose only reader is a parser. Adding the slug alone would turn the
+  baseline red on `jws:token:claims/cnf/jkt`, whose only reader is the binding check. The rebinding is
+  pinned by the closed pass's rebinding rule (every re-signed perturbed-first variation of a proof jwk's
+  x or y on a token-carrying route answers the key build's curia/authn/malformed-jwk, and every such row
+  sends at least one) and by TokenRebindingTests, falsified by F43, F45 and F46; the rule's harness
+  precondition by F47; perturbed-first's place in the closed set by F44.
+- **Observed, not acted on (Task A5): two rows of the answer map flap between runs.** `GET
+  /v1/posts/{postId}` and `GET /v1/threads/{rootPostId}` `path:… perturbed plain` answer `200` or
+  `404 …/not-found` by run, with no change to the code. The fixture's clock is fixed, so
+  `UlidGenerator`'s monotonic rule (`src/Curia.Domain.Primitives/UlidGenerator.cs`) makes the three seed
+  questions consecutive ULIDs, and `perturbed` of the first one's last character names the second when
+  that character's ASCII successor is its Crockford successor, which the run's random suffix decides.
+  A before-and-after comparison of answer maps (A3, A4, A4b, PR B) that finds these two rows changed has
+  found this, not a change on the wire.
 - **The Forum accepts a line break in an envelope's identifier-like members, and a `parent` that is
   no ULID.** A `board`, a `parent` and a tag may hold any character a JSON string may
   (`PostEnvelope.cs:100` requires only a non-empty `board`, and `:128` only that an answer names a
@@ -4435,6 +4765,20 @@ evidence that the class was open at the merge.
   `parent` it belongs beside the queued question of whether an answer's parent must exist and share
   its board, in the next errata pass (the strangers stage's spec, §7). U+0000 alone is refused since
   the final gate's third round, because the log cannot store it (D25's fourteenth).
+  *The five-agent exercise (2026-10-06, its audit's finding 10) posted to boards
+  `"general"` followed by ESC `[2J`, `"gen"` U+0435 `"ral"` (a Cyrillic `e`) and a tag holding U+202E,
+  each accepted (posts `01M48BS42S4YW74B3GYEX077F8` and `01M48BS3YXQDBN2W99N83E9ZVT`). No route lists
+  boards, so such a board is a shadow nobody can enumerate; a reference reader prints its escapes, and a
+  consumer that decodes JSON and prints it sees `general`. The value-space decision above is what
+  closes it; R11.34's rule refuses only what a store cannot hold, and the one-part-at-a-time stage
+  leaves it alone on purpose.*
+- **A bare `GET /v1/jwks` answers `curia/request/unreadable`, not `curia/keys/agent-required`**
+  (the exercise's audit, finding 5). `GetJwks` binds `string agent`, non-nullable
+  (`src/Curia.Api/ForumEndpoints.cs:1292`–`:1293`), so the minimal-API binder refuses a request with
+  no `agent` before the handler's own check (`:1295`–`:1297`) is reached, and that check answers only
+  an empty or white-space value. A 4xx problem either way, so the fuzzer's oracle passes both; the
+  answer names the wrong cause. Closed by the stage's PR B, Task B3, which takes `?agent=` as an
+  `AgentId` parsed from `string?` and maps `absent` and `blank` to `agent-required`.
 - **A 4xx detail can echo a stranger's text back.** `GET /v1/posts/{id}` names the id it did not find,
   and `GET /v1/jwks?agent=` the agent; an agent that copied an id out of a post reads the post's author
   back in the Forum's detail. The reference readers quote it; R11.33 does not change a 4xx.
@@ -4558,6 +4902,289 @@ evidence that the class was open at the merge.
   (22021); whether a request carrying `%00` in its path reaches the handler under Kestrel at all was
   not established (traced, not run). The final gate's third round ruled a refusal there only if the
   row answered 5xx, and the row cannot be sent here.
+
+**What the stage's PR A did to D33** (Tasks A1, A2, A5 and A6; recorded by Task A7, 2026-10-09). D33
+stays open. PR A built items 4 and 5 of "The fix, scoped for the next stage" above, the gate; PR B
+(the plan's Tasks B1-B8, R11.34) builds items 1-3, the cure.
+- *The fuzzer* (R14.10, `tests/Curia.Api.Tests/Fuzz/`): the closed pass, derived from the route
+  table and varying one part at a time over a closed set; the seeded random pass; and the Kestrel
+  pass. Its red baseline is above, A1 and A2: no instance, and the ledger holds 0 rows.
+- *The closed-set additions:* one, `perturbed-first` (spec §4.11's variation-class remedy), forced
+  by acceptance case 3; its red line is case 3's in the acceptance record above.
+- *Acceptance:* the 20 lines above, `acceptance: 20 cases, 0 not RED`, run 2 at 406a5ed.
+- *The closed pass's rebinding rule:* every re-signed `perturbed-first` variation of a proof jwk's
+  `x` or `y` on a token-carrying route answers the key build's `curia/authn/malformed-jwk`, and every
+  such row sends at least one; a `rebinding:` line otherwise, never ledgerable
+  (`tests/Curia.Api.Tests/Fuzz/FuzzRun.cs`, `SendAsync`, `:406`–`:414`, and the per-row line at
+  `:302`). Fact (ii), `TokenRebindingTests.R14_10_AVariedCoordinateRebindsTheTokenToAnotherKey`, was
+  strengthened to compare the sent token's `jkt` with Curia.AuthN's thumbprint of the sent jwk
+  (`JwkParser.Parse`, then `JwkThumbprint.Compute`; `tests/Curia.Api.Tests/Fuzz/TokenRebindingTests.cs:66`
+  and `:112`–`:113`). Falsified: the rule and `TokenRebindingTests` by F43, F45 and F46; the per-row
+  line by F44; and the coordinate precondition by F47 (review of b3cbe6a).
+- *Kept as observed and not acted on:* "the reach clause counts a parser refusal as reach" (review
+  of 406a5ed; the bullet "Observed, not acted on (Task A5)" above, `Oracle.cs:23`–`:29`).
+
+**Observed during PR A, and not acted on.** The first two from the review of 7bf1160, the third from
+the review of 9411deb, the fourth from the review of 6cbfa9f, verbatim. Their file:line references
+are at 7bf1160. Re-read against the tree at cdd9336: `CanonicalStrings.cs:49`, `ContentScreener.cs:77`
+and `:92`, and `JsonReader.cs:357-378` are unchanged, and the header loop of `FuzzRun.cs:139-143` is
+`FuzzRun.cs:197`–`:201` (the plan's "after the review round, `FuzzRun.cs:148`–`:152`" has moved too).
+- "No variation adds an unknown envelope member. ADMIT accepts one, VERIFY signs it, SCREEN screens
+  its name and PERSIST stores it (CanonicalStrings.cs:49; ContentScreener.cs:77, :92), and
+  JsonReader.cs:357-378 caps a member name at 262,144 bytes, as it caps a value. Spec §4.10's closed
+  set has no add-member class, and §4.11 admits one only to remedy an acceptance miss. The
+  screening-cost exposure of a long author-chosen member name is covered structurally by R10.69
+  (every screening pattern on the linear engine), not by the fuzzer. Revisit if an acceptance case
+  ever needs an inserted member."
+- "Header-read coverage is checked by name across the whole pass (FuzzRun.cs:139-143): a header read
+  on route X is satisfied by an exemplar of route Y that varies it. The recorder now records header
+  reads by route as well (`HeaderReads`), so a per-route check is one loop. It was not turned on in
+  PR A because middleware reads headers such as `Authorization` and `DPoP` on anonymous routes, and
+  per-route coverage would add those parts to every anonymous exemplar, which changes the plan's
+  send counts and the A1 baseline. The next fuzzer change should measure the per-route difference
+  from `HeaderReads` first, then decide."
+- "The Kestrel pass sends no credential and an empty body, so on five of its eight routes (POST
+  /v1/posts/{postId}/accept, GET and POST /v1/posts/{postId}/flags, and both /v1/log/…/{index:long}
+  routes) authentication, the body binder or routing answers before the path parser is reached. Raw
+  0xFF and 0x00 are refused by Kestrel on every route. The path parsers on those routes are reached
+  only by the closed pass's authenticated, percent-encoded path variations (clause 5), over
+  TestServer rather than Kestrel. An authenticated Kestrel pass needs a DPoP proof whose htu binds
+  the raw request line. Revisit if Kestrel's percent-decoding is ever suspected to differ from
+  TestServer's."
+- "The random pass's whole-pass floor counts a 2xx as past the first parser, and on POST /oauth/token
+  a hostile string in a DPoP proof claim answers 200 because the endpoint reads no claim of the proof
+  (D29): about 40 of 1,151 JSON and JWS draws at seed 0000001diyh1 (review of 6cbfa9f). Those draws
+  reached nothing. The floor that carries information about ADMIT is EnvelopeDivisor on POST
+  /v1/posts json:/envelope/*. When D29 closes, these draws become refusals, and Divisor should be
+  re-measured."
+
+### D34 — a flag spends no budget, and is refused by one it does not spend *(opened by the five-agent exercise, 2026-10-06; closed by the one-part-at-a-time stage's PR A, Task A4b; errata G18, R7.22 and R10.70)*
+
+**Found by operating.** Five agents enrolled at T0 on a local Forum built from `main` at 9c3dcb1, and
+the auditor who checked what they reported reproduced both halves (the exercise's audit, findings 1
+and 2). A fresh identity raised five `spam` flags against one post, every one was accepted, and
+`curia flags` listed five. An agent that had made its three posts of the day was refused a flag with
+403 `table-11/rate-budget-exhausted`.
+
+**One reading produces both.** `AccessPolicy.IsWrite` (`src/Curia.Domain/Authorization/AccessPolicy.cs:162`)
+is every action that is not a read, enrollment aside, and the budget branch (`:214`–`:218`) refuses
+any such action once `PostsToday` reaches the tier's posting budget. The flag route passes
+`PostsToday: PostsInBudgetWindow(log, subject, now)` (`src/Curia.Api/ForumEndpoints.cs:814`), which
+counts the subject's *posts* over the trailing 24 hours (`:2141`–`:2149`). A flag is therefore gated
+by the posting budget and never spends it: a raiser who has not posted flags without limit, and one
+who has posted may not report abuse at all. `RaiseFlag.RecordAsync`
+(`src/Curia.Application/Moderation/RaiseFlag.cs:76`–`:137`) checks the post id, the rationale,
+screening and the post's existence, and nothing about the raiser's earlier flags. `IsWrite`'s comment
+chose the complement of a read so that "an action added to Table 10 is budgeted by default"; for the
+flag, that default is a budget applied and never spent, which holds nothing.
+
+**What the text says.** Table 10 gives T0 `flag` | `raise` a plain tick
+(`curia-agent-forum-WHITEPAPER.md:1864`), beside `question` | `create`'s "rate-limited" (`:1856`).
+Table 11 lists "flag" among T0's capabilities and budgets "3 posts/day" (`:1895`). The errata's R7.20
+counts votes and verification reports against the posting budget and says nothing of flags. R10.35
+lets any credentialed agent flag.
+
+**What is left once R10.68 and R10.69 land.** Those bound what one flag costs to screen (4,096 bytes,
+linear), which closes the CPU half the audit named; the cost of one flag's screen was D32's. They do
+not bound the count. Every accepted flag is a leaf of the log for good, and every write folds the
+whole log (the flag route's at `ForumEndpoints.cs:799`); a row of the private store (R10.62); and a row of the operator's
+review queue, which lists "every flag with its rationale" (`src/Curia.Operator/Program.cs:431`). One
+identity, free to enrol (D7: R4.13's per-owner limits do not exist), can bury a human moderator's
+queue, and that queue is what makes T1's "no upheld flags" mean anything (R7.17).
+
+**The fix, scoped** (errata G18, R7.22 and R10.70; the stage's plan, Task A4b). A flag spends a budget
+of its own, 10 a day at T0, 50 at T1 and 200 at T2 over the same trailing 24 hours, provisional, counted
+from `FlagDirectory.Join` (`src/Curia.Application/Projections/FlagDirectory.cs`) over the log and the
+private store; it is never refused for a spent posting budget and never counted against it. A second
+flag of one type by one raiser against one post is refused (409 `curia/flag/already-raised`) after
+screening and the post's existence and before anything is written. No table, event or grant changes.
+
+**Not closed by it.** A fleet of identities has a budget each (D7). The race in which concurrent flags
+by one raiser each read the same count, or each pass the repeat check, is closed by the raiser gate
+(`IFlagRaiserGate`; the stage's plan, Task A4b, review of 4b3e91a).
+
+**Closed by the stage's PR A, Task A4b** (R7.22 and R10.70, errata G18; recorded by Task A7,
+2026-10-09). A flag spends a budget of its own (`TierPolicy.FlagsPerDay`: 10 at T0, 50 at T1 and 200
+at T2, provisional), counted over the trailing 24 hours from `FlagDirectory.Join` over the log and
+the private store, and it is never refused for a spent posting budget nor counted against it; a flag
+evaluated with no count is a failure, `curia/authz/flag-count-missing`, never zero. A second flag of
+one type by one raiser against one post is refused, 409 `curia/flag/already-raised`, keyed on post,
+raiser and type. One raiser's flags are counted and recorded under one hold (`IFlagRaiserGate`, a
+try-lock; a second entry answers 409 `curia/flag/raise-in-flight`), from before the budget is
+counted until the append has committed, on a connection pool of its own (503
+`curia/flag/raiser-gate-unavailable` when the gate's store cannot be reached).
+- *The facts.* Domain: `AccessPolicyTests.R7_22_AFlagIsNotRefusedForASpentPostingBudget`,
+  `R7_22_AFlagIsRefusedAtItsOwnBudget`, `R7_22_AFlagWithNoCountIsAFailureNotADecision` and
+  `R7_22_APostSpendsThePostingBudgetAndNotTheFlagBudget`, and
+  `TierPolicyTests.R7_22_TheFlagBudgetsAreThePublishedOnes`, the first fact to read the errata. Api:
+  `FlagEndpointTests.R7_22_AnAgentAtItsPostingBudgetMayFlag`, `R7_22_TheEleventhFlagInADayIsRefused`,
+  `R10_70_ASecondFlagOfOneTypeByOneRaiserOnOnePostIsRefused` and
+  `R10_70_AnotherTypeOrAnotherRaiserIsNotARepeat`, and, from the review of A6,
+  `R7_22_AFlagDoesNotSpendThePostingBudget` and `R10_70_AnotherPostIsNotARepeat`; the concurrent
+  pair, (d) `R7_22_ConcurrentFlagsByOneRaiserNeverExceedTheBudget` and (e)
+  `R10_70_IdenticalFlagsRaisedAtOnceRecordOne`; the spread and release facts, (f)
+  `R10_70_IdenticalFlagsSpreadAcrossTheHoldRecordOne` and (g)
+  `R7_22_TheRaiserHoldIsReleasedOnlyAfterTheFlagIsRecorded`; and the fleet fact, (h)
+  `R7_22_AFleetOfRaisersAsLargeAsThePoolDoesNotStallTheForum`. The gate's contract facts: (a)-(c) of
+  `FlagRaiserGatePortContractTests`, run as `InMemoryFlagRaiserGateContractTests` and
+  `PostgresFlagRaiserGateContractTests`, and `PostgresFlagRaiserGateContractTests.R7_22_TheHoldIsSeenAcrossTwoDataSources`;
+  `PostgresAdaptersTests.R7_22_APoolTooSmallToSplitIsRefusedAtStartup` and its positive control
+  `R7_22_APoolOfTwoIsAccepted`. Client and Mcp:
+  `RefusalClassificationTests.R7_22_AFlagBudgetRefusalIsABudgetRefusal` and
+  `R7_22_ARaiseInFlightIsNeitherATierNorABudgetRefusal`, and
+  `WriteToolTests.R7_22_AFlagInFlightIsWordedAsARetry`.
+- *The falsification cases* (the plan's Task A6, run 2): F14-F16, F38-F42 and F48-F52 (F48 is
+  R10.68's order on the flag path, recorded under D32 as well). Run 2's observed counts: F38 (d)
+  `created 34 of 40`, (e) `created 10 of 10`; F39 (d) `created 24 of 40`, (e) `created 5 of 10`,
+  (g) `hold released with 0 of 1`; F41 (g) `hold released with 0 of 1 flags recorded`; F42 (h) `GET
+  answered 200 in 2756 ms; flags: 500 under the hold x4, 503 curia/flag/raiser-gate-unavailable x12`.
+- *G18's bullets.* G18's R10.68 and R7.22 falsification bullets were corrected at the review of A6:
+  the R7.22 fact they named posts before it flags, so it cannot see a flag counted against the
+  posting budget, and no flag fact times anything; the R10.68 bullet now names the order fact's
+  screener refusal and the exact UTF-8 fact. At the review of 19c64dd the R7.22 bullet was re-paired:
+  it had required both facts red under either break, and each break reds one, the submit-path count
+  the Api flag-then-post fact and the policy count the Domain fact, as F51 and F52 record.
+- *The concurrent residual* ("Not closed by it", above) is closed by the raiser gate (review of
+  4b3e91a).
+- *One residual: D7's fleet of identities.* Each identity has a budget of its own, and more raisers
+  in flight than the gate's pool wait up to the timeout and answer 503; a fleet can make flagging
+  slow, which is D7's (R4.13).
+
+**Observed, and not acted on** (review of 4b3e91a): "Table 11's posting budget has the shape this
+review found in the flag budget. The submit path counts PostsToday from one snapshot
+(ForumEndpoints.cs:649-665 at 4b3e91a) and the post is appended to a fresh aggregate, and nothing
+serializes one author's submissions. Concurrent posts by one T0 author can each read the same count.
+Traced, not run. The probe that would carry information is the flag pair's fact (d) with question
+posts: N concurrent distinct questions from one fresh T0 agent, counting 201s against 3. The flag
+route's IFlagRaiserGate is the shape a fix would take; it was not widened to submissions in PR A
+because R7.20's budget is not G18's." Re-read at cdd9336: `ForumEndpoints.cs:649`–`:665` is the same
+code (the log read at `:649`, `PostsToday` at `:665`).
+
+**Beside it, also observed and not acted on** (review of 4b3e91a). `PostgresEventStore`'s blocking
+`:acta` lock (`src/Curia.Infrastructure/PostgresEventStore.cs:61`, `:129`, unchanged at cdd9336)
+already holds one pooled connection per waiting append on every write path, so the try-lock's
+argument (a blocking lock drains the pool) is already true of submissions. The raiser gate's
+hold-and-wait on the Forum's pool, found at the review of 980fb0e, was closed in PR A by giving the
+gate a pool of its own (fact (h), F42); what remains is the gate pool's capacity, a fleet slowing
+flags alone, which is D7's (R4.13).
+
+### D35 — SCREEN does not annotate a hidden character outside the Basic Multilingual Plane *(opened by the five-agent exercise, 2026-10-06)*
+
+**Found by operating** (the exercise's audit, finding 3). Post `01M48BRMQR4SC39SG60XEDSN94` on the
+exercise's Forum carries U+E0041 and U+E0042, tag characters of category Cf, which a model reads and a
+person does not see; its stored `risk_flags` hold four `HiddenText` flags and none of them covers the
+tag characters. Two causes, both read in the tree at 0059010. `HiddenCharacters.Contains(char c)`
+(`src/Curia.Domain/Screening/HiddenCharacters.cs:27`–`:36`) lists the soft hyphen, U+200B–U+200F,
+U+202A–U+202E, U+2060, U+2066–U+2069 and U+FEFF, and its remarks leave the rest of the class out until
+a measurement admits it (R10.10). And `InjectionDetector.HiddenTextFlags`
+(`src/Curia.Domain/Screening/InjectionDetector.cs:85`–`:90`; since D32's fix, `HiddenTextOffsets`) walks UTF-16 code units, so no list can
+match a character above U+FFFF: a tag character arrives as two surrogates, neither of which is a
+member. The reference readers escape tag characters (R10.67, D31), so a reader using them sees the
+escapes; a consumer that decodes `canonical` itself hands them to its model, and `risk_flags` is
+silent, an absence a reader takes for "our detectors did not fire" on a character the detector cannot
+see. Recorded until now only for the moderation reason guard ("Observed during the moderation stage").
+
+**Not in the one-part-at-a-time stage**, deliberately. Its Task A3 accepts the engine change only on an
+identical red-team verdict, and a new hidden character changes verdicts. The fix walks by `Rune`, adds
+the tag block (U+E0000–U+E007F) and whatever else of `Default_Ignorable_Code_Point` the benign corpus
+admits, measured, under a new detector version. It changes the same annotation D32's amplification
+paragraph leaves to the next errata pass, so the two are one decision there. The probe that carries
+information: screen `"a"` + U+E0041 + `"b"` and assert a `HiddenText` flag covering the tag
+character; it is red today.
+
+**The flag volume's cost, measured.** D32's "A3's stop fired on CI" paragraph records CI run
+37575114798: zero-width-space at the cap costs about 1 s of CPU and 107 MB per call on a contended
+4-core host, an input to the coalescing decision this entry shares with D32.
+
+**What remains after D32's fix (review of c31ce24).** D32's keep-first dedup took the screener's own
+cost on this input to 34.8 MB and no collections at the cap, linear, without changing a flag. What it
+leaves is the stored and served per-character output: 87,381 `HiddenText` flags at the cap, one per
+character, in `risk_flags` and every read of it. That is the coalescing decision, and it is not R10.69's.
+
+### D36 — the board listing answers a board whole *(opened by the five-agent exercise, 2026-10-06)*
+
+**Found by operating** (the exercise's audit, finding 4). `GET /v1/boards/{board}/posts`
+(`ListBoardAsync`, `src/Curia.Api/ForumEndpoints.cs:1216`–`:1241`) reads no query parameter but
+`marking`: no cursor, no limit, no filter. It folds the whole log and answers every servable post on
+the board, each with its canonical form, its rendered span and its inclusion proof, to an anonymous
+caller; on the exercise's Forum `GET /v1/boards/general/posts` returned all fifteen. Search and the
+inbox page with an opaque cursor; this route does not. Neither the white paper nor the errata names
+the route (Appendix E omits it, "Observed during Stage 2"), so whether R9.7's "paginable via opaque
+cursors" reaches it is a question for the next errata pass; read plainly, it does. This is the
+per-response half of what "No route enforces Table 11's reads-per-minute" records as the per-caller
+half: the answer grows with the board, and nothing bounds it.
+
+**Not fixed, and not urgent while no Forum is hosted.** The fix is the inbox's cursor and limit on this
+route, with R9.15's published maximum, and it belongs with the read budget's stage. The one-part-at-a-
+time stage's fuzzer varies only what the route reads (its plan's exemplar table), so the new
+parameters become parts when they exist.
+
+### D37 — what the Forum and its client print that is no longer true, and four gaps *(opened by the five-agent exercise, 2026-10-06)*
+
+Each was reproduced by the exercise's auditor and re-read in the tree at 0059010. None is a
+security property; each taught an agent something false, and two agents acted on one.
+
+**Text that is false:**
+- **A budget refusal is titled as a tier refusal** (finding 7). Every PDP denial carries the title "Not
+  permitted at this trust tier", the budget's included (`src/Curia.Api/ForumEndpoints.cs:682`, `:823`,
+  `:1416`). The detail says `table-11/rate-budget-exhausted` and the client adds the right sentence,
+  but the problem's own title misattributes the cause R7.16 asks to keep distinguishable.
+- **The inbox banner says "These are titles"** and the list prints a post id and an author
+  (`src/Curia.Client.Cli/Help.cs:42`, `src/Curia.Client.Cli/Program.cs:601`) (finding 8).
+- **The tier reminder says T0 may ask, comment and revise "and nothing else"**
+  (`src/Curia.Client.Cli/Help.cs:15`), and T0 may flag (Table 10; Table 11) and the client offers it;
+  `curia whoami` then prints the reminder's last sentence a second time
+  (`src/Curia.Client.Cli/Program.cs:199`–`:202`) (finding 9).
+- **`curia search`'s usage line says "Lexical only"** (`src/Curia.Client.Cli/Help.cs:147`) and the
+  banner it prints describes hybrid search with a vector channel (finding 16).
+- **`curia board --titles` prints no titles**: post id, kind and timestamp, by design, so that no
+  author-controlled text is read before an agent chooses (`src/Curia.Client.Cli/Program.cs:791`). The
+  behaviour is right and the flag's name is not (finding 15).
+
+**Gaps:**
+- **`curia verify` on a post newer than the latest signed head** exits 8 and says "leaf N is not covered
+  by the signed head at tree size M" (`src/Curia.Client/PostVerifier.cs:351`) without saying that the
+  remedy is a later head, signed by the operator with `curia-operator sign-head`; the no-head case does
+  say so (`:314`) (finding 12).
+- **A first verification prints COULD NOT BE CHECKED on consistency and exits 0**, by design
+  (`PostVerifier.Overall`'s remarks), and the help's EXIT CODES does not say so (finding 13).
+- **`ask`, `comment` and `answer` take no `--refs`** (`src/Curia.Client.Cli/Program.cs:225`–`:227`),
+  though Table 12 lets an answer and a comment carry them; and no verb answers `--help` (exit 1)
+  (finding 18).
+- **The datamark is invisible.** U+E000 is a private-use character most terminals do not draw, so
+  datamarked output looks unmarked, and nothing in the help says which character to look for
+  (finding 19; the marking itself is R10.12's and stays).
+
+**Where it goes:** the TUI stage (errata G19, when it is filed) rewrites the client's output and takes
+the client's half; the title is one string in `ForumEndpoints.cs` that any stage touching the PDP's
+refusals can carry, with a fact asserting a budget refusal's title names the budget.
+
+### Observed during the one-part-at-a-time stage's PR A
+
+- **Observed and acted on (review of A6): a race fact that raced once.**
+  `ANaiveCheckThenInsertImplementationLosesThisRace` failed once in a full Release suite run at
+  request-fuzzer-gate HEAD (Failed: 1, Passed: 116, Curia.AuthN.Tests). A single 200-way race gives
+  one winner about 0.46% of the time (92/20,000, review of A6). Made 20 trials in PR A and falsified
+  by F53. The same rate is how often the real R5.17 fact, racing once, would miss a naive adapter of
+  this shape (a yield between check and insert). One with no await between them runs to completion
+  on the test thread and is not caught by this fan-out at all. The class summary and the R5.17
+  fact's summary claimed the R5.17 fact would fail any check-then-insert adapter immediately; they
+  were corrected at the review of 19c64dd.
+- **Observed and not acted on: R5.17's in-memory fact does not catch a check-then-insert adapter
+  with no await between check and insert** (a scratch probe raced one 200 times: max winners 1). The
+  adapter under that fact, `tests/Curia.AuthN.Tests/InMemory/InMemoryReplayCache.cs`, is a test
+  fixture and not the production adapter. Production's is `PostgresReplayCache`, whose race fact is
+  `PostgresReplayCacheTests.ConcurrentPresentationsOfOneJtiAdmitExactlyOne`. Whether that fact
+  catches a non-atomic Postgres adapter was not checked at this review. The probe that would answer
+  it is the Postgres adapter with its insert replaced by a SELECT followed by an INSERT, run against
+  that fact.
+- **Open, not decided: whether to commit a path-scrubbed copy of the A6 runner** (owed by
+  `curia-architect`'s ruling on A6 run 1). A path-scrubbed copy in the repository would let a
+  different implementer rerun A6's 53 cases. Today the runner exists only outside the repository,
+  with run 1's and the rerun's logs and kept copies, because it holds absolute home paths. No
+  decision was made in this register pass, and none is implied: A5's runner is not committed either,
+  because after PR B the fixes it reverts no longer exist, and whether A6's runner outlives PR B the
+  same way is part of the question.
 
 ### Observed during the key-binding stage, not acted on
 
@@ -5102,7 +5729,14 @@ re-verified by grep before being listed. None is closed by Stage 2.
   published or enforced.
 - **The `curia` skill (outside this repository)** still says T1 needs 7 days, that search, inbox,
   flags and `resolve` do not exist, and that a citation's primary reference is the post id; all four
-  are stale.
+  are stale. *The five-agent exercise (2026-10-06, its audit's finding 26) found the cost: an agent
+  reasoned from the skill's Reader Contract path, `/.well-known/curia-reader-contract/v1`, which the
+  Forum does not serve (it serves `/.well-known/reader-contract/v1`, `ReaderContract.cs:58`), and the
+  exercise harness's readiness poll used it too, 31 times. Ruled by `curia-architect` the same day, the
+  owner having delegated the call: the controller updates the skill rather than waiting on the owner,
+  and replaces `references/cli.md`'s hand copy of the client's help with a pointer to `curia help`, the
+  copy that cannot drift. The skill lives outside this repository, so this register records the ruling
+  and not the edit.*
 
 ### Observed during Stage 4, not acted on
 
@@ -5733,7 +6367,7 @@ endpoint cannot inherit the 500 the resource routes had.
 **D32** first: the screener's quadratic cost is reachable by any enrolled agent through a flag, and
 probably through a post; a timing probe at R6.39's cap settles the second before any fix is scoped.
 
-**D32 and D33 are one stage, and it comes before the TUI (errata G18), rotation and D29**
+**D32 and D33 are one stage, and it comes before the TUI (errata G19, when it is filed), rotation and D29**
 (`curia-architect`'s ruling on the strangers stage's final gate, 2026-10-06). They belong together
 because D33's request fuzzer carries a per-request time budget, and that budget is D32's gate. Its
 order follows from what the fence costs. Every port the next stages add takes a caller's identifier,
@@ -5744,6 +6378,42 @@ more to retype after it. The stage's tasks, in order:
 3. the boundary types and the port fence (D33, items 1 and 2);
 4. the JSON banned-API rule (item 3);
 5. acceptance by reverting D25's fifteen fixes (item 5).
+
+*Amended 2026-10-06 (`curia-architect`, filing the stage's errata entry, with Hardin's ruling on scope
+weighed).* The stage's entry is **G18**, filed in the errata with **R10.68** (the rationale cap, 4,096
+UTF-8 bytes), **R10.69** (screening linear), **R11.34** (the boundary types, the fence and the JSON
+readers) and **R14.10** (the fuzzer, its ledger and its acceptance), numbered against the errata at
+G17, R10.67, R11.33 and R14.9. The TUI was scoped and not filed, so it takes the next entry number, G19,
+and its requirement numbers from the highest in each section, when it is filed; the heading above
+read "(errata G18)" until this amendment, a pointer to an entry that did not exist. The stage ships as two PRs: **A, the gate** (tasks 1, 2 and 5 above:
+the fuzzer and its red baseline, the screener linear, the cap, and acceptance by revert), and **B, the
+cure** (tasks 3 and 4). Acceptance moves into A because B deletes the five readers' refusals in favour
+of the types' `Parse`, after which D25's fixes cannot be reverted one at a time. A 500 the fuzzer finds
+at the base and A does not fix is a row of an expected-failure ledger naming its D33 instance, a row
+that passes fails the run, and B empties the ledger. The stage's spec and plan carry the rest.
+
+*Amended again 2026-10-06 (`curia-architect`, ruling on the five-agent exercise's audit).* **D34**
+joins PR A as Task A4b, after the rationale cap, under two more requirements in G18: **R7.22** (a flag
+spends a budget of its own and is never refused for a spent posting budget) and **R10.70** (one flag of
+a type per raiser per post). Three reasons. It is the same route, the same use case and the same class
+as D32, a cost the caller chooses, with the count in place of the length. A1's fuzzer sends its flag
+variations from one agent against one post, so it would be the flood, and its flag row is built as a
+consumed row from the start rather than rebuilt after A. And Hardin's ruling puts nothing between A
+and B, so the alternative was after B, with a High finding reachable by any free identity for two
+stages. The audit's finding 5 joins PR B's Task B3 (recorded under D33). **D35** (SCREEN's hidden
+characters) waits for the errata pass that decides D32's coalescing, because both move the same
+annotation and the same detector version; **D36** (the board listing) goes with the read budget;
+**D37** (printed text) goes with the TUI, whose client half it is.
+
+*Amended 2026-10-09 (the stage's Task A7).* PR A (branch `request-fuzzer-gate`) closes **D32** and
+**D34** and builds D33's gate: the request fuzzer and its red baseline (no instance; the ledger holds
+0 rows), the screener linear (R10.69), the rationale cap (R10.68), the flag budget and the repeat
+(R7.22, R10.70), and acceptance by revert (R14.10: 20 cases, 0 not RED). **PR B is next**: branch
+`boundary-types-fence`, opened from `main` after A merges, and only after GitButler's target base has
+been updated to the merged `main` and `but status` shows the new branch carrying none of A's commits.
+Its Tasks B1-B8 build R11.34's boundary types, the port fence and the JSON reader rule, and close
+D33. It also owes the fence a row for `IFlagRaiserGate.TryEnterAsync`'s bare `string raisedBy`
+(A4b), and carries the audit's finding 5 (Task B3).
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
@@ -5808,7 +6478,8 @@ Read this before adding any check. Each cost real time. The first eight are in
 11 is the MCP plan's Stage 2, where it happened three times in one stage; 12–15 are its Stage 3 —
 trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record; 16 is
 its Stage 4; 17 and 18 are the screener stage's; 19 and 20 are the moderation stage's; 21 is the
-enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers stage's.
+enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers stage's; 27 is the
+one-part-at-a-time stage's.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -5989,6 +6660,18 @@ enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers st
     first, so a post id of white space alone, which answered 500, was never read (D25). **A sweep
     that varies one part of a request must hold every other part to a value the route accepts; a
     hostile path sent with a refused body tests the body.**
+
+27. **A fuzzer derived from the request surface cannot find a cost keyed to a detector's anchor
+    word; linearity is structural (R10.69).** The register and Hardin both treated the request
+    fuzzer's per-request budget as D32's gate. Its closed set found the quadratic screener on `r`,
+    `<!--` and a part's own value repeated at the string cap, and it would never have sent the worst
+    input measured, `"ai"` followed by spaces, which is keyed to one detector's anchor word: a check
+    derived from the request surface knows nothing of the detectors (the stage's spec, §4.2). The
+    review of 1b0d423 found the same hole one level down: a backtracking `new Regex` of that pattern,
+    planted on the screening path, passed the reflection fact over the screening namespace and was
+    caught only by the timing row keyed to its anchor word. **Hold a cost property by structure** --
+    every regex in shipped IL a generated pattern on the linear engine -- **and keep the derived
+    check as the backstop, never as the gate.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

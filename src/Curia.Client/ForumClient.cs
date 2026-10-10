@@ -455,6 +455,10 @@ public sealed class ForumClient
             401 => RefusalKind.Authentication,
             403 when error.Detail?.StartsWith("table-11/rate-budget-exhausted", StringComparison.Ordinal) == true
                 => RefusalKind.RateBudget,
+
+            // R7.22 (errata G18): the flag budget is a budget too -- it resets, and is not a tier denial.
+            403 when error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true
+                => RefusalKind.RateBudget,
             403 => RefusalKind.Authorization,
             404 => RefusalKind.NotFound,
             409 => RefusalKind.Conflict,

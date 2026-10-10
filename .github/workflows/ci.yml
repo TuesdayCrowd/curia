@@ -105,7 +105,51 @@ jobs:
         env:
           CURIA_TEST_POSTGRES: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres
           CURIA_TESTIS_BIN: ${{ github.workspace }}/rust/curia-testis/target/debug/curia-testis
-        run: dotnet test Curia.sln --no-build --configuration Release
+          # R14.10's closed pass writes the elapsed time of every send, by row and send index, and
+          # the slowest per route, so growth from folding shows as a slope (spec §4.10).
+          CURIA_FUZZ_TIMINGS: ${{ runner.temp }}/fuzz-timings.tsv
+        # R10.69's cost class is judged only in the isolated step below, never here: elapsed time
+        # inside eleven test hosts on four cores measures the runner's load, not the screener's work.
+        # Run 37575114798 read zero-width-space ScreenEnvelope at the cap 309 ms isolated and at least
+        # 1,010 ms here, a ratio of 24.8 to 32 KiB. This step's "!~" and the isolated step's "~" over
+        # the same name are what make the split exact.
+        run: dotnet test Curia.sln --no-build --configuration Release --filter "FullyQualifiedName!~ScreeningCostTests"
+
+      # R10.69 (A3 Step 5): the screening cost tests alone, so the stop reads the screener and not
+      # eleven test hosts on four cores; the timings file comes from this step only.
+      - name: Screening cost, alone (R10.69)
+        if: ${{ !cancelled() }}
+        env:
+          CURIA_SCREEN_TIMINGS: ${{ runner.temp }}/screen-timings.tsv
+          CURIA_SCREEN_SCALING: ${{ runner.temp }}/screen-scaling.tsv
+        run: |
+          dotnet test tests/Curia.Domain.Tests --no-build --configuration Release --filter "FullyQualifiedName~ScreeningCostTests"
+          test "$(wc -l < "$CURIA_SCREEN_TIMINGS")" -eq 20
+          test "$(wc -l < "$CURIA_SCREEN_SCALING")" -eq 20
+
+      - name: Upload the fuzzer's timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-timings
+          path: ${{ runner.temp }}/fuzz-timings.tsv
+          if-no-files-found: warn
+
+      - name: Upload the screening timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screen-timings
+          path: ${{ runner.temp }}/screen-timings.tsv
+          if-no-files-found: error
+
+      - name: Upload the screening scaling ratios
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screen-scaling
+          path: ${{ runner.temp }}/screen-scaling.tsv
+          if-no-files-found: error
 
       # D16, decided as option 1: the architecture rules run in Debug as well. NetArchTest reads IL,
       # and IL differs by configuration: a seven-case string switch in Curia.Domain fails CS-7 in

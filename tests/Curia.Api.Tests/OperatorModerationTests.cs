@@ -267,6 +267,60 @@ public sealed class OperatorModerationTests(ForumFixture forum) : IClassFixture<
     }
 
     /// <summary>
+    /// R10.68 (errata G18): a moderation record's reason is at most 4,096 UTF-8 bytes. One byte over
+    /// is refused by name, against a real post the record would otherwise have withheld, and the log
+    /// has no new entry.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AModerationReasonOverTheCapIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var author = await PartyAsync(client, "op-author", ct);
+        var (postId, _) = await AskAsync(client, author, ct);
+        var before = await LogSizeAsync(client, ct);
+
+        var (exit, _, stderr) = await RunAsync(Moderate(postId, "withhold", reason: new string('a', 4_097)), ct);
+
+        Assert.Equal(ExitCode.Refused, exit);
+        Assert.Contains("curia/moderation/rationale-too-long", stderr, StringComparison.Ordinal);
+        Assert.Contains("bytes=4097", stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await LogSizeAsync(client, ct));
+
+        using var read = await client.GetAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+    }
+
+    /// <summary>
+    /// R10.68's order on the moderation path (errata G18): the cap is checked before the reason is
+    /// screened and before the lookup can answer. The reason carries a credential, which screening
+    /// would refuse as <c>rationale-rejected</c>. The post does not exist, which the lookup would
+    /// refuse as <c>no-such-post</c>. The answer is neither. Whether the whole log was read before the
+    /// cap is something this fact cannot see, since a missing post answers the same either side of
+    /// the read. <c>ApplyModerationTests.R10_68_AnOverlongRationaleIsRefusedBeforeTheLogOrAnyFlagRowIsRead</c>
+    /// holds that.
+    /// </summary>
+    [Fact]
+    public async Task R10_68_AnOverlongModerationReasonIsRefusedBeforeScreeningOrNoSuchPost()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var before = await LogSizeAsync(client, ct);
+
+        var reason = ("ghp_" + "A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o").PadRight(5_000, ' ');
+        Assert.Equal(5_000, Encoding.UTF8.GetByteCount(reason));
+
+        var (exit, _, stderr) = await RunAsync(Moderate("01JNOSUCHPOST00000000000001", "withhold", "credential_leak", reason), ct);
+
+        Assert.Equal(ExitCode.Refused, exit);
+        Assert.Contains("curia/moderation/rationale-too-long", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("curia/moderation/rationale-rejected", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("curia/moderation/no-such-post", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("ghp_", stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await LogSizeAsync(client, ct));
+    }
+
+    /// <summary>
     /// A usage error is refused before anything is written. It is aimed at a real, servable post, so
     /// a verb that defaulted the missing category would have withheld it: the log would grow and the
     /// post would stop being served. Against a post that does not exist, "writes nothing" would hold

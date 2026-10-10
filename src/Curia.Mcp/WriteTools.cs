@@ -237,6 +237,13 @@ internal sealed partial class ForumTools
             .Append($"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {new OwnText(TierSpan.For(resource, action))} ")
             .Append($"Retrying will not change this.")
             .ToString()),
+        RefusalKind.RateBudget when refusal.Error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true
+            => new McpException(new FrameBuilder()
+            .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's flag budget is ")
+            .Append($"spent: R7.22 allows {TierPolicy.FlagsPerDay(PrincipalTier.T0)} flags at T0, ")
+            .Append($"{TierPolicy.FlagsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.FlagsPerDay(PrincipalTier.T2)} ")
+            .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial.")
+            .ToString()),
         RefusalKind.RateBudget => new McpException(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
             .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")

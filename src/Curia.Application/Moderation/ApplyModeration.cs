@@ -88,6 +88,10 @@ public sealed class ApplyModeration
         if (string.IsNullOrWhiteSpace(rationale))
             return Result<ModerationRecorded>.Fail(ModerationErrors.RationaleRequired());
 
+        // R10.68 (errata G18): before screening and before the post's stream is read.
+        if (RationaleLimit.Over(rationale) is { } bytes)
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RationaleTooLong(bytes));
+
         // R10.60: the rationale lands in a leaf R6.51 serves verbatim, under the same two-regime
         // table a flag's rationale is screened with.
         var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(rationale));
@@ -234,6 +238,12 @@ public static class ModerationRecordErrors
         "curia/moderation/rationale-rejected",
         "The moderator's rationale was rejected by screening; it would land in a public leaf (R10.60)",
         annotations);
+
+    /// <summary>R10.68 (errata G18): names the field and the byte count, never the value.</summary>
+    public static Error RationaleTooLong(int bytes) => new(
+        "curia/moderation/rationale-too-long",
+        "The moderator's rationale is longer than R10.68 permits",
+        $"field=rationale bytes={bytes}: at most {RationaleLimit.MaxUtf8Bytes} UTF-8 bytes");
 
     /// <summary>
     /// R10.62: the reason repeats a flag's raiser or rationale. The detail names the field alone —
