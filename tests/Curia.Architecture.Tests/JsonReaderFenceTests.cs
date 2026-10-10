@@ -12,9 +12,10 @@ namespace Curia.Architecture.Tests;
 /// R11.34 (errata G18): <i>a caller's JSON is read only through a guarded reader</i>, held as an IL
 /// call-site scan rather than as review (spec section 4.9).
 ///
-/// <para><b>What is scanned.</b> Every <c>call</c>, <c>callvirt</c> and <c>newobj</c> in every assembly
-/// built from <c>src/</c> except <c>Curia.Client</c>, <c>curia</c> (Client.Cli) and <c>curia-mcp</c>,
-/// read by <see cref="IlCallSites.CallSites"/>. Those three read the Forum's served bytes, not a
+/// <para><b>What is scanned.</b> Every <c>call</c>, <c>callvirt</c>, <c>newobj</c>, <c>ldftn</c> and
+/// <c>ldvirtftn</c> in every assembly built from <c>src/</c> except <c>Curia.Client</c>, <c>curia</c>
+/// (Client.Cli) and <c>curia-mcp</c>, read by <see cref="IlCallSites.CallSites"/>, so a banned reader
+/// taken as a method group (a delegate over JsonDocument.Parse) is a call site like any other. Those three read the Forum's served bytes, not a
 /// caller's; leaving them out is a decision, and this fact states it.</para>
 ///
 /// <para><b>What a row is.</b> A call to one of <see cref="BannedCallees"/> needs a row in
@@ -34,16 +35,31 @@ public sealed class JsonReaderFenceTests
     [
         ("System.Text.Json.JsonDocument", "Parse"),
         ("System.Text.Json.JsonDocument", "ParseValue"),
+        ("System.Text.Json.JsonDocument", "TryParseValue"),
+        ("System.Text.Json.JsonElement", "Parse"),
+        ("System.Text.Json.JsonElement", "ParseValue"),
+        ("System.Text.Json.JsonElement", "TryParseValue"),
         ("System.Text.Json.JsonDocument", "ParseAsync"),
         ("System.Text.Json.Nodes.JsonNode", "Parse"),
         ("System.Text.Json.Nodes.JsonNode", "ParseAsync"),
         ("System.Text.Json.JsonElement", "GetString"),
+        ("System.Text.Json.JsonElement", "ToString"),
+        ("System.Text.Json.JsonProperty", "get_Name"),
         ("System.Text.Json.JsonSerializer", "Deserialize"),
         ("System.Text.Json.JsonSerializer", "DeserializeAsync"),
         ("System.Text.Json.JsonSerializer", "DeserializeAsyncEnumerable"),
         ("System.Text.Json.Utf8JsonReader", "GetString"),
+        ("System.Text.Json.Utf8JsonReader", "CopyString"),
         ("Microsoft.AspNetCore.Http.HttpRequestJsonExtensions", "ReadFromJsonAsync"),
         ("System.Net.Http.Json.HttpContentJsonExtensions", "ReadFromJsonAsync"),
+    ];
+
+    /// <summary>The assemblies that declare <see cref="BannedCallees"/>' types, where each entry must resolve.</summary>
+    private static readonly System.Reflection.Assembly[] BannedCalleeAssemblies =
+    [
+        typeof(System.Text.Json.JsonDocument).Assembly,
+        typeof(Microsoft.AspNetCore.Http.HttpRequestJsonExtensions).Assembly,
+        typeof(System.Net.Http.Json.HttpContentJsonExtensions).Assembly,
     ];
 
     /// <summary>The assemblies that read the Forum's served bytes, not a caller's (spec section 4.9's scope).</summary>
@@ -90,6 +106,24 @@ public sealed class JsonReaderFenceTests
     [Fact]
     public void R11_34_ACallersJsonIsReadOnlyThroughAGuardedReader()
     {
+        // A spelling guard: every entry must name a public method its type declares (DeclaredOnly, or
+        // Object.ToString would pass every ToString entry). It does not show that a call can reach the
+        // method; JsonElement::ToString is reached only through the constrained mapping, held by
+        // R11_34_AConstrainedCallIsReportedAsTheConstrainedTypesMethod.
+        var unresolved = BannedCallees
+            .Where(b => BannedCalleeAssemblies
+                .Select(a => a.GetType(b.Type))
+                .OfType<Type>()
+                .FirstOrDefault() is not { } type
+                || !type.GetMethods(
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static
+                        | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
+                    .Any(m => m.Name == b.Member))
+            .Select(b => $"banned callee {b.Type}::{b.Member} names no method; the entry bans nothing")
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.True(unresolved.Count == 0, string.Join(Environment.NewLine, unresolved));
+
         var shipped = Shipped.ShippedAssemblies();
         Assert.True(shipped.Count >= 12, $"only {shipped.Count} projects were found under src/; the scan is looking in the wrong place");
         var scanned = shipped.Where(p => !OutOfScope.Contains(Path.GetFileName(p), StringComparer.Ordinal)).ToList();
@@ -99,6 +133,9 @@ public sealed class JsonReaderFenceTests
 
         // Non-vacuity: a decoder that read nothing would find no banned call and pass.
         Assert.True(sites["Curia.AuthN.dll"].Length > 0, "the scan read no call site in Curia.AuthN; the IL decoder is reading nothing");
+        Assert.True(
+            sites["Curia.AuthN.dll"].Contains(("Curia.AuthN.AccessTokenValidator", "ValidateRequestAsync", "Curia.AuthN.AccessTokenClaims", "Parse")),
+            "the scan did not see AccessTokenValidator's method group over AccessTokenClaims.Parse (AccessTokenValidator.cs, ParsePayload); the IL decoder is not reading ldftn, so a delegate over a banned reader would pass unseen");
 
         var banned = sites.Values
             .SelectMany(s => s)
@@ -119,6 +156,23 @@ public sealed class JsonReaderFenceTests
             failures.Count == 0,
             "R11.34: a caller's JSON is read other than through a guarded reader:"
             + Environment.NewLine + string.Join(Environment.NewLine, failures.Order(StringComparer.Ordinal)));
+    }
+
+    /// <summary>The constrained-call sentinel; never called.</summary>
+    internal static string ConstrainedProbe(System.Text.Json.JsonElement e) => e.ToString();
+
+    /// <summary>
+    /// Spec section 4.9: <c>e.ToString()</c> on a <see cref="System.Text.Json.JsonElement"/> compiles to
+    /// <c>constrained. JsonElement callvirt System.Object::ToString</c>, so the scan must report it as
+    /// <c>JsonElement::ToString</c>, or that ban matches nothing.
+    /// </summary>
+    [Fact]
+    public void R11_34_AConstrainedCallIsReportedAsTheConstrainedTypesMethod()
+    {
+        var sites = IlCallSites.CallSites(typeof(JsonReaderFenceTests).Assembly.Location);
+        Assert.True(
+            sites.Contains(("Curia.Architecture.Tests.JsonReaderFenceTests", "ConstrainedProbe", "System.Text.Json.JsonElement", "ToString")),
+            "the scan did not report ConstrainedProbe's constrained. JsonElement callvirt Object::ToString as JsonElement::ToString; the IL decoder is not mapping a constrained call, so the JsonElement::ToString ban matches nothing");
     }
 
     /// <summary>

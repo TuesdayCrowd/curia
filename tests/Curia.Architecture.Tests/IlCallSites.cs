@@ -50,9 +50,12 @@ internal static class IlCallSites
     }
 
     /// <summary>
-    /// Every <c>call</c>, <c>callvirt</c> and <c>newobj</c> in <paramref name="assemblyPath"/>'s method
-    /// bodies (spec section 4.9). Each body's IL is decoded with <see cref="BlobReader"/> and
-    /// <see cref="ILOpCode"/>: the 4-byte token operand of those three opcodes is resolved, through a
+    /// Every <c>call</c>, <c>callvirt</c>, <c>newobj</c>, <c>ldftn</c> and <c>ldvirtftn</c> in
+    /// <paramref name="assemblyPath"/>'s method bodies (spec section 4.9). A delegate over a method is
+    /// made with <c>ldftn</c>/<c>ldvirtftn</c> and is invoked through the delegate's <c>Invoke</c>, so a
+    /// scan of calls alone never sees the method a method group names (R10.63's precedent,
+    /// ConstantArgumentTests). Each body's IL is decoded with <see cref="BlobReader"/> and
+    /// <see cref="ILOpCode"/>: the 4-byte token operand of those five opcodes is resolved, through a
     /// <see cref="MethodSpecification"/> to its generic method definition, to the callee's declaring
     /// type and name; every other operand is skipped by its encoded size, the <c>switch</c> table
     /// included. A body whose decoding does not end exactly at the body's length throws, because a
@@ -60,6 +63,11 @@ internal static class IlCallSites
     /// declaring type, so a compiler-generated nested type (a lambda's closure, an async state machine)
     /// maps to the type that wrote it, and <c>CallerMethod</c> is the method the source wrote: the name
     /// inside a generated method's or state machine's angle brackets, or the method's own name.
+    /// A <c>constrained. T</c> prefix before <c>callvirt</c> on a System.Object method is reported as
+    /// T's method. Roslyn compiles <c>e.ToString()</c> on a struct whose override is declared in another
+    /// assembly as <c>constrained. T callvirt Object::ToString</c>, so without this a ban on
+    /// <c>JsonElement::ToString</c> could match nothing. A boxed or generic stringification names a BCL
+    /// callee and is out of reach.
     /// </summary>
     internal static ImmutableArray<(string CallerType, string CallerMethod, string CalleeType, string CalleeMember)> CallSites(
         string assemblyPath)
@@ -81,16 +89,28 @@ internal static class IlCallSites
 
                 var callerMethod = SourceMethodName(md, type, md.GetString(method.Name));
                 var reader = pe.GetMethodBody(method.RelativeVirtualAddress).GetILReader();
+                string? constrained = null;
                 while (reader.Offset < reader.Length)
                 {
                     var opCode = ReadOpCode(ref reader);
-                    if (opCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj)
+                    if (opCode == ILOpCode.Constrained)
                     {
-                        var (calleeType, calleeMember) = Callee(md, MetadataTokens.EntityHandle(reader.ReadInt32()));
-                        found.Add((callerType, callerMethod, calleeType, calleeMember));
+                        var name = ParentFullName(md, MetadataTokens.EntityHandle(reader.ReadInt32()));
+                        constrained = name.StartsWith('(') ? null : name;
                         continue;
                     }
 
+                    if (opCode is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Ldftn or ILOpCode.Ldvirtftn)
+                    {
+                        var (calleeType, calleeMember) = Callee(md, MetadataTokens.EntityHandle(reader.ReadInt32()));
+                        if (opCode == ILOpCode.Callvirt && constrained is not null && calleeType == "System.Object")
+                            calleeType = constrained;
+                        found.Add((callerType, callerMethod, calleeType, calleeMember));
+                        constrained = null;
+                        continue;
+                    }
+
+                    constrained = null;
                     SkipOperand(ref reader, opCode);
                 }
 

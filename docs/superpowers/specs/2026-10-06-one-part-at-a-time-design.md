@@ -269,19 +269,21 @@ Non-vacuity guards: at least 10 port interfaces scanned, at least 20 host-refere
 
 ### 4.9 The JSON reader rule
 
-The fact is `R11_34_ACallersJsonIsReadOnlyThroughAGuardedReader`, in `tests/Curia.Architecture.Tests/JsonReaderFenceTests.cs`. It is an IL **call-site** scan using `System.Reflection.Metadata`: it decodes every method body's `call`, `callvirt` and `newobj` operands.
+The fact is `R11_34_ACallersJsonIsReadOnlyThroughAGuardedReader`, in `tests/Curia.Architecture.Tests/JsonReaderFenceTests.cs`. It is an IL **call-site** scan using `System.Reflection.Metadata`: it decodes every method body's `call`, `callvirt`, `newobj`, `ldftn` and `ldvirtftn` operands. A delegate over a method is built with `ldftn`/`ldvirtftn` and invoked through the delegate's `Invoke`, so a scan of calls alone never sees a banned reader taken as a method group (`Func<string, JsonDocumentOptions, JsonDocument> p = JsonDocument.Parse;`). That is the bypass R10.63's ConstantArgumentTests closed for CA1857. A `constrained. T` prefix before `callvirt` on a System.Object method is read as T's method, because that is how `e.ToString()` on a `JsonElement` compiles. A `JsonElement` stringified after boxing or through a generic method names a BCL callee instead, and is outside the fence's reach. The fence matches the callee a body names; it is not a dataflow proof. Every banned entry must name a public method its type declares; this is a spelling guard, not a reachability proof.
 
 - **Banned callees:**
-  - `System.Text.Json.JsonDocument::Parse` and `::ParseValue`
+  - `System.Text.Json.JsonDocument::Parse`, `::ParseValue` and `::TryParseValue`
+  - `System.Text.Json.JsonElement::Parse`, `::ParseValue` and `::TryParseValue` (the same parse, reached through `JsonElement`)
   - `System.Text.Json.Nodes.JsonNode::Parse`
-  - `System.Text.Json.JsonElement::GetString`
+  - `System.Text.Json.JsonElement::GetString` and `::ToString`, and `System.Text.Json.JsonProperty::Name` (matched as `get_Name`). Each decodes a string and throws on an unpaired surrogate, the fault G18 records for `GetString`. `JsonElement::ToString` is matched through the `constrained.` mapping below.
   - `System.Text.Json.JsonSerializer::Deserialize`
-  - `System.Text.Json.Utf8JsonReader::GetString`
+  - `System.Text.Json.Utf8JsonReader::GetString` and `::CopyString`
   - `System.Text.Json.JsonDocument::ParseAsync`, `System.Text.Json.Nodes.JsonNode::ParseAsync`
   - `System.Text.Json.JsonSerializer::DeserializeAsync` and `::DeserializeAsyncEnumerable` (a generic callee resolves through its `MethodSpecification` to the definition)
   - `ReadFromJsonAsync` on `Microsoft.AspNetCore.Http.HttpRequestJsonExtensions` and `System.Net.Http.Json.HttpContentJsonExtensions`
 - **Scan scope:** every `src/` assembly except `Curia.Client`, `curia` (Client.Cli) and `Curia.Mcp`. Those read the Forum's served bytes, not a caller's; the scope is a decision and the test states it.
 - **Attribution:** a call site belongs to its outermost non-nested declaring type. Compiler-generated nested types map to their enclosing type.
+- **Non-vacuity:** the scan must read a call site in Curia.AuthN. It must also see AccessTokenValidator.ValidateRequestAsync's method group over AccessTokenClaims.Parse, which is reachable only through ldftn, and the scan of the Architecture test assembly must report `ConstrainedProbe`'s constrained call as `JsonElement::ToString`.
 
 The allowlist is keyed by `(type full name, calling method, callee)`, with a reason, so a new call in a listed type is a new row for review. The table below gives the types and callees; the calling methods are filled from the red run, one row per method. These are its rows:
 
