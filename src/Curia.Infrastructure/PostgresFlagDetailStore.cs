@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ports;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -45,8 +46,8 @@ public sealed class PostgresFlagDetailStore : IFlagDetailStore
                 "VALUES (@event, @post, @raiser, @rationale, @salt);",
                 connection);
             command.Parameters.Add(new NpgsqlParameter("event", NpgsqlDbType.Text) { Value = detail.EventId });
-            command.Parameters.Add(new NpgsqlParameter("post", NpgsqlDbType.Text) { Value = detail.PostId });
-            command.Parameters.Add(new NpgsqlParameter("raiser", NpgsqlDbType.Text) { Value = detail.RaisedBy });
+            command.Parameters.Add(new NpgsqlParameter("post", NpgsqlDbType.Text) { Value = detail.PostId.Value });
+            command.Parameters.Add(new NpgsqlParameter("raiser", NpgsqlDbType.Text) { Value = detail.RaisedBy.Value });
             command.Parameters.Add(new NpgsqlParameter("rationale", NpgsqlDbType.Text) { Value = detail.Rationale });
             command.Parameters.Add(new NpgsqlParameter("salt", NpgsqlDbType.Text) { Value = detail.Salt });
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -81,8 +82,16 @@ public sealed class PostgresFlagDetailStore : IFlagDetailStore
             var rows = new List<FlagDetail>();
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                rows.Add(new FlagDetail(
-                    reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+                // A row's post and raiser were a PostId and an AgentId when RaiseFlag wrote them, and the
+                // types have no other constructor, so they are rebuilt through Parse, as
+                // PostgresDpopNonceStore rebuilds a nonce it minted. A row that no longer parses is a
+                // failure of the store, never a row with its member altered (R11.34, errata G18).
+                var eventId = reader.GetString(0);
+                if (!PostId.Parse(reader.GetString(1)).TryGetValue(out var post, out _)
+                    || !AgentId.Parse(reader.GetString(2)).TryGetValue(out var raiser, out _))
+                    return Result<IReadOnlyList<FlagDetail>>.Fail(FlagDetailRules.Unavailable($"event={eventId}: a stored post or raiser is no longer a post id or an agent id"));
+
+                rows.Add(new FlagDetail(eventId, post!, raiser!, reader.GetString(3), reader.GetString(4)));
             }
 
             return Result<IReadOnlyList<FlagDetail>>.Ok(rows);

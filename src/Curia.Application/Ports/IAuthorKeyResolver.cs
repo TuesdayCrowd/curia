@@ -1,5 +1,6 @@
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Ports;
 
@@ -47,8 +48,8 @@ public interface IAuthorKeyResolver
     /// an operator should be able to tell them apart.</para>
     /// </summary>
     Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string agentId,
-        string kid,
+        AgentId agentId,
+        Kid kid,
         ServerTimestamp at,
         CancellationToken cancellationToken = default);
 }

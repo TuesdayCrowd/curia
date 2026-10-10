@@ -75,7 +75,7 @@ public sealed class PostgresEnrollmentSerializationTests
         await using var holding = await holder.BeginTransactionAsync(ct);
         await HoldAsync(holder, holding, schema, Alice, ct);
 
-        var enroll = store.EnrollAsync(Alice, NewKey("alice-1"), Today, ct);
+        var enroll = store.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), Today, ct);
         var finishedWhileHeld = await Task.WhenAny(enroll, Task.Delay(TimeSpan.FromSeconds(2), ct)) == enroll;
         Assert.False(finishedWhileHeld, "an enrollment decided while its identifier's lock was held by another transaction");
 
@@ -95,8 +95,8 @@ public sealed class PostgresEnrollmentSerializationTests
         await HoldAsync(holder, holding, schema, Alice, ct);
 
         // Both start while the lock is held, so neither can have read the table before the other.
-        var first = store.EnrollAsync(Alice, NewKey("alice-1"), Today, ct);
-        var second = store.EnrollAsync(Alice, NewKey("alice-2"), Today, ct);
+        var first = store.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), Today, ct);
+        var second = store.EnrollAsync(Typed.Agent(Alice), NewKey("alice-2"), Today, ct);
         await Task.WhenAny(Task.WhenAny(first, second), Task.Delay(TimeSpan.FromSeconds(2), ct));
         Assert.False(first.IsCompleted || second.IsCompleted, "an enrollment decided while its identifier's lock was held by another transaction");
 
@@ -105,6 +105,6 @@ public sealed class PostgresEnrollmentSerializationTests
 
         Assert.Single(outcomes, o => o.IsOk);
         Assert.Single(outcomes, o => !o.IsOk && o.Match(_ => string.Empty, e => e.Type) == "curia/enroll/already-enrolled");
-        Assert.Single(await store.KeysForAsync(Alice, ct));
+        Assert.Single(await store.KeysForAsync(Typed.Agent(Alice), ct));
     }
 }

@@ -58,7 +58,7 @@ public sealed class PostgresAgentKeyStoreTests
         Require(await store.RegisterAsync("agent://forum/alice", key, LastMonth, cancellationToken: ct));
 
         var resolved = Require(await store.ResolveAsync(
-            "agent://forum/alice", "kid-inside-window", ServerTimestamp.At(Today), ct));
+            Typed.Agent("agent://forum/alice"), Typed.Kid("kid-inside-window"), ServerTimestamp.At(Today), ct));
 
         Assert.Equal(key.Alg, resolved.Alg);
         Assert.Equal(key.Kid, resolved.Kid);
@@ -81,7 +81,7 @@ public sealed class PostgresAgentKeyStoreTests
         Require(await StoreOn(schema).RegisterAsync("agent://forum/alice", key, LastMonth, cancellationToken: ct));
 
         var resolved = Require(await StoreOn(schema).ResolveAsync(
-            "agent://forum/alice", "kid-across-instances", ServerTimestamp.At(Today), ct));
+            Typed.Agent("agent://forum/alice"), Typed.Kid("kid-across-instances"), ServerTimestamp.At(Today), ct));
 
         Assert.Equal(key.Public.ToArray(), resolved.Public.ToArray());
     }
@@ -105,11 +105,11 @@ public sealed class PostgresAgentKeyStoreTests
         Require(await store.RegisterAsync("agent://forum/alice", key, LastMonth, Today, ct));
 
         var duringTheWindow = await store.ResolveAsync(
-            "agent://forum/alice", "kid-revoked-today", ServerTimestamp.At(LastMonth.AddDays(3)), ct);
+            Typed.Agent("agent://forum/alice"), Typed.Kid("kid-revoked-today"), ServerTimestamp.At(LastMonth.AddDays(3)), ct);
         Assert.Equal(key.Kid, Require(duringTheWindow).Kid);
 
         var afterRevocation = await store.ResolveAsync(
-            "agent://forum/alice", "kid-revoked-today", ServerTimestamp.At(Today), ct);
+            Typed.Agent("agent://forum/alice"), Typed.Kid("kid-revoked-today"), ServerTimestamp.At(Today), ct);
         Assert.Equal("curia/keys/no-longer-valid", Refusal(afterRevocation).Type);
     }
 
@@ -126,7 +126,7 @@ public sealed class PostgresAgentKeyStoreTests
             "agent://forum/alice", NewKey("kid-not-yet-valid"), Today, cancellationToken: ct));
 
         var tooEarly = await store.ResolveAsync(
-            "agent://forum/alice", "kid-not-yet-valid", ServerTimestamp.At(LastMonth), ct);
+            Typed.Agent("agent://forum/alice"), Typed.Kid("kid-not-yet-valid"), ServerTimestamp.At(LastMonth), ct);
 
         Assert.Equal("curia/keys/not-yet-valid", Refusal(tooEarly).Type);
     }
@@ -150,7 +150,7 @@ public sealed class PostgresAgentKeyStoreTests
 
         // And the refusal left the original registration alone: the resolver still answers with
         // Alice's key, which is the property the refusal exists to protect.
-        var stillAlices = Require(await store.ResolveAsync("agent://forum/alice", "kid-contested", ServerTimestamp.At(Today), ct));
+        var stillAlices = Require(await store.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid("kid-contested"), ServerTimestamp.At(Today), ct));
         Assert.Equal("kid-contested", stillAlices.Kid);
     }
 
@@ -174,7 +174,7 @@ public sealed class PostgresAgentKeyStoreTests
         Assert.Equal(LastMonth, again.NotBefore);
 
         var lastMonthsPost = await store.ResolveAsync(
-            "agent://forum/alice", "kid-re-enrolled", ServerTimestamp.At(LastMonth.AddDays(3)), ct);
+            Typed.Agent("agent://forum/alice"), Typed.Kid("kid-re-enrolled"), ServerTimestamp.At(LastMonth.AddDays(3)), ct);
         Assert.Equal(key.Kid, Require(lastMonthsPost).Kid);
     }
 
@@ -195,7 +195,7 @@ public sealed class PostgresAgentKeyStoreTests
         var replaced = await store.RegisterAsync("agent://forum/alice", NewKey("kid-material"), Today, cancellationToken: ct);
 
         Assert.Equal("curia/keys/material-immutable", Refusal(replaced).Type);
-        var resolved = Require(await store.ResolveAsync("agent://forum/alice", "kid-material", ServerTimestamp.At(Today), ct));
+        var resolved = Require(await store.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid("kid-material"), ServerTimestamp.At(Today), ct));
         Assert.Equal(original.Public.ToArray(), resolved.Public.ToArray());
     }
 
@@ -218,7 +218,7 @@ public sealed class PostgresAgentKeyStoreTests
             "agent://forum/alice", new PublicKeyMaterial("EdDSA", original.Kid, original.Public.ToArray()), Today, cancellationToken: ct);
 
         Assert.Equal("curia/keys/material-immutable", Refusal(relabelled).Type);
-        var resolved = Require(await store.ResolveAsync("agent://forum/alice", "kid-algorithm", ServerTimestamp.At(Today), ct));
+        var resolved = Require(await store.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid("kid-algorithm"), ServerTimestamp.At(Today), ct));
         Assert.Equal("ES256", resolved.Alg);
     }
 
@@ -237,7 +237,7 @@ public sealed class PostgresAgentKeyStoreTests
         var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
 
         Require(await store.RegisterAsync("agent://forum/alice", NewKey("kid-closed"), LastMonth, Today, ct));
-        var enrolled = await store.EnrollAsync("agent://forum/alice", NewKey("kid-after-closing"), Today.AddDays(1), ct);
+        var enrolled = await store.EnrollAsync(Typed.Agent("agent://forum/alice"), NewKey("kid-after-closing"), Today.AddDays(1), ct);
 
         Assert.Equal("curia/enroll/already-enrolled", Refusal(enrolled).Type);
     }
@@ -262,11 +262,11 @@ public sealed class PostgresAgentKeyStoreTests
         var copied = await store.RegisterAsync("agent://forum/mallory", alices, LastMonth.AddDays(-7), Today, ct);
 
         Assert.Equal("curia/enroll/kid-already-registered", Refusal(copied).Type);
-        var stillOpen = Require(await store.ResolveAsync("agent://forum/alice", "kid-exact-copy", ServerTimestamp.At(Today.AddDays(1)), ct));
+        var stillOpen = Require(await store.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid("kid-exact-copy"), ServerTimestamp.At(Today.AddDays(1)), ct));
         Assert.Equal(alices.Kid, stillOpen.Kid);
         Assert.Equal(
             "curia/keys/not-yet-valid",
-            Refusal(await store.ResolveAsync("agent://forum/alice", "kid-exact-copy", ServerTimestamp.At(LastMonth.AddDays(-1)), ct)).Type);
+            Refusal(await store.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid("kid-exact-copy"), ServerTimestamp.At(LastMonth.AddDays(-1)), ct)).Type);
     }
 
     /// <summary>
@@ -290,7 +290,7 @@ public sealed class PostgresAgentKeyStoreTests
         Assert.Equal(Today, again.NotAfter);
         Assert.Equal(
             "curia/keys/no-longer-valid",
-            Refusal(await store.ResolveAsync("agent://forum/alice", key.Kid, ServerTimestamp.At(Today.AddDays(1)), ct)).Type);
+            Refusal(await store.ResolveAsync(Typed.Agent("agent://forum/alice"), Typed.Kid(key.Kid), ServerTimestamp.At(Today.AddDays(1)), ct)).Type);
     }
 
     /// <summary>
@@ -356,7 +356,7 @@ public sealed class PostgresAgentKeyStoreTests
 
         Require(await store.RegisterAsync("agent://forum/alice", NewKey("kid-alices"), LastMonth, cancellationToken: ct));
 
-        var asBob = await store.ResolveAsync("agent://forum/bob", "kid-alices", ServerTimestamp.At(Today), ct);
+        var asBob = await store.ResolveAsync(Typed.Agent("agent://forum/bob"), Typed.Kid("kid-alices"), ServerTimestamp.At(Today), ct);
 
         Assert.Equal("curia/keys/not-registered-to-agent", Refusal(asBob).Type);
     }
@@ -377,7 +377,7 @@ public sealed class PostgresAgentKeyStoreTests
         Require(await store.RegisterAsync("agent://forum/alice", NewKey("kid-current"), Today, cancellationToken: ct));
         Require(await store.RegisterAsync("agent://forum/bob", NewKey("kid-bobs"), Today, cancellationToken: ct));
 
-        var alices = await store.KeysForAsync("agent://forum/alice", ct);
+        var alices = await store.KeysForAsync(Typed.Agent("agent://forum/alice"), ct);
 
         Assert.Equal(2, alices.Count);
         Assert.Contains(alices, k => k.Key.Kid == "kid-retired" && k.NotAfter == Today);
@@ -391,6 +391,6 @@ public sealed class PostgresAgentKeyStoreTests
         var ct = TestContext.Current.CancellationToken;
         var store = StoreOn(await _fixture.CreateIsolatedOperationalSchemaAsync(ct));
 
-        Assert.Empty(await store.KeysForAsync("agent://forum/nobody", ct));
+        Assert.Empty(await store.KeysForAsync(Typed.Agent("agent://forum/nobody"), ct));
     }
 }

@@ -371,6 +371,32 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R11.34 (errata G18): the post id reaches <c>RaiseFlag</c> as a parse outcome, so a request with
+    /// two faults is answered as it was before the type existed. An id of white space is refused ahead
+    /// of a blank rationale (R11.33's check); any other id that is no post id after the rationale and
+    /// after screening, where the post's stream was read for it. The closed pass varies one part at a
+    /// time and cannot see an order.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AFlagWhosePostIdIsNoPostIdIsAnsweredWhereTheUseCaseAnsweredIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var reporter = ForumAgent.Create(Unique("id-order"), "id-order-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var credential = "Leaks ghp_" + "A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o in the body.";
+
+        var blankId = await RaiseAndReadAsync(client, dpop, token, "%20%20", "spam", " ", ct);
+        var unparsableId = await RaiseAndReadAsync(client, dpop, token, "not-a-post", "spam", " ", ct);
+        var screened = await RaiseAndReadAsync(client, dpop, token, "not-a-post", "credential_leak", credential, ct);
+
+        Assert.Equal(
+            [(404, "curia/flag/no-such-post"), (400, "curia/moderation/rationale-required"), (422, "curia/flag/rationale-rejected")],
+            [(blankId.Status, blankId.Type), (unparsableId.Status, unparsableId.Type), (screened.Status, screened.Type)]);
+    }
+
+    /// <summary>
     /// R10.68 (errata G18): "The check follows authentication and authorization, which read the log
     /// and are not reordered for it." The "after" half on the flag path, at authentication: an overlong flag sent
     /// with no token is refused 401 by PEP-1, not 422 by the cap. The <c>DoesNotContain</c> below is
@@ -484,7 +510,7 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     {
         var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
             .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
-        return rows.Count(r => string.Equals(r.RaisedBy, raisedBy, StringComparison.Ordinal));
+        return rows.Count(r => string.Equals(r.RaisedBy.Value, raisedBy, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -860,8 +886,8 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
             .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
         Assert.Single(rows, r =>
-            string.Equals(r.PostId, postId, StringComparison.Ordinal)
-            && string.Equals(r.RaisedBy, reporter.AgentId, StringComparison.Ordinal));
+            string.Equals(r.PostId.Value, postId, StringComparison.Ordinal)
+            && string.Equals(r.RaisedBy.Value, reporter.AgentId, StringComparison.Ordinal));
         Assert.Equal(leavesBefore + 1, await CommittedFlagLeavesAsync(ct));
     }
 

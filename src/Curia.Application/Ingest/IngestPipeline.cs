@@ -9,6 +9,7 @@ using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Screening;
 
 namespace Curia.Application.Ingest;
@@ -64,11 +65,11 @@ public sealed class IngestPipeline : IIngestPipeline
     /// <inheritdoc/>
     public async Task<Result<VerifiedSubmission>> VerifyAsync(
         AdmittedSubmission admitted,
-        string principalAgentId,
+        AgentId principalAgentId,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(admitted);
-        ArgumentException.ThrowIfNullOrWhiteSpace(principalAgentId);
+        ArgumentNullException.ThrowIfNull(principalAgentId);
 
         // R6.10: re-canonicalize from the *parsed* form rather than trusting the wire bytes to
         // already be canonical. A submitter who sends nearly-canonical bytes must not have their
@@ -96,10 +97,12 @@ public sealed class IngestPipeline : IIngestPipeline
         // `board` and `parent` into the post.accepted payload outside the canonical text, and jsonb
         // cannot store U+0000 (22P05), so such a post answered 500 to any T0 agent (R11.33). Refused,
         // never repaired (invariant 1), naming the member and not its value (R6.40). The body and the
-        // title reach jsonb only inside the canonical text, as an escape, and are stored.
-        if (envelope!.Board.Contains('\0', StringComparison.Ordinal))
+        // title reach jsonb only inside the canonical text, as an escape, and are stored. Since R11.34
+        // (errata G18) the rule is StorableText's, applied by parsing each member as its boundary type;
+        // its too-long is unreachable, since ADMIT caps every string at the same 262,144 bytes.
+        if (!BoardName.Parse(envelope!.Board, "board").TryGetValue(out _, out _))
             return Result<VerifiedSubmission>.Fail(IngestErrors.UnstorableMember("board"));
-        if (envelope.Parent is not null && envelope.Parent.Contains('\0', StringComparison.Ordinal))
+        if (envelope.Parent is not null && !ParentReference.Parse(envelope.Parent, "parent").TryGetValue(out _, out _))
             return Result<VerifiedSubmission>.Fail(IngestErrors.UnstorableMember("parent"));
 
         // Table 9: `author` "must equal the authenticated principal", and the author is the one the
@@ -107,7 +110,7 @@ public sealed class IngestPipeline : IIngestPipeline
         // by the wrong agent, so this is checked before the signature rather than after -- there is
         // no reason to spend a verification on a document that is already disqualified. An
         // identifier NFC would change never equals the author of anything it signs.
-        if (!string.Equals(envelope.Author, principalAgentId, StringComparison.Ordinal))
+        if (!string.Equals(envelope.Author, principalAgentId.Value, StringComparison.Ordinal))
             return Result<VerifiedSubmission>.Fail(ContentErrors.AuthorIsNotThePrincipal());
 
         var header = DetachedJws.ReadProtectedHeader(admitted.Signature);
@@ -117,8 +120,10 @@ public sealed class IngestPipeline : IIngestPipeline
         // R11.33: DetachedJws reads an absent or non-string `kid` as "", and enrollment refuses a blank
         // one, so no key is registered under a `kid` that is empty or white space. It gets the answer an
         // unregistered `kid` gets, here, before any adapter is asked; PostgresAgentKeyStore's guard
-        // against a blank `kid` threw, and answered 500 to any enrolled agent, and is a bug signal now.
-        if (string.IsNullOrWhiteSpace(protectedHeader!.Kid))
+        // against a blank `kid` threw, and answered 500 to any enrolled agent. Since R11.34 (errata G18)
+        // the key store takes a Kid, so every `kid` no enrolled key can have -- blank, holding U+0000 or
+        // a lone surrogate, or over enrollment's cap -- is answered so here.
+        if (!Kid.Parse(protectedHeader!.Kid, "kid").TryGetValue(out var kid, out _))
             return Result<VerifiedSubmission>.Fail(AuthorKeyErrors.NotRegisteredToAgent(envelope.Author, protectedHeader.Kid));
 
         // R6.31 (errata A12): key validity is evaluated at server_ts. This is the Forum's
@@ -128,12 +133,13 @@ public sealed class IngestPipeline : IIngestPipeline
         // rescue one it rejected.
         var serverTs = ServerTimestamp.At(_clock.GetUtcNow());
 
-        var key = await _keys.ResolveAsync(envelope.Author, protectedHeader.Kid, serverTs, cancellationToken).ConfigureAwait(false);
+        // The author equals the principal, ordinally (checked above), so the principal is the author.
+        var key = await _keys.ResolveAsync(principalAgentId, kid!, serverTs, cancellationToken).ConfigureAwait(false);
         if (!key.TryGetValue(out var publicKey, out var keyError))
             return Result<VerifiedSubmission>.Fail(keyError!);
 
         return _jws.Verify(canonicalBytes, admitted.Signature, publicKey!)
-            .Map(verified => new VerifiedSubmission(verified, admitted.Signature, envelope!, principalAgentId));
+            .Map(verified => new VerifiedSubmission(verified, admitted.Signature, envelope!, principalAgentId.Value));
     }
 
     /// <inheritdoc/>

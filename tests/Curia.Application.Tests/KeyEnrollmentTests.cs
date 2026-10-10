@@ -33,7 +33,7 @@ public sealed class KeyEnrollmentTests
     [Fact]
     public void R4_31_AnIdentifierHoldingNoKeyRegistersIt()
     {
-        var decided = KeyEnrollment.Decide(Agent, Key("alice-1", 1), []);
+        var decided = KeyEnrollment.Decide(Typed.Agent(Agent), Key("alice-1", 1), []);
 
         Assert.True(decided.TryGetValue(out var held, out _));
         Assert.Null(held);
@@ -48,7 +48,7 @@ public sealed class KeyEnrollmentTests
     {
         var existing = Held("alice-1", 1);
 
-        var decided = KeyEnrollment.Decide(Agent, Key("alice-1", 1), [existing]);
+        var decided = KeyEnrollment.Decide(Typed.Agent(Agent), Key("alice-1", 1), [existing]);
 
         Assert.True(decided.TryGetValue(out var held, out _));
         Assert.Same(existing, held);
@@ -62,7 +62,7 @@ public sealed class KeyEnrollmentTests
     [Fact]
     public void R4_31_ASecondKidForAnEnrolledIdentifierIsRefused()
     {
-        var refusal = Refusal(KeyEnrollment.Decide(Agent, Key("mallory-1", 7), [Held("alice-1", 1)]));
+        var refusal = Refusal(KeyEnrollment.Decide(Typed.Agent(Agent), Key("mallory-1", 7), [Held("alice-1", 1)]));
 
         Assert.Equal("curia/enroll/already-enrolled", refusal.Type);
         Assert.Contains(Agent, refusal.Detail, StringComparison.Ordinal);
@@ -75,7 +75,7 @@ public sealed class KeyEnrollmentTests
         var other = Bytes(1);
         other[^1] ^= 0x01;
 
-        var refusal = Refusal(KeyEnrollment.Decide(Agent, new PublicKeyMaterial("ES256", "alice-1", other), [Held("alice-1", 1)]));
+        var refusal = Refusal(KeyEnrollment.Decide(Typed.Agent(Agent), new PublicKeyMaterial("ES256", "alice-1", other), [Held("alice-1", 1)]));
 
         Assert.Equal("curia/keys/material-immutable", refusal.Type);
         Assert.Contains("alice-1", refusal.Detail, StringComparison.Ordinal);
@@ -85,7 +85,7 @@ public sealed class KeyEnrollmentTests
     [Fact]
     public void R4_32_TheSameKidAndBytesUnderAnotherAlgorithmIsRefused()
     {
-        var refusal = Refusal(KeyEnrollment.Decide(Agent, Key("alice-1", 1, alg: "EdDSA"), [Held("alice-1", 1)]));
+        var refusal = Refusal(KeyEnrollment.Decide(Typed.Agent(Agent), Key("alice-1", 1, alg: "EdDSA"), [Held("alice-1", 1)]));
 
         Assert.Equal("curia/keys/material-immutable", refusal.Type);
     }
@@ -100,7 +100,7 @@ public sealed class KeyEnrollmentTests
     {
         var second = Held("alice-2", 2);
 
-        var decided = KeyEnrollment.Decide(Agent, Key("alice-2", 2), [Held("alice-1", 1), second]);
+        var decided = KeyEnrollment.Decide(Typed.Agent(Agent), Key("alice-2", 2), [Held("alice-1", 1), second]);
 
         Assert.True(decided.TryGetValue(out var held, out _));
         Assert.Same(second, held);
@@ -123,7 +123,7 @@ public sealed class KeyEnrollmentTests
     [Fact]
     public void R4_31_AHeldKeysMaterialUnderANewKidIsRefused()
     {
-        var refusal = Refusal(KeyEnrollment.Decide(Agent, Key("alice-2", 1), [Held("alice-1", 1)]));
+        var refusal = Refusal(KeyEnrollment.Decide(Typed.Agent(Agent), Key("alice-2", 1), [Held("alice-1", 1)]));
 
         Assert.Equal("curia/enroll/already-enrolled", refusal.Type);
     }
@@ -136,8 +136,8 @@ public sealed class KeyEnrollmentTests
     [Fact]
     public void R4_31_KidsAndAlgorithmsAreComparedWithTheirCase()
     {
-        var otherCaseKid = Refusal(KeyEnrollment.Decide(Agent, Key("ALICE-1", 1), [Held("alice-1", 1)]));
-        var otherCaseAlg = Refusal(KeyEnrollment.Decide(Agent, Key("alice-1", 1, alg: "es256"), [Held("alice-1", 1)]));
+        var otherCaseKid = Refusal(KeyEnrollment.Decide(Typed.Agent(Agent), Key("ALICE-1", 1), [Held("alice-1", 1)]));
+        var otherCaseAlg = Refusal(KeyEnrollment.Decide(Typed.Agent(Agent), Key("alice-1", 1, alg: "es256"), [Held("alice-1", 1)]));
 
         Assert.Equal("curia/enroll/already-enrolled", otherCaseKid.Type);
         Assert.Equal("curia/keys/material-immutable", otherCaseAlg.Type);
@@ -154,7 +154,7 @@ public sealed class KeyEnrollmentTests
     {
         var retired = new RegisteredKey(Key("alice-1", 1), LastMonth, LastMonth.AddDays(14));
 
-        var refusal = Refusal(KeyEnrollment.Decide(Agent, Key("mallory-1", 7), [retired]));
+        var refusal = Refusal(KeyEnrollment.Decide(Typed.Agent(Agent), Key("mallory-1", 7), [retired]));
 
         Assert.Equal("curia/enroll/already-enrolled", refusal.Type);
     }

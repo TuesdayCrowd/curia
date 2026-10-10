@@ -3,6 +3,7 @@ using Curia.Application.Projections;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Credentials;
 
@@ -57,7 +58,7 @@ public sealed record KeyBinding(string Kid, JsonValue.Object? Jwk, DateTimeOffse
 /// <param name="EnrolledAt">The instant the log recorded the enrollment.</param>
 /// <param name="Keys">
 /// Every binding, in log order. An enrollment produces one; R4.18's rotation will append more, and
-/// <see cref="For"/> already answers for each, so a re-announcement of a rotated key is decided as a
+/// <see cref="For(Kid)"/> already answers for each, so a re-announcement of a rotated key is decided as a
 /// re-announcement of the first (R4.31 rev.).
 /// </param>
 public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray<KeyBinding> Keys)
@@ -70,11 +71,16 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
     /// no enrollment. Only entries in <paramref name="agentId"/>'s own stream count (R4.34), so
     /// <paramref name="history"/> may be the identity's stream or any wider read of the log.
     /// </summary>
-    public static EnrollmentBinding? Find(IReadOnlyList<AppendedEvent> history, string agentId)
+    public static EnrollmentBinding? Find(IReadOnlyList<AppendedEvent> history, AgentId agentId)
     {
         ArgumentNullException.ThrowIfNull(history);
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
 
+        return FindIn(history, agentId.Value);
+    }
+
+    private static EnrollmentBinding? FindIn(IReadOnlyList<AppendedEvent> history, string agentId)
+    {
         DateTimeOffset? enrolledAt = null;
         KeyBinding? legacy = null;
         var bound = ImmutableArray.CreateBuilder<KeyBinding>();
@@ -117,7 +123,26 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
     /// The binding for <paramref name="kid"/>, or <see langword="null"/> when the log binds no key under
     /// it to this identity. Where two entries bind one <c>kid</c>, the first in log order answers.
     /// </summary>
-    public KeyBinding? For(string kid) =>
+    public KeyBinding? For(Kid kid)
+    {
+        ArgumentNullException.ThrowIfNull(kid);
+
+        return ForKid(kid.Value);
+    }
+
+    /// <summary>
+    /// The binding for <paramref name="key"/>'s own <c>kid</c>, as <see cref="For(Kid)"/> answers. The
+    /// <c>kid</c> travels inside the material, which a host built from a <c>kid</c> it admitted or a
+    /// store read back; read-back is never parsed (R11.34, errata G18).
+    /// </summary>
+    public KeyBinding? For(PublicKeyMaterial key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        return ForKid(key.Kid);
+    }
+
+    private KeyBinding? ForKid(string kid) =>
         Keys.FirstOrDefault(k => string.Equals(k.Kid, kid, StringComparison.Ordinal));
 
     private static string? Text(JsonValue.Object payload, string name) =>

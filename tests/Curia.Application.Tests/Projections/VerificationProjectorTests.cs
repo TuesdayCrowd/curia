@@ -195,12 +195,12 @@ public sealed class VerificationProjectorTests
     {
         var finding = Post("f-1", "finding", "sha256:" + new string('3', 64), Alice, """{"body":"x","kind":"finding","title":"t"}""");
         var endorsedOnly = Fold(finding, Vote(Bob, target: finding.Digest), Vote(Carol, target: finding.Digest));
-        Assert.Equal(0, VerificationProjector.VerifiedFindingsBy(endorsedOnly, [finding], Alice));
+        Assert.Equal(0, VerificationProjector.VerifiedFindingsBy(endorsedOnly, [finding], Typed.Agent(Alice)));
 
         var reproduced = Fold(finding, Report(Bob, "reproduced", target: finding.Digest));
-        Assert.Equal(1, VerificationProjector.VerifiedFindingsBy(reproduced, [finding], Alice));
+        Assert.Equal(1, VerificationProjector.VerifiedFindingsBy(reproduced, [finding], Typed.Agent(Alice)));
 
         var contradicted = Fold(finding, Report(Bob, "reproduced", target: finding.Digest), Report(Carol, "contradicted", target: finding.Digest));
-        Assert.Equal(0, VerificationProjector.VerifiedFindingsBy(contradicted, [finding], Alice));
+        Assert.Equal(0, VerificationProjector.VerifiedFindingsBy(contradicted, [finding], Typed.Agent(Alice)));
     }
 }

@@ -91,12 +91,12 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         Justification = "See RegisterAsync's identical suppression: the only interpolated text is " +
             "_table and the SelectColumns constant, both fixed before any call.")]
     public async Task<Result<RegisteredKey>> EnrollAsync(
-        string agentId,
+        AgentId agentId,
         PublicKeyMaterial key,
         DateTimeOffset notBefore,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(key);
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -111,7 +111,7 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         await using (var lockCommand = new NpgsqlCommand(
             "SELECT pg_advisory_xact_lock(hashtextextended(@lockkey, 0));", connection, transaction))
         {
-            lockCommand.Parameters.Add(new NpgsqlParameter("lockkey", NpgsqlDbType.Text) { Value = EnrollmentLockKey(_schema, agentId) });
+            lockCommand.Parameters.Add(new NpgsqlParameter("lockkey", NpgsqlDbType.Text) { Value = EnrollmentLockKey(_schema, agentId.Value) });
             await lockCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -119,7 +119,7 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         await using (var select = new NpgsqlCommand(
             $"SELECT {SelectColumns} FROM {_table} WHERE agent_id = @agent;", connection, transaction))
         {
-            select.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
+            select.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId.Value });
             await using var reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 held.Add(MapRow(reader));
@@ -150,7 +150,7 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
             transaction))
         {
             insert.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = key.Kid });
-            insert.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
+            insert.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId.Value });
             insert.Parameters.Add(new NpgsqlParameter("alg", NpgsqlDbType.Text) { Value = key.Alg });
             insert.Parameters.Add(new NpgsqlParameter("public", NpgsqlDbType.Bytea) { Value = key.Public.ToArray() });
             insert.Parameters.Add(new NpgsqlParameter("from", NpgsqlDbType.TimestampTz) { Value = notBefore });
@@ -163,7 +163,7 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         if (registered is null)
         {
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-            return Result<RegisteredKey>.Fail(AuthorKeyErrors.KidRegisteredToAnotherAgent(agentId, key.Kid));
+            return Result<RegisteredKey>.Fail(AuthorKeyErrors.KidRegisteredToAnotherAgent(agentId.Value, key.Kid));
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -279,21 +279,18 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         Justification = "See RegisterAsync's identical suppression: the only interpolated text is " +
             "_table and the SelectColumns constant, both fixed before any call.")]
     public async Task<IReadOnlyList<RegisteredKey>> KeysForAsync(
-        string agentId, CancellationToken cancellationToken = default)
+        AgentId agentId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
-
-        // Postgres `text` cannot hold U+0000, so no stored row names an agent carrying one; sent as a
-        // parameter, it is refused (22021), and /v1/jwks answered an anonymous caller 500. Such an
-        // agent gets the answer an agent with no keys gets, before a connection is opened.
-        if (agentId.Contains('\0', StringComparison.Ordinal))
-            return [];
+        // An AgentId holds no U+0000, which Postgres `text` cannot hold and a parameter carrying would
+        // be refused (22021): /v1/jwks answered an anonymous caller 500 for one. The type is the guard
+        // since R11.34 (errata G18); the route answers such an agent as one with no keys.
+        ArgumentNullException.ThrowIfNull(agentId);
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(
             $"SELECT {SelectColumns} FROM {_table} WHERE agent_id = @agent ORDER BY valid_from DESC, kid;",
             connection);
-        command.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
+        command.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId.Value });
 
         var keys = new List<RegisteredKey>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -307,10 +304,14 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
     /// R6.31 (errata A12) for both resolvers: the key registered <b>to this agent</b> under this
     /// <c>kid</c>, valid at <paramref name="at"/> -- a <c>server_ts</c>, never "now". Ingest asks for
     /// a post's author (R6.2, <see cref="IAuthorKeyResolver"/>); the token endpoint asks for the agent
-    /// a request names as its client (R5.20, <c>Curia.AuthN.Ports.IAgentKeyResolver</c>), which takes
-    /// the agent and the <c>kid</c> as types (R11.34, errata G18) and is answered by this method through
-    /// the overload below. Nothing here resolves a key by <c>kid</c> alone: a signature shows that its signer holds some registered key, and
-    /// only this table says whose (errata G15).
+    /// a request names as its client (R5.20, <c>Curia.AuthN.Ports.IAgentKeyResolver</c>). Both ports take
+    /// the agent and the <c>kid</c> as types (R11.34, errata G18), so one method answers both. Nothing
+    /// here resolves a key by <c>kid</c> alone: a signature shows that its signer holds some registered
+    /// key, and only this table says whose (errata G15).
+    ///
+    /// <para>Neither type holds U+0000, which Postgres <c>text</c> cannot hold and a parameter carrying
+    /// would be refused (22021): the token endpoint answered an unauthenticated caller 500 for one.
+    /// Each caller now answers such a value before asking, as a query with no row is answered.</para>
     /// </summary>
     [SuppressMessage(
         "Reliability",
@@ -322,33 +323,6 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         Justification = "See RegisterAsync's identical suppression: the only interpolated text is " +
             "_table and the SelectColumns constant, both fixed before any call.")]
     public async Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string agentId,
-        string kid,
-        ServerTimestamp at,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(kid);
-
-        // Postgres `text` cannot hold U+0000, so no stored row can match an agent or a kid carrying
-        // one; sent as a parameter, it is refused (22021), and the token endpoint answered an
-        // unauthenticated caller 500. Such a question gets the answer a query with no row gets,
-        // before a connection is opened, so R5.20's refusal stays byte-identical whatever the text.
-        if (agentId.Contains('\0', StringComparison.Ordinal) || kid.Contains('\0', StringComparison.Ordinal))
-            return ValidateAt(null, agentId, kid, at);
-
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new NpgsqlCommand(
-            $"SELECT {SelectColumns} FROM {_table} WHERE kid = @kid AND agent_id = @agent;", connection);
-        command.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = kid });
-        command.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId });
-
-        return ValidateAt(await ReadOneAsync(command, cancellationToken).ConfigureAwait(false), agentId, kid, at);
-    }
-
-    /// <summary>The token endpoint's question (<c>Curia.AuthN.Ports.IAgentKeyResolver</c>), asked with
-    /// an agent and a <c>kid</c> that have passed R11.34's rule (errata G18).</summary>
-    public Task<Result<PublicKeyMaterial>> ResolveAsync(
         AgentId agentId,
         Kid kid,
         ServerTimestamp at,
@@ -357,7 +331,13 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(kid);
 
-        return ResolveAsync(agentId.Value, kid.Value, at, cancellationToken);
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = new NpgsqlCommand(
+            $"SELECT {SelectColumns} FROM {_table} WHERE kid = @kid AND agent_id = @agent;", connection);
+        command.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = kid.Value });
+        command.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId.Value });
+
+        return ValidateAt(await ReadOneAsync(command, cancellationToken).ConfigureAwait(false), agentId.Value, kid.Value, at);
     }
 
     /// <summary>

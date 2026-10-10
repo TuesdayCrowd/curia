@@ -2,6 +2,7 @@ using Curia.Application.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Credentials;
 
@@ -65,16 +66,16 @@ public sealed class EnrollIdentity
 
     /// <summary>Enrolls <paramref name="agentId"/> with <paramref name="key"/>, or reports why not.</summary>
     public async Task<Result<AgentEnrollment>> EnrollAsync(
-        string agentId, PublicKeyMaterial key, CancellationToken cancellationToken = default)
+        AgentId agentId, PublicKeyMaterial key, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(key);
 
         // R4.33's first clause, before any read: a prefix the Forum's own writers mint aggregates under.
         if (ReservedIdentifiers.IsReserved(agentId))
-            return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId));
+            return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId.Value));
 
-        if (!AggregateId.Create(agentId).TryGetValue(out var aggregate, out var aggregateError))
+        if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<AgentEnrollment>.Fail(aggregateError!);
 
         var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
@@ -87,7 +88,7 @@ public sealed class EnrollIdentity
         // so the log keeps it for something else and could never append the record. Refused here,
         // before the store, or the store would register a key no enrollment ever binds.
         if (binding is null && history!.Count > 0)
-            return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId));
+            return Result<AgentEnrollment>.Fail(EnrollmentErrors.IdentifierReserved(agentId.Value));
 
         // R4.31 rev. (errata G16): an identifier the log records no enrollment of is bound by the first
         // request that re-presents a key the store holds for it, and only while the store holds one.
@@ -97,11 +98,11 @@ public sealed class EnrollIdentity
         // identity's own. Binding the one a request presents would let anyone holding its public key
         // make it the identity's key, and refuse the identity its own (R4.35).
         if (binding is null && (await _keys.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false)).Count > 1)
-            return Result<AgentEnrollment>.Fail(EnrollmentErrors.KeysAmbiguous(agentId));
+            return Result<AgentEnrollment>.Fail(EnrollmentErrors.KeysAmbiguous(agentId.Value));
 
-        var bound = binding?.For(key.Kid);
+        var bound = binding?.For(key);
         if (binding is not null && bound is null)
-            return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+            return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId.Value));
 
         // R4.31 rev. (errata G16): where the log carries the key, only that key. This is what refuses
         // other bytes under a bound kid after the store lost its row, which the store cannot see.

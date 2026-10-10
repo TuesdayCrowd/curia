@@ -21,7 +21,7 @@ namespace Curia.Application.Tests.Projections;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class FlagProjectorTests
 {
-    private const string Post = "01JPOST0000000000000000001";
+    private const string Post = "01JP0ST0000000000000000001";
     private const string Moderator = "operator:reviewer";
     private const string Flag = "01JFLAG000000000000000001";
 

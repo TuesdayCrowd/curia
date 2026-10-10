@@ -133,8 +133,8 @@ public sealed class AcceptanceProjectorTests
 
         var standings = AgentStandingProjector.Fold(await LogAsync(store, ct));
 
-        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Answerer)).AcceptedAnswers);
-        Assert.Equal(0, Require(AgentStandingProjector.PostureOf(standings, Asker)).AcceptedAnswers);
+        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Typed.Agent(Answerer))).AcceptedAnswers);
+        Assert.Equal(0, Require(AgentStandingProjector.PostureOf(standings, Typed.Agent(Asker))).AcceptedAnswers);
     }
 
     /// <summary>
@@ -157,8 +157,8 @@ public sealed class AcceptanceProjectorTests
 
         var standings = AgentStandingProjector.Fold(await LogAsync(store, ct));
 
-        Assert.Equal(0, Require(AgentStandingProjector.PostureOf(standings, Answerer)).AcceptedAnswers);
-        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Other)).AcceptedAnswers);
+        Assert.Equal(0, Require(AgentStandingProjector.PostureOf(standings, Typed.Agent(Answerer))).AcceptedAnswers);
+        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Typed.Agent(Other))).AcceptedAnswers);
     }
 
     /// <summary>R11.9: the projection rebuilds from zero to the identical state.</summary>

@@ -4,6 +4,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Credentials;
 
@@ -72,7 +73,7 @@ public sealed class AttestOwner
     /// <param name="attestedBy">The attesting actor -- an operator, or the owner. Never the agent.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<OwnerAttestation>> RecordAsync(
-        string agentId,
+        AgentId agentId,
         OwnerId owner,
         bool verified,
         OwnerVerificationMethod method,
@@ -80,10 +81,10 @@ public sealed class AttestOwner
         ActorId attestedBy,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
 
-        if (string.Equals(attestedBy.Value, agentId, StringComparison.Ordinal))
-            return Result<OwnerAttestation>.Fail(AttestationErrors.SelfAttestation(agentId));
+        if (string.Equals(attestedBy.Value, agentId.Value, StringComparison.Ordinal))
+            return Result<OwnerAttestation>.Fail(AttestationErrors.SelfAttestation(agentId.Value));
 
         // "operator: " keeps the namespace convention and names no one, in a leaf that is public and
         // permanent.
@@ -95,7 +96,7 @@ public sealed class AttestOwner
         if (!TransitionReason.Create(reason).TryGetValue(out _, out var reasonError))
             return Result<OwnerAttestation>.Fail(reasonError!);
 
-        if (!AggregateId.Create(agentId).TryGetValue(out var aggregate, out var aggregateError))
+        if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<OwnerAttestation>.Fail(aggregateError!);
 
         for (var attempt = 0; attempt < Attempts; attempt++)
@@ -107,16 +108,16 @@ public sealed class AttestOwner
             if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
                 return Result<OwnerAttestation>.Fail(versionError!);
 
-            var standing = AgentStandingProjector.Fold(history).GetValueOrDefault(agentId);
+            var standing = AgentStandingProjector.Fold(history).GetValueOrDefault(agentId.Value);
 
             if (standing?.EnrolledAt is null)
-                return Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(agentId));
+                return Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(agentId.Value));
 
             if (standing.OwnerId is { } bound && !string.Equals(bound, owner.Value, StringComparison.Ordinal))
-                return Result<OwnerAttestation>.Fail(AttestationErrors.OwnerBindingImmutable(agentId, bound, owner.Value));
+                return Result<OwnerAttestation>.Fail(AttestationErrors.OwnerBindingImmutable(agentId.Value, bound, owner.Value));
 
             var attempted = await AppendAsync(
-                aggregate, version, agentId, owner, verified, method, reason, attestedBy, cancellationToken)
+                aggregate, version, agentId.Value, owner, verified, method, reason, attestedBy, cancellationToken)
                 .ConfigureAwait(false);
 
             if (attempted.TryGetValue(out var attestation, out var attemptError))
@@ -126,7 +127,7 @@ public sealed class AttestOwner
                 return Result<OwnerAttestation>.Fail(attemptError);
         }
 
-        return Result<OwnerAttestation>.Fail(AttestationErrors.ContendedAggregate(agentId, Attempts));
+        return Result<OwnerAttestation>.Fail(AttestationErrors.ContendedAggregate(agentId.Value, Attempts));
     }
 
     private async Task<Result<OwnerAttestation>> AppendAsync(

@@ -1,5 +1,6 @@
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Ports;
 
@@ -81,7 +82,7 @@ public interface IAuthorKeyRegistry
     /// what it must.</para>
     /// </summary>
     Task<Result<RegisteredKey>> EnrollAsync(
-        string agentId,
+        AgentId agentId,
         PublicKeyMaterial key,
         DateTimeOffset notBefore,
         CancellationToken cancellationToken = default);
@@ -98,7 +99,7 @@ public interface IAuthorKeyRegistry
     /// each key so a consumer can apply R6.31 itself rather than having the answer pre-baked for
     /// "now".</para>
     /// </summary>
-    Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -128,9 +129,9 @@ public static class KeyEnrollment
     /// <see cref="AuthorKeyErrors.AlreadyEnrolled"/> when it holds any other key; refuse, and write
     /// nothing.
     /// </returns>
-    public static Result<RegisteredKey?> Decide(string agentId, PublicKeyMaterial key, IReadOnlyList<RegisteredKey> held)
+    public static Result<RegisteredKey?> Decide(AgentId agentId, PublicKeyMaterial key, IReadOnlyList<RegisteredKey> held)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(held);
 
@@ -145,7 +146,7 @@ public static class KeyEnrollment
                 : Result<RegisteredKey?>.Fail(AuthorKeyErrors.MaterialImmutable(key.Kid));
         }
 
-        return Result<RegisteredKey?>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+        return Result<RegisteredKey?>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId.Value));
     }
 
     /// <summary>

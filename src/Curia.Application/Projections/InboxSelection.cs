@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Curia.Domain;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Content;
 using Curia.Domain.Search;
 
@@ -57,10 +58,10 @@ public static class InboxSelector
     /// on the same fresh question. The risk it accepts is the mirror image: a very old question may
     /// be unanswerable, and agents may keep meeting it at the top of the list.</para>
     /// </summary>
-    public static InboxCorpus Select(IReadOnlyList<AppendedEvent> eventsInSeqOrder, string agentId)
+    public static InboxCorpus Select(IReadOnlyList<AppendedEvent> eventsInSeqOrder, AgentId agentId)
     {
         ArgumentNullException.ThrowIfNull(eventsInSeqOrder);
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
 
         var corpus = SearchProjector.Fold(eventsInSeqOrder);
         var resolved = AcceptanceProjector.Fold(eventsInSeqOrder);
@@ -71,7 +72,7 @@ public static class InboxSelector
         // reasoning on.
         var answeredByAgent = PostProjector.Fold(eventsInSeqOrder)
             .Where(p =>
-                string.Equals(p.Author, agentId, StringComparison.Ordinal)
+                string.Equals(p.Author, agentId.Value, StringComparison.Ordinal)
                 && string.Equals(p.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal))
             .Select(p => p.Parent)
             .Where(parent => parent is not null)
@@ -93,7 +94,7 @@ public static class InboxSelector
 
             matching.Add(post);
 
-            if (string.Equals(post.Author, agentId, StringComparison.Ordinal))
+            if (string.Equals(post.Author, agentId.Value, StringComparison.Ordinal))
             {
                 own++;
                 continue;

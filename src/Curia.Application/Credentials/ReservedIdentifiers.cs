@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Curia.Application.Moderation;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Credentials;
 
@@ -28,9 +29,9 @@ public static class ReservedIdentifiers
     public static readonly ImmutableArray<string> ReservedPrefixes = [LogPrefix, RaiseFlag.FlagAggregatePrefix];
 
     /// <summary>Whether <paramref name="identifier"/> begins with a prefix the Forum's own writers mint aggregates under.</summary>
-    public static bool IsReserved(string identifier)
+    public static bool IsReserved(AgentId identifier)
     {
         ArgumentNullException.ThrowIfNull(identifier);
-        return ReservedPrefixes.Any(prefix => identifier.StartsWith(prefix, StringComparison.Ordinal));
+        return ReservedPrefixes.Any(prefix => identifier.Value.StartsWith(prefix, StringComparison.Ordinal));
     }
 }

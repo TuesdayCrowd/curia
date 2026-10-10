@@ -23,7 +23,7 @@ public abstract class FlagDetailStorePortContractTests
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
 
     private static FlagDetail Detail(string eventId, string rationale = "looks like spam") =>
-        new(eventId, "01JPOST0000000000000000001", "https://agents.example/reporter", rationale, "c2FsdA");
+        new(eventId, Typed.Post("01JP0ST0000000000000000001"), Typed.Agent("https://agents.example/reporter"), rationale, "c2FsdA");
 
     [Fact]
     public async Task R11_32_AnEmptyStoreReadsEmpty()
@@ -87,22 +87,21 @@ public abstract class FlagDetailStorePortContractTests
 
     /// <summary>
     /// R11.21: the in-memory adapter accepts exactly what Postgres accepts. A <c>text</c> column
-    /// cannot hold U+0000, so neither adapter may take one — and the refusal names no content.
+    /// cannot hold U+0000, so neither adapter may take one — and the refusal names no content. The
+    /// post and the raiser are a <c>PostId</c> and an <c>AgentId</c> since R11.34 (errata G18), which
+    /// hold no U+0000 and are never empty, so only the three string members vary here.
     /// </summary>
     [Theory]
-    [InlineData("event\0id", "p", "r", "why", "s")]
-    [InlineData("e", "post\0id", "r", "why", "s")]
-    [InlineData("e", "p", "raiser\0", "why", "s")]
-    [InlineData("e", "p", "r", "a rationale with \0 in it", "s")]
-    [InlineData("e", "p", "r", "why", "sa\0lt")]
-    [InlineData("e", "p", "r", "", "s")]
-    public async Task R11_21_AMemberTheStoreCannotHoldIsRefusedByName(
-        string eventId, string postId, string raisedBy, string rationale, string salt)
+    [InlineData("event\0id", "why", "s")]
+    [InlineData("e", "a rationale with \0 in it", "s")]
+    [InlineData("e", "why", "sa\0lt")]
+    [InlineData("e", "", "s")]
+    public async Task R11_21_AMemberTheStoreCannotHoldIsRefusedByName(string eventId, string rationale, string salt)
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore();
 
-        Assert.False((await store.AppendAsync(new FlagDetail(eventId, postId, raisedBy, rationale, salt), ct))
+        Assert.False((await store.AppendAsync(new FlagDetail(eventId, Typed.Post("01JP0ST0000000000000000001"), Typed.Agent("https://agents.example/reporter"), rationale, salt), ct))
             .TryGetValue(out _, out var error));
         Assert.Equal("curia/flag/detail-unstorable", error!.Type);
         Assert.DoesNotContain("rationale with", error.Detail ?? string.Empty, StringComparison.Ordinal);

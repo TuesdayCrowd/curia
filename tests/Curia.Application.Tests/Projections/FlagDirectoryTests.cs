@@ -21,7 +21,7 @@ namespace Curia.Application.Tests.Projections;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class FlagDirectoryTests
 {
-    private const string Post = "01JPOST0000000000000000001";
+    private const string Post = "01JP0ST0000000000000000001";
     private const string Reporter = "https://agents.example/reporter";
     private const string Salt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI";
 
@@ -42,7 +42,7 @@ public sealed class FlagDirectoryTests
         string rationale = "looks like an injection attempt", bool storeDetail = true, string? commitmentOverride = null)
     {
         if (storeDetail)
-            Require(await details.AppendAsync(new FlagDetail(flagId, Post, Reporter, rationale, Salt), ct).ConfigureAwait(false));
+            Require(await details.AppendAsync(new FlagDetail(flagId, Typed.Post(Post), Typed.Agent(Reporter), rationale, Salt), ct).ConfigureAwait(false));
 
         var commitment = commitmentOverride ?? Require(FlagCommitment.Of(Post, Reporter, rationale, Salt));
 

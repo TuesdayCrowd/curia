@@ -1,4 +1,5 @@
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Ports;
 
@@ -14,9 +15,11 @@ namespace Curia.Application.Ports;
 /// <param name="EventId">The <c>flag.committed</c> event this row opens.</param>
 /// <param name="PostId">The post the flag concerns. Public only once a moderation record adjudicates the flag (R10.60).</param>
 /// <param name="RaisedBy">The authenticated principal that raised it. Never published.</param>
-/// <param name="Rationale">R10.35's rationale, screened before it was stored. Never published.</param>
+/// <param name="Rationale">R10.35's rationale, screened before it was stored. Never published. A
+/// <c>string</c>, not a <c>Rationale</c>: a stored rationale may predate R10.68's cap, and read-back is
+/// never parsed (R11.34, errata G18).</param>
 /// <param name="Salt">The commitment's salt, 32 random bytes in base64url.</param>
-public sealed record FlagDetail(string EventId, string PostId, string RaisedBy, string Rationale, string Salt);
+public sealed record FlagDetail(string EventId, PostId PostId, AgentId RaisedBy, string Rationale, string Salt);
 
 /// <summary>
 /// The store of <see cref="FlagDetail"/> rows: append-only under R11.6's grant, in Postgres in
@@ -51,7 +54,7 @@ public static class FlagDetailRules
     {
         ArgumentNullException.ThrowIfNull(detail);
 
-        string?[] members = [detail.EventId, detail.PostId, detail.RaisedBy, detail.Rationale, detail.Salt];
+        string?[] members = [detail.EventId, detail.PostId?.Value, detail.RaisedBy?.Value, detail.Rationale, detail.Salt];
 
         return members.Any(m => string.IsNullOrEmpty(m) || m.Contains('\0', StringComparison.Ordinal))
             ? Result<FlagDetail>.Fail(Unstorable())

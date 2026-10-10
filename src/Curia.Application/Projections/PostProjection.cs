@@ -3,6 +3,7 @@ using System.Globalization;
 using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Projections;
 
@@ -106,11 +107,11 @@ public static class PostProjector
     }
 
     /// <summary>Threads: a root post and everything descended from it, in seq order.</summary>
-    public static ImmutableArray<PostView> Thread(ImmutableArray<PostView> posts, string rootPostId)
+    public static ImmutableArray<PostView> Thread(ImmutableArray<PostView> posts, PostId rootPostId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(rootPostId);
+        ArgumentNullException.ThrowIfNull(rootPostId);
 
-        var inThread = new HashSet<string>(StringComparer.Ordinal) { rootPostId };
+        var inThread = new HashSet<string>(StringComparer.Ordinal) { rootPostId.Value };
         var thread = ImmutableArray.CreateBuilder<PostView>();
 
         // One forward pass suffices because a post's parent is always older than it -- the parent
@@ -118,7 +119,7 @@ public static class PostProjector
         // reply whose parent is not in the thread is simply not in the thread.
         foreach (var post in posts)
         {
-            if (post.PostId == rootPostId || (post.Parent is { } p && inThread.Contains(p)))
+            if (post.PostId == rootPostId.Value || (post.Parent is { } p && inThread.Contains(p)))
             {
                 inThread.Add(post.PostId);
                 thread.Add(post);

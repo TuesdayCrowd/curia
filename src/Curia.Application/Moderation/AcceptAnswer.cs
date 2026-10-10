@@ -3,6 +3,7 @@ using Curia.Application.Projections;
 using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Moderation;
 
@@ -48,19 +49,19 @@ public sealed class AcceptAnswer
     /// before this is reached. This records a decision; it does not make one.</para>
     /// </summary>
     public async Task<Result<Acceptance>> RecordAsync(
-        string threadRoot,
-        string answerId,
-        string acceptedBy,
+        PostId threadRoot,
+        PostId answerId,
+        AgentId acceptedBy,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(threadRoot);
-        ArgumentException.ThrowIfNullOrWhiteSpace(answerId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(acceptedBy);
+        ArgumentNullException.ThrowIfNull(threadRoot);
+        ArgumentNullException.ThrowIfNull(answerId);
+        ArgumentNullException.ThrowIfNull(acceptedBy);
 
-        if (!AggregateId.Create(threadRoot).TryGetValue(out var aggregate, out var aggregateError))
+        if (!AggregateId.Create(threadRoot.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<Acceptance>.Fail(aggregateError!);
 
-        if (!ActorId.Create(acceptedBy).TryGetValue(out var actor, out var actorError))
+        if (!ActorId.Create(acceptedBy.Value).TryGetValue(out var actor, out var actorError))
             return Result<Acceptance>.Fail(actorError!);
 
         var history = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
@@ -81,9 +82,9 @@ public sealed class AcceptAnswer
 
         var payload = new JsonValue.Object(
         [
-            new(AcceptanceProjector.ThreadRootField, new JsonValue.String(threadRoot)),
-            new(AcceptanceProjector.AnswerIdField, new JsonValue.String(answerId)),
-            new(AcceptanceProjector.AcceptedByField, new JsonValue.String(acceptedBy)),
+            new(AcceptanceProjector.ThreadRootField, new JsonValue.String(threadRoot.Value)),
+            new(AcceptanceProjector.AnswerIdField, new JsonValue.String(answerId.Value)),
+            new(AcceptanceProjector.AcceptedByField, new JsonValue.String(acceptedBy.Value)),
         ]);
 
         var appended = await _events
@@ -91,6 +92,6 @@ public sealed class AcceptAnswer
             .ConfigureAwait(false);
 
         return appended.Map(recorded => new Acceptance(
-            threadRoot, answerId, recorded[0].ServerTimestamp.Value));
+            threadRoot.Value, answerId.Value, recorded[0].ServerTimestamp.Value));
     }
 }

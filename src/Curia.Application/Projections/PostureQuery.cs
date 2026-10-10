@@ -1,6 +1,7 @@
 using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Projections;
 
@@ -16,10 +17,10 @@ namespace Curia.Application.Projections;
 /// </summary>
 public static class PostureQuery
 {
-    public static Result<PostureFacts> Of(IReadOnlyList<AppendedEvent> log, string agentId)
+    public static Result<PostureFacts> Of(IReadOnlyList<AppendedEvent> log, AgentId agentId)
     {
         ArgumentNullException.ThrowIfNull(log);
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
 
         var standings = AgentStandingProjector.Fold(log);
         var posts = PostProjector.Fold(log);

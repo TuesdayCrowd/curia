@@ -13,6 +13,7 @@ using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Xunit;
 
 namespace Curia.Application.Tests.Credentials;
@@ -83,7 +84,7 @@ public sealed class EnrollIdentityTests
         }
 
         public async Task<Result<RegisteredKey>> EnrollAsync(
-            string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
         {
             AccountFor();
             await _all.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
@@ -95,7 +96,7 @@ public sealed class EnrollIdentityTests
             if (Interlocked.Increment(ref _accountedFor) == racers) _all.SetResult();
         }
 
-        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             inner.KeysForAsync(agentId, cancellationToken);
     }
 
@@ -114,7 +115,7 @@ public sealed class EnrollIdentityTests
         public int Enrollments => Volatile.Read(ref _enrollments);
 
         public Task<Result<RegisteredKey>> EnrollAsync(
-            string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _enrollments);
 
@@ -125,11 +126,11 @@ public sealed class EnrollIdentityTests
                 existing ?? throw new InvalidOperationException($"this store never writes, and {agentId} holds no key in it")));
         }
 
-        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             Task.FromResult(HeldBy(agentId));
 
-        private IReadOnlyList<RegisteredKey> HeldBy(string agentId) =>
-            string.Equals(agentId, holder, StringComparison.Ordinal) ? held : [];
+        private IReadOnlyList<RegisteredKey> HeldBy(AgentId agentId) =>
+            string.Equals(agentId.Value, holder, StringComparison.Ordinal) ? held : [];
     }
 
     /// <summary>
@@ -145,13 +146,13 @@ public sealed class EnrollIdentityTests
         public int Enrollments => Volatile.Read(ref _enrollments);
 
         public Task<Result<RegisteredKey>> EnrollAsync(
-            string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _enrollments);
             return inner.EnrollAsync(agentId, key, notBefore, cancellationToken);
         }
 
-        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             inner.KeysForAsync(agentId, cancellationToken);
     }
 
@@ -232,11 +233,11 @@ public sealed class EnrollIdentityTests
         var keys = new InMemoryAuthorKeyRegistry();
         var key = NewKey("alice-1");
 
-        var enrolled = Require(await Enroll(events, keys, clock).EnrollAsync(Alice, key, ct));
+        var enrolled = Require(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), key, ct));
 
         Assert.False(enrolled.WasAlreadyEnrolled);
         Assert.Equal(Start, enrolled.EnrolledAt);
-        Assert.Equal("alice-1", Assert.Single(await keys.KeysForAsync(Alice, ct)).Key.Kid);
+        Assert.Equal("alice-1", Assert.Single(await keys.KeysForAsync(Typed.Agent(Alice), ct)).Key.Kid);
         Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
@@ -251,13 +252,13 @@ public sealed class EnrollIdentityTests
         var key = NewKey("alice-1");
         var enroll = Enroll(events, keys, clock);
 
-        Require(await enroll.EnrollAsync(Alice, key, ct));
+        Require(await enroll.EnrollAsync(Typed.Agent(Alice), key, ct));
         clock.Advance(TimeSpan.FromDays(1));
-        var again = Require(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(key.Alg, key.Kid, key.Public.ToArray()), ct));
+        var again = Require(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(key.Alg, key.Kid, key.Public.ToArray()), ct));
 
         Assert.True(again.WasAlreadyEnrolled);
         Assert.Equal(Start, again.EnrolledAt);
-        Assert.Equal(Start, Assert.Single(await keys.KeysForAsync(Alice, ct)).NotBefore);
+        Assert.Equal(Start, Assert.Single(await keys.KeysForAsync(Typed.Agent(Alice), ct)).NotBefore);
         Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
@@ -271,10 +272,10 @@ public sealed class EnrollIdentityTests
         var keys = new InMemoryAuthorKeyRegistry();
         var enroll = Enroll(events, keys, clock);
 
-        Require(await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct));
+        Require(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
 
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Alice, NewKey("mallory-1"), ct)).Type);
-        Assert.Equal("alice-1", Assert.Single(await keys.KeysForAsync(Alice, ct)).Key.Kid);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("mallory-1"), ct)).Type);
+        Assert.Equal("alice-1", Assert.Single(await keys.KeysForAsync(Typed.Agent(Alice), ct)).Key.Kid);
         Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
@@ -291,11 +292,11 @@ public sealed class EnrollIdentityTests
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock);
 
-        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Alice, NewKey("alice-1"), ct));
+        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
 
         var lost = new InMemoryAuthorKeyRegistry();
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, lost, clock).EnrollAsync(Alice, NewKey("mallory-1"), ct)).Type);
-        Assert.Empty(await lost.KeysForAsync(Alice, ct));
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, lost, clock).EnrollAsync(Typed.Agent(Alice), NewKey("mallory-1"), ct)).Type);
+        Assert.Empty(await lost.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
@@ -314,14 +315,14 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock);
         var key = NewKey("alice-1");
 
-        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Alice, key, ct));
+        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), key, ct));
 
         clock.Advance(TimeSpan.FromDays(1));
         var lost = new InMemoryAuthorKeyRegistry();
-        var again = Require(await Enroll(events, lost, clock).EnrollAsync(Alice, key, ct));
+        var again = Require(await Enroll(events, lost, clock).EnrollAsync(Typed.Agent(Alice), key, ct));
 
         Assert.True(again.WasAlreadyEnrolled);
-        var rebound = Assert.Single(await lost.KeysForAsync(Alice, ct));
+        var rebound = Assert.Single(await lost.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Equal("alice-1", rebound.Key.Kid);
         Assert.Equal(Start, rebound.NotBefore);
         Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
@@ -343,11 +344,11 @@ public sealed class EnrollIdentityTests
         var bound = NewKey("alice-1");
         var unbound = NewKey("mallory-1");
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, bound, ct));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), bound, ct));
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(bound, Start, null), new RegisteredKey(unbound, Start.AddHours(1), null)]);
 
         var again = new PublicKeyMaterial(unbound.Alg, unbound.Kid, unbound.Public.ToArray());
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, again, ct)).Type);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), again, ct)).Type);
         Assert.Equal(0, keys.Enrollments);
         Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
@@ -362,10 +363,10 @@ public sealed class EnrollIdentityTests
         var log = new EnrollAgent(events, clock);
         var alice = NewKey("alice-1");
 
-        Require(await log.RecordAsync(Alice, alice, ct));
+        Require(await log.RecordAsync(Typed.Agent(Alice), alice, ct));
 
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await log.RecordAsync(Alice, NewKey("mallory-1"), ct)).Type);
-        Assert.True(Require(await log.RecordAsync(Alice, alice, ct)).WasAlreadyEnrolled);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await log.RecordAsync(Typed.Agent(Alice), NewKey("mallory-1"), ct)).Type);
+        Assert.True(Require(await log.RecordAsync(Typed.Agent(Alice), alice, ct)).WasAlreadyEnrolled);
         Assert.Equal(["alice-1"], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
@@ -383,10 +384,10 @@ public sealed class EnrollIdentityTests
         var log = new EnrollAgent(events, clock);
         var alice = NewKey("alice-1");
 
-        Require(await log.RecordAsync(Alice, alice, ct));
+        Require(await log.RecordAsync(Typed.Agent(Alice), alice, ct));
 
-        Assert.Equal("curia/keys/material-immutable", Refusal(await log.RecordAsync(Alice, NewKey("alice-1"), ct)).Type);
-        Assert.True(Require(await log.RecordAsync(Alice, new PublicKeyMaterial(alice.Alg, alice.Kid, alice.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.Equal("curia/keys/material-immutable", Refusal(await log.RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
+        Assert.True(Require(await log.RecordAsync(Typed.Agent(Alice), new PublicKeyMaterial(alice.Alg, alice.Kid, alice.Public.ToArray()), ct)).WasAlreadyEnrolled);
         Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
@@ -418,9 +419,9 @@ public sealed class EnrollIdentityTests
             ct));
 
         var keys = new InMemoryAuthorKeyRegistry();
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, clock).RecordAsync(Alice, NewKey("alice-1"), ct)).Type);
-        Assert.Empty(await keys.KeysForAsync(Alice, ct));
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
+        Assert.Empty(await keys.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Single(await StreamAsync(events, Alice, ct));
     }
 
@@ -438,11 +439,11 @@ public sealed class EnrollIdentityTests
         var keys = new InMemoryAuthorKeyRegistry();
         var enroll = Enroll(events, keys, clock);
 
-        Require(await enroll.EnrollAsync(Alice, NewKey("shared-kid"), ct));
+        Require(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("shared-kid"), ct));
 
-        Assert.Equal("curia/enroll/kid-already-registered", Refusal(await enroll.EnrollAsync(Bob, NewKey("shared-kid"), ct)).Type);
+        Assert.Equal("curia/enroll/kid-already-registered", Refusal(await enroll.EnrollAsync(Typed.Agent(Bob), NewKey("shared-kid"), ct)).Type);
         Assert.Empty(await StreamAsync(events, Bob, ct));
-        Assert.Empty(await keys.KeysForAsync(Bob, ct));
+        Assert.Empty(await keys.KeysForAsync(Typed.Agent(Bob), ct));
     }
 
     /// <summary>
@@ -462,12 +463,12 @@ public sealed class EnrollIdentityTests
         var enroll = Enroll(events, converging, clock);
 
         var outcomes = await Task.WhenAll(Enumerable.Range(0, 8).Select(i =>
-            Task.Run(() => converging.RaceAsync(() => enroll.EnrollAsync(Alice, NewKey($"alice-{i}"), ct)), ct)));
+            Task.Run(() => converging.RaceAsync(() => enroll.EnrollAsync(Typed.Agent(Alice), NewKey($"alice-{i}"), ct)), ct)));
 
         Assert.Single(outcomes, o => o.IsOk);
         Assert.All(outcomes.Where(o => !o.IsOk), o => Assert.Equal("curia/enroll/already-enrolled", Refusal(o).Type));
 
-        var held = Assert.Single(await keys.KeysForAsync(Alice, ct));
+        var held = Assert.Single(await keys.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Equal([held.Key.Kid], EnrolledKids(await StreamAsync(events, Alice, ct)));
     }
 
@@ -486,7 +487,7 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock);
         var key = NewKey("alice-1");
 
-        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Alice, key, ct));
+        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), key, ct));
 
         var stream = await StreamAsync(events, Alice, ct);
         Assert.Equal(EnrollmentEntries, Types(stream));
@@ -520,7 +521,7 @@ public sealed class EnrollIdentityTests
         var oneAppend = new OneAppendEventStore(events);
         var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, clock), clock);
 
-        var answer = await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct);
+        var answer = await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct);
 
         Assert.Equal(
             "enrolled; agent.enrolled, agent.key-bound",
@@ -541,10 +542,10 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock);
         var keys = new InMemoryAuthorKeyRegistry();
 
-        var refused = Refusal(await Enroll(events, keys, clock).EnrollAsync(Alice, new PublicKeyMaterial("EdDSA", "alice-1", new byte[31]), ct));
+        var refused = Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial("EdDSA", "alice-1", new byte[31]), ct));
 
         Assert.Equal(PublicJwk.NotRenderableType, refused.Type);
-        Assert.Empty(await keys.KeysForAsync(Alice, ct));
+        Assert.Empty(await keys.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Empty(await StreamAsync(events, Alice, ct));
     }
 
@@ -562,8 +563,8 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock);
         var planted = NewKey("alice-2");
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, NewKey("alice-1"), ct));
-        Require(await new EnrollAgent(events, clock).RecordAsync(Mallory, NewKey("mallory-1"), ct));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Mallory), NewKey("mallory-1"), ct));
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Mallory)),
             Require(AggregateVersion.From(EnrollmentEntries.Length)),
@@ -579,7 +580,7 @@ public sealed class EnrollIdentityTests
                 ]))],
             ct));
 
-        var binding = EnrollmentBinding.Find(Require(await events.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct)), Alice);
+        var binding = EnrollmentBinding.Find(Require(await events.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct)), Typed.Agent(Alice));
 
         Assert.NotNull(binding);
         Assert.Equal("alice-1", string.Join(",", binding.Keys.Select(k => k.Kid)));
@@ -600,7 +601,7 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock);
 
         Require(await new EnrollAgent(events, clock).RecordAsync(
-            Scriptor,
+            Typed.Agent(Scriptor),
             new PublicKeyMaterial("EdDSA", "conformance-ed25519-minimal", Base64Url.DecodeFromChars("HRzJlnTufZYYTZyCDBpyP5ldQ38JlbCeDOQHgIozgg8")),
             ct));
 
@@ -632,18 +633,18 @@ public sealed class EnrollIdentityTests
         var events = new InMemoryEventStore(clock);
         var key = NewKey("alice-1");
 
-        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Alice, key, ct));
+        Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), key, ct));
 
         clock.Advance(TimeSpan.FromDays(1));
         var lost = new InMemoryAuthorKeyRegistry();
         var enroll = Enroll(events, lost, clock);
 
-        Assert.Equal("curia/keys/material-immutable", Refusal(await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
-        Assert.Empty(await lost.KeysForAsync(Alice, ct));
+        Assert.Equal("curia/keys/material-immutable", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
+        Assert.Empty(await lost.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
 
-        Assert.True(Require(await enroll.EnrollAsync(Alice, key, ct)).WasAlreadyEnrolled);
-        Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Alice, ct)).NotBefore);
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), key, ct)).WasAlreadyEnrolled);
+        Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Typed.Agent(Alice), ct)).NotBefore);
     }
 
     /// <summary>
@@ -690,8 +691,8 @@ public sealed class EnrollIdentityTests
         clock.Advance(TimeSpan.FromDays(1));
         var lost = new InMemoryAuthorKeyRegistry();
 
-        Assert.Equal("curia/keys/material-immutable", Refusal(await Enroll(events, lost, clock).EnrollAsync(Alice, NewKey("alice-1"), ct)).Type);
-        Assert.Empty(await lost.KeysForAsync(Alice, ct));
+        Assert.Equal("curia/keys/material-immutable", Refusal(await Enroll(events, lost, clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).Type);
+        Assert.Empty(await lost.KeysForAsync(Typed.Agent(Alice), ct));
         Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
@@ -728,9 +729,9 @@ public sealed class EnrollIdentityTests
         var lost = new InMemoryAuthorKeyRegistry();
         var enroll = Enroll(events, lost, clock);
 
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Alice, NewKey("mallory-1"), ct)).Type);
-        Assert.True(Require(await enroll.EnrollAsync(Alice, NewKey("alice-1"), ct)).WasAlreadyEnrolled);
-        Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Alice, ct)).NotBefore);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("mallory-1"), ct)).Type);
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct)).WasAlreadyEnrolled);
+        Assert.Equal(Start, Assert.Single(await lost.KeysForAsync(Typed.Agent(Alice), ct)).NotBefore);
         Assert.Equal([AgentStandingProjector.EnrolledType], Types(await StreamAsync(events, Alice, ct)));
     }
 
@@ -750,14 +751,14 @@ public sealed class EnrollIdentityTests
         var first = NewKey("alice-1");
         var second = NewKey("alice-2");
 
-        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, first, ct));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), first, ct));
         await BindAnotherKeyAsync(events, second, ct);
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
         var enroll = Enroll(events, keys, clock);
 
-        Assert.True(Require(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).WasAlreadyEnrolled);
-        Assert.True(Require(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(first.Alg, first.Kid, first.Public.ToArray()), ct)).WasAlreadyEnrolled);
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Alice, NewKey("alice-3"), ct)).Type);
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(first.Alg, first.Kid, first.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-3"), ct)).Type);
         Assert.Equal(
             [AgentStandingProjector.EnrolledType, AgentStandingProjector.KeyBoundType, AgentStandingProjector.KeyBoundType],
             Types(await StreamAsync(events, Alice, ct)));
@@ -784,13 +785,13 @@ public sealed class EnrollIdentityTests
         var several = new PreG14KeyStore(Alice, [new RegisteredKey(own, Start, null), new RegisteredKey(hole, Start.AddHours(1), null)]);
         var enroll = Enroll(events, several, clock);
 
-        Assert.Equal("curia/enroll/keys-ambiguous", Refusal(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(hole.Alg, hole.Kid, hole.Public.ToArray()), ct)).Type);
-        Assert.Equal("curia/enroll/keys-ambiguous", Refusal(await enroll.EnrollAsync(Alice, new PublicKeyMaterial(own.Alg, own.Kid, own.Public.ToArray()), ct)).Type);
+        Assert.Equal("curia/enroll/keys-ambiguous", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(hole.Alg, hole.Kid, hole.Public.ToArray()), ct)).Type);
+        Assert.Equal("curia/enroll/keys-ambiguous", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(own.Alg, own.Kid, own.Public.ToArray()), ct)).Type);
         Assert.Equal(0, several.Enrollments);
         Assert.Empty(await StreamAsync(events, Alice, ct));
 
         var one = new PreG14KeyStore(Alice, [new RegisteredKey(own, Start, null)]);
-        Assert.False(Require(await Enroll(events, one, clock).EnrollAsync(Alice, new PublicKeyMaterial(own.Alg, own.Kid, own.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.False(Require(await Enroll(events, one, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(own.Alg, own.Kid, own.Public.ToArray()), ct)).WasAlreadyEnrolled);
         Assert.Equal(EnrollmentEntries, Types(await StreamAsync(events, Alice, ct)));
     }
 
@@ -825,7 +826,7 @@ public sealed class EnrollIdentityTests
             ct));
 
         var keys = new CountingKeyStore(new InMemoryAuthorKeyRegistry());
-        var answer = (await Enroll(events, keys, clock).EnrollAsync(PostId, NewKey("post-named"), ct)).Match(_ => "enrolled", e => e.Type);
+        var answer = (await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(PostId), NewKey("post-named"), ct)).Match(_ => "enrolled", e => e.Type);
 
         Assert.Equal("curia/enroll/identifier-reserved", answer);
         Assert.Equal(0, keys.Enrollments);
@@ -866,7 +867,7 @@ public sealed class EnrollIdentityTests
             var events = new InMemoryEventStore(clock);
             var keys = new CountingKeyStore(new InMemoryAuthorKeyRegistry());
 
-            var answer = (await Enroll(events, keys, clock).EnrollAsync(identifier, NewKey("minted-" + name), ct)).Match(_ => "enrolled", e => e.Type);
+            var answer = (await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(identifier), NewKey("minted-" + name), ct)).Match(_ => "enrolled", e => e.Type);
             if (answer != "curia/enroll/identifier-reserved" || keys.Enrollments != 0)
                 admitted.Add($"{name} ({identifier}): {answer}, the store asked {keys.Enrollments} time(s)");
         }

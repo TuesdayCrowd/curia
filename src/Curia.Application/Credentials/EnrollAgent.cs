@@ -6,6 +6,7 @@ using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Credentials;
 
@@ -104,11 +105,11 @@ public sealed class EnrollAgent
     /// <param name="key">The key this enrollment registered: its <c>kid</c> on <c>agent.enrolled</c>, its public JWK on <c>agent.key-bound</c>.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<AgentEnrollment>> RecordAsync(
-        string agentId,
+        AgentId agentId,
         PublicKeyMaterial key,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(key);
 
         // One aggregate per agent, for the reason IngestPipeline gives for one aggregate per post:
@@ -116,10 +117,10 @@ public sealed class EnrollAgent
         // optimistic-concurrency conflict against every other, and agents are not a consistency
         // boundary with each other. Here the per-agent stream does a second job the post streams do
         // not need -- it is what lets AggregateVersion.New mean "this agent has never enrolled".
-        if (!AggregateId.Create(agentId).TryGetValue(out var aggregate, out var aggregateError))
+        if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<AgentEnrollment>.Fail(aggregateError!);
 
-        if (!ActorId.Create(agentId).TryGetValue(out var actor, out var actorError))
+        if (!ActorId.Create(agentId.Value).TryGetValue(out var actor, out var actorError))
             return Result<AgentEnrollment>.Fail(actorError!);
 
         for (var attempt = 0; attempt < Attempts; attempt++)
@@ -133,7 +134,7 @@ public sealed class EnrollAgent
             // instant, and neither is read below. What is read is what this stream is the whole
             // record of: whether an enrollment exists, when it was, and what the owner's standing is.
             var standing = AgentStandingProjector.Fold(history!)
-                .GetValueOrDefault(agentId);
+                .GetValueOrDefault(agentId.Value);
 
             if (standing?.EnrolledAt is { } enrolledAt)
             {
@@ -142,8 +143,8 @@ public sealed class EnrollAgent
                 // second key under an enrolled identity used to be waved through as a success; and
                 // for other bytes under a bound kid, how a lost row's recovery registered whatever it
                 // was sent.
-                if (EnrollmentBinding.Find(history!, agentId)?.For(key.Kid) is not { } bound)
-                    return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId));
+                if (EnrollmentBinding.Find(history!, agentId)?.For(key) is not { } bound)
+                    return Result<AgentEnrollment>.Fail(AuthorKeyErrors.AlreadyEnrolled(agentId.Value));
 
                 if (!bound.Holds(key))
                     return Result<AgentEnrollment>.Fail(AuthorKeyErrors.MaterialImmutable(key.Kid));
@@ -152,7 +153,7 @@ public sealed class EnrollAgent
                     new AgentEnrollment(enrolledAt, standing.OwnerVerified, WasAlreadyEnrolled: true));
             }
 
-            var attempted = await AppendEnrollmentAsync(aggregate, actor, agentId, key, cancellationToken)
+            var attempted = await AppendEnrollmentAsync(aggregate, actor, agentId.Value, key, cancellationToken)
                 .ConfigureAwait(false);
 
             if (attempted.TryGetValue(out var enrollment, out var attemptError))
@@ -162,7 +163,7 @@ public sealed class EnrollAgent
                 return Result<AgentEnrollment>.Fail(attemptError!);
         }
 
-        return Result<AgentEnrollment>.Fail(EnrollmentErrors.ContendedAggregate(agentId, Attempts));
+        return Result<AgentEnrollment>.Fail(EnrollmentErrors.ContendedAggregate(agentId.Value, Attempts));
     }
 
     private async Task<Result<AgentEnrollment>> AppendEnrollmentAsync(

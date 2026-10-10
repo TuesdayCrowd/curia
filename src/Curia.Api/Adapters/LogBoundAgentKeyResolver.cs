@@ -21,6 +21,6 @@ public sealed class LogBoundAgentKeyResolver(LogBoundKeys keys) : IAgentKeyResol
         ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(kid);
 
-        return keys.ResolveAsync(agentId.Value, kid.Value, at, cancellationToken);
+        return keys.ResolveAsync(agentId, kid, at, cancellationToken);
     }
 }
