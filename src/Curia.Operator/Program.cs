@@ -191,28 +191,19 @@ public static class OperatorCommands
             return ExitCode.Usage;
         }
 
-        // R11.34 (errata G18): the agent as the AgentId AttestOwner takes, at its first use. One that is
-        // no agent id -- over enrollment's 1,024 bytes, which no enrolled identifier is -- names no
-        // enrolled agent, and is refused as one.
         Result<OwnerAttestation> result;
-        if (!AgentId.Parse(parsed.Agent, "agent").TryGetValue(out var agent, out _))
+        var adapters = new PostgresAdapters(connectionString, clock);
+        await using (adapters.ConfigureAwait(false))
         {
-            result = Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(parsed.Agent!));
-        }
-        else
-        {
-            var adapters = new PostgresAdapters(connectionString, clock);
-            await using (adapters.ConfigureAwait(false))
-            {
-                result = await new AttestOwner(adapters.EventStore, clock).RecordAsync(
-                    agent!,
-                    parsed.Owner,
-                    parsed.Verified,
-                    parsed.Method,
-                    parsed.Reason!,
-                    parsed.By,
-                    cancellationToken).ConfigureAwait(false);
-            }
+            result = await new AttestOwner(adapters.EventStore, clock).RecordAsync(
+                // R11.34: the parse outcome, refused by the use case where it refused an unknown agent (spec §4.7).
+                AgentId.Parse(parsed.Agent, "agent"),
+                parsed.Owner,
+                parsed.Verified,
+                parsed.Method,
+                parsed.Reason!,
+                parsed.By,
+                cancellationToken).ConfigureAwait(false);
         }
 
         if (!result.TryGetValue(out var attestation, out var error))

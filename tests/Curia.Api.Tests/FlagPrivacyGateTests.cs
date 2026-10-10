@@ -174,7 +174,7 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
         var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
             .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
         var salt = rows.SingleOrDefault(r =>
-            string.Equals(r.RaisedBy.Value, raiser.Agent.AgentId, StringComparison.Ordinal)
+            string.Equals(r.RaisedBy, raiser.Agent.AgentId, StringComparison.Ordinal)
             && string.Equals(r.Rationale, nonce, StringComparison.Ordinal))?.Salt;
 
         return new Flagged(author, raiser, bystander, board, postId, digest, nonce, salt);

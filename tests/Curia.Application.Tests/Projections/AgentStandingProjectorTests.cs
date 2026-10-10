@@ -74,7 +74,7 @@ public sealed class AgentStandingProjectorTests
         string by = Operator,
         OwnerVerificationMethod method = OwnerVerificationMethod.Manual) =>
         new AttestOwner(store, clock).RecordAsync(
-            Typed.Agent(agent),
+            Curia.Domain.Primitives.Boundary.AgentId.Parse(agent),
             Require(OwnerId.Create(owner)),
             verified,
             method,

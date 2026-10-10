@@ -98,6 +98,47 @@ public sealed class OperatorAttestationTests(ForumFixture forum) : IClassFixture
         Assert.False(await ServedOwnerVerifiedAsync(agent, http, "board-" + Guid.NewGuid().ToString("N")[..8], ct));
     }
 
+    /// <summary>
+    /// R11.34 (errata G18): <c>attest-owner</c> passes the agent's parse outcome, and the use case
+    /// refuses one that is no <c>AgentId</c> as not enrolled where it refused an unknown agent: after
+    /// its self-attestation, operator-name and reason checks, naming no value. Each case is an agent
+    /// over enrollment's 1,024 bytes, and none writes to the log.
+    /// <list type="bullet">
+    /// <item>0: a blank operator name is answered first, as it was before the type existed.</item>
+    /// <item>1: under a named operator, not enrolled, without echoing the agent's text.</item>
+    /// <item>2: a characterization pin with no falsifier: an over-cap agent equal to its own attester
+    /// is answered not enrolled where it was self-attestation, because the use case no longer holds
+    /// the text to compare.</item>
+    /// </list>
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task R11_34_AnAgentThatIsNoAgentIdIsAnsweredAfterTheOperatorChecks(int index)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var overCap = new string('a', 1_025);
+        var selfNamed = "operator:" + new string('a', 1_025);
+        var (agent, by, slug) = index switch
+        {
+            0 => (overCap, "operator: ", "curia/attest/blank-operator-name"),
+            1 => (overCap, "reviewer", "curia/attest/not-enrolled"),
+            _ => (selfNamed, selfNamed, "curia/attest/not-enrolled"),
+        };
+        var before = await LogSizeAsync(http, ct);
+
+        var (exit, stdout, stderr) = await RunAsync(
+            ["attest-owner", "--agent", agent, "--owner", "owner:example", "--by", by], ct);
+
+        Assert.Equal(ExitCode.Refused, exit);
+        Assert.Contains(slug, stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('a', 1_025), stderr, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, stdout);
+        Assert.Equal(before, await LogSizeAsync(http, ct));
+    }
+
     /// <summary>How many entries the log serves, counted the way any reader counts them.</summary>
     private static async Task<long> LogSizeAsync(HttpClient client, CancellationToken ct)
     {

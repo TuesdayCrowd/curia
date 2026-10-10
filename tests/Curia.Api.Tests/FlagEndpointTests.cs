@@ -308,6 +308,32 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R10.68's order kept through R11.34: a rationale over the cap that also holds U+0000 is answered
+    /// 422 <c>rationale-too-long</c>, as it was when A4 checked the cap first, not 400
+    /// <c>detail-unstorable</c>. The body's U+0000 is the JSON escape, written in this source as an
+    /// escape, so the file holds no NUL.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AnOverlongRationaleHoldingU0000IsAnswered422RationaleTooLong()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+
+        var raiser = ForumAgent.Create(Unique("cap-nul"), "cap-nul-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await raiser.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var json = "{\"kind\":\"spam\",\"rationale\":\"" + new string('a', 4_096) + "\\" + "u0000" + "\"}";
+        using var refused = await dpop.PostAsync(
+            client, $"http://localhost/v1/posts/{postId}/flags", token, System.Text.Encoding.UTF8.GetBytes(json), forum.Now, ct, contentType: "application/json");
+        var body = await refused.Content.ReadAsStringAsync(ct);
+
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, $"{(int)refused.StatusCode}: {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/flag/rationale-too-long", problem.RootElement.GetProperty("type").GetString());
+    }
+
+    /// <summary>
     /// R10.68 counts UTF-8 bytes, not characters: 1,365 three-byte characters and one ASCII byte are
     /// 4,096 bytes and accepted; with a second ASCII byte, 4,097, refused. A cap counted in UTF-16
     /// code units would accept both.
@@ -510,7 +536,7 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     {
         var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
             .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
-        return rows.Count(r => string.Equals(r.RaisedBy.Value, raisedBy, StringComparison.Ordinal));
+        return rows.Count(r => string.Equals(r.RaisedBy, raisedBy, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -886,8 +912,8 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         var rows = (await forum.Services.GetRequiredService<IFlagDetailStore>().ReadAllAsync(ct))
             .Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
         Assert.Single(rows, r =>
-            string.Equals(r.PostId.Value, postId, StringComparison.Ordinal)
-            && string.Equals(r.RaisedBy.Value, reporter.AgentId, StringComparison.Ordinal));
+            string.Equals(r.PostId, postId, StringComparison.Ordinal)
+            && string.Equals(r.RaisedBy, reporter.AgentId, StringComparison.Ordinal));
         Assert.Equal(leavesBefore + 1, await CommittedFlagLeavesAsync(ct));
     }
 

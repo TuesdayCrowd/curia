@@ -78,8 +78,9 @@ public sealed class ApplyModeration
     /// The public reason, as the operator's tool parsed it. Refused after the operator checks, which
     /// are this path's authorization (R10.68): absent or blank is
     /// <see cref="ModerationErrors.RationaleRequired"/>, over the cap
-    /// <see cref="ModerationRecordErrors.RationaleTooLong"/>. A reason holding U+0000 or a lone
-    /// surrogate, which no command line carries, is refused with the rule's own condition.
+    /// <see cref="ModerationRecordErrors.RationaleTooLong"/> whatever else it holds. A reason under the
+    /// cap holding U+0000 or a lone surrogate, which no command line carries, is refused with the rule's
+    /// own condition.
     /// </param>
     /// <param name="moderator">The operator recording it.</param>
     /// <param name="cancellationToken">Cancellation.</param>

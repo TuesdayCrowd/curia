@@ -23,7 +23,7 @@ public abstract class FlagDetailStorePortContractTests
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
 
     private static FlagDetail Detail(string eventId, string rationale = "looks like spam") =>
-        new(eventId, Typed.Post("01JP0ST0000000000000000001"), Typed.Agent("https://agents.example/reporter"), rationale, "c2FsdA");
+        new(eventId, "01JP0ST0000000000000000001", "https://agents.example/reporter", rationale, "c2FsdA");
 
     [Fact]
     public async Task R11_32_AnEmptyStoreReadsEmpty()
@@ -87,25 +87,50 @@ public abstract class FlagDetailStorePortContractTests
 
     /// <summary>
     /// R11.21: the in-memory adapter accepts exactly what Postgres accepts. A <c>text</c> column
-    /// cannot hold U+0000, so neither adapter may take one — and the refusal names no content. The
-    /// post and the raiser are a <c>PostId</c> and an <c>AgentId</c> since R11.34 (errata G18), which
-    /// hold no U+0000 and are never empty, so only the three string members vary here.
+    /// cannot hold U+0000, so neither adapter may take one — and the refusal names no content.
     /// </summary>
     [Theory]
-    [InlineData("event\0id", "why", "s")]
-    [InlineData("e", "a rationale with \0 in it", "s")]
-    [InlineData("e", "why", "sa\0lt")]
-    [InlineData("e", "", "s")]
-    public async Task R11_21_AMemberTheStoreCannotHoldIsRefusedByName(string eventId, string rationale, string salt)
+    [InlineData("event\0id", "p", "r", "why", "s")]
+    [InlineData("e", "post\0id", "r", "why", "s")]
+    [InlineData("e", "p", "raiser\0", "why", "s")]
+    [InlineData("e", "p", "r", "a rationale with \0 in it", "s")]
+    [InlineData("e", "p", "r", "why", "sa\0lt")]
+    [InlineData("e", "p", "r", "", "s")]
+    public async Task R11_21_AMemberTheStoreCannotHoldIsRefusedByName(
+        string eventId, string postId, string raisedBy, string rationale, string salt)
     {
         var ct = TestContext.Current.CancellationToken;
         var store = CreateStore();
 
-        Assert.False((await store.AppendAsync(new FlagDetail(eventId, Typed.Post("01JP0ST0000000000000000001"), Typed.Agent("https://agents.example/reporter"), rationale, salt), ct))
+        Assert.False((await store.AppendAsync(new FlagDetail(eventId, postId, raisedBy, rationale, salt), ct))
             .TryGetValue(out _, out var error));
         Assert.Equal("curia/flag/detail-unstorable", error!.Type);
         Assert.DoesNotContain("rationale with", error.Detail ?? string.Empty, StringComparison.Ordinal);
         Assert.Empty(Require(await store.ReadAllAsync(ct)));
+    }
+
+    /// <summary>
+    /// R11.34 (errata G18): read-back is never parsed. Before R11.34, <c>RaiseFlag</c> accepted a flag
+    /// against any id with a non-empty stream, an enrolled agent's included, so a stored post id may be
+    /// no ULID. The row reads back as written, and the store stays readable.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_ARowWhosePostOrRaiserPredatesTheTypesReadsBackVerbatim()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var detail = new FlagDetail(
+            "01JFLAG000000000000000001",
+            "https://agents.example/an-agent-flagged-before-r11-34",
+            "https://agents.example/reporter",
+            "why",
+            "c2FsdA");
+
+        Require(await store.AppendAsync(detail, ct));
+        var read = await store.ReadAllAsync(ct);
+
+        Assert.True(read.IsOk);
+        Assert.Equal(detail, Assert.Single(Require(read)));
     }
 }
 

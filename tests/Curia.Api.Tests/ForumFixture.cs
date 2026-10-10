@@ -112,7 +112,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
 
         Require(await attest.RecordAsync(
-            Typed.Agent(agentId),
+            Result<AgentId>.Ok(Typed.Agent(agentId)),
             Require(OwnerId.Create(owner)),
             verified,
             OwnerVerificationMethod.Manual,

@@ -82,8 +82,9 @@ public sealed class RaiseFlag
     /// <param name="rationale">
     /// Required, screened, and recorded privately; the host's parse outcome, refused here with this
     /// path's own slugs (R10.68, R11.34): absent or blank is <see cref="ModerationErrors.RationaleRequired"/>,
-    /// over the cap <see cref="FlagErrors.RationaleTooLong"/>, and U+0000 or a lone surrogate, which no
-    /// store holds, <see cref="FlagDetailRules.Unstorable"/>, the refusal the private store gave it.
+    /// over the cap <see cref="FlagErrors.RationaleTooLong"/> whatever else it holds, and, under the cap,
+    /// U+0000 or a lone surrogate, which no store holds, <see cref="FlagDetailRules.Unstorable"/>, the
+    /// refusal the private store gave it.
     /// </param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<FlagRaised>> RecordAsync(
@@ -169,7 +170,7 @@ public sealed class RaiseFlag
 
         // The private row first (see the remarks above).
         var stored = await _details
-            .AppendAsync(new FlagDetail(id, target, raisedBy, reason.Value, salt), cancellationToken)
+            .AppendAsync(new FlagDetail(id, target.Value, raisedBy.Value, reason.Value, salt), cancellationToken)
             .ConfigureAwait(false);
         if (!stored.TryGetValue(out _, out var storeError)) return Result<FlagRaised>.Fail(storeError!);
 

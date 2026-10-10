@@ -255,7 +255,7 @@ public sealed class SearchProjectorTests
 
         Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
         Require(await new AttestOwner(store, clock).RecordAsync(
-            Typed.Agent(Author),
+            Curia.Domain.Primitives.Boundary.AgentId.Parse(Author),
             Require(OwnerId.Create("https://owners.example/acme")),
             true,
             OwnerVerificationMethod.Manual,

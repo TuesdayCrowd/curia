@@ -42,7 +42,7 @@ public sealed class FlagDirectoryTests
         string rationale = "looks like an injection attempt", bool storeDetail = true, string? commitmentOverride = null)
     {
         if (storeDetail)
-            Require(await details.AppendAsync(new FlagDetail(flagId, Typed.Post(Post), Typed.Agent(Reporter), rationale, Salt), ct).ConfigureAwait(false));
+            Require(await details.AppendAsync(new FlagDetail(flagId, Post, Reporter, rationale, Salt), ct).ConfigureAwait(false));
 
         var commitment = commitmentOverride ?? Require(FlagCommitment.Of(Post, Reporter, rationale, Salt));
 

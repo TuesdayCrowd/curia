@@ -108,6 +108,55 @@ public sealed class SearchEndpointTests(ForumFixture forum) : IClassFixture<Foru
     }
 
     /// <summary>
+    /// Filters that no <c>BoardName</c> or <c>AgentId</c> parses: a U+0000 in either, and an author
+    /// over its 1,024-byte cap. A board over its cap is not here: <c>BoardName</c>'s cap is larger than
+    /// any URI <c>System.Uri</c> builds, so no request could carry it.
+    /// </summary>
+    public static TheoryData<string> FiltersThatAreNoBoardNameOrAgentId => new()
+    {
+        "board=a%00b",
+        "author=a%00b",
+        "author=" + new string('a', 1025),
+    };
+
+    /// <summary>
+    /// R11.34 (errata G18): a <c>board</c> or <c>author</c> that is no <c>BoardName</c> or
+    /// <c>AgentId</c> names no post's board or author, so the filter matches nothing, as it did when
+    /// it was compared as text. Hybrid search runs unfiltered for such a query, and only the route's
+    /// <c>matchesNothing</c> makes the page empty: without it the caller who believes it filtered is
+    /// served the unfiltered corpus, with a status of 200 either way.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(FiltersThatAreNoBoardNameOrAgentId))]
+    public async Task R11_34_ASearchFilterThatIsNoBoardNameOrAgentIdMatchesNothing(string filter)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var term = "zqx" + Guid.NewGuid().ToString("N")[..6];
+
+        // Two posts, so an unfiltered page of one has a next cursor: each body carries its own nonce
+        // word, since two questions alike are what §8.5 refuses.
+        var first = await AskAsync(client, board, $"About {term}", "first body " + Guid.NewGuid().ToString("N"), ct);
+        var second = await AskAsync(client, board, $"Also about {term}", "second body " + Guid.NewGuid().ToString("N"), ct);
+
+        // Non-vacuity: unfiltered, the term finds a seeded post and there is a next page.
+        using (var unfiltered = await SearchAsync(client, $"q={term}&limit=1", ct))
+        {
+            Assert.Contains(Assert.Single(Ids(unfiltered)), (string[])[first, second]);
+            Assert.True(unfiltered.RootElement.TryGetProperty("next_cursor", out _));
+        }
+
+        using var filtered = await SearchAsync(client, $"q={term}&limit=1&{filter}", ct);
+
+        Assert.Empty(filtered.RootElement.GetProperty("results").EnumerateArray());
+        Assert.False(filtered.RootElement.TryGetProperty("next_cursor", out _));
+        // A page, not a refusal: it still states its floor and its model.
+        Assert.Equal(JsonValueKind.Object, filtered.RootElement.GetProperty("floor").ValueKind);
+        Assert.Equal("hashed-ngram@1", filtered.RootElement.GetProperty("model").GetString());
+    }
+
+    /// <summary>
     /// R9.8: the breakdown is exposed "when requested". Off by default because R8.36's purpose is
     /// auditing rather than decoration, and a field every response carries is one every client
     /// learns to ignore.

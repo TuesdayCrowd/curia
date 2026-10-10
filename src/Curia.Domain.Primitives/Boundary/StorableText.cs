@@ -21,9 +21,13 @@ public static class StorableText
         }
         var bytes = Encoding.UTF8.GetByteCount(value);
         return bytes > maxUtf8Bytes
-            ? Result<string>.Fail(new Error(TooLongType, "The value is longer than its store holds", $"field={field} bytes={bytes}: at most {maxUtf8Bytes} UTF-8 bytes"))
+            ? Result<string>.Fail(TooLong(field, bytes, maxUtf8Bytes))
             : Result<string>.Ok(value);
     }
+
+    /// The rule's too-long refusal, for a type whose own order checks the cap before what no store holds.
+    public static Error TooLong(string field, int bytes, int maxUtf8Bytes) =>
+        new(TooLongType, "The value is longer than its store holds", $"field={field} bytes={bytes}: at most {maxUtf8Bytes} UTF-8 bytes");
 
     private static Result<string> Fail(string type, string field) =>
         Result<string>.Fail(new Error(type, "The value cannot be stored", "field=" + field));

@@ -129,10 +129,10 @@ public sealed record FlagDirectory(ImmutableArray<RaisedFlag> Flags, ImmutableSo
         if (!byEvent.TryGetValue(appended.Event.Id.Value, out var detail))
             return (null, SkippedNoDetail);
 
-        var recomputed = FlagCommitment.Of(detail.PostId.Value, detail.RaisedBy.Value, detail.Rationale, detail.Salt);
+        var recomputed = FlagCommitment.Of(detail.PostId, detail.RaisedBy, detail.Rationale, detail.Salt);
         if (!recomputed.TryGetValue(out var expected, out _) || !string.Equals(expected, commitment, StringComparison.Ordinal))
             return (null, SkippedCommitmentMismatch);
 
-        return (new RaisedFlag(appended.Event.Id.Value, detail.PostId.Value, detail.RaisedBy.Value, kind, appended.ServerTimestamp), null);
+        return (new RaisedFlag(appended.Event.Id.Value, detail.PostId, detail.RaisedBy, kind, appended.ServerTimestamp), null);
     }
 }

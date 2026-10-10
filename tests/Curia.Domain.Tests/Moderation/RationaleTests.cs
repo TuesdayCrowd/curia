@@ -35,6 +35,34 @@ public sealed class RationaleTests
         Assert.Equal(StorableText.NulType, TypeOf(Rationale.Parse("a\0")));
     }
 
+    /// <summary>
+    /// R10.68's order, which the rationale keeps on both paths: absent and blank, then the cap, then
+    /// what no store holds. A rationale over the cap is too long whatever else it holds, as it was when
+    /// A4 checked the cap first; the rule's own order (B1's <c>R11_34_TheRuleRefusesInItsOrder</c>)
+    /// is unchanged. A lone surrogate is counted as U+FFFD, three bytes. The theory takes an index
+    /// because a lone surrogate does not survive theory serialization.
+    /// </summary>
+    private static readonly (string Value, string Type, string Detail)[] OrderCases =
+    [
+        (new string('a', 4_096) + (char)0, StorableText.TooLongType, "field=rationale bytes=4097: at most 4096 UTF-8 bytes"),
+        (new string('a', 4_096) + (char)0xD800, StorableText.TooLongType, "field=rationale bytes=4099: at most 4096 UTF-8 bytes"),
+        (new string(' ', 4_097), StorableText.BlankType, "field=rationale"),
+        ("a" + (char)0, StorableText.NulType, "field=rationale"),
+    ];
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void R11_34_ARationaleOverTheCapIsTooLongBeforeWhatNoStoreHoldsIsNamed(int index)
+    {
+        var (value, type, detail) = OrderCases[index];
+
+        Assert.False(Rationale.Parse(value).TryGetValue(out _, out var error));
+        Assert.Equal((type, detail), (error!.Type, error.Detail));
+    }
+
     [Fact]
     public void R11_34_ARationaleRefusalNamesItsField()
     {

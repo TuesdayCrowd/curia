@@ -53,6 +53,9 @@ public sealed class AttestOwner
     /// <summary>The operator namespace the composition root applies (plan D4); an actor in it must name someone.</summary>
     private const string OperatorPrefix = "operator:";
 
+    /// <summary>The not-enrolled detail for an agent that is no agent id: the caller's text is not echoed, as RaiseFlag's <c>NoPostId</c> is not.</summary>
+    internal const string NoAgentId = "(agent is no agent id)";
+
     private readonly IEventStore _events;
     private readonly UlidGenerator _ids;
 
@@ -65,7 +68,10 @@ public sealed class AttestOwner
         _ids = new UlidGenerator(clock);
     }
 
-    /// <param name="agentId">The agent whose owner is being attested; also the aggregate the event lands in.</param>
+    /// <param name="agentId">The agent whose owner is being attested; also the aggregate the event lands in.
+    /// The host's parse outcome (R11.34, errata G18), so each refusal is answered where this use case
+    /// answered it before the type existed: one that is no agent id is refused as not enrolled, after
+    /// the self-attestation, operator-name and reason checks.</param>
     /// <param name="owner">R4.1's owner. Must match any owner an earlier attestation named.</param>
     /// <param name="verified">Whether the owner is verified as of this attestation. <see langword="false"/> records a lapse.</param>
     /// <param name="method">Which of R4.24's proofs was satisfied, or lapsed.</param>
@@ -73,7 +79,7 @@ public sealed class AttestOwner
     /// <param name="attestedBy">The attesting actor -- an operator, or the owner. Never the agent.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<OwnerAttestation>> RecordAsync(
-        AgentId agentId,
+        Result<AgentId> agentId,
         OwnerId owner,
         bool verified,
         OwnerVerificationMethod method,
@@ -81,10 +87,10 @@ public sealed class AttestOwner
         ActorId attestedBy,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(agentId);
+        agentId.TryGetValue(out var agent, out _);
 
-        if (string.Equals(attestedBy.Value, agentId.Value, StringComparison.Ordinal))
-            return Result<OwnerAttestation>.Fail(AttestationErrors.SelfAttestation(agentId.Value));
+        if (agent is not null && string.Equals(attestedBy.Value, agent.Value, StringComparison.Ordinal))
+            return Result<OwnerAttestation>.Fail(AttestationErrors.SelfAttestation(agent.Value));
 
         // "operator: " keeps the namespace convention and names no one, in a leaf that is public and
         // permanent.
@@ -96,7 +102,9 @@ public sealed class AttestOwner
         if (!TransitionReason.Create(reason).TryGetValue(out _, out var reasonError))
             return Result<OwnerAttestation>.Fail(reasonError!);
 
-        if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out var aggregateError))
+        if (agent is null) return Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(NoAgentId));
+
+        if (!AggregateId.Create(agent.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<OwnerAttestation>.Fail(aggregateError!);
 
         for (var attempt = 0; attempt < Attempts; attempt++)
@@ -108,16 +116,16 @@ public sealed class AttestOwner
             if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
                 return Result<OwnerAttestation>.Fail(versionError!);
 
-            var standing = AgentStandingProjector.Fold(history).GetValueOrDefault(agentId.Value);
+            var standing = AgentStandingProjector.Fold(history).GetValueOrDefault(agent.Value);
 
             if (standing?.EnrolledAt is null)
-                return Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(agentId.Value));
+                return Result<OwnerAttestation>.Fail(AttestationErrors.NotEnrolled(agent.Value));
 
             if (standing.OwnerId is { } bound && !string.Equals(bound, owner.Value, StringComparison.Ordinal))
-                return Result<OwnerAttestation>.Fail(AttestationErrors.OwnerBindingImmutable(agentId.Value, bound, owner.Value));
+                return Result<OwnerAttestation>.Fail(AttestationErrors.OwnerBindingImmutable(agent.Value, bound, owner.Value));
 
             var attempted = await AppendAsync(
-                aggregate, version, agentId.Value, owner, verified, method, reason, attestedBy, cancellationToken)
+                aggregate, version, agent.Value, owner, verified, method, reason, attestedBy, cancellationToken)
                 .ConfigureAwait(false);
 
             if (attempted.TryGetValue(out var attestation, out var attemptError))
@@ -127,7 +135,7 @@ public sealed class AttestOwner
                 return Result<OwnerAttestation>.Fail(attemptError);
         }
 
-        return Result<OwnerAttestation>.Fail(AttestationErrors.ContendedAggregate(agentId.Value, Attempts));
+        return Result<OwnerAttestation>.Fail(AttestationErrors.ContendedAggregate(agent.Value, Attempts));
     }
 
     private async Task<Result<OwnerAttestation>> AppendAsync(

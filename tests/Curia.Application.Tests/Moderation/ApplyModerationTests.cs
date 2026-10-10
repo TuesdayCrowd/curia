@@ -954,6 +954,25 @@ public sealed class ApplyModerationTests
     }
 
     /// <summary>
+    /// R10.68's order kept through R11.34 on the operator's path: a reason over the cap that also holds
+    /// U+0000 is too long, as it was when the cap was checked first, and nothing is appended.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AnOverlongReasonHoldingU0000IsRefusedAsTooLong()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string('a', 4_096) + (char)0), Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(("curia/moderation/rationale-too-long", "field=rationale bytes=4097: at most 4096 UTF-8 bytes"), (error!.Type, error.Detail));
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
+    }
+
+    /// <summary>
     /// Pins the "after" half of R10.68's order on the moderation path (errata G18: "The check follows
     /// authentication and authorization, which read the log and are not reordered for it"). The operator-name check is
     /// the moderation path's authorization, and R10.68 has the cap follow it: a reason over the cap from

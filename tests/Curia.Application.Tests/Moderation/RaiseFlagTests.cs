@@ -105,7 +105,7 @@ public sealed class RaiseFlagTests
 
         var flag = Assert.Single(FlagEvents(await LogAsync(store, ct)));
         var row = Assert.Single(Require(await details.ReadAllAsync(ct)));
-        Assert.Equal(new FlagDetail(flag.Event.Id.Value, Typed.Post(Post), Typed.Agent(Reporter), Rationale, FixedSalt), row);
+        Assert.Equal(new FlagDetail(flag.Event.Id.Value, Post, Reporter, Rationale, FixedSalt), row);
 
         var commitment = ((JsonValue.String)((JsonValue.Object)flag.Event.Payload).Members
             .Single(m => m.Key == FlagProjector.CommitmentField).Value).Value;
@@ -310,5 +310,25 @@ public sealed class RaiseFlagTests
         Require(await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
 
         Assert.True(events.Reads > 0);
+    }
+
+    /// <summary>
+    /// R10.68's order kept through R11.34: a rationale over the cap that also holds U+0000 is too long,
+    /// as it was when A4 checked the cap first, not a detail the store cannot hold.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_ARationaleOverTheCapHoldingU0000IsRefusedAsTooLong()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+        await PostExistsAsync(store, ct);
+
+        var refused = await new RaiseFlag(store, new InMemoryFlagDetailStore(), clock, () => FixedSalt)
+            .RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(new string('a', 4_096) + (char)0), ct);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal(("curia/flag/rationale-too-long", "field=rationale bytes=4097: at most 4096 UTF-8 bytes"), (error!.Type, error.Detail));
+        Assert.Empty(FlagEvents(await LogAsync(store, ct)));
     }
 }
