@@ -166,7 +166,7 @@ public sealed class ClientAssertionValidatorTests
             (ClientAssertionScenario.AgentId, scenario.AgentKey.Kid, scenario.AgentKey.PublicKey),
             (Mallory, malloryKey.Kid, malloryKey.PublicKey));
         var asScriptor = scenario.Context with { AgentKeyResolver = resolver };
-        var asMallory = asScriptor with { ExpectedSubject = Mallory };
+        var asMallory = asScriptor with { ExpectedSubject = Curia.Domain.Primitives.Boundary.AgentId.Parse(Mallory) };
         var malloryHeader = scenario.ValidHeader().With("kid", malloryKey.Kid);
 
         var impersonation = scenario.SignValid(header: malloryHeader, key: malloryKey);
@@ -361,8 +361,9 @@ public sealed class ClientAssertionValidatorTests
         var context = scenario.Context with
         {
             AgentKeyResolver = resolver,
-            ExpectedSubject = clientId == "over-cap" ? new string('a', 1025) : "https://agents.example/n\0x",
+            ExpectedSubject = Curia.Domain.Primitives.Boundary.AgentId.Parse(clientId == "over-cap" ? new string('a', 1025) : "https://agents.example/n\0x", "client_id"),
         };
+        Assert.False(context.ExpectedSubject.IsOk);
         var header = assertionRow switch
         {
             "alg-none" => scenario.ValidHeader().With("alg", "none"),

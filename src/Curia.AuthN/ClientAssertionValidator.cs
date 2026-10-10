@@ -54,6 +54,9 @@ public static class ClientAssertionValidator
         if (header.Typ != "JWT")
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.TypMismatch("JWT", header.Typ));
 
+        // Detail text only. TokenEndpoint serves an error's Title and Type, never its Detail, and a caller's unparsable client_id is not echoed into one.
+        var subjectText = context.ExpectedSubject.TryGetValue(out var parsedSubject, out _) ? parsedSubject!.Value : "(client_id is no agent id)";
+
         // R11.33 (errata G17): CompactJws.ReadString makes an absent or non-string kid "", and the
         // key store refuses a blank one by throwing, so the token endpoint answered 500 to anyone
         // before any signature was checked. A kid no store can be asked about is malformed here; the
@@ -65,13 +68,13 @@ public static class ClientAssertionValidator
         if (!kidParse.TryGetValue(out var kid, out var kidError))
         {
             return Result<ClientAssertionClaims>.Fail(string.Equals(kidError!.Type, StorableText.TooLongType, StringComparison.Ordinal)
-                ? AuthNErrors.KeyNotRegistered(context.ExpectedSubject, header.Kid)
+                ? AuthNErrors.KeyNotRegistered(subjectText, header.Kid)
                 : CompactJws.AsMalformed(kidError, "kid", null));
         }
 
-        // R11.34 (errata G18): client_id reaches the key resolver only as an AgentId, parsed here, at the step where the store first used it, so a client_id that is no AgentId is answered after alg, typ and kid exactly as the store answered it before the rule existed: no key registered to that agent (spec section 4.7).
-        if (!AgentId.Parse(context.ExpectedSubject, "client_id").TryGetValue(out var expectedSubject, out _))
-            return Result<ClientAssertionClaims>.Fail(AuthNErrors.KeyNotRegistered(context.ExpectedSubject, kid!.Value));
+        // R11.34 (errata G18): client_id reaches the key resolver only as an AgentId. The host parsed it where it read the request, and a refusal is answered here, at the step where the store first used the value, after alg, typ and kid, exactly as the store answered it before the rule existed: no key registered to that agent (spec section 4.7).
+        if (!context.ExpectedSubject.TryGetValue(out var expectedSubject, out _))
+            return Result<ClientAssertionClaims>.Fail(AuthNErrors.KeyNotRegistered(subjectText, kid!.Value));
 
         // R6.31/A12: an agent key's validity is evaluated at server_ts, never at submission time
         // and never at the assertion's own iat -- so the governing instant has to exist before

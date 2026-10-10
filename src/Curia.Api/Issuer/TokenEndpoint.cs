@@ -116,7 +116,7 @@ public static class TokenEndpoint
         // R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.
         var context = new ClientAssertionValidationContext(
             TokenEndpointUrl(http),
-            ExpectedSubject: clientId,
+            ExpectedSubject: AgentId.Parse(clientId, "client_id"),
             agentKeys,
             replayCache,
             verifiers,
