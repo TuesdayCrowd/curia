@@ -7035,10 +7035,16 @@ the one-part-at-a-time stage's; 29 to 31 are the reader stage's PR A.
     a lock not taken, each exited 0 as VERIFIED (found at Task A3's review). The
     exemption is now `Check.FirstRetained`, whose `NothingToCompare` only the retained-is-null branch
     of `CompareAndRetainAsync` sets (FA43, FA44). Its setter is `private init` and `FirstRetained` is
-    `internal` (A6 review, FA58, FA59: both were public, so any assembly could forge the marker with
-    `with { NothingToCompare = true }`, and the trap's own lesson was then a convention). A second
-    caller inside Curia.Client, or in Curia.Client.Tests, its friend assembly, is still possible and
-    is held by review, not by a fence. **Exempt the case, by a marker only that case's code path
+    `internal` (A6 review, FA58, FA59: both were public, so any assembly could set the marker with
+    `with { NothingToCompare = true }`, and the trap's own lesson was then a convention). What the
+    compiler holds is that no other assembly can *mint* the marker. It does not stop one from
+    copying a marked check with `with`, changing its detail, and placing it on another verification.
+    Nor does it stop one from building a `PostVerification` from `Check.Verified` lines outright,
+    because both records are public (A6 round-1 review; a compile probe outside Curia.Client built
+    `unreadableRetained with { Consistency = firstRead.Consistency with { Detail = "…" } }`). A
+    verdict is only as honest as the code that produced it. A second caller of `FirstRetained`
+    inside Curia.Client or Curia.Client.Tests, like any assembly that assembles a verdict itself, is
+    held by review, not by a fence. **Exempt the case, by a marker only that case's code path
     can set.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask

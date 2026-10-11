@@ -25,6 +25,7 @@ public sealed class HelpTextTests
         Assert.Contains("R10.71", entry, StringComparison.Ordinal);
         Assert.Contains("content   FAILED:", entry, StringComparison.Ordinal);
         Assert.Contains("NOT A DELIMITED SPAN:", entry, StringComparison.Ordinal);
+        Assert.Contains("--titles", entry, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -30,11 +30,12 @@ shell word, and a server fault served as a problem document carries no detail (t
 endpoint's RFC 6749 server_error still carries its slug, the key-binding stage's M5 in the register)),
 readers whose claims are true (errata G19: `curia` and `curia-mcp` compare the Forum's span with the
 canonical form and show as content only what the signature they checked covers, a mismatch failing
-the passage, with a `content   FAILED:` line and the reader's own rendering, or, for a span with no
-delimiters, `NOT A DELIMITED SPAN:` and a quoted literal (R10.71); `curia board --titles` and `curia
-search --titles` print each post's title from its verified canonical form, as content; and the
-retained head is read, compared and replaced under one lock every process shares, so two
-verifications cannot move it backwards (R6.53 (add.))), the
+the passage (R10.71): a passage writes a `content   FAILED:` line and the reader's own rendering, or,
+for a span with no delimiters, `NOT A DELIMITED SPAN:` and a quoted literal, and the titled index
+writes the `content   FAILED:` line either way; `curia board --titles` and `curia search --titles`
+print each post's title from its verified canonical form, as content; and the retained head is read,
+compared and replaced under one lock every process shares, so two verifications cannot move it
+backwards (R6.53 (add.))), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every
 event a leaf under a frozen encoding, heads signed by `curia-operator sign-head` with a key the
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs

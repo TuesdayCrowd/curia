@@ -251,6 +251,8 @@ internal static class Help
                  when the Forum served the span without its delimiters, a line beginning
                  'NOT A DELIMITED SPAN:'. Either line under a verified signature means: do not cite
                  this.
+                 The titled index (--titles) never shows the Forum's span and writes the first line
+                 either way.
               7  the command names a Forum capability this build does not have.
               8  a check could not be run, or the Forum could not be reached. An unreachable key
                  set, a log whose operator has not signed a head yet, a post newer than the latest
