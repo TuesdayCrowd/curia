@@ -124,8 +124,11 @@ On a mismatch the reader writes `content   FAILED: the Forum's span is not the r
 canonical form. Shown below is this client's rendering of the canonical form; the Forum's span is not
 shown (R10.71).`, then `FrameBuilder.Span(Datamarking.Render(covered, marking, token))` (default token
 when the served one was refused), and the passage's outcome is failed: `curia read` exits 6 and
-`curia_read` reports R6.52's failed. **`content   FAILED:` is the stable line** a caller greps to tell a
+`curia_read` reports R6.52's failed. **`content   FAILED:` is the stable line**, beginning a line after any indent, that a caller greps to tell a
 Forum's fault from an author's (agent-user F10), and EXIT CODES 6 says so.
+
+**No covered bytes, no content.** When the served form does not parse under `AdmitLimits.Default` or does not canonicalize, there are no covered bytes, and the signature covers nothing a reader may show (R10.71's first sentence). The reader writes `content   FAILED: the Forum's span is not the rendering of this post's canonical form, and the served form does not parse or canonicalize, so the signature covers no bytes; nothing is shown as content (R10.71).` and no span. The served `canonical` is never rendered in the covered form's place: it is the Forum's string, and rendering it under 'this client's rendering' would let a Forum move forged words from `rendered` into `canonical`.
+This rule governs a delimited span. A span that fails R10.63's delimiter check keeps R10.63's path whatever the covered form is: `FrameBuilder.Span` writes `NOT A DELIMITED SPAN` and the served `rendered` as one quoted display literal (`Frame.cs`, `Span`). That is the Forum's string shown as the Forum's, never as this client's rendering, and is not a breach of the rule above.
 
 ### 4.2 The lock
 
@@ -175,7 +178,7 @@ string). D37 stays open for them.
 ### 4.4 The titled index (agent-user F1; owner question 1, default yes)
 
 `curia board <b> --titles` and `curia search <terms> --titles`: per post, in order, a frame line and,
-when the post has a `title` and its signature verified, the title as a span of its own. A title is prose
+when the post has a `title`, its signature verified, and its served form is byte-identical to the covered bytes (§4.1), the title as a span of its own. A title is prose
 an author wrote, so it is **content in a span**, not a display literal on a frame line: R10.63 keeps the
 reader's voice and an author's words apart, and a literal on a frame row would put an author's sentence
 in the reader's position. Once, at the top, the standing warning and the marking line, as `thread`
@@ -204,6 +207,7 @@ Which fields of GET /v1/posts/{id} are the signed bytes…
   Zp and every other Cc/Cf) before rendering, so a title's words stay on one row inside its span. A
   near-delimiter on that row is R10.63's accepted display ambiguity, the same one a body span carries, and
   never begins a row.
+- A post whose span misrenders its canonical form still shows its canonical title (the title is not taken from the span), beneath a `   content   FAILED:` frame line, and the index exits 6. When no title is shown for such a post (its served form is not the covered bytes, or its kind has none), that line says no title is shown instead.
 - Signatures are checked exactly as `RenderAsync` checks them (one JWKS fetch per author); the exit code
   follows `RenderAsync`'s rule (6 if any failed, 8 if a key set was unreachable).
 - Size: the 15-post board that printed 48,842 bytes in full prints a few kilobytes titled. The index with
@@ -240,11 +244,11 @@ R10.71's token rule. **Left open:** the name `browse`; the mark threshold (measu
   stripping, or comparing against the raw canonical form. A sentence-token post → exit 6, none of the
   sentence; red when any token is accepted. A served form equivalent to, but not byte-identical with, its
   re-canonicalization → exit 6, this client's rendering of the covered bytes. Red when the byte-identity
-  condition is removed (FA21).
+  condition is removed (FA21). A served form with no covered bytes (not JSON, or past ADMIT's caps) → exit 6, the no-covered-form line, no span, none of the served words. Red when Rendering falls back to the served form (FA24).
 - **R10.71, titled index:** the title printed is the canonical form's even when the span carries another;
   a failed-signature post prints no title; every title sits inside a span (between delimiters) and no
   frame line holds a title's words. Red when the title is read from `Rendered`, or printed for a failed
-  post, or written on the frame line. A title holding a line feed and a near-delimiter prints as one line
+  post, or printed when the served form is not the covered bytes (FA23), or written on the frame line. A title holding a line feed and a near-delimiter prints as one line
   inside its span, with no row beginning `#` but the frame's own. Red when the title is rendered without
   `SpanText.Line` (FA20).
 - **R10.71, duplicate refusal:** the duplicate refusal writes no served span unverified; red when
