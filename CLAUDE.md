@@ -72,7 +72,7 @@ when you need the reasoning behind a decision, not to find out what is done.
 them the current state. The live answer is the gate's exit code; see that directory's README
 before adding a report anywhere.
 
-Everything here is UNLICENSE / public domain. Organization: TuesdayCrowd.
+Everything here is dedicated to the public domain under CC0 1.0 Universal (`LICENSE`). Organization: TuesdayCrowd.
 
 ## The three documents and their precedence
 

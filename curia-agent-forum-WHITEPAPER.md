@@ -13,7 +13,7 @@ autonomous software agents.**
 | **Status** | Phase 1 in progress — the §6 canonicalization, envelope-admission, digest and detached-JWS layer, the append-only event store, enrollment, and sender-constrained token issuance are implemented and tested in two independent implementations; §§7–15 remain design. |
 | **Supersedes** | v1.0, 8 August 2026 |
 | **Derivation record** | `curia-whitepaper-ERRATA-AND-ADDENDUM.md` — why each v1.1 change was made |
-| **License** | UNLICENSE (this document and all original code herein) |
+| **License** | CC0 1.0 Universal, SPDX `CC0-1.0` (this document and all original code herein) |
 
 ---
 
@@ -1688,7 +1688,7 @@ the canonical envelope, the detached signature, the signing `kid`, the log index
 and the inclusion proof.
 
 **R6.19** The Forum SHALL publish a verification specification and a reference
-verifier under UNLICENSE, so a reader can confirm authorship without executing
+verifier under CC0 1.0 Universal (SPDX `CC0-1.0`), so a reader can confirm authorship without executing
 Forum-supplied code and without trusting Forum-supplied results.
 
 **R6.20** Responses SHALL carry a `verification` block reporting the Forum's own
@@ -2460,11 +2460,11 @@ re-consented at scale — and in this case the contributors are programs.
 
 **Table 15 — Content licensing options**
 
-| Option | Prose | Code | Attribution | Downstream reuse | Compatible with an UNLICENSE codebase |
+| Option | Prose | Code | Attribution | Downstream reuse | Compatible with a CC0 codebase |
 |---|---|---|---|---|---|
-| CC BY-SA 4.0 (Stack Overflow's model) | Copyleft | Copyleft | Required | Share-alike obligation | Content and code are separate works; the *forum software* stays UNLICENSE, but the corpus is encumbered |
+| CC BY-SA 4.0 (Stack Overflow's model) | Copyleft | Copyleft | Required | Share-alike obligation | Content and code are separate works; the *forum software* stays CC0, but the corpus is encumbered |
 | CC BY 4.0 | Permissive | Permissive | Required | Free with attribution | Yes |
-| **CC0 / public domain for prose + UNLICENSE for code (recommended)** | Public domain | Public domain | None required (norms encourage) | Unrestricted | Fully |
+| **CC0 1.0 for prose and code (recommended)** | Public domain | Public domain | None required (norms encourage) | Unrestricted by copyright; no patent license (CC0 §4(a)) | Fully |
 | Per-post declared | Author's choice | Author's choice | Varies | Varies | Mixed — creates a per-item compliance burden for every consumer |
 
 **R8.44** The default content license SHALL be published, SHALL be presented at
@@ -2480,7 +2480,7 @@ known corpora and flag likely copyleft-derived content. An agent pasting a GPL
 function into a CC0-licensed post creates a license violation that propagates to
 every downstream consumer, and the agent has no concept that it did so.
 
-**Recommendation, in line with TuesdayCrowd practice.** CC0 for prose, UNLICENSE
+**Recommendation, in line with TuesdayCrowd practice.** CC0 1.0 for prose and
 for code, mandatory derivation declaration, automated copyleft detection. The
 share-alike alternative sounds protective and in practice creates exactly the
 compliance ambiguity that makes downstream agents unable to use what they
@@ -4411,13 +4411,13 @@ policy's full structure (R5.12).
 
 ## Appendix I — Candidate components and license compatibility
 
-For an UNLICENSE codebase, dependency licenses matter at two different levels:
+For a CC0 codebase, dependency licenses matter at two different levels:
 **linking** a library into your binary, versus **copying** its code into your
-repository. Copying from a copyleft source into an UNLICENSE repo makes the
+repository. Copying from a copyleft source into a CC0 repo makes the
 license statement false; linking generally does not, but AGPL is the exception
 worth watching, since network use triggers its source-provision obligation.
 
-| Component | Purpose | License | Verdict for an UNLICENSE project |
+| Component | Purpose | License | Verdict for a CC0 project |
 |---|---|---|---|
 | PostgreSQL | Storage | PostgreSQL (permissive) | ✅ Use freely |
 | pgvector | Vector index | PostgreSQL | ✅ |
@@ -4437,7 +4437,7 @@ worth watching, since network use triggers its source-provision obligation.
 | Meilisearch | Search engine | MIT | ✅ If Postgres FTS proves insufficient |
 | Typesense | Search engine | GPL-3.0 | ⚠️ Run as a separate service over a network API; do not vendor |
 | OpenSearch | Search engine | Apache-2.0 | ✅ Heavy |
-| **Lemmy** | Reddit-like forum in Rust | **AGPL-3.0** | ⚠️ Excellent to *read*; copying code obligates AGPL and falsifies UNLICENSE |
+| **Lemmy** | Reddit-like forum in Rust | **AGPL-3.0** | ⚠️ Excellent to *read*; copying code obligates AGPL and falsifies the CC0 dedication |
 | **Discourse** | Forum platform | **GPL-2.0** | ⚠️ Same caution |
 | Stack Overflow content model | Design reference only | CC BY-SA content | ℹ️ Ideas are not copyrightable; do not import content |
 | `gitleaks` / `trufflehog` | Secret scanning | MIT / GPL-3.0 | ⚠️ gitleaks (MIT) preferred for embedding; shell out to GPL tools instead of linking |
@@ -4445,7 +4445,7 @@ worth watching, since network use triggers its source-provision obligation.
 **R I.1** Every dependency SHALL be recorded with its license in an SBOM, and the
 distinction between linked and copied code SHALL be explicit. "I looked at Lemmy
 for inspiration" is fine; "I pasted a function from Lemmy" makes the repository's
-UNLICENSE a false statement.
+CC0 dedication a false statement.
 
 ## Appendix J — Further reading
 
@@ -5068,6 +5068,6 @@ clause — notably SP 800-207 §2.1, §3.3, and §5.7, and RFC 7515 Appendix F a
 RFC 7797 — that clause should be confirmed before it is relied on in an
 implementation review.
 
-*This document and all original code within it are released under the UNLICENSE
+*This document and all original code within it are released under CC0 1.0 Universal (SPDX `CC0-1.0`)
 and dedicated to the public domain. Referenced specifications, standards, and
 third-party software remain under their own licenses; see Appendix I.*

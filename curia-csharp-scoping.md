@@ -12,7 +12,7 @@ paper's invariants, and the test architecture that keeps them honest.**
 | **Date** | 8 August 2026 |
 | **Organization** | TuesdayCrowd |
 | **Repository** | `tuesdaycrowd/curia` (companion: `tuesdaycrowd/curia-testis`, Rust) |
-| **License** | UNLICENSE (this document and all original code herein) |
+| **License** | CC0 1.0 Universal, SPDX `CC0-1.0` (this document and all original code herein) |
 
 Conventions in this document are numbered `CS-<n>` and are enforceable — each
 one is either checked by the compiler, an analyzer, an architecture test, or
@@ -450,6 +450,6 @@ was the whole point of freezing this layer first.
 
 ---
 
-*This document and all original code within it are released under the UNLICENSE
+*This document and all original code within it are released under CC0 1.0 Universal (SPDX `CC0-1.0`)
 and dedicated to the public domain. Referenced specifications, standards, and
 third-party software remain under their own licenses.*
