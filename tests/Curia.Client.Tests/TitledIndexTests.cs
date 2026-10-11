@@ -114,6 +114,84 @@ public sealed class TitledIndexTests : IDisposable
     }
 
     /// <summary>
+    /// Review ADV-1: a span that is not the rendering of the canonical form fails the passage whatever
+    /// the signature verdict (<see cref="Passage.Outcome"/>), so the index exits 6, and EXIT CODES 6
+    /// promises a <c>content   FAILED:</c> line. The index writes it under every verdict, for a
+    /// delimited span carrying another post's rendering and for a span with no delimiters at all
+    /// (<see cref="Passage.Render"/> names the latter <c>NOT A DELIMITED SPAN:</c>; the index shows no
+    /// span, so it writes the one line either way). Which variant: a title is shown only under a
+    /// verified signature.
+    /// </summary>
+    [Theory]
+    [InlineData(CheckOutcome.Verified, "another")]
+    [InlineData(CheckOutcome.CouldNotCheck, "another")]
+    [InlineData(CheckOutcome.Failed, "another")]
+    [InlineData(CheckOutcome.Verified, "undelimited")]
+    [InlineData(CheckOutcome.CouldNotCheck, "undelimited")]
+    [InlineData(CheckOutcome.Failed, "undelimited")]
+    public void R10_71_EveryMisrenderedSpanOnTheIndexHoldsTheFailedLine(CheckOutcome outcome, string span)
+    {
+        var post = _signer.Question("A question whose span the Forum misrendered", MarkingMode.None);
+        var other = _signer.Question("zyzzyva", MarkingMode.None);
+        post = post with { Rendered = span == "undelimited" ? "undelimited" : Datamarking.Render(other.Canonical, MarkingMode.None) };
+
+        AssertHonestForm(post);
+        Assert.False(SpanCheck.RendersCanonical(post));
+        Assert.Equal(span == "undelimited", !FrameBuilder.IsDelimitedSpan(post.Rendered));
+
+        var verdict = VerdictFor(outcome, post);
+        Assert.Equal(outcome, verdict.Outcome);
+
+        var passage = new Passage(post, verdict);
+        var frame = new FrameBuilder();
+        TitledIndex.Write(frame, 1, passage, MarkingMode.None, null);
+        var text = frame.ToString();
+        var lines = Lines(text);
+        var at = DisplayLiteral.Of(text);
+
+        // The premise: the exit claims the marker.
+        Assert.Equal(ExitCode.Unverified, ExitCode.ForOutcomes(passage.Outcome));
+
+        var failed = lines.Where(l => l.TrimStart(' ').StartsWith("content   FAILED:", StringComparison.Ordinal)).ToList();
+        Assert.True(failed.Count == 1, $"{failed.Count} 'content   FAILED:' lines, not 1, {at}");
+
+        if (outcome == CheckOutcome.Verified)
+        {
+            Assert.Contains("the title shown is from the canonical form", failed[0], StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("no title is shown", failed[0], StringComparison.Ordinal);
+            Assert.DoesNotContain(lines, l => l.Contains("the title shown", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// The negative row of ADV-1: over a span that renders the canonical form, no verdict writes the
+    /// line, so a condition that writes it whenever the signature is not verified, or always, fails.
+    /// </summary>
+    [Theory]
+    [InlineData(CheckOutcome.Verified)]
+    [InlineData(CheckOutcome.CouldNotCheck)]
+    [InlineData(CheckOutcome.Failed)]
+    public void R10_71_AnHonestSpanOnTheIndexHoldsNoFailedLine(CheckOutcome outcome)
+    {
+        var post = _signer.Question("A question the Forum served honestly", MarkingMode.None);
+
+        AssertHonestForm(post);
+        Assert.True(SpanCheck.RendersCanonical(post));
+
+        var verdict = VerdictFor(outcome, post);
+        Assert.Equal(outcome, verdict.Outcome);
+
+        var frame = new FrameBuilder();
+        TitledIndex.Write(frame, 1, new Passage(post, verdict), MarkingMode.None, null);
+        var text = frame.ToString();
+
+        Assert.DoesNotContain(Lines(text), l => l.Contains("content   FAILED:", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// What a hostile title holds: R10.67's characters, the layout characters, both delimiters and two
     /// near-delimiters each, the frame's own words, and the default datamark.
     /// </summary>
@@ -350,6 +428,18 @@ public sealed class TitledIndexTests : IDisposable
         var (frame, exit) = await Program.TitledAsync(_signer.Client, posts, marking, scores, TestContext.Current.CancellationToken);
         return (frame.ToString(), exit);
     }
+
+    /// <summary>
+    /// A verdict of each outcome over <paramref name="post"/>: Verified is <see cref="SignatureCheck.Verify"/>'s;
+    /// CouldNotCheck is an unreachable key set's; Failed a signature that did not verify.
+    /// </summary>
+    private SignatureVerdict VerdictFor(CheckOutcome outcome, ProvenancePost post) => outcome switch
+    {
+        CheckOutcome.Verified => SignatureCheck.Verify(post, _signer.Jwks()),
+        CheckOutcome.CouldNotCheck => new SignatureVerdict(false, null, "d", CouldNotCheck: true),
+        CheckOutcome.Failed => new SignatureVerdict(false, "k", "d"),
+        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "no such outcome"),
+    };
 
     private void AssertHonestForm(ProvenancePost post)
     {

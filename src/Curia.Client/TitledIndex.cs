@@ -43,8 +43,9 @@ public static class TitledIndex
     /// The post's frame lines, then its title as a span of its own, or a line saying why there is none.
     /// A search hit's <paramref name="score"/> sits on a frame line of its own beneath the id line, with
     /// the level read from the passage's post, then its why rows (<see cref="SearchScore.WriteWhy"/>).
-    /// When the Forum's span did not render the canonical form of a post whose signature verified, a
-    /// <c>content   FAILED:</c> line after the parent line says so (EXIT CODES 6).
+    /// A <c>content   FAILED:</c> line after the parent line says the Forum's span did not render the
+    /// canonical form, whenever the span check fails the passage (delimited or not), whatever the
+    /// signature verdict (EXIT CODES 6).
     /// </summary>
     public static void Write(FrameBuilder frame, int number, Passage passage, MarkingMode marking, SearchScore? score)
     {
@@ -72,7 +73,7 @@ public static class TitledIndex
 
         var title = Title(passage);
 
-        if (passage.Outcome == CheckOutcome.Failed && passage.Verdict.Outcome == CheckOutcome.Verified)
+        if (!SpanCheck.RendersCanonical(post))
         {
             if (title is not null)
                 frame.Line("   content   FAILED: the Forum's span is not the rendering of this post's canonical form; the title shown is from the canonical form (R10.71).");
