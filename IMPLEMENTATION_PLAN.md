@@ -5014,7 +5014,7 @@ moved, no event, table or grant changed, and no wire slug changed (spec §4.7).
   raisedBy (the token's `sub`, read after the issuer's signature verifies; the row A4b owed) and
   `PostgresVectorIndex.cs:56` digest (computed by the Forum). One is stored:
   `PostgresVectorIndex.cs:57` postId. That is a projected post's id. It is Forum-minted in origin,
-  but its row (`tests/Curia.Architecture.Tests/PortStringAllowlist.cs:34`) records it as a stored
+  but its row (`tests/Curia.Architecture.Tests/PortStringAllowlist.cs:35`) records it as a stored
   value that may predate a rule, under spec §4.8's precedence; read-back is never parsed (spec
   §4.6).
 - *The fence* (Task B4, `tests/Curia.Architecture.Tests/PortStringFenceTests.cs`):

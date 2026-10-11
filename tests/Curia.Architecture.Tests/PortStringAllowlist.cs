@@ -5,9 +5,10 @@ namespace Curia.Architecture.Tests;
 /// <summary>
 /// R11.34 (errata G18): the string-like parameters a port or a host-called use case may take, each
 /// with the reason spec section 4.8's classification rule gives it. A row is a decision, read in
-/// review; <see cref="PortStringFenceTests"/> fails on a parameter with no row, a stale row, a
-/// <c>"*"</c> row on a type that is no error factory, a <c>"*"</c> row whose member is not
-/// <c>&lt;Type&gt;.*</c>, and an empty reason.
+/// review; <see cref="PortStringFenceTests"/> fails in the six cases spec section 4.8 lists: a
+/// string-like parameter with no row, a stale row, a <c>"*"</c> row on a type that is no error
+/// factory, a <c>"*"</c> row whose member is not <c>&lt;Type&gt;.*</c>, a parameter whose type, seen
+/// through an array, nullable or by-reference, is a type parameter, and an empty reason.
 /// </summary>
 internal static class PortStringAllowlist
 {
