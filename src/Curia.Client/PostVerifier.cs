@@ -404,11 +404,39 @@ public sealed class PostVerifier
     /// replica can lag. So the proof is requested in the direction it exists -- from the smaller
     /// size to the larger -- and a log that still extends the older head is consistent, merely
     /// stale, and the retained head stands.</para>
+    ///
+    /// <para><b>Under one lock, from the read to the write (R6.53 (add.)).</b> Taken before the
+    /// retained head is read and released after it is replaced or left alone, so two verifications
+    /// sharing one retained head cannot both read 10 and the slower write 15 over 20. Held across the
+    /// fetch, not only the write: a compare-and-swap at write time would refuse 15 over 20 and still
+    /// report 10 to 15 verified without comparing 15 with 20. A lock not taken is could not be
+    /// checked, and nothing is read, compared or written.</para>
     /// </summary>
     private async Task<Check> ConsistencyAsync(Anchor anchor, CancellationToken ct)
     {
         if (anchor.Head is not { } head) return anchor.Verdict;
 
+        var locked = await _heads.LockAsync(_forum.Forum, _lockWait, _time, ct).ConfigureAwait(false);
+        if (!locked.TryGetValue(out var held, out var unlocked))
+            return Check.CouldNotCheck(
+                $"{unlocked!.Detail ?? unlocked.Title}; nothing was compared and the retained head is unchanged (R6.53)");
+
+        try
+        {
+            return await CompareAndRetainAsync(head, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            held!.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ConsistencyAsync"/>'s read, fetch, compare and replace, which run only under the
+    /// retained head's lock.
+    /// </summary>
+    private async Task<Check> CompareAndRetainAsync(SignedHeadDocument head, CancellationToken ct)
+    {
         // A head this client cannot read is not the same as one it never had. R6.53 permits
         // replacing a retained head only after a consistency proof verifies, and a file that is
         // present and unreadable may be a retained head an attacker has damaged -- overwriting it

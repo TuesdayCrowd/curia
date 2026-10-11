@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -38,6 +39,15 @@ namespace Curia.Client;
 public sealed class HeadStore
 {
     private const string HeadFile = "head.json";
+    private const string LockFile = "head.lock";
+
+    /// <summary>The runtime's switch that turns <c>FileShare</c> locking off.</summary>
+    internal const string LockingSwitch = "System.IO.DisableFileLocking";
+
+    /// <summary>The environment variable the runtime reads for the same switch.</summary>
+    internal const string LockingVariable = "DOTNET_SYSTEM_IO_DISABLEFILELOCKING";
+
+    private static readonly TimeSpan LockRetry = TimeSpan.FromMilliseconds(50);
 
     public HeadStore(string root) => Root = root;
 
@@ -47,33 +57,96 @@ public sealed class HeadStore
     public static HeadStore Default() => new(ProfileStore.DefaultRoot);
 
     /// <summary>
-    /// R6.53 (add.): the one exclusive lock every process retaining this Forum's head shares. Stub:
-    /// succeeds without locking anything.
+    /// R6.53 (add.): the one exclusive lock every process retaining this Forum's head shares, held by
+    /// the caller across read, fetch, compare and replace, and released by disposing what this
+    /// returns.
+    ///
+    /// <para><b>A file opened <c>FileShare.None</c></b> at <c>logs/&lt;origin&gt;/head.lock</c>: a
+    /// <c>flock</c> on Unix, so a second open in this process and an open from another process are
+    /// both refused while it is held. Retried every 50 ms until <paramref name="wait"/> has passed on
+    /// <paramref name="time"/> (CS-9), never on the wall clock.</para>
+    ///
+    /// <para><b>Every way it is not taken is a refusal, never an exception</b>: the wait running out,
+    /// file locking switched off in this process (a lock that excludes nobody would report a race as
+    /// a check), and an I/O failure other than contention. The caller reports each as could not be
+    /// checked and touches nothing. Cancellation is the caller's, and propagates.</para>
     /// </summary>
-    public Task<Result<IDisposable>> LockAsync(Uri forum, TimeSpan wait, TimeProvider time, CancellationToken ct)
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The open file is the lock: on success it is owned by the caller through the returned Result, which disposes it to release the lock; no other path creates one.")]
+    public async Task<Result<IDisposable>> LockAsync(Uri forum, TimeSpan wait, TimeProvider time, CancellationToken ct)
     {
-        _ = DirectoryFor(forum);
-        return Task.FromResult(Result<IDisposable>.Ok(Unlocked.Instance));
+        ArgumentNullException.ThrowIfNull(time);
+
+        var origin = Check.Quote(Origin(forum));
+
+        if (LockingDisabled())
+            return Result<IDisposable>.Fail(ClientErrors.HeadLockUnavailable(
+                $"file locking is switched off in this process ({LockingSwitch}, or {LockingVariable} set to 1 or true), so a lock on the retained head for {origin} would exclude nobody"));
+
+        var directory = DirectoryFor(forum);
+        var path = Path.Combine(directory, LockFile);
+
+        var options = new FileStreamOptions
+        {
+            Mode = System.IO.FileMode.OpenOrCreate,
+            Access = FileAccess.ReadWrite,
+            Share = FileShare.None,
+        };
+
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = PrivateFiles.Mode;
+
+        var started = time.GetTimestamp();
+
+        while (true)
+        {
+            string contended;
+            try
+            {
+                PrivateFiles.CreateDirectory(directory);
+                return Result<IDisposable>.Ok(new FileStream(path, options));
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException
+                or PathTooLongException or FileNotFoundException)
+            {
+                return Result<IDisposable>.Fail(ClientErrors.HeadLockUnavailable(
+                    $"the retained head for {origin} could not be locked at {Check.Quote(path)}: {Check.Quote(ex.Message)}"));
+            }
+            catch (IOException ex)
+            {
+                contended = ex.Message;
+            }
+
+            if (time.GetElapsedTime(started) >= wait)
+                return Result<IDisposable>.Fail(ClientErrors.HeadLockUnavailable(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"the retained head for {origin} could not be locked within {wait.TotalSeconds:0.###} s: {Check.Quote(path)} is held elsewhere ({Check.Quote(contended)})")));
+
+            await Task.Delay(LockRetry, time, ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
-    /// Whether the runtime's file locking is switched off. Stub: never.
+    /// Whether the runtime's file locking is switched off: the <c>System.IO.DisableFileLocking</c>
+    /// switch, or <c>DOTNET_SYSTEM_IO_DISABLEFILELOCKING</c> set to <c>1</c> or <c>true</c>. Either
+    /// one is enough; a lock reported as held when it excludes nobody is the silent race.
     /// </summary>
-    internal static bool FileLockingDisabled(Func<string, bool?> appContextSwitch, Func<string, string?> environment) => false;
+    internal static bool FileLockingDisabled(Func<string, bool?> appContextSwitch, Func<string, string?> environment)
+    {
+        ArgumentNullException.ThrowIfNull(appContextSwitch);
+        ArgumentNullException.ThrowIfNull(environment);
+
+        if (appContextSwitch(LockingSwitch) is true) return true;
+
+        return environment(LockingVariable) is { } value
+            && (value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>Whether file locking is switched off in this process.</summary>
     internal Func<bool> LockingDisabled { get; init; } = () => FileLockingDisabled(
         name => AppContext.TryGetSwitch(name, out var enabled) ? enabled : null,
         Environment.GetEnvironmentVariable);
-
-    private sealed class Unlocked : IDisposable
-    {
-        internal static readonly Unlocked Instance = new();
-
-        public void Dispose()
-        {
-        }
-    }
 
     /// <summary>
     /// The directory holding one Forum's retained head. A sibling of <c>agents/</c>, never a child
