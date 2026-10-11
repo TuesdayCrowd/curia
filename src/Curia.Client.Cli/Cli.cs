@@ -328,33 +328,56 @@ internal static class Output
             error.Line($"       HTTP {refusal.Status}, problem type {refusal.Error.Type}");
         Console.Error.Write(error.ToString());
 
-        // R8.19: a duplicate refusal is the answer the agent came for, not only a refusal. The
-        // thread and its answers go to stdout, where an agent reading the tool's output finds them;
-        // the refusal itself stays on stderr.
-        if (refusal.AsDuplicate is { } duplicate)
-        {
-            var frame = new FrameBuilder();
-            frame.Line($"duplicate of {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
-            frame.Line($"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})");
-
-            // R8.61: a measure is a reason only beside the line it crossed.
-            frame.Line($"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp   (annotated from cosine {duplicate.AnnotateCosineBp} bp)");
-            if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
-                frame.Line($"answers      none yet -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
-            else
-                frame.Line($"answers      {duplicate.Answers.Length}");
-            if (duplicate.UnreadableAnswers > 0)
-                frame.Line($"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: {Hints.Thread(duplicate.CanonicalPostId)}");
-            foreach (var answer in duplicate.Answers)
-            {
-                frame.Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
-                frame.Span(answer.Rendered, "  ");
-            }
-            frame.Line($"override     {duplicate.Override}");
-            frame.Line("             curia ask ... --not-duplicate \"<rationale>\"");
-            Console.Out.Write(frame.ToString());
-        }
-
+        // A refusal is printed as a refusal. The duplicate frame is written only by FailDuplicate,
+        // from the posting path, after Program.RefusedAsync has verified the answers (R10.71). A
+        // duplicate-shaped problem on any other route prints its title, status and problem type and
+        // nothing more.
         return ExitCode.For(refusal);
+    }
+
+    /// <summary>
+    /// R8.19: a duplicate refusal is the answer the agent came for, not only a refusal. The thread and
+    /// its answers go to stdout, where an agent reading the tool's output finds them; the refusal itself
+    /// stays on stderr. Called only by <c>Program.RefusedAsync</c>, from the posting path, with the
+    /// answers it verified (R10.71).
+    /// </summary>
+    internal static int FailDuplicate(Refusal refusal, DuplicateRefusalDocument duplicate, ImmutableArray<Passage> verifiedAnswers)
+    {
+        ArgumentNullException.ThrowIfNull(duplicate);
+        if (verifiedAnswers.IsDefault)
+            throw new ArgumentException("the verified answers are a default array; pass the passages Program.DuplicateAnswersAsync returned, or an empty array", nameof(verifiedAnswers));
+
+        var code = Fail(refusal);
+        Console.Out.Write(DuplicateFrame(duplicate, verifiedAnswers));
+        return code;
+    }
+
+    /// <summary>
+    /// R8.19's duplicate refusal as this client frames it: the canonical thread, both measures beside
+    /// the lines they crossed, the answers, and the override. The answers are passages this client
+    /// verified (<c>Program.DuplicateAnswersAsync</c>), each framed as a read frames a post, so no
+    /// served span reaches the output unchecked (R10.71).
+    /// </summary>
+    internal static string DuplicateFrame(DuplicateRefusalDocument duplicate, ImmutableArray<Passage> verifiedAnswers)
+    {
+        ArgumentNullException.ThrowIfNull(duplicate);
+
+        var frame = new FrameBuilder();
+        frame.Line($"duplicate of {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
+        frame.Line($"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})");
+
+        // R8.61: a measure is a reason only beside the line it crossed.
+        frame.Line($"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp   (annotated from cosine {duplicate.AnnotateCosineBp} bp)");
+        if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
+            frame.Line($"answers      none yet -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
+        else
+            frame.Line($"answers      {duplicate.Answers.Length}");
+        if (duplicate.UnreadableAnswers > 0)
+            frame.Line($"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: {Hints.Thread(duplicate.CanonicalPostId)}");
+        foreach (var answer in verifiedAnswers)
+            frame.Passage(answer);
+        frame.Line($"override     {duplicate.Override}");
+        frame.Line("             curia ask ... --not-duplicate \"<rationale>\"");
+        return frame.ToString();
     }
 }

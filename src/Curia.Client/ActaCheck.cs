@@ -52,6 +52,29 @@ public sealed record Check(CheckOutcome Outcome, string Detail)
 
     public static Check CouldNotCheck(string detail) => new(CheckOutcome.CouldNotCheck, detail);
 
+    /// <summary>
+    /// True only for R6.52's consistency check on a first verification, where no earlier head was
+    /// retained, so the check is inapplicable rather than unrun. Within Curia.Client only
+    /// <see cref="FirstRetained"/> sets it, and its one caller is the retained-is-null branch of
+    /// PostVerifier.CompareAndRetainAsync; <see cref="CouldNotCheck"/> never does, so a check that
+    /// could not be run for any other reason cannot be looked past (R6.53).
+    ///
+    /// <para>The compiler holds less than that. Outside Curia.Client and its one friend assembly
+    /// (Curia.Client.Tests, CS-5), code cannot <i>set</i> the marker: the setter is private to this
+    /// record and the factory is internal. Such code can still copy a marked check with <c>with</c>,
+    /// change its <c>Detail</c>, and place it on any <c>PostVerification</c>, which is a public record. It
+    /// can just as easily build a verdict from <c>Check.Verified</c> lines. A verdict is only as good as
+    /// the code that produced it. The reference readers take theirs from PostVerifier, and that is
+    /// held by review and by the tests that drive it, not by this type.</para>
+    /// </summary>
+    public bool NothingToCompare { get; private init; }
+
+    /// <summary>
+    /// A first verification's consistency line: could not be checked, because this client retained
+    /// no earlier head to compare with, and marked <see cref="NothingToCompare"/>.
+    /// </summary>
+    internal static Check FirstRetained(string detail) => new(CheckOutcome.CouldNotCheck, detail) { NothingToCompare = true };
+
     /// <summary>The outcome as a word a reader cannot misread, then the predicate.</summary>
     public string Describe => Outcome switch
     {

@@ -158,6 +158,36 @@ public sealed class ClientVerificationTests(ForumFixture forum) : IClassFixture<
         Assert.NotEqual(CheckOutcome.Failed, result.Overall);
     }
 
+    /// <summary>
+    /// R10.71 (errata G19) against the real Forum: its own rendering of a body that holds the default
+    /// control token at a word's start and mid-word, and the closing delimiter, passes the span check
+    /// under every marking. A reader that re-rendered instead of stripping, or compared against the raw
+    /// served form, would fail an honest post here.
+    /// </summary>
+    [Fact]
+    public async Task R10_71_TheForumsOwnRenderingPassesUnderEveryMarking()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var token = Datamarking.DefaultControlToken;
+        var postId = await PostQuestionAsync(
+            token + "Marked at a word's start, mid" + token + "word, and " + Datamarking.CloseDelimiter + " inside.", ct);
+
+        var client = new ForumClient(forum.Client, forum.Client.BaseAddress!);
+        foreach (var marking in new[] { MarkingMode.None, MarkingMode.DelimitersOnly, MarkingMode.Datamark })
+        {
+            var read = await client.GetPostAsync(postId, marking, ct);
+            Assert.True(read.TryGetValue(out var post, out var refusal), refusal?.Summary);
+            Assert.Contains(token, post.Canonical, StringComparison.Ordinal);
+
+            var keys = await client.GetJwksAsync(post.Provenance.Author, ct);
+            Assert.True(keys.TryGetValue(out var jwks, out var keyRefusal), keyRefusal?.Summary);
+
+            var passage = new Passage(post, SignatureCheck.Verify(post, jwks));
+            Assert.Equal(CheckOutcome.Verified, passage.Outcome);
+            Assert.DoesNotContain("content   FAILED:", passage.Render(), StringComparison.Ordinal);
+        }
+    }
+
     private async Task<PostVerification> VerifyAsync(string postId, HeadStore heads, CancellationToken ct)
     {
         var client = new ForumClient(forum.Client, forum.Client.BaseAddress!);
@@ -180,7 +210,9 @@ public sealed class ClientVerificationTests(ForumFixture forum) : IClassFixture<
             ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, stdout, stderr, ct, logSigningKeyPem: LogKeyPem);
     }
 
-    private async Task<string> PostQuestionAsync(CancellationToken ct)
+    private Task<string> PostQuestionAsync(CancellationToken ct) => PostQuestionAsync("Does the client verify this?", ct);
+
+    private async Task<string> PostQuestionAsync(string question, CancellationToken ct)
     {
         var http = forum.Client;
         var suffix = Guid.NewGuid().ToString("N")[..8];
@@ -196,7 +228,7 @@ public sealed class ClientVerificationTests(ForumFixture forum) : IClassFixture<
             http,
             PostsUrl,
             token,
-            agent.SignQuestion("board-" + suffix, "Does the client verify this?", "R6.52 says it must", forum.Now),
+            agent.SignQuestion("board-" + suffix, question, "R6.52 says it must", forum.Now),
             forum.Now,
             ct);
 

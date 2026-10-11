@@ -1,7 +1,9 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Curia.Canon.Json;
+using Curia.Domain.Primitives;
 
 namespace Curia.Client;
 
@@ -37,6 +39,15 @@ namespace Curia.Client;
 public sealed class HeadStore
 {
     private const string HeadFile = "head.json";
+    private const string LockFile = "head.lock";
+
+    /// <summary>The runtime's switch that turns <c>FileShare</c> locking off.</summary>
+    internal const string LockingSwitch = "System.IO.DisableFileLocking";
+
+    /// <summary>The environment variable the runtime reads for the same switch.</summary>
+    internal const string LockingVariable = "DOTNET_SYSTEM_IO_DISABLEFILELOCKING";
+
+    private static readonly TimeSpan LockRetry = TimeSpan.FromMilliseconds(50);
 
     public HeadStore(string root) => Root = root;
 
@@ -44,6 +55,166 @@ public sealed class HeadStore
     public string Root { get; }
 
     public static HeadStore Default() => new(ProfileStore.DefaultRoot);
+
+    /// <summary>
+    /// R6.53 (add.): the one exclusive lock every process retaining this Forum's head shares, held by
+    /// the caller across read, fetch, compare and replace, and released by disposing what this
+    /// returns.
+    ///
+    /// <para><b>A file opened <c>FileShare.None</c></b> at <c>logs/&lt;origin&gt;/head.lock</c>: a
+    /// <c>flock</c> on Unix, so a second open in this process and an open from another process are
+    /// both refused while it is held. Opened, and then shown to exclude: a second exclusive open in
+    /// this process must be refused, or the lock is reported unavailable (a filesystem without
+    /// <c>flock</c>, or locking switched off, opens it without excluding anyone).</para>
+    ///
+    /// <para>Retried every 50 ms, only while the open is refused as contention (the runtime's sharing
+    /// violation, <see cref="IsContention"/>), until <paramref name="wait"/> has passed on
+    /// <paramref name="time"/> (CS-9), never on the wall clock. The directory is created once, before
+    /// the first attempt.</para>
+    ///
+    /// <para><b>Every way it is not taken is a refusal, never an exception</b>: the wait running out,
+    /// file locking switched off in this process (a lock that excludes nobody would report a race as
+    /// a check), a lock the filesystem does not enforce, and any other I/O failure, refused at once
+    /// and never reported as held elsewhere. The caller reports each as could not be checked and
+    /// touches nothing. Cancellation is the caller's, and propagates.</para>
+    /// </summary>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The open file is the lock: on success it is owned by the caller through the returned Result, which disposes it to release the lock; no other path creates one.")]
+    public async Task<Result<IDisposable>> LockAsync(Uri forum, TimeSpan wait, TimeProvider time, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+
+        var origin = Check.Quote(Origin(forum));
+
+        if (LockingDisabled())
+            return Result<IDisposable>.Fail(ClientErrors.HeadLockUnavailable(
+                $"file locking is switched off in this process ({LockingSwitch}, or {LockingVariable} set to 1 or true), so a lock on the retained head for {origin} would exclude nobody"));
+
+        var directory = DirectoryFor(forum);
+        var path = Path.Combine(directory, LockFile);
+
+        var options = new FileStreamOptions
+        {
+            Mode = System.IO.FileMode.OpenOrCreate,
+            Access = FileAccess.ReadWrite,
+            Share = FileShare.None,
+        };
+
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = PrivateFiles.Mode;
+
+        try
+        {
+            PrivateFiles.CreateDirectory(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Result<IDisposable>.Fail(ClientErrors.HeadLockUnavailable(
+                $"the retained head for {origin} could not be locked: its directory {Check.Quote(directory)} could not be created ({Check.Quote(ex.Message)})"));
+        }
+
+        var started = time.GetTimestamp();
+
+        while (true)
+        {
+            string contended;
+            try
+            {
+                return Excluding(new FileStream(path, options), path, options, origin);
+            }
+            catch (IOException ex) when (IsContention(ex))
+            {
+                contended = ex.Message;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Result<IDisposable>.Fail(NotLocked(origin, path, ex));
+            }
+
+            if (time.GetElapsedTime(started) >= wait)
+                return Result<IDisposable>.Fail(ClientErrors.HeadLockUnavailable(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"the retained head for {origin} could not be locked within {wait.TotalSeconds:0.###} s: {Check.Quote(path)} is held elsewhere ({Check.Quote(contended)})")));
+
+            await Task.Delay(LockRetry, time, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The lock just opened, once it is shown to exclude: a second exclusive open of the same path in
+    /// this process must be refused as contention. <c>flock</c> is per open file description on Linux
+    /// and macOS, so a lock that holds refuses it; one that opens anyway excludes nobody, and is
+    /// refused rather than reported as held.
+    /// </summary>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "On success the open file is the lock and is returned to the caller; every other path disposes it.")]
+    private static Result<IDisposable> Excluding(FileStream held, string path, FileStreamOptions options, string origin)
+    {
+        try
+        {
+            using var second = new FileStream(path, options);
+        }
+        catch (IOException ex) when (IsContention(ex))
+        {
+            return Result<IDisposable>.Ok(held);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            held.Dispose();
+            return Result<IDisposable>.Fail(NotLocked(origin, path, ex));
+        }
+
+        held.Dispose();
+        return Result<IDisposable>.Fail(ClientErrors.HeadLockUnavailable(
+            $"file locking is not enforced for {Check.Quote(path)}: a second exclusive open in this process succeeded, so a lock on the retained head for {origin} would exclude nobody"));
+    }
+
+    private static Error NotLocked(string origin, string path, Exception ex) => ClientErrors.HeadLockUnavailable(
+        $"the retained head for {origin} could not be locked at {Check.Quote(path)}: {Check.Quote(ex.Message)}");
+
+    /// <summary>
+    /// Whether an open was refused because another open holds the lock: the runtime's sharing
+    /// violation, matched by <see cref="Exception.HResult"/> and never by its message, which is
+    /// localized. On Windows, <c>ERROR_SHARING_VIOLATION</c> or <c>ERROR_LOCK_VIOLATION</c>; on Unix,
+    /// the <c>EWOULDBLOCK</c> errno the runtime puts in <c>HResult</c> when
+    /// <c>flock(LOCK_EX | LOCK_NB)</c> is refused, which is 11 on Linux and 35 on macOS and FreeBSD.
+    /// The errno is matched per OS, because 11 is <c>EDEADLK</c> on macOS and 35 is <c>EDEADLK</c> on
+    /// Linux. Any other OS is never contention: that fails safe, as an immediate "could not be
+    /// locked" and never a false "held elsewhere".
+    /// </summary>
+    internal static bool IsContention(IOException ex)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+
+        if (OperatingSystem.IsWindows()) return ex.HResult is unchecked((int)0x80070020) or unchecked((int)0x80070021);
+        if (OperatingSystem.IsLinux()) return ex.HResult == 11;
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) return ex.HResult == 35;
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the runtime's file locking is switched off: the <c>System.IO.DisableFileLocking</c>
+    /// switch, or <c>DOTNET_SYSTEM_IO_DISABLEFILELOCKING</c> set to <c>1</c> or <c>true</c>. Either
+    /// one is enough; a lock reported as held when it excludes nobody is the silent race.
+    /// </summary>
+    internal static bool FileLockingDisabled(Func<string, bool?> appContextSwitch, Func<string, string?> environment)
+    {
+        ArgumentNullException.ThrowIfNull(appContextSwitch);
+        ArgumentNullException.ThrowIfNull(environment);
+
+        if (appContextSwitch(LockingSwitch) is true) return true;
+
+        return environment(LockingVariable) is { } value
+            && (value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Whether file locking is switched off in this process.</summary>
+    internal Func<bool> LockingDisabled { get; init; } = () => FileLockingDisabled(
+        name => AppContext.TryGetSwitch(name, out var enabled) ? enabled : null,
+        Environment.GetEnvironmentVariable);
 
     /// <summary>
     /// The directory holding one Forum's retained head. A sibling of <c>agents/</c>, never a child

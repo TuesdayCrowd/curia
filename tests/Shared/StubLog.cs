@@ -62,7 +62,7 @@ internal sealed class StubLog : IDisposable
     private HttpClient? _http;
     private StubHandler? _handler;
 
-    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 0)
+    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 0, string bodySuffix = "")
     {
         _root = Directory.CreateTempSubdirectory("curia-stub-log-").FullName;
 
@@ -79,7 +79,7 @@ internal sealed class StubLog : IDisposable
             Kind = PostKind.Question,
             Board = "b",
             Title = "t",
-            Body = "A question whose body carries " + EntryOnlyMarker + " and nothing else of note.",
+            Body = "A question whose body carries " + EntryOnlyMarker + " and nothing else of note." + bodySuffix,
         };
 
         Submission = SubmissionBuilder.Build(_agent, draft, DateTimeOffset.UnixEpoch)
@@ -100,7 +100,7 @@ internal sealed class StubLog : IDisposable
                     Kind = PostKind.Answer,
                     Board = "b",
                     Parent = PostId,
-                    Body = "An answer whose body carries " + AnswerMarker + ", served under the canonical question.",
+                    Body = "An answer whose body carries " + AnswerMarker + ", served under the canonical question." + bodySuffix,
                 },
                 DateTimeOffset.UnixEpoch)
             .TryGetValue(out var answer, out _)
@@ -229,6 +229,16 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>Answer the post's entry route with 503: an entry this client could not fetch, and nothing else wrong.</summary>
     internal bool PostEntryRouteUnavailable { get; set; }
+
+    /// <summary>
+    /// Answer the consistency route with 503: a proof this client could not fetch, and nothing else
+    /// wrong. A Forum that has forked the log can do exactly this, which is why it must not read as
+    /// verified (R6.53).
+    /// </summary>
+    internal bool ConsistencyRouteRefuses { get; set; }
+
+    /// <summary>How many times the consistency route was asked, refused or answered.</summary>
+    internal int ConsistencyReads { get; private set; }
 
     /// <summary>
     /// The author the post's read names in its provenance, when it is not the one the envelope signs:
@@ -441,6 +451,12 @@ internal sealed class StubLog : IDisposable
     internal string? RenderedContent { get; set; }
 
     /// <summary>
+    /// R10.71 (errata G19): what a hostile Forum serves as <c>canonical</c> in place of the signed form,
+    /// on the post and the canonical thread's answer.
+    /// </summary>
+    internal string? CanonicalContent { get; set; }
+
+    /// <summary>
     /// One member of one served document, as <see cref="ServedStringMembers"/> names it
     /// (<c>/v1/posts/X#provenance.author</c>): the strings there end with <see cref="HostileSuffix"/>.
     /// The token response is never touched: a token is never printed, and one holding a line break
@@ -612,7 +628,7 @@ internal sealed class StubLog : IDisposable
         "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[]},
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
-        "canonical":{{JsonString(canonical)}},"signature":"{{Answer.Signature}}",
+        "canonical":{{JsonString(CanonicalContent ?? canonical)}},"signature":"{{Answer.Signature}}",
         "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? canonical, MarkingMode.None))}},"accepted":false,
         "log_index":{{AnswerIndex}},"inclusion_proof":{{ProofAt(AnswerIndex, AnswerIndex < HeadTreeSize ? HeadTreeSize : Leaves.Length)}}}
         """.ReplaceLineEndings(string.Empty);
@@ -727,7 +743,7 @@ internal sealed class StubLog : IDisposable
         "owner":null,"reproductions":[],"contradictions":[]},
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Submission.PrefixedDigest}}",
-        "canonical":{{JsonString(Canonical)}},"signature":"{{Submission.Signature}}",
+        "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{Submission.Signature}}",
         "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":false,
         "log_index":{{PostIndex}},"inclusion_proof":{{proof}}}
         """.ReplaceLineEndings(string.Empty);
@@ -1289,6 +1305,11 @@ internal sealed class StubLog : IDisposable
 
             if (path == "/v1/log/consistency")
             {
+                log.ConsistencyReads++;
+                if (log.ConsistencyRouteRefuses)
+                    return (HttpStatusCode.ServiceUnavailable,
+                        """{"type":"curia/stub/unavailable","title":"The stub withholds this consistency proof"}""");
+
                 return (HttpStatusCode.OK, log.ConsistencyJson(
                     int.Parse(Value(query, "from"), CultureInfo.InvariantCulture),
                     int.Parse(Value(query, "to"), CultureInfo.InvariantCulture)));

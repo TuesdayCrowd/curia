@@ -43,12 +43,16 @@ public sealed record PostVerification(
     /// key, and signed under it, would be verified by every reader. So a post whose key the log names
     /// only by <c>kid</c> -- an identity enrolled before R4.34 -- is not established.</para>
     ///
-    /// <para><b>Consistency is conditional and its absence does not deny the rest.</b> R6.52 asks
-    /// for it "where the client retains an earlier signed head for the same log" -- on a first read
-    /// there is no earlier head, so the check is inapplicable rather than skipped, and letting that
-    /// downgrade the verdict would mean no first read could ever verify. The line still says
-    /// <i>could not be checked</i>, because that is what happened; only the summary is permitted to
-    /// look past it, and only when nothing failed.</para>
+    /// <para><b>Consistency is conditional, and only the first read may be looked past.</b> R6.52
+    /// asks for it "where the client retains an earlier signed head for the same log" -- on a first
+    /// read there is no earlier head, so the check is inapplicable rather than skipped, and letting
+    /// that downgrade the verdict would mean no first read could ever verify. The line still says
+    /// <i>could not be checked</i>, because that is what happened; the summary may look past it only
+    /// when nothing failed and the line is marked <see cref="Check.NothingToCompare"/>, which only
+    /// <see cref="Check.FirstRetained"/> sets. A retained head that cannot be read, a proof the Forum
+    /// will not serve, or a lock not taken is could not be checked, and so is the summary, so the
+    /// exit code is 8 (R6.53): a Forum that has forked the log can serve a newer head and refuse the
+    /// proof, and that must not read as VERIFIED.</para>
     /// </summary>
     public CheckOutcome Overall =>
         Signature.Outcome is CheckOutcome.Failed
@@ -59,6 +63,8 @@ public sealed record PostVerification(
             : Signature.Outcome is CheckOutcome.Verified
               && Inclusion.Outcome is CheckOutcome.Verified
               && KeyBinding.Outcome is CheckOutcome.Verified
+              && (Consistency.Outcome is CheckOutcome.Verified
+                  || Consistency is { Outcome: CheckOutcome.CouldNotCheck, NothingToCompare: true })
                 ? CheckOutcome.Verified
                 : CheckOutcome.CouldNotCheck;
 
@@ -147,14 +153,24 @@ public sealed class PostVerifier
 {
     private readonly ForumClient _forum;
     private readonly HeadStore _heads;
+    private readonly TimeProvider _time;
+    private readonly TimeSpan _lockWait;
 
     public PostVerifier(ForumClient forum, HeadStore heads)
+        : this(forum, heads, TimeProvider.System, TimeSpan.FromSeconds(30))
+    {
+    }
+
+    public PostVerifier(ForumClient forum, HeadStore heads, TimeProvider time, TimeSpan lockWait)
     {
         ArgumentNullException.ThrowIfNull(forum);
         ArgumentNullException.ThrowIfNull(heads);
+        ArgumentNullException.ThrowIfNull(time);
 
         _forum = forum;
         _heads = heads;
+        _time = time;
+        _lockWait = lockWait;
     }
 
     public async Task<ForumResult<PostVerification>> VerifyAsync(
@@ -349,7 +365,8 @@ public sealed class PostVerifier
         if (logIndex >= head.TreeSize)
             return new(Check.CouldNotCheck(
                 Invariant($"leaf {logIndex} is not covered by the signed head at tree size {head.TreeSize}.")
-                + " The post is in the log and no published head commits to it yet; a later head will."));
+                + " The post is in the log and no published head commits to it yet. A later head will,"
+                + " once the operator signs one with 'curia-operator sign-head'; verify again then."));
 
         var proof = post.InclusionProof;
         if (proof.TreeSize != head.TreeSize)
@@ -394,11 +411,39 @@ public sealed class PostVerifier
     /// replica can lag. So the proof is requested in the direction it exists -- from the smaller
     /// size to the larger -- and a log that still extends the older head is consistent, merely
     /// stale, and the retained head stands.</para>
+    ///
+    /// <para><b>Under one lock, from the read to the write (R6.53 (add.)).</b> Taken before the
+    /// retained head is read and released after it is replaced or left alone, so two verifications
+    /// sharing one retained head cannot both read 10 and the slower write 15 over 20. Held across the
+    /// fetch, not only the write: a compare-and-swap at write time would refuse 15 over 20 and still
+    /// report 10 to 15 verified without comparing 15 with 20. A lock not taken is could not be
+    /// checked, and nothing is read, compared or written.</para>
     /// </summary>
     private async Task<Check> ConsistencyAsync(Anchor anchor, CancellationToken ct)
     {
         if (anchor.Head is not { } head) return anchor.Verdict;
 
+        var locked = await _heads.LockAsync(_forum.Forum, _lockWait, _time, ct).ConfigureAwait(false);
+        if (!locked.TryGetValue(out var held, out var unlocked))
+            return Check.CouldNotCheck(
+                $"{unlocked!.Detail ?? unlocked.Title}; nothing was compared and the retained head is unchanged (R6.53)");
+
+        try
+        {
+            return await CompareAndRetainAsync(head, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            held!.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ConsistencyAsync"/>'s read, fetch, compare and replace, which run only under the
+    /// retained head's lock.
+    /// </summary>
+    private async Task<Check> CompareAndRetainAsync(SignedHeadDocument head, CancellationToken ct)
+    {
         // A head this client cannot read is not the same as one it never had. R6.53 permits
         // replacing a retained head only after a consistency proof verifies, and a file that is
         // present and unreadable may be a retained head an attacker has damaged -- overwriting it
@@ -416,7 +461,7 @@ public sealed class PostVerifier
         if (retained is null)
         {
             _heads.Write(_forum.Forum, head);
-            return Check.CouldNotCheck(Invariant(
+            return Check.FirstRetained(Invariant(
                 $"this client had retained no earlier head for {Check.Quote(HeadStore.Origin(_forum.Forum))}, so there was nothing to compare against. The head at tree size {head.TreeSize} is now retained, and the next verification will check the log against it (R6.53)."));
         }
 

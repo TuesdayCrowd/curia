@@ -107,6 +107,15 @@ public static class ClientErrors
         "Tag cannot be named in a filter; the Forum's tags filter is comma-separated and trimmed, so it would read this tag as another (R9.26)",
         tag);
 
+    /// <summary>
+    /// R6.53 (add.): the retained head's lock was not taken -- held elsewhere past the wait, file
+    /// locking switched off, or the lock file unusable. Nothing was compared and nothing written.
+    /// </summary>
+    public static Error HeadLockUnavailable(string detail) => new(
+        "curia/client/head-lock-unavailable",
+        "The retained head could not be locked, so the log was not compared with it",
+        detail);
+
     public static Error Transport(string detail) => new(
         "curia/client/transport",
         "The Forum could not be reached",

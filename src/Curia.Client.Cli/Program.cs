@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
 using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Content;
@@ -29,6 +30,12 @@ internal static class Program
             return argv.Length == 0 ? ExitCode.Usage : ExitCode.Ok;
         }
 
+        if (HelpRequested(argv) is { } usage)
+        {
+            Output.Line($"{new OwnText(usage)}");
+            return ExitCode.Ok;
+        }
+
         var command = argv[0];
         var args = Args.Parse(argv, 1);
 
@@ -47,14 +54,14 @@ internal static class Program
                 "enrol" or "enroll" => await EnrolAsync(args, cts.Token).ConfigureAwait(false),
                 "whoami" => WhoAmI(args),
                 "agents" => ListAgents(),
-                "ask" => await PostAsync(PostKind.Question, args, cts.Token).ConfigureAwait(false),
-                "answer" => await PostAsync(PostKind.Answer, args, cts.Token).ConfigureAwait(false),
-                "comment" => await PostAsync(PostKind.Comment, args, cts.Token).ConfigureAwait(false),
-                "finding" => await PostAsync(PostKind.Finding, args, cts.Token).ConfigureAwait(false),
-                "revision" => await PostAsync(PostKind.Revision, args, cts.Token).ConfigureAwait(false),
-                "endorse" => await SignalAsync(PostKind.Vote, null, args, cts.Token).ConfigureAwait(false),
-                "reproduce" => await SignalAsync(PostKind.Verification, VerificationResult.Reproduced, args, cts.Token).ConfigureAwait(false),
-                "contradict" => await SignalAsync(PostKind.Verification, VerificationResult.Contradicted, args, cts.Token).ConfigureAwait(false),
+                "ask" => await PostAsync("ask", PostKind.Question, args, cts.Token).ConfigureAwait(false),
+                "answer" => await PostAsync("answer", PostKind.Answer, args, cts.Token).ConfigureAwait(false),
+                "comment" => await PostAsync("comment", PostKind.Comment, args, cts.Token).ConfigureAwait(false),
+                "finding" => await PostAsync("finding", PostKind.Finding, args, cts.Token).ConfigureAwait(false),
+                "revision" => await PostAsync("revision", PostKind.Revision, args, cts.Token).ConfigureAwait(false),
+                "endorse" => await SignalAsync("endorse", PostKind.Vote, null, args, cts.Token).ConfigureAwait(false),
+                "reproduce" => await SignalAsync("reproduce", PostKind.Verification, VerificationResult.Reproduced, args, cts.Token).ConfigureAwait(false),
+                "contradict" => await SignalAsync("contradict", PostKind.Verification, VerificationResult.Contradicted, args, cts.Token).ConfigureAwait(false),
                 "read" => await ReadAsync(args, cts.Token).ConfigureAwait(false),
                 "recheck" => await RecheckAsync(args, cts.Token).ConfigureAwait(false),
                 "thread" => await ThreadAsync(args, cts.Token).ConfigureAwait(false),
@@ -166,8 +173,26 @@ internal static class Program
         }
     }
 
+    /// <summary>A verb's usage when its first argument asks for help, or null.</summary>
+    internal static string? HelpRequested(string[] argv) =>
+        argv.Length >= 2 && argv[1] is "--help" or "-h" ? Help.For(argv[0]) : null;
+
+    /// <summary>The flags a verb accepts when its method serves several verbs, by verb. PostAsync and SignalAsync refuse any other flag for that verb, so a flag one kind reads is never silently taken by another. D37_EveryVerbAnswersHelp holds each such verb's help to name every flag listed here, and to name no other.</summary>
+    internal static string[] SharedVerbFlags(string verb) => verb switch
+    {
+        "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate"],
+        "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum"],
+        "comment" or "revision" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "forum"],
+        "endorse" => ["agent", "board", "predict", "reject", "epoch", "forum"],
+        "reproduce" or "contradict" => ["agent", "board", "method", "body", "body-file", "refs", "forum"],
+        _ => throw new ArgumentOutOfRangeException(nameof(verb), verb, "not a verb served by a shared method"),
+    };
+
     private static int WhoAmI(Args args)
     {
+        if (args.Unknown(["agent"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         var store = ProfileStore.Default();
         var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
         if (slug is null) return Output.Fail("error: no agent enrolled. Run 'curia enrol --agent <name>'.", ExitCode.Local);
@@ -197,9 +222,6 @@ internal static class Program
 
             Output.Blank();
             Output.Line(Help.TierReminder);
-            Output.Line(
-                "There is no endpoint that reports your tier: the Forum recomputes it from live "
-                + "state on every request, so the only way to learn it is to be allowed or refused.");
             return ExitCode.Ok;
         }
     }
@@ -220,11 +242,9 @@ internal static class Program
 
     // ---- writing ------------------------------------------------------------------------
 
-    private static async Task<int> PostAsync(PostKind kind, Args args, CancellationToken ct)
+    private static async Task<int> PostAsync(string verb, PostKind kind, Args args, CancellationToken ct)
     {
-        if (args.Unknown([
-                "agent", "board", "title", "body", "body-file", "parent", "tags", "forum", "not-duplicate",
-            ]) is { } bad)
+        if (args.Unknown(SharedVerbFlags(verb)) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Value("not-duplicate") is { } overrideRationale && (kind is not PostKind.Question || overrideRationale.Length == 0))
@@ -283,11 +303,9 @@ internal static class Program
     /// evidence -- at least one <c>--refs</c> URL -- because prose alone is an assertion, and a
     /// contradiction is a 6.7× ranking swing (Table 13).</para>
     /// </summary>
-    private static async Task<int> SignalAsync(PostKind kind, VerificationResult? result, Args args, CancellationToken ct)
+    private static async Task<int> SignalAsync(string verb, PostKind kind, VerificationResult? result, Args args, CancellationToken ct)
     {
-        var verb = kind is PostKind.Vote ? "endorse" : result is VerificationResult.Reproduced ? "reproduce" : "contradict";
-
-        if (args.Unknown(["agent", "board", "body", "body-file", "method", "refs", "predict", "reject", "epoch", "forum"]) is { } bad)
+        if (args.Unknown(SharedVerbFlags(verb)) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 1 || !EnvelopeDigest.IsPrefixedForm(args.Positional[0]))
@@ -381,10 +399,12 @@ internal static class Program
 
             var forum = ForumUri(args, agent.Profile);
             using var http = HttpFor(forum);
-            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
 
             var posted = await session.SubmitAsync(submission.Wire, ct).ConfigureAwait(false);
-            if (!posted.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
+            if (!posted.TryGetValue(out var receipt, out var refusal))
+                return await RefusedAsync(client, refusal!, ct).ConfigureAwait(false);
 
             Output.Line($"posted    {receipt.PostId}");
             Output.Line($"kind      {PostKinds.Wire(kind)}   board {board}");
@@ -422,6 +442,9 @@ internal static class Program
 
     private static async Task<int> ReadAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["agent", "marking", "forum", "if-none-match"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail(
                 "error: usage: curia read <post-id> [--marking datamark|delimiters|none] [--if-none-match <etag>]",
@@ -722,20 +745,30 @@ internal static class Program
             return ExitCode.Ok;
         }
 
+        if (args.Has("titles"))
+        {
+            var (frame, exit) = await TitledAsync(
+                client, [.. page.Results.Select(hit => hit.Post)], marking, [.. page.Results.Select(hit => (SearchScore?)SearchScore.Of(hit))], ct).ConfigureAwait(false);
+            Output.Frame(frame);
+
+            if (page.NextCursor is { Length: > 0 } nextTitled)
+            {
+                Output.Blank();
+                Output.Line($"more results: {Hints.More("curia search …", nextTitled)}");
+            }
+
+            return exit;
+        }
+
         foreach (var hit in page.Results)
         {
             Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro} µ   {hit.Post.Provenance.VerificationLevel}");
 
             if (hit.Why is { } why)
             {
-                var lexical = why.Lexical is { } l
-                    ? new FrameBuilder().Append($"lexical rank {l.Rank} (title×{l.TitleMatches} tag×{l.TagMatches} body×{l.BodyMatches})")
-                    : new FrameBuilder().Append($"lexical absent");
-                var vector = why.Vector is { } v
-                    ? new FrameBuilder().Append($"vector rank {v.Rank} (cosine {v.CosineBp} bp, {v.Model})")
-                    : new FrameBuilder().Append($"vector absent");
-                Output.Line($"  why_ranked  {new OwnText(lexical.ToString())}; {new OwnText(vector.ToString())}");
-                Output.Line($"              fused {why.FusedMicro} µ × {why.VerificationLevel} weight {why.VerificationWeightBp} bp{new OwnText(why.DeferredByDiversification ? "; deferred by diversification" : string.Empty)}; not computed: {Literals(why.NotComputed.Keys)}");
+                var rows = new FrameBuilder();
+                SearchScore.WriteWhy(rows, why);
+                Output.Frame(rows);
             }
         }
 
@@ -750,6 +783,9 @@ internal static class Program
 
     private static async Task<int> ThreadAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["agent", "marking", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia thread <root-post-id> [--marking …]", ExitCode.Usage);
 
@@ -765,6 +801,9 @@ internal static class Program
 
     private static async Task<int> BoardAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["agent", "marking", "titles", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia board <board> [--marking …] [--titles]", ExitCode.Usage);
 
@@ -786,16 +825,44 @@ internal static class Program
 
         if (args.Has("titles"))
         {
-            // An index, not content: post ids and kinds only, no author-controlled text at all.
-            foreach (var post in value)
-                Output.Line($"{post.PostId}  {post.Kind,-8}  {post.ServerTs}");
-
-            Output.Blank();
-            Output.Line($"{value.Length} post(s). Read one with 'curia read <post-id>'.");
-            return ExitCode.Ok;
+            var (frame, exit) = await TitledAsync(client, value, marking, [.. value.Select(_ => (SearchScore?)null)], ct).ConfigureAwait(false);
+            Output.Frame(frame);
+            return exit;
         }
 
         return await RenderAsync(client, value, forum, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// R10.71's titled index, shared by <c>board --titles</c> and <c>search --titles</c>: each post
+    /// verified as <see cref="RenderAsync"/> verifies it, then a frame line per post and its title, from
+    /// the verified canonical form, as content (<see cref="TitledIndex"/>). The exit code is
+    /// <see cref="RenderAsync"/>'s: 6 if any passage failed, 8 if a key set was unreachable.
+    /// </summary>
+    internal static async Task<(FrameBuilder Frame, int Exit)> TitledAsync(
+        ForumClient client, ImmutableArray<ProvenancePost> posts, MarkingMode marking, IReadOnlyList<SearchScore?> scores, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(scores);
+        if (scores.Count != posts.Length)
+            throw new ArgumentException("one score, or null, per post", nameof(scores));
+
+        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct).ConfigureAwait(false);
+
+        var frame = new FrameBuilder();
+        frame.Line($"{passages.Length} post(s). Each title below is content, from the post's verified canonical form; read a post with 'curia read <post-id>'.");
+        frame.Line($"{new OwnText(Provenance.StandardWarning)}");
+        if (marking == MarkingMode.Datamark)
+            frame.Line($"marking   Datamark, token=U+{Rune.GetRuneAt(Datamarking.DefaultControlToken, 0).Value:X4}: each title is datamarked and delimited by this client. {new OwnText(Provenance.MarkingIsNotAGuarantee)}");
+        else if (marking == MarkingMode.DelimitersOnly)
+            frame.Line("marking   DelimitersOnly: each title is delimited by this client. " + Provenance.DelimiterOnlyCaveat);
+        else
+            frame.Line("marking   None: each title is delimited by this client, and not datamarked.");
+
+        for (var i = 0; i < passages.Length; i++)
+            TitledIndex.Write(frame, i + 1, passages[i], marking, scores[i]);
+
+        return (frame, ExitCode.ForOutcomes(outcomes));
     }
 
     /// <summary>
@@ -806,6 +873,25 @@ internal static class Program
     private static async Task<int> RenderAsync(
         ForumClient client, ImmutableArray<ProvenancePost> posts, Uri forum, CancellationToken ct)
     {
+        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct).ConfigureAwait(false);
+
+        var contract = ReaderContractLocation.For(forum, posts.Length > 0 ? posts[0].Provenance.ReaderContract : null);
+
+        Output.Passages(new Reading(passages, contract));
+
+        return ExitCode.ForOutcomes(outcomes);
+    }
+
+    /// <summary>
+    /// Each post verified against its author's published keys, one key-set fetch per author, as a
+    /// passage; and each passage's outcome, which is failed when its span does not render the bytes
+    /// its signature covers (R10.71), whatever the signature's verdict.
+    /// </summary>
+    internal static async Task<(ImmutableArray<Passage> Passages, CheckOutcome[] Outcomes)> VerifyAllAsync(
+        ForumClient client, ImmutableArray<ProvenancePost> posts, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+
         var jwks = new Dictionary<string, ImmutableArray<ForumJwk>>(StringComparer.Ordinal);
 
         // The refusal is kept rather than flattened into an empty key array. R6.52: an unreachable
@@ -829,19 +915,43 @@ internal static class Program
                 ? SignatureCheck.Unreachable(post, fault)
                 : SignatureCheck.Verify(post, jwks[author]);
 
-            worst.Add(verdict.Outcome);
-            passages.Add(new Passage(post, verdict));
+            var passage = new Passage(post, verdict);
+            worst.Add(passage.Outcome);
+            passages.Add(passage);
         }
 
-        var contract = ReaderContractLocation.For(forum, posts.Length > 0 ? posts[0].Provenance.ReaderContract : null);
+        return (passages.MoveToImmutable(), [.. worst]);
+    }
 
-        Output.Passages(new Reading(passages.MoveToImmutable(), contract));
+    /// <summary>
+    /// R8.19's answers, each verified as a read verifies a post before any of it is shown (R10.71).
+    /// </summary>
+    internal static async Task<ImmutableArray<Passage>> DuplicateAnswersAsync(
+        ForumClient client, DuplicateRefusalDocument duplicate, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(duplicate);
+        return (await VerifyAllAsync(client, duplicate.Answers, ct).ConfigureAwait(false)).Passages;
+    }
 
-        return ExitCode.ForOutcomes([.. worst]);
+    /// <summary>
+    /// A posting refusal, written as <c>curia</c> writes every refusal; a duplicate refusal's thread and
+    /// answers follow on stdout (R8.19), the answers as this client verified them (R10.71).
+    /// </summary>
+    internal static async Task<int> RefusedAsync(ForumClient client, Refusal refusal, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+
+        // R10.71: a duplicate refusal's answers are shown only as this client verified them.
+        return refusal.AsDuplicate is { } duplicate
+            ? Output.FailDuplicate(refusal, duplicate, await DuplicateAnswersAsync(client, duplicate, ct).ConfigureAwait(false))
+            : Output.Fail(refusal);
     }
 
     private static async Task<int> ContractAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         var forum = ForumUri(args, null);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
@@ -868,6 +978,9 @@ internal static class Program
 
     private static async Task<int> VerifyAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia verify <post-id>", ExitCode.Usage);
 
