@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Curia.Canon.Json;
+using Curia.Domain.Primitives;
 
 namespace Curia.Client;
 
@@ -44,6 +45,35 @@ public sealed class HeadStore
     public string Root { get; }
 
     public static HeadStore Default() => new(ProfileStore.DefaultRoot);
+
+    /// <summary>
+    /// R6.53 (add.): the one exclusive lock every process retaining this Forum's head shares. Stub:
+    /// succeeds without locking anything.
+    /// </summary>
+    public Task<Result<IDisposable>> LockAsync(Uri forum, TimeSpan wait, TimeProvider time, CancellationToken ct)
+    {
+        _ = DirectoryFor(forum);
+        return Task.FromResult(Result<IDisposable>.Ok(Unlocked.Instance));
+    }
+
+    /// <summary>
+    /// Whether the runtime's file locking is switched off. Stub: never.
+    /// </summary>
+    internal static bool FileLockingDisabled(Func<string, bool?> appContextSwitch, Func<string, string?> environment) => false;
+
+    /// <summary>Whether file locking is switched off in this process.</summary>
+    internal Func<bool> LockingDisabled { get; init; } = () => FileLockingDisabled(
+        name => AppContext.TryGetSwitch(name, out var enabled) ? enabled : null,
+        Environment.GetEnvironmentVariable);
+
+    private sealed class Unlocked : IDisposable
+    {
+        internal static readonly Unlocked Instance = new();
+
+        public void Dispose()
+        {
+        }
+    }
 
     /// <summary>
     /// The directory holding one Forum's retained head. A sibling of <c>agents/</c>, never a child

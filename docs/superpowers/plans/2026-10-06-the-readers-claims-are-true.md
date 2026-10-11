@@ -210,6 +210,8 @@ public sealed class PostVerifier
 
 (`Result<T>` is `Curia.Domain.Primitives`' `Result<T>`, which `Curia.Client` already returns: `AgentSigners.Describe`, `ActaCheck.RecomputeLeaf`.)
 
+**Recorded at implementation.** `Curia.Client` granted no `InternalsVisibleTo`, so the two `internal` members above were unreachable from the facts that must call them: `Curia.Client.csproj` grants it to `Curia.Client.Tests` alone (CS-5, the matching test assembly). The stub's success is `Result<IDisposable>.Ok` (there is no `Result.Success`). The `src/` construction anchors moved in A1's rounds: `Program.cs:946` (`new PostVerifier(client, HeadStore.Default())`) and `ClientVerificationTests.cs:194`; both keep the two-argument constructor.
+
 **Red facts first** (`HeadStoreLockTests.cs`):
 
 | Fact | Asserts |

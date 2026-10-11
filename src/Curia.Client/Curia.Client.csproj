@@ -36,4 +36,13 @@
     <ProjectReference Include="../Curia.Domain.Primitives/Curia.Domain.Primitives.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      CS-5: InternalsVisibleTo only to the matching test assembly. R6.53 (add.)'s facts set
+      HeadStore.LockingDisabled and call HeadStore.FileLockingDisabled over injected values, both
+      internal: a switch read once per process is not a thing a test can flip in its own.
+    -->
+    <InternalsVisibleTo Include="Curia.Client.Tests" />
+  </ItemGroup>
+
 </Project>

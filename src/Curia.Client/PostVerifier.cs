@@ -147,14 +147,24 @@ public sealed class PostVerifier
 {
     private readonly ForumClient _forum;
     private readonly HeadStore _heads;
+    private readonly TimeProvider _time;
+    private readonly TimeSpan _lockWait;
 
     public PostVerifier(ForumClient forum, HeadStore heads)
+        : this(forum, heads, TimeProvider.System, TimeSpan.FromSeconds(30))
+    {
+    }
+
+    public PostVerifier(ForumClient forum, HeadStore heads, TimeProvider time, TimeSpan lockWait)
     {
         ArgumentNullException.ThrowIfNull(forum);
         ArgumentNullException.ThrowIfNull(heads);
+        ArgumentNullException.ThrowIfNull(time);
 
         _forum = forum;
         _heads = heads;
+        _time = time;
+        _lockWait = lockWait;
     }
 
     public async Task<ForumResult<PostVerification>> VerifyAsync(
