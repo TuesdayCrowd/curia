@@ -59,7 +59,29 @@ public static class SpanCheck
     public static bool RendersCanonical(ProvenancePost post)
     {
         ArgumentNullException.ThrowIfNull(post);
-        return true;
+
+        var covered = CoveredForm(post);
+        if (covered is null
+            || !string.Equals(covered, post.Canonical, StringComparison.Ordinal)
+            || !FrameBuilder.IsDelimitedSpan(post.Rendered))
+            return false;
+
+        var inner = Inner(post.Rendered);
+        if (post.Provenance.Marking == MarkingMode.Datamark)
+        {
+            if (!IsAcceptableToken(post.Provenance.MarkingToken)) return false;
+            inner = Datamarking.StripDatamarking(inner, post.Provenance.MarkingToken!);
+        }
+
+        return string.Equals(inner, Inner(Datamarking.Delimit(covered)), StringComparison.Ordinal);
+    }
+
+    /// <summary>The text between a delimited span's delimiter lines.</summary>
+    private static string Inner(string delimited)
+    {
+        var open = Datamarking.OpenDelimiter.Length + 1;
+        var close = Datamarking.CloseDelimiter.Length + 1;
+        return delimited.Substring(open, delimited.Length - open - close);
     }
 
     /// <summary>

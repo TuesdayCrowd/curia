@@ -52,7 +52,7 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
     /// R6.52's outcome for this passage (R10.71, errata G19): failed when the span does not render
     /// the canonical form the signature covers; otherwise the verdict's.
     /// </summary>
-    public CheckOutcome Outcome => Verdict.Outcome;
+    public CheckOutcome Outcome => SpanCheck.RendersCanonical(Post) ? Verdict.Outcome : CheckOutcome.Failed;
 
     /// <summary>
     /// The passage as this client frames it. Every value on the frame's lines that this client did
@@ -127,7 +127,27 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         // datamarked by the Forum. Re-marking it here would be a second implementation of R10.12
         // and would double-escape the control token. FrameBuilder.Span checks the delimiters first:
         // a span without them is served text like any other, and is quoted like any other.
-        frame.Span(Post.Rendered);
+        //
+        // R10.71 (errata G19): the span is written only when it renders the bytes the signature this
+        // client checked covers. Otherwise the Forum's span is not shown: this client writes its own
+        // rendering of the covered bytes in its place, or, when there are none, no content at all. A
+        // span without delimiters keeps R10.63's path, quoted as the Forum's string.
+        if (FrameBuilder.IsDelimitedSpan(Post.Rendered) && !SpanCheck.RendersCanonical(Post))
+        {
+            if (SpanCheck.Rendering(Post) is { } rendering)
+            {
+                frame.Line("content   FAILED: the Forum's span is not the rendering of this post's canonical form. Shown below is this client's rendering of the canonical form; the Forum's span is not shown (R10.71).");
+                frame.Span(rendering);
+            }
+            else
+            {
+                frame.Line("content   FAILED: the Forum's span is not the rendering of this post's canonical form, and the served form does not parse or canonicalize, so the signature covers no bytes; nothing is shown as content (R10.71).");
+            }
+        }
+        else
+        {
+            frame.Span(Post.Rendered);
+        }
 
         return frame.ToString();
     }

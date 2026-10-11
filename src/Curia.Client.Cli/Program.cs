@@ -381,10 +381,17 @@ internal static class Program
 
             var forum = ForumUri(args, agent.Profile);
             using var http = HttpFor(forum);
-            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
 
             var posted = await session.SubmitAsync(submission.Wire, ct).ConfigureAwait(false);
-            if (!posted.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
+            if (!posted.TryGetValue(out var receipt, out var refusal))
+            {
+                // R10.71: a duplicate refusal's answers are shown only as this client verified them.
+                return refusal.AsDuplicate is { } duplicate
+                    ? Output.Fail(refusal, await DuplicateAnswersAsync(client, duplicate, ct).ConfigureAwait(false))
+                    : Output.Fail(refusal);
+            }
 
             Output.Line($"posted    {receipt.PostId}");
             Output.Line($"kind      {PostKinds.Wire(kind)}   board {board}");
@@ -806,6 +813,25 @@ internal static class Program
     private static async Task<int> RenderAsync(
         ForumClient client, ImmutableArray<ProvenancePost> posts, Uri forum, CancellationToken ct)
     {
+        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct).ConfigureAwait(false);
+
+        var contract = ReaderContractLocation.For(forum, posts.Length > 0 ? posts[0].Provenance.ReaderContract : null);
+
+        Output.Passages(new Reading(passages, contract));
+
+        return ExitCode.ForOutcomes(outcomes);
+    }
+
+    /// <summary>
+    /// Each post verified against its author's published keys, one key-set fetch per author, as a
+    /// passage; and each passage's outcome, which is failed when its span does not render the bytes
+    /// its signature covers (R10.71), whatever the signature's verdict.
+    /// </summary>
+    internal static async Task<(ImmutableArray<Passage> Passages, CheckOutcome[] Outcomes)> VerifyAllAsync(
+        ForumClient client, ImmutableArray<ProvenancePost> posts, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+
         var jwks = new Dictionary<string, ImmutableArray<ForumJwk>>(StringComparer.Ordinal);
 
         // The refusal is kept rather than flattened into an empty key array. R6.52: an unreachable
@@ -829,28 +855,22 @@ internal static class Program
                 ? SignatureCheck.Unreachable(post, fault)
                 : SignatureCheck.Verify(post, jwks[author]);
 
-            worst.Add(verdict.Outcome);
-            passages.Add(new Passage(post, verdict));
+            var passage = new Passage(post, verdict);
+            worst.Add(passage.Outcome);
+            passages.Add(passage);
         }
 
-        var contract = ReaderContractLocation.For(forum, posts.Length > 0 ? posts[0].Provenance.ReaderContract : null);
-
-        Output.Passages(new Reading(passages.MoveToImmutable(), contract));
-
-        return ExitCode.ForOutcomes([.. worst]);
+        return (passages.MoveToImmutable(), [.. worst]);
     }
 
     /// <summary>
     /// R8.19's answers, each verified as a read verifies a post before any of it is shown (R10.71).
     /// </summary>
-    internal static Task<ImmutableArray<Passage>> DuplicateAnswersAsync(
+    internal static async Task<ImmutableArray<Passage>> DuplicateAnswersAsync(
         ForumClient client, DuplicateRefusalDocument duplicate, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(duplicate);
-        _ = ct;
-        return Task.FromResult<ImmutableArray<Passage>>(
-            [.. duplicate.Answers.Select(answer => new Passage(answer, new SignatureVerdict(false, null, "not checked")))]);
+        return (await VerifyAllAsync(client, duplicate.Answers, ct).ConfigureAwait(false)).Passages;
     }
 
     private static async Task<int> ContractAsync(Args args, CancellationToken ct)

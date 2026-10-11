@@ -354,7 +354,8 @@ public sealed class ReaderFrameTests
     }
 
     /// <summary>
-    /// R10.67 on the indented path, which the CLI's duplicate refusal writes its answers through: only line
+    /// R10.67 on the indented path, which has no production caller since the CLI's duplicate refusal writes
+    /// its answers as verified passages (R10.71); the overload is kept, and holds the rule: only line
     /// feeds are indented, because only line feeds remain. Before R10.67, a carriage return, U+0085 and U+2028
     /// each became a new indented line beginning with the forged verdict.
     /// </summary>

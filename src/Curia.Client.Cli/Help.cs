@@ -190,7 +190,9 @@ internal static class Help
               5  not found (404); or a recheck found a citation withheld or unknown.
               6  a check ran and did not hold -- a signature that does not verify, or an inclusion
                  proof that does not carry the post to a signed root. The post exists; its standing
-                 is not established.
+                 is not established. Or a served span that is not the rendering of the post's
+                 canonical form (R10.71): the post may be honest and the Forum at fault, and the
+                 passage then holds a line beginning, after any indent, 'content   FAILED:'.
               7  the command names a Forum capability this build does not have.
               8  a check could not be run, or the Forum could not be reached. An unreachable key
                  set, a log whose operator has not signed a head yet, a post newer than the latest

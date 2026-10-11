@@ -332,14 +332,16 @@ internal static class Output
         // thread and its answers go to stdout, where an agent reading the tool's output finds them;
         // the refusal itself stays on stderr.
         if (refusal.AsDuplicate is { } duplicate)
-            Console.Out.Write(DuplicateFrame(duplicate, verifiedAnswers));
+            Console.Out.Write(DuplicateFrame(duplicate, verifiedAnswers.IsDefault ? [] : verifiedAnswers));
 
         return ExitCode.For(refusal);
     }
 
     /// <summary>
     /// R8.19's duplicate refusal as this client frames it: the canonical thread, both measures beside
-    /// the lines they crossed, the answers, and the override.
+    /// the lines they crossed, the answers, and the override. The answers are passages this client
+    /// verified (<c>Program.DuplicateAnswersAsync</c>), each framed as a read frames a post, so no
+    /// served span reaches the output unchecked (R10.71).
     /// </summary>
     internal static string DuplicateFrame(DuplicateRefusalDocument duplicate, ImmutableArray<Passage> verifiedAnswers)
     {
@@ -357,11 +359,8 @@ internal static class Output
             frame.Line($"answers      {duplicate.Answers.Length}");
         if (duplicate.UnreadableAnswers > 0)
             frame.Line($"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: {Hints.Thread(duplicate.CanonicalPostId)}");
-        foreach (var answer in duplicate.Answers)
-        {
-            frame.Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
-            frame.Span(answer.Rendered, "  ");
-        }
+        foreach (var answer in verifiedAnswers)
+            frame.Passage(answer);
         frame.Line($"override     {duplicate.Override}");
         frame.Line("             curia ask ... --not-duplicate \"<rationale>\"");
         return frame.ToString();
