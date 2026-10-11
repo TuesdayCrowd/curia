@@ -150,8 +150,13 @@ than a silent race. A lock is also shown to exclude rather than assumed to: afte
 makes a second exclusive open of the same path in this process, which a working `flock` refuses (it is
 per open file description); if that open succeeds, as on a filesystem without `flock`, the lock is
 refused as not enforced. A fact sets the switch (in a child process: the switch is read once per process) and
-asserts the refusal. *Whether the runtime reads the environment variable through `AppContext` was not
-checked; the fact reads both and its red run settles which.*
+asserts the refusal. *The runtime does not surface the environment variable through `AppContext`: under
+`DOTNET_SYSTEM_IO_DISABLEFILELOCKING=1` (and `true`), `TryGetSwitch("System.IO.DisableFileLocking", …)`
+returns false (reported at A2's review from a scratch app that was not kept; re-measured at the review's
+fix in a scratch app outside the repository, .NET 10.0.12 on macOS, SDK 10.0.401). So under the variable
+only `FileLockingDisabled`'s environment branch protects the default wiring. The child fact's refusal names
+both sources whichever one fired, so its green run settles nothing about which one did. Task A5's FA40
+drops the environment branch alone and must turn child case (a) red.*
 
 G18's flag gate (`IFlagRaiserGate`) refuses rather than waits, because a waiting request holds a pooled
 server connection. The head lock waits a bounded 30 s instead: it holds nothing shared, and it is per
@@ -378,7 +383,8 @@ exclusion in- and cross-process; the terminal-security critique's probes P1–P5
 **Not checked:** nothing applied or built. The span mismatch and the race were traced, not run. Linux
 not run. `DOTNET_SYSTEM_IO_DISABLEFILELOCKING=1` in the environment alone turns locking off (A2's child
 fact: two exclusive opens both succeed in a child under it, and a default `HeadStore` there refuses naming
-the switch). No
+the switch). That the switch branch is not what keeps child case (a) green rests on one scratch run outside
+the repository (.NET 10.0.12, macOS) plus FA40. No fact asserts AppContext's view of the variable. No
 terminal emulator driven; every screen claim in §9 is reasoning until PR B's B4. The titled index's byte
 size is an estimate.
 
