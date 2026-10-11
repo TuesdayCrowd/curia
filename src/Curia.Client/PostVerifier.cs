@@ -359,7 +359,8 @@ public sealed class PostVerifier
         if (logIndex >= head.TreeSize)
             return new(Check.CouldNotCheck(
                 Invariant($"leaf {logIndex} is not covered by the signed head at tree size {head.TreeSize}.")
-                + " The post is in the log and no published head commits to it yet; a later head will."));
+                + " The post is in the log and no published head commits to it yet. A later head will,"
+                + " once the operator signs one with 'curia-operator sign-head'; verify again then."));
 
         var proof = post.InclusionProof;
         if (proof.TreeSize != head.TreeSize)

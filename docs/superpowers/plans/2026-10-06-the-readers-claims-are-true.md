@@ -261,6 +261,11 @@ public sealed class PostVerifier
 
 **Steps:**
 - [ ] Facts RED. Fix: `Help.TierReminder` (ask, comment, revision, resolve in a thread you started, flag, flags); `WhoAmI`'s duplicate sentence (`:200`–`:202`); `InboxBanner`; search usage (`Help.cs:147`) and `SearchBanner`'s comment; `PostVerifier.cs:352` remedy (no test pins `a later head will`; `PostVerifierTests.cs:233` and `ClientVerificationTests.cs:154` pin `not covered by the signed head`, which stays); EXIT CODES `0`; `Help.For` (an unknown verb → null); `internal static string? HelpRequested(string[] argv)`, called by `Main` before `Args.Parse`, answering only when `argv.Length >= 2 && argv[1] is "--help" or "-h"`; the MARKING paragraph. **No `--index`.** The `--titles` help line is A4's. EXIT CODES 3 and 4 keep G18's text (raise-in-flight; the flag budget) byte for byte.
+- As built (recorded at the commit):
+  - "T0 non-read grant" is read as a grant T0 holds and Anonymous does not (`Allowed` or `RateLimited`): `flag/list` is a `List` action, so `ActionKinds.IsRead` would drop it. The fact also maps T1's grants T0 lacks (`answer/create`, `vote/cast`, `verification/submit` to `answer`, `endorse`, `reproduce`/`contradict`) and fails on an unmapped grant either way. T0's list is the reminder's text from `may:` to the start of the line saying what needs T1.
+  - `PublishedTable10.cs` linked alone; it needs no helper from `Curia.Domain.Tests`.
+  - The whoami, inbox and dispatch facts read `Program.cs`'s source (the method from its signature to the next member), since `WhoAmI`, `InboxAsync` and `Main` print through the console and need a profile or a Forum; the remedy and exit-0 facts run `PostVerifier` against `StubLog`.
+  - The remedy was at `PostVerifier.cs:361`–`:362` at e69e8c4 (A2 moved it), not `:352`.
 - [ ] Run Client and Mcp: `Passed!`.
 - [ ] Commit: `D37: the client's help says what is true — T0's actions, the inbox's lines, hybrid search, the head's remedy, exit 0 on a first verification, per-verb help, the datamark`.
 

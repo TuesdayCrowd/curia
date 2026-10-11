@@ -33,6 +33,11 @@
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
     <!-- R11.20's external signer, a real process: tests/Shared/test-signer.py behind a wrapper. -->
     <Compile Include="../Shared/TestSigner.cs" Link="Shared/TestSigner.cs" />
+    <!--
+      D37: the tier reminder is checked against Table 10 as the white paper publishes it, parsed by the
+      same reader R7.12's denial facts use, so the help and the code are each held to the table.
+    -->
+    <Compile Include="../Curia.Domain.Tests/Authorization/PublishedTable10.cs" Link="Shared/PublishedTable10.cs" />
   </ItemGroup>
 
 </Project>

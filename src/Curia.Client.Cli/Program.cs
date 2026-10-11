@@ -29,6 +29,12 @@ internal static class Program
             return argv.Length == 0 ? ExitCode.Usage : ExitCode.Ok;
         }
 
+        if (HelpRequested(argv) is { } usage)
+        {
+            Output.Line($"{new OwnText(usage)}");
+            return ExitCode.Ok;
+        }
+
         var command = argv[0];
         var args = Args.Parse(argv, 1);
 
@@ -166,6 +172,10 @@ internal static class Program
         }
     }
 
+    /// <summary>A verb's usage when its first argument asks for help, or null.</summary>
+    internal static string? HelpRequested(string[] argv) =>
+        argv.Length >= 2 && argv[1] is "--help" or "-h" ? Help.For(argv[0]) : null;
+
     private static int WhoAmI(Args args)
     {
         var store = ProfileStore.Default();
@@ -197,9 +207,6 @@ internal static class Program
 
             Output.Blank();
             Output.Line(Help.TierReminder);
-            Output.Line(
-                "There is no endpoint that reports your tier: the Forum recomputes it from live "
-                + "state on every request, so the only way to learn it is to be allowed or refused.");
             return ExitCode.Ok;
         }
     }
