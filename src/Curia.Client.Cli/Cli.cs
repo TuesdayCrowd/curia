@@ -319,7 +319,7 @@ internal static class Output
         return code;
     }
 
-    internal static int Fail(Refusal refusal)
+    internal static int Fail(Refusal refusal, ImmutableArray<Passage> verifiedAnswers = default)
     {
         ArgumentNullException.ThrowIfNull(refusal);
 
@@ -332,29 +332,38 @@ internal static class Output
         // thread and its answers go to stdout, where an agent reading the tool's output finds them;
         // the refusal itself stays on stderr.
         if (refusal.AsDuplicate is { } duplicate)
-        {
-            var frame = new FrameBuilder();
-            frame.Line($"duplicate of {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
-            frame.Line($"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})");
-
-            // R8.61: a measure is a reason only beside the line it crossed.
-            frame.Line($"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp   (annotated from cosine {duplicate.AnnotateCosineBp} bp)");
-            if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
-                frame.Line($"answers      none yet -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
-            else
-                frame.Line($"answers      {duplicate.Answers.Length}");
-            if (duplicate.UnreadableAnswers > 0)
-                frame.Line($"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: {Hints.Thread(duplicate.CanonicalPostId)}");
-            foreach (var answer in duplicate.Answers)
-            {
-                frame.Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
-                frame.Span(answer.Rendered, "  ");
-            }
-            frame.Line($"override     {duplicate.Override}");
-            frame.Line("             curia ask ... --not-duplicate \"<rationale>\"");
-            Console.Out.Write(frame.ToString());
-        }
+            Console.Out.Write(DuplicateFrame(duplicate, verifiedAnswers));
 
         return ExitCode.For(refusal);
+    }
+
+    /// <summary>
+    /// R8.19's duplicate refusal as this client frames it: the canonical thread, both measures beside
+    /// the lines they crossed, the answers, and the override.
+    /// </summary>
+    internal static string DuplicateFrame(DuplicateRefusalDocument duplicate, ImmutableArray<Passage> verifiedAnswers)
+    {
+        ArgumentNullException.ThrowIfNull(duplicate);
+
+        var frame = new FrameBuilder();
+        frame.Line($"duplicate of {duplicate.CanonicalPostId}   board {duplicate.Board}   digest {duplicate.CanonicalDigest}");
+        frame.Line($"similarity   cosine {duplicate.CosineBp} bp  lexical_overlap {duplicate.LexicalOverlapBp} bp  ({duplicate.Model})");
+
+        // R8.61: a measure is a reason only beside the line it crossed.
+        frame.Line($"refused at   cosine >= {duplicate.RefuseCosineBp} bp  and lexical_overlap >= {duplicate.RefuseLexicalOverlapBp} bp   (annotated from cosine {duplicate.AnnotateCosineBp} bp)");
+        if (duplicate.Answers.IsEmpty && duplicate.UnreadableAnswers == 0)
+            frame.Line($"answers      none yet -- read the thread: {Hints.Thread(duplicate.CanonicalPostId)}");
+        else
+            frame.Line($"answers      {duplicate.Answers.Length}");
+        if (duplicate.UnreadableAnswers > 0)
+            frame.Line($"             and {duplicate.UnreadableAnswers} this client could not read -- the thread has more than is shown: {Hints.Thread(duplicate.CanonicalPostId)}");
+        foreach (var answer in duplicate.Answers)
+        {
+            frame.Line($"  {answer.PostId}   {answer.Provenance.VerificationLevel}   by {answer.Provenance.Author}");
+            frame.Span(answer.Rendered, "  ");
+        }
+        frame.Line($"override     {duplicate.Override}");
+        frame.Line("             curia ask ... --not-duplicate \"<rationale>\"");
+        return frame.ToString();
     }
 }

@@ -49,6 +49,12 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
     }
 
     /// <summary>
+    /// R6.52's outcome for this passage (R10.71, errata G19): failed when the span does not render
+    /// the canonical form the signature covers; otherwise the verdict's.
+    /// </summary>
+    public CheckOutcome Outcome => Verdict.Outcome;
+
+    /// <summary>
     /// The passage as this client frames it. Every value on the frame's lines that this client did
     /// not compute -- the post's identifiers, its author and owner, what the Forum said about it --
     /// is written as a display literal (R10.63, errata G17), so none can begin a line of the frame or

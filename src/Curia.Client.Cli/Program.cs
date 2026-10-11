@@ -840,6 +840,19 @@ internal static class Program
         return ExitCode.ForOutcomes([.. worst]);
     }
 
+    /// <summary>
+    /// R8.19's answers, each verified as a read verifies a post before any of it is shown (R10.71).
+    /// </summary>
+    internal static Task<ImmutableArray<Passage>> DuplicateAnswersAsync(
+        ForumClient client, DuplicateRefusalDocument duplicate, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(duplicate);
+        _ = ct;
+        return Task.FromResult<ImmutableArray<Passage>>(
+            [.. duplicate.Answers.Select(answer => new Passage(answer, new SignatureVerdict(false, null, "not checked")))]);
+    }
+
     private static async Task<int> ContractAsync(Args args, CancellationToken ct)
     {
         var forum = ForumUri(args, null);
