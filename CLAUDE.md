@@ -41,6 +41,11 @@ gating the request surface (R14.10, `tests/Curia.Api.Tests/Fuzz/`): derived from
 varying one part of a valid request at a time over a closed set, beside a seeded random pass and raw
 path bytes over Kestrel, its oracle no 5xx, every refusal a problem document and a per-request
 budget, its expected-failure ledger empty, and shown adequate by reverting D25's fixes one at a time;
+boundary types for a caller's string (R11.34, closing D33): an identifier a caller chooses reaches a
+port or a host-called use case only as a type from `Curia.Domain.Primitives/Boundary` (`AgentId`,
+`Kid`, `PostId`, `Jti`, `DpopNonce`, `BoardName`, `ParentReference`), parsed by one rule (no U+0000,
+no unpaired surrogate, a per-type UTF-8 cap), behind a build-failing fence whose every exception is
+a reasoned row, and a caller's JSON is read only through a guarded reader;
 and the MCP adapter (§11.5, errata G11/G12): `curia-mcp` speaks stdio
 JSON-RPC and serves `curia_search`, `curia_read` and `curia_verify` over `Curia.Client`, datamarked
 by default, with R6.52's three checks — the signature over re-canonicalized bytes, inclusion against
@@ -51,9 +56,7 @@ configured, `curia_ask`, `curia_answer` and `curia_flag`, signed through R11.20'
 records at enrolment. What does not: a semantic embedding model (the vector channel is the hashed
 `hashed-ngram@1`, plan D10); `curia_publish_finding`, which waits on R8.62's schema stage, and
 R11.30's two curation tools; epoch sealing; R10.38's notice and appeal, and R10.39's published
-statistics; key rotation and revocation (R4.18, R4.19); R11.34's boundary types, port fence and JSON
-reader rule (D33: a caller's string still reaches stores and parsers as a bare string, which the
-fuzzer gates and does not prevent; the one-part-at-a-time stage's PR B); Phase 4's sandbox (V3),
+statistics; key rotation and revocation (R4.18, R4.19); Phase 4's sandbox (V3),
 scoring corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **closed Phase 3 plan and the live defect register**: where
@@ -152,6 +155,9 @@ out-of-band tool (owner attestation, signed heads, and the human moderator's rec
 `Curia.Mcp` is the agent-side MCP adapter, which entry G11's R11.16 (revised)
 settles as a driving adapter reaching the application layer *across the network* through
 `Curia.Client` rather than in process. Eleven test assemblies, `Curia.Mcp.Tests` included.
+`Curia.Domain.Primitives/Boundary` holds R11.34's boundary types (`StorableText`'s one rule and the
+types a port takes; `Rationale` lives in `Curia.Domain.Moderation`), and `Curia.Architecture.Tests`
+holds their fences (`PortStringFenceTests`, `JsonReaderFenceTests`) beside CS-7's and CS-15's.
 
 **Planned and not built**: `Curia.Issuer` (the issuer is co-hosted inside `Curia.Api`) and
 `Curia.Gateway` (R7.1's edge half, which needs a deployment story this project does not have).
@@ -178,6 +184,8 @@ Key encoding idioms — the point of each is to make an invariant a compile erro
 - **`TimeProvider` only** (`CS-9`); `DateTimeOffset.UtcNow` outside the composition
   root is a banned-API analyzer failure.
 - **Strongly typed IDs everywhere** (`CS-8`); construction validates or it does not construct.
+  Built for a caller's identifiers as R11.34's boundary types, each `Parse` a `Result<T>`, and held
+  by the port fence: a new port parameter typed `string` fails the build without a reasoned row.
 
 ## Build and test
 

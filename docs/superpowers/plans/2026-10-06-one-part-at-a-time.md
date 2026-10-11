@@ -1258,6 +1258,7 @@ Each of FB18 to FB31 is restored by plain copy, then a `--no-incremental` rebuil
 - [ ] `CLAUDE.md` loses "CS-8 has never been built". Add `Curia.Domain.Primitives/Boundary` to the topology.
 - [ ] Scans: invisible characters; re-read every file:line you wrote.
 - [ ] Commit: `Register: D33 closed by R11.34; the ledger is empty`.
+  - Recorded as built: `CLAUDE.md` did not hold the words "CS-8 has never been built" at 0a92d6b; they are in D33's "What is not known" in `IMPLEMENTATION_PLAN.md`, kept there as the record of the open entry. `CLAUDE.md`'s equivalent claim, R11.34's types, fence and JSON rule listed under "What does not" with "a caller's string still reaches stores and parsers as a bare string", is what it lost; they are listed under what works, and the CS-8 idiom names them. The register's Closed and Open lists, the status block and the D25 closure note were brought into line with D33's closure and D38's opening.
 
 ### Task B8: Every gate, then PR B
 
