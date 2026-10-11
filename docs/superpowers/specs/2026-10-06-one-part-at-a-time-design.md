@@ -242,16 +242,18 @@ The allowlist is in `tests/Curia.Architecture.Tests/PortStringAllowlist.cs`:
 ```csharp
 internal static class PortStringAllowlist
 {
-    /// Member: "<DeclaringType.FullName>.<Method>" or "<DeclaringType.FullName>..ctor".
+    /// Member: "<DeclaringType.FullName>.<Method>" or "<DeclaringType.FullName>..ctor"; for a "*" row, "<DeclaringType.FullName>.*".
     /// Parameter: the parameter's name, or "*" for an error factory: a static class whose every public method returns Error.
     internal static readonly ImmutableArray<(string Member, string Parameter, string Reason)> Rows = [ … ];
 }
 ```
 
-The fact fails in four cases:
+The fact fails in six cases:
 - a string-like parameter with no row;
 - a row naming no existing member and parameter (stale);
 - a `"*"` row on a type that is not a static class whose every public method returns `Error`;
+- a `"*"` row whose member is anything but exactly `"<DeclaringType.FullName>.*"` (malformed: it is reported as such and covers nothing; B6, FB2's finding, held by FB29 and FB30);
+- a parameter whose type, seen through an array, nullable or by-reference, is a type parameter (step 3);
 - an empty `Reason`.
 
 Non-vacuity guards: at least 10 port interfaces scanned, at least 20 host-referenced members, and named sentinels that must be in scope (`RaiseFlag.RecordAsync`, `IIngestPipeline.VerifyAsync`, `IReplayCache.TryInsertAsync`, `EnrollAgent.RecordAsync`); a sentinel missing from scope fails the fact naming it.

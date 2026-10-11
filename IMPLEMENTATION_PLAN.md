@@ -206,13 +206,15 @@ set; SP scores recorded even if not yet weighted.*
 > D25's closure means: each 500 found is closed and held by a named test. It does not mean no request
 > causes one.** Every round of the final gate found new ones, each a string a caller chose reaching a
 > parser or a store that throws, and the third round's fix commit (f914059) was not swept again. The
-> class is open as **D33**, and the next stage closes it by construction rather than by instance.
+> class was opened as **D33**, for the next stage to close by construction rather than by instance.
 > **D32**, which the same gate found, is closed by that stage's PR A (R10.68, R10.69): one flag's
 > rationale could hold a CPU for minutes. A five-agent exercise on 2026-10-06 opened **D34** (a flag
 > spent no budget; closed by the same PR A, R7.22 and R10.70) and **D35**–**D37**. PR A also built
 > D33's gate, a request fuzzer (R14.10), whose red baseline found no instance; PR B closed D33
 > (R11.34): a caller's identifier reaches a port or a host-called use case only as a boundary type,
-> behind a build-failing fence, and a caller's JSON is read only through a guarded reader.
+> behind a build-failing fence, and a caller's JSON is read only through a guarded reader. It opened
+> **D38** (`prev` off a revision) and **D39** (a flag against an aggregate that is no post's), both
+> open.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -364,8 +366,8 @@ history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
 Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage); D35, D36
-and D37 (opened by the five-agent exercise, 2026-10-06); D38 (opened by the one-part-at-a-time
-stage's PR B, 2026-10-10).
+and D37 (opened by the five-agent exercise, 2026-10-06); D38 and D39 (opened by the
+one-part-at-a-time stage's PR B, 2026-10-10).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -4995,17 +4997,26 @@ moved, no event, table or grant changed, and no wire slug changed (spec §4.7).
   `EnrollIdentity.cs:70`, `AttestOwner.cs:83`, `EnrollAgent.cs:111` and `EnrollmentBinding.cs:76`
   agentId; `PostProjection.cs:111` rootPostId; `ApplyModeration.cs:77` postId; `RaiseFlag.cs:84`
   raisedBy; `AcceptAnswer.cs:56`-`:58` threadRoot, answerId and acceptedBy. After: none. In
-  `src/Curia.Infrastructure`, before (B2): `PostgresAdapters.cs:34` connectionString;
-  `PostgresDpopNonceStore.cs:64` schema; `PostgresAgentKeyStore.cs:52` schema, `:98`, `:225`, `:283`
-  and `:329` agentId, `:330` kid; `PostgresFlagDetailStore.cs:24` schema; `PostgresEventStore.cs:67`
-  schema; `PostgresReplayCache.cs:45` schema, `:118` jti; `PostgresFlagRaiserGate.cs:46` schema,
-  `:65` raisedBy; `PostgresVectorIndex.cs:43` schema, `:56` digest, `:57` postId. After, re-read at
-  0a92d6b: `PostgresReplayCache`'s jti and `PostgresAgentKeyStore`'s typed resolve guards are gone
-  (B2, B3); what remains guards a schema name, the connection string or a migration's inputs, the
-  internal `PostgresAgentKeyStore.RegisterAsync`'s agentId (`:226`), and three Forum-minted values
-  whose ports have fence rows: `PostgresFlagRaiserGate.cs:65` raisedBy (the token's `sub`, read after
-  the issuer's signature verifies; the row A4b owed) and `PostgresVectorIndex.cs:56`-`:57` digest and
-  postId.
+  `src/Curia.Infrastructure`, before (B2; re-read recursively at 0e5ad9d~1):
+  `PostgresAdapters.cs:34` connectionString; `PostgresDpopNonceStore.cs:64` schema;
+  `PostgresAgentKeyStore.cs:52` schema, `:98`, `:225`, `:283` and `:329` agentId, `:330` kid;
+  `PostgresFlagDetailStore.cs:24` schema; `PostgresEventStore.cs:67` schema;
+  `PostgresReplayCache.cs:45` schema, `:118` jti; `PostgresFlagRaiserGate.cs:46` schema, `:65`
+  raisedBy; `PostgresVectorIndex.cs:43` schema, `:56` digest, `:57` postId. B2's
+  `src/Curia.Infrastructure/*.cs` grep did not reach subdirectories, which held five more:
+  `Migrations/EventStoreSchema.cs:53`-`:55` template, roleName and rolePassword;
+  `Migrations/SchemaMigrations.cs:66` fileName; and
+  `Projections/PostgresAggregateSummaryProjection.cs:59` schema. All five are unchanged after.
+  After, re-read at 0a92d6b: `PostgresReplayCache`'s jti and `PostgresAgentKeyStore`'s typed resolve
+  guards are gone (B2, B3); what remains guards a schema name, the connection string or a
+  migration's inputs, the internal `PostgresAgentKeyStore.RegisterAsync`'s agentId (`:226`), and
+  three values whose ports have fence rows. Two are Forum-minted: `PostgresFlagRaiserGate.cs:65`
+  raisedBy (the token's `sub`, read after the issuer's signature verifies; the row A4b owed) and
+  `PostgresVectorIndex.cs:56` digest (computed by the Forum). One is stored:
+  `PostgresVectorIndex.cs:57` postId. That is a projected post's id. It is Forum-minted in origin,
+  but its row (`tests/Curia.Architecture.Tests/PortStringAllowlist.cs:34`) records it as a stored
+  value that may predate a rule, under spec §4.8's precedence; read-back is never parsed (spec
+  §4.6).
 - *The fence* (Task B4, `tests/Curia.Architecture.Tests/PortStringFenceTests.cs`):
   `R11_34_NoPortOrHostCalledUseCaseTakesACallersStringWithoutAReason`. Its scope is derived, not
   listed: every method of a public interface in `Curia.Application` and `Curia.AuthN`, and every
@@ -5053,11 +5064,12 @@ moved, no event, table or grant changed, and no wire slug changed (spec §4.7).
   narrowed, not closed (ruled at the review of b75b2bf): a flag's post id must parse as a `PostId`,
   so the closed pass's 1,024-byte agent ids are `curia/flag/no-such-post` where they were 201.
   `RaiseFlag` still asks only that the stream has events (`RaiseFlag.cs:130`-`:135`), so an aggregate
-  whose id is a canonical ULID and is no post's could still be flagged (traced, by reading).
+  whose id is a canonical ULID and is no post's could still be flagged. It is recorded as its own
+  open entry, **D39**, outside R11.34.
 - *What the class keeps.* Mechanism 4 above, a framework reader that throws, has no type to fence; the
   fuzzer gates it, as it gated `JsonCharset`. The fence keys a callee by name, which is not a dataflow
-  proof (observed below). `prev` off a revision is recorded as its own open entry, **D38**, outside
-  R11.34.
+  proof (observed below). `prev` off a revision and a flag against an aggregate that is no post's are
+  recorded as their own open entries, **D38** and **D39**, outside R11.34.
 
 **Observed during PR B, and not acted on.**
 - **The closed pass's `perturbed` variation can leave the part's alphabet** (review of b75b2bf).
@@ -5312,6 +5324,35 @@ run).
 ingest refuses `prev` on every kind but a revision. Either needs a red fact first: a comment by agent
 B whose `prev` names agent A's question, after which a re-check of A's question's digest must still
 answer Current.
+
+### D39 — a flag can be raised against an aggregate that is no post's *(observed by PR A's red baseline; narrowed at the review of b75b2bf in the one-part-at-a-time stage's PR B, which ruled it a register entry of its own; opened by its Task B7, 2026-10-10)*
+
+Since B3, a flag's post id must parse as a `PostId` (a canonical uppercase ULID). So PR A's
+closed-pass cases, which flagged a 1,024-byte agent id and got 201, are now 404
+`curia/flag/no-such-post`. `RaiseFlag` still checks only that the named aggregate's stream has events
+(`src/Curia.Application/Moderation/RaiseFlag.cs:130`-`:135`, `events!.Count == 0`), not that the
+stream is a post's. An agent's stream is keyed `AggregateId.Create(agentId.Value)`
+(`EnrollAgent.cs:120`, `EnrollIdentity.cs:78`). `AgentId.Parse` accepts an id shaped like a ULID (it
+refuses only an absent, blank, U+0000, unpaired-surrogate or over-1,024-byte value), and
+`ReservedIdentifiers` reserves only the `log:` and `flag:` prefixes. So an agent enrolled as, for
+example, `0JDPFQ0SA21KSPY2KJDPFQ0SA2` can be flagged by any T0 agent. The flag is a public leaf
+against that agent's aggregate and is served as a post's flag. The review of 036ff25 reported
+`POST /v1/posts/0JDPFQ0SA21KSPY2KJDPFQ0SA2/flags` answered 201 in a scratch fact that was not
+retained; that review's verification traced it by reading and did not re-run it. Re-run when this
+entry was opened, at 036ff25, with a scratch fact in `FlagEndpointTests` that was then removed: an
+agent enrolled as `092NBN31ZZS0CV77FTK2N1JEPV`, and a second, freshly enrolled agent's
+`POST /v1/posts/092NBN31ZZS0CV77FTK2N1JEPV/flags` answered 201 with
+`{"post_id":"092NBN31ZZS0CV77FTK2N1JEPV","kind":"spam",…}`.
+
+**Outside R11.34**, which governs how a caller's string is carried, not what a carried id must name.
+D33's closure cross-references it.
+
+**It needs a ruling** between two remedies. Either `RaiseFlag` refuses a stream whose first event is
+not a post's creation, which closes it for every non-post aggregate. Or enrolment refuses an agent id
+that parses as a `PostId`, which closes only the agent case. Either needs a red fact first, in
+`FlagEndpointTests`: enrol an agent whose id is a canonical uppercase ULID, have a second agent flag
+that id, and assert 404 `curia/flag/no-such-post` and that no flag leaf was appended. On today's tree
+that fact must be RED, answering 201.
 
 ### Observed during the one-part-at-a-time stage's PR A
 
@@ -6571,9 +6612,10 @@ D33. It also owes the fence a row for `IFlagRaiserGate.TryEnterAsync`'s bare `st
 
 *Amended 2026-10-10 (the stage's Task B7).* PR B (branch `boundary-types-fence`) closes **D33** under
 R11.34: the boundary types, the port fence and the JSON reader rule, with the ledger empty and 31
-falsification cases red (D33's closure). It opens **D38** (`prev` off a revision), which waits on a
-ruling. **What comes next is rotation, with D29 and M5** (below). Rotation's `kid` ports take `Kid`
-from their first line: a port rotation adds with a bare `string kid` fails the fence.
+falsification cases red (D33's closure). It opens **D38** (`prev` off a revision) and **D39** (a
+flag against an aggregate that is no post's), each of which waits on a ruling. **What comes next is
+rotation, with D29 and M5** (below). Rotation's `kid` ports take `Kid` from their first line: a port
+rotation adds with a bare `string kid` fails the fence.
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
