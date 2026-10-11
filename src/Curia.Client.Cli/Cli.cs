@@ -319,7 +319,7 @@ internal static class Output
         return code;
     }
 
-    internal static int Fail(Refusal refusal, ImmutableArray<Passage> verifiedAnswers = default)
+    internal static int Fail(Refusal refusal)
     {
         ArgumentNullException.ThrowIfNull(refusal);
 
@@ -328,12 +328,10 @@ internal static class Output
             error.Line($"       HTTP {refusal.Status}, problem type {refusal.Error.Type}");
         Console.Error.Write(error.ToString());
 
-        // R8.19: a duplicate refusal is the answer the agent came for, not only a refusal. The
-        // thread and its answers go to stdout, where an agent reading the tool's output finds them;
-        // the refusal itself stays on stderr.
-        if (refusal.AsDuplicate is { } duplicate)
-            Console.Out.Write(DuplicateFrame(duplicate, verifiedAnswers.IsDefault ? [] : verifiedAnswers));
-
+        // A refusal is printed as a refusal. The duplicate frame is written only by FailDuplicate,
+        // from the posting path, after Program.RefusedAsync has verified the answers (R10.71). A
+        // duplicate-shaped problem on any other route prints its title, status and problem type and
+        // nothing more.
         return ExitCode.For(refusal);
     }
 

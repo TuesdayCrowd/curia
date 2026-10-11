@@ -476,7 +476,19 @@ internal static class ForumDocuments
         // Forum produces this field from a closed enum, so a value outside it means the client and
         // the Forum disagree about the vocabulary, and quietly reading it as "no marking" would
         // report an unmarked span as deliberately unmarked.
-        if (!Enum.TryParse<MarkingMode>(ClientJson.String(p, "marking"), out var marking))
+        //
+        // Matched by exact, ordinal name. Enum.TryParse accepts numeric and comma-joined spellings
+        // ("3", "DelimitersOnly, Datamark") that yield values the enum does not define. R10.71's
+        // SpanCheck.Rendering hands the marking to Datamarking.Render, which throws on such a value,
+        // so a lenient parse would let a Forum crash the reader.
+        MarkingMode? marking = ClientJson.String(p, "marking") switch
+        {
+            "None" => MarkingMode.None,
+            "DelimitersOnly" => MarkingMode.DelimitersOnly,
+            "Datamark" => MarkingMode.Datamark,
+            _ => null,
+        };
+        if (marking is not { } mode)
             return Result<ProvenancePost>.Fail(
                 ClientErrors.ResponseMalformed("provenance.marking is not a marking mode"));
 
@@ -488,7 +500,7 @@ internal static class ForumDocuments
             Bool(p, "signature_valid"),
             ClientJson.String(p, "verification_level") ?? string.Empty,
             Strings(p, "risk_flags"),
-            marking,
+            mode,
             ClientJson.String(p, "marking_token"),
             ClientJson.String(p, "reader_contract") ?? string.Empty,
             ClientJson.String(p, "marking_caveat"),

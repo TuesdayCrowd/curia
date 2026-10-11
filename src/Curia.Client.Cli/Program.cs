@@ -386,12 +386,7 @@ internal static class Program
 
             var posted = await session.SubmitAsync(submission.Wire, ct).ConfigureAwait(false);
             if (!posted.TryGetValue(out var receipt, out var refusal))
-            {
-                // R10.71: a duplicate refusal's answers are shown only as this client verified them.
-                return refusal.AsDuplicate is { } duplicate
-                    ? Output.Fail(refusal, await DuplicateAnswersAsync(client, duplicate, ct).ConfigureAwait(false))
-                    : Output.Fail(refusal);
-            }
+                return await RefusedAsync(client, refusal!, ct).ConfigureAwait(false);
 
             Output.Line($"posted    {receipt.PostId}");
             Output.Line($"kind      {PostKinds.Wire(kind)}   board {board}");
@@ -881,12 +876,9 @@ internal static class Program
     {
         ArgumentNullException.ThrowIfNull(refusal);
 
-        // STUB (red): the answers are not yet verified.
-        await Task.CompletedTask.ConfigureAwait(false);
-        _ = client;
-        _ = ct;
+        // R10.71: a duplicate refusal's answers are shown only as this client verified them.
         return refusal.AsDuplicate is { } duplicate
-            ? Output.FailDuplicate(refusal, duplicate, [])
+            ? Output.FailDuplicate(refusal, duplicate, await DuplicateAnswersAsync(client, duplicate, ct).ConfigureAwait(false))
             : Output.Fail(refusal);
     }
 
