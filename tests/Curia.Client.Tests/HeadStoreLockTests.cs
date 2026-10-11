@@ -47,6 +47,10 @@ public sealed class HeadStoreLockTests : IDisposable
     /// fetch until B, served 20, has returned. Without the lock B reads 10, retains 20 and says so,
     /// and A then writes 15 over it -- the retained head moved backwards and a verification reported
     /// retaining a head that is no longer retained.
+    ///
+    /// <para>B's refusal is the oracle for the lock spanning the fetch. A lock around a re-read and the
+    /// write lets B retain 20 and A report 10 to 15 verified without comparing 15 with 20; the
+    /// final-size oracle alone cannot see that.</para>
     /// </summary>
     [Fact]
     public async Task R6_53_TwoVerificationsInterleavedLeaveTheLargerHead()
@@ -88,6 +92,14 @@ public sealed class HeadStoreLockTests : IDisposable
 
         var first = await a;
 
+        // B started while A held the lock across its fetch.
+        Assert.Equal(CheckOutcome.CouldNotCheck, b.Consistency.Outcome);
+        Assert.Contains("held elsewhere", b.Consistency.Detail, StringComparison.Ordinal);
+
+        Assert.Equal(CheckOutcome.Verified, first.Consistency.Outcome);
+        Assert.Equal(15, Retained(first));
+        Assert.Equal(15, heads.Read(StubLog.Forum)!.TreeSize);
+
         var reported = new[] { first, b }.Select(Retained).OfType<long>().ToList();
         Assert.NotEmpty(reported);
 
@@ -120,6 +132,7 @@ public sealed class HeadStoreLockTests : IDisposable
 
         Assert.Equal(CheckOutcome.CouldNotCheck, result.Consistency.Outcome);
         Assert.Contains(HeadStore.Origin(StubLog.Forum), result.Consistency.Detail, StringComparison.Ordinal);
+        Assert.Contains("held elsewhere", result.Consistency.Detail, StringComparison.Ordinal);
         Assert.Equal(before, await File.ReadAllBytesAsync(retained, ct));
     }
 
@@ -224,9 +237,17 @@ public sealed class HeadStoreLockTests : IDisposable
     }
 
     /// <summary>
-    /// The lock's wait is measured on the <see cref="TimeProvider"/> it is given (CS-9). On a clock
-    /// that does not move, a held lock is waited for however much wall-clock time passes; advanced
-    /// past the wait, the clock ends it.
+    /// The lock's bound and its retry are both measured on the <see cref="TimeProvider"/> it is given
+    /// (CS-9), each by a phase that carries information without leaning on real-time margins.
+    ///
+    /// <para><b>Phase 1, the bound is the provider's.</b> With the lock held and a 10 min wait, the
+    /// provider is advanced past the wait at once, before any real time passes. A bound read from the
+    /// wall clock sees under 10 min, parks again on a provider delay that never fires, and the 5 s
+    /// real-time wait for the refusal times out.</para>
+    ///
+    /// <para><b>Phase 2, the retry delay is the provider's.</b> The lock is released after
+    /// <c>LockAsync</c> started. After 1 s of real time it has not completed: a retry delayed on the
+    /// wall clock would have tried again and taken the freed lock. Advanced 50 ms, it takes it.</para>
     /// </summary>
     [Fact]
     public async Task R6_53_TheWaitIsTheTimeProvidersNotTheWallClocks()
@@ -235,23 +256,198 @@ public sealed class HeadStoreLockTests : IDisposable
         var heads = new HeadStore(_home);
         var directory = heads.DirectoryFor(StubLog.Forum);
         Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "head.lock");
+        var wait = TimeSpan.FromMinutes(10);
 
-        using var held = new FileStream(
-            Path.Combine(directory, "head.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        // Phase 1: the bound. LockAsync's first contended attempt and its delay registration run
+        // before the task is returned, so advancing at once is advancing a parked wait.
+        using (new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            var clock = new ManualTimeProvider(new DateTimeOffset(2026, 10, 6, 0, 0, 0, TimeSpan.Zero));
+            var locking = heads.LockAsync(StubLog.Forum, wait, clock, ct);
+            Assert.False(locking.IsCompleted, "the lock was taken while another open held it");
 
-        var clock = new ManualTimeProvider(new DateTimeOffset(2026, 10, 6, 0, 0, 0, TimeSpan.Zero));
-        var wait = TimeSpan.FromMilliseconds(200);
+            clock.Advance(wait + TimeSpan.FromMilliseconds(50));
 
-        var locking = heads.LockAsync(StubLog.Forum, wait, clock, ct);
+            var refused = await locking.WaitAsync(TimeSpan.FromSeconds(5), ct);
+            Assert.False(refused.TryGetValue(out var lease, out var refusal));
+            lease?.Dispose();
+            Assert.Contains("held elsewhere", refusal!.Detail, StringComparison.Ordinal);
+        }
+
+        // Phase 2: the retry.
+        var held = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        Task<Curia.Domain.Primitives.Result<IDisposable>> retrying;
+        ManualTimeProvider retryClock;
+        try
+        {
+            retryClock = new ManualTimeProvider(new DateTimeOffset(2026, 10, 6, 0, 0, 0, TimeSpan.Zero));
+            retrying = heads.LockAsync(StubLog.Forum, wait, retryClock, ct);
+            Assert.False(retrying.IsCompleted, "the lock was taken while another open held it");
+        }
+        finally
+        {
+            await held.DisposeAsync();
+        }
 
         await Task.Delay(TimeSpan.FromSeconds(1), ct);
-        Assert.False(locking.IsCompleted, "the lock's wait ended on the wall clock");
+        Assert.False(retrying.IsCompleted, "the retry waited on the wall clock");
 
-        clock.Advance(wait + TimeSpan.FromMilliseconds(50));
+        retryClock.Advance(TimeSpan.FromMilliseconds(50));
 
-        var result = await locking.WaitAsync(TimeSpan.FromSeconds(5), ct);
-        Assert.False(result.TryGetValue(out var lease, out _));
-        lease?.Dispose();
+        var taken = await retrying.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.True(taken.TryGetValue(out var retaken, out var failed), failed?.Detail);
+        retaken!.Dispose();
+    }
+
+    /// <summary>
+    /// Only contention is waited for. Any other I/O failure is refused at once, naming the path, and
+    /// is never reported as held elsewhere: a false "held elsewhere" is a claim this client did not
+    /// check (D37). Each case runs on a clock that is never advanced with a 10 min wait, so a retry
+    /// loop could never end and shows as a timeout, with no real-time margin.
+    ///
+    /// <para><b>Case A</b>: a regular file where the lock's directory belongs, so the directory
+    /// cannot be created. <b>Case B</b>: <c>head.lock</c> a symbolic link to itself, so opening it
+    /// fails with <c>ELOOP</c>. ENOSPC and EMFILE fall to the same refusal and are not separately
+    /// probed.</para>
+    /// </summary>
+    [Fact]
+    public async Task R6_53_AnIOFailureOtherThanContentionIsRefusedAtOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var wait = TimeSpan.FromMinutes(10);
+
+        // Case A: the directory cannot be created.
+        var blocked = new HeadStore(Path.Combine(_home, "case-a"));
+        var directory = blocked.DirectoryFor(StubLog.Forum);
+        Directory.CreateDirectory(Path.Combine(blocked.Root, "logs"));
+        await File.WriteAllTextAsync(directory, "not a directory", ct);
+
+        var clockA = new ManualTimeProvider(new DateTimeOffset(2026, 10, 6, 0, 0, 0, TimeSpan.Zero));
+        var caseA = await blocked.LockAsync(StubLog.Forum, wait, clockA, ct).WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.False(caseA.TryGetValue(out var leaseA, out var refusalA));
+        leaseA?.Dispose();
+        Assert.DoesNotContain("held elsewhere", refusalA!.Detail, StringComparison.Ordinal);
+        Assert.Contains("could not be created", refusalA.Detail, StringComparison.Ordinal);
+        Assert.Contains(Check.Quote(directory), refusalA.Detail, StringComparison.Ordinal);
+
+        // Case B: head.lock is a symbolic link to itself. POSIX only, and said so rather than skipped.
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("a self-referencing symbolic link is ELOOP on POSIX");
+
+        var looped = new HeadStore(Path.Combine(_home, "case-b"));
+        var lockPath = Path.Combine(looped.DirectoryFor(StubLog.Forum), "head.lock");
+        Directory.CreateDirectory(looped.DirectoryFor(StubLog.Forum));
+        File.CreateSymbolicLink(lockPath, lockPath);
+
+        var clockB = new ManualTimeProvider(new DateTimeOffset(2026, 10, 6, 0, 0, 0, TimeSpan.Zero));
+        var caseB = await looped.LockAsync(StubLog.Forum, wait, clockB, ct).WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.False(caseB.TryGetValue(out var leaseB, out var refusalB));
+        leaseB?.Dispose();
+        Assert.DoesNotContain("held elsewhere", refusalB!.Detail, StringComparison.Ordinal);
+        Assert.Contains("could not be locked at", refusalB.Detail, StringComparison.Ordinal);
+        Assert.Contains(Check.Quote(lockPath), refusalB.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A lock the runtime opens without excluding anyone is not a lock. Under
+    /// <c>DOTNET_SYSTEM_IO_DISABLEFILELOCKING=1</c> the runtime skips <c>flock</c>, and since it
+    /// caches that switch at the first <c>FileStream</c>, it cannot be set in this process: each case
+    /// runs in a child, this test assembly run by the xUnit in-process runner on one method, with the
+    /// variable set.
+    ///
+    /// <para><b>Case (a)</b>, the default wiring: a default <see cref="HeadStore"/> refuses naming the
+    /// switch. <b>Case (b)</b>, the self-probe on the real <c>FileStream</c> path: with the switch check
+    /// bypassed, the lock is refused as not enforced, never as held elsewhere. Each case is its own
+    /// child, so a run shows which failed; the runner's summary must count one test run, none failed,
+    /// skipped or not run, so a filter matching nothing is red.</para>
+    /// </summary>
+    [Fact]
+    public async Task R6_53_LockingTheRuntimeDoesNotEnforceIsCouldNotCheck()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var home = Directory.CreateTempSubdirectory("curia-lock-child-").FullName;
+        var failures = new List<string>();
+
+        try
+        {
+            foreach (var method in new[]
+            {
+                nameof(R6_53_ChildUnderTheProcessLockingSwitch_TheDefaultWiringNamesTheSwitch),
+                nameof(R6_53_ChildUnderTheProcessLockingSwitch_TheProbeFindsTheLockUnenforced),
+            })
+            {
+                var (exit, output, error) = await RunChildAsync(method, home, ct);
+
+                string[] summary = ["Total: 1,", "Errors: 0,", "Failed: 0,", "Skipped: 0,", "Not Run: 0,"];
+                if (exit != 0 || summary.Any(part => !output.Contains(part, StringComparison.Ordinal)))
+                    failures.Add($"{method}: exit {exit}\n--- stdout\n{output}\n--- stderr\n{error}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
+
+        Assert.True(failures.Count == 0, string.Join("\n\n", failures));
+    }
+
+    /// <summary>
+    /// Case (a) of <see cref="R6_53_LockingTheRuntimeDoesNotEnforceIsCouldNotCheck"/>. In the child,
+    /// under the switch, a default <see cref="HeadStore"/> refuses naming the switch, and not as the
+    /// self-probe's "not enforced". In this process's own run, where the switch is off, it locks.
+    /// </summary>
+    [Fact]
+    public async Task R6_53_ChildUnderTheProcessLockingSwitch_TheDefaultWiringNamesTheSwitch()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var home = ChildHome();
+
+        if (UnderTheSwitch())
+        {
+            AssertTheRuntimeDoesNotLock(home);
+
+            var locked = await new HeadStore(home).LockAsync(StubLog.Forum, TimeSpan.Zero, TimeProvider.System, ct);
+            Assert.False(locked.TryGetValue(out var lease, out var refusal));
+            lease?.Dispose();
+            Assert.Contains(Switch, refusal!.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("not enforced", refusal.Detail, StringComparison.Ordinal);
+        }
+        else
+        {
+            var locked = await new HeadStore(home).LockAsync(StubLog.Forum, TimeSpan.Zero, TimeProvider.System, ct);
+            Assert.True(locked.TryGetValue(out var lease, out var refusal), refusal?.Detail);
+            lease!.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Case (b) of <see cref="R6_53_LockingTheRuntimeDoesNotEnforceIsCouldNotCheck"/>. In the child,
+    /// under the switch and with the switch check bypassed, the self-probe finds a second exclusive
+    /// open succeeding and refuses the lock as not enforced. In this process's own run it locks.
+    /// </summary>
+    [Fact]
+    public async Task R6_53_ChildUnderTheProcessLockingSwitch_TheProbeFindsTheLockUnenforced()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var heads = new HeadStore(ChildHome()) { LockingDisabled = () => false };
+
+        if (UnderTheSwitch())
+        {
+            AssertTheRuntimeDoesNotLock(heads.Root);
+
+            var locked = await heads.LockAsync(StubLog.Forum, TimeSpan.Zero, TimeProvider.System, ct);
+            Assert.False(locked.TryGetValue(out var lease, out var refusal));
+            lease?.Dispose();
+            Assert.Contains("not enforced", refusal!.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("held elsewhere", refusal.Detail, StringComparison.Ordinal);
+        }
+        else
+        {
+            var locked = await heads.LockAsync(StubLog.Forum, TimeSpan.Zero, TimeProvider.System, ct);
+            Assert.True(locked.TryGetValue(out var lease, out var refusal), refusal?.Detail);
+            lease!.Dispose();
+        }
     }
 
     /// <summary>
@@ -279,6 +475,74 @@ public sealed class HeadStoreLockTests : IDisposable
         Assert.Equal(CheckOutcome.CouldNotCheck, result.Consistency.Outcome);
         Assert.Contains("retained no earlier head", result.Consistency.Detail, StringComparison.Ordinal);
         Assert.Equal(log.HeadTreeSize, heads.Read(StubLog.Forum)!.TreeSize);
+    }
+
+    private const string ChildHomeVariable = "CURIA_LOCK_CHILD_HOME";
+
+    private static bool UnderTheSwitch() => Environment.GetEnvironmentVariable(Variable) == "1";
+
+    /// <summary>The child's home, which its parent creates and deletes; this test's own otherwise.</summary>
+    private string ChildHome() => Environment.GetEnvironmentVariable(ChildHomeVariable) is { Length: > 0 } home
+        ? home
+        : _home;
+
+    /// <summary>
+    /// The precondition of both child cases: the runtime really is not locking, so two exclusive opens
+    /// of one path both succeed. Without it a red could be the runtime ignoring the variable.
+    /// </summary>
+    private static void AssertTheRuntimeDoesNotLock(string home)
+    {
+        Directory.CreateDirectory(home);
+        var path = Path.Combine(home, "precondition.lock");
+        using var first = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var second = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    /// <summary>
+    /// Runs one method of this test assembly in a child under <c>DOTNET_SYSTEM_IO_DISABLEFILELOCKING=1</c>.
+    /// The host is the one running this process: <c>DOTNET_HOST_PATH</c>, else this process if it is
+    /// <c>dotnet</c>, else <c>dotnet</c> on the path. Killed, with its tree, after 60 s.
+    /// </summary>
+    private static async Task<(int Exit, string Output, string Error)> RunChildAsync(
+        string method, string home, CancellationToken ct)
+    {
+        var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } set
+            ? set
+            : Environment.ProcessPath is { } self
+                && string.Equals(Path.GetFileNameWithoutExtension(self), "dotnet", StringComparison.Ordinal)
+                    ? self
+                    : "dotnet";
+
+        var start = new ProcessStartInfo(host)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "Curia.Client.Tests.dll"));
+        start.ArgumentList.Add("-method");
+        start.ArgumentList.Add($"{typeof(HeadStoreLockTests).FullName}.{method}");
+        start.ArgumentList.Add("-noColor");
+        start.Environment[Variable] = "1";
+        start.Environment[ChildHomeVariable] = home;
+
+        using var child = Process.Start(start)
+            ?? throw new InvalidOperationException($"{host} did not start for {method}");
+
+        var output = child.StandardOutput.ReadToEndAsync(ct);
+        var error = child.StandardError.ReadToEndAsync(ct);
+
+        try
+        {
+            await child.WaitForExitAsync(ct).WaitAsync(TimeSpan.FromSeconds(60), ct);
+        }
+        catch (TimeoutException)
+        {
+            child.Kill(entireProcessTree: true);
+            throw;
+        }
+
+        return (child.ExitCode, await output, await error);
     }
 
     /// <summary>The tree size a verification reported retaining, or null when it retained nothing.</summary>

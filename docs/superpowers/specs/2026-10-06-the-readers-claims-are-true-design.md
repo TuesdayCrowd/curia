@@ -139,11 +139,17 @@ writing or deciding not to; failing within 30 s is `Check.CouldNotCheck` naming 
 untouched. Held across the fetch, not only the write: a compare-and-swap at write time would refuse 15
 over 20 but would report 10→15 verified without comparing 15 with 20, and a fork between them is what
 R6.53 keeps the head to find.
+Only the sharing violation is retried (`IsContention`, by `HResult`); any other I/O failure, failing to
+create the directory among them, is refused at once naming the path, because a false 'held elsewhere'
+is a claim the reader did not check (D37's concern).
 
 **Locking switched off.** When `AppContext.TryGetSwitch("System.IO.DisableFileLocking", …)` is true, or
 `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` is `1` or `true`, the `FileStream` opens without excluding anyone.
 `LockAsync` then returns a refusal naming the switch and consistency is could-not-check — loud rather
-than a silent race. A fact sets the switch (in a child process: the switch is read once per process) and
+than a silent race. A lock is also shown to exclude rather than assumed to: after opening, `LockAsync`
+makes a second exclusive open of the same path in this process, which a working `flock` refuses (it is
+per open file description); if that open succeeds, as on a filesystem without `flock`, the lock is
+refused as not enforced. A fact sets the switch (in a child process: the switch is read once per process) and
 asserts the refusal. *Whether the runtime reads the environment variable through `AppContext` was not
 checked; the fact reads both and its red run settles which.*
 
@@ -256,7 +262,7 @@ R10.71's token rule. **Left open:** the name `browse`; the mark threshold (measu
 - **EXIT CODES 6** names R10.71. Red when the entry is restored.
 - **R6.53 (add.):** two verifiers over one retained head at 10, one served 15 and held at its fetch while
   the other, served 20, returns: the final retained size equals the largest any verification reported
-  retaining. Red without the lock, and with the lock around the write only. A child `python3` holding
+  retaining. Red without the lock, with the lock around the write only, and with a lock around a re-read and the write. A child `python3` holding
   `flock` → could-not-check, head unchanged. A child process (the test host re-invoked or a console under `tests/Shared`) with file locking switched off →
   could-not-check naming the switch. **The cross-process facts must pass on CI's Linux runner** before
   the PR merges.
@@ -370,7 +376,9 @@ revision: `git grep` over `origin/main` for the control token's sources, for hea
 exclusion in- and cross-process; the terminal-security critique's probes P1–P5.
 
 **Not checked:** nothing applied or built. The span mismatch and the race were traced, not run. Linux
-not run. Whether `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` is visible through `AppContext` not checked. No
+not run. `DOTNET_SYSTEM_IO_DISABLEFILELOCKING=1` in the environment alone turns locking off (A2's child
+fact: two exclusive opens both succeed in a child under it, and a default `HeadStore` there refuses naming
+the switch). No
 terminal emulator driven; every screen claim in §9 is reasoning until PR B's B4. The titled index's byte
 size is an estimate.
 
