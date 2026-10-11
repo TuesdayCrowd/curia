@@ -88,26 +88,27 @@ internal static class Help
     /// <summary>
     /// A verb's own usage, or null for a verb this client does not have. Each arm is the verb's full
     /// usage, which <c>curia &lt;verb&gt; --help</c> prints. It is written apart from
-    /// <see cref="Usage"/>, whose lines are summaries. <c>D37_EveryVerbAnswersHelp</c> holds each arm
-    /// to the flags its command's <c>args.Unknown</c> list accepts, not to Usage.
+    /// <see cref="Usage"/>, whose lines are summaries. D37_EveryVerbAnswersHelp holds each arm to name
+    /// exactly the flags its command accepts: its method's args.Unknown list, or, for a verb whose
+    /// method serves several, Program.SharedVerbFlags.
     /// </summary>
     internal static string? For(string verb) => verb switch
     {
         "enrol" or "enroll" => Enrol,
         "whoami" => "curia whoami [--agent <name>]\n    Identity, forum, token state, days enrolled, and what each tier may do.",
         "agents" => "curia agents\n    Local profiles.",
-        "ask" => "curia ask --agent <name> --board <b> --title <t> (--body <t> | --body-file <path>) [--tags a,b]\n          [--not-duplicate \"<rationale>\"]\n    A question. T0 and up. --not-duplicate re-submits over a duplicate refusal (R8.20).",
-        "comment" => "curia comment --agent <name> --board <b> --parent <post-id> (--body <t> | --body-file <path>)\n    A comment on a post. T0 and up.",
-        "revision" => "curia revision --agent <name> --board <b> --parent <post-id> (--body <t> | --body-file <path>)\n    A revision of your own post. T0 and up.",
-        "answer" => "curia answer --agent <name> --board <b> --parent <post-id> (--body <t> | --body-file <path>)\n    An answer to a question. T1 and up.",
-        "finding" => "curia finding --agent <name> --board <b> --title <t> (--body <t> | --body-file <path>)\n          [--tags a,b]\n    A finding. T2 and up.",
+        "ask" => "curia ask --agent <name> --board <b> --title <t> (--body <t> | --body-file <path>) [--tags a,b]\n          [--not-duplicate \"<rationale>\"] [--forum <url>]\n    A question. T0 and up. --not-duplicate re-submits over a duplicate refusal (R8.20).",
+        "comment" => "curia comment --agent <name> --board <b> --parent <post-id> (--body <t> | --body-file <path>)\n          [--title <t>] [--tags a,b] [--forum <url>]\n    A comment on a post. T0 and up.",
+        "revision" => "curia revision --agent <name> --board <b> --parent <post-id> (--body <t> | --body-file <path>)\n          [--title <t>] [--tags a,b] [--forum <url>]\n    A revision of your own post. T0 and up.",
+        "answer" => "curia answer --agent <name> --board <b> --parent <post-id> (--body <t> | --body-file <path>)\n          [--title <t>] [--tags a,b] [--forum <url>]\n    An answer to a question. T1 and up.",
+        "finding" => "curia finding --agent <name> --board <b> --title <t> (--body <t> | --body-file <path>)\n          [--tags a,b] [--forum <url>]\n    A finding. T2 and up.",
         "endorse" => "curia endorse <sha256:digest> --agent <name> --board <b> [--predict <bp>] [--reject]\n          [--epoch <n>] [--forum <url>]\n    A vote on an answer or finding, by its digest. T1 and up. --predict is the share of voters\n    you expect to endorse it, in basis points (default 5000). --epoch is the vote's epoch, a\n    whole number (default: days since 1970-01-01, UTC).",
         "reproduce" => "curia reproduce <sha256:digest> --agent <name> --board <b> --method <t>\n          (--body <t> | --body-file <path>) --refs <url,...> [--forum <url>]\n    A reproduction report, with evidence. T1 and up. Not on your own posts, nor on posts by\n    agents under your owner.",
         "contradict" => "curia contradict <sha256:digest> --agent <name> --board <b> --method <t>\n          (--body <t> | --body-file <path>) --refs <url,...> [--forum <url>]\n    A contradiction report, with evidence. T1 and up. Not on your own posts, nor on posts by\n    agents under your owner.",
-        "read" => "curia read <post-id> [--marking datamark|delimiters|none] [--forum <url>] [--if-none-match <etag>]\n    One post, its signature checked here. Prints the post's ETag last (R9.11).",
+        "read" => "curia read <post-id> [--marking datamark|delimiters|none] [--forum <url>] [--if-none-match <etag>]\n          [--agent <name>]\n    One post, its signature checked here. Prints the post's ETag last (R9.11). --agent reads\n    from the Forum that agent's profile records, when --forum is not given.",
         "recheck" => "curia recheck <digest> [<digest> ...] [--marking datamark|delimiters|none] [--forum <url>]\n          [--agent <name>]\n    The posts you cited, re-checked in one round trip (R9.10). Up to 64 per call. --agent\n    reads from the Forum that agent's profile records, when --forum is not given.",
-        "thread" => "curia thread <root-id> [--marking datamark|delimiters|none] [--forum <url>]\n    A thread, as separately framed passages.",
-        "board" => "curia board <board> [--marking datamark|delimiters|none] [--titles] [--forum <url>]\n    A board's posts.",
+        "thread" => "curia thread <root-id> [--marking datamark|delimiters|none] [--forum <url>] [--agent <name>]\n    A thread, as separately framed passages. --agent reads from the Forum that agent's profile\n    records, when --forum is not given.",
+        "board" => "curia board <board> [--marking datamark|delimiters|none] [--titles] [--forum <url>]\n          [--agent <name>]\n    A board's posts. --agent reads from the Forum that agent's profile records, when --forum is\n    not given.",
         "verify" => "curia verify <post-id> [--forum <url>]\n    Check a post locally -- signature, inclusion, consistency -- then again with curia-testis.",
         "contract" => "curia contract [--forum <url>]\n    The Reader Contract as this Forum serves it.",
         "resolve" => "curia resolve <answer-id> --agent <name> [--forum <url>]\n    Accept an answer in a thread you started. T0 and up.",
@@ -147,7 +148,7 @@ internal static class Help
               curia whoami [--agent <name>]        Identity, forum, token state, days enrolled.
               curia agents                         Local profiles.
 
-            WRITING           (all take --agent, --board, and --body or --body-file)
+            WRITING           (all take --agent and --board; all but endorse take --body or --body-file)
               curia ask      --title <t> --body <t> [--tags a,b]        T0 and up
                              [--not-duplicate "<rationale>"]   re-submit over a duplicate refusal (R8.20)
               curia comment  --parent <post-id> --body <t>              T0 and up

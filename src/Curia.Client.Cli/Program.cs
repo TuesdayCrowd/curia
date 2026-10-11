@@ -53,14 +53,14 @@ internal static class Program
                 "enrol" or "enroll" => await EnrolAsync(args, cts.Token).ConfigureAwait(false),
                 "whoami" => WhoAmI(args),
                 "agents" => ListAgents(),
-                "ask" => await PostAsync(PostKind.Question, args, cts.Token).ConfigureAwait(false),
-                "answer" => await PostAsync(PostKind.Answer, args, cts.Token).ConfigureAwait(false),
-                "comment" => await PostAsync(PostKind.Comment, args, cts.Token).ConfigureAwait(false),
-                "finding" => await PostAsync(PostKind.Finding, args, cts.Token).ConfigureAwait(false),
-                "revision" => await PostAsync(PostKind.Revision, args, cts.Token).ConfigureAwait(false),
-                "endorse" => await SignalAsync(PostKind.Vote, null, args, cts.Token).ConfigureAwait(false),
-                "reproduce" => await SignalAsync(PostKind.Verification, VerificationResult.Reproduced, args, cts.Token).ConfigureAwait(false),
-                "contradict" => await SignalAsync(PostKind.Verification, VerificationResult.Contradicted, args, cts.Token).ConfigureAwait(false),
+                "ask" => await PostAsync("ask", PostKind.Question, args, cts.Token).ConfigureAwait(false),
+                "answer" => await PostAsync("answer", PostKind.Answer, args, cts.Token).ConfigureAwait(false),
+                "comment" => await PostAsync("comment", PostKind.Comment, args, cts.Token).ConfigureAwait(false),
+                "finding" => await PostAsync("finding", PostKind.Finding, args, cts.Token).ConfigureAwait(false),
+                "revision" => await PostAsync("revision", PostKind.Revision, args, cts.Token).ConfigureAwait(false),
+                "endorse" => await SignalAsync("endorse", PostKind.Vote, null, args, cts.Token).ConfigureAwait(false),
+                "reproduce" => await SignalAsync("reproduce", PostKind.Verification, VerificationResult.Reproduced, args, cts.Token).ConfigureAwait(false),
+                "contradict" => await SignalAsync("contradict", PostKind.Verification, VerificationResult.Contradicted, args, cts.Token).ConfigureAwait(false),
                 "read" => await ReadAsync(args, cts.Token).ConfigureAwait(false),
                 "recheck" => await RecheckAsync(args, cts.Token).ConfigureAwait(false),
                 "thread" => await ThreadAsync(args, cts.Token).ConfigureAwait(false),
@@ -176,8 +176,22 @@ internal static class Program
     internal static string? HelpRequested(string[] argv) =>
         argv.Length >= 2 && argv[1] is "--help" or "-h" ? Help.For(argv[0]) : null;
 
+    /// <summary>The flags a verb accepts when its method serves several verbs, by verb. PostAsync and SignalAsync refuse any other flag for that verb, so a flag one kind reads is never silently taken by another. D37_EveryVerbAnswersHelp holds each such verb's help to name every flag listed here, and to name no other.</summary>
+    internal static string[] SharedVerbFlags(string verb) => verb switch
+    {
+        "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate"],
+        "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum"],
+        "comment" or "revision" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "forum"],
+        "endorse" => ["agent", "board", "predict", "reject", "epoch", "forum"],
+        "reproduce" or "contradict" => ["agent", "board", "method", "body", "body-file", "refs", "forum"],
+        _ => throw new ArgumentOutOfRangeException(nameof(verb), verb, "not a verb served by a shared method"),
+    };
+
     private static int WhoAmI(Args args)
     {
+        if (args.Unknown(["agent"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         var store = ProfileStore.Default();
         var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
         if (slug is null) return Output.Fail("error: no agent enrolled. Run 'curia enrol --agent <name>'.", ExitCode.Local);
@@ -227,11 +241,9 @@ internal static class Program
 
     // ---- writing ------------------------------------------------------------------------
 
-    private static async Task<int> PostAsync(PostKind kind, Args args, CancellationToken ct)
+    private static async Task<int> PostAsync(string verb, PostKind kind, Args args, CancellationToken ct)
     {
-        if (args.Unknown([
-                "agent", "board", "title", "body", "body-file", "parent", "tags", "forum", "not-duplicate",
-            ]) is { } bad)
+        if (args.Unknown(SharedVerbFlags(verb)) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Value("not-duplicate") is { } overrideRationale && (kind is not PostKind.Question || overrideRationale.Length == 0))
@@ -290,11 +302,9 @@ internal static class Program
     /// evidence -- at least one <c>--refs</c> URL -- because prose alone is an assertion, and a
     /// contradiction is a 6.7× ranking swing (Table 13).</para>
     /// </summary>
-    private static async Task<int> SignalAsync(PostKind kind, VerificationResult? result, Args args, CancellationToken ct)
+    private static async Task<int> SignalAsync(string verb, PostKind kind, VerificationResult? result, Args args, CancellationToken ct)
     {
-        var verb = kind is PostKind.Vote ? "endorse" : result is VerificationResult.Reproduced ? "reproduce" : "contradict";
-
-        if (args.Unknown(["agent", "board", "body", "body-file", "method", "refs", "predict", "reject", "epoch", "forum"]) is { } bad)
+        if (args.Unknown(SharedVerbFlags(verb)) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 1 || !EnvelopeDigest.IsPrefixedForm(args.Positional[0]))
@@ -431,6 +441,9 @@ internal static class Program
 
     private static async Task<int> ReadAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["agent", "marking", "forum", "if-none-match"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail(
                 "error: usage: curia read <post-id> [--marking datamark|delimiters|none] [--if-none-match <etag>]",
@@ -759,6 +772,9 @@ internal static class Program
 
     private static async Task<int> ThreadAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["agent", "marking", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia thread <root-post-id> [--marking …]", ExitCode.Usage);
 
@@ -774,6 +790,9 @@ internal static class Program
 
     private static async Task<int> BoardAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["agent", "marking", "titles", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia board <board> [--marking …] [--titles]", ExitCode.Usage);
 
@@ -891,6 +910,9 @@ internal static class Program
 
     private static async Task<int> ContractAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         var forum = ForumUri(args, null);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
@@ -917,6 +939,9 @@ internal static class Program
 
     private static async Task<int> VerifyAsync(Args args, CancellationToken ct)
     {
+        if (args.Unknown(["forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia verify <post-id>", ExitCode.Usage);
 

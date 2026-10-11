@@ -255,29 +255,32 @@ public sealed class HelpTextTests
     /// (FA12's target, which is why the unknown verb is asserted: a <c>For</c> that answered everything
     /// would pass the rest).
     ///
-    /// <para><b>Its own usage, held to its own command.</b> The verbs and the method each calls are read
-    /// from <c>Main</c>'s dispatch, and each method's <c>args.Unknown</c> list from its source: a
-    /// different artifact from the help. A verb's usage is not the whole of <see cref="Help.Usage"/>
-    /// (i), begins with the verb (ii), names no other verb's command (iii), names only flags its method
-    /// accepts (iv), and, where the method serves that verb alone, names every one of them (v) (FA41's
-    /// and FA42's target).</para>
+    /// <para><b>Its own usage, held to its own command.</b> The verbs, the method each calls and the verb
+    /// literal it passes are read from <c>Main</c>'s dispatch; each method's accepted flags from its one
+    /// <c>args.Unknown</c> call, a literal list where the method serves one verb and
+    /// <c>Program.SharedVerbFlags(verb)</c> where it serves several: a different artifact from the help.
+    /// A verb's usage is not the whole of <see cref="Help.Usage"/> (i), begins with the verb (ii), names
+    /// no other verb's command (iii), names only flags the verb accepts (iv) and every one of them (v);
+    /// every dispatched method taking <c>Args</c> calls <c>args.Unknown(</c> once (vi); and the flags a
+    /// method's verbs accept are the flags it reads (vii) (FA41's, FA42's and FA46-FA51's target).</para>
     /// </summary>
     [Fact]
     public void D37_EveryVerbAnswersHelp()
     {
         var program = SourceText("src/Curia.Client.Cli/Program.cs");
-        var main = MethodSource(program, "private static async Task<int> Main(");
-        var dispatch = main[main.IndexOf("return command switch", StringComparison.Ordinal)..];
-        dispatch = dispatch[..dispatch.IndexOf("_ =>", StringComparison.Ordinal)];
+        var dispatch = Dispatch(program);
 
-        // Each arm: the whole quoted alternation, then the method it calls.
-        var arms = Regex.Matches(dispatch, "((?:\"[a-z]+\"\\s*or\\s*)*\"[a-z]+\")\\s*=>\\s*(?:await\\s+)?([A-Za-z]+)\\(")
+        // Each arm: the whole quoted alternation, the method it calls, and the verb literal it passes.
+        var arms = Regex.Matches(dispatch, "((?:\"[a-z]+\"\\s*or\\s*)*\"[a-z]+\")\\s*=>\\s*(?:await\\s+)?([A-Za-z]+)\\(\\s*(?:\"([a-z]+)\"\\s*,)?")
             .Select(m => (
                 Verbs: Regex.Matches(m.Groups[1].Value, "\"([a-z]+)\"").Select(v => v.Groups[1].Value).ToList(),
-                Method: m.Groups[2].Value))
+                Method: m.Groups[2].Value,
+                Literal: m.Groups[3].Success ? m.Groups[3].Value : null))
             .ToList();
         var method = arms.SelectMany(a => a.Verbs.Select(v => (Verb: v, a.Method)))
             .ToDictionary(p => p.Verb, p => p.Method, StringComparer.Ordinal);
+        var literal = arms.SelectMany(a => a.Verbs.Select(v => (Verb: v, a.Literal)))
+            .ToDictionary(p => p.Verb, p => p.Literal, StringComparer.Ordinal);
         var verbs = method.Keys.ToList();
         Assert.True(verbs.Count >= 20, "Main dispatches " + verbs.Count.ToString(CultureInfo.InvariantCulture) + " verbs: " + string.Join(' ', verbs));
         Assert.Contains("enrol", verbs);
@@ -289,9 +292,36 @@ public sealed class HelpTextTests
             .GroupBy(p => p.Value, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
+        // (vi) every dispatched method taking Args calls args.Unknown( exactly once; only ListAgents takes none.
+        var argsless = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var name in servedBy.Keys)
+        {
+            var declaration = DeclarationOf(program, name);
+            if (!Regex.IsMatch(declaration, "\\bArgs args\\b"))
+            {
+                argsless.Add(name);
+                continue;
+            }
+
+            var calls = Regex.Count(MethodSource(program, declaration), "args\\.Unknown\\(");
+            Assert.True(calls == 1, $"{name} calls args.Unknown( {calls} times");
+        }
+
+        Assert.True(argsless.SetEquals(["ListAgents"]), "dispatched methods without an Args parameter: " + string.Join(", ", argsless));
+
+        // Program.SharedVerbFlags answers exactly the verbs whose method serves more than one.
+        foreach (var verb in verbs)
+        {
+            if (servedBy[method[verb]] == 1)
+                Assert.Throws<ArgumentOutOfRangeException>(() => Program.SharedVerbFlags(verb));
+            else
+                Assert.NotEmpty(Program.SharedVerbFlags(verb));
+        }
+
         var width = Help.Usage.Split('\n').Max(l => l.Length);
-        var withList = new SortedSet<string>(StringComparer.Ordinal);
+        var onlyAccepted = new SortedSet<string>(StringComparer.Ordinal);
         var everyFlagNamed = new SortedSet<string>(StringComparer.Ordinal);
+        var acceptedByMethod = new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal);
 
         foreach (var verb in verbs)
         {
@@ -322,49 +352,282 @@ public sealed class HelpTextTests
             foreach (var line in usage.Split('\n'))
                 Assert.True(line.Length <= width, $"'{verb}''s usage has a line of {line.Length} > {width}: {line}");
 
-            // (iv) only flags its method accepts.
+            if (method[verb] == "ListAgents")
+                continue;
+
+            // The flags this verb accepts: its method's literal list where the method serves it alone,
+            // Program.SharedVerbFlags(verb) where it serves several. Any other form fails.
             var source = MethodSource(program, DeclarationOf(program, method[verb]));
             var lists = Regex.Matches(source, "args\\.Unknown\\(\\[(.*?)\\]\\)", RegexOptions.Singleline);
-            Assert.True(lists.Count <= 1, $"{method[verb]} calls args.Unknown {lists.Count} times");
-            if (lists.Count == 0) continue;
+            HashSet<string> accepted;
+            if (lists.Count == 1)
+            {
+                Assert.True(servedBy[method[verb]] == 1, $"{method[verb]} has a literal args.Unknown list and serves {servedBy[method[verb]]} verbs");
+                accepted = Regex.Matches(lists[0].Groups[1].Value, "\"([a-z][a-z-]*)\"")
+                    .Select(m => m.Groups[1].Value)
+                    .ToHashSet(StringComparer.Ordinal);
+            }
+            else
+            {
+                Assert.True(
+                    Occurrences(source, "args.Unknown(SharedVerbFlags(verb))") == 1,
+                    $"{method[verb]} refuses unknown flags neither by a literal list nor by args.Unknown(SharedVerbFlags(verb))");
+                Assert.True(servedBy[method[verb]] > 1, $"{method[verb]} refuses by SharedVerbFlags and serves one verb");
+                Assert.True(literal[verb] == verb, $"the '{verb}' arm passes the verb literal '{literal[verb]}' to {method[verb]}");
+                accepted = Program.SharedVerbFlags(verb).ToHashSet(StringComparer.Ordinal);
+            }
 
-            withList.Add(method[verb]);
-            var accepted = Regex.Matches(lists[0].Groups[1].Value, "\"([a-z][a-z-]*)\"")
-                .Select(m => m.Groups[1].Value)
-                .ToHashSet(StringComparer.Ordinal);
             Assert.NotEmpty(accepted);
+            if (!acceptedByMethod.TryGetValue(method[verb], out var union))
+                acceptedByMethod[method[verb]] = union = new SortedSet<string>(StringComparer.Ordinal);
+            union.UnionWith(accepted);
 
+            // (iv) only flags the verb accepts.
+            onlyAccepted.Add(method[verb]);
             foreach (var named in Regex.Matches(usage, "--([a-z][a-z-]*)").Select(m => m.Groups[1].Value).Where(n => n != "help"))
-                Assert.True(accepted.Contains(named), $"'{verb}''s usage names --{named}, which {method[verb]} refuses (it accepts {string.Join(", ", accepted)})");
+                Assert.True(accepted.Contains(named), $"'{verb}''s usage names --{named}, which '{verb}' refuses (it accepts {string.Join(", ", accepted)})");
 
-            // (v) where the method serves this verb alone, every flag it accepts.
-            if (servedBy[method[verb]] != 1) continue;
-
+            // (v) every flag the verb accepts.
             everyFlagNamed.Add(method[verb]);
             foreach (var name in accepted)
                 Assert.True(
                     Regex.IsMatch(usage, "--" + name + "(?![a-z-])"),
-                    $"'{verb}''s usage omits --{name}, which {method[verb]} accepts: {usage}");
+                    $"'{verb}''s usage omits --{name}, which '{verb}' accepts: {usage}");
         }
 
-        // Non-vacuity: the methods with a list, and those held to name every flag, by name.
+        // Non-vacuity: every method but ListAgents is held to (iv) and (v), by name.
+        string[] heldMethods =
+        [
+            "EnrolAsync", "WhoAmI", "PostAsync", "SignalAsync", "ReadAsync", "RecheckAsync", "ThreadAsync", "BoardAsync",
+            "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync",
+        ];
+        Assert.True(onlyAccepted.SetEquals(heldMethods), "methods checked under (iv): " + string.Join(", ", onlyAccepted));
+        Assert.True(everyFlagNamed.SetEquals(heldMethods), "methods checked under (v): " + string.Join(", ", everyFlagNamed));
+
+        // Each shared arm's verb literal and kind, as a fixed map: a verb literal that disagreed with the
+        // kind it sends would pass every per-verb rule.
+        var shared = Regex.Matches(dispatch, "\"([a-z]+)\"\\s*=>\\s*await\\s+(PostAsync|SignalAsync)\\(\"([a-z]+)\",\\s*PostKind\\.([A-Za-z]+),\\s*(?:(null|VerificationResult\\.[A-Za-z]+),\\s*)?args")
+            .Select(m => $"{m.Groups[1].Value} {m.Groups[2].Value}(\"{m.Groups[3].Value}\", {m.Groups[4].Value}{(m.Groups[5].Success ? ", " + m.Groups[5].Value : string.Empty)})")
+            .ToHashSet(StringComparer.Ordinal);
+        string[] expectedShared =
+        [
+            "ask PostAsync(\"ask\", Question)",
+            "answer PostAsync(\"answer\", Answer)",
+            "comment PostAsync(\"comment\", Comment)",
+            "finding PostAsync(\"finding\", Finding)",
+            "revision PostAsync(\"revision\", Revision)",
+            "endorse SignalAsync(\"endorse\", Vote, null)",
+            "reproduce SignalAsync(\"reproduce\", Verification, VerificationResult.Reproduced)",
+            "contradict SignalAsync(\"contradict\", Verification, VerificationResult.Contradicted)",
+        ];
+        Assert.True(shared.SetEquals(expectedShared), "the shared methods' arms: " + string.Join(" | ", shared));
+
+        // Every writing verb takes --agent and --board, and all but endorse --body or --body-file, as the
+        // WRITING header says.
+        foreach (var verb in new[] { "ask", "answer", "comment", "revision", "finding", "endorse", "reproduce", "contradict" })
+        {
+            var flags = Program.SharedVerbFlags(verb);
+            Assert.Contains("agent", flags);
+            Assert.Contains("board", flags);
+            Assert.Equal(verb != "endorse", flags.Contains("body") && flags.Contains("body-file"));
+            Assert.Equal(verb != "endorse", flags.Contains("body") || flags.Contains("body-file"));
+        }
+
+        Assert.Contains("(all take --agent and --board; all but endorse take --body or --body-file)", Help.Usage, StringComparison.Ordinal);
+
+        // (vii) the flags a method's verbs accept are the flags it reads, through itself and the helpers
+        // it calls among SendDraftAsync, ReadContext, ForumUri and Marking; Text("x") reads x and x-file.
+        // Per method, not per verb: SignalAsync reads --body for a report and not for a vote.
+        // Named exemptions, each asserted to be needed: search accepts --titles and does not read it
+        // (A4's), and reads --agent only through ReadContext, after refusing it.
+        var acceptedNotRead = new HashSet<string>(StringComparer.Ordinal) { "SearchAsync --titles" };
+        var readNotAccepted = new HashSet<string>(StringComparer.Ordinal) { "SearchAsync --agent" };
+        var exemptionsUsed = new HashSet<string>(StringComparer.Ordinal);
+        Assert.True(acceptedByMethod.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(heldMethods), "methods checked under (vii): " + string.Join(", ", acceptedByMethod.Keys));
+        foreach (var (name, union) in acceptedByMethod)
+        {
+            var read = FlagsRead(program, name);
+            Assert.NotEmpty(read);
+            foreach (var flag in union.Where(f => !read.Contains(f)))
+            {
+                var key = $"{name} --{flag}";
+                Assert.True(acceptedNotRead.Contains(key), $"{name} accepts --{flag} and never reads it (reads {string.Join(", ", read)})");
+                exemptionsUsed.Add(key);
+            }
+
+            foreach (var flag in read.Where(f => !union.Contains(f)))
+            {
+                var key = $"{name} --{flag}";
+                Assert.True(readNotAccepted.Contains(key), $"{name} reads --{flag}, which none of its verbs accepts (they accept {string.Join(", ", union)})");
+                exemptionsUsed.Add(key);
+            }
+        }
+
         Assert.True(
-            withList.SetEquals(["EnrolAsync", "PostAsync", "SignalAsync", "RecheckAsync", "InboxAsync", "ResolveAsync", "SearchAsync", "FlagAsync", "FlagsAsync"]),
-            "methods checked under (iv): " + string.Join(", ", withList));
-        Assert.True(
-            everyFlagNamed.SetEquals(["EnrolAsync", "RecheckAsync", "InboxAsync", "ResolveAsync", "SearchAsync", "FlagAsync", "FlagsAsync"]),
-            "methods checked under (v): " + string.Join(", ", everyFlagNamed));
+            exemptionsUsed.SetEquals(acceptedNotRead.Concat(readNotAccepted)),
+            "(vii)'s exemptions in use: " + string.Join(", ", exemptionsUsed));
 
         Assert.Null(Program.HelpRequested(["ask", "--body", "-h"]));
         Assert.Null(Help.For("no-such-verb"));
     }
 
-    /// <summary>A method's declaration in <paramref name="source"/>, up to its parameter list, found once.</summary>
+    /// <summary>
+    /// D37: every verb but <c>agents</c>, run as <c>curia</c> itself in a child process, refuses a flag it
+    /// does not take before it reads a profile or dials a Forum: exit 1 and <c>unknown flag "--&lt;name&gt;"</c>
+    /// on stderr. Rules (iv)-(vii) read source text; this runs it, so an Unknown call whose result is
+    /// ignored, or one placed after a profile load or a network call, fails here. The verbs come from
+    /// <c>Main</c>'s dispatch; four rows more give a shared method's verb a flag another of its verbs takes.
+    /// </summary>
+    [Fact]
+    public async Task D37_EveryVerbRefusesAFlagItDoesNotTake()
+    {
+        var program = SourceText("src/Curia.Client.Cli/Program.cs");
+        var verbs = Regex.Matches(Dispatch(program), "\"([a-z]+)\"(?=(?:\\s*or\\s*\"[a-z]+\")*\\s*=>)")
+            .Select(m => m.Groups[1].Value)
+            .Where(v => v != "agents")
+            .ToList();
+        Assert.True(verbs.Count >= 20, "verbs read from the dispatch: " + string.Join(' ', verbs));
+
+        const string digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        var positional = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["endorse"] = digest,
+            ["reproduce"] = digest,
+            ["contradict"] = digest,
+            ["recheck"] = digest,
+            ["read"] = "01TESTPOSTID",
+            ["thread"] = "01TESTPOSTID",
+            ["board"] = "general",
+            ["verify"] = "01TESTPOSTID",
+            ["resolve"] = "01TESTPOSTID",
+            ["flag"] = "01TESTPOSTID",
+            ["search"] = "terms",
+        };
+
+        var rows = verbs.Select(v => (Verb: v, Flag: "zz-unknown")).ToList();
+        rows.AddRange([("endorse", "body"), ("reproduce", "predict"), ("contradict", "epoch"), ("ask", "parent")]);
+
+        var home = Directory.CreateTempSubdirectory("curia-d37-refuse-").FullName;
+        try
+        {
+            var failures = new List<string>();
+            foreach (var (verb, flag) in rows)
+            {
+                var argv = new List<string> { verb };
+                if (positional.TryGetValue(verb, out var value))
+                    argv.Add(value);
+                argv.Add("--" + flag);
+                argv.Add(flag is "predict" or "epoch" ? "1" : "x");
+
+                var (exit, error) = await RunCuriaAsync(argv, home, TestContext.Current.CancellationToken);
+                if (exit != ExitCode.Usage || !error.Contains($"unknown flag \"--{flag}\"", StringComparison.Ordinal))
+                    failures.Add($"curia {string.Join(' ', argv)}: exit {exit}, stderr {error.Trim()}");
+            }
+
+            Assert.True(failures.Count == 0, string.Join('\n', failures));
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The built <c>curia.dll</c> beside this test assembly, run by the host running this process, with
+    /// <c>CURIA_CLIENT_HOME</c> at <paramref name="home"/> and <c>CURIA_FORUM</c> at a closed port.
+    /// Killed, with its tree, after 60 s.
+    /// </summary>
+    private static async Task<(int Exit, string Error)> RunCuriaAsync(IEnumerable<string> argv, string home, CancellationToken ct)
+    {
+        var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } set
+            ? set
+            : Environment.ProcessPath is { } self
+                && string.Equals(Path.GetFileNameWithoutExtension(self), "dotnet", StringComparison.Ordinal)
+                    ? self
+                    : "dotnet";
+
+        var dll = Path.Combine(AppContext.BaseDirectory, "curia.dll");
+        Assert.True(File.Exists(dll), $"curia.dll is not in {AppContext.BaseDirectory}");
+
+        var start = new System.Diagnostics.ProcessStartInfo(host)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add(dll);
+        foreach (var arg in argv)
+            start.ArgumentList.Add(arg);
+        start.Environment["CURIA_CLIENT_HOME"] = home;
+        start.Environment["CURIA_FORUM"] = "http://127.0.0.1:9";
+
+        using var child = System.Diagnostics.Process.Start(start)
+            ?? throw new InvalidOperationException($"{host} did not start curia.dll");
+
+        var output = child.StandardOutput.ReadToEndAsync(ct);
+        var error = child.StandardError.ReadToEndAsync(ct);
+        try
+        {
+            await child.WaitForExitAsync(ct).WaitAsync(TimeSpan.FromSeconds(60), ct);
+        }
+        catch (TimeoutException)
+        {
+            child.Kill(entireProcessTree: true);
+            throw;
+        }
+
+        await output;
+        return (child.ExitCode, await error);
+    }
+
+    /// <summary><c>Main</c>'s dispatch: from <c>return command switch</c> to its discard arm.</summary>
+    private static string Dispatch(string program)
+    {
+        var main = MethodSource(program, "private static async Task<int> Main(");
+        var dispatch = main[main.IndexOf("return command switch", StringComparison.Ordinal)..];
+        return dispatch[..dispatch.IndexOf("_ =>", StringComparison.Ordinal)];
+    }
+
+    /// <summary>
+    /// The flag names <paramref name="method"/> reads through <c>args.Value</c>, <c>Has</c>, <c>List</c>
+    /// and <c>Text</c> (which reads <c>x</c> and <c>x-file</c>), in its own source and in the helpers it
+    /// calls among SendDraftAsync, ReadContext, ForumUri and Marking, followed.
+    /// </summary>
+    private static SortedSet<string> FlagsRead(string program, string method)
+    {
+        var read = new SortedSet<string>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>([method]);
+        while (pending.Count > 0)
+        {
+            var name = pending.Pop();
+            if (!visited.Add(name))
+                continue;
+
+            var source = MethodSource(program, DeclarationOf(program, name));
+            foreach (Match m in Regex.Matches(source, "args\\.(Value|Has|List|Text)\\(\"([a-z][a-z-]*)\"\\)"))
+            {
+                read.Add(m.Groups[2].Value);
+                if (m.Groups[1].Value == "Text")
+                    read.Add(m.Groups[2].Value + "-file");
+            }
+
+            foreach (Match m in Regex.Matches(source, "\\b(SendDraftAsync|ReadContext|ForumUri|Marking)\\("))
+                pending.Push(m.Groups[1].Value);
+        }
+
+        return read;
+    }
+
+    /// <summary>
+    /// A method's declaration in <paramref name="source"/>, through its parameter list's closing
+    /// parenthesis, found once.
+    /// </summary>
     private static string DeclarationOf(string source, string method)
     {
-        var found = Regex.Matches(source, "static [^\\n(]*\\b" + method + "\\(");
+        var found = Regex.Matches(source, "(?m)^ *(?:private|internal|public) static [^\\n=;]*?\\b" + method + "\\([^)]*\\)");
         Assert.True(found.Count == 1, $"{method} is declared {found.Count} times");
-        return found[0].Value;
+        return found[0].Value.TrimStart(' ');
     }
 
     /// <summary>
