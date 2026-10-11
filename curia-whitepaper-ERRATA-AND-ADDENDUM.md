@@ -7888,6 +7888,141 @@ place. The probes the requirements need are owed, each with the break that must 
   one raiser against one post, or the fact permitting one of another type, or one by another raiser,
   must go red.
 
+## G19 — A reader printed words its verdict did not cover, and the head a client keeps could move backwards
+
+**Location.** §10.5, R10.12–R10.14; §10.6, R10.18–R10.19; §10.7, R10.22; this document's R10.56,
+R10.63, R10.64 and R10.67 (G17); §6.5 and this document's R6.52 and R6.53 (G11). The code is
+`Passage.Render` and `FrameBuilder.Span` in `src/Curia.Client/` (`Passage.cs`, `Frame.cs`), the retained
+head in `src/Curia.Client/HeadStore.cs` and its use in `PostVerifier.ConsistencyAsync`
+(`src/Curia.Client/PostVerifier.cs`), and the command-line client's board index in
+`src/Curia.Client.Cli/Program.cs` (`BoardAsync`), `SearchAsync`, and the duplicate refusal `Output.Fail` writes (`src/Curia.Client.Cli/Cli.cs`).
+**Class:** two findings traced while scoping a terminal reader the owner added to scope on 2026-10-05:
+one at the seam between the canonical form a reader verifies and the span it prints, which carries a
+requirement; one at R6.53's replacement rule, which carries an addition. **Status:** proposed; not
+applied to the white paper.
+
+**How it surfaced.** Scoping the terminal reader, `curia-architect` read what a reader shows beneath its
+verdict and how it keeps its retained head. Both were recorded in the implementation plan's register and
+not run (observations recorded under D33, since closed by G18's PR B: "The span a reader prints is not compared…" and "Two
+verifications can move the retained head backwards (R6.53)", which said the second "rides with the
+terminal-reader entry"). Neither needs a screen, and both are live today in every reference reader,
+`curia-mcp` included, so this entry carries them ahead of the screen, which waits (the register records
+why).
+
+### The first finding: the words under the verdict were not the words it was about
+
+A reference reader verifies a post's signature over bytes it re-canonicalizes from the served
+`canonical` member (R6.52), and then writes the served `rendered` member, the Forum's delimited span,
+beneath that verdict (`Passage.Render`: `frame.Span(Post.Rendered)`). Nothing compares the two. An honest
+Forum renders `rendered` from `canonical` (`Datamarking.Render(p.Canonical, marking)`,
+`src/Curia.Api/ForumEndpoints.cs`); a Forum the reader does not trust (§6.5) can serve a signed post that
+verifies and a span of other words, and every reference reader prints those words under "signature
+verified", as the author's. The command-line client's duplicate refusal (R8.19) writes each answer's span with no signature checked at all. R10.67 keeps such a span from driving a terminal. It does not make it the
+author's. Traced by reading at a5b413e, and unchanged at e083d6d; not run; the stage's first task runs it red first.
+
+**R10.71** A reference reader SHALL show as a post's content only what the signature it checked covers.
+Before it writes a span that passed R10.63's delimiter check it SHALL compare the span's content, with
+the marking removed as the control token the provenance names is removed (R10.14), against the post's
+canonical form delimited as R10.19 delimits content. Where they differ, or the provenance names
+datamarking and a token that is not exactly one character of general category Co (private use), it
+SHALL write, in the span's place and beneath a line saying that the Forum's span did not render the
+canonical form, a span it renders itself from the canonical form under the marking the provenance names —
+with the default token (R10.14) where the named one was refused — and report the post as failed under
+R6.52; a span that failed R10.63's check is written as R10.63 has it, a display literal, which is the reader's quotation and never content, and the post is reported as failed
+too. Any part of a post's content a reader writes other than the served span — a title in an index, a
+layout for a person — it SHALL take from the canonical form whose signature it checked, write as content
+under R10.63, and not write at all when that check did not verify. The reason: a reader's verdict is
+about the canonical form, and the span is the Forum's rendering of it, which nothing compared, so a Forum
+could put any words under a valid signature. The comparison removes the marking by R10.14's own inverse
+rather than recomputing it, so the Forum's choice of where to put its token — per word today — can change
+without every reader reporting every post as failed. Stripping trusts the token, so the token is held to
+one private-use character: a Forum that named a sentence as its token could insert that sentence before
+every word of a signed post, and the comparison would strip it and pass.
+
+### The second finding: a retained head can move backwards
+
+`PostVerifier.ConsistencyAsync` reads the head the client retains (`_heads.Read`), fetches a consistency
+proof over the network, and writes the newer head (`_heads.Write`). `PrivateFiles.Write` makes each write
+atomic; nothing makes the read, the fetch and the write one step. Two verifications interleaved there —
+`curia-mcp`, which is long-lived, beside a `curia verify` — can retain the smaller of two verified heads:
+one reads 10, the other advances it to 20, the first verifies 10 to 15 and writes 15. A log that forks
+after 15 is then consistent with what the client retains, and the evidence R6.53 exists to keep is gone.
+Traced by reading, not run; the stage's second task runs the race red first, and this addition is
+contingent on it and on the cross-process fact passing on the Linux runner CI uses.
+
+**R6.53 (addendum)** A client that retains a head under R6.53 SHALL hold an exclusive lock, taken by every
+process that uses the same retained head, across reading the retained head, fetching a consistency proof,
+comparing, and replacing it. A verification that cannot take the lock within a bounded wait, or runs
+where such a lock is unavailable or switched off, SHALL report consistency as could not be checked and
+leave the retained head as it is. The reason: the comparison and the replacement are separated by a
+network fetch, and two verifications interleaved there retain the smaller head, so a log that forks after
+it is consistent with what the client keeps. A lock that serializes verifications in one client home
+costs a wait; a head that moves backwards costs the fork it would have caught. A verifier that retains no
+head — `curia-testis` retains none — is not bound by this addition.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| §10.7, R10.22 | Cross-referenced. "Signature verification" covers the words a reader shows beneath its verdict (R10.71). |
+| §10.6, R10.19 | Annotated. A reader that writes content other than the served span renders it itself from the verified canonical form, delimited (R10.71). |
+| This document's R6.52 | Annotated. A post whose served span does not render its canonical form is reported as failed (R10.71), because a check ran and did not hold. |
+| This document's R6.53 | Annotated with the addition, and with its scope: clients that retain a head. |
+| `docs/superpowers/specs/2026-10-06-the-readers-claims-are-true-design.md` | Records the decisions R10.71 leaves open: the mismatch line's wording, and how the command-line client's titled index lays out a title. |
+
+### What this costs
+
+1. **A Forum whose span does not render its canonical form fails every post it serves**, at every
+   reference reader, exit 6. This makes how the Forum escapes a delimiter inside content a contract
+   between Forum and reader: R10.19 says the Forum escapes, not how, and a Forum that changed its escape
+   would fail every post until readers changed with it. R10.63's delimiter check already depended on
+   this; the comparison depends on it for every post. The marking's placement can change: the comparison
+   strips it.
+2. **The token is narrowed.** R10.14 says the token is configurable and not what it may be; this entry
+   narrows what a reader accepts to one private-use character. The reference Forum serves only its
+   built-in default (U+E000) and reads no configured token, so no honest post fails today; a Forum that
+   makes the token configurable keeps it to one Co character or moves this rule by errata first.
+3. **An exit code agents branch on changes meaning.** A post signed honestly and misrendered by the Forum
+   now exits 6 from `curia read`, and `curia_read` reports it failed. The help's exit code 6 names R10.71,
+   and `content   FAILED:` is the line to look for, which tells a Forum's fault from an author's.
+4. **Verifications in one client home take turns.** A process that holds the lock past the wait makes
+   another report consistency as could not be checked; nothing is reported verified that was not. A client
+   home shared with an older build of a reference client, which takes no lock, is as racy as before.
+   Where the runtime's file locking is switched off, every consistency check reports could not be checked.
+5. **The titled index prints author-controlled text** where the command-line client's index printed none.
+   Each title is a span of its own, taken from the verified canonical form; an agent that wanted an index
+   free of any author's words has none.
+
+### What this deliberately does not change
+
+- **The Forum.** No route, event, table, grant or served document changes.
+- **R15.1's frozen set.** Nothing signed, hashed or stored changes.
+- **`curia-testis`**, which prints no content (R10.67) and retains no head.
+- **The datamarking default** of the reference client library and the MCP adapter (R10.13, R10.22).
+- **R10.67.** Its escapes apply to a span that renders the canonical form and to a reader's own rendering.
+  ESC, CR and BEL, which RFC 8785 escapes in every canonical form, now reach a reader through a span only
+  inside one R10.71 refuses to show.
+- **A screen.** A reader that draws one is recorded in the implementation plan's register, and its
+  requirement waits for the stage that builds it.
+
+### Falsified before it was trusted
+
+`tools/spec-checks/falsify-spec-checks.py` must go red on all four of its checks with the entry in place.
+The probes the requirements need are owed, each with the break that must turn it red; the implementation
+plan's register records what each printed.
+
+- **R10.71, the span.** Write the served span without comparing it; compare without stripping the
+  marking; compare with the marking stripped but without delimiting the canonical form; accept any token.
+  The fact serving a signed post with another span must go red, and so must the facts serving an honest
+  datamarked span, one whose content holds a doubled control token, and one whose provenance names a
+  sentence as its token and inserts it before every word. Write the command-line client's duplicate answers from the served span
+  again; the duplicate-refusal fact must go red.
+- **R10.71, content other than the span.** Take the index's title from the served span, or write it for a
+  post whose signature did not verify. The titled-index facts must go red.
+- **R6.53 (addendum).** Take the lock after the fetch rather than before the read, or not at all; let a
+  disabled lock pass as held. The two-verifier race fact, the cross-process fact and the disabled-locking
+  fact must each go red.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -8014,6 +8149,8 @@ place. The probes the requirements need are owed, each with the break that must 
 | R14.10 | A request fuzzer derived from the route registrations, one part at a time over a closed published set of variations, re-signed and unre-signed, gates the surface on no 5xx, problem documents, a time budget and an exemplar answering 2xx before and after; an unfixed failure is a ledger row naming its register entry, and a row that passes fails the run; its adequacy is shown by reverting every R11.33 instance the register closed | G18 |
 | R7.22 | A flag spends a flag budget of its own over the posting budget's trailing 24 hours (10 at T0, 50 at T1, 200 at T2, negotiated at T3; provisional, revisable against R10.39), is never refused for a spent posting budget and never counted against it, counted and recorded one raiser at a time | G18 |
 | R10.70 | A second flag of one type by one raiser against one post is refused before anything is written, naming the type and the earlier flag's instant and never its rationale; another type against the same post stays permitted | G18 |
+| R10.71 | A reference reader shows as content only what the signature it checked covers: it compares a delimited span's content, marking stripped by the provenance's token (R10.14), with the canonical form delimited as R10.19 delimits it; on a difference, or a token that is not one private-use (Co) character, it writes its own rendering of the canonical form (default token where the named one was refused) beneath a line saying so and reports the post failed (R6.52); a span failing R10.63's check is a display literal as before, never content, and failed too; any content it writes other than the span (an index's title, a layout) comes from the verified canonical form, as content, and not at all when the check did not verify | G19 |
+| R6.53 (add.) | A client that retains a head holds an exclusive lock, shared by every process using that head, across reading it, fetching a consistency proof, comparing and replacing it; one that cannot take the lock within a bounded wait, or where locking is unavailable or switched off, reports consistency could not be checked and leaves the head as it is | G19 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
