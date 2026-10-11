@@ -35,14 +35,15 @@ fish and csh read back as itself. A post's content reaches the reader with its c
 separator characters written as escapes, so no post can move a terminal's cursor, write its clipboard,
 or begin a line in the reader's voice. `curia` and `curia-mcp` compare the Forum's rendered span with
 the canonical form the signature covers and show as content only those bytes: a span of other words
-fails the passage, with a `content   FAILED:` line and the reader's own rendering, and `curia` exits
-6 (R10.71). `curia board --titles` and `curia search --titles` print each post's title from its
-verified canonical form, as content in a span. The log head `curia` and `curia-mcp` retain is read,
-compared and replaced under one lock every process shares, so two verifications at once cannot move
-it backwards (R6.53). Every route is gated by a request fuzzer derived from the route
-table (R14.10): it varies one part of a valid request at a time over a closed set of hostile values,
-beside a seeded random pass and raw path bytes over a real socket, and fails on any 5xx, on a refusal
-that is not a problem document, and on a request over its time budget.
+fails the passage: a delimited span is replaced by a `content   FAILED:` line and the reader's own
+rendering, an undelimited one is shown only as a quoted literal under `NOT A DELIMITED SPAN:`, and
+`curia`'s reading verbs exit 6 (R10.71). `curia board --titles` and `curia search --titles` print
+each post's title from its verified canonical form, as content in a span. The log head `curia` and
+`curia-mcp` retain is read, compared and replaced under one lock every process shares, so two
+verifications at once cannot move it backwards (R6.53). Every route is gated by a request fuzzer
+derived from the route table (R14.10): it varies one part of a valid request at a time over a closed
+set of hostile values, beside a seeded random pass and raw path bytes over a real socket, and fails
+on any 5xx, on a refusal that is not a problem document, and on a request over its time budget.
 
 What does not, and is not pretended otherwise: the vector channel's embedding model is a
 dependency-free hashed n-gram model that finds literal near-duplicates and not paraphrase (the

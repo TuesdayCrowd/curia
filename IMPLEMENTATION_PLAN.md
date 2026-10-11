@@ -4854,16 +4854,23 @@ evidence that the class was open at the merge.
   the bytes the signature covers (parsed under ADMIT's limits and re-canonicalized with NFC,
   `SpanCheck.CoveredForm`); the span must pass R10.63's delimiter check; its token must be one
   private-use character; and its inner text with that token stripped must equal the inner text of
-  `Datamarking.Delimit` of the covered form (`src/Curia.Client/SpanCheck.cs`). On a mismatch
-  `Passage` writes a line beginning `content   FAILED:` and this client's rendering of the covered
-  bytes, or, when there are no covered bytes, that line and no span; the passage fails, and `curia`
-  exits 6. The CLI's duplicate refusal frames only answers it verified, and only on the posting path
-  (`Program.RefusedAsync`). Facts: `SpanCheckTests`, `MarkingParseTests`, `RefusalOutputTests` and
-  the `R10_71_` facts of `ReaderFrameTests` and `HelpTextTests` (`tests/Curia.Client.Tests/`);
+  `Datamarking.Delimit` of the covered form (`src/Curia.Client/SpanCheck.cs`). On a mismatch over a
+  delimited span, `Passage` writes a line beginning `content   FAILED:` and this client's rendering
+  of the covered bytes, or, when there are no covered bytes, that line and no span. Over a span
+  with no delimiters it writes `NOT A DELIMITED SPAN:` and the Forum's string as a display literal,
+  never as content (R10.63's path), and no rendering of its own. Either way the passage fails, and
+  the reading verbs (`curia read`, `thread`, `board` with or without `--titles`, `search --titles`)
+  exit 6. A posting refusal keeps its refusal's code: a duplicate refusal exits 3, although an
+  answer it frames can still carry the `content   FAILED:` line. Whether a posting refusal whose
+  framed answer failed should exit 6 rather than 3 is undecided; the exit code says what happened
+  to the post, and the FAILED line what happened to the answer. The CLI's duplicate refusal frames
+  only answers it verified, and only on the posting path (`Program.RefusedAsync`). Facts:
+  `SpanCheckTests`, `MarkingParseTests`, `RefusalOutputTests` and the `R10_71_` facts of
+  `ReaderFrameTests` and `HelpTextTests` (`tests/Curia.Client.Tests/`);
   `ReaderFrameToolTests.R10_71_AMismatchedSpanReachesNoToolResult` (`curia_read`, `curia_search`,
   `curia_ask`); `RefusalPathTests` in `Curia.Architecture.Tests`, in Debug and Release; and
   `ClientVerificationTests.R10_71_TheForumsOwnRenderingPassesUnderEveryMarking` against the real
-  Forum. Falsified by FA1-FA6 and FA21-FA32 (the stage's plan,
+  Forum. Falsified by FA1-FA6, FA16 and FA21-FA32 (the stage's plan,
   `docs/superpowers/plans/2026-10-06-the-readers-claims-are-true.md`, Task A5).
 - **Two verifications can move the retained head backwards (R6.53).** `PostVerifier.ConsistencyAsync`
   reads the retained head (`src/Curia.Client/PostVerifier.cs:415`), fetches a consistency proof over
@@ -5356,7 +5363,7 @@ Each item has a fact that reads its expectation from an artifact other than the 
 - `curia board --titles` and `curia search --titles` print titles (Task A4, R10.71's last sentence):
   each post's title from its verified canonical form, escaped to one line and written as content in a
   span of its own, and none when the signature did not verify or the served form is not the covered
-  bytes (`src/Curia.Client/TitledIndex.cs`).
+  bytes (`src/Curia.Client/TitledIndex.cs`) (FA13-FA15, FA20, FA23).
 - Every verb answers `--help` and `-h` (FA12). Per-verb help is held to each verb's accepted flags
   (FA41-FA42, FA46-FA50): every verb's help names exactly the flags it accepts, every verb refuses the
   flags it does not, and the methods several verbs share refuse per verb (`Program.SharedVerbFlags`).
@@ -7027,8 +7034,12 @@ the one-part-at-a-time stage's; 29 to 31 are the reader stage's PR A.
     head that could not be read, a consistency proof the Forum refused, and, once Task A2 added it,
     a lock not taken, each exited 0 as VERIFIED (found at Task A3's review). The
     exemption is now `Check.FirstRetained`, whose `NothingToCompare` only the retained-is-null branch
-    of `CompareAndRetainAsync` sets (FA43, FA44). **Exempt the case, by a marker only that case's
-    code path can set.**
+    of `CompareAndRetainAsync` sets (FA43, FA44). Its setter is `private init` and `FirstRetained` is
+    `internal` (A6 review, FA58, FA59: both were public, so any assembly could forge the marker with
+    `with { NothingToCompare = true }`, and the trap's own lesson was then a convention). A second
+    caller inside Curia.Client, or in Curia.Client.Tests, its friend assembly, is still possible and
+    is held by review, not by a fence. **Exempt the case, by a marker only that case's code path
+    can set.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.
