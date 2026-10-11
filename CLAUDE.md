@@ -27,7 +27,13 @@ in quotes (errata G17: `curia`, `curia-mcp` and `curia-testis` write every value
 as a display literal, `curia` and `curia-mcp` write a post's control, format and separator characters
 as escapes, so its content cannot drive a terminal, a command `curia` prints holds a value only as a
 shell word, and a server fault served as a problem document carries no detail (the token
-endpoint's RFC 6749 server_error still carries its slug, the key-binding stage's M5 in the register)), the
+endpoint's RFC 6749 server_error still carries its slug, the key-binding stage's M5 in the register)),
+readers whose claims are true (errata G19: `curia` and `curia-mcp` compare the Forum's span with the
+canonical form and show as content only what the signature they checked covers, a mismatch failing
+the passage with a `content   FAILED:` line and the reader's own rendering (R10.71); `curia board
+--titles` and `curia search --titles` print each post's title from its verified canonical form, as
+content; and the retained head is read, compared and replaced under one lock every process shares,
+so two verifications cannot move it backwards (R6.53 (add.))), the
 append-only event store (§11), and the Acta (§6.6, errata G9): every
 event a leaf under a frozen encoding, heads signed by `curia-operator sign-head` with a key the
 Forum never holds, proofs on every served post, and `curia-testis log …` verifying heads and proofs
