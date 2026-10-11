@@ -234,7 +234,7 @@ The fact is `R11_34_NoPortOrHostCalledUseCaseTakesACallersStringWithoutAReason`,
 
 1. Every public interface declared in `Curia.Application` and `Curia.AuthN`, all namespaces, and every method on it.
 2. Every member that `Curia.Api.dll` or `Curia.Operator.dll` references in those two assemblies. These are read as IL `MemberReference`s whose parent, walked through nested `TypeReference`s to the outermost type and through a `TypeSpecification` to its generic type definition, has a resolution scope that is the `Curia.Application` or `Curia.AuthN` assembly reference. They cover methods and constructors.
-3. For each parameter whose type is declared in a `Curia.*` assembly: that type's public constructors' parameters, walked recursively with a visited set.
+3. For each parameter, every type declared in a `Curia.*` assembly that its type names, the type itself or seen through an array, a nullable, a by-reference or a generic instantiation's type arguments, recursively (the positions step 4 looks through): that type's public constructors' parameters, walked recursively with a visited set. A parameter whose type, seen through an array, nullable or by-reference, is a type parameter fails the fact, because the fence cannot see what a host instantiates it with. A type parameter inside a generic instantiation's type arguments (`IReadOnlyList<T>`, `Func<JsonElement, Result<T>>`) is not caught.
 4. A parameter is string-like if its type is `string`, `char[]`, `ReadOnlySpan<char>`, `ReadOnlyMemory<char>`, `Memory<char>` or `StringValues`, or an array, nullable or generic instantiation any of whose element or type arguments is string-like, recursively.
 
 The allowlist is in `tests/Curia.Architecture.Tests/PortStringAllowlist.cs`:
@@ -242,16 +242,18 @@ The allowlist is in `tests/Curia.Architecture.Tests/PortStringAllowlist.cs`:
 ```csharp
 internal static class PortStringAllowlist
 {
-    /// Member: "<DeclaringType.FullName>.<Method>" or "<DeclaringType.FullName>..ctor".
+    /// Member: "<DeclaringType.FullName>.<Method>" or "<DeclaringType.FullName>..ctor"; for a "*" row, "<DeclaringType.FullName>.*".
     /// Parameter: the parameter's name, or "*" for an error factory: a static class whose every public method returns Error.
     internal static readonly ImmutableArray<(string Member, string Parameter, string Reason)> Rows = [ … ];
 }
 ```
 
-The fact fails in four cases:
+The fact fails in six cases:
 - a string-like parameter with no row;
 - a row naming no existing member and parameter (stale);
 - a `"*"` row on a type that is not a static class whose every public method returns `Error`;
+- a `"*"` row whose member is anything but exactly `"<DeclaringType.FullName>.*"` (malformed: it is reported as such and covers nothing; B6, FB2's finding, held by FB29 and FB30);
+- a parameter whose type, seen through an array, nullable or by-reference, is a type parameter (step 3);
 - an empty `Reason`.
 
 Non-vacuity guards: at least 10 port interfaces scanned, at least 20 host-referenced members, and named sentinels that must be in scope (`RaiseFlag.RecordAsync`, `IIngestPipeline.VerifyAsync`, `IReplayCache.TryInsertAsync`, `EnrollAgent.RecordAsync`); a sentinel missing from scope fails the fact naming it.
@@ -269,19 +271,24 @@ Non-vacuity guards: at least 10 port interfaces scanned, at least 20 host-refere
 
 ### 4.9 The JSON reader rule
 
-The fact is `R11_34_ACallersJsonIsReadOnlyThroughAGuardedReader`, in `tests/Curia.Architecture.Tests/JsonReaderFenceTests.cs`. It is an IL **call-site** scan using `System.Reflection.Metadata`: it decodes every method body's `call`, `callvirt` and `newobj` operands.
+The fact is `R11_34_ACallersJsonIsReadOnlyThroughAGuardedReader`, in `tests/Curia.Architecture.Tests/JsonReaderFenceTests.cs`. It is an IL **call-site** scan using `System.Reflection.Metadata`: it decodes every method body's `call`, `callvirt`, `newobj`, `ldftn` and `ldvirtftn` operands. A delegate over a method is built with `ldftn`/`ldvirtftn` and invoked through the delegate's `Invoke`, so a scan of calls alone never sees a banned reader taken as a method group (`Func<string, JsonDocumentOptions, JsonDocument> p = JsonDocument.Parse;`). That is the bypass R10.63's ConstantArgumentTests closed for CA1857. A `constrained. T` prefix before `callvirt` on a System.Object method is read as T's method, because that is how `e.ToString()` on a `JsonElement` compiles. A `JsonElement` stringified after boxing or through a generic method names a BCL callee instead, and is outside the fence's reach. The same holds for `JsonSerializer.Serialize`, `SerializeToUtf8Bytes`, `SerializeToElement` and `SerializeToNode` over a graph holding a `JsonElement`, each of which throws JsonException on an unpaired surrogate (measured). The scan keys a callee by type and name, not by argument type. `Serialize*` is also called on Forum-composed graphs (`ForumEndpoints.cs:1127`, `DetachedJws.Sign` at `DetachedJws.cs:97`), so it cannot be banned by name, and a `JsonElement` nested in a graph is invisible at the call site. `JsonArray::Add<T>` is a fifth entry from a `JsonElement` to a `JsonNode` (`new JsonArray().Add(e)` then `ToJsonString` throws InvalidOperationException, measured), and it cannot be banned by name either: `JsonArray.Add` is called on Forum-composed nodes (`ActaEndpoints.cs:192` and `:287`, `Jwks.cs:62`), so the scan cannot tell a JsonElement's add from a Forum-composed one. The fence matches the callee a body names; it is not a dataflow proof. Every banned entry must name a public method its type declares; this is a spelling guard, not a reachability proof.
 
 - **Banned callees:**
-  - `System.Text.Json.JsonDocument::Parse` and `::ParseValue`
+  - `System.Text.Json.JsonDocument::Parse`, `::ParseValue` and `::TryParseValue`
+  - `System.Text.Json.JsonElement::Parse`, `::ParseValue` and `::TryParseValue` (the same parse, reached through `JsonElement`)
   - `System.Text.Json.Nodes.JsonNode::Parse`
-  - `System.Text.Json.JsonElement::GetString`
+  - `System.Text.Json.JsonElement::GetString` and `::ToString`, and `System.Text.Json.JsonProperty::Name` (matched as `get_Name`). Each decodes a string and throws on an unpaired surrogate, the fault G18 records for `GetString`. `JsonElement::ToString` is matched through the `constrained.` mapping below.
   - `System.Text.Json.JsonSerializer::Deserialize`
-  - `System.Text.Json.Utf8JsonReader::GetString`
+  - `System.Text.Json.Utf8JsonReader::GetString` and `::CopyString`
+  - `System.Text.Json.JsonElement::ValueEquals`, `::GetGuid`, `::TryGetGuid`, `::GetBytesFromBase64`, `::TryGetBytesFromBase64`, `::DeepEquals` and `::WriteTo`; `System.Text.Json.JsonDocument::WriteTo`; `System.Text.Json.JsonProperty::NameEquals` and `::WriteTo`; and `System.Text.Json.Utf8JsonReader::ValueTextEquals`, `::GetGuid`, `::TryGetGuid`, `::GetBytesFromBase64` and `::TryGetBytesFromBase64`. Each decodes a string and throws on an unpaired surrogate, the fault G18 records for `GetString`.
+  - `System.Text.Json.Nodes.JsonValue::Create`, `System.Text.Json.Nodes.JsonObject::Create`, `System.Text.Json.Nodes.JsonArray::Create` and `System.Text.Json.Nodes.JsonNode::ReplaceWith`, the four node entries: the entries that turn a JsonElement into a JsonNode, whose GetValue, TryGetValue and ToJsonString then throw on an unpaired surrogate. The ban sits at the entry because those accessors are also called on Forum-composed nodes.
   - `System.Text.Json.JsonDocument::ParseAsync`, `System.Text.Json.Nodes.JsonNode::ParseAsync`
   - `System.Text.Json.JsonSerializer::DeserializeAsync` and `::DeserializeAsyncEnumerable` (a generic callee resolves through its `MethodSpecification` to the definition)
   - `ReadFromJsonAsync` on `Microsoft.AspNetCore.Http.HttpRequestJsonExtensions` and `System.Net.Http.Json.HttpContentJsonExtensions`
+- **Every public method classified:** every public method of JsonElement, JsonProperty, JsonDocument and Utf8JsonReader is either banned or classified as not decoding a string, with a reason. R11_34_EveryPublicMethodOfAJsonReadingTypeIsBannedOrClassified fails on a method that is neither, so a BCL release that adds an accessor is a red build, not a silent gap.
 - **Scan scope:** every `src/` assembly except `Curia.Client`, `curia` (Client.Cli) and `Curia.Mcp`. Those read the Forum's served bytes, not a caller's; the scope is a decision and the test states it.
 - **Attribution:** a call site belongs to its outermost non-nested declaring type. Compiler-generated nested types map to their enclosing type.
+- **Non-vacuity:** the scan must read a call site in Curia.AuthN. It must also see AccessTokenValidator.ValidateRequestAsync's method group over AccessTokenClaims.Parse, which is reachable only through ldftn, and the scan of the Architecture test assembly must report `ConstrainedProbe`'s constrained call as `JsonElement::ToString`.
 
 The allowlist is keyed by `(type full name, calling method, callee)`, with a reason, so a new call in a listed type is a new row for review. The table below gives the types and callees; the calling methods are filled from the red run, one row per method. These are its rows:
 
@@ -293,6 +300,7 @@ The allowlist is keyed by `(type full name, calling method, callee)`, with a rea
 | `Curia.AuthN.AccessTokenClaims` | `GetString` | reads after `CompactJws`'s guarded parse (`:60`, `:69`) |
 | `Curia.AuthN.Dpop.DpopProof` | `GetString` (if present) | reads after the guarded parse |
 | `Curia.Api.ActaEndpoints` | `Parse` (`:259`) | parses the Forum's own log bytes |
+| `Curia.Api.ActaEndpoints` | `JsonValue.Create` (`ToNode`) | builds a node from the Forum's own Canon value |
 
 Every other row the red run surfaces is retyped or routed through `CompactJws` in B. A stale row fails the fact.
 

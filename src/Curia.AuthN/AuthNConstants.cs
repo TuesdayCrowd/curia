@@ -7,6 +7,12 @@ namespace Curia.AuthN;
 /// </summary>
 public static class AuthNConstants
 {
+    /// <summary>The agent the issuer's own signing key is answered for when a <c>kid</c> names no
+    /// key of it: <c>Curia.Api</c>'s issuer key resolver and <see cref="AccessTokenValidator"/>, which
+    /// answers a <c>kid</c> no store could hold as one the issuer does not hold (R11.34, spec section
+    /// 4.7), both name it, so the two answers are one answer.</summary>
+    public const string IssuerKeyOwner = "issuer";
+
     /// <summary>
     /// R5.16: "Permitted clock skew SHALL be &lt;= 30 seconds." R5.16 sits in §5.6 ("Replay
     /// defense") rather than being scoped to one specific claim, and the white paper never

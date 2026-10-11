@@ -2,6 +2,7 @@ using Curia.Application.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Credentials;
 
@@ -61,8 +62,11 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
 
     /// <inheritdoc/>
     public async Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+        AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(kid);
+
         var resolved = await _store.ResolveAsync(agentId, kid, at, cancellationToken).ConfigureAwait(false);
         if (!resolved.TryGetValue(out var key, out _)) return resolved;
 
@@ -72,12 +76,14 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
 
         return found?.For(kid) is { } bound && bound.Holds(key!)
             ? resolved
-            : Result<PublicKeyMaterial>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId, kid));
+            : Result<PublicKeyMaterial>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId.Value, kid.Value));
     }
 
     /// <summary>The keys the store holds for <paramref name="agentId"/> that the log binds to it, each with its binding.</summary>
-    public async Task<Result<AgentKeySet>> KeySetAsync(string agentId, CancellationToken cancellationToken = default)
+    public async Task<Result<AgentKeySet>> KeySetAsync(AgentId agentId, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(agentId);
+
         var held = await _registry.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false);
         if (held.Count == 0) return Result<AgentKeySet>.Ok(new AgentKeySet(0, []));
 
@@ -88,7 +94,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
         var bound = new List<BoundKey>();
         foreach (var registered in held)
         {
-            if (found?.For(registered.Key.Kid) is { } keyBinding && keyBinding.Holds(registered.Key))
+            if (found?.For(registered.Key) is { } keyBinding && keyBinding.Holds(registered.Key))
                 bound.Add(new BoundKey(registered, keyBinding));
         }
 
@@ -110,9 +116,9 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
     /// What the log binds to <paramref name="agentId"/>, or <see langword="null"/> when it records no
     /// enrollment of it; <see cref="LogUnreadable"/> when the log cannot be read.
     /// </summary>
-    private async Task<Result<EnrollmentBinding?>> BindingAsync(string agentId, CancellationToken cancellationToken)
+    private async Task<Result<EnrollmentBinding?>> BindingAsync(AgentId agentId, CancellationToken cancellationToken)
     {
-        if (!AggregateId.Create(agentId).TryGetValue(out var aggregate, out _))
+        if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out _))
             return Result<EnrollmentBinding?>.Ok(null);
 
         var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);

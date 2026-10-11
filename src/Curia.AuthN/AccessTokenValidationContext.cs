@@ -1,5 +1,7 @@
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
+using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN;
 
@@ -38,10 +40,17 @@ public sealed record AccessTokenValidationContext(
 /// a URL taken from the token (errata A16/R4.16 rev.). This remark once said the caller scoped the
 /// resolver to one agent's keys; the token endpoint passed the Registrar's store unscoped, and a
 /// key enrolled under its holder's own identifier authenticated every enrolled identity (errata G15).
+///
+/// <see cref="ExpectedSubject"/> is the client_id form value as the host parsed it, an AgentId or the
+/// refusal. R11.34 (errata G18): the host parses it where it reads the request, and
+/// ClientAssertionValidator answers a refusal at the resolve step, where the key store first used the
+/// value, so a client_id that is no AgentId never changes which of the assertion's own checks answers
+/// first (spec section 4.7). It is a parse outcome and not a string, so the port fence needs no row for
+/// it.
 /// </summary>
 public sealed record ClientAssertionValidationContext(
     string TokenEndpoint,
-    string ExpectedSubject,
+    Result<AgentId> ExpectedSubject,
     IAgentKeyResolver AgentKeyResolver,
     IReplayCache ReplayCache,
     IReadOnlyDictionary<string, IContentVerifier> VerifiersByAlg,

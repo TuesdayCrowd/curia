@@ -6,6 +6,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Screening;
 
 namespace Curia.Application.Moderation;
@@ -66,16 +67,31 @@ public sealed class ApplyModeration
     }
 
     /// <summary>Records <paramref name="effect"/> on <paramref name="postId"/> in <paramref name="category"/>, or reports why not.</summary>
+    /// <param name="postId">
+    /// The post moderated, as the operator's tool parsed it (R11.34, errata G18). The parse outcome
+    /// rather than a <see cref="PostId"/>, so an id that is no post id is refused where the post was
+    /// looked up, after the operator, the reason and screening, as before the type existed.
+    /// </param>
+    /// <param name="effect">The effect.</param>
+    /// <param name="category">The category it acts in.</param>
+    /// <param name="rationale">
+    /// The public reason, as the operator's tool parsed it. Refused after the operator checks, which
+    /// are this path's authorization (R10.68): absent or blank is
+    /// <see cref="ModerationErrors.RationaleRequired"/>, over the cap
+    /// <see cref="ModerationRecordErrors.RationaleTooLong"/> whatever else it holds. A reason under the
+    /// cap holding U+0000 or a lone surrogate, which no command line carries, is refused with the rule's
+    /// own condition.
+    /// </param>
+    /// <param name="moderator">The operator recording it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<ModerationRecorded>> RecordAsync(
-        string postId,
+        Result<PostId> postId,
         ModerationEffect effect,
         FlagKind category,
-        string rationale,
+        Result<Rationale> rationale,
         ActorId moderator,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
-
         if (moderator.Value is null
             || !moderator.Value.StartsWith(OperatorPrefix, StringComparison.Ordinal)
             || moderator.Value.Length == OperatorPrefix.Length)
@@ -85,32 +101,35 @@ public sealed class ApplyModeration
         if (moderator.Value.AsSpan(OperatorPrefix.Length).IsWhiteSpace())
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.BlankOperatorName());
 
-        if (string.IsNullOrWhiteSpace(rationale))
-            return Result<ModerationRecorded>.Fail(ModerationErrors.RationaleRequired());
-
-        // R10.68 (errata G18): before screening and before the post's stream is read.
-        if (RationaleLimit.Over(rationale) is { } bytes)
-            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RationaleTooLong(bytes));
+        // R10.68 (errata G18): after the operator checks, before screening and before the post's stream
+        // is read.
+        if (!rationale.TryGetValue(out var reason, out var rationaleError))
+            return Result<ModerationRecorded>.Fail(RefusalOf(rationaleError!));
 
         // R10.60: the rationale lands in a leaf R6.51 serves verbatim, under the same two-regime
         // table a flag's rationale is screened with.
-        var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(rationale));
+        var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(reason!.Value));
         if (!screened.TryGetValue(out var screening, out var screeningError))
             return Result<ModerationRecorded>.Fail(screeningError!);
 
         if (!screening!.MayPersist)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RationaleRejected(screening.Annotations));
 
-        if (!AggregateId.Create(postId).TryGetValue(out var aggregate, out var aggregateError))
+        // An id that is no post id names no post the Forum minted; answered as the lookup below answers
+        // a post the log does not hold (R11.34, errata G18).
+        if (!postId.TryGetValue(out var target, out _))
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoSuchPost(RaiseFlag.NoPostId));
+
+        if (!AggregateId.Create(target!.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<ModerationRecorded>.Fail(aggregateError!);
 
         var read = await _events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var log, out var readError))
             return Result<ModerationRecorded>.Fail(readError!);
 
-        var post = PostProjector.Fold(log!).FirstOrDefault(p => string.Equals(p.PostId, postId, StringComparison.Ordinal));
+        var post = PostProjector.Fold(log!).FirstOrDefault(p => string.Equals(p.PostId, target.Value, StringComparison.Ordinal));
         if (post is null)
-            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoSuchPost(postId));
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoSuchPost(target.Value));
 
         var rows = await _details.ReadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!rows.TryGetValue(out var details, out var detailError))
@@ -119,7 +138,7 @@ public sealed class ApplyModeration
         ImmutableArray<RaisedFlag> onPost =
         [
             .. FlagDirectory.Join(log!, details!).Flags
-                .Where(f => string.Equals(f.PostId, postId, StringComparison.Ordinal)),
+                .Where(f => string.Equals(f.PostId, target.Value, StringComparison.Ordinal)),
         ];
 
         // R10.60: every flag of this category raised against the post so far — derived, never typed.
@@ -133,15 +152,15 @@ public sealed class ApplyModeration
         // R10.62: a raiser and a rationale are published never, and this reason is published always
         // (R10.60), so a reason repeating either, for any flag on the post, is refused — never repaired
         // (R10.26). The refusal names the field alone: the matched text, or the flag, would disclose it.
-        if (FlagDisclosure.Repeated(rationale, onPost, FlagDirectory.RationalesByFlag(log!, details!)) is { } field)
+        if (FlagDisclosure.Repeated(reason.Value, onPost, FlagDirectory.RationalesByFlag(log!, details!)) is { } field)
             return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RationaleDisclosesFlag(field));
 
-        ImmutableArray<ModerationAction> before = FlagProjector.Fold(log!).TryGetValue(postId, out var moderation)
+        ImmutableArray<ModerationAction> before = FlagProjector.Fold(log!).TryGetValue(target.Value, out var moderation)
             ? moderation.History
             : [];
 
         var action = new ModerationAction(
-            postId, ModeratorKind.Human, moderator.Value, effect, category, rationale, ServerTimestamp.At(_clock.GetUtcNow()), adjudicates);
+            target.Value, ModeratorKind.Human, moderator.Value, effect, category, reason.Value, ServerTimestamp.At(_clock.GetUtcNow()), adjudicates);
 
         if (!ModerationPolicy.Authorize(action).TryGetValue(out _, out var authorizeError))
             return Result<ModerationRecorded>.Fail(authorizeError!);
@@ -152,18 +171,18 @@ public sealed class ApplyModeration
             && ModerationPolicy.UpheldFlags(before).SetEquals(ModerationPolicy.UpheldFlags(after))
             && ModerationPolicy.AdjudicatedFlags(before).IsSupersetOf(adjudicates);
         if (noOp)
-            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoOp(postId, effect, category));
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoOp(target.Value, effect, category));
 
         // R10.61: a restore releases only the hold of the category it cites. One citing a category that
         // holds nothing would release nothing, and would still release the flags it names while another
         // category's hold kept the post unserved.
         if (effect == ModerationEffect.Restore && !holdsBefore.ContainsKey(category))
-            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RestoreOfUnheldCategory(postId, category));
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.RestoreOfUnheldCategory(target.Value, category));
 
         // R10.61: a dismissal holds and releases nothing. In a category that holds the post, it would
         // leave the post withheld with the flags behind the hold no longer upheld.
         if (effect == ModerationEffect.Dismiss && holdsBefore.ContainsKey(category))
-            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.DismissalOfHeldCategory(postId, category));
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.DismissalOfHeldCategory(target.Value, category));
 
         // The expected version comes from the read the decision was made on, not from a second read.
         // A record another operator appended to this post since then fails this append, rather than
@@ -183,13 +202,13 @@ public sealed class ApplyModeration
 
         var payload = new JsonValue.Object(
         [
-            new(FlagProjector.PostIdField, new JsonValue.String(postId)),
+            new(FlagProjector.PostIdField, new JsonValue.String(target.Value)),
             new(FlagProjector.DigestField, new JsonValue.String(post.Digest)),
             new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(action.Moderator))),
             new(FlagProjector.ActorIdField, new JsonValue.String(moderator.Value)),
             new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(effect))),
             new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(category))),
-            new(FlagProjector.RationaleField, new JsonValue.String(rationale)),
+            new(FlagProjector.RationaleField, new JsonValue.String(reason.Value)),
             new(FlagProjector.AdjudicatesField, new JsonValue.Array([.. adjudicates.Select(id => (JsonValue)new JsonValue.String(id))])),
         ]);
 
@@ -198,8 +217,20 @@ public sealed class ApplyModeration
             .ConfigureAwait(false);
 
         return appended.Map(events => new ModerationRecorded(
-            postId, post.Digest, effect, category, adjudicates, moderator, events[0].ServerTimestamp.Value));
+            target.Value, post.Digest, effect, category, adjudicates, moderator, events[0].ServerTimestamp.Value));
     }
+
+    /// <summary>
+    /// R11.34 (errata G18): the rule's refusal of a reason, answered with the slug this path gave it
+    /// before the type existed. The rule's <c>too-long</c> detail is R10.68's, byte for byte. U+0000 and
+    /// a lone surrogate keep the rule's own condition: no command line carries either.
+    /// </summary>
+    private static Error RefusalOf(Error parsed) => parsed.Type switch
+    {
+        StorableText.AbsentType or StorableText.BlankType => ModerationErrors.RationaleRequired(),
+        StorableText.TooLongType => ModerationRecordErrors.RationaleTooLong(0) with { Detail = parsed.Detail },
+        _ => parsed,
+    };
 
     /// <summary>
     /// Whether two <see cref="ModerationPolicy.ServingEffect"/> maps hold the post in the same

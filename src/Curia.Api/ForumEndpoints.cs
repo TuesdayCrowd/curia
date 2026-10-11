@@ -19,6 +19,7 @@ using Curia.Domain.Content;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Retrieval;
 using Curia.Application.Retrieval;
 using Curia.Domain.Search;
@@ -473,13 +474,20 @@ public static class ForumEndpoints
         if (!Jwks.CanPublish(request.Alg, publicKey))
             return Problem(StatusCodes.Status400BadRequest, EnrollmentErrors.PublicKeyNotOfItsAlgorithm(request.Alg));
 
+        // R11.34 (errata G18): the identifier and the kid as the types the use case and the key store
+        // take, constructed here, at their first use and after every check above, which together are
+        // stricter than the type's rule; a refusal here is the route's own.
+        if (!AgentId.Parse(request.AgentId, "agent_id").TryGetValue(out var agentId, out _)
+            || !Kid.Parse(request.Kid, "kid").TryGetValue(out var kid, out _))
+            return Results.BadRequest(new Problem("curia/enroll/invalid", "agent_id and kid are required", null));
+
         // R4.31 and R4.32 (errata G14), in EnrollIdentity: the log's binding, then the key store's,
         // then the log's record. Standing goes into the event log, never into process memory -- a
         // repeat enrollment appends nothing, so Table 11's tenure clock cannot be restarted by
         // re-announcing one -- and nothing about the owner is recorded at all; that is AttestOwner's,
         // under an operator's actor (R4.30).
         var enrolled = await enroll
-            .EnrollAsync(request.AgentId, new PublicKeyMaterial(request.Alg, request.Kid, publicKey), cancellationToken)
+            .EnrollAsync(agentId!, new PublicKeyMaterial(request.Alg, kid!.Value, publicKey), cancellationToken)
             .ConfigureAwait(false);
 
         if (!enrolled.TryGetValue(out var enrollment, out var enrollError))
@@ -629,7 +637,10 @@ public static class ForumEndpoints
         // A log that could not be read decides nothing about the key (R4.35), so it is a 503, never
         // the 401 that tells an agent its key was refused. A member the log cannot store is a 422: the
         // request was well formed and signed, and was refused on its content (R11.33), never a 401.
-        var verified = await pipeline.VerifyAsync(a!, subject, cancellationToken).ConfigureAwait(false);
+        if (!PrincipalOf(subject).TryGetValue(out var author, out var subjectError))
+            return Problem(StatusCodes.Status403Forbidden, subjectError!);
+
+        var verified = await pipeline.VerifyAsync(a!, author!, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
         {
             return Problem(
@@ -647,7 +658,7 @@ public static class ForumEndpoints
         // The fold reads no clock (R11.9); the elapsed-time half is the instant handed to
         // TierPolicy.Evaluate below.
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(log, v!.AuthorAgentId);
+        var posture = PostureQuery.Of(log, author!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -655,14 +666,14 @@ public static class ForumEndpoints
         var now = clock.GetUtcNow();
         var tier = TierPolicy.Evaluate(facts!, now);
 
-        var (resource, action) = PairFor(v.Envelope.Kind);
+        var (resource, action) = PairFor(v!.Envelope.Kind);
         var decision = await pdp.EvaluateAsync(
             new AuthorizationRequest(
                 tier,
                 facts!.CredentialState,
                 resource,
                 action,
-                PostsToday: PostsInBudgetWindow(log, v.AuthorAgentId, now)),
+                PostsToday: PostsInBudgetWindow(log, v.AuthorAgentId.Value, now)),
             cancellationToken).ConfigureAwait(false);
 
         if (!decision.TryGetValue(out var d, out var decisionError))
@@ -674,7 +685,7 @@ public static class ForumEndpoints
         // resource. Until this existed, the qualifier was returned and read past: any T0 agent could
         // submit a revision naming another agent's post.
         if (d!.Qualifier is GrantQualifier.OwnResourceOnly)
-            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId));
+            d = d.Discharge(RevisesOwnPost(log, v.Envelope.Prev, v.AuthorAgentId.Value));
 
         if (!d.IsAllowed)
             return Problem(
@@ -727,7 +738,7 @@ public static class ForumEndpoints
         {
             var indexed = await indexer.IndexAsync(
                 new SearchablePost(post!.PostId, post.Digest, v.Envelope.Board, v.Envelope.Kind, v.Envelope.Title,
-                    v.Envelope.Body, v.Envelope.Tags, v.AuthorAgentId, post.Sequence),
+                    v.Envelope.Body, v.Envelope.Tags, v.AuthorAgentId.Value, post.Sequence),
                 cancellationToken).ConfigureAwait(false);
             if (!indexed.TryGetValue(out _, out var indexError))
                 return Problem(StatusCodes.Status500InternalServerError, indexError!);
@@ -807,7 +818,10 @@ public static class ForumEndpoints
             // PEP-2. R7.13 evaluates authorization per request; R7.7 takes the tier from the log rather
             // than from the token's claim about it.
             var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-            var posture = PostureQuery.Of(log, subject);
+            if (!PrincipalOf(subject).TryGetValue(out var raiser, out var subjectError))
+                return Problem(StatusCodes.Status403Forbidden, subjectError!);
+
+            var posture = PostureQuery.Of(log, raiser!);
 
             if (!posture.TryGetValue(out var facts, out var postureError))
                 return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -839,8 +853,13 @@ public static class ForumEndpoints
                     StatusCodes.Status403Forbidden,
                     new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
 
+            // R11.34 (errata G18): the post id and the rationale reach RaiseFlag as the types it takes,
+            // parsed at their first use, after authorization. Each parse outcome is passed rather than
+            // refused here, so the use case answers every refusal where it answered it before the
+            // types existed (R10.68's order: before screening, before the post is looked up).
             var raised = await flags
-                .RecordAsync(postId, subject, kind, request.Rationale, cancellationToken)
+                .RecordAsync(
+                    PostId.Parse(postId, "post_id"), raiser!, kind, Rationale.Parse(request.Rationale), cancellationToken)
                 .ConfigureAwait(false);
 
             if (!raised.TryGetValue(out var flag, out var raiseError))
@@ -1012,7 +1031,10 @@ public static class ForumEndpoints
         var subject = authenticated!.Claims.Sub;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(log, subject);
+        if (!PrincipalOf(subject).TryGetValue(out var lister, out var subjectError))
+            return (null, Problem(StatusCodes.Status403Forbidden, subjectError!));
+
+        var posture = PostureQuery.Of(log, lister!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
@@ -1217,14 +1239,15 @@ public static class ForumEndpoints
         // Withheld posts are removed from the thread, not the thread from the corpus: a reply to a
         // withheld post is still the reply its author signed, and withholding a parent must not
         // silently withhold every answer under it.
-        // A root id of white space alone names no post, so it has no thread: answered as any unknown
-        // thread is. PostProjector.Thread refuses such an id by throwing, and an anonymous
-        // GET /v1/threads/%0A answered 500 (register D25's sweep; R11.33, errata G17).
+        // A root id that is no post id names no post, so it has no thread: answered as any unknown
+        // thread is. An id of white space alone once reached PostProjector.Thread, which threw, and an
+        // anonymous GET /v1/threads/%0A answered 500 (register D25's sweep; R11.33, errata G17). Since
+        // R11.34 (errata G18) Thread takes a PostId, parsed here at its first use.
         var posts = PostProjector.Fold(log);
-        var thread = string.IsNullOrWhiteSpace(rootPostId)
-            ? []
-            : ImmutableArray.CreateRange(
-                PostProjector.Thread(posts, rootPostId).Where(p => servable(p.PostId) && Discussion(p)));
+        var thread = PostId.Parse(rootPostId, "root_post_id").TryGetValue(out var root, out _)
+            ? ImmutableArray.CreateRange(
+                PostProjector.Thread(posts, root!).Where(p => servable(p.PostId) && Discussion(p)))
+            : [];
         var standings = AgentStandingProjector.Fold(log);
         var verification = VerificationProjector.Fold(posts, standings, servable);
         var acta = ActaOf(log);
@@ -1317,19 +1340,27 @@ public static class ForumEndpoints
     /// before; one whose every row the log refuses gets an empty set.</para>
     /// </summary>
     private static async Task<IResult> GetJwks(
-        string agent, LogBoundKeys keys, IEventReader events, CancellationToken cancellationToken)
+        string? agent, LogBoundKeys keys, IEventReader events, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(agent))
-            return Results.BadRequest(new Problem(
-                "curia/keys/agent-required", "The 'agent' query parameter is required", null));
+        // R11.34 (errata G18): the agent as the AgentId the key set is read for. Bound as a nullable
+        // string, so an absent parameter reaches this handler: bound non-nullable, the binder answered
+        // curia/request/unreadable before this route's own answer was reached (the exercise's audit,
+        // finding 5). Absent and blank are asked for an agent; any other value that is no agent id names
+        // no agent the store holds keys for, and is answered as one.
+        if (!AgentId.Parse(agent, "agent").TryGetValue(out var agentId, out var agentError))
+        {
+            return agentError!.Type is StorableText.AbsentType or StorableText.BlankType
+                ? Results.BadRequest(new Problem(
+                    "curia/keys/agent-required", "The 'agent' query parameter is required", null))
+                : Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agent));
+        }
 
-        var agentId = agent;
-        var read = await keys.KeySetAsync(agentId, cancellationToken).ConfigureAwait(false);
+        var read = await keys.KeySetAsync(agentId!, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var keySet, out var readError))
             return Problem(StatusCodes.Status503ServiceUnavailable, readError!);
 
         if (keySet!.Stored == 0)
-            return Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId));
+            return Results.NotFound(new Problem("curia/keys/unknown-agent", "No keys for that agent", agentId!.Value));
 
         // The leaf that binds each key, from the Acta folded once, as every route that serves a post
         // or a log document folds it: no index of the key set's own, which would be a second
@@ -1391,7 +1422,10 @@ public static class ForumEndpoints
         var subject = authenticated!.Claims.Sub;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(log, subject);
+        if (!PrincipalOf(subject).TryGetValue(out var acceptor, out var subjectError))
+            return Problem(StatusCodes.Status403Forbidden, subjectError!);
+
+        var posture = PostureQuery.Of(log, acceptor!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1415,8 +1449,13 @@ public static class ForumEndpoints
         // has to exist before "whose thread is it" is even a question -- so the shape of the target
         // is settled first, and reported with its own slugs rather than as a bare authorization
         // refusal. A caller that mistyped an id should not be told it lacks permission.
+        // R11.34 (errata G18): the id is parsed at its first use, this lookup; one that is no post id
+        // names no post, and is answered as an id no post has.
         var posts = PostProjector.Fold(log);
-        var answer = posts.FirstOrDefault(p => string.Equals(p.PostId, postId, StringComparison.Ordinal));
+        var answerId = PostId.Parse(postId, "post_id").TryGetValue(out var parsed, out _) ? parsed : null;
+        var answer = answerId is null
+            ? null
+            : posts.FirstOrDefault(p => string.Equals(p.PostId, answerId.Value, StringComparison.Ordinal));
 
         if (answer is null)
             return Problem(StatusCodes.Status404NotFound, new Error(
@@ -1442,8 +1481,14 @@ public static class ForumEndpoints
                 StatusCodes.Status403Forbidden,
                 new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
 
+        // The thread root is a post the log holds, whose id the Forum minted as a PostId; the type has
+        // no other constructor, so it is rebuilt through Parse, and one that no longer parsed would be
+        // the log's fault, answered as a record the log refused is (R11.34, errata G18).
+        if (!PostId.Parse(root!.PostId, "thread_root").TryGetValue(out var threadRoot, out var rootError))
+            return Problem(StatusCodes.Status500InternalServerError, rootError!);
+
         var recorded = await accept
-            .RecordAsync(root!.PostId, postId, subject, cancellationToken)
+            .RecordAsync(threadRoot!, answerId!, acceptor!, cancellationToken)
             .ConfigureAwait(false);
 
         if (!recorded.TryGetValue(out var acceptance, out var recordError))
@@ -1597,13 +1642,24 @@ public static class ForumEndpoints
         if (!RetrievalCursor.Decode(http.Query["cursor"].ToString()).TryGetValue(out var cursor, out var cursorError))
             return Problem(StatusCodes.Status400BadRequest, cursorError!);
 
+        // R11.34 (errata G18): `board` and `author` as the types the query takes. A value that is no
+        // board name or no agent id names no post's board or author, so the filter matches nothing,
+        // as it did when it was compared as text: the page is answered empty, at the place it was.
+        var boardWire = Nullable(http.Query["board"].ToString());
+        var authorWire = Nullable(http.Query["author"].ToString());
+        BoardName? board = null;
+        AgentId? author = null;
+        var matchesNothing =
+            (boardWire is not null && !BoardName.Parse(boardWire, "board").TryGetValue(out board, out _))
+            | (authorWire is not null && !AgentId.Parse(authorWire, "author").TryGetValue(out author, out _));
+
         var query = new SearchQuery(
             Text: Nullable(http.Query["q"].ToString()),
-            Board: Nullable(http.Query["board"].ToString()),
+            Board: board,
             Kinds: kinds.ToImmutable(),
             Tags: [.. http.Query["tags"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
-            Author: Nullable(http.Query["author"].ToString()),
+            Author: author,
             RequestedFloor: requestedFloor,
             Cursor: cursor,
             Limit: limit);
@@ -1637,7 +1693,7 @@ public static class ForumEndpoints
         var wantsWhy = whyWire is "true" or "1";
 
         var results = ImmutableArray.CreateBuilder<SearchHitResponse>();
-        foreach (var hit in page!.Results)
+        foreach (var hit in matchesNothing ? [] : page!.Results)
         {
             // A ranked post the serving projection does not have is dropped rather than served
             // half-formed. The two projections read the same events, so this cannot happen today --
@@ -1652,7 +1708,7 @@ public static class ForumEndpoints
 
         return Results.Ok(new SearchResponse(
             results.ToImmutable(),
-            page.Next?.Encode(),
+            matchesNothing ? null : page!.Next?.Encode(),
             new FloorResponse(
                 RetrievalSurfaces.Wire(page.Surface),
                 VerificationLevels.Wire(page.Floor),
@@ -1741,7 +1797,10 @@ public static class ForumEndpoints
         var subject = authenticated!.Claims.Sub;
 
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
-        var posture = PostureQuery.Of(log, subject);
+        if (!PrincipalOf(subject).TryGetValue(out var reader, out var subjectError))
+            return Problem(StatusCodes.Status403Forbidden, subjectError!);
+
+        var posture = PostureQuery.Of(log, reader!);
 
         if (!posture.TryGetValue(out var facts, out var postureError))
             return Problem(StatusCodes.Status500InternalServerError, postureError!);
@@ -1765,7 +1824,7 @@ public static class ForumEndpoints
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
-        var inbox = InboxSelector.Select(log, subject);
+        var inbox = InboxSelector.Select(log, reader!);
 
         var query = new LexicalQuery(
             Board: Nullable(http.Query["board"].ToString()),
@@ -1870,7 +1929,7 @@ public static class ForumEndpoints
         string? OwnerOf(string agent) => standings.TryGetValue(agent, out var s) ? s.OwnerId : null;
 
         if (VerificationPolicy.Refusal(
-                v.AuthorAgentId, OwnerOf(v.AuthorAgentId), targetPost.Author, OwnerOf(targetPost.Author),
+                v.AuthorAgentId.Value, OwnerOf(v.AuthorAgentId.Value), targetPost.Author, OwnerOf(targetPost.Author),
                 targetKind, v.Envelope.Board, targetPost.Board) is { } refusal)
             return Problem(StatusCodes.Status422UnprocessableEntity, refusal);
 
@@ -1878,7 +1937,7 @@ public static class ForumEndpoints
         // superseded by the same agent's later one (R8.56); a vote may not be recast, because a vote
         // that could be changed after the tally is visible is the thing epoch sealing exists to stop.
         if (v.Envelope.Kind is PostKind.Vote
-            && posts.Any(p => string.Equals(p.Author, v.AuthorAgentId, StringComparison.Ordinal)
+            && posts.Any(p => string.Equals(p.Author, v.AuthorAgentId.Value, StringComparison.Ordinal)
                 && servable(p.PostId)
                 && string.Equals(VerificationProjector.TargetOf(p), target, StringComparison.Ordinal)))
             return Problem(StatusCodes.Status409Conflict, VerificationErrors.AlreadyVoted(target));
@@ -2131,7 +2190,7 @@ public static class ForumEndpoints
         if (!issued.TryGetValue(out var nonce, out var nonceError))
             return Problem(StatusCodes.Status500InternalServerError, nonceError!);
 
-        return new NonceChallenge(error, nonce!.Value);
+        return new NonceChallenge(error, nonce!.Value.Value);
     }
 
     /// <summary>The 401 that carries a usable nonce back to the client.</summary>
@@ -2217,4 +2276,15 @@ public static class ForumEndpoints
         status >= StatusCodes.Status500InternalServerError
             ? new ServerFault(status, error)
             : Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
+
+    /// <summary>
+    /// R11.34 (errata G18): the token's subject as the <see cref="AgentId"/> a use case takes, parsed
+    /// at its first use, after authentication. The issuer signs a token only for an identity the log
+    /// holds, under an identifier enrollment admitted, so no token this Forum issued is refused here;
+    /// one that were would name no agent, and is denied, 403, as an agent the log does not hold is.
+    /// </summary>
+    private static Result<AgentId> PrincipalOf(string subject) =>
+        AgentId.Parse(subject, "sub").Match(
+            Result<AgentId>.Ok,
+            _ => Result<AgentId>.Fail(new Error("curia/authz/denied", "Not permitted at this trust tier", "the token's subject names no agent")));
 }

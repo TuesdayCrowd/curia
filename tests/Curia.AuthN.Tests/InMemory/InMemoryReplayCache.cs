@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Curia.AuthN.Ports;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Tests.InMemory;
 
@@ -23,8 +24,8 @@ internal sealed class InMemoryReplayCache : IReplayCache
 {
     private readonly ConcurrentDictionary<string, DateTimeOffset> _seen = new(StringComparer.Ordinal);
 
-    public Task<Result<bool>> TryInsertAsync(string jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Result<bool>.Ok(_seen.TryAdd(jti, expiresAt)));
+    public Task<Result<bool>> TryInsertAsync(Jti jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result<bool>.Ok(_seen.TryAdd(jti.Value, expiresAt)));
 
     /// <summary>Test-only introspection: whether <paramref name="jti"/> has been recorded.</summary>
     public bool Contains(string jti) => _seen.ContainsKey(jti);

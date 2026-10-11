@@ -15,7 +15,7 @@ public sealed class InMemoryJwsKeyResolverTests
         var key = TestKeys.Ed25519("k1");
         var resolver = new InMemoryJwsKeyResolver(key.Kid, key.PublicKey);
 
-        var result = await resolver.ResolveAsync("k1", TestContext.Current.CancellationToken);
+        var result = await resolver.ResolveAsync(Typed.Kid("k1"), TestContext.Current.CancellationToken);
 
         Assert.True(result.TryGetValue(out var resolved, out var error), error?.Detail);
         Assert.Equal(key.PublicKey, resolved);
@@ -27,7 +27,7 @@ public sealed class InMemoryJwsKeyResolverTests
         var key = TestKeys.Ed25519("k1");
         var resolver = new InMemoryJwsKeyResolver(key.Kid, key.PublicKey);
 
-        var result = await resolver.ResolveAsync("k2", TestContext.Current.CancellationToken);
+        var result = await resolver.ResolveAsync(Typed.Kid("k2"), TestContext.Current.CancellationToken);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/authn/kid-not-found", error!.Type);
@@ -46,8 +46,8 @@ public sealed class InMemoryJwsKeyResolverTests
         });
         var ct = TestContext.Current.CancellationToken;
 
-        var resolvedFirst = await resolver.ResolveAsync("k1", ct);
-        var resolvedSecond = await resolver.ResolveAsync("k2", ct);
+        var resolvedFirst = await resolver.ResolveAsync(Typed.Kid("k1"), ct);
+        var resolvedSecond = await resolver.ResolveAsync(Typed.Kid("k2"), ct);
 
         Assert.True(resolvedFirst.TryGetValue(out var firstKey, out _));
         Assert.True(resolvedSecond.TryGetValue(out var secondKey, out _));

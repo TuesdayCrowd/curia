@@ -7,6 +7,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Screening;
 
 namespace Curia.Application.Moderation;
@@ -68,44 +69,60 @@ public sealed class RaiseFlag
     }
 
     /// <summary>Records a flag against <paramref name="postId"/>, or reports why it was not recorded.</summary>
-    /// <param name="postId">The post being flagged. Recorded privately, never in the log (R10.62).</param>
+    /// <param name="postId">
+    /// The post being flagged, as the host parsed it (R11.34, errata G18). Recorded privately, never in
+    /// the log (R10.62). The parse outcome rather than a <see cref="PostId"/>, as
+    /// <c>ClientAssertionValidationContext.ExpectedSubject</c> is, so each refusal is answered where
+    /// this use case answered it before the type existed: an id of white space ahead of the
+    /// rationale, and any other id that is no post id, which names no post the Forum minted, once
+    /// the rationale is screened, where the post's stream was read.
+    /// </param>
     /// <param name="raisedBy">The authenticated principal raising it. Recorded privately.</param>
     /// <param name="kind">One of R10.35's seven types. Public.</param>
-    /// <param name="rationale">Required, screened, and recorded privately.</param>
+    /// <param name="rationale">
+    /// Required, screened, and recorded privately; the host's parse outcome, refused here with this
+    /// path's own slugs (R10.68, R11.34): absent or blank is <see cref="ModerationErrors.RationaleRequired"/>,
+    /// over the cap <see cref="FlagErrors.RationaleTooLong"/> whatever else it holds, and, under the cap,
+    /// U+0000 or a lone surrogate, which no store holds, <see cref="FlagDetailRules.Unstorable"/>, the
+    /// refusal the private store gave it.
+    /// </param>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<Result<FlagRaised>> RecordAsync(
-        string postId,
-        string raisedBy,
+        Result<PostId> postId,
+        AgentId raisedBy,
         FlagKind kind,
-        string rationale,
+        Result<Rationale> rationale,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(postId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(raisedBy);
+        ArgumentNullException.ThrowIfNull(raisedBy);
 
         // An id of white space names no post, and is answered as accept and GET …/flags answer it
-        // (R11.33, errata G17): the route hands it on unrefused, and this threw on it, which answered
-        // 500 to any credentialed agent. Before screening, so such an id costs no screen (D32).
-        if (string.IsNullOrWhiteSpace(postId))
-            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));
-
-        if (string.IsNullOrWhiteSpace(rationale))
-            return Result<FlagRaised>.Fail(ModerationErrors.RationaleRequired());
+        // (R11.33, errata G17): it once reached this use case unrefused, and a guard here threw on it,
+        // which answered 500 to any credentialed agent. Before screening, so such an id costs no screen
+        // (D32).
+        if (!postId.TryGetValue(out var target, out var postIdError)
+            && postIdError!.Type is StorableText.AbsentType or StorableText.BlankType)
+            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(NoPostId));
 
         // R10.68 (errata G18): before screening and before the post's stream is read.
-        if (RationaleLimit.Over(rationale) is { } bytes)
-            return Result<FlagRaised>.Fail(FlagErrors.RationaleTooLong(bytes));
+        if (!rationale.TryGetValue(out var reason, out var rationaleError))
+            return Result<FlagRaised>.Fail(RefusalOf(rationaleError!));
 
         // SCREEN, before anything is written. The screener takes a span, which cannot be stored in
         // a field, so this phase structurally cannot retain what it screened.
-        var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(rationale));
+        var screened = ContentScreener.ScreenText(Encoding.UTF8.GetBytes(reason!.Value));
         if (!screened.TryGetValue(out var screening, out var screeningError))
             return Result<FlagRaised>.Fail(screeningError!);
 
         if (!screening!.MayPersist)
             return Result<FlagRaised>.Fail(FlagErrors.RationaleRejected(screening.Annotations));
 
-        if (!AggregateId.Create(postId).TryGetValue(out var post, out var postError))
+        // Any other id that is no post id names no post: the Forum mints a post's id as an uppercase
+        // ULID. Answered where the post's stream was read for it.
+        if (target is null)
+            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(NoPostId));
+
+        if (!AggregateId.Create(target.Value).TryGetValue(out var post, out var postError))
             return Result<FlagRaised>.Fail(postError!);
 
         // The post's own stream, read to establish that there is a post at all: an append-only store
@@ -115,7 +132,7 @@ public sealed class RaiseFlag
             return Result<FlagRaised>.Fail(readError!);
 
         if (events!.Count == 0)
-            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(postId));
+            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(target.Value));
 
         // R10.70 (errata G18): one flag of a type per raiser per post, refused before anything is
         // written. After the cheap refusals, because it reads the whole log and the private store.
@@ -128,8 +145,8 @@ public sealed class RaiseFlag
             return Result<FlagRaised>.Fail(detailError!);
 
         var earlier = FlagDirectory.Join(log!, details!).Flags.FirstOrDefault(f =>
-            string.Equals(f.PostId, postId, StringComparison.Ordinal)
-            && string.Equals(f.RaisedBy, raisedBy, StringComparison.Ordinal)
+            string.Equals(f.PostId, target.Value, StringComparison.Ordinal)
+            && string.Equals(f.RaisedBy, raisedBy.Value, StringComparison.Ordinal)
             && f.Kind == kind);
         if (earlier is not null)
             return Result<FlagRaised>.Fail(FlagErrors.AlreadyRaised(earlier.Kind, earlier.At));
@@ -148,12 +165,12 @@ public sealed class RaiseFlag
             return Result<FlagRaised>.Fail(typeError!);
 
         var salt = _newSalt();
-        if (!FlagCommitment.Of(postId, raisedBy, rationale, salt).TryGetValue(out var commitment, out var commitmentError))
+        if (!FlagCommitment.Of(target.Value, raisedBy.Value, reason.Value, salt).TryGetValue(out var commitment, out var commitmentError))
             return Result<FlagRaised>.Fail(commitmentError!);
 
         // The private row first (see the remarks above).
         var stored = await _details
-            .AppendAsync(new FlagDetail(id, postId, raisedBy, rationale, salt), cancellationToken)
+            .AppendAsync(new FlagDetail(id, target.Value, raisedBy.Value, reason.Value, salt), cancellationToken)
             .ConfigureAwait(false);
         if (!stored.TryGetValue(out _, out var storeError)) return Result<FlagRaised>.Fail(storeError!);
 
@@ -167,8 +184,27 @@ public sealed class RaiseFlag
             .AppendAsync(aggregate, AggregateVersion.New, [new DomainEvent(eventId, type, null, payload)], cancellationToken)
             .ConfigureAwait(false);
 
-        return appended.Map(recorded => new FlagRaised(postId, kind, recorded[0].ServerTimestamp.Value));
+        return appended.Map(recorded => new FlagRaised(target.Value, kind, recorded[0].ServerTimestamp.Value));
     }
+
+    /// <summary>
+    /// What a refusal names for an id that is no post id. The caller's text is not echoed, as
+    /// <c>ClientAssertionValidator</c> does not echo a <c>client_id</c> that is no agent id (R11.34,
+    /// errata G18).
+    /// </summary>
+    internal const string NoPostId = "(post_id is no post id)";
+
+    /// <summary>
+    /// R11.34 (errata G18): the rule's refusal of a rationale, answered with the slug this path served
+    /// before the type existed. The rule's <c>too-long</c> detail is R10.68's, byte for byte, since the
+    /// field is <c>rationale</c> and the cap is <see cref="RationaleLimit.MaxUtf8Bytes"/>.
+    /// </summary>
+    private static Error RefusalOf(Error parsed) => parsed.Type switch
+    {
+        StorableText.AbsentType or StorableText.BlankType => ModerationErrors.RationaleRequired(),
+        StorableText.TooLongType => FlagErrors.RationaleTooLong(0) with { Detail = parsed.Detail },
+        _ => FlagDetailRules.Unstorable(),
+    };
 }
 
 /// <summary>The salt a flag's commitment is taken with (R10.62): 32 random bytes, base64url.</summary>

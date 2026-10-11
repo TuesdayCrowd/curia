@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Curia.AuthN.Jwt;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN;
 
@@ -14,7 +15,7 @@ public sealed record ClientAssertionClaims(
     string Aud,
     DateTimeOffset Iat,
     DateTimeOffset Exp,
-    string Jti)
+    Jti Jti)
 {
     internal static Result<ClientAssertionClaims> Parse(JsonElement root)
     {
@@ -25,10 +26,10 @@ public sealed record ClientAssertionClaims(
             return Result<ClientAssertionClaims>.Fail(expError!);
 
         // R11.33 (errata G17): the replay cache is asked about this jti, and an absent, blank,
-        // NUL-holding or overlong one threw there, at the token endpoint.
-        var jti = CompactJws.ReadString(root, "jti");
-        if (CompactJws.IdentifierRefusal(jti, "jti", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)
-            return Result<ClientAssertionClaims>.Fail(jtiError);
+        // NUL-holding or overlong one threw there, at the token endpoint. R11.34 (errata G18): it
+        // reaches the cache only as a Jti.
+        if (!Jti.Parse(CompactJws.ReadString(root, "jti")).TryGetValue(out var jti, out var jtiError))
+            return Result<ClientAssertionClaims>.Fail(CompactJws.AsMalformed(jtiError!, "jti", Jti.MaxUtf8Bytes));
 
         return Result<ClientAssertionClaims>.Ok(new ClientAssertionClaims(
             Iss: CompactJws.ReadString(root, "iss"),
@@ -36,6 +37,6 @@ public sealed record ClientAssertionClaims(
             Aud: CompactJws.ReadString(root, "aud"),
             Iat: iat,
             Exp: exp,
-            Jti: jti));
+            Jti: jti!));
     }
 }

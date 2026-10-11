@@ -1,6 +1,7 @@
 using Curia.Application.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Tests.InMemory;
 
@@ -15,9 +16,9 @@ internal sealed class InMemoryAuthorKeyRegistry : IAuthorKeyRegistry
     private readonly Lock _gate = new();
 
     public Task<Result<RegisteredKey>> EnrollAsync(
-        string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
+        AgentId agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(key);
 
         lock (_gate)
@@ -30,19 +31,19 @@ internal sealed class InMemoryAuthorKeyRegistry : IAuthorKeyRegistry
                 return Task.FromResult(Result<RegisteredKey>.Ok(existing));
 
             if (_byKid.ContainsKey(key.Kid))
-                return Task.FromResult(Result<RegisteredKey>.Fail(AuthorKeyErrors.KidRegisteredToAnotherAgent(agentId, key.Kid)));
+                return Task.FromResult(Result<RegisteredKey>.Fail(AuthorKeyErrors.KidRegisteredToAnotherAgent(agentId.Value, key.Kid)));
 
             // A copy of the bytes, as a database row is: a caller that reuses its array afterwards
             // must not be able to change what the store holds.
             var registered = new RegisteredKey(new PublicKeyMaterial(key.Alg, key.Kid, key.Public.ToArray()), notBefore, null);
-            _byKid.Add(key.Kid, (agentId, registered));
+            _byKid.Add(key.Kid, (agentId.Value, registered));
             return Task.FromResult(Result<RegisteredKey>.Ok(registered));
         }
     }
 
-    public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
 
         lock (_gate)
         {
@@ -55,10 +56,10 @@ internal sealed class InMemoryAuthorKeyRegistry : IAuthorKeyRegistry
     /// The Postgres adapter's order: newest window first, then <c>kid</c> -- ordinally here, by the
     /// database's collation there. Nothing depends on that tie-break.
     /// </summary>
-    private List<RegisteredKey> HeldBy(string agentId) =>
+    private List<RegisteredKey> HeldBy(AgentId agentId) =>
     [
         .. _byKid.Values
-            .Where(row => string.Equals(row.AgentId, agentId, StringComparison.Ordinal))
+            .Where(row => string.Equals(row.AgentId, agentId.Value, StringComparison.Ordinal))
             .Select(row => row.Key)
             .OrderByDescending(k => k.NotBefore)
             .ThenBy(k => k.Key.Kid, StringComparer.Ordinal),

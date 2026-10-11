@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using Curia.AuthN;
 using Curia.AuthN.Ports;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -109,7 +110,7 @@ public sealed class PostgresDpopNonceStore : IDpopNonceStore
             "in the constructor from SqlIdentifier.Quote(schema) -- a constructor argument every " +
             "caller in this solution supplies itself, never external input. Every per-call value is " +
             "bound through a parameterized NpgsqlParameter.")]
-    public async Task<Result<DpopNonce>> IssueAsync(CancellationToken cancellationToken = default)
+    public async Task<Result<IssuedDpopNonce>> IssueAsync(CancellationToken cancellationToken = default)
     {
         var now = _clock.GetUtcNow();
         var epoch = EpochOf(now);
@@ -130,7 +131,7 @@ public sealed class PostgresDpopNonceStore : IDpopNonceStore
 
             await using var reader = await insert.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                return Result<DpopNonce>.Ok(MapRow(reader));
+                return MapRow(reader);
         }
 
         await using (var select = new NpgsqlCommand(
@@ -140,7 +141,7 @@ public sealed class PostgresDpopNonceStore : IDpopNonceStore
 
             await using var reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                return Result<DpopNonce>.Ok(MapRow(reader));
+                return MapRow(reader);
         }
 
         // Unreachable barring an operator deleting the row between the two statements above.
@@ -166,10 +167,9 @@ public sealed class PostgresDpopNonceStore : IDpopNonceStore
         "CA2100:Review SQL queries for security vulnerabilities",
         Justification = "See IssueAsync's identical suppression: the only interpolated text is " +
             "_table, computed once in the constructor, and the nonce is a bound parameter.")]
-    public async Task<Result<bool>> IsCurrentAsync(string nonce, CancellationToken cancellationToken = default)
+    public async Task<Result<bool>> IsCurrentAsync(DpopNonce nonce, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(nonce))
-            return Result<bool>.Ok(false);
+        ArgumentNullException.ThrowIfNull(nonce);
 
         var epoch = EpochOf(_clock.GetUtcNow());
 
@@ -180,7 +180,7 @@ public sealed class PostgresDpopNonceStore : IDpopNonceStore
             // -- and that is the rotation-boundary failure this store is shaped to avoid.
             $"SELECT 1 FROM {_table} WHERE nonce = @nonce AND epoch >= @oldest;", connection);
 
-        command.Parameters.Add(new NpgsqlParameter("nonce", NpgsqlDbType.Text) { Value = nonce });
+        command.Parameters.Add(new NpgsqlParameter("nonce", NpgsqlDbType.Text) { Value = nonce.Value });
         command.Parameters.Add(new NpgsqlParameter("oldest", NpgsqlDbType.Bigint) { Value = epoch - 1 });
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -188,14 +188,19 @@ public sealed class PostgresDpopNonceStore : IDpopNonceStore
     }
 
     /// <summary>
-    /// Reconstructs a <see cref="DpopNonce"/> from one <c>(nonce, expires_at)</c> row. A separate
+    /// Reconstructs an <see cref="IssuedDpopNonce"/> from one <c>(nonce, expires_at)</c> row. The
+    /// value is one this store minted (<see cref="NewNonce"/>), so <see cref="DpopNonce.Parse"/> passes
+    /// it; a row it refuses is answered as a failure, never thrown on the authentication path. A separate
     /// non-async method for the reason <see cref="PostgresEventStore"/>'s <c>MapRow</c> is one:
     /// column access on a row already materialized by <c>ReadAsync</c> is synchronous by nature,
     /// and calling it inline in an <see langword="async"/> method makes CA1849 (correctly, for a
     /// rule that cannot see the row is already in hand) report a synchronous block.
     /// </summary>
-    private static DpopNonce MapRow(NpgsqlDataReader reader) =>
-        new(reader.GetString(0), reader.GetFieldValue<DateTimeOffset>(1));
+    private static Result<IssuedDpopNonce> MapRow(NpgsqlDataReader reader)
+    {
+        var expiresAt = reader.GetFieldValue<DateTimeOffset>(1);
+        return DpopNonce.Parse(reader.GetString(0)).Map(nonce => new IssuedDpopNonce(nonce, expiresAt));
+    }
 
     private string InsertSql =>
         $"""

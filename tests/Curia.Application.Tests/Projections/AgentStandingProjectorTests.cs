@@ -74,7 +74,7 @@ public sealed class AgentStandingProjectorTests
         string by = Operator,
         OwnerVerificationMethod method = OwnerVerificationMethod.Manual) =>
         new AttestOwner(store, clock).RecordAsync(
-            agent,
+            Curia.Domain.Primitives.Boundary.AgentId.Parse(agent),
             Require(OwnerId.Create(owner)),
             verified,
             method,
@@ -86,7 +86,7 @@ public sealed class AgentStandingProjectorTests
     private static async Task EnrollVerifiedAsync(
         InMemoryEventStore store, ManualTimeProvider clock, string agent, string kid, CancellationToken ct)
     {
-        Require(await new EnrollAgent(store, clock).RecordAsync(agent, TestKeys.Es256(kid), ct).ConfigureAwait(false));
+        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(agent), TestKeys.Es256(kid), ct).ConfigureAwait(false));
         Require(await AttestAsync(store, clock, agent, ct).ConfigureAwait(false));
     }
 
@@ -131,14 +131,14 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        var recorded = Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        var recorded = Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         Assert.Equal(Start, recorded.EnrolledAt);
         Assert.False(recorded.WasAlreadyEnrolled);
         Assert.False(recorded.OwnerVerified);
 
         var facts = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
 
         Assert.Equal(CredentialState.Active, facts.CredentialState);
         Assert.Equal(Start, facts.EnrolledAt);
@@ -193,7 +193,7 @@ public sealed class AgentStandingProjectorTests
             ct));
 
         var facts = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
 
         Assert.Equal(CredentialState.Active, facts.CredentialState);
         Assert.Equal(Start, facts.EnrolledAt);
@@ -209,7 +209,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
 
         var facts = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
 
         Assert.Equal(CredentialState.Pending, facts.CredentialState);
         Assert.Null(facts.EnrolledAt);
@@ -231,10 +231,10 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         clock.Advance(TimeSpan.FromDays(8));
-        var again = Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        var again = Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         Assert.Equal(Start, again.EnrolledAt);
         Assert.True(again.WasAlreadyEnrolled);
@@ -242,7 +242,7 @@ public sealed class AgentStandingProjectorTests
         var log = await LogAsync(store, ct);
         Assert.Equal(Enrollment, Types(log));
 
-        var facts = Require(AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), Agent));
+        var facts = Require(AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), Typed.Agent(Agent)));
         Assert.Equal(Start, facts.EnrolledAt);
         Assert.Equal(CredentialState.Active, facts.CredentialState);
     }
@@ -260,7 +260,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         clock.Advance(TimeSpan.FromDays(1));
         var attested = Require(await AttestAsync(store, clock, Agent, ct));
@@ -269,7 +269,7 @@ public sealed class AgentStandingProjectorTests
         Assert.Equal(Start.AddDays(1), attested.AttestedAt);
         Assert.Equal(OwnerVerificationMethod.Manual, attested.Method);
 
-        var again = Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        var again = Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         Assert.True(again.OwnerVerified);
         Assert.Equal(Start, again.EnrolledAt);
 
@@ -294,7 +294,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, AgentKey, ct));
+        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         Require(await AttestAsync(store, clock, Agent, ct, method: OwnerVerificationMethod.Domain));
 
         var attestation = (await LogAsync(store, ct))[Enrollment.Length];
@@ -320,7 +320,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, AgentKey, ct));
+        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         var refused = await AttestAsync(store, clock, Agent, ct, by: Agent);
 
@@ -342,7 +342,7 @@ public sealed class AgentStandingProjectorTests
         var clock = new ManualTimeProvider(Start);
         var store = new InMemoryEventStore(clock);
 
-        Require(await new EnrollAgent(store, clock).RecordAsync(Agent, AgentKey, ct));
+        Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         var refused = await AttestAsync(store, clock, Agent, ct, by: "operator:   ");
 
@@ -444,7 +444,7 @@ public sealed class AgentStandingProjectorTests
             await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
 
         var facts = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
 
         Assert.Equal(3, facts.QuestionsWithoutUpheldFlags);
 
@@ -468,8 +468,8 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, AgentKey, ct));
-        Require(await enroll.RecordAsync(Other, TestKeys.Es256("other-1"), ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Other), TestKeys.Es256("other-1"), ct));
 
         await AcceptPostAsync(store, Agent, "question", "mine-1", ct);
         await AcceptPostAsync(store, Agent, "answer", "mine-2", ct);
@@ -477,8 +477,8 @@ public sealed class AgentStandingProjectorTests
 
         var standings = AgentStandingProjector.Fold(await LogAsync(store, ct));
 
-        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Agent)).QuestionsWithoutUpheldFlags);
-        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Other)).QuestionsWithoutUpheldFlags);
+        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Typed.Agent(Agent))).QuestionsWithoutUpheldFlags);
+        Assert.Equal(1, Require(AgentStandingProjector.PostureOf(standings, Typed.Agent(Other))).QuestionsWithoutUpheldFlags);
     }
 
     /// <summary>
@@ -503,13 +503,13 @@ public sealed class AgentStandingProjectorTests
             await AcceptPostAsync(store, Agent, "question", $"early-{i}", ct);
 
         var early = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
 
         Assert.Equal(Start.AddHours(TierPolicy.T1MinimumHours), early.ReachedT1At);
 
         // A second agent, verified only on day twenty: there owner verification is binding, and no
         // amount of later reading moves the answer.
-        Require(await enroll.RecordAsync(Other, TestKeys.Es256("other-1"), ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Other), TestKeys.Es256("other-1"), ct));
         for (var i = 0; i < 3; i++)
             await AcceptPostAsync(store, Other, "question", $"other-{i}", ct);
 
@@ -517,7 +517,7 @@ public sealed class AgentStandingProjectorTests
         Require(await AttestAsync(store, clock, Other, ct));
 
         var late = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Other));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Other)));
 
         Assert.Equal(Start.AddDays(20), late.ReachedT1At);
     }
@@ -535,7 +535,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         await AcceptPostAsync(store, Agent, "question", "q-1", ct);
 
         clock.Advance(TimeSpan.FromDays(2));
@@ -564,8 +564,8 @@ public sealed class AgentStandingProjectorTests
 
         Assert.Equal(first, rebuilt);
         Assert.Equal(
-            Require(AgentStandingProjector.PostureOf(first, Agent)),
-            Require(AgentStandingProjector.PostureOf(rebuilt, Agent)));
+            Require(AgentStandingProjector.PostureOf(first, Typed.Agent(Agent))),
+            Require(AgentStandingProjector.PostureOf(rebuilt, Typed.Agent(Agent))));
     }
 
     /// <summary>
@@ -581,7 +581,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
         Require(await store.AppendAsync(
             Require(AggregateId.Create("some-other-aggregate")),
@@ -612,7 +612,7 @@ public sealed class AgentStandingProjectorTests
         var store = new InMemoryEventStore(clock);
         var enroll = new EnrollAgent(store, clock);
 
-        Require(await enroll.RecordAsync(Agent, AgentKey, ct));
+        Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         await AcceptPostAsync(store, Agent, "question", "q-1", ct);
 
         var reversed = (await LogAsync(store, ct)).Reverse().ToArray();
@@ -700,12 +700,12 @@ public sealed class AgentStandingProjectorTests
             await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
 
         Assert.Equal(3, Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent)).QuestionsWithoutUpheldFlags);
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent))).QuestionsWithoutUpheldFlags);
 
         await UpholdFlagAsync(store, "post-1", FlagKind.Injection, Other, ct);
 
         Assert.Equal(2, Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent)).QuestionsWithoutUpheldFlags);
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent))).QuestionsWithoutUpheldFlags);
     }
 
     /// <summary>
@@ -725,13 +725,13 @@ public sealed class AgentStandingProjectorTests
             await AcceptPostAsync(store, Agent, "question", $"post-{i}", ct);
 
         var promoted = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
         Assert.Equal(PrincipalTier.T1, TierPolicy.Evaluate(promoted, Start.AddDays(8)).Tier);
 
         await UpholdFlagAsync(store, "post-1", FlagKind.Injection, Other, ct);
 
         var demoted = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
         Assert.Equal(PrincipalTier.T0, TierPolicy.Evaluate(demoted, Start.AddDays(8)).Tier);
     }
 
@@ -756,7 +756,7 @@ public sealed class AgentStandingProjectorTests
         await RaiseFlagAsync(store, "post-2", FlagKind.Spam, Other, ct);
 
         var facts = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
 
         Assert.Equal(3, facts.QuestionsWithoutUpheldFlags);
         Assert.Equal(PrincipalTier.T1, TierPolicy.Evaluate(facts, Start.AddDays(8)).Tier);
@@ -779,12 +779,12 @@ public sealed class AgentStandingProjectorTests
         await AcceptPostAsync(store, Agent, "answer", "answer-1", ct);
 
         Assert.True(Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent)).HasCleanRecord);
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent))).HasCleanRecord);
 
         await UpholdFlagAsync(store, "answer-1", FlagKind.MaliciousCode, Other, ct);
 
         var facts = Require(AgentStandingProjector.PostureOf(
-            AgentStandingProjector.Fold(await LogAsync(store, ct)), Agent));
+            AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
 
         Assert.Equal(1, facts.UpheldFlags);
         Assert.False(facts.HasCleanRecord);

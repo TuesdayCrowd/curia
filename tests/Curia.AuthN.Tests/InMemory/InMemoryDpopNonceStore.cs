@@ -1,5 +1,6 @@
 using Curia.AuthN.Ports;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Tests.InMemory;
 
@@ -15,7 +16,7 @@ internal sealed class InMemoryDpopNonceStore : IDpopNonceStore
     private readonly object _gate = new();
     private readonly TimeProvider _clock;
     private readonly TimeSpan _rotationInterval;
-    private DpopNonce? _current;
+    private IssuedDpopNonce? _current;
     private long _counter;
 
     public InMemoryDpopNonceStore(TimeProvider clock, TimeSpan? rotationInterval = null)
@@ -24,23 +25,24 @@ internal sealed class InMemoryDpopNonceStore : IDpopNonceStore
         _rotationInterval = rotationInterval ?? AuthNConstants.MaxDpopNonceRotationInterval;
     }
 
-    public Task<Result<DpopNonce>> IssueAsync(CancellationToken cancellationToken = default)
+    public Task<Result<IssuedDpopNonce>> IssueAsync(CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
             var value = $"nonce-{Interlocked.Increment(ref _counter)}";
-            var nonce = new DpopNonce(value, _clock.GetUtcNow() + _rotationInterval);
-            _current = nonce;
-            return Task.FromResult(Result<DpopNonce>.Ok(nonce));
+            var issued = DpopNonce.Parse(value).Map(nonce => new IssuedDpopNonce(nonce, _clock.GetUtcNow() + _rotationInterval));
+            if (issued.TryGetValue(out var current, out _))
+                _current = current;
+            return Task.FromResult(issued);
         }
     }
 
-    public Task<Result<bool>> IsCurrentAsync(string nonce, CancellationToken cancellationToken = default)
+    public Task<Result<bool>> IsCurrentAsync(DpopNonce nonce, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
             var isCurrent = _current is { } current
-                && string.Equals(current.Value, nonce, StringComparison.Ordinal)
+                && string.Equals(current.Value.Value, nonce.Value, StringComparison.Ordinal)
                 && _clock.GetUtcNow() < current.ExpiresAt;
             return Task.FromResult(Result<bool>.Ok(isCurrent));
         }

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Curia.Canon.Json;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Verification;
 
 namespace Curia.Application.Projections;
@@ -169,12 +170,13 @@ public static class VerificationProjector
     /// V2 or above. Counted over the current fold, so a later contradiction takes the finding out
     /// of the count on the next evaluation, which is R7.8's demotion-without-intervention.
     /// </summary>
-    public static int VerifiedFindingsBy(VerificationFold fold, ImmutableArray<PostView> posts, string author)
+    public static int VerifiedFindingsBy(VerificationFold fold, ImmutableArray<PostView> posts, AgentId author)
     {
         ArgumentNullException.ThrowIfNull(fold);
+        ArgumentNullException.ThrowIfNull(author);
 
         return posts.Count(p =>
-            string.Equals(p.Author, author, StringComparison.Ordinal)
+            string.Equals(p.Author, author.Value, StringComparison.Ordinal)
             && string.Equals(p.Kind, PostKinds.Wire(PostKind.Finding), StringComparison.Ordinal)
             && VerificationPolicy.IsVerifiedFinding(fold.LevelOf(p.Digest)));
     }

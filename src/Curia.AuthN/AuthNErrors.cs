@@ -25,6 +25,17 @@ public static class AuthNErrors
     public static Error TypMismatch(string expected, string actual) => new(
         "curia/authn/typ-mismatch", $"Expected typ '{expected}'", actual);
 
+    /// <summary>
+    /// The answer a key store gives a <c>kid</c> it holds no key under for an agent, byte-identical
+    /// to <c>Curia.Application</c>'s <c>AuthorKeyErrors.NotRegisteredToAgent</c>, which this assembly
+    /// cannot reference (CS-5). R11.34 (errata G18): a <c>kid</c> no store could hold, refused before
+    /// any store is asked, is answered exactly as one the store does not hold (spec section 4.7).
+    /// </summary>
+    public static Error KeyNotRegistered(string agentId, string kid) => new(
+        "curia/keys/not-registered-to-agent",
+        "No key with that identifier is registered to that agent",
+        $"agent={agentId} kid={kid}");
+
     public static Error KidNotFound(string kid) => new(
         "curia/authn/kid-not-found", "kid not found in the configured JWKS", kid);
 

@@ -1,4 +1,5 @@
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Ingest;
 
@@ -45,7 +46,7 @@ public interface IIngestPipeline
     /// </param>
     Task<Result<VerifiedSubmission>> VerifyAsync(
         AdmittedSubmission admitted,
-        string principalAgentId,
+        AgentId principalAgentId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -23,7 +23,7 @@ public abstract class FlagDetailStorePortContractTests
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
 
     private static FlagDetail Detail(string eventId, string rationale = "looks like spam") =>
-        new(eventId, "01JPOST0000000000000000001", "https://agents.example/reporter", rationale, "c2FsdA");
+        new(eventId, "01JP0ST0000000000000000001", "https://agents.example/reporter", rationale, "c2FsdA");
 
     [Fact]
     public async Task R11_32_AnEmptyStoreReadsEmpty()
@@ -107,6 +107,30 @@ public abstract class FlagDetailStorePortContractTests
         Assert.Equal("curia/flag/detail-unstorable", error!.Type);
         Assert.DoesNotContain("rationale with", error.Detail ?? string.Empty, StringComparison.Ordinal);
         Assert.Empty(Require(await store.ReadAllAsync(ct)));
+    }
+
+    /// <summary>
+    /// R11.34 (errata G18): read-back is never parsed. Before R11.34, <c>RaiseFlag</c> accepted a flag
+    /// against any id with a non-empty stream, an enrolled agent's included, so a stored post id may be
+    /// no ULID. The row reads back as written, and the store stays readable.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_ARowWhosePostOrRaiserPredatesTheTypesReadsBackVerbatim()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var detail = new FlagDetail(
+            "01JFLAG000000000000000001",
+            "https://agents.example/an-agent-flagged-before-r11-34",
+            "https://agents.example/reporter",
+            "why",
+            "c2FsdA");
+
+        Require(await store.AppendAsync(detail, ct));
+        var read = await store.ReadAllAsync(ct);
+
+        Assert.True(read.IsOk);
+        Assert.Equal(detail, Assert.Single(Require(read)));
     }
 }
 

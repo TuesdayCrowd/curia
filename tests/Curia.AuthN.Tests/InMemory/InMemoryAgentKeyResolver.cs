@@ -1,6 +1,7 @@
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Tests.InMemory;
 
@@ -57,13 +58,13 @@ internal sealed class InMemoryAgentKeyResolver : IAgentKeyResolver
     private InMemoryAgentKeyResolver(IReadOnlyDictionary<(string AgentId, string Kid), Entry> entries) => _entries = entries;
 
     public Task<Result<PublicKeyMaterial>> ResolveAsync(
-        string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+        AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
     {
-        if (!_entries.TryGetValue((agentId, kid), out var entry))
-            return Task.FromResult(Result<PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(kid)));
+        if (!_entries.TryGetValue((agentId.Value, kid.Value), out var entry))
+            return Task.FromResult(Result<PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(kid.Value)));
 
         return Task.FromResult(entry.Contains(at)
             ? Result<PublicKeyMaterial>.Ok(entry.Key)
-            : Result<PublicKeyMaterial>.Fail(AuthNErrors.KeyNotValidAtServerTimestamp(kid, at)));
+            : Result<PublicKeyMaterial>.Fail(AuthNErrors.KeyNotValidAtServerTimestamp(kid.Value, at)));
     }
 }

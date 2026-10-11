@@ -2,6 +2,7 @@ using System.Text;
 using Curia.AuthN.Ports;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Tests.Support;
 
@@ -55,11 +56,11 @@ internal sealed class RefusingReplayCache : IReplayCache
 {
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
 
-    public Task<Result<bool>> TryInsertAsync(string jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default)
+    public Task<Result<bool>> TryInsertAsync(Jti jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(jti) || jti.Contains('\0', StringComparison.Ordinal) || Encoding.UTF8.GetByteCount(jti) > 256)
+        if (string.IsNullOrWhiteSpace(jti.Value) || jti.Value.Contains('\0', StringComparison.Ordinal) || Encoding.UTF8.GetByteCount(jti.Value) > 256)
             throw new ArgumentException("a jti no store can hold reached the replay cache", nameof(jti));
-        return Task.FromResult(Result<bool>.Ok(_seen.Add(jti)));
+        return Task.FromResult(Result<bool>.Ok(_seen.Add(jti.Value)));
     }
 }
 
@@ -68,9 +69,9 @@ internal sealed class RecordingAgentKeyResolver(IAgentKeyResolver inner) : IAgen
 {
     public List<string> Asked { get; } = [];
 
-    public Task<Result<PublicKeyMaterial>> ResolveAsync(string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+    public Task<Result<PublicKeyMaterial>> ResolveAsync(AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
     {
-        Asked.Add(kid);
+        Asked.Add(kid.Value);
         return inner.ResolveAsync(agentId, kid, at, cancellationToken);
     }
 }
@@ -80,10 +81,10 @@ internal sealed class UncallableNonceStore : IDpopNonceStore
 {
     public int Calls { get; private set; }
 
-    public Task<Result<DpopNonce>> IssueAsync(CancellationToken cancellationToken = default) =>
+    public Task<Result<IssuedDpopNonce>> IssueAsync(CancellationToken cancellationToken = default) =>
         throw new InvalidOperationException("the nonce store was asked to issue");
 
-    public Task<Result<bool>> IsCurrentAsync(string nonce, CancellationToken cancellationToken = default)
+    public Task<Result<bool>> IsCurrentAsync(DpopNonce nonce, CancellationToken cancellationToken = default)
     {
         Calls++;
         throw new InvalidOperationException("the nonce store was asked about a nonce the Forum could not have issued");

@@ -11,6 +11,7 @@ using Curia.Canon.Jws;
 using Curia.Domain.Content;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Xunit;
 
 namespace Curia.Application.Tests.Ingest;
@@ -46,12 +47,12 @@ public sealed class IngestPipelineTests
         internal void Forget(string agentId, string kid) => _keys.Remove((agentId, kid));
 
         public Task<Result<PublicKeyMaterial>> ResolveAsync(
-            string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+            AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
         {
             AskedAt = at;
-            return Task.FromResult(_keys.TryGetValue((agentId, kid), out var key)
+            return Task.FromResult(_keys.TryGetValue((agentId.Value, kid.Value), out var key)
                 ? Result<PublicKeyMaterial>.Ok(key)
-                : Result<PublicKeyMaterial>.Fail(new Error("test/unknown-key", "no key for that agent", kid)));
+                : Result<PublicKeyMaterial>.Fail(new Error("test/unknown-key", "no key for that agent", kid.Value)));
         }
     }
 
@@ -134,7 +135,7 @@ public sealed class IngestPipelineTests
     {
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out var admitError), admitError?.Type);
 
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
         Assert.True(verified.TryGetValue(out var v, out var verifyError), verifyError?.Type);
 
         var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
@@ -165,7 +166,7 @@ public sealed class IngestPipelineTests
         var wire = Wire(harness);
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
         Assert.True(verified.TryGetValue(out var v, out _));
 
         var verifiedBytes = v!.Canonical.ToArray();
@@ -213,7 +214,7 @@ public sealed class IngestPipelineTests
         var wire = Wire(harness);
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
         Assert.True(verified.TryGetValue(out var v, out _));
 
         var expected = "sha256:" + Convert.ToHexStringLower(
@@ -260,7 +261,7 @@ public sealed class IngestPipelineTests
         var ct = TestContext.Current.CancellationToken;
 
         Assert.True(harness.Pipeline.Admit(Wire(harness)).TryGetValue(out var admitted, out _));
-        await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
 
         Assert.Equal(ServerTimestamp.At(Now), harness.Keys.AskedAt);
     }
@@ -284,7 +285,7 @@ public sealed class IngestPipelineTests
         var wire = Wire(harness, author: mallory);
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, mallory, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(mallory), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("test/unknown-key", error!.Type);
@@ -311,7 +312,7 @@ public sealed class IngestPipelineTests
         var wire = Wire(harness, author: mallory);
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, mallory, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(mallory), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/jws/signature-invalid", error!.Type);
@@ -324,7 +325,7 @@ public sealed class IngestPipelineTests
         var ct = TestContext.Current.CancellationToken;
 
         Assert.True(harness.Pipeline.Admit(Wire(harness)).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, "https://agents.example/bob", ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent("https://agents.example/bob"), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/content/author-principal-mismatch", error!.Type);
@@ -359,7 +360,7 @@ public sealed class IngestPipelineTests
         Assert.Contains(Decomposed, Encoding.UTF8.GetString(wire), StringComparison.Ordinal);
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Decomposed, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Decomposed), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/content/author-principal-mismatch", error!.Type);
@@ -380,7 +381,7 @@ public sealed class IngestPipelineTests
         var wire = Wire(harness, author: Decomposed, wireInNfc: false);
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Precomposed, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Precomposed), ct).ConfigureAwait(true);
         Assert.True(verified.TryGetValue(out var v, out var verifyError), verifyError?.Type);
 
         var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
@@ -414,7 +415,7 @@ public sealed class IngestPipelineTests
             .Replace("canonicalization", "sabotaged", StringComparison.Ordinal);
 
         Assert.True(harness.Pipeline.Admit(Encoding.UTF8.GetBytes(wire)).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/jws/signature-invalid", error!.Type);
@@ -429,7 +430,7 @@ public sealed class IngestPipelineTests
         var wire = Wire(harness, body: "Here is my token: ghp_A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o");
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
         Assert.True(verified.TryGetValue(out var v, out _));
 
         var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
@@ -458,7 +459,7 @@ public sealed class IngestPipelineTests
         var wire = Wire(harness, body: "Keys follow.\nAKIAIOSFODNN7EXAMPLE");
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
         Assert.True(verified.TryGetValue(out var v, out _));
 
         var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
@@ -482,7 +483,7 @@ public sealed class IngestPipelineTests
         var ct = TestContext.Current.CancellationToken;
 
         Assert.True(harness.Pipeline.Admit(Wire(harness, author: AskAgent)).TryGetValue(out var admitted, out var admitError), admitError?.Type);
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, AskAgent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(AskAgent), ct).ConfigureAwait(true);
         Assert.True(verified.TryGetValue(out var v, out var verifyError), verifyError?.Type);
 
         var screened = await harness.Pipeline.ScreenAsync(v!, ct).ConfigureAwait(true);
@@ -499,7 +500,7 @@ public sealed class IngestPipelineTests
 
         var answerWithoutParent = Wire(harness, PostKind.Answer, parent: null, title: null);
         Assert.True(harness.Pipeline.Admit(answerWithoutParent).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/content/parent-required", error!.Type);
@@ -514,7 +515,7 @@ public sealed class IngestPipelineTests
 
         var wire = Wire(harness, PostKind.Question, parent: "01J0000000000000000000000A");
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/content/parent-not-allowed", error!.Type);
@@ -530,21 +531,22 @@ public sealed class IngestPipelineTests
         harness.Keys.Forget(Agent, Kid);
 
         Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
-        var verified = await harness.Pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("test/unknown-key", error!.Type);
     }
 
-    /// <summary>A resolver that treats a blank <c>kid</c> as the bug it is for an adapter, as <c>PostgresAgentKeyStore</c> does.</summary>
-    private sealed class BlankKidThrows(IAuthorKeyResolver inner) : IAuthorKeyResolver
+    /// <summary>
+    /// A resolver the test must never reach. The port takes a <see cref="Kid"/> since R11.34 (errata
+    /// G18), so a <c>kid</c> no key can have is answered before any resolver is asked, where
+    /// <c>PostgresAgentKeyStore</c> once threw on a blank one.
+    /// </summary>
+    private sealed class NeverAsked : IAuthorKeyResolver
     {
         public Task<Result<PublicKeyMaterial>> ResolveAsync(
-            string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(kid);
-            return inner.ResolveAsync(agentId, kid, at, cancellationToken);
-        }
+            AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("the resolver was asked about kid " + kid);
     }
 
     /// <summary>
@@ -560,17 +562,19 @@ public sealed class IngestPipelineTests
         var harness = Build();
         var clock = new ManualTimeProvider(Now);
         var pipeline = new IngestPipeline(
-            new BlankKidThrows(harness.Keys),
+            new NeverAsked(),
             new InMemoryEventStore(clock),
             new Dictionary<string, IContentVerifier> { [TestEs256.Alg] = harness.Crypto },
             clock);
 
-        foreach (var kid in new[] { "", " ", "\t\n" })
+        // R11.34 (errata G18): and every other kid that is no Kid -- one holding U+0000, and one over
+        // the 1,024 bytes enrollment admits -- is answered so too.
+        foreach (var kid in new[] { "", " ", "\t\n", "a" + (char)0 + "b", new string('k', Curia.Domain.Primitives.Boundary.Kid.MaxUtf8Bytes + 1) })
         {
             var wire = Wire(harness with { SigningKey = harness.SigningKey with { Kid = kid } });
             Assert.True(pipeline.Admit(wire).TryGetValue(out var admitted, out var admitError), admitError?.Type);
 
-            var verified = await pipeline.VerifyAsync(admitted!, Agent, ct).ConfigureAwait(true);
+            var verified = await pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
 
             Assert.False(verified.TryGetValue(out _, out var error));
             Assert.Equal(AuthorKeyErrors.NotRegisteredToAgent(Agent, kid), error);

@@ -206,11 +206,15 @@ set; SP scores recorded even if not yet weighted.*
 > D25's closure means: each 500 found is closed and held by a named test. It does not mean no request
 > causes one.** Every round of the final gate found new ones, each a string a caller chose reaching a
 > parser or a store that throws, and the third round's fix commit (f914059) was not swept again. The
-> class is open as **D33**, and the next stage closes it by construction rather than by instance.
+> class was opened as **D33**, for the next stage to close by construction rather than by instance.
 > **D32**, which the same gate found, is closed by that stage's PR A (R10.68, R10.69): one flag's
 > rationale could hold a CPU for minutes. A five-agent exercise on 2026-10-06 opened **D34** (a flag
 > spent no budget; closed by the same PR A, R7.22 and R10.70) and **D35**–**D37**. PR A also built
-> D33's gate, a request fuzzer (R14.10), whose red baseline found no instance; PR B closes D33.
+> D33's gate, a request fuzzer (R14.10), whose red baseline found no instance; PR B closed D33
+> (R11.34): a caller's identifier reaches a port or a host-called use case only as a boundary type,
+> behind a build-failing fence, and a caller's JSON is read only through a guarded reader. It opened
+> **D38** (`prev` off a revision) and **D39** (a flag against an aggregate that is no post's), both
+> open.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -354,16 +358,16 @@ screener stage (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D
 and D27 by the enrollment stage (2026-09-26), the last two in its final wave; D28 by the key-binding
 stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27), D25 for the
 fifteen instances it names and not for their class, which is D33; D32 and D34 by the
-one-part-at-a-time stage's PR A (2026-10-09). Their entries are
+one-part-at-a-time stage's PR A (2026-10-09), and D33 by its PR B (2026-10-10). Their entries are
 kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
 history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage); D33
-(opened by the strangers stage's final gate; gated by the one-part-at-a-time stage's PR A, to be
-closed by its PR B); D35, D36 and D37 (opened by the five-agent exercise, 2026-10-06).
+Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage); D35, D36
+and D37 (opened by the five-agent exercise, 2026-10-06); D38 and D39 (opened by the
+one-part-at-a-time stage's PR B, 2026-10-10).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -2065,7 +2069,8 @@ request causes a 500, and nothing in this stage may say so. R11.33's first sente
 instance by instance and discharged by an enumerated sweep. Each of the final gate's three rounds
 found instances the previous one had not, and the third round's fix commit, f914059, was not swept
 again. The class, a string a caller chose reaching a parser or a store that throws on it, is open as
-**D33**.
+**D33**. *Amended 2026-10-10 (the one-part-at-a-time stage's Task B7):* the class is closed by R11.34
+(D33, closed by that stage's PR B) and gated by R14.10.
 
 ### D26 — any enrolled key could obtain a token as any enrolled identity *(pre-existing; found by the enrollment stage's final review, 2026-09-26; opened and closed by that stage's final wave; errata G15, R5.20)*
 
@@ -4520,7 +4525,7 @@ R10.69 bounds the screener's work, and the keep-first dedup its allocation; neit
 flags a run of hidden characters raises, stores and serves. That is the coalescing decision, with D35,
 for the next errata pass.
 
-### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06; gated by the one-part-at-a-time stage's PR A, R14.10; to be closed by its PR B, R11.34)*
+### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06; gated by the one-part-at-a-time stage's PR A, R14.10; closed by its PR B, 2026-10-10; errata G18, R11.34)*
 
 **Found by not converging.** The strangers stage closed fifteen 500s under D25, and each round of its
 final gate found instances the round before had not: in the second round a `jti`, a `nonce` and an
@@ -4958,6 +4963,147 @@ and `:92`, and `JsonReader.cs:357-378` are unchanged, and the header loop of `Fu
   /v1/posts json:/envelope/*. When D29 closes, these draws become refusals, and Divisor should be
   re-measured."
 
+**What the stage's PR B did to D33** (Tasks B1-B6, branch `boundary-types-fence`; recorded by Task
+B7, 2026-10-10). **D33 is closed by R11.34** (errata G18). PR B built items 1-3 of "The fix, scoped
+for the next stage" above, the cure, behind the gate PR A built (items 4 and 5). No frozen format
+moved, no event, table or grant changed, and no wire slug changed (spec §4.7).
+- *The types* (Task B1, `src/Curia.Domain.Primitives/Boundary/`). One rule, `StorableText.Check`,
+  refusing in this order: absent, blank (for a type that names), U+0000, an unpaired surrogate, and
+  more UTF-8 bytes than the type's store holds (`curia/input/absent`, `…/blank`, `…/nul`,
+  `…/unpaired-surrogate`, `…/too-long`). A refusal names the field, and for too-long the byte count
+  and the cap, never the value. The types a caller's identifier becomes at the boundary each have
+  `static Result<T> Parse(string?)` and a private constructor, which is CS-8 as written: `AgentId`
+  and `Kid` (1,024 bytes), `Jti` (256), `DpopNonce` (4,096), `PostId` (a ULID in its canonical
+  spelling, 26), and `BoardName` and `ParentReference` (262,144, not names). `Rationale`
+  (`src/Curia.Domain/Moderation/Rationale.cs`) takes R10.68's cap and checks it before what no store
+  holds, so R10.68's order holds on the flag path and on `curia-operator moderate` (review of
+  b75b2bf; FB16). No content is normalized.
+- *The ports and the host-called use cases* (Tasks B2 and B3; the plan's B2 and B3 tables and their
+  recorded-as-built notes are the signature record). `IReplayCache`, `IDpopNonceStore`,
+  `IAgentKeyResolver`, `IJwsKeyResolver`, `IAuthorKeyResolver`, `IAuthorKeyRegistry` and
+  `IIngestPipeline` take the types. `RaiseFlag` and `ApplyModeration` take `Result<PostId>` and
+  `Result<Rationale>`, and `AttestOwner` and `ClientAssertionValidationContext` a `Result<AgentId>`:
+  the host's parse outcome, so that every refusal stays where the use case answered it before, which
+  the closed pass, varying one part at a time, cannot see. `CompactJws.IdentifierRefusal` is deleted;
+  `CompactJws.AsMalformed` answers a refused `jti` or `kid` with its text byte for byte, and a `kid`
+  that is no `Kid` is answered as an unregistered one. `IngestPipeline`'s board, parent and blank-kid
+  checks are `BoardName.Parse`, `ParentReference.Parse` and `Kid.Parse`. The enrollment route keeps
+  its ordered checks and constructs `AgentId` and `Kid` after them. Read-back is never parsed:
+  `FlagDetail.PostId` and `.RaisedBy` stay `string`, since a row written before the types reads back
+  verbatim (`R11_34_ARowWrittenBeforeTheTypesDoesNotTakeDownTheStore`; FB15).
+- *The `ArgumentException.ThrowIf*` guards on caller-derived values.* In `src/Curia.Application`,
+  before (B3): `IngestPipeline.cs:71` principalAgentId; `PostureQuery.cs:22`,
+  `AgentStandingProjection.cs:321`, `InboxSelection.cs:63`, `IAuthorKeyRegistry.cs:133`,
+  `EnrollIdentity.cs:70`, `AttestOwner.cs:83`, `EnrollAgent.cs:111` and `EnrollmentBinding.cs:76`
+  agentId; `PostProjection.cs:111` rootPostId; `ApplyModeration.cs:77` postId; `RaiseFlag.cs:84`
+  raisedBy; `AcceptAnswer.cs:56`-`:58` threadRoot, answerId and acceptedBy. After: none. In
+  `src/Curia.Infrastructure`, before (B2; re-read recursively at 0e5ad9d~1):
+  `PostgresAdapters.cs:34` connectionString; `PostgresDpopNonceStore.cs:64` schema;
+  `PostgresAgentKeyStore.cs:52` schema, `:98`, `:225`, `:283` and `:329` agentId, `:330` kid;
+  `PostgresFlagDetailStore.cs:24` schema; `PostgresEventStore.cs:67` schema;
+  `PostgresReplayCache.cs:45` schema, `:118` jti; `PostgresFlagRaiserGate.cs:46` schema, `:65`
+  raisedBy; `PostgresVectorIndex.cs:43` schema, `:56` digest, `:57` postId. B2's
+  `src/Curia.Infrastructure/*.cs` grep did not reach subdirectories, which held five more:
+  `Migrations/EventStoreSchema.cs:53`-`:55` template, roleName and rolePassword;
+  `Migrations/SchemaMigrations.cs:66` fileName; and
+  `Projections/PostgresAggregateSummaryProjection.cs:59` schema. All five are unchanged after.
+  After, re-read at 0a92d6b: `PostgresReplayCache`'s jti and `PostgresAgentKeyStore`'s typed resolve
+  guards are gone (B2, B3); what remains guards a schema name, the connection string or a
+  migration's inputs, the internal `PostgresAgentKeyStore.RegisterAsync`'s agentId (`:226`), and
+  three values whose ports have fence rows. Two are Forum-minted: `PostgresFlagRaiserGate.cs:65`
+  raisedBy (the token's `sub`, read after the issuer's signature verifies; the row A4b owed) and
+  `PostgresVectorIndex.cs:56` digest (computed by the Forum). One is stored:
+  `PostgresVectorIndex.cs:57` postId. That is a projected post's id. It is Forum-minted in origin,
+  but its row (`tests/Curia.Architecture.Tests/PortStringAllowlist.cs:35`) records it as a stored
+  value that may predate a rule, under spec §4.8's precedence; read-back is never parsed (spec
+  §4.6).
+- *The fence* (Task B4, `tests/Curia.Architecture.Tests/PortStringFenceTests.cs`):
+  `R11_34_NoPortOrHostCalledUseCaseTakesACallersStringWithoutAReason`. Its scope is derived, not
+  listed: every method of a public interface in `Curia.Application` and `Curia.AuthN`, and every
+  method and constructor a host (`Curia.Api.dll`, `curia-operator.dll`) references in those two,
+  each parameter's Curia types walked through their public constructors, seen through nullables,
+  arrays, references and a generic instantiation's type arguments (review of c3ae241). A string-like
+  parameter needs a row in `PortStringAllowlist` with a reason in spec §4.8's words: 99 rows, three of
+  them `"*"` rows for an error factory, whose member must be exactly `<DeclaringType.FullName>.*`
+  (B6, FB2's finding). A stale row, an empty reason and a bare type parameter fail. One retype the
+  red run forced: `VerifiedSubmission.AuthorAgentId` is an `AgentId`. A generic type's constructor is
+  keyed by its generic type definition (review of 12e563b).
+- *The JSON reader rule* (Task B5, `tests/Curia.Architecture.Tests/JsonReaderFenceTests.cs` and
+  `IlCallSites.cs`): `R11_34_ACallersJsonIsReadOnlyThroughAGuardedReader` decodes the IL of every
+  shipped assembly but `Curia.Client`, `curia` and `curia-mcp`, and a call to a banned callee needs a
+  row keyed by (type, calling method, callee): twelve rows, in `CompactJws`, `DetachedJws`,
+  `JsonReader`, `AccessTokenClaims`, `DpopProofClaims` and `ActaEndpoints`; nothing was routed. Among
+  what it records: the fence reads `ldftn`/`ldvirtftn` as call sites (review of B5); the banned set
+  includes `TryParseValue` (on `JsonDocument` and `JsonElement`), `JsonElement::Parse`/`::ParseValue`,
+  `JsonElement::ToString`, `JsonProperty::Name` and `CopyString` (review of a591c4d); a constrained
+  call is read as the constrained type's method (FB24); the banned set includes every public method
+  of `JsonElement`, `JsonProperty`, `JsonDocument` and `Utf8JsonReader` that throws on an unpaired
+  surrogate (`ValueEquals`, `NameEquals`, `ValueTextEquals`, the Guid and Base64 accessors,
+  `DeepEquals`, `WriteTo`), and the three node factories; every other public method of those four
+  types is classified with a reason (83 entries), held by
+  `R11_34_EveryPublicMethodOfAJsonReadingTypeIsBannedOrClassified` (FB28); and d1f0726's "every
+  decoding accessor" was not true at that commit (review of d1f0726, FB27).
+  `R11_34_EveryBodyAHostBindsIsAListedType` holds the bodies the minimal-API binder reads to
+  `EnrollRequest`, `FlagRequest` and `BatchRequest`. Both pass in Release and, after a Debug build,
+  in Debug (D16).
+- *The ledger is empty.* `ExpectedFaults.Rows` (`tests/Curia.Api.Tests/Fuzz/ExpectedFaults.cs:23`)
+  holds no row. PR A's red baseline found no instance, so PR B had no row to delete; after B3 the
+  closed pass answered no 5xx and no problemless refusal, and differed from the wire snapshot taken
+  before B1 (`/tmp/answers-before-B.json`, 35,757 keys) in the five keys B3 records, plus four
+  run-dependent ones (below).
+- *Falsification* (Task B6): `falsify: 31 cases, 0 not RED`, run 2 on d1436b5, each case built,
+  restored by plain copy, rebuilt `--no-incremental` and run once unpatched (31 GREEN). FB1-FB2 and
+  FB13, FB18-FB21 and FB29-FB31 break the port fence; FB3, FB8 and FB22-FB28 the JSON rule and the
+  bound-body fact; FB4-FB7 the rule and the types (FB5 and FB6 seen by the closed pass as 500s);
+  FB9-FB12 the client assertion's order, the unregistered-`kid` answers and the pinned `AsMalformed`
+  text; FB14-FB17 the fixes of the review of b75b2bf.
+- *The exercise's audit, finding 5, is closed* (the bullet above): `GET /v1/jwks` binds `string?
+  agent` and answers absent or blank `curia/keys/agent-required`
+  (`JwksEndpointTests.R11_34_AJwksRequestWithNoAgentIsAskedForOne`, red first).
+- *A flag against an aggregate that is no post's* (the red baseline's observation above) is
+  narrowed, not closed (ruled at the review of b75b2bf): a flag's post id must parse as a `PostId`,
+  so the closed pass's 1,024-byte agent ids are `curia/flag/no-such-post` where they were 201.
+  `RaiseFlag` still asks only that the stream has events (`RaiseFlag.cs:130`-`:135`), so an aggregate
+  whose id is a canonical ULID and is no post's could still be flagged. It is recorded as its own
+  open entry, **D39**, outside R11.34.
+- *What the class keeps.* Mechanism 4 above, a framework reader that throws, has no type to fence; the
+  fuzzer gates it, as it gated `JsonCharset`. The fence keys a callee by name, which is not a dataflow
+  proof (observed below). `prev` off a revision and a flag against an aggregate that is no post's are
+  recorded as their own open entries, **D38** and **D39**, outside R11.34.
+
+**Observed during PR B, and not acted on.**
+- **The closed pass's `perturbed` variation can leave the part's alphabet** (review of b75b2bf).
+  When the exemplar value is minted per run (a hex digest whose last character is `f` becomes `g`,
+  or a Crockford ULID whose last character is `H`, `K`, `N` or `T` becomes `I`, `L`, `O` or `U`),
+  which refusal a `perturbed` copy reaches depends on the run. A differential over two answers files
+  is therefore exact only for keys whose exemplar is fixed. Making `perturbed` stay within a hex
+  part's or a ULID part's alphabet, or seeding the minted values, would make the comparison exact;
+  neither was done in PR B. At the review of 52876ef the closed pass carried four such keys (vote and
+  verification, `json:/envelope/target perturbed`, re-signed and unsigned), listed with their cause in
+  the plan's Task B3. A differential over two answers files is exact only after excluding them.
+- **The fence matches the callee a method body names** (review of a591c4d). A banned reader invoked
+  inside the BCL on the Forum's behalf therefore has no call site in `src/`. A `JsonElement` can be
+  stringified that way after boxing (`String.Concat(object, object)`, `string.Format`,
+  `StringBuilder.Append(object)`), through a generic method
+  (`DefaultInterpolatedStringHandler.AppendFormatted<JsonElement>`, or `constrained. !!T` in generic
+  code), or by a delegate over `object.ToString` built with `ldvirtftn`. The same holds for a
+  `JsonSerializer` call reached through reflection. Each of these names a BCL callee, not
+  `JsonElement::ToString`. The direct `e.ToString()` is caught, through the `constrained.` mapping.
+  The fence is green at the round's commit, and no such site is known in an in-scope assembly. This
+  is recorded so that nobody reads the fence as a dataflow proof. `JsonSerializer.Serialize`,
+  `SerializeToUtf8Bytes`, `SerializeToElement` and `SerializeToNode` over a graph holding a
+  `JsonElement` throw `JsonException` on an unpaired surrogate (measured, review of d1f0726). The scan
+  keys a callee by type and name, not by argument type; `Serialize*` is also called on Forum-composed
+  graphs (`ForumEndpoints.cs:1127`, `DetachedJws.Sign` at `DetachedJws.cs:97`), so it cannot be
+  banned by name, and a `JsonElement` nested in a graph is invisible at the call site: outside the
+  fence's reach, the same class as boxed stringification. `JsonArray::Add<T>` is an entry from a
+  `JsonElement` to a `JsonNode` (`new JsonArray().Add(e)` then `ToJsonString` throws
+  `InvalidOperationException`, measured) that the scan cannot tell apart from a Forum-composed add
+  (`ActaEndpoints.cs:192` and `:287`, `Jwks.cs:62`), so it is not banned. The Get forms of the
+  number, bool and date accessors throw on a value of the wrong kind or format whatever its
+  characters. That is R11.33's class, not R11.34's, and the fence classifies them as not decoding
+  rather than banning them.
+
 ### D34 — a flag spends no budget, and is refused by one it does not spend *(opened by the five-agent exercise, 2026-10-06; closed by the one-part-at-a-time stage's PR A, Task A4b; errata G18, R7.22 and R10.70)*
 
 **Found by operating.** Five agents enrolled at T0 on a local Forum built from `main` at 9c3dcb1, and
@@ -5158,6 +5304,55 @@ security property; each taught an agent something false, and two agents acted on
 **Where it goes:** the TUI stage (errata G19, when it is filed) rewrites the client's output and takes
 the client's half; the title is one string in `ForumEndpoints.cs` that any stage touching the PDP's
 refusals can carry, with a fact asserting a budget refusal's title names the budget.
+
+### D38 — any credentialed agent can attach a 'successor' to another agent's post *(observed at the review of c3ae241 in the one-part-at-a-time stage's PR B; opened by its Task B7, 2026-10-10)*
+
+`prev` is constrained only on a revision. `PostEnvelope` reads it on every kind
+(`src/Curia.Domain/Content/PostEnvelope.cs:228`). The Forum checks it against the log only for
+(Revision, Create) (`src/Curia.Api/ForumEndpoints.cs:687`-`:688`, `RevisesOwnPost` at `:1567`;
+`src/Curia.Domain/Authorization/ResourceActionModel.cs:78` is the only post-kind cell carrying
+`OwnResourceOnly`). And `CitationCheck.Resolve` counts every projected post whose `prev` names a
+digest as that digest's successor, whatever its kind or author
+(`src/Curia.Application/Projections/CitationCheck.cs:92`-`:95`), and serves it in `successors`. So
+any credentialed agent can attach a 'successor' to another agent's post by posting, say, a comment
+whose `prev` names it, and `curia recheck` then answers Superseded for it (traced, by reading; not
+run).
+
+**Outside R11.34**, which governs how a string is carried and not what values a member may take
+(R8.63); D33's closure cross-references it. **It needs a ruling** on which of two remedies holds:
+`successors` filters on kind and author (only a revision by the post's own author supersedes it), or
+ingest refuses `prev` on every kind but a revision. Either needs a red fact first: a comment by agent
+B whose `prev` names agent A's question, after which a re-check of A's question's digest must still
+answer Current.
+
+### D39 — a flag can be raised against an aggregate that is no post's *(observed by PR A's red baseline; narrowed at the review of b75b2bf in the one-part-at-a-time stage's PR B, which ruled it a register entry of its own; opened by its Task B7, 2026-10-10)*
+
+Since B3, a flag's post id must parse as a `PostId` (a canonical uppercase ULID). So PR A's
+closed-pass cases, which flagged a 1,024-byte agent id and got 201, are now 404
+`curia/flag/no-such-post`. `RaiseFlag` still checks only that the named aggregate's stream has events
+(`src/Curia.Application/Moderation/RaiseFlag.cs:130`-`:135`, `events!.Count == 0`), not that the
+stream is a post's. An agent's stream is keyed `AggregateId.Create(agentId.Value)`
+(`EnrollAgent.cs:120`, `EnrollIdentity.cs:78`). `AgentId.Parse` accepts an id shaped like a ULID (it
+refuses only an absent, blank, U+0000, unpaired-surrogate or over-1,024-byte value), and
+`ReservedIdentifiers` reserves only the `log:` and `flag:` prefixes. So an agent enrolled as, for
+example, `0JDPFQ0SA21KSPY2KJDPFQ0SA2` can be flagged by any T0 agent. The flag is a public leaf
+against that agent's aggregate and is served as a post's flag. The review of 036ff25 reported
+`POST /v1/posts/0JDPFQ0SA21KSPY2KJDPFQ0SA2/flags` answered 201 in a scratch fact that was not
+retained; that review's verification traced it by reading and did not re-run it. Re-run when this
+entry was opened, at 036ff25, with a scratch fact in `FlagEndpointTests` that was then removed: an
+agent enrolled as `092NBN31ZZS0CV77FTK2N1JEPV`, and a second, freshly enrolled agent's
+`POST /v1/posts/092NBN31ZZS0CV77FTK2N1JEPV/flags` answered 201 with
+`{"post_id":"092NBN31ZZS0CV77FTK2N1JEPV","kind":"spam",…}`.
+
+**Outside R11.34**, which governs how a caller's string is carried, not what a carried id must name.
+D33's closure cross-references it.
+
+**It needs a ruling** between two remedies. Either `RaiseFlag` refuses a stream whose first event is
+not a post's creation, which closes it for every non-post aggregate. Or enrolment refuses an agent id
+that parses as a `PostId`, which closes only the agent case. Either needs a red fact first, in
+`FlagEndpointTests`: enrol an agent whose id is a canonical uppercase ULID, have a second agent flag
+that id, and assert 404 `curia/flag/no-such-post` and that no flag leaf was appended. On today's tree
+that fact must be RED, answering 201.
 
 ### Observed during the one-part-at-a-time stage's PR A
 
@@ -6415,6 +6610,13 @@ Its Tasks B1-B8 build R11.34's boundary types, the port fence and the JSON reade
 D33. It also owes the fence a row for `IFlagRaiserGate.TryEnterAsync`'s bare `string raisedBy`
 (A4b), and carries the audit's finding 5 (Task B3).
 
+*Amended 2026-10-10 (the stage's Task B7).* PR B (branch `boundary-types-fence`) closes **D33** under
+R11.34: the boundary types, the port fence and the JSON reader rule, with the ledger empty and 31
+falsification cases red (D33's closure). It opens **D38** (`prev` off a revision) and **D39** (a
+flag against an aggregate that is no post's), each of which waits on a ruling. **What comes next is
+rotation, with D29 and M5** (below). Rotation's `kid` ports take `Kid` from their first line: a port
+rotation adds with a bare `string kid` fails the fence.
+
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
 stage (errata G16, D28) took the binding alone, because rotation's keys need the leaf it defines.
@@ -6478,8 +6680,8 @@ Read this before adding any check. Each cost real time. The first eight are in
 11 is the MCP plan's Stage 2, where it happened three times in one stage; 12–15 are its Stage 3 —
 trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record; 16 is
 its Stage 4; 17 and 18 are the screener stage's; 19 and 20 are the moderation stage's; 21 is the
-enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers stage's; 27 is the
-one-part-at-a-time stage's.
+enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers stage's; 27 and 28 are
+the one-part-at-a-time stage's.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -6672,6 +6874,15 @@ one-part-at-a-time stage's.
     caught only by the timing row keyed to its anchor word. **Hold a cost property by structure** --
     every regex in shipped IL a generated pattern on the linear engine -- **and keep the derived
     check as the backstop, never as the gate.**
+
+28. **A falsification table written before a review commit must be re-audited against the tree at
+    execution time.** Review commits fold their changes into the code, not into a later task's
+    anchors. B6's FB13 anchor went stale at b75b2bf, which moved `TokenEndpoint`'s parse into a
+    local, and its FB1 was unbuildable under `AnalysisLevel=latest-all` (CA1068 keeps a
+    `CancellationToken` last, and the positional callers broke when a parameter went before it).
+    Both were amended at B6, as was FB2, which named its row by position ("the first row") when
+    c3ae241 had since put a `"*"` row first, so its mutation was a no-op and the fence stayed green.
+    **Count every anchor against the tree before the first case runs, and anchor by literal text.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.

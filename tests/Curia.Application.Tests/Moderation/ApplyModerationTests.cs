@@ -7,6 +7,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Xunit;
 
 namespace Curia.Application.Tests.Moderation;
@@ -18,8 +19,8 @@ namespace Curia.Application.Tests.Moderation;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class ApplyModerationTests
 {
-    private const string Post = "01JPOST0000000000000000001";
-    private const string OtherPost = "01JPOST0000000000000000002";
+    private const string Post = "01JP0ST0000000000000000001";
+    private const string OtherPost = "01JP0ST0000000000000000002";
     private const string Reporter = "https://agents.example/reporter";
     private static readonly string Digest = "sha256:" + new string('a', 64);
     private static readonly string OtherDigest = "sha256:" + new string('b', 64);
@@ -73,14 +74,14 @@ public sealed class ApplyModerationTests
     /// <summary>Raises a flag against <paramref name="postId"/> through the real writer and returns its event id.</summary>
     private static async Task<string> FlagAsync(World world, string postId, FlagKind kind, CancellationToken ct)
     {
-        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(postId, Reporter, kind, "reported", ct).ConfigureAwait(false));
+        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(PostId.Parse(postId), Typed.Agent(Reporter), kind, Rationale.Parse("reported"), ct).ConfigureAwait(false));
         return (await LogAsync(world, ct).ConfigureAwait(false)).Last(e => e.Event.Type.Value == FlagProjector.FlagCommittedType).Event.Id.Value;
     }
 
     /// <summary>Raises a flag against <see cref="Post"/> with the given raiser and rationale, through the real writer.</summary>
     private static async Task<string> FlagAsync(World world, FlagKind kind, string raiser, string rationale, CancellationToken ct)
     {
-        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(Post, raiser, kind, rationale, ct).ConfigureAwait(false));
+        Require(await new RaiseFlag(world.Store, world.Details, world.Clock).RecordAsync(PostId.Parse(Post), Typed.Agent(raiser), kind, Rationale.Parse(rationale), ct).ConfigureAwait(false));
         return (await LogAsync(world, ct).ConfigureAwait(false)).Last(e => e.Event.Type.Value == FlagProjector.FlagCommittedType).Event.Id.Value;
     }
 
@@ -110,7 +111,7 @@ public sealed class ApplyModerationTests
         var world = await WorldWithPostAsync(ct);
         var flag = await FlagAsync(world, FlagKind.Spam, ct);
 
-        var recorded = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        var recorded = Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct));
 
         Assert.Equal(Digest, recorded.Digest);
         Assert.Equal([flag], recorded.Adjudicates);
@@ -138,7 +139,7 @@ public sealed class ApplyModerationTests
         var spam = await FlagAsync(world, FlagKind.Spam, ct);
         var injection = await FlagAsync(world, FlagKind.Injection, ct);
 
-        var recorded = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Operator, ct));
+        var recorded = Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed."), Operator, ct));
 
         Assert.Equal([spam], recorded.Adjudicates);
         Assert.DoesNotContain(injection, ModerationPolicy.AdjudicatedFlags((await ModerationAsync(world, ct)).History));
@@ -169,7 +170,7 @@ public sealed class ApplyModerationTests
                 ]))],
             ct));
 
-        var recorded = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Operator, ct));
+        var recorded = Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed."), Operator, ct));
 
         Assert.Equal(["01JLEGACY00000000000000001"], recorded.Adjudicates);
     }
@@ -182,10 +183,10 @@ public sealed class ApplyModerationTests
         var world = await WorldWithPostAsync(ct);
         await FlagAsync(world, FlagKind.Spam, ct);
 
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed."), Operator, ct));
         var before = (await LogAsync(world, ct)).Count;
 
-        var again = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed again.", Operator, ct);
+        var again = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed again."), Operator, ct);
 
         Assert.False(again.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/no-op", error!.Type);
@@ -199,12 +200,12 @@ public sealed class ApplyModerationTests
         var ct = TestContext.Current.CancellationToken;
         var world = await WorldWithPostAsync(ct);
 
-        var nothing = await world.Moderate.RecordAsync(Post, ModerationEffect.Dismiss, FlagKind.Incorrect, "Nothing to review.", Operator, ct);
+        var nothing = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Dismiss, FlagKind.Incorrect, Rationale.Parse("Nothing to review."), Operator, ct);
         Assert.False(nothing.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/no-op", error!.Type);
 
         var flag = await FlagAsync(world, FlagKind.Incorrect, ct);
-        var dismissed = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Dismiss, FlagKind.Incorrect, "Reviewed: the premise holds.", Operator, ct));
+        var dismissed = Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Dismiss, FlagKind.Incorrect, Rationale.Parse("Reviewed: the premise holds."), Operator, ct));
 
         Assert.Equal([flag], dismissed.Adjudicates);
         var moderation = await ModerationAsync(world, ct);
@@ -220,14 +221,14 @@ public sealed class ApplyModerationTests
         var ct = TestContext.Current.CancellationToken;
         var world = await WorldWithPostAsync(ct);
 
-        var early = await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.Spam, "Nothing withheld.", Operator, ct);
+        var early = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Restore, FlagKind.Spam, Rationale.Parse("Nothing withheld."), Operator, ct);
         Assert.False(early.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/no-op", error!.Type);
 
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.CredentialLeak, "A credential on line 2.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse("A credential on line 2."), Operator, ct));
         Assert.False((await ModerationAsync(world, ct)).MayServe);
 
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.CredentialLeak, "Rotated; restoring.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Restore, FlagKind.CredentialLeak, Rationale.Parse("Rotated; restoring."), Operator, ct));
         Assert.True((await ModerationAsync(world, ct)).MayServe);
     }
 
@@ -240,7 +241,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Require(ActorId.Create("https://agents.example/moderator")), ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed."), Require(ActorId.Create("https://agents.example/moderator")), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/not-an-operator", error!.Type);
@@ -261,7 +262,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Require(ActorId.Create("operator:   ")), ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed."), Require(ActorId.Create("operator:   ")), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/blank-operator-name", error!.Type);
@@ -277,7 +278,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.CredentialLeak, "It leaks AKIAIOSFODNN7EXAMPLE.", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse("It leaks AKIAIOSFODNN7EXAMPLE."), Operator, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-rejected", error!.Type);
@@ -292,7 +293,7 @@ public sealed class ApplyModerationTests
         var world = await WorldWithPostAsync(ct);
 
         var result = await world.Moderate.RecordAsync(
-            "01JNOSUCHPOST0000000000001", ModerationEffect.Withhold, FlagKind.Spam, "Reviewed.", Operator, ct);
+            PostId.Parse("01JN0SVCHP0ST0000000000001"), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed."), Operator, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/no-such-post", error!.Type);
@@ -313,7 +314,7 @@ public sealed class ApplyModerationTests
         var world = await WorldWithPostAsync(ct);
 
         var first = await FlagAsync(world, FlagKind.Spam, ct);
-        var withheld = Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        var withheld = Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct));
         Assert.Equal([first], withheld.Adjudicates);
 
         var late = await FlagAsync(world, FlagKind.Spam, "https://agents.example/late-reporter", "reported", ct);
@@ -321,7 +322,7 @@ public sealed class ApplyModerationTests
         Assert.Equal([first], between.UpheldFlags);
         Assert.DoesNotContain(late, ModerationPolicy.AdjudicatedFlags(between.History));
 
-        var again = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: the same advertising.", Operator, ct);
+        var again = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: the same advertising."), Operator, ct);
 
         Assert.True(again.TryGetValue(out var recorded, out var error), error?.Type);
         Assert.Equal([first, late], recorded!.Adjudicates);
@@ -342,12 +343,12 @@ public sealed class ApplyModerationTests
         var world = await WorldWithPostAsync(ct);
 
         await FlagAsync(world, FlagKind.Spam, ct);
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Quarantine, FlagKind.Spam, "Pending a closer look.", Operator, ct));
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.Spam, "Not advertising after all.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Quarantine, FlagKind.Spam, Rationale.Parse("Pending a closer look."), Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Restore, FlagKind.Spam, Rationale.Parse("Not advertising after all."), Operator, ct));
         await FlagAsync(world, FlagKind.Incorrect, ct);
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Dismiss, FlagKind.Incorrect, "Reviewed: the premise holds.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Dismiss, FlagKind.Incorrect, Rationale.Parse("Reviewed: the premise holds."), Operator, ct));
         await FlagAsync(world, FlagKind.Injection, ct);
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Injection, "Reviewed: it addresses the reader.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Injection, Rationale.Parse("Reviewed: it addresses the reader."), Operator, ct));
 
         var records = (await LogAsync(world, ct)).Where(e => e.Event.Type.Value == FlagProjector.ModerationAppliedType).ToList();
         Assert.Equal(4, records.Count);
@@ -378,7 +379,7 @@ public sealed class ApplyModerationTests
         var theirs = await FlagAsync(world, OtherPost, FlagKind.Spam, ct);
         var mine = await FlagAsync(world, Post, FlagKind.Spam, ct);
 
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct));
 
         var log = await LogAsync(world, ct);
         var record = log.Single(e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
@@ -399,11 +400,11 @@ public sealed class ApplyModerationTests
         var ct = TestContext.Current.CancellationToken;
         var world = await WorldWithPostAsync(ct);
         var leak = await FlagAsync(world, FlagKind.CredentialLeak, ct);
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.CredentialLeak, "A credential on line 2.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse("A credential on line 2."), Operator, ct));
         await FlagAsync(world, FlagKind.Spam, ct);
         var before = (await LogAsync(world, ct)).Count;
 
-        var restore = await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.Spam, "Not advertising after all.", Operator, ct);
+        var restore = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Restore, FlagKind.Spam, Rationale.Parse("Not advertising after all."), Operator, ct);
 
         Assert.False(restore.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/restore-of-unheld-category", error!.Type);
@@ -425,10 +426,10 @@ public sealed class ApplyModerationTests
         var ct = TestContext.Current.CancellationToken;
         var world = await WorldWithPostAsync(ct);
         var flag = await FlagAsync(world, FlagKind.Spam, ct);
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct));
         var before = (await LogAsync(world, ct)).Count;
 
-        var dismissal = await world.Moderate.RecordAsync(Post, ModerationEffect.Dismiss, FlagKind.Spam, "Reviewed again: not advertising.", Operator, ct);
+        var dismissal = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Dismiss, FlagKind.Spam, Rationale.Parse("Reviewed again: not advertising."), Operator, ct);
 
         Assert.False(dismissal.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/dismissal-of-held-category", error!.Type);
@@ -449,15 +450,15 @@ public sealed class ApplyModerationTests
     {
         var ct = TestContext.Current.CancellationToken;
         var world = await WorldWithPostAsync(ct);
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct));
         var before = (await LogAsync(world, ct)).Count;
 
-        var second = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.CredentialLeak, "A credential on line 2.", Operator, ct);
+        var second = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.CredentialLeak, Rationale.Parse("A credential on line 2."), Operator, ct);
 
         Assert.True(second.TryGetValue(out _, out var error), error?.Type);
         Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
 
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Restore, FlagKind.Spam, "Advertising was a misreading.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Restore, FlagKind.Spam, Rationale.Parse("Advertising was a misreading."), Operator, ct));
         Assert.False((await ModerationAsync(world, ct)).MayServe);
     }
 
@@ -474,11 +475,11 @@ public sealed class ApplyModerationTests
         var ct = TestContext.Current.CancellationToken;
         var world = await WorldWithPostAsync(ct);
         var flag = await FlagAsync(world, FlagKind.Spam, ct);
-        Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Quarantine, FlagKind.Spam, "Pending a closer look.", Operator, ct));
+        Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Quarantine, FlagKind.Spam, Rationale.Parse("Pending a closer look."), Operator, ct));
         var quarantined = await ModerationAsync(world, ct);
         var before = (await LogAsync(world, ct)).Count;
 
-        var withheld = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct);
+        var withheld = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct);
 
         Assert.True(withheld.TryGetValue(out var recorded, out var error), error?.Type);
         Assert.Equal([flag], recorded!.Adjudicates);
@@ -490,7 +491,7 @@ public sealed class ApplyModerationTests
         Assert.Equal([flag], quarantined.UpheldFlags);
         Assert.Equal([flag], after.UpheldFlags);
 
-        var again = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising, again.", Operator, ct);
+        var again = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising, again."), Operator, ct);
 
         Assert.False(again.TryGetValue(out _, out var repeated));
         Assert.Equal("curia/moderation/no-op", repeated!.Type);
@@ -515,7 +516,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + Reporter + " reported.", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld, as " + Reporter + " reported."), Operator, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
@@ -542,7 +543,7 @@ public sealed class ApplyModerationTests
         await FlagAsync(world, FlagKind.Spam, Reporter, "Advertising, not a question.", ct);
         var before = (await LogAsync(world, ct)).Count;
 
-        var result = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, reason, Operator, ct);
+        var result = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(reason), Operator, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
@@ -567,13 +568,13 @@ public sealed class ApplyModerationTests
         await FlagAsync(world, FlagKind.Incorrect, Reporter, shortRationale, ct);
 
         var thirtyOne = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam,
-            "Reviewed: \"" + Advert[..31] + "\" and \"" + shortRationale + "\".", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam,
+            Rationale.Parse("Reviewed: \"" + Advert[..31] + "\" and \"" + shortRationale + "\"."), Operator, ct);
         Assert.True(thirtyOne.TryGetValue(out _, out var accepted), accepted?.Type + " " + accepted?.Detail);
         var before = (await LogAsync(world, ct)).Count;
 
         var thirtyTwo = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Restore, FlagKind.Spam, "Reviewed: \"" + Advert[..32] + "\".", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Restore, FlagKind.Spam, Rationale.Parse("Reviewed: \"" + Advert[..32] + "\"."), Operator, ct);
 
         Assert.False(thirtyTwo.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
@@ -596,7 +597,7 @@ public sealed class ApplyModerationTests
         await FlagAsync(world, FlagKind.Spam, Reporter, Advert, ct);
         var before = (await LogAsync(world, ct)).Count;
 
-        var result = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, reason, Operator, ct);
+        var result = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(reason), Operator, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
@@ -618,7 +619,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Injection, "Addresses the reader; " + Reporter + " saw it first.", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Injection, Rationale.Parse("Addresses the reader; " + Reporter + " saw it first."), Operator, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
@@ -639,9 +640,9 @@ public sealed class ApplyModerationTests
         var flag = await FlagAsync(world, FlagKind.Spam, Reporter, Advert, ct);
 
         var byRaiser = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + Reporter + " reported.", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld, as " + Reporter + " reported."), Operator, ct);
         var byRationale = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld: \"" + Advert[10..50] + "\".", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld: \"" + Advert[10..50] + "\"."), Operator, ct);
 
         Assert.False(byRaiser.TryGetValue(out _, out var raiserError));
         Assert.False(byRationale.TryGetValue(out _, out var rationaleError));
@@ -665,7 +666,7 @@ public sealed class ApplyModerationTests
         var world = await WorldWithPostAsync(ct).ConfigureAwait(false);
         await FlagAsync(world, FlagKind.Spam, raiser, "Advertising, not a question.", ct).ConfigureAwait(false);
         var before = (await LogAsync(world, ct).ConfigureAwait(false)).Count;
-        var result = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, reason, Operator, ct).ConfigureAwait(false);
+        var result = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(reason), Operator, ct).ConfigureAwait(false);
         return (result, before, (await LogAsync(world, ct).ConfigureAwait(false)).Count);
     }
 
@@ -754,14 +755,14 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var full = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + raiser + " reported.", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld, as " + raiser + " reported."), Operator, ct);
 
         Assert.False(full.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-discloses-flag", error!.Type);
         Assert.Equal(before, (await LogAsync(world, ct)).Count);
 
         var schemeless = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld: see c.io/a/b for the policy.", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld: see c.io/a/b for the policy."), Operator, ct);
 
         Assert.True(schemeless.TryGetValue(out _, out var schemelessError), schemelessError?.Type + " " + schemelessError?.Detail);
         Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
@@ -797,13 +798,13 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var repeat = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld: \"an advert for a storefront, with coupon codes\".", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld: \"an advert for a storefront, with coupon codes\"."), Operator, ct);
 
         Assert.False(repeat.TryGetValue(out _, out var error));
         Assert.Equal("field=rationale", error!.Detail);
         Assert.Equal(before, (await LogAsync(world, ct)).Count);
 
-        var recorded = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct);
+        var recorded = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct);
 
         Assert.True(recorded.TryGetValue(out _, out var recordError), recordError?.Type + " " + recordError?.Detail);
         Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
@@ -823,13 +824,13 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var repeat = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, "Upheld, as " + raiser + " reported.", Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Upheld, as " + raiser + " reported."), Operator, ct);
 
         Assert.False(repeat.TryGetValue(out _, out var error));
         Assert.Equal("field=raised_by", error!.Detail);
         Assert.Equal(before, (await LogAsync(world, ct)).Count);
 
-        var recorded = await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed: advertising.", Operator, ct);
+        var recorded = await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed: advertising."), Operator, ct);
 
         Assert.True(recorded.TryGetValue(out _, out var recordError), recordError?.Type + " " + recordError?.Detail);
         Assert.Equal(before + 1, (await LogAsync(world, ct)).Count);
@@ -913,10 +914,10 @@ public sealed class ApplyModerationTests
             world.Store,
             new InterleavingDetailStore(
                 world.Details,
-                async () => Require(await world.Moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed first.", Operator, ct).ConfigureAwait(false))),
+                async () => Require(await world.Moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed first."), Operator, ct).ConfigureAwait(false))),
             world.Clock);
 
-        var overtaken = await racing.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, "Reviewed second.", Operator, ct);
+        var overtaken = await racing.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse("Reviewed second."), Operator, ct);
 
         Assert.False(overtaken.TryGetValue(out _, out var error));
         Assert.Equal(DomainErrors.ConcurrencyConflictType, error!.Type);
@@ -938,7 +939,7 @@ public sealed class ApplyModerationTests
         var details = new CountingFlagDetailStore(world.Details);
         var moderate = new ApplyModeration(events, details, world.Clock);
 
-        var refused = await moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Operator, ct);
+        var refused = await moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string('a', 4_097)), Operator, ct);
 
         Assert.False(refused.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-too-long", error!.Type);
@@ -946,10 +947,29 @@ public sealed class ApplyModerationTests
         Assert.Equal(0, details.Reads);
         Assert.Equal(before, (await LogAsync(world, ct)).Count);
 
-        Require(await moderate.RecordAsync(Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_096), Operator, ct));
+        Require(await moderate.RecordAsync(PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string('a', 4_096)), Operator, ct));
 
         Assert.True(events.Reads > 0);
         Assert.True(details.Reads > 0);
+    }
+
+    /// <summary>
+    /// R10.68's order kept through R11.34 on the operator's path: a reason over the cap that also holds
+    /// U+0000 is too long, as it was when the cap was checked first, and nothing is appended.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AnOverlongReasonHoldingU0000IsRefusedAsTooLong()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var world = await WorldWithPostAsync(ct);
+        var before = (await LogAsync(world, ct)).Count;
+
+        var result = await world.Moderate.RecordAsync(
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string('a', 4_096) + (char)0), Operator, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(("curia/moderation/rationale-too-long", "field=rationale bytes=4097: at most 4096 UTF-8 bytes"), (error!.Type, error.Detail));
+        Assert.Equal(before, (await LogAsync(world, ct)).Count);
     }
 
     /// <summary>
@@ -967,7 +987,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Require(ActorId.Create("https://agents.example/moderator")), ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string('a', 4_097)), Require(ActorId.Create("https://agents.example/moderator")), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/not-an-operator", error!.Type);
@@ -988,7 +1008,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, new string('a', 4_097), Require(ActorId.Create("operator:   ")), ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string('a', 4_097)), Require(ActorId.Create("operator:   ")), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/blank-operator-name", error!.Type);
@@ -1010,7 +1030,7 @@ public sealed class ApplyModerationTests
         var before = (await LogAsync(world, ct)).Count;
 
         var result = await world.Moderate.RecordAsync(
-            Post, ModerationEffect.Withhold, FlagKind.Spam, new string(' ', 4_097), Operator, ct);
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Rationale.Parse(new string(' ', 4_097)), Operator, ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/moderation/rationale-required", error!.Type);

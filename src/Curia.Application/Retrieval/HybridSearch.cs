@@ -4,6 +4,7 @@ using Curia.Application.Projections;
 using Curia.Domain;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Retrieval;
 using Curia.Domain.Search;
 using Curia.Domain.Verification;
@@ -13,10 +14,10 @@ namespace Curia.Application.Retrieval;
 /// <summary>What a search asks: the query and filters (R9.6), the floor it wants (else the surface's), where it left off, and how much.</summary>
 public sealed record SearchQuery(
     string? Text,
-    string? Board,
+    BoardName? Board,
     ImmutableArray<PostKind> Kinds,
     ImmutableArray<string> Tags,
-    string? Author,
+    AgentId? Author,
     VerificationLevel? RequestedFloor,
     RetrievalCursor? Cursor,
     int Limit);
@@ -79,7 +80,7 @@ public sealed class HybridSearch
         var limit = Math.Clamp(query.Limit, 1, LexicalSearch.MaximumLimit);
 
         var corpus = SearchProjector.Fold(log).Where(p => p.Sequence <= bound).ToImmutableArray();
-        var lexicalQuery = new LexicalQuery(query.Text, query.Board, query.Kinds, query.Tags, query.Author, Cursor: null, Limit: LexicalSearch.MaximumLimit);
+        var lexicalQuery = new LexicalQuery(query.Text, query.Board?.Value, query.Kinds, query.Tags, query.Author?.Value, Cursor: null, Limit: LexicalSearch.MaximumLimit);
         var lexical = LexicalSearch.Rank(corpus, lexicalQuery);
 
         var vector = await VectorChannelAsync(corpus, lexicalQuery, cancellationToken).ConfigureAwait(false);

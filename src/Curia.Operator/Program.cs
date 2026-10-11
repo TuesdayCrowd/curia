@@ -13,6 +13,7 @@ using Curia.Domain.Acta;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Serving;
 using Curia.Infrastructure;
 
@@ -195,7 +196,8 @@ public static class OperatorCommands
         await using (adapters.ConfigureAwait(false))
         {
             result = await new AttestOwner(adapters.EventStore, clock).RecordAsync(
-                parsed.Agent!,
+                // R11.34: the parse outcome, refused by the use case where it refused an unknown agent (spec §4.7).
+                AgentId.Parse(parsed.Agent, "agent"),
                 parsed.Owner,
                 parsed.Verified,
                 parsed.Method,
@@ -396,12 +398,16 @@ public static class OperatorCommands
         if (!ActorId.Create(actorValue).TryGetValue(out var actor, out _))
             return await UsageErrorAsync(stderr, "--by <operator-name> is required.").ConfigureAwait(false);
 
+        // R10.68 and R11.34 (errata G18): the post and the reason reach ApplyModeration as the types it
+        // takes, parsed at their first use. Each parse outcome is passed rather than refused here, so
+        // the use case answers every refusal where it answered it before the types existed: after the
+        // operator checks, which are this path's authorization.
         Result<ModerationRecorded> result;
         var adapters = new PostgresAdapters(connectionString, clock);
         await using (adapters.ConfigureAwait(false))
         {
             result = await new ApplyModeration(adapters.EventStore, adapters.FlagDetails, clock)
-                .RecordAsync(values["post"], effect, category, values["reason"], actor, cancellationToken)
+                .RecordAsync(PostId.Parse(values["post"], "post_id"), effect, category, Rationale.Parse(values["reason"]), actor, cancellationToken)
                 .ConfigureAwait(false);
         }
 

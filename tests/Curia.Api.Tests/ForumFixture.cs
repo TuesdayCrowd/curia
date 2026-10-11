@@ -9,6 +9,7 @@ using Curia.Domain;
 using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Infrastructure.Migrations;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -88,10 +89,10 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
 
         Require(await moderate.RecordAsync(
-            postId,
+            PostId.Parse(postId),
             ModerationEffect.Withhold,
             FlagKind.Spam,
-            "withheld by the test fixture",
+            Rationale.Parse("withheld by the test fixture"),
             Require(ActorId.Create("operator:fixture")),
             ct));
     }
@@ -111,7 +112,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
 
         Require(await attest.RecordAsync(
-            agentId,
+            Result<AgentId>.Ok(Typed.Agent(agentId)),
             Require(OwnerId.Create(owner)),
             verified,
             OwnerVerificationMethod.Manual,
@@ -175,7 +176,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     internal async Task EnrollPastTheRouteAsync(string agentId, string kid, byte[] publicKey, CancellationToken ct)
     {
         var enrolled = await Services.GetRequiredService<EnrollIdentity>()
-            .EnrollAsync(agentId, new PublicKeyMaterial("ES256", kid, publicKey), ct);
+            .EnrollAsync(Typed.Agent(agentId), new PublicKeyMaterial("ES256", kid, publicKey), ct);
         if (!enrolled.TryGetValue(out _, out var error))
             throw new InvalidOperationException($"{error!.Type}: {error.Title} ({error.Detail})");
     }

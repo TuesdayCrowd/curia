@@ -308,6 +308,32 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R10.68's order kept through R11.34: a rationale over the cap that also holds U+0000 is answered
+    /// 422 <c>rationale-too-long</c>, as it was when A4 checked the cap first, not 400
+    /// <c>detail-unstorable</c>. The body's U+0000 is the JSON escape, written in this source as an
+    /// escape, so the file holds no NUL.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AnOverlongRationaleHoldingU0000IsAnswered422RationaleTooLong()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+
+        var raiser = ForumAgent.Create(Unique("cap-nul"), "cap-nul-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await raiser.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var json = "{\"kind\":\"spam\",\"rationale\":\"" + new string('a', 4_096) + "\\" + "u0000" + "\"}";
+        using var refused = await dpop.PostAsync(
+            client, $"http://localhost/v1/posts/{postId}/flags", token, System.Text.Encoding.UTF8.GetBytes(json), forum.Now, ct, contentType: "application/json");
+        var body = await refused.Content.ReadAsStringAsync(ct);
+
+        Assert.True(refused.StatusCode == HttpStatusCode.UnprocessableEntity, $"{(int)refused.StatusCode}: {body[..Math.Min(body.Length, 240)]}");
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("curia/flag/rationale-too-long", problem.RootElement.GetProperty("type").GetString());
+    }
+
+    /// <summary>
     /// R10.68 counts UTF-8 bytes, not characters: 1,365 three-byte characters and one ASCII byte are
     /// 4,096 bytes and accepted; with a second ASCII byte, 4,097, refused. A cap counted in UTF-16
     /// code units would accept both.
@@ -368,6 +394,32 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         using var problem = JsonDocument.Parse(body);
         Assert.Equal("curia/flag/rationale-too-long", problem.RootElement.GetProperty("type").GetString());
         Assert.DoesNotContain("ghp_", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R11.34 (errata G18): the post id reaches <c>RaiseFlag</c> as a parse outcome, so a request with
+    /// two faults is answered as it was before the type existed. An id of white space is refused ahead
+    /// of a blank rationale (R11.33's check); any other id that is no post id after the rationale and
+    /// after screening, where the post's stream was read for it. The closed pass varies one part at a
+    /// time and cannot see an order.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_AFlagWhosePostIdIsNoPostIdIsAnsweredWhereTheUseCaseAnsweredIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        var reporter = ForumAgent.Create(Unique("id-order"), "id-order-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await reporter.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var credential = "Leaks ghp_" + "A7bQ2xLm9RtVzP4kW8sYcE1nJ6dH0uF3gI5o in the body.";
+
+        var blankId = await RaiseAndReadAsync(client, dpop, token, "%20%20", "spam", " ", ct);
+        var unparsableId = await RaiseAndReadAsync(client, dpop, token, "not-a-post", "spam", " ", ct);
+        var screened = await RaiseAndReadAsync(client, dpop, token, "not-a-post", "credential_leak", credential, ct);
+
+        Assert.Equal(
+            [(404, "curia/flag/no-such-post"), (400, "curia/moderation/rationale-required"), (422, "curia/flag/rationale-rejected")],
+            [(blankId.Status, blankId.Type), (unparsableId.Status, unparsableId.Type), (screened.Status, screened.Type)]);
     }
 
     /// <summary>

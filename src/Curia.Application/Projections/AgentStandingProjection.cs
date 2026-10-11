@@ -4,6 +4,7 @@ using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Projections;
 
@@ -315,12 +316,12 @@ public static class AgentStandingProjector
     /// populated it at all, and T2's disjunction ran on one arm.
     /// </param>
     public static Result<PostureFacts> PostureOf(
-        IReadOnlyDictionary<string, AgentStanding> standings, string agentId, int verifiedFindings = 0)
+        IReadOnlyDictionary<string, AgentStanding> standings, AgentId agentId, int verifiedFindings = 0)
     {
         ArgumentNullException.ThrowIfNull(standings);
-        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(agentId);
 
-        if (!standings.TryGetValue(agentId, out var standing))
+        if (!standings.TryGetValue(agentId.Value, out var standing))
             return Result<PostureFacts>.Ok(new PostureFacts(CredentialState.Pending));
 
         // CredentialState and EnrolledAt are this fold's output, not its input -- PostureProjector

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Curia.AuthN.Jwt;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Dpop;
 
@@ -35,12 +36,15 @@ public sealed record DpopProofHeader(string Alg, string Typ)
 /// <see cref="AccessTokenValidator"/>'s Phase 4 use, the only place this type is constructed.
 /// <see cref="Nonce"/> is optional on the wire; whether its absence is itself a failure is a
 /// caller decision (R5.19 is a SHOULD, scoped to write paths) -- see
-/// <see cref="AccessTokenValidator"/>'s nonce check.</summary>
+/// <see cref="AccessTokenValidator"/>'s nonce check. It stays the string the guarded reader read: a
+/// nonce that is present and is no <see cref="DpopNonce"/> is a stale one, answered as such only
+/// where a nonce is required, after every other proof check, and is never a reason to refuse this
+/// parse (R11.34, errata G18; spec section 4.7).</summary>
 public sealed record DpopProofClaims(
     string Htm,
     string Htu,
     DateTimeOffset Iat,
-    string Jti,
+    Jti Jti,
     string? Ath,
     string? Nonce)
 {
@@ -50,16 +54,16 @@ public sealed record DpopProofClaims(
             return Result<DpopProofClaims>.Fail(iatError!);
 
         // R11.33 (errata G17): the replay cache is asked about this jti, and an absent, blank,
-        // NUL-holding or overlong one threw there, on every route behind authentication.
-        var jti = CompactJws.ReadString(root, "jti");
-        if (CompactJws.IdentifierRefusal(jti, "jti", CompactJws.MaxJtiUtf8Bytes) is { } jtiError)
-            return Result<DpopProofClaims>.Fail(jtiError);
+        // NUL-holding or overlong one threw there, on every route behind authentication. R11.34
+        // (errata G18): it reaches the cache only as a Jti.
+        if (!Jti.Parse(CompactJws.ReadString(root, "jti")).TryGetValue(out var jti, out var jtiError))
+            return Result<DpopProofClaims>.Fail(CompactJws.AsMalformed(jtiError!, "jti", Jti.MaxUtf8Bytes));
 
         return Result<DpopProofClaims>.Ok(new DpopProofClaims(
             Htm: CompactJws.ReadString(root, "htm"),
             Htu: CompactJws.ReadString(root, "htu"),
             Iat: iat,
-            Jti: jti,
+            Jti: jti!,
             Ath: root.TryGetProperty("ath", out var ath) && ath.ValueKind == JsonValueKind.String ? ath.GetString() : null,
             Nonce: root.TryGetProperty("nonce", out var nonce) && nonce.ValueKind == JsonValueKind.String ? nonce.GetString() : null));
     }

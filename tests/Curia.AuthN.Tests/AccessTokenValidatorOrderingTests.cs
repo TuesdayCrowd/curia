@@ -139,6 +139,43 @@ public sealed class AccessTokenValidatorOrderingTests
         Assert.Equal("curia/authn/signature-invalid", error!.Type);
     }
 
+    /// <summary>
+    /// R11.34 (errata G18): an access token's header <c>kid</c> reaches the issuer key resolver only as
+    /// a <c>Kid</c>. One that is no <c>Kid</c> -- absent, empty, holding U+0000, or longer than any
+    /// enrolled one -- names no issuer key, and is answered as a <c>kid</c> the issuer does not hold was
+    /// answered before the rule existed: not registered to the issuer (spec section 4.7). The resolver
+    /// is never asked. Added after review found that only a parity test of two constructors guarded
+    /// this call site.
+    /// </summary>
+    [Theory]
+    [InlineData("absent")]
+    [InlineData("empty")]
+    [InlineData("nul-inside")]
+    [InlineData("ascii-1025")]
+    public async Task R11_34_AnAccessTokenWhoseKidIsNoKidIsAnsweredAsAKidTheIssuerDoesNotHold(string row)
+    {
+        var scenario = new AccessTokenScenario();
+        var resolver = new RecordingKeyResolver(scenario.IssuerKey.Kid, scenario.IssuerKey.PublicKey);
+        var context = scenario.Context with { IssuerKeyResolver = resolver };
+        var valid = scenario.ValidAccessTokenHeader();
+        var header = row switch
+        {
+            "absent" => valid.Where(m => m.Key != "kid").ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal),
+            "empty" => valid.With("kid", ""),
+            "nul-inside" => valid.With("kid", "k\0x"),
+            "ascii-1025" => valid.With("kid", new string('k', 1025)),
+            _ => throw new ArgumentOutOfRangeException(nameof(row), row, "no such row"),
+        };
+        var token = scenario.SignAccessToken(header: header);
+        var request = scenario.ValidRequest(accessToken: token);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/keys/not-registered-to-agent", error!.Type);
+        Assert.Empty(resolver.RequestedKids);
+    }
+
     /// <summary>Records every <c>kid</c> it is asked to resolve, so a test can assert on exactly
     /// what reached the port -- the only way to prove a value (like a header's <c>jku</c>) was
     /// never read at all, as opposed to merely "the request was rejected for some reason."</summary>
@@ -147,12 +184,12 @@ public sealed class AccessTokenValidatorOrderingTests
         public List<string> RequestedKids { get; } = [];
 
         public Task<Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>> ResolveAsync(
-            string requestedKid, CancellationToken cancellationToken = default)
+            Curia.Domain.Primitives.Boundary.Kid requestedKid, CancellationToken cancellationToken = default)
         {
-            RequestedKids.Add(requestedKid);
-            return Task.FromResult(requestedKid == kid
+            RequestedKids.Add(requestedKid.Value);
+            return Task.FromResult(requestedKid.Value == kid
                 ? Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>.Ok(key)
-                : Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(requestedKid)));
+                : Curia.Domain.Primitives.Result<Curia.Canon.Jws.PublicKeyMaterial>.Fail(AuthNErrors.KidNotFound(requestedKid.Value)));
         }
     }
 }

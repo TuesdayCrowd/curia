@@ -81,8 +81,8 @@ public sealed class PostgresFlagDetailStore : IFlagDetailStore
             var rows = new List<FlagDetail>();
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                rows.Add(new FlagDetail(
-                    reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+                // Read back as stored: a row may predate R11.34, and read-back is never parsed (spec §4.6).
+                rows.Add(new FlagDetail(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
             }
 
             return Result<IReadOnlyList<FlagDetail>>.Ok(rows);

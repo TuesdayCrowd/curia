@@ -25,6 +25,58 @@ public sealed class PostgresFlagDetailStoreContractTests : FlagDetailStorePortCo
 }
 
 /// <summary>
+/// R11.34 (errata G18) at the Postgres adapter: a row written before the types, which no adapter
+/// append can write today, is read back as stored and does not take down every read of the store.
+/// </summary>
+[Collection(PostgresCollectionDefinition.Name)]
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+public sealed class PostgresFlagDetailReadBackTests
+{
+    private readonly PostgresDatabaseFixture _fixture;
+
+    public PostgresFlagDetailReadBackTests(PostgresDatabaseFixture fixture) => _fixture = fixture;
+
+    /// <summary>
+    /// Before b75b2bf, <c>RaiseFlag</c> answered 201 to a flag against an enrolled agent's id, so a
+    /// stored <c>post_id</c> may be no ULID. The row is inserted raw, as the app role, bypassing the
+    /// adapter's append. A store that parsed read-back would fail every read until an administrator
+    /// deleted the row under R11.32's grant: RaiseFlag's R10.70 read, ApplyModeration, both GET flag
+    /// routes and the operator's queue.
+    /// </summary>
+    [Fact]
+    [SuppressMessage("Security", "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "The only interpolated text is the schema name the fixture minted (flg + hex), quoted; every value is a constant.")]
+    public async Task R11_34_ARowWrittenBeforeTheTypesDoesNotTakeDownTheStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var schema = await _fixture.CreateIsolatedFlagDetailSchemaAsync(ct);
+
+        await using (var connection = await _fixture.AppRoleDataSource.OpenConnectionAsync(ct))
+        await using (var insert = new NpgsqlCommand(
+            $"INSERT INTO \"{schema}\".flag_details (event_id, post_id, raised_by, rationale, salt) " +
+            "VALUES ('e1', 'some-agent', 'raiser', 'why', 's');", connection))
+        {
+            Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
+        }
+
+        var store = new PostgresFlagDetailStore(_fixture.AppRoleDataSource, schema);
+        var wellFormed = new FlagDetail("e2", "01JP0ST0000000000000000001", "https://agents.example/reporter", "looks like spam", "c2FsdA");
+        Assert.True((await store.AppendAsync(wellFormed, ct)).IsOk);
+
+        var read = await store.ReadAllAsync(ct);
+
+        Assert.True(read.IsOk);
+        var rows = read.Match(r => r, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+        Assert.Equal(["e1", "e2"], rows.Select(r => r.EventId));
+        Assert.Equal("some-agent", rows[0].PostId);
+        Assert.Equal(wellFormed, rows[1]);
+    }
+}
+
+/// <summary>
 /// db/0004's grant, proved the way <see cref="AppRoleGrantRefusalTests"/> proves R11.6's: on a
 /// connection opened as the application role, asserting Postgres's own insufficient-privilege state.
 /// One test per privilege, each over constant SQL, so a failure names the privilege that was granted.

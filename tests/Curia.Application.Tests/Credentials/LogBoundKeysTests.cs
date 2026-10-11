@@ -7,6 +7,7 @@ using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Xunit;
 
 namespace Curia.Application.Tests.Credentials;
@@ -40,26 +41,26 @@ public sealed class LogBoundKeysTests
     /// </summary>
     private sealed class HeldKeys(params (string AgentId, RegisteredKey Key)[] rows) : IAuthorKeyResolver, IAuthorKeyRegistry
     {
-        public Task<Result<PublicKeyMaterial>> ResolveAsync(string agentId, string kid, ServerTimestamp at, CancellationToken cancellationToken = default)
+        public Task<Result<PublicKeyMaterial>> ResolveAsync(AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
         {
-            var row = rows.FirstOrDefault(r => r.AgentId == agentId && r.Key.Key.Kid == kid);
+            var row = rows.FirstOrDefault(r => r.AgentId == agentId.Value && r.Key.Key.Kid == kid.Value);
             return Task.FromResult(row.Key is { } held && at.Value >= held.NotBefore
                 ? Result<PublicKeyMaterial>.Ok(held.Key)
-                : Result<PublicKeyMaterial>.Fail(AuthorKeyErrors.NotRegisteredToAgent(agentId, kid)));
+                : Result<PublicKeyMaterial>.Fail(AuthorKeyErrors.NotRegisteredToAgent(agentId.Value, kid.Value)));
         }
 
-        public Task<Result<RegisteredKey>> EnrollAsync(string agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default) =>
+        public Task<Result<RegisteredKey>> EnrollAsync(AgentId agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("R4.35 registers nothing");
 
-        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(string agentId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<RegisteredKey>>([.. rows.Where(r => r.AgentId == agentId).Select(r => r.Key)]);
+        public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<RegisteredKey>>([.. rows.Where(r => r.AgentId == agentId.Value).Select(r => r.Key)]);
     }
 
     private static async Task<(LogBoundKeys Keys, InMemoryEventStore Events)> EnrolledAsync(PublicKeyMaterial enrolled, params (string AgentId, RegisteredKey Key)[] held)
     {
         var clock = new ManualTimeProvider(Start);
         var events = new InMemoryEventStore(clock);
-        Require(await new EnrollAgent(events, clock).RecordAsync(Alice, enrolled, CancellationToken.None).ConfigureAwait(false));
+        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), enrolled, CancellationToken.None).ConfigureAwait(false));
         var store = new HeldKeys(held);
         return (new LogBoundKeys(store, store, events), events);
     }
@@ -72,7 +73,7 @@ public sealed class LogBoundKeysTests
         var key = TestKeys.Es256("alice-1");
         var (keys, _) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
 
-        Assert.True((await keys.ResolveAsync(Alice, "alice-1", At, TestContext.Current.CancellationToken)).IsOk);
+        Assert.True((await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), At, TestContext.Current.CancellationToken)).IsOk);
     }
 
     /// <summary>A second key the store holds for Alice, as errata G14's hole left them: the log binds no key under its kid.</summary>
@@ -83,7 +84,7 @@ public sealed class LogBoundKeysTests
         var hole = TestKeys.Es256("hole-1");
         var (keys, _) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)), (Alice, new RegisteredKey(hole, Start, null)));
 
-        var refused = await keys.ResolveAsync(Alice, "hole-1", At, TestContext.Current.CancellationToken);
+        var refused = await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("hole-1"), At, TestContext.Current.CancellationToken);
 
         Assert.Equal("curia/keys/not-bound-by-the-log agent=https://agents.example/alice kid=hole-1", refused.Match(_ => "resolved", e => $"{e.Type} {e.Detail}"));
     }
@@ -95,7 +96,7 @@ public sealed class LogBoundKeysTests
         var key = TestKeys.Es256("alice-1");
         var (keys, _) = await EnrolledAsync(key, (Alice, new RegisteredKey(TestKeys.Es256("alice-1"), Start, null)));
 
-        var refused = await keys.ResolveAsync(Alice, "alice-1", At, TestContext.Current.CancellationToken);
+        var refused = await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), At, TestContext.Current.CancellationToken);
 
         Assert.Equal("curia/keys/not-bound-by-the-log", refused.Match(_ => "resolved", e => e.Type));
     }
@@ -128,8 +129,8 @@ public sealed class LogBoundKeysTests
 
         Assert.Equal(
             "alice-1: resolved; hole-1: curia/keys/not-bound-by-the-log",
-            $"alice-1: {(await keys.ResolveAsync(Alice, "alice-1", At, TestContext.Current.CancellationToken)).Match(_ => "resolved", e => e.Type)}; "
-            + $"hole-1: {(await keys.ResolveAsync(Alice, "hole-1", At, TestContext.Current.CancellationToken)).Match(_ => "resolved", e => e.Type)}");
+            $"alice-1: {(await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), At, TestContext.Current.CancellationToken)).Match(_ => "resolved", e => e.Type)}; "
+            + $"hole-1: {(await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("hole-1"), At, TestContext.Current.CancellationToken)).Match(_ => "resolved", e => e.Type)}");
     }
 
     /// <summary>The store's own refusal is passed on unchanged, so R5.20's refusal still does not say whose a kid is.</summary>
@@ -139,7 +140,7 @@ public sealed class LogBoundKeysTests
         var key = TestKeys.Es256("alice-1");
         var (keys, _) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
 
-        var refused = await keys.ResolveAsync(Alice, "nowhere-1", At, TestContext.Current.CancellationToken);
+        var refused = await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("nowhere-1"), At, TestContext.Current.CancellationToken);
 
         Assert.Equal("curia/keys/not-registered-to-agent", refused.Match(_ => "resolved", e => e.Type));
     }
@@ -155,7 +156,7 @@ public sealed class LogBoundKeysTests
         var key = TestKeys.Es256("alice-1");
         var (keys, events) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)), (Alice, new RegisteredKey(TestKeys.Es256("hole-1"), Start, null)));
 
-        var set = Require(await keys.KeySetAsync(Alice, TestContext.Current.CancellationToken));
+        var set = Require(await keys.KeySetAsync(Typed.Agent(Alice), TestContext.Current.CancellationToken));
         var bindingEvent = Require(await events.ReadByAggregateAsync(Require(AggregateId.Create(Alice)), TestContext.Current.CancellationToken))
             .Single(e => e.Event.Type.Value == AgentStandingProjector.KeyBoundType).Event.Id.Value;
 
@@ -175,7 +176,7 @@ public sealed class LogBoundKeysTests
         var key = TestKeys.Es256("alice-1");
         var (keys, _) = await EnrolledAsync(key, (Alice, new RegisteredKey(TestKeys.Es256("alice-1"), Start, null)));
 
-        var set = Require(await keys.KeySetAsync(Alice, TestContext.Current.CancellationToken));
+        var set = Require(await keys.KeySetAsync(Typed.Agent(Alice), TestContext.Current.CancellationToken));
 
         Assert.Equal(
             "stored=1 bound=[]",

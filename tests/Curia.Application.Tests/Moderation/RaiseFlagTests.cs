@@ -9,6 +9,7 @@ using Curia.Domain;
 using Curia.Domain.Acta;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Xunit;
 
 namespace Curia.Application.Tests.Moderation;
@@ -20,7 +21,7 @@ namespace Curia.Application.Tests.Moderation;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class RaiseFlagTests
 {
-    private const string Post = "01JPOST0000000000000000001";
+    private const string Post = "01JP0ST0000000000000000001";
     private const string Reporter = "https://agents.example/reporter";
     private const string Rationale = "looks like an injection attempt";
     private const string FixedSalt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI";
@@ -71,7 +72,7 @@ public sealed class RaiseFlagTests
         await PostExistsAsync(store, ct);
 
         Require(await new RaiseFlag(store, new InMemoryFlagDetailStore(), clock, () => FixedSalt)
-            .RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
+            .RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
 
         var flag = Assert.Single(FlagEvents(await LogAsync(store, ct)));
         Assert.Equal(FlagProjector.FlagCommittedType, flag.Event.Type.Value);
@@ -100,7 +101,7 @@ public sealed class RaiseFlagTests
         var details = new InMemoryFlagDetailStore();
         await PostExistsAsync(store, ct);
 
-        Require(await new RaiseFlag(store, details, clock, () => FixedSalt).RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
+        Require(await new RaiseFlag(store, details, clock, () => FixedSalt).RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
 
         var flag = Assert.Single(FlagEvents(await LogAsync(store, ct)));
         var row = Assert.Single(Require(await details.ReadAllAsync(ct)));
@@ -126,8 +127,8 @@ public sealed class RaiseFlagTests
         await PostExistsAsync(store, ct);
 
         var raise = new RaiseFlag(store, details, clock);
-        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
-        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Incorrect, Rationale, ct));
+        Require(await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
+        Require(await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Incorrect, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
 
         var salts = Require(await details.ReadAllAsync(ct)).Select(d => d.Salt).ToArray();
         Assert.Equal(2, salts.Distinct(StringComparer.Ordinal).Count());
@@ -153,7 +154,7 @@ public sealed class RaiseFlagTests
         var details = new DownDetailStore();
         await PostExistsAsync(store, ct);
 
-        var result = await new RaiseFlag(store, details, clock).RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct);
+        var result = await new RaiseFlag(store, details, clock).RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("test/detail-store-down", error!.Type);
@@ -163,7 +164,11 @@ public sealed class RaiseFlagTests
         Assert.Empty(FlagEvents(log));
     }
 
-    /// <summary>Review Focus 1: a rationale the store cannot hold is refused by name, and nothing is written anywhere.</summary>
+    /// <summary>
+    /// Review Focus 1: a rationale the store cannot hold is refused by name, and nothing is written
+    /// anywhere. Since R11.34 (errata G18) it is the rationale's parse that refuses it, under the slug
+    /// the private store gave it, before screening and before any read.
+    /// </summary>
     [Fact]
     public async Task R11_21_ARationaleCarryingANulIsRefusedAndNothingIsWritten()
     {
@@ -173,12 +178,73 @@ public sealed class RaiseFlagTests
         var details = new InMemoryFlagDetailStore();
         await PostExistsAsync(store, ct);
 
-        var result = await new RaiseFlag(store, details, clock).RecordAsync(Post, Reporter, FlagKind.Spam, "bad\0rationale", ct);
+        var result = await new RaiseFlag(store, details, clock).RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse("bad\0rationale"), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/flag/detail-unstorable", error!.Type);
         Assert.Empty(FlagEvents(await LogAsync(store, ct)));
         Assert.Empty(Require(await details.ReadAllAsync(ct)));
+    }
+
+    /// <summary>
+    /// R11.34 (errata G18): each of the rule's refusals of a rationale is answered with the slug the
+    /// flag path served before the type existed, so no wire answer changes.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "curia/moderation/rationale-required")]
+    [InlineData("", "curia/moderation/rationale-required")]
+    [InlineData(" \t", "curia/moderation/rationale-required")]
+    [InlineData("nul", "curia/flag/detail-unstorable")]
+    [InlineData("lone", "curia/flag/detail-unstorable")]
+    [InlineData("over", "curia/flag/rationale-too-long")]
+    public async Task R11_34_ARationaleIsRefusedWithTheFlagPathsOwnSlug(string? rationale, string type)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+        await PostExistsAsync(store, ct);
+        var value = rationale switch
+        {
+            "nul" => "a" + (char)0 + "b",
+            "lone" => "a" + (char)0xD800 + "b",
+            "over" => new string('a', RationaleLimit.MaxUtf8Bytes + 1),
+            _ => rationale,
+        };
+
+        var result = await new RaiseFlag(store, new InMemoryFlagDetailStore(), clock)
+            .RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(value), ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal(type, error!.Type);
+    }
+
+    /// <summary>
+    /// R11.34 (errata G18), in the order the use case answered before the post id was typed: an id of
+    /// white space ahead of the rationale (R11.33's check), and any other id that is no post id after
+    /// the rationale and screening, where the post's stream was read for it.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_APostIdThatIsNoPostIdIsRefusedWhereTheUseCaseRefusedIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+        await PostExistsAsync(store, ct);
+        var raise = new RaiseFlag(store, new InMemoryFlagDetailStore(), clock);
+
+        async Task<string> TypeOf(string postId, string rationale) =>
+            (await raise.RecordAsync(PostId.Parse(postId), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(rationale), ct).ConfigureAwait(false))
+                .Match(_ => "accepted", e => e.Type);
+
+        Assert.Equal(
+            ["curia/flag/no-such-post", "curia/moderation/rationale-required", "curia/flag/rationale-rejected", "curia/flag/no-such-post"],
+            [
+                await TypeOf(" ", ""),
+                await TypeOf("not-a-post", ""),
+                await TypeOf("not-a-post", "Leaks AKIAIOSFODNN7EXAMPLE in the body."),
+                await TypeOf("not-a-post", Rationale),
+            ]);
+        Assert.Empty(FlagEvents(await LogAsync(store, ct)));
     }
 
     /// <summary>A flag against a post the log never accepted is refused, and neither store is written: the log stays empty.</summary>
@@ -190,7 +256,7 @@ public sealed class RaiseFlagTests
         var store = new InMemoryEventStore(clock);
         var details = new InMemoryFlagDetailStore();
 
-        var result = await new RaiseFlag(store, details, clock).RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct);
+        var result = await new RaiseFlag(store, details, clock).RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/flag/no-such-post", error!.Type);
@@ -209,7 +275,7 @@ public sealed class RaiseFlagTests
         await PostExistsAsync(store, ct);
 
         var result = await new RaiseFlag(store, details, clock)
-            .RecordAsync(Post, Reporter, FlagKind.CredentialLeak, "Leaks AKIAIOSFODNN7EXAMPLE in the body.", ct);
+            .RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.CredentialLeak, Curia.Domain.Moderation.Rationale.Parse("Leaks AKIAIOSFODNN7EXAMPLE in the body."), ct);
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal("curia/flag/rationale-rejected", error!.Type);
@@ -234,15 +300,35 @@ public sealed class RaiseFlagTests
         var events = new CountingEventStore(store);
         var raise = new RaiseFlag(events, new InMemoryFlagDetailStore(), clock, () => FixedSalt);
 
-        var refused = await raise.RecordAsync(Post, Reporter, FlagKind.Spam, new string('a', 4_097), ct);
+        var refused = await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(new string('a', 4_097)), ct);
 
         Assert.False(refused.TryGetValue(out _, out var error));
         Assert.Equal("curia/flag/rationale-too-long", error!.Type);
         Assert.Equal(0, events.Reads);
         Assert.Empty(FlagEvents(await LogAsync(store, ct)));
 
-        Require(await raise.RecordAsync(Post, Reporter, FlagKind.Spam, Rationale, ct));
+        Require(await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
 
         Assert.True(events.Reads > 0);
+    }
+
+    /// <summary>
+    /// R10.68's order kept through R11.34: a rationale over the cap that also holds U+0000 is too long,
+    /// as it was when A4 checked the cap first, not a detail the store cannot hold.
+    /// </summary>
+    [Fact]
+    public async Task R11_34_ARationaleOverTheCapHoldingU0000IsRefusedAsTooLong()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock);
+        await PostExistsAsync(store, ct);
+
+        var refused = await new RaiseFlag(store, new InMemoryFlagDetailStore(), clock, () => FixedSalt)
+            .RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(new string('a', 4_096) + (char)0), ct);
+
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal(("curia/flag/rationale-too-long", "field=rationale bytes=4097: at most 4096 UTF-8 bytes"), (error!.Type, error.Detail));
+        Assert.Empty(FlagEvents(await LogAsync(store, ct)));
     }
 }

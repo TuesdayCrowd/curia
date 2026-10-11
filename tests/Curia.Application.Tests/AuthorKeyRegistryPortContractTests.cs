@@ -61,10 +61,10 @@ public abstract class AuthorKeyRegistryPortContractTests
         var store = CreateStore();
         var key = NewKey("alice-1");
 
-        var enrolled = Require(await store.EnrollAsync(Alice, key, LastMonth, ct));
+        var enrolled = Require(await store.EnrollAsync(Typed.Agent(Alice), key, LastMonth, ct));
 
         Assert.Equal(key.Kid, enrolled.Key.Kid);
-        AssertHolds(await store.KeysForAsync(Alice, ct), key, LastMonth);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), key, LastMonth);
     }
 
     /// <summary>
@@ -78,11 +78,11 @@ public abstract class AuthorKeyRegistryPortContractTests
         var store = CreateStore();
         var key = NewKey("alice-1");
 
-        Require(await store.EnrollAsync(Alice, key, LastMonth, ct));
-        var again = Require(await store.EnrollAsync(Alice, Copy(key), Today, ct));
+        Require(await store.EnrollAsync(Typed.Agent(Alice), key, LastMonth, ct));
+        var again = Require(await store.EnrollAsync(Typed.Agent(Alice), Copy(key), Today, ct));
 
         Assert.Equal(LastMonth, again.NotBefore);
-        AssertHolds(await store.KeysForAsync(Alice, ct), key, LastMonth);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), key, LastMonth);
     }
 
     /// <summary>
@@ -98,13 +98,13 @@ public abstract class AuthorKeyRegistryPortContractTests
         var alices = NewKey("alice-1");
         var mallorys = NewKey("mallory-1");
 
-        Require(await store.EnrollAsync(Alice, alices, LastMonth, ct));
+        Require(await store.EnrollAsync(Typed.Agent(Alice), alices, LastMonth, ct));
 
-        Assert.Equal("curia/enroll/already-enrolled", Refusal(await store.EnrollAsync(Alice, mallorys, Today, ct)).Type);
-        AssertHolds(await store.KeysForAsync(Alice, ct), alices, LastMonth);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await store.EnrollAsync(Typed.Agent(Alice), mallorys, Today, ct)).Type);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), alices, LastMonth);
 
-        Require(await store.EnrollAsync(Bob, mallorys, Today, ct));
-        AssertHolds(await store.KeysForAsync(Bob, ct), mallorys, Today);
+        Require(await store.EnrollAsync(Typed.Agent(Bob), mallorys, Today, ct));
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Bob), ct), mallorys, Today);
     }
 
     /// <summary>The second attack: the identifier's own <c>kid</c> with other bytes. Refused; the original bytes stand.</summary>
@@ -115,10 +115,10 @@ public abstract class AuthorKeyRegistryPortContractTests
         var store = CreateStore();
         var original = NewKey("alice-1");
 
-        Require(await store.EnrollAsync(Alice, original, LastMonth, ct));
+        Require(await store.EnrollAsync(Typed.Agent(Alice), original, LastMonth, ct));
 
-        Assert.Equal("curia/keys/material-immutable", Refusal(await store.EnrollAsync(Alice, NewKey("alice-1"), Today, ct)).Type);
-        AssertHolds(await store.KeysForAsync(Alice, ct), original, LastMonth);
+        Assert.Equal("curia/keys/material-immutable", Refusal(await store.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), Today, ct)).Type);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), original, LastMonth);
     }
 
     /// <summary>
@@ -132,11 +132,11 @@ public abstract class AuthorKeyRegistryPortContractTests
         var store = CreateStore();
         var alices = NewKey("shared-kid");
 
-        Require(await store.EnrollAsync(Alice, alices, LastMonth, ct));
+        Require(await store.EnrollAsync(Typed.Agent(Alice), alices, LastMonth, ct));
 
-        Assert.Equal("curia/enroll/kid-already-registered", Refusal(await store.EnrollAsync(Bob, NewKey("shared-kid"), Today, ct)).Type);
-        AssertHolds(await store.KeysForAsync(Alice, ct), alices, LastMonth);
-        Assert.Empty(await store.KeysForAsync(Bob, ct));
+        Assert.Equal("curia/enroll/kid-already-registered", Refusal(await store.EnrollAsync(Typed.Agent(Bob), NewKey("shared-kid"), Today, ct)).Type);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), alices, LastMonth);
+        Assert.Empty(await store.KeysForAsync(Typed.Agent(Bob), ct));
     }
 
     /// <summary>
@@ -151,11 +151,11 @@ public abstract class AuthorKeyRegistryPortContractTests
         var alices = NewKey("alice-1");
         var bobs = NewKey("bob-1");
 
-        Require(await store.EnrollAsync(Alice, alices, LastMonth, ct));
-        Require(await store.EnrollAsync(Bob, bobs, Today, ct));
+        Require(await store.EnrollAsync(Typed.Agent(Alice), alices, LastMonth, ct));
+        Require(await store.EnrollAsync(Typed.Agent(Bob), bobs, Today, ct));
 
-        AssertHolds(await store.KeysForAsync(Alice, ct), alices, LastMonth);
-        AssertHolds(await store.KeysForAsync(Bob, ct), bobs, Today);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), alices, LastMonth);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Bob), ct), bobs, Today);
     }
 
     /// <summary>
@@ -172,10 +172,10 @@ public abstract class AuthorKeyRegistryPortContractTests
         var bytes = NewKey("alice-1").Public.ToArray();
         var original = bytes.ToArray();
 
-        Require(await store.EnrollAsync(Alice, new PublicKeyMaterial("ES256", "alice-1", bytes), LastMonth, ct));
+        Require(await store.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial("ES256", "alice-1", bytes), LastMonth, ct));
         bytes[^1] ^= 0xFF;
 
-        Assert.Equal(original, Assert.Single(await store.KeysForAsync(Alice, ct)).Key.Public.ToArray());
+        Assert.Equal(original, Assert.Single(await store.KeysForAsync(Typed.Agent(Alice), ct)).Key.Public.ToArray());
     }
 }
 

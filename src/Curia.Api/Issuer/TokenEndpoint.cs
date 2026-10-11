@@ -12,6 +12,7 @@ using Curia.Canon.Jws;
 using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Api.Issuer;
 
@@ -113,9 +114,10 @@ public static class TokenEndpoint
             return OAuthError("invalid_dpop_proof", "The DPoP proof's key could not be read");
 
         // R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.
+        var expectedSubject = AgentId.Parse(clientId, "client_id");
         var context = new ClientAssertionValidationContext(
             TokenEndpointUrl(http),
-            ExpectedSubject: clientId,
+            ExpectedSubject: expectedSubject,
             agentKeys,
             replayCache,
             verifiers,
@@ -155,7 +157,12 @@ public static class TokenEndpoint
         // the directory this replaced: that one passed cleanQuestions: 0 because it had no view of
         // the post log, so the stamped tier was wrong for every agent above T0. An observability
         // field that is reliably wrong is worse than one that is absent.
-        var posture = AgentStandingProjector.PostureOf(standings, claims.Sub);
+        // The validator refuses an assertion whose client_id is no AgentId, and one whose sub is not
+        // client_id, so the subject here is the parsed client_id (R11.34, errata G18).
+        if (!expectedSubject.TryGetValue(out var subject, out _))
+            return OAuthError("invalid_client", "That agent is not enrolled");
+
+        var posture = AgentStandingProjector.PostureOf(standings, subject!);
         if (!posture.TryGetValue(out var facts, out var postureError))
             return OAuthError("server_error", postureError!.Title, postureError.Type);
 

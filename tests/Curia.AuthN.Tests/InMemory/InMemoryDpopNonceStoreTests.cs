@@ -1,3 +1,4 @@
+using Curia.AuthN.Tests.Support;
 using Xunit;
 
 namespace Curia.AuthN.Tests.InMemory;
@@ -26,7 +27,7 @@ public sealed class InMemoryDpopNonceStoreTests
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var store = new InMemoryDpopNonceStore(clock);
 
-        var isCurrent = await store.IsCurrentAsync("never-issued", TestContext.Current.CancellationToken);
+        var isCurrent = await store.IsCurrentAsync(Typed.Nonce("never-issued"), TestContext.Current.CancellationToken);
 
         Assert.True(isCurrent.TryGetValue(out var current, out _) && !current);
     }

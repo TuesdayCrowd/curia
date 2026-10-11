@@ -21,7 +21,7 @@ namespace Curia.Application.Tests.Projections;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class FlagDirectoryTests
 {
-    private const string Post = "01JPOST0000000000000000001";
+    private const string Post = "01JP0ST0000000000000000001";
     private const string Reporter = "https://agents.example/reporter";
     private const string Salt = "c2FsdC1mb3ItdGhlLWZpeGVkLWNvbW1pdG1lbnQtMzI";
 

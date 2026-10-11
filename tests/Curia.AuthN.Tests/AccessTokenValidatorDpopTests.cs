@@ -201,6 +201,7 @@ public sealed class AccessTokenValidatorDpopTests
 
         Assert.False(result.TryGetValue(out _, out var error));
         Assert.Equal(AuthNErrors.Malformed("").Type, error!.Type);
+        Assert.Equal("'jti' must be a non-empty string of at most 256 UTF-8 bytes holding no U+0000", error.Detail);
     }
 
     /// <summary>

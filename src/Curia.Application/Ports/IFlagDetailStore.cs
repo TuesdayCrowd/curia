@@ -12,9 +12,16 @@ namespace Curia.Application.Ports;
 /// which is what makes a later substitution of any member here detectable.</para>
 /// </summary>
 /// <param name="EventId">The <c>flag.committed</c> event this row opens.</param>
-/// <param name="PostId">The post the flag concerns. Public only once a moderation record adjudicates the flag (R10.60).</param>
-/// <param name="RaisedBy">The authenticated principal that raised it. Never published.</param>
-/// <param name="Rationale">R10.35's rationale, screened before it was stored. Never published.</param>
+/// <param name="PostId">The post the flag concerns. Public only once a moderation record adjudicates the flag (R10.60).
+/// A <c>string</c>, not a <c>PostId</c>: a stored row may predate R11.34 (before b75b2bf,
+/// <c>RaiseFlag</c> accepted any id with a non-empty stream, an enrolled agent's included), and
+/// read-back is never parsed (R11.34, errata G18).</param>
+/// <param name="RaisedBy">The authenticated principal that raised it. Never published. A <c>string</c>,
+/// not an <c>AgentId</c>: a stored row may predate R11.34, and read-back is never parsed (R11.34,
+/// errata G18).</param>
+/// <param name="Rationale">R10.35's rationale, screened before it was stored. Never published. A
+/// <c>string</c>, not a <c>Rationale</c>: a stored rationale may predate R10.68's cap, and read-back is
+/// never parsed (R11.34, errata G18).</param>
 /// <param name="Salt">The commitment's salt, 32 random bytes in base64url.</param>
 public sealed record FlagDetail(string EventId, string PostId, string RaisedBy, string Rationale, string Salt);
 

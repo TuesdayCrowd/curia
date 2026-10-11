@@ -1,5 +1,6 @@
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.AuthN.Ports;
 
@@ -22,5 +23,5 @@ namespace Curia.AuthN.Ports;
 /// </summary>
 public interface IJwsKeyResolver
 {
-    Task<Result<PublicKeyMaterial>> ResolveAsync(string kid, CancellationToken cancellationToken = default);
+    Task<Result<PublicKeyMaterial>> ResolveAsync(Kid kid, CancellationToken cancellationToken = default);
 }

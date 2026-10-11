@@ -3,6 +3,7 @@ using Curia.Canon.Envelope;
 using Curia.Canon.Jws;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Screening;
 
 namespace Curia.Application.Ingest;
@@ -47,7 +48,7 @@ public sealed record VerifiedSubmission(
     VerifiedContent Content,
     JwsSignature Signature,
     PostEnvelope Envelope,
-    string AuthorAgentId)
+    AgentId AuthorAgentId)
 {
     /// <summary>The exact bytes the signature was verified over, and the ones PERSIST must write.</summary>
     public CanonicalBytes Canonical => Content.Canonical;

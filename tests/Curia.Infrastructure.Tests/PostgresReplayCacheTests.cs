@@ -47,8 +47,8 @@ public sealed class PostgresReplayCacheTests
         var (clock, schema) = await NewSchemaAsync(ct);
         var cache = CacheOn(schema, clock);
 
-        Assert.True(Accepted(await cache.TryInsertAsync("jti-first-use", Now.AddMinutes(5), ct)));
-        Assert.False(Accepted(await cache.TryInsertAsync("jti-first-use", Now.AddMinutes(5), ct)));
+        Assert.True(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-first-use"), Now.AddMinutes(5), ct)));
+        Assert.False(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-first-use"), Now.AddMinutes(5), ct)));
     }
 
     /// <summary>
@@ -67,8 +67,8 @@ public sealed class PostgresReplayCacheTests
         var podA = CacheOn(schema, clock);
         var podB = CacheOn(schema, new ManualTimeProvider(Now));
 
-        Assert.True(Accepted(await podA.TryInsertAsync("jti-two-pods", Now.AddMinutes(5), ct)));
-        Assert.False(Accepted(await podB.TryInsertAsync("jti-two-pods", Now.AddMinutes(5), ct)));
+        Assert.True(Accepted(await podA.TryInsertAsync(Typed.Jti("jti-two-pods"), Now.AddMinutes(5), ct)));
+        Assert.False(Accepted(await podB.TryInsertAsync(Typed.Jti("jti-two-pods"), Now.AddMinutes(5), ct)));
     }
 
     /// <summary>
@@ -84,17 +84,17 @@ public sealed class PostgresReplayCacheTests
         var (clock, schema) = await NewSchemaAsync(ct);
         var cache = CacheOn(schema, clock);
 
-        Assert.True(Accepted(await cache.TryInsertAsync("jti-expiring", Now.AddMinutes(1), ct)));
-        Assert.False(Accepted(await cache.TryInsertAsync("jti-expiring", Now.AddMinutes(1), ct)));
+        Assert.True(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-expiring"), Now.AddMinutes(1), ct)));
+        Assert.False(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-expiring"), Now.AddMinutes(1), ct)));
 
         // One second past the recorded expiry, not one minute: the boundary is where an
         // off-by-one in the SQL predicate would hide.
         clock.Set(Now.AddMinutes(1).AddSeconds(1));
-        Assert.True(Accepted(await cache.TryInsertAsync("jti-expiring", clock.GetUtcNow().AddMinutes(1), ct)));
+        Assert.True(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-expiring"), clock.GetUtcNow().AddMinutes(1), ct)));
 
         // And the fresh window is enforced from that point, so the re-admission was a new entry
         // rather than the cache having simply forgotten how to refuse.
-        Assert.False(Accepted(await cache.TryInsertAsync("jti-expiring", clock.GetUtcNow().AddMinutes(1), ct)));
+        Assert.False(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-expiring"), clock.GetUtcNow().AddMinutes(1), ct)));
     }
 
     /// <summary>
@@ -110,10 +110,10 @@ public sealed class PostgresReplayCacheTests
         var cache = CacheOn(schema, clock);
 
         var expiry = Now.AddMinutes(1);
-        Assert.True(Accepted(await cache.TryInsertAsync("jti-boundary", expiry, ct)));
+        Assert.True(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-boundary"), expiry, ct)));
 
         clock.Set(expiry);
-        Assert.True(Accepted(await cache.TryInsertAsync("jti-boundary", expiry.AddMinutes(1), ct)));
+        Assert.True(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-boundary"), expiry.AddMinutes(1), ct)));
     }
 
     /// <summary>
@@ -130,7 +130,7 @@ public sealed class PostgresReplayCacheTests
         var (clock, schema) = await NewSchemaAsync(ct);
 
         var attempts = Enumerable.Range(0, 16)
-            .Select(_ => CacheOn(schema, clock).TryInsertAsync("jti-contended", Now.AddMinutes(5), ct))
+            .Select(_ => CacheOn(schema, clock).TryInsertAsync(Typed.Jti("jti-contended"), Now.AddMinutes(5), ct))
             .ToArray();
 
         var outcomes = await Task.WhenAll(attempts);
@@ -148,8 +148,8 @@ public sealed class PostgresReplayCacheTests
         var (clock, schema) = await NewSchemaAsync(ct);
         var cache = CacheOn(schema, clock);
 
-        Assert.True(Accepted(await cache.TryInsertAsync("jti-alpha", Now.AddMinutes(5), ct)));
-        Assert.True(Accepted(await cache.TryInsertAsync("jti-beta", Now.AddMinutes(5), ct)));
-        Assert.False(Accepted(await cache.TryInsertAsync("jti-alpha", Now.AddMinutes(5), ct)));
+        Assert.True(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-alpha"), Now.AddMinutes(5), ct)));
+        Assert.True(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-beta"), Now.AddMinutes(5), ct)));
+        Assert.False(Accepted(await cache.TryInsertAsync(Typed.Jti("jti-alpha"), Now.AddMinutes(5), ct)));
     }
 }

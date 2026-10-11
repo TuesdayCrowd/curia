@@ -128,7 +128,7 @@ public sealed class InboxSelectorTests
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
 
-        var inbox = InboxSelector.Select(await LogAsync(store, ct), Me);
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
 
         Assert.Equal("q1", Assert.Single(inbox.Open).PostId);
         Assert.Equal(0, inbox.ExcludedAsOwn);
@@ -149,7 +149,7 @@ public sealed class InboxSelectorTests
         await PostAsync(store, "a1", PostKind.Answer, Other, ct, parent: "q1");
         await AcceptAsync(store, "q1", "a1", Other, ct);
 
-        Assert.Empty(InboxSelector.Select(await LogAsync(store, ct), Me).Open);
+        Assert.Empty(InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me)).Open);
     }
 
     /// <summary>
@@ -164,7 +164,7 @@ public sealed class InboxSelectorTests
 
         await PostAsync(store, "q1", PostKind.Question, Me, ct);
 
-        var inbox = InboxSelector.Select(await LogAsync(store, ct), Me);
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
 
         Assert.Empty(inbox.Open);
         Assert.Equal(1, inbox.ExcludedAsOwn);
@@ -184,7 +184,7 @@ public sealed class InboxSelectorTests
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "a1", PostKind.Answer, Me, ct, parent: "q1");
 
-        var inbox = InboxSelector.Select(await LogAsync(store, ct), Me);
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
 
         Assert.Empty(inbox.Open);
         Assert.Equal(1, inbox.ExcludedAsAlreadyAnswered);
@@ -203,7 +203,7 @@ public sealed class InboxSelectorTests
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "a1", PostKind.Answer, Other, ct, parent: "q1");
 
-        Assert.Single(InboxSelector.Select(await LogAsync(store, ct), Me).Open);
+        Assert.Single(InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me)).Open);
     }
 
     /// <summary>Only questions. An answer or a comment is not something to answer.</summary>
@@ -216,7 +216,7 @@ public sealed class InboxSelectorTests
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "c1", PostKind.Comment, Other, ct, parent: "q1");
 
-        Assert.Equal("q1", Assert.Single(InboxSelector.Select(await LogAsync(store, ct), Me).Open).PostId);
+        Assert.Equal("q1", Assert.Single(InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me)).Open).PostId);
     }
 
     /// <summary>
@@ -234,7 +234,7 @@ public sealed class InboxSelectorTests
         await PostAsync(store, "q2", PostKind.Question, Other, ct);
         await PostAsync(store, "a2", PostKind.Answer, Me, ct, parent: "q2");
 
-        var inbox = InboxSelector.Select(await LogAsync(store, ct), Me);
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
 
         Assert.Empty(inbox.Open);
         Assert.Equal(2, inbox.Matching.Length);
@@ -253,7 +253,7 @@ public sealed class InboxSelectorTests
         await PostAsync(store, "q2", PostKind.Question, Other, ct);
         await PostAsync(store, "q3", PostKind.Question, Other, ct);
 
-        var inbox = InboxSelector.Select(await LogAsync(store, ct), Me);
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
 
         Assert.Equal((string[])["q1", "q2", "q3"], inbox.Open.Select(p => p.PostId).ToArray());
     }
@@ -269,11 +269,11 @@ public sealed class InboxSelectorTests
         await PostAsync(store, "q2", PostKind.Question, Me, ct);
 
         var log = await LogAsync(store, ct);
-        Assert.Equal(InboxSelector.Select(log, Me).Open, InboxSelector.Select(log, Me).Open);
+        Assert.Equal(InboxSelector.Select(log, Typed.Agent(Me)).Open, InboxSelector.Select(log, Typed.Agent(Me)).Open);
 
         await PostAsync(store, "q3", PostKind.Question, Other, ct);
         Assert.NotEqual(
-            InboxSelector.Select(log, Me).Open,
-            InboxSelector.Select(await LogAsync(store, ct), Me).Open);
+            InboxSelector.Select(log, Typed.Agent(Me)).Open,
+            InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me)).Open);
     }
 }
