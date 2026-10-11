@@ -43,12 +43,16 @@ public sealed record PostVerification(
     /// key, and signed under it, would be verified by every reader. So a post whose key the log names
     /// only by <c>kid</c> -- an identity enrolled before R4.34 -- is not established.</para>
     ///
-    /// <para><b>Consistency is conditional and its absence does not deny the rest.</b> R6.52 asks
-    /// for it "where the client retains an earlier signed head for the same log" -- on a first read
-    /// there is no earlier head, so the check is inapplicable rather than skipped, and letting that
-    /// downgrade the verdict would mean no first read could ever verify. The line still says
-    /// <i>could not be checked</i>, because that is what happened; only the summary is permitted to
-    /// look past it, and only when nothing failed.</para>
+    /// <para><b>Consistency is conditional, and only the first read may be looked past.</b> R6.52
+    /// asks for it "where the client retains an earlier signed head for the same log" -- on a first
+    /// read there is no earlier head, so the check is inapplicable rather than skipped, and letting
+    /// that downgrade the verdict would mean no first read could ever verify. The line still says
+    /// <i>could not be checked</i>, because that is what happened; the summary may look past it only
+    /// when nothing failed and the line is marked <see cref="Check.NothingToCompare"/>, which only
+    /// <see cref="Check.FirstRetained"/> sets. A retained head that cannot be read, a proof the Forum
+    /// will not serve, or a lock not taken is could not be checked, and so is the summary, so the
+    /// exit code is 8 (R6.53): a Forum that has forked the log can serve a newer head and refuse the
+    /// proof, and that must not read as VERIFIED.</para>
     /// </summary>
     public CheckOutcome Overall =>
         Signature.Outcome is CheckOutcome.Failed
@@ -59,6 +63,8 @@ public sealed record PostVerification(
             : Signature.Outcome is CheckOutcome.Verified
               && Inclusion.Outcome is CheckOutcome.Verified
               && KeyBinding.Outcome is CheckOutcome.Verified
+              && (Consistency.Outcome is CheckOutcome.Verified
+                  || Consistency is { Outcome: CheckOutcome.CouldNotCheck, NothingToCompare: true })
                 ? CheckOutcome.Verified
                 : CheckOutcome.CouldNotCheck;
 
@@ -455,7 +461,7 @@ public sealed class PostVerifier
         if (retained is null)
         {
             _heads.Write(_forum.Forum, head);
-            return Check.CouldNotCheck(Invariant(
+            return Check.FirstRetained(Invariant(
                 $"this client had retained no earlier head for {Check.Quote(HeadStore.Origin(_forum.Forum))}, so there was nothing to compare against. The head at tree size {head.TreeSize} is now retained, and the next verification will check the log against it (R6.53)."));
         }
 

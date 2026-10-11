@@ -516,6 +516,53 @@ public sealed class ReaderFrameTests
         Assert.Equal(verdict.Outcome, passage.Outcome);
     }
 
+    /// <summary>
+    /// D37: R10.14 lets a Forum choose its datamark, and this client accepts any one private-use
+    /// character, so the help's U+E000 is only the default. A datamarked passage's forum line names
+    /// the character interleaved through the span it prints, in this client's own spelling: the
+    /// Forum's own token when its span passed R10.71 (row 1), and the default when the Forum named a
+    /// token this client refuses and the span shown is this client's rendering (row 2). FA45's target.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void D37_ADatamarkedPassageNamesItsToken(bool acceptable)
+    {
+        var chosen = ((char)0xF8FF).ToString();
+        var fallback = Datamarking.DefaultControlToken;
+        var served = acceptable ? chosen : chosen + chosen;
+        var canonical = SpanCheckTests.Envelope("Words the author signed, in a datamarked span.");
+        Assert.DoesNotContain(chosen, canonical, StringComparison.Ordinal);
+        Assert.DoesNotContain(fallback, canonical, StringComparison.Ordinal);
+
+        var post = SpanCheckTests.Post(canonical, Datamarking.Render(canonical, MarkingMode.Datamark, served), MarkingMode.Datamark, served);
+        Assert.Equal(acceptable, SpanCheck.RendersCanonical(post));
+
+        var rendered = new Passage(post, new SignatureVerdict(true, "k", "d")).Render();
+        var lines = rendered.Split('\n');
+        var forum = Assert.Single(lines, l => l.StartsWith("forum     ", StringComparison.Ordinal));
+        var expected = acceptable ? chosen : fallback;
+        var name = "U+" + ((int)expected[0]).ToString("X4", CultureInfo.InvariantCulture);
+        Assert.EndsWith(", token=" + name, forum, StringComparison.Ordinal);
+        Assert.DoesNotContain(expected, forum, StringComparison.Ordinal);
+
+        // The character named is the one interleaved through the span printed, and the other is absent.
+        var other = acceptable ? fallback : chosen;
+        Assert.True(Occurrences(rendered, expected) >= 1, "the span holds no " + name);
+        Assert.Equal(0, Occurrences(rendered, other));
+
+        // Row 2's span is this client's rendering, and the frame says so.
+        Assert.Equal(!acceptable, lines.Any(l => l.StartsWith("content   FAILED:", StringComparison.Ordinal)));
+    }
+
+    private static int Occurrences(string text, string value)
+    {
+        var count = 0;
+        for (var at = text.IndexOf(value, StringComparison.Ordinal); at >= 0; at = text.IndexOf(value, at + value.Length, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
+
     /// <summary><see cref="R10_71_AnHonestPassageIsUnchanged"/>'s frame, as the base rendered it.</summary>
     private const string HonestSnapshot =
         "post      \"01TESTPOSTID0000000000000A\"\n"

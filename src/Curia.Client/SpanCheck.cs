@@ -96,8 +96,21 @@ public static class SpanCheck
 
         var covered = CoveredForm(post);
         var marking = post.Provenance.Marking;
-        var token = IsAcceptableToken(post.Provenance.MarkingToken) ? post.Provenance.MarkingToken! : Datamarking.DefaultControlToken;
+        var token = TokenFor(post);
         return covered is null ? null : Datamarking.Render(covered, marking, token);
+    }
+
+    /// <summary>
+    /// The datamark a passage of <paramref name="post"/> carries: the served token when it is
+    /// acceptable, which is the one a span passing <see cref="RendersCanonical"/> holds, and the
+    /// default otherwise, which is the one <see cref="Rendering"/> interleaves. One expression for
+    /// both, so the token a reader names and the token in the span it prints cannot disagree
+    /// (R10.14).
+    /// </summary>
+    public static string TokenFor(ProvenancePost post)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+        return IsAcceptableToken(post.Provenance.MarkingToken) ? post.Provenance.MarkingToken! : Datamarking.DefaultControlToken;
     }
 
     /// <summary>

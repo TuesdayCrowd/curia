@@ -477,6 +477,102 @@ public sealed class HeadStoreLockTests : IDisposable
         Assert.Equal(log.HeadTreeSize, heads.Read(StubLog.Forum)!.TreeSize);
     }
 
+    /// <summary>
+    /// R6.53 (add.): only a first verification's consistency line, where no earlier head was retained,
+    /// may be looked past by the summary. A consistency check that could not be run for any other
+    /// reason is not verified, and the exit code is 8: a retained head this client cannot read (a),
+    /// a proof the Forum will not serve (b) -- which a Forum that has forked the log can do while
+    /// serving a newer head -- and the head's lock not taken, with a head retained (c) and before any
+    /// is (d).
+    ///
+    /// <para>Each row first shows the other three checks verified, and pins the cause in the
+    /// consistency line's detail, so the row cannot pass because something else did not reach.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("a-unreadable")]
+    [InlineData("b-proof-refused")]
+    [InlineData("c-lock-held-retained")]
+    [InlineData("d-lock-held-first")]
+    public async Task R6_53_AConsistencyNotCheckedAgainstARetainedHeadIsNotVerified(string row)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var log = Log(treeSize: 8);
+        var heads = new HeadStore(_home);
+        var retained = Path.Combine(heads.DirectoryFor(StubLog.Forum), "head.json");
+
+        log.HeadTreeSize = 4;
+        if (row != "d-lock-held-first")
+        {
+            var first = await VerifyAsync(log.Client(), heads, TimeSpan.FromSeconds(30));
+            Assert.True(first.Consistency.NothingToCompare, first.Consistency.Detail);
+            Assert.True(File.Exists(retained), "the first verification retained no head");
+        }
+
+        FlockHolder? holder = null;
+        string cause;
+        switch (row)
+        {
+            case "a-unreadable":
+                await File.WriteAllTextAsync(retained, "garbage", ct);
+                Assert.Equal(HeadStore.RetainedHead.Unreadable, heads.State(StubLog.Forum));
+                cause = "could not be read";
+                break;
+
+            case "b-proof-refused":
+                log.HeadTreeSize = 8;
+                Assert.True(log.HeadTreeSize > heads.Read(StubLog.Forum)!.TreeSize);
+                log.ConsistencyRouteRefuses = true;
+                cause = "could not be fetched";
+                break;
+
+            case "c-lock-held-retained":
+                log.HeadTreeSize = 8;
+                holder = FlockHolder.Start(Path.Combine(heads.DirectoryFor(StubLog.Forum), "head.lock"));
+                cause = "held elsewhere";
+                break;
+
+            case "d-lock-held-first":
+                Directory.CreateDirectory(heads.DirectoryFor(StubLog.Forum));
+                Assert.False(File.Exists(retained));
+                holder = FlockHolder.Start(Path.Combine(heads.DirectoryFor(StubLog.Forum), "head.lock"));
+                cause = "held elsewhere";
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(row), row, "no such row");
+        }
+
+        using (holder)
+        {
+            if (holder is not null) Assert.Equal("held", await holder.ReadLineAsync(ct));
+            var before = File.Exists(retained) ? await File.ReadAllBytesAsync(retained, ct) : null;
+
+            var second = await VerifyAsync(log.Client(), heads, TimeSpan.FromSeconds(1));
+
+            // The other three checks verified: the summary's verdict turns on consistency alone.
+            Assert.Equal(CheckOutcome.Verified, second.Signature.Outcome);
+            Assert.Equal(CheckOutcome.Verified, second.Inclusion.Outcome);
+            Assert.Equal(CheckOutcome.Verified, second.KeyBinding.Outcome);
+
+            Assert.Equal(CheckOutcome.CouldNotCheck, second.Consistency.Outcome);
+            Assert.Contains(cause, second.Consistency.Detail, StringComparison.Ordinal);
+            Assert.False(second.Consistency.NothingToCompare);
+            Assert.Equal(CheckOutcome.CouldNotCheck, second.Overall);
+            Assert.Equal(Curia.Client.Cli.ExitCode.ForumFault, Curia.Client.Cli.ExitCode.ForOutcomes(second.Overall));
+
+            var rendered = second.Render();
+            Assert.Contains("NOT ESTABLISHED.", rendered, StringComparison.Ordinal);
+            Assert.DoesNotContain("\nVERIFIED.", rendered, StringComparison.Ordinal);
+
+            if (row == "b-proof-refused")
+                Assert.True(log.ConsistencyReads >= 1, "the consistency route was never asked");
+
+            // The retained head, or its absence, is exactly as it was.
+            if (before is null) Assert.False(File.Exists(retained));
+            else Assert.Equal(before, await File.ReadAllBytesAsync(retained, ct));
+        }
+    }
+
     private const string ChildHomeVariable = "CURIA_LOCK_CHILD_HOME";
 
     private static bool UnderTheSwitch() => Environment.GetEnvironmentVariable(Variable) == "1";

@@ -163,6 +163,10 @@ public sealed class HelpTextTests
         Assert.DoesNotContain("title", Help.InboxBanner, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("post id", Help.InboxBanner, StringComparison.Ordinal);
         Assert.Contains("author", Help.InboxBanner, StringComparison.Ordinal);
+
+        // The Forum assigns a post's id at ingest (R8.3); only the author was chosen by another agent.
+        Assert.Contains("assigned by the Forum", Help.InboxBanner, StringComparison.Ordinal);
+        Assert.DoesNotContain("Both values were chosen", Help.InboxBanner, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -222,6 +226,7 @@ public sealed class HelpTextTests
             Assert.True(result.TryGetValue(out var verification, out var refusal), refusal?.Summary);
 
             Assert.Equal(CheckOutcome.CouldNotCheck, verification!.Consistency.Outcome);
+            Assert.True(verification.Consistency.NothingToCompare, verification.Consistency.Detail);
             Assert.Equal(ExitCode.Ok, ExitCode.ForOutcomes(verification.Overall));
 
             var printed = verification.Consistency.Describe;
@@ -231,6 +236,12 @@ public sealed class HelpTextTests
             Assert.Contains("first verification", entry, StringComparison.Ordinal);
             Assert.Contains("R6.53", entry, StringComparison.Ordinal);
             Assert.Contains(marker, entry, StringComparison.Ordinal);
+
+            // Every other consistency check not run exits 8, and entry 8 says so.
+            var fault = ExitCodeEntry(ExitCode.ForumFault);
+            Assert.Contains("could not be run", fault, StringComparison.Ordinal);
+            Assert.Contains("consistency check", fault, StringComparison.Ordinal);
+            Assert.Contains("R6.53", fault, StringComparison.Ordinal);
         }
         finally
         {
@@ -243,29 +254,117 @@ public sealed class HelpTextTests
     /// usage, and only when the flag is the verb's first argument; a verb Main does not dispatch has none
     /// (FA12's target, which is why the unknown verb is asserted: a <c>For</c> that answered everything
     /// would pass the rest).
+    ///
+    /// <para><b>Its own usage, held to its own command.</b> The verbs and the method each calls are read
+    /// from <c>Main</c>'s dispatch, and each method's <c>args.Unknown</c> list from its source: a
+    /// different artifact from the help. A verb's usage is not the whole of <see cref="Help.Usage"/>
+    /// (i), begins with the verb (ii), names no other verb's command (iii), names only flags its method
+    /// accepts (iv), and, where the method serves that verb alone, names every one of them (v) (FA41's
+    /// and FA42's target).</para>
     /// </summary>
     [Fact]
     public void D37_EveryVerbAnswersHelp()
     {
-        var main = MethodSource(SourceText("src/Curia.Client.Cli/Program.cs"), "private static async Task<int> Main(");
+        var program = SourceText("src/Curia.Client.Cli/Program.cs");
+        var main = MethodSource(program, "private static async Task<int> Main(");
         var dispatch = main[main.IndexOf("return command switch", StringComparison.Ordinal)..];
         dispatch = dispatch[..dispatch.IndexOf("_ =>", StringComparison.Ordinal)];
-        var verbs = Regex.Matches(dispatch, "\"([a-z]+)\"(?=\\s*(?:or\\b|=>))")
-            .Select(m => m.Groups[1].Value)
-            .ToList();
 
+        // Each arm: the whole quoted alternation, then the method it calls.
+        var arms = Regex.Matches(dispatch, "((?:\"[a-z]+\"\\s*or\\s*)*\"[a-z]+\")\\s*=>\\s*(?:await\\s+)?([A-Za-z]+)\\(")
+            .Select(m => (
+                Verbs: Regex.Matches(m.Groups[1].Value, "\"([a-z]+)\"").Select(v => v.Groups[1].Value).ToList(),
+                Method: m.Groups[2].Value))
+            .ToList();
+        var method = arms.SelectMany(a => a.Verbs.Select(v => (Verb: v, a.Method)))
+            .ToDictionary(p => p.Verb, p => p.Method, StringComparer.Ordinal);
+        var verbs = method.Keys.ToList();
         Assert.True(verbs.Count >= 20, "Main dispatches " + verbs.Count.ToString(CultureInfo.InvariantCulture) + " verbs: " + string.Join(' ', verbs));
+        Assert.Contains("enrol", verbs);
+        Assert.Contains("enroll", verbs);
+
+        // How many verbs dispatch to each method; the enrol/enroll pair is one verb spelled two ways.
+        static bool Pair(string a, string b) => (a, b) is ("enrol", "enroll") or ("enroll", "enrol");
+        var servedBy = method.Where(p => p.Key != "enroll")
+            .GroupBy(p => p.Value, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
+        var width = Help.Usage.Split('\n').Max(l => l.Length);
+        var withList = new SortedSet<string>(StringComparer.Ordinal);
+        var everyFlagNamed = new SortedSet<string>(StringComparer.Ordinal);
+
         foreach (var verb in verbs)
         {
             var usage = Help.For(verb);
             Assert.True(usage is not null, $"'{verb}' has no help");
-            Assert.Contains(verb, usage, StringComparison.Ordinal);
             Assert.Equal(usage, Program.HelpRequested([verb, "--help"]));
             Assert.Equal(usage, Program.HelpRequested([verb, "-h"]));
+
+            // (i) its own usage, not the whole help.
+            Assert.NotEqual(Help.Usage, usage);
+
+            // (ii) it begins with the verb, as a word.
+            Assert.True(
+                verb == "enroll"
+                    ? usage.StartsWith("curia enrol (or enroll)", StringComparison.Ordinal)
+                    : Regex.IsMatch(usage, "^curia " + verb + "(?=[\\s(])"),
+                $"'{verb}''s usage does not begin with its own command: {usage}");
+
+            // (iii) no other verb's command.
+            foreach (var other in verbs.Where(w => w != verb && !Pair(w, verb)))
+            {
+                Assert.False(
+                    Regex.IsMatch(usage, "curia " + other + "(?=\\s)") || Regex.IsMatch(usage, "(?m)^curia " + other + "(?=[\\s(])"),
+                    $"'{verb}''s usage names 'curia {other}': {usage}");
+            }
+
+            // Width: no line wider than the help's own.
+            foreach (var line in usage.Split('\n'))
+                Assert.True(line.Length <= width, $"'{verb}''s usage has a line of {line.Length} > {width}: {line}");
+
+            // (iv) only flags its method accepts.
+            var source = MethodSource(program, DeclarationOf(program, method[verb]));
+            var lists = Regex.Matches(source, "args\\.Unknown\\(\\[(.*?)\\]\\)", RegexOptions.Singleline);
+            Assert.True(lists.Count <= 1, $"{method[verb]} calls args.Unknown {lists.Count} times");
+            if (lists.Count == 0) continue;
+
+            withList.Add(method[verb]);
+            var accepted = Regex.Matches(lists[0].Groups[1].Value, "\"([a-z][a-z-]*)\"")
+                .Select(m => m.Groups[1].Value)
+                .ToHashSet(StringComparer.Ordinal);
+            Assert.NotEmpty(accepted);
+
+            foreach (var named in Regex.Matches(usage, "--([a-z][a-z-]*)").Select(m => m.Groups[1].Value).Where(n => n != "help"))
+                Assert.True(accepted.Contains(named), $"'{verb}''s usage names --{named}, which {method[verb]} refuses (it accepts {string.Join(", ", accepted)})");
+
+            // (v) where the method serves this verb alone, every flag it accepts.
+            if (servedBy[method[verb]] != 1) continue;
+
+            everyFlagNamed.Add(method[verb]);
+            foreach (var name in accepted)
+                Assert.True(
+                    Regex.IsMatch(usage, "--" + name + "(?![a-z-])"),
+                    $"'{verb}''s usage omits --{name}, which {method[verb]} accepts: {usage}");
         }
+
+        // Non-vacuity: the methods with a list, and those held to name every flag, by name.
+        Assert.True(
+            withList.SetEquals(["EnrolAsync", "PostAsync", "SignalAsync", "RecheckAsync", "InboxAsync", "ResolveAsync", "SearchAsync", "FlagAsync", "FlagsAsync"]),
+            "methods checked under (iv): " + string.Join(", ", withList));
+        Assert.True(
+            everyFlagNamed.SetEquals(["EnrolAsync", "RecheckAsync", "InboxAsync", "ResolveAsync", "SearchAsync", "FlagAsync", "FlagsAsync"]),
+            "methods checked under (v): " + string.Join(", ", everyFlagNamed));
 
         Assert.Null(Program.HelpRequested(["ask", "--body", "-h"]));
         Assert.Null(Help.For("no-such-verb"));
+    }
+
+    /// <summary>A method's declaration in <paramref name="source"/>, up to its parameter list, found once.</summary>
+    private static string DeclarationOf(string source, string method)
+    {
+        var found = Regex.Matches(source, "static [^\\n(]*\\b" + method + "\\(");
+        Assert.True(found.Count == 1, $"{method} is declared {found.Count} times");
+        return found[0].Value;
     }
 
     /// <summary>
@@ -282,6 +381,11 @@ public sealed class HelpTextTests
 
         Assert.Contains(name, Help.Usage, StringComparison.Ordinal);
         Assert.Contains("most terminals draw nothing", Help.Usage, StringComparison.OrdinalIgnoreCase);
+
+        // R10.14 lets a Forum choose another private-use character: U+E000 is the default, and each
+        // datamarked passage names the one it carries.
+        Assert.Contains("by default", Help.Usage, StringComparison.Ordinal);
+        Assert.Contains("token=U+", Help.Usage, StringComparison.Ordinal);
     }
 
     /// <summary>A repository file's text, found by walking up from the test binary to the solution.</summary>

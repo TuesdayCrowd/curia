@@ -90,7 +90,16 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
             && !string.Equals(Post.Digest, computed, StringComparison.Ordinal))
             frame.Line($"          the Forum reported a different value for digest: {Post.Digest}");
         frame.Line($"signature {new OwnText(Verdict.Describe)}");
-        frame.Line($"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}");
+        // R10.14: the datamark is the Forum's choice, so a datamarked passage names the character
+        // interleaved through the span printed below, in this client's own spelling and never as the
+        // character itself. Only where a delimited span is printed: an undelimited one is quoted as
+        // the Forum's string (R10.63), and with no covered bytes nothing is printed.
+        if (Post.Provenance.Marking == MarkingMode.Datamark
+            && FrameBuilder.IsDelimitedSpan(Post.Rendered)
+            && (SpanCheck.RendersCanonical(Post) || SpanCheck.Rendering(Post) is not null))
+            frame.Line($"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}, token=U+{Rune.GetRuneAt(SpanCheck.TokenFor(Post), 0).Value:X4}");
+        else
+            frame.Line($"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}");
 
         // R8.15: a contradiction is surfaced where the post is read, not buried. The report's digest
         // is printed, each as a display literal, and nothing of its content; read it with curia

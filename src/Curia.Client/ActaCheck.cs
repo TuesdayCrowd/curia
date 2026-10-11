@@ -52,6 +52,20 @@ public sealed record Check(CheckOutcome Outcome, string Detail)
 
     public static Check CouldNotCheck(string detail) => new(CheckOutcome.CouldNotCheck, detail);
 
+    /// <summary>
+    /// True only for R6.52's consistency check on a first verification, where no earlier head was
+    /// retained, so the check is inapplicable rather than unrun. Only <see cref="FirstRetained"/>
+    /// sets it; <see cref="CouldNotCheck"/> never does, so a check that could not be run for any
+    /// other reason cannot be looked past (R6.53).
+    /// </summary>
+    public bool NothingToCompare { get; init; }
+
+    /// <summary>
+    /// A first verification's consistency line: could not be checked, because this client retained
+    /// no earlier head to compare with, and marked <see cref="NothingToCompare"/>.
+    /// </summary>
+    public static Check FirstRetained(string detail) => new(CheckOutcome.CouldNotCheck, detail) { NothingToCompare = true };
+
     /// <summary>The outcome as a word a reader cannot misread, then the predicate.</summary>
     public string Describe => Outcome switch
     {

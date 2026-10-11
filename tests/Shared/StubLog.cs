@@ -231,6 +231,16 @@ internal sealed class StubLog : IDisposable
     internal bool PostEntryRouteUnavailable { get; set; }
 
     /// <summary>
+    /// Answer the consistency route with 503: a proof this client could not fetch, and nothing else
+    /// wrong. A Forum that has forked the log can do exactly this, which is why it must not read as
+    /// verified (R6.53).
+    /// </summary>
+    internal bool ConsistencyRouteRefuses { get; set; }
+
+    /// <summary>How many times the consistency route was asked, refused or answered.</summary>
+    internal int ConsistencyReads { get; private set; }
+
+    /// <summary>
     /// The author the post's read names in its provenance, when it is not the one the envelope signs:
     /// the Forum's attribution, which nothing but a comparison with the signed envelope can refute.
     /// </summary>
@@ -1295,6 +1305,11 @@ internal sealed class StubLog : IDisposable
 
             if (path == "/v1/log/consistency")
             {
+                log.ConsistencyReads++;
+                if (log.ConsistencyRouteRefuses)
+                    return (HttpStatusCode.ServiceUnavailable,
+                        """{"type":"curia/stub/unavailable","title":"The stub withholds this consistency proof"}""");
+
                 return (HttpStatusCode.OK, log.ConsistencyJson(
                     int.Parse(Value(query, "from"), CultureInfo.InvariantCulture),
                     int.Parse(Value(query, "to"), CultureInfo.InvariantCulture)));
