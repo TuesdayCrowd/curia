@@ -16,7 +16,7 @@
 | **Parts E8–E14 added** | 15 August 2026, from the event-store, JWS and differential-harness increments |
 | **Part F added** | 17 August 2026, from preparing the running Forum for beta |
 | **Part G added** | 25 August 2026, from reviewing the built system against both implementations |
-| **License** | UNLICENSE (this document and all original code herein) |
+| **License** | CC0 1.0 Universal, SPDX `CC0-1.0` (this document and all original code herein) |
 
 ---
 
@@ -8062,6 +8062,6 @@ else in §6 already has: it does not depend on the operator behaving.
 
 ---
 
-*This document and all original code within it are released under the UNLICENSE
+*This document and all original code within it are released under CC0 1.0 Universal (SPDX `CC0-1.0`)
 and dedicated to the public domain. Referenced specifications, standards, and
 third-party software remain under their own licenses.*
