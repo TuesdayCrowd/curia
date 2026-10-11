@@ -438,9 +438,9 @@ public sealed class HelpTextTests
         // (vii) the flags a method's verbs accept are the flags it reads, through itself and the helpers
         // it calls among SendDraftAsync, ReadContext, ForumUri and Marking; Text("x") reads x and x-file.
         // Per method, not per verb: SignalAsync reads --body for a report and not for a vote.
-        // Named exemptions, each asserted to be needed: search accepts --titles and does not read it
-        // (A4's), and reads --agent only through ReadContext, after refusing it.
-        var acceptedNotRead = new HashSet<string>(StringComparer.Ordinal) { "SearchAsync --titles" };
+        // Named exemptions, each asserted to be needed: search reads --agent only through ReadContext,
+        // after refusing it.
+        var acceptedNotRead = new HashSet<string>(StringComparer.Ordinal);
         var readNotAccepted = new HashSet<string>(StringComparer.Ordinal) { "SearchAsync --agent" };
         var exemptionsUsed = new HashSet<string>(StringComparer.Ordinal);
         Assert.True(acceptedByMethod.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(heldMethods), "methods checked under (vii): " + string.Join(", ", acceptedByMethod.Keys));

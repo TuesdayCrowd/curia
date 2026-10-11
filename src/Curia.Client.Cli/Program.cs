@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text;
 using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Content;
@@ -744,20 +745,30 @@ internal static class Program
             return ExitCode.Ok;
         }
 
+        if (args.Has("titles"))
+        {
+            var (frame, exit) = await TitledAsync(
+                client, [.. page.Results.Select(hit => hit.Post)], marking, [.. page.Results.Select(hit => (SearchScore?)SearchScore.Of(hit))], ct).ConfigureAwait(false);
+            Output.Frame(frame);
+
+            if (page.NextCursor is { Length: > 0 } nextTitled)
+            {
+                Output.Blank();
+                Output.Line($"more results: {Hints.More("curia search …", nextTitled)}");
+            }
+
+            return exit;
+        }
+
         foreach (var hit in page.Results)
         {
             Output.Line($"{hit.Post.PostId}   score {hit.ScoreMicro} µ   {hit.Post.Provenance.VerificationLevel}");
 
             if (hit.Why is { } why)
             {
-                var lexical = why.Lexical is { } l
-                    ? new FrameBuilder().Append($"lexical rank {l.Rank} (title×{l.TitleMatches} tag×{l.TagMatches} body×{l.BodyMatches})")
-                    : new FrameBuilder().Append($"lexical absent");
-                var vector = why.Vector is { } v
-                    ? new FrameBuilder().Append($"vector rank {v.Rank} (cosine {v.CosineBp} bp, {v.Model})")
-                    : new FrameBuilder().Append($"vector absent");
-                Output.Line($"  why_ranked  {new OwnText(lexical.ToString())}; {new OwnText(vector.ToString())}");
-                Output.Line($"              fused {why.FusedMicro} µ × {why.VerificationLevel} weight {why.VerificationWeightBp} bp{new OwnText(why.DeferredByDiversification ? "; deferred by diversification" : string.Empty)}; not computed: {Literals(why.NotComputed.Keys)}");
+                var rows = new FrameBuilder();
+                SearchScore.WriteWhy(rows, why);
+                Output.Frame(rows);
             }
         }
 
@@ -814,16 +825,44 @@ internal static class Program
 
         if (args.Has("titles"))
         {
-            // An index, not content: post ids and kinds only, no author-controlled text at all.
-            foreach (var post in value)
-                Output.Line($"{post.PostId}  {post.Kind,-8}  {post.ServerTs}");
-
-            Output.Blank();
-            Output.Line($"{value.Length} post(s). Read one with 'curia read <post-id>'.");
-            return ExitCode.Ok;
+            var (frame, exit) = await TitledAsync(client, value, marking, [.. value.Select(_ => (SearchScore?)null)], ct).ConfigureAwait(false);
+            Output.Frame(frame);
+            return exit;
         }
 
         return await RenderAsync(client, value, forum, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// R10.71's titled index, shared by <c>board --titles</c> and <c>search --titles</c>: each post
+    /// verified as <see cref="RenderAsync"/> verifies it, then a frame line per post and its title, from
+    /// the verified canonical form, as content (<see cref="TitledIndex"/>). The exit code is
+    /// <see cref="RenderAsync"/>'s: 6 if any passage failed, 8 if a key set was unreachable.
+    /// </summary>
+    internal static async Task<(FrameBuilder Frame, int Exit)> TitledAsync(
+        ForumClient client, ImmutableArray<ProvenancePost> posts, MarkingMode marking, IReadOnlyList<SearchScore?> scores, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(scores);
+        if (scores.Count != posts.Length)
+            throw new ArgumentException("one score, or null, per post", nameof(scores));
+
+        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct).ConfigureAwait(false);
+
+        var frame = new FrameBuilder();
+        frame.Line($"{passages.Length} post(s). Each title below is content, from the post's verified canonical form; read a post with 'curia read <post-id>'.");
+        frame.Line($"{new OwnText(Provenance.StandardWarning)}");
+        if (marking == MarkingMode.Datamark)
+            frame.Line($"marking   Datamark, token=U+{Rune.GetRuneAt(Datamarking.DefaultControlToken, 0).Value:X4}: each title is datamarked and delimited by this client. {new OwnText(Provenance.MarkingIsNotAGuarantee)}");
+        else if (marking == MarkingMode.DelimitersOnly)
+            frame.Line("marking   DelimitersOnly: each title is delimited by this client. " + Provenance.DelimiterOnlyCaveat);
+        else
+            frame.Line("marking   None: each title is delimited by this client, and not datamarked.");
+
+        for (var i = 0; i < passages.Length; i++)
+            TitledIndex.Write(frame, i + 1, passages[i], marking, scores[i]);
+
+        return (frame, ExitCode.ForOutcomes(outcomes));
     }
 
     /// <summary>
