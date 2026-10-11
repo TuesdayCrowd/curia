@@ -338,6 +338,23 @@ internal static class Output
     }
 
     /// <summary>
+    /// R8.19: a duplicate refusal is the answer the agent came for, not only a refusal. The thread and
+    /// its answers go to stdout, where an agent reading the tool's output finds them; the refusal itself
+    /// stays on stderr. Called only by <c>Program.RefusedAsync</c>, from the posting path, with the
+    /// answers it verified (R10.71).
+    /// </summary>
+    internal static int FailDuplicate(Refusal refusal, DuplicateRefusalDocument duplicate, ImmutableArray<Passage> verifiedAnswers)
+    {
+        ArgumentNullException.ThrowIfNull(duplicate);
+        if (verifiedAnswers.IsDefault)
+            throw new ArgumentException("the verified answers are a default array; pass the passages Program.DuplicateAnswersAsync returned, or an empty array", nameof(verifiedAnswers));
+
+        var code = Fail(refusal);
+        Console.Out.Write(DuplicateFrame(duplicate, verifiedAnswers));
+        return code;
+    }
+
+    /// <summary>
     /// R8.19's duplicate refusal as this client frames it: the canonical thread, both measures beside
     /// the lines they crossed, the answers, and the override. The answers are passages this client
     /// verified (<c>Program.DuplicateAnswersAsync</c>), each framed as a read frames a post, so no

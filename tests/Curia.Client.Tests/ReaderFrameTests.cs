@@ -568,6 +568,65 @@ public sealed class ReaderFrameTests
         Assert.True(duplicateOf == 0 && answers > duplicateOf && first > answers && overrideLine > first, $"the frame's lines are out of order:\n{DisplayLiteral.Of(frame)}");
     }
 
+    /// <summary>
+    /// R10.71's exit-code half: a passage whose span is not the rendering of the bytes its verified
+    /// signature covers makes <c>read</c>, <c>thread</c> and <c>search</c> exit 6 (EXIT CODES 6), and so
+    /// does a span served without its delimiters. Non-vacuous: the signature verifies, so the 6 comes
+    /// from the span (FA25's target).
+    /// </summary>
+    [Fact]
+    public async Task R10_71_AMismatchedSpanExitsSix()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        using var log = new StubLog { RenderedContent = SpanCheckTests.Envelope("zyzzyva, the Forum's word") };
+        var duplicate = DuplicateOf(log);
+        Assert.Single(duplicate.Answers);
+
+        var (passages, outcomes) = await Program.VerifyAllAsync(log.Client(), duplicate.Answers, ct);
+        Assert.Equal(CheckOutcome.Verified, passages[0].Verdict.Outcome);
+        Assert.Equal([CheckOutcome.Failed], outcomes);
+        Assert.Equal(ExitCode.Unverified, ExitCode.ForOutcomes(outcomes));
+
+        // The control: the honest answer verifies and exits 0.
+        using var honestLog = new StubLog();
+        var honest = DuplicateOf(honestLog);
+        var (honestPassages, honestOutcomes) = await Program.VerifyAllAsync(honestLog.Client(), honest.Answers, ct);
+        Assert.Equal(CheckOutcome.Verified, honestPassages[0].Verdict.Outcome);
+        Assert.Equal([CheckOutcome.Verified], honestOutcomes);
+        Assert.Equal(ExitCode.Ok, ExitCode.ForOutcomes(honestOutcomes));
+
+        // The undelimited case: the honest answer, its span served without delimiters.
+        var answer = honest.Answers[0];
+        var undelimited = answer with { Rendered = "undelimited\n" + answer.Canonical };
+        var (undelimitedPassages, undelimitedOutcomes) = await Program.VerifyAllAsync(honestLog.Client(), [undelimited], ct);
+        Assert.Equal(CheckOutcome.Verified, undelimitedPassages[0].Verdict.Outcome);
+        Assert.Equal([CheckOutcome.Failed], undelimitedOutcomes);
+        Assert.Equal(ExitCode.Unverified, ExitCode.ForOutcomes(undelimitedOutcomes));
+    }
+
+    /// <summary>
+    /// <paramref name="log"/>'s duplicate refusal document, parsed as the client parses one, with
+    /// <paramref name="extraAnswers"/> appended to its answers.
+    /// </summary>
+    internal static DuplicateRefusalDocument DuplicateOf(StubLog log, params JsonObject[] extraAnswers) =>
+        DuplicateRefusal(log, RefusalKind.Conflict, 409, extraAnswers).AsDuplicate
+            ?? throw new InvalidOperationException("the stub's duplicate refusal did not parse as one");
+
+    /// <summary>A refusal of <paramref name="kind"/> and <paramref name="status"/> carrying <paramref name="log"/>'s duplicate refusal document.</summary>
+    internal static Refusal DuplicateRefusal(StubLog log, RefusalKind kind, int status, params JsonObject[] extraAnswers)
+    {
+        var document = JsonNode.Parse(log.DuplicateRefusalJson())!.AsObject();
+        foreach (var extra in extraAnswers)
+            document["answers"]!.AsArray().Add(extra);
+
+        return new Refusal(
+            kind,
+            status,
+            new Error("curia/posts/duplicate-question", "duplicate"),
+            JsonReader.Parse(Encoding.UTF8.GetBytes(document.ToJsonString()), AdmitLimits.Default).TryGetValue(out var parsed, out _) ? parsed : null);
+    }
+
     /// <summary>A real signing identity, for posts whose verdict comes from <see cref="SignatureCheck.Verify"/>.</summary>
     private sealed class SignedFixture : IDisposable
     {

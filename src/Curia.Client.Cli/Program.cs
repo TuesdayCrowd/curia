@@ -873,6 +873,23 @@ internal static class Program
         return (await VerifyAllAsync(client, duplicate.Answers, ct).ConfigureAwait(false)).Passages;
     }
 
+    /// <summary>
+    /// A posting refusal, written as <c>curia</c> writes every refusal; a duplicate refusal's thread and
+    /// answers follow on stdout (R8.19), the answers as this client verified them (R10.71).
+    /// </summary>
+    internal static async Task<int> RefusedAsync(ForumClient client, Refusal refusal, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+
+        // STUB (red): the answers are not yet verified.
+        await Task.CompletedTask.ConfigureAwait(false);
+        _ = client;
+        _ = ct;
+        return refusal.AsDuplicate is { } duplicate
+            ? Output.FailDuplicate(refusal, duplicate, [])
+            : Output.Fail(refusal);
+    }
+
     private static async Task<int> ContractAsync(Args args, CancellationToken ct)
     {
         var forum = ForumUri(args, null);
