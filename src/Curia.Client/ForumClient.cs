@@ -479,9 +479,10 @@ public sealed class ForumClient
 
     /// <summary>
     /// Reads either problem shape. <c>/v1/*</c> answers <c>{"type","title","detail"}</c>;
-    /// <c>/oauth/token</c> answers RFC 6749's <c>{"error","error_description"}</c> plus a
-    /// non-standard <c>detail</c> carrying the internal slug. Two shapes, read here rather than
-    /// at two call sites that would drift.
+    /// <c>/oauth/token</c> answers RFC 6749's <c>{"error","error_description"}</c>. Until M5 closed it
+    /// also served a non-standard <c>detail</c> carrying the internal slug; a <c>detail</c> is still
+    /// read when present, so an older Forum's answers classify as before. Two shapes, read here rather
+    /// than at two call sites that would drift.
     /// </summary>
     /// <returns>
     /// <see langword="null"/> when the body is not a problem document in either shape -- not JSON,

@@ -168,7 +168,8 @@ set; SP scores recorded even if not yet weighted.*
 > carries out **D16**'s decided CI change: the architecture rules run in
 > Debug in CI as well as in Release. And it opens **D29**, which its Task 6's review found: the
 > token endpoint verifies nothing of the DPoP proof a token request carries, so R5.21's pin holds at
-> the two validators and not there. Its final wave closes **D30**, which the stage's final review
+> the two validators and not there (since the rotation stage's PR 0, D29 closed, it holds there too).
+> Its final wave closes **D30**, which the stage's final review
 > found (errata G16): an identifier NFC maps onto another enrolled identity's had a post accepted
 > signed in that identity's name. VERIFY now reads the envelope from the canonical form the
 > signature covers (R6.55), and the enrollment route refuses an agent identifier outside NFC (R4.36).
@@ -219,6 +220,23 @@ set; SP scores recorded even if not yet weighted.*
 > **D40** was opened on 2026-10-11, when errata G20 was filed. A code block's license is written
 > `declared_license` in R8.45, §8.1, C.3 and the signed fixture, and `license` in `PostEnvelope` and
 > `SubmissionBuilder`. It is a schema `v: 1` question (R15.1) and waits on a ruling.
+>
+> **D41** was opened on 2026-10-12, by the review of the rotation stage's PR 0. The token endpoint's
+> `htu` and the client assertion's `aud`, and the resource server's `htu`, are built from the `Host`
+> header the caller sent, not from the Forum's origin, so a request signed for another server and
+> relayed here under that server's `Host` is honoured. It predates D29, is open, and is its own PR
+> after PR 0.
+>
+> **The rotation stage is opened, not done** (2026-10-11, errata **G21**; its spec
+> `docs/superpowers/specs/2026-10-11-keys-that-end-design.md` and plan
+> `docs/superpowers/plans/2026-10-11-keys-that-end.md`). Three PRs, in order: **PR 0** (branch
+> `token-proof-verified`) closes **D29** and the key-binding stage's **M5** at the token endpoint and
+> changes no requirement (*merged-pending*, 2026-10-12: D29 and M5 closed on the branch; not met until
+> its PR merges); **PR 1** (branch `key-rotation`) builds rotation and self-retirement (R4.18
+> (rev.), R4.38, R4.39, R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's
+> two `key` rows; **PR 2** (branch `key-compromise`) builds the operator's compromise declaration
+> (R6.26 (rev.), R6.57, R6.30 (rev.)). No requirement of G21 is met until its PR merges; read this line
+> for what is scheduled, never for what is built.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
@@ -363,18 +381,19 @@ screener stage (2026-09-25); D20 and D21 by the moderation stage (2026-09-26); D
 and D27 by the enrollment stage (2026-09-26), the last two in its final wave; D28 by the key-binding
 stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27), D25 for the
 fifteen instances it names and not for their class, which is D33; D32 and D34 by the
-one-part-at-a-time stage's PR A (2026-10-09), and D33 by its PR B (2026-10-10). Their entries are
+one-part-at-a-time stage's PR A (2026-10-09), and D33 by its PR B (2026-10-10); D29 by the rotation
+stage's PR 0 (2026-10-12, its merge pending). Their entries are
 kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
 history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D29 (opened by the key-binding stage); D35, D36
+Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D35, D36
 and D37 (opened by the five-agent exercise, 2026-10-06; D37's client half closed by the reader
 stage's PR A, 2026-10-11); D38 and D39 (opened by the
 one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
-while filing errata G20, 2026-10-11).
+while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -1945,10 +1964,12 @@ served problem detail, logging the text server-side instead. That is a stage's s
 problem document the Forum composes goes through `ServerFault` (`src/Curia.Api/ServerFault.cs:16`),
 which serves the fault's type and title and logs its detail, event 5000; `ForumEndpoints.Problem`
 returns one for every 5xx (`src/Curia.Api/ForumEndpoints.cs:2171`) and the Acta's fold for both of its
-faults (`src/Curia.Api/ActaEndpoints.cs:233`, `:239`). Two 5xx do not: the token endpoint's
-`server_error`, which is RFC 6749's shape rather than a problem document and keeps its slug `detail`
-(the key-binding stage's M5, with D29), and an exception nothing handles, which a production host
-answers with its own empty 500 (the Development host's exception page is a developer's tool). The
+faults (`src/Curia.Api/ActaEndpoints.cs:233`, `:239`). Two 5xx do not. One is the token endpoint's
+`server_error`, which is RFC 6749's shape rather than a problem document; since the rotation stage's
+PR 0 (M5) it serves its code and a fixed description and logs its slug and detail as event 5000
+(`src/Curia.Api/Issuer/OAuthRefusal.cs`). The other is an exception nothing handles, which a
+production host answers with its own empty 500 (the Development host's exception page is a
+developer's tool). The
 vector index still folds Postgres's text into its error
 (`src/Curia.Infrastructure/PostgresVectorIndex.cs:185`); the log is where it now goes. The sweep,
 derived from the route registrations, found two routes answering 500 that the register did not know
@@ -2912,9 +2933,11 @@ key's, so a header naming the other allowed algorithm read as a bad signature
   `AccessTokenValidatorDpopTests.R5_21_AProofWhoseHeaderNamesAnotherAlgorithmThanItsJwkIsRefusedByName`,
   and over HTTP
   `StoredKeyFormTests.R5_21_AnAssertionWhoseHeaderNamesAnotherAlgorithmThanItsKeyIsRefusedByName`).
-  The pin holds at those two alone: a client assertion's at the token endpoint, and a DPoP proof's at
-  the resource server. The token endpoint verifies nothing of the DPoP proof a token request carries,
-  so no pin runs there (D29).
+  At the key-binding stage the pin held at those two alone: a client assertion's at the token
+  endpoint, and a DPoP proof's at the resource server. Since the rotation stage's PR 0 (D29 closed) it
+  holds at a third: the token request's DPoP proof passes `DpopProofValidator.Validate`, which refuses
+  `curia/authn/alg-key-mismatch` before a verifier is chosen
+  (`src/Curia.AuthN/Dpop/DpopProofValidator.cs:93-94`).
 - **R6.54.** `PostVerifier`'s fourth check, `key`, and `curia-testis log author`, which reads no agent
   key set. The overall verdict needs the fourth check verified. Each reader compares the binding with
   the post's author and `kid` before it trusts the binding's key
@@ -3988,7 +4011,7 @@ printed them:
 [65] restore clean (bytes equal to the kept copy: 1/1; git diff --quiet: yes)
 ```
 
-### D29 — the token endpoint verifies nothing of the DPoP proof a token request carries *(pre-existing; found by the key-binding stage's Task 6 review, 2026-09-27; opened by that stage)*
+### D29 — the token endpoint verifies nothing of the DPoP proof a token request carries *(pre-existing; found by the key-binding stage's Task 6 review, 2026-09-27; opened by that stage; closed by the rotation stage's PR 0, 2026-10-12, merge pending; errata G21)*
 
 **Found by the review of R5.21's task, and confirmed by execution.**
 `src/Curia.Api/Issuer/TokenEndpoint.cs:111` takes the proof's thumbprint through `DpopThumbprintOf`
@@ -4024,11 +4047,196 @@ text, not an escalation.
 **Not fixed here.** R5.21 is not scoped to exclude the token endpoint: once the endpoint verifies its
 proof, the requirement holds there without a word changed, and errata G16 says so. The fix routes
 the token request's proof through the one proof validator (R5.13): the resource path's proof checks,
-with the endpoint's own `htu` and without `ath` or `cnf.jkt`, answering `invalid_dpop_proof`, with
+with the endpoint's ~~own~~ `htu` *(the one it builds from the request; corrected at the review of
+91fe326, D41)* and without `ath` or `cnf.jkt`, answering `invalid_dpop_proof`, with
 the replay cache. That is a behaviour change to the token endpoint, with a fact for each row above.
 "What comes next" carries it. Since Task A5 (406a5ed), the fuzzer's `perturbed-first` class exercises this
 on every closed pass: the 8 POST /oauth/token rows for `jws:proof:header/jwk/x` and `/y`, re-signed and
 unsigned, answer 200 for an off-curve key.
+*Scheduled 2026-10-11: the rotation stage's PR 0 (errata G21), with M5.*
+
+**Closed by the rotation stage's PR 0** (branch `token-proof-verified`, Tasks 0.1 and 0.3, 2026-10-12;
+recorded by Task 0.4; its plan, `docs/superpowers/plans/2026-10-11-keys-that-end.md`, and spec §4.10;
+merge pending). The token request's DPoP proof passes the one proof validator
+(`src/Curia.AuthN/Dpop/DpopProofValidator.cs`): `Validate` holds the checks `AccessTokenValidator` ran,
+in the same order and with the same errors, and `ConsumeAsync` the replay insert. The token endpoint
+validates the proof against `POST` and the `htu` it builds from the request (scheme, `Host`, path base
+and path; `TokenEndpoint.cs:199-200`). That binds a proof to the URL the caller addressed, not to this
+Forum's origin: a caller who sends another `Host` chooses the expected `htu`, and the client
+assertion's `aud`, through the same helper (D41). It does so with no `ath`, no `cnf.jkt` binding and
+no nonce (R5.19), before it reads the client assertion; it consumes the proof only after the assertion
+authenticates, and binds the token to `ValidatedProof.Thumbprint`. `DpopThumbprintOf` and `ProofKey` are
+deleted. The resource path calls the same two methods, with its nonce block between them. No word of
+R5.13, R5.14, R5.16 or R5.21 changed (errata G21's §5.5, §5.6 row).
+- *The facts* (`tests/Curia.Api.Tests/TokenEndpointProofTests.cs`). Each sends a valid client
+  assertion with one proof part changed and asserts 400 `invalid_dpop_proof`, exactly one captured
+  event 5001 for the request, and its Type equal to the slug of the check the part targets (since M5
+  the slug is logged, not served): `D29_AProofWhoseIatIsThirtyDaysOldIsRefused`
+  (`curia/authn/proof-window-exceeded`), `D29_AProofWhoseHtuNamesAnotherHostIsRefused`
+  (`curia/authn/url-mismatch`), `D29_AProofWhoseHtmIsGetIsRefused` (`curia/authn/method-mismatch`),
+  `D29_AProofWhoseTypIsNotDpopJwtIsRefused` (`curia/authn/typ-mismatch`),
+  `D29_AProofSignedOverAnotherPayloadIsRefused` (`curia/authn/signature-invalid`),
+  `D29_AProofWhoseHeaderAlgIsEdDsaOverAP256JwkIsRefused` (`curia/authn/alg-key-mismatch`) and
+  `D29_AProofOverAnOffCurveKeyIsRefused` (`curia/authn/malformed-jwk`).
+  `D29_AProofSentTwiceIsRefusedTheSecondTime` sends one proof with two client assertions, each its own
+  jti: 200, then 400 `invalid_dpop_proof` with `curia/authn/replay`.
+  `D29_AProofRefusedForItsAssertionIsNotConsumed`: a proof is consumed only after the assertion
+  authenticates. One proof is sent first with an assertion whose signature is 64 zero bytes (401
+  `invalid_client`, logged `curia/authn/signature-invalid`), then with a valid assertion (200), so a
+  caller with no credential writes no replay row and a request refused for its assertion does not burn
+  its proof. It is green on the base and after the fix alike; its information is in F0-14.
+  `D29_TheReferenceClientsTokenRequestStillSucceeds`: `ForumSession`'s own token flow answers 200.
+- *The five proof-ordering facts* (`tests/Curia.AuthN.Tests/AccessTokenValidatorOrderingTests.cs`,
+  0d1a9c6), green on the base before the extraction and after it, each a proof with two faults
+  asserting the earlier check's error: `R5_13_AProofsBindingIsCheckedBeforeItsAlgKeyPin`,
+  `R5_13_AProofsAlgKeyPinIsCheckedBeforeItsSignature`, `R5_13_AProofsSignatureIsCheckedBeforeItsClaims`,
+  `R5_13_AProofsAthIsCheckedBeforeTheNonce` and `R5_13_AProofsNonceIsCheckedBeforeTheReplayInsert`
+  (whose `jti` is not consumed).
+- *The base's red lines*, run on 0d1a9c6 with the facts written and before any source change, each body cut at 60 characters:
+  ```
+  D29_AProofOverAnOffCurveKeyIsRefused: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  D29_AProofWhoseHtuNamesAnotherHostIsRefused: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  D29_AProofWhoseIatIsThirtyDaysOldIsRefused: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  D29_AProofSignedOverAnotherPayloadIsRefused: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  D29_AProofSentTwiceIsRefusedTheSecondTime: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  D29_AProofWhoseHeaderAlgIsEdDsaOverAP256JwkIsRefused: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  D29_AProofWhoseHtmIsGetIsRefused: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  D29_AProofWhoseTypIsNotDpopJwtIsRefused: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6ImtrSkhHWlZxWlc
+  R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6IjBzMnI3SXd2ZGJ
+  R5_14_AProofDatedAheadIsNotAcceptedAgainOnceTheOldRetentionLapses: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6IjBzMnI3SXd2ZGJ
+  Failed!  - Failed:    10, Passed:     9, Skipped:     0, Total:    19 - Curia.Api.Tests.dll (net10.0)
+  R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew: the proof's jti is held until 2026-08-12T12:00:30.0000000+00:00, not beyond iat + MaxSkew (2026-08-12T12:00:50.0000000+00:00)
+  Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1 - Curia.AuthN.Tests.dll (net10.0)
+  ```
+  `D29_AProofSentTwiceIsRefusedTheSecondTime`'s line is its second send: 200 on the base.
+- *The R11.34 fence's red lines* once `TokenEndpoint` reached §4.10's types, verbatim (Release):
+  ```
+  Curia.AuthN.Dpop.DpopExpectation..ctor(AccessToken): System.String has no row
+  Curia.AuthN.Dpop.DpopExpectation..ctor(ExpectedThumbprint): System.String has no row
+  Curia.AuthN.Dpop.DpopExpectation..ctor(HttpMethod): System.String has no row
+  Curia.AuthN.Dpop.DpopExpectation..ctor(Url): System.String has no row
+  Curia.AuthN.Dpop.DpopProofClaims..ctor(Ath): System.String has no row
+  Curia.AuthN.Dpop.DpopProofClaims..ctor(Htm): System.String has no row
+  Curia.AuthN.Dpop.DpopProofClaims..ctor(Htu): System.String has no row
+  Curia.AuthN.Dpop.DpopProofClaims..ctor(Nonce): System.String has no row
+  Curia.AuthN.Dpop.DpopProofValidator.Validate(proof): System.String has no row
+  Curia.AuthN.Dpop.DpopProofValidator.Validate(verifiers): System.Collections.Generic.IReadOnlyDictionary`2[System.String,Curia.Canon.Jws.IContentVerifier] has no row
+  Curia.AuthN.Dpop.ValidatedProof..ctor(Thumbprint): System.String has no row
+  row Curia.AuthN.AuthNErrors.*(*) names no string-like parameter in scope (stale)
+  row Curia.AuthN.Jwt.CompactJws.Split(compact) names no string-like parameter in scope (stale)
+  row Curia.AuthN.Jwt.CompactJwsParts..ctor(HeaderSegment) names no string-like parameter in scope (stale)
+  row Curia.AuthN.Jwt.CompactJwsParts..ctor(PayloadSegment) names no string-like parameter in scope (stale)
+  row Curia.AuthN.Jwt.CompactJwsParts..ctor(SignatureSegment) names no string-like parameter in scope (stale)
+  ```
+  The five stale rows were removed and eleven rows added under spec §4.8's rule (the plan's Task 0.1
+  ruling, b877e77); none of the eleven parameters is a caller's identifier.
+- *The two `RequestSurfaceTests` changes.* Run on the post-D29 tree with `OffCurveProof` still in
+  place, six tests went red: the five `inAssertion` rows of
+  `R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown`, each
+  `400 {"error":"invalid_dpop_proof","error_description":"The DPoP proof was not accepted","detail":"curia/authn/malformed-jwk"}`,
+  and `R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault` ("the token endpoint did not issue a
+  token bound to a key off the curve (400 …malformed-jwk…)"). Neither was re-pinned to the new status.
+  (1) The off-curve proof is refused at the token endpoint (400 `invalid_dpop_proof`), and the token
+  bound to the off-curve key, which the resource path's key build still refuses as defence in depth, is
+  minted by the test: the issued token's payload with `cnf.jkt` set to the off-curve jwk's RFC 7638
+  thumbprint, re-signed ES256 with the issuer key. At least one route's 401 is asserted to carry
+  `curia/authn/malformed-jwk`, and a control re-signing with `cnf.jkt` as issued gets a non-401 answer.
+  (2) The `inAssertion` rows send an on-curve proof with a fresh jti, so the assertion is read and, for
+  the last four rows, its kid check (`Kid.Parse`, before any key is resolved) is reached; the store's
+  blank-kid throw is the history they guard against. They keep 401 `invalid_client`. The `detail` the
+  base served for each of the five rows, read from one base run and the write removed before commit,
+  was `curia/authn/malformed`; since M5 it is their captured Type.
+- *`OracleTests`' `sendProof: true` row* went red on the post-D29 tree before its re-pin, which is the
+  row's falsification (it sees a detail added):
+  `Assert.Equal() Failure: Strings differ` / `Expected: "invalid_dpop_proof"` /
+  `Actual:   "invalid_dpop_proof curia/authn/malformed"`. It is re-pinned to that slug, a member of
+  `Oracle.ParserRefusals`, and still not past the first parser.
+- *Observed, not run as a row.* With the off-curve key-build refusal made unreachable (`if
+  (!jwk.ToPublicKeyMaterial(kid: "").TryGetValue(out var proofKey, out var proofKeyError) &&
+  expected.HttpMethod == "NEVER")`, which compiles), `D29_AProofOverAnOffCurveKeyIsRefused` went red
+  by a 500, an `ArgumentNullException` (parameter `key`) from the signature check given a null key,
+  not by a different slug.
+- *R5.14's retention, corrected.* The resource path held a proof's jti until `now + MaxSkew`, but
+  `Validate` accepts a proof until `iat + MaxSkew`, so a proof dated ahead was acceptable again in
+  between. `ConsumeAsync` holds it until max(now, iat) + MaxSkew + 1 s, the second because
+  `PostgresReplayCache` readmits a jti whose expiry has come. Pinned by
+  `R5_14_AProofDatedAheadIsNotAcceptedAgainOnceTheOldRetentionLapses` and
+  `R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain` (`TokenEndpointProofRetentionTests.cs`, a class
+  and fixture of their own), and `R5_14_ConsumeHoldsAProofUntilItsIatPlusSkew` and
+  `R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew` (`tests/Curia.AuthN.Tests/DpopProofRetentionTests.cs`).
+  Their red lines against the verbatim move (`now + AuthNConstants.MaxSkew`), before the expiry line
+  was written:
+  ```
+  R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6Ilcxajg1OXNGUEl
+  R5_14_AProofDatedAheadIsNotAcceptedAgainOnceTheOldRetentionLapses: 200 {"access_token":"eyJhbGciOiJFUzI1NiIsImtpZCI6Ilcxajg1OXNGUEl
+  Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2 - Curia.Api.Tests.dll (net10.0)
+  R5_14_ConsumeHoldsAProofUntilItsIatPlusSkew: the proof's jti is held until 2026-08-12T12:00:30.0000000+00:00, before iat + MaxSkew (2026-08-12T12:00:50.0000000+00:00)
+  R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew: the proof's jti is held until 2026-08-12T12:00:30.0000000+00:00, not beyond iat + MaxSkew (2026-08-12T12:00:50.0000000+00:00)
+  Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2 - Curia.AuthN.Tests.dll (net10.0)
+  ```
+- *The random pass's floor* (seed `0000001diyh1`). The runner's output line after D29 (Task 0.1),
+  verbatim:
+  ```
+  seed 0000001diyh1: 1936 sent, 64 unsent; 629 of 1217 JSON and JWS draws past the first parser; 103 of 132 POST /v1/posts envelope draws past ADMIT; answers: 200 x189, 201 x141, 400 x477, 401 x878, 404 x197, 415 x51, 422 x3
+  ```
+  and after M5's oracle change (Task 0.2), verbatim:
+  ```
+  seed 0000001diyh1: 1936 sent, 64 unsent; 629 of 1217 JSON and JWS draws past the first parser; 103 of 132 POST /v1/posts envelope draws past ADMIT; answers: 200 x189, 201 x141, 400 x477, 401 x878, 404 x197, 415 x51, 422 x3
+  ```
+  The two are equal: the pass reads `Oracle.PastFirstParser` alone, which M5's rule for a refusal
+  logged with no reason does not change. `Divisor` stays 4 (0.517, half of it 0.258), its comment
+  recording 629 of 1,217 (`tests/Curia.Api.Tests/Fuzz/RequestFuzzRandomTests.cs`).
+- *Falsified* (Task 0.3; `falsify: 17 cases, 0 not RED` for the PR, each case restored by plain copy,
+  rebuilt `--no-incremental` and run once unpatched). D29's rows, the runner's lines with their timings removed:
+  ```
+  F0-1: RED
+      Failed Curia.Api.Tests.TokenEndpointProofTests.D29_AProofWhoseHtuNamesAnotherHostIsRefused
+  F0-2: RED
+      Failed Curia.Api.Tests.TokenEndpointProofTests.D29_AProofWhoseIatIsThirtyDaysOldIsRefused
+  F0-3: RED
+      Failed Curia.Api.Tests.TokenEndpointProofTests.D29_AProofSentTwiceIsRefusedTheSecondTime
+  F0-4: RED
+      Failed Curia.Api.Tests.TokenEndpointProofTests.D29_AProofWhoseTypIsNotDpopJwtIsRefused
+  F0-5: RED
+      Failed Curia.Api.Tests.TokenEndpointProofTests.D29_AProofSignedOverAnotherPayloadIsRefused
+  F0-8: RED
+      Failed Curia.AuthN.Tests.AccessTokenValidatorOrderingTests.R5_13_AProofsBindingIsCheckedBeforeItsAlgKeyPin
+  F0-10: RED
+      Failed Curia.Api.Tests.RequestSurfaceTests.R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown(inAssertion: True, header: "{\"alg\":\"ES256\",\"typ\":\"JWT\"}")
+      Failed Curia.Api.Tests.RequestSurfaceTests.R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown(inAssertion: True, header: "{\"alg\":\"ES256\",\"typ\":\"JWT\",\"kid\":\"\"}")
+      Failed Curia.Api.Tests.RequestSurfaceTests.R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown(inAssertion: True, header: "{\"alg\":\"ES256\",\"typ\":\"JWT\",\"kid\":\" \"}")
+      Failed Curia.Api.Tests.RequestSurfaceTests.R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown(inAssertion: True, header: "{\"alg\":\"ES256\",\"typ\":\"JWT\",\"kid\":1}")
+  F0-11: RED
+      Failed Curia.Api.Tests.TokenEndpointProofRetentionTests.R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain
+      Failed Curia.Api.Tests.TokenEndpointProofRetentionTests.R5_14_AProofDatedAheadIsNotAcceptedAgainOnceTheOldRetentionLapses
+      Failed Curia.AuthN.Tests.DpopProofRetentionTests.R5_14_ConsumeHoldsAProofUntilItsIatPlusSkew
+      Failed Curia.AuthN.Tests.DpopProofRetentionTests.R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew
+  F0-11b: RED
+      Failed Curia.Api.Tests.TokenEndpointProofRetentionTests.R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain
+      Failed Curia.AuthN.Tests.DpopProofRetentionTests.R5_14_ConsumeHoldsAProofUntilItsIatPlusSkew
+      Failed Curia.AuthN.Tests.DpopProofRetentionTests.R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew
+  F0-13: RED
+      Failed Curia.AuthN.Tests.DpopProofRetentionTests.R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew
+  F0-14: RED
+      Failed Curia.Api.Tests.TokenEndpointProofTests.D29_AProofRefusedForItsAssertionIsNotConsumed
+  F0-15: RED
+      Failed Curia.Api.Tests.TokenEndpointProofTests.D29_AProofWhoseHeaderAlgIsEdDsaOverAP256JwkIsRefused
+  ```
+  F0-14 went red on its second send ("the proof was consumed by a request refused before
+  authentication: 400 {"error":"invalid_dpop_proof",…}"); F0-15 by a different captured Type,
+  `curia/authn/signature-invalid` in place of `curia/authn/alg-key-mismatch`, not by a 500; F0-13's
+  mutant compiled, and went red with the base's line ("held until …12:00:30…, not beyond iat + MaxSkew
+  (…12:00:50…)"). F0-11b, the bound without its second, is red only on the edge fact and both AuthN
+  facts' strict clause, as planned.
+- *Observed, not acted on.* `DpopProofClaims` and `ValidatedProof` are public positional records, so
+  Parse-only and Validate-only construction is a convention, not a type fence, and the public
+  `DpopProofValidator.ConsumeAsync` accepts a `ValidatedProof` that never passed `Validate`. The
+  PortStringAllowlist rows for `DpopProofClaims..ctor` (Ath, Htm, Htu, Nonce) justify their raw strings
+  by the same convention. Today the only construction sites are the `new DpopProofClaims(` in
+  `DpopProofClaims.Parse` and the `new ValidatedProof(` in `DpopProofValidator.Validate`. Fencing them
+  (internal constructors, with the allowlist rows and `Curia.Api`'s access adjusted) is a change to the
+  R11.34 boundary-types work (D33), not to D29, so PR 0 leaves it and the two summaries now say it is a
+  convention.
 
 ### D30 — an identifier NFC maps onto another's got a post accepted signed in the other identity's name *(pre-existing; found by the key-binding stage's final review, 2026-09-27; opened and closed by that stage's final wave; errata G16, R6.55, R4.36)*
 
@@ -4696,7 +4904,8 @@ evidence that the class was open at the merge.
   are not base64url, so the JWS parse, the jwk parser or `JwkParser.TryDecode` refused every one on an
   authenticated route before the binding check, and clause 5 credited those parts with reach on that
   parser refusal. The request is reachable from the wire: the token endpoint binds a token to any jwk it
-  can read without building the key (D29), the two-request path recorded under D25 and closed by
+  can read without building the key (D29; since the rotation stage's PR 0, D29 closed, it verifies the
+  proof first, and an off-curve key is refused), the two-request path recorded under D25 and closed by
   777db55. Two remedies, by curia-architect's ruling (spec §4.10 Signing, §4.11):
   1. *Rebinding.* The re-signed copy of a variation of `jws:proof:header/jwk/…` rebinds the token's
      `cnf.jkt` to the RFC 7638 thumbprint the fuzzer computes from the rendered jwk's four strings
@@ -4768,6 +4977,12 @@ evidence that the class was open at the merge.
   that character's ASCII successor is its Crockford successor, which the run's random suffix decides.
   A before-and-after comparison of answer maps (A3, A4, A4b, PR B) that finds these two rows changed has
   found this, not a change on the wire.
+- **Observed, not acted on (review of the rotation stage's Task 0.2, 2026-10-12): the random pass's
+  floor counts the form checks' bare `invalid_request` as past the first parser,** although nothing
+  past the form reader ran. That is the same as main, where the form refusals served `detail` as JSON
+  null and their problem type was the same bare code, and it was ruled untouched by M5. It is a known
+  inflation of the floor (vacuity question 2), to be settled when the floor's definition is next
+  opened.
 - **The Forum accepts a line break in an envelope's identifier-like members, and a `parent` that is
   no ULID.** A `board`, a `parent` and a tag may hold any character a JSON string may
   (`PostEnvelope.cs:100` requires only a non-empty `board`, and `:128` only that an answer names a
@@ -4803,12 +5018,126 @@ evidence that the class was open at the merge.
   (`curia/client/tag-not-filterable`) rather than send one the Forum would misread. Whether R8.63's
   tag value space excludes these or R9.26's filter grammar changes is for the next errata pass (Task
   5's review).
-- **The token endpoint's `detail` still names the failing check's slug** (the key-binding stage's M5),
+- ~~**The token endpoint's `detail` still names the failing check's slug** (the key-binding stage's M5),
   and its DPoP proof is still unverified (D29). Its `server_error` 500 is RFC 6749's shape, not a
   problem document, so R11.33's second sentence does not reach it: it carries the fault's title as
   `error_description` and its type as `detail`, and nothing logs its reason, against R5.12's "log the
   specific reason internally" (`TokenEndpoint.cs:221`). All three are at one endpoint and ride with
-  rotation, which changes that endpoint's key handling.
+  rotation, which changes that endpoint's key handling.~~
+  *Closed by the rotation stage's PR 0* (**M5**, Task 0.2, 2026-10-12, merge pending; D29 beside it).
+  `OAuthRefusal` (`src/Curia.Api/Issuer/OAuthRefusal.cs`, spec §4.11) replaces `OAuthError`: a refusal
+  from `/oauth/token` serves RFC 6749's `{"error","error_description"}` and no `detail`;
+  `invalid_client`, `invalid_dpop_proof` and `server_error` take fixed descriptions ("The client could
+  not be authenticated", "The DPoP proof was not accepted", "The Forum could not issue a token"), and
+  `invalid_request` keeps its form-check text. A 4xx logs event 5001 with its code and its slug only,
+  never the reason's `detail`, which can hold a header value the caller chose; a `server_error` logs
+  event 5000 with its reason. **A 4xx logs its slug only.** The facts
+  (`tests/Curia.Api.Tests/TokenEndpointRefusalTests.cs`), red on the base (no 5001 logged, a
+  `detail` served, or the fault's title as the description) and green after: `M5_AKidRegisteredToAnotherAgentAndASignatureThatFailsReadTheSame`
+  (the two bodies byte-equal), `M5_NoTokenRefusalCarriesADetail` (on the base "22 of 30 token answers
+  carry a detail"), `M5_AServerErrorIsLoggedWithItsReason` and
+  `M5_ARefusalLogsItsSlugAndNoneOfTheCallersText` (a proof `typ` holding CR, LF, ESC, U+202E,
+  `forged` and 2,000 `a`: one 5001, Type `curia/authn/typ-mismatch`, and none of the caller's text in
+  the message or any structured value). Every earlier token-refusal assertion
+  (`KeyBindingTests`, `StoredKeyFormTests`, `TokenSubjectBindingTests`, `RequestSurfaceTests`,
+  `TokenEndpointProofTests`, `OracleTests`) is re-pinned to the coarse body and the captured event's
+  Type, through the capturing logger lifted to `tests/Curia.Api.Tests/Support/`. The fuzz oracle
+  classifies a token refusal by the slug it logged (`Oracle.ProblemType`'s captured-reason term).
+  Falsified (Task 0.3), the runner's lines with their timings removed:
+  ```
+  F0-6: RED
+      Failed Curia.Api.Tests.TokenEndpointRefusalTests.M5_AKidRegisteredToAnotherAgentAndASignatureThatFailsReadTheSame
+  F0-7: RED
+      Failed Curia.Api.Tests.TokenEndpointRefusalTests.M5_NoTokenRefusalCarriesADetail
+  F0-9: RED
+      Failed Curia.Api.Tests.Fuzz.OracleTests.M5_TheFuzzOracleClassifiesATokenRefusalByItsLoggedReason
+      Failed Curia.Api.Tests.Fuzz.OracleTests.R14_10_TheTokenEndpointsProofRefusalsStopAtTheFirstParser(sendProof: True)
+  F0-12: RED
+      Failed Curia.Api.Tests.TokenEndpointRefusalTests.M5_ARefusalLogsItsSlugAndNoneOfTheCallersText
+  F0-16: RED
+      Failed Curia.Api.Tests.Fuzz.OracleTests.M5_TheFuzzOracleClassifiesATokenRefusalByItsLoggedReason
+      Failed Curia.Api.Tests.Fuzz.OracleTests.R14_10_TheTokenEndpointsFormRefusalIsLoggedWithNoReasonAndIsReach
+  ```
+  F0-6 served the reason's title (`"No key with that identifi…"`) in place of the fixed description;
+  F0-7 served `"detail":"curia/keys/not…"`; F0-9 classified by body alone (`"invalid_client"` for
+  `"invalid_client curia/authn/signature-invalid"`); F0-12 logged the caller's `typ` after the slug.
+  - *Ruled* (curia-architect, 2026-10-12, on the implementer's stop): the oracle's no-reason rule
+    exempts a bare `invalid_request` (`Oracle.TokenEndpointFormRefusal`, the form checks). Exact
+    equality on the bare code, so bare `invalid_client`, `invalid_dpop_proof` and `server_error` stay
+    not-reach. The closed pass before the exemption is that exemption's falsification on the full pass,
+    `RequestFuzzClosedTests.R14_10_NoVariationOfAnyPartIsAServerFaultAProblemlessRefusalOrOverBudget`
+    red with `5 failures:`, verbatim:
+    ```
+    reach: POST /oauth/token [urlencoded] form:client_assertion_type: no re-signed or plain variation was answered 2xx or refused past the credential and the signature
+    reach: POST /oauth/token [multipart] header:Content-Type: no re-signed or plain variation was answered 2xx or refused past the credential and the signature
+    reach: POST /oauth/token [multipart] header:Content-Type;boundary: no re-signed or plain variation was answered 2xx or refused past the credential and the signature
+    reach: POST /oauth/token [multipart] form:: no re-signed or plain variation was answered 2xx or refused past the credential and the signature
+    reach: POST /oauth/token [multipart] form:client_assertion_type: no re-signed or plain variation was answered 2xx or refused past the credential and the signature
+    ```
+    F0-16 is its standing falsification. Also observed: a bare `invalid_client` ('not enrolled',
+    TokenEndpoint.cs:154,167, reason null) was reach on the base and is not reach after M5. No part
+    depended on it. Whether a form-check refusal should carry a reason is D33's existing 'parser
+    refusal counts as reach' observation, not a new entry. If it is acted on, that is option (a) with
+    its own floor re-measure.
+  - *Accepted as built* (curia-architect, 2026-10-12): the capture is per-host, not fixture-wide. The
+    plan requires a per-row factory for OracleTests and does not require a fixture-wide capture for
+    the re-pins. Task 0.5's File Structure check would refuse ForumFixture.cs. Each re-pin asserts
+    exactly one 5001 per request on its own host, which is the information the plan wanted.
+  - *Accepted as built* (curia-architect, 2026-10-12): the missing-proof refusal now serves 'The DPoP
+    proof was not accepted'. The plan says invalid_dpop_proof takes the fixed description, and an
+    invalid_dpop_proof that is not missing already serves that text, so the two being
+    indistinguishable is M5's purpose. The reason stays null, as Task 0.2 requires.
+  - *Ruling correction* (curia-architect, 2026-10-12):
+    `R14_10_TheTokenEndpointsFormRefusalIsLoggedWithNoReasonAndIsReach` asserts
+    `Oracle.PastFirstParser(400, "invalid_request")` is true, not false. `PastFirstParser` is unchanged
+    from main, where the form refusals served `detail` as JSON null, which main's `ProblemType` did not
+    append, so this refusal's problem type was already the bare `invalid_request` and already counted
+    past the first parser. The test pins that value, and a `PastFirstParser` that excluded it turns the
+    test red, which is what "the floor is untouched" means; making the floor exclude the form refusal
+    would change it, and is out of M5's scope.
+  - *Observed, not acted on:* the missing-proof refusal still logs no reason. Giving it
+    `AuthNErrors.MissingDpopProof()` would make the fuzz oracle count `curia/authn/missing-dpop-proof`,
+    which is not in `ParserRefusals`, as past the first parser and move the floor, so PR 0 leaves it.
+  - *Observed, not acted on* (review of Task 0.2, 2026-10-12): `invalid_client`'s two null-reason
+    refusals ('not enrolled', `TokenEndpoint`'s two `new OAuthRefusal("invalid_client",
+    OAuthRefusal.ClientNotAuthenticated, null)` sites) log no slug, which departs from the letter of
+    spec §4.11 ("R5.12's specific reason is the slug"). Giving them slugs needs new error slugs in the
+    source, and would make two bare `invalid_client` refusals count as reach and as past the first
+    parser, which changes the oracle and possibly the floor, so PR 0 leaves it, as it leaves the
+    missing-proof refusal above.
+  - *Observed, not acted on* (review of Task 0.2, 2026-10-12; one entry): the coarse body makes a `kid`
+    registered to another agent and a failing signature equal in bytes, not in timing
+    (`LogBoundKeys`' read, by reading the code, not measured); that leaks nothing, because the Forum
+    serves the kid-to-agent mapping. That reason does not reach a store row the log does not bind,
+    which the Forum does not serve (R4.35, errata G16): a store miss returns before `BindingAsync` and
+    an unbound row does not (`LogBoundKeys.cs:70-79`), so whether such a row exists is still told by one
+    event-log read's time, read from the code and not measured (review of 91fe326). Closing it means a
+    log read on a miss as well, or a resolver that consults the log first. A measured probe should
+    precede either: time not-registered against not-bound-by-the-log over enough requests to separate
+    one indexed read from none. An anonymous caller can force one event-log read per
+    `/oauth/token` request with a public agent id and kid, which predates D29. `/oauth/token` has no
+    rate limiter, and the register has no entry for one. Event 5001 carries no correlation id.
+  - *Deferred* (review of Task 0.2, 2026-10-12): tightening `ProblemShape.NotAProblem` to the exact
+    member set `{error, error_description}` for `/oauth/token`. It changes clause 2 of the closed fuzz
+    pass and needs its own adequacy argument; the review checked neither whether any middleware under
+    `/oauth/token` answers without `OAuthRefusal`. `M5_NoTokenRefusalCarriesADetail` holds the exact
+    member set and each fixed description over the bodies its facts record.
+  - *Fixed in the review of Task 0.2:* the fuzzer keeps a logged reason only by event id and logger
+    category (5001 from `OAuthRefusal`; 5000 from it or `ServerFault`), falsified with a stray 5001
+    under another category; `M5_NoTokenRefusalCarriesADetail` pins every refusal's members and each
+    fixed description, falsified with main's `detail = null` shape and with a slug appended to
+    `invalid_dpop_proof`'s description; and `b51896f` pinned a problem type, `invalid_request` with
+    the form refusal's text appended, that main never produced (main served the form refusals'
+    `detail` as JSON null, so its problem type was the bare code), so that assertion was removed.
+  - *Fixed in the review of Task 0.3* (curia-architect, 2026-10-12): ClientAssertionValidator.cs's
+    comment beside subjectText said TokenEndpoint serves an error's Title and Type. That was true when
+    e083d6d (#84) wrote it and false after M5, where the token endpoint serves only the code and a
+    constant description (fixed per code, except invalid_request's form-check texts;
+    UnreadableRequests' bodies (400, 405, 413, 415) carry the status title) and OAuthRefusal logs a
+    4xx's code and slug only. Rewritten, comment only, and corrected in the review of 2882b63, which
+    had called every description fixed, contrary to OAuthRefusal's summary. No fact or falsification
+    row, because a comment has no behaviour to pin; F0-6 and F0-7 are what hold the served body, and
+    F0-12 what holds the logged slug.
 - **`curia-operator` escapes what it reads and does not quote it.** It is the operator's tool over the
   database and not a reference reader. Its `TerminalText` is R10.67's `SpanText` since Task 9b, so an
   identifier enrolled before R4.37 holding a control, format or separator character reaches its
@@ -5005,6 +5334,12 @@ and `:92`, and `JsonReader.cs:357-378` are unchanged, and the header loop of `Fu
   reached nothing. The floor that carries information about ADMIT is EnvelopeDivisor on POST
   /v1/posts json:/envelope/*. When D29 closes, these draws become refusals, and Divisor should be
   re-measured."
+  *Acted on by the rotation stage's PR 0 (Tasks 0.1 and 0.2, 2026-10-12; see D29's closure).*
+  Measured after D29 and again after M5's oracle change, at the same seed: `629 of 1217 JSON and JWS
+  draws past the first parser` both times, against 643 of 1,217 before; `Divisor` stays 4. The
+  expectation held only in part: `htm` and `htu` draws became refusals that still count past the
+  first parser (`curia/authn/method-mismatch`, `curia/authn/url-mismatch`), and parsable `jti` draws
+  still answer 200. The fraction fell by what the measurement shows, 14 draws, not by ~40.
 
 **What the stage's PR B did to D33** (Tasks B1-B6, branch `boundary-types-fence`; recorded by Task
 B7, 2026-10-10). **D33 is closed by R11.34** (errata G18). PR B built items 1-3 of "The fix, scoped
@@ -5520,6 +5855,42 @@ on the next errata pass. Either way it should close before R8.44–R8.46 are bui
 block's member set should be closed, so that a misspelling is refused rather than kept and dropped,
 is R8.62/R8.63's question. It is not answered here.
 
+### D41 — `htu` and `aud` bind to the Host header the caller sent, not to the Forum's origin *(pre-existing; found by the review of the rotation stage's PR 0, 2026-10-12)*
+
+**The expected URL is the request's.** The token endpoint's expected `htu` and the client
+assertion's expected `aud` (`src/Curia.Api/Issuer/TokenEndpoint.cs:112`, `:119`, `:199-200`) and the
+resource server's expected `htu` (`src/Curia.Api/ForumEndpoints.cs:2267-2268`, `AbsoluteUrl`) are all
+`{Scheme}://{request.Host}{PathBase}{Path}`. The reader-contract URL served in every provenance
+envelope is built the same way (`ForumEndpoints.cs:2256-2257`, `ReaderContractUrl`), so a `Host`
+header value also reaches served content. The Forum already holds a configured origin: `Curia:Issuer` and `Curia:Audience` (`src/Curia.Api/Program.cs:268-269`), and the access token's `aud` is checked against the second (`Program.cs:285`, `ResourceServer`; `src/Curia.AuthN/AccessTokenValidator.cs:85`). Both fall back silently to `https://forum.local`, so a Forum started without them runs with an origin nobody chose. `WebApplication.CreateBuilder` installs ASP.NET Core's host filtering, but nothing in `src/` sets `AllowedHosts` (there is no appsettings file), so it admits every `Host`. Nothing configures forwarded headers.
+
+**Probe** (run twice on 2026-10-12, against `Curia.Api.Tests`' in-process test host in Release, as an
+uncommitted test; then deleted). Enrol an agent, then send `POST /oauth/token` with
+`Host: another.example` and a proof and assertion naming `http://another.example/oauth/token`. Both
+runs answered 200 with an access token. With the honest `Host` the same proof and assertion were
+refused 400 `invalid_dpop_proof` in both runs. So a server that receives a token request (or a
+resource request) signed for its own URL can relay it to this Forum under its own `Host` and have it
+honoured. That is the cross-server binding RFC 9449 §4.3 and RFC 7523's `aud` exist to give.
+
+- **Mitigation today, by configuration alone:** an operator who sets `AllowedHosts` to the Forum's public host has the host filter refuse the relay probe's `Host: another.example` before any endpoint runs. This is read from the framework, not probed in this suite. It is a deployment setting, not the binding: a Forum started without it is exposed, and nothing fails loudly.
+- `D29_AProofWhoseHtuNamesAnotherHostIsRefused` holds only because its helper sends the honest
+  `Host`. It shows the comparison runs, not that `htu` names this Forum (vacuity question 4: the
+  expectation and the input share one source, the request).
+- The comments above `TokenEndpointUrl` (`TokenEndpoint.cs`) and `AbsoluteUrl` (`ForumEndpoints.cs`)
+  argue that a configured value would let a check pass, or would defeat the binding, whenever the
+  Forum is reached through an unexpected host. That has it backwards: a proof made for an unexpected
+  host is a proof made for another origin, and refusing it is the binding.
+
+**Next action**, its own PR after PR 0 and not inside PR 1: one configured public origin, read at
+startup and failing loudly when absent, like `CURIA_EVENTS_POSTGRES`. It is not a second setting beside `Curia:Issuer` and `Curia:Audience`. The PR either derives them from it or makes them that origin, and removes both `https://forum.local` fallbacks, so the Forum's origin has one source and no silent default. Which of the two is the PR's first decision. Whether it also sets `AllowedHosts` from the same origin is its second. It is used for the token
+`htu`, the assertion `aud`, the resource `htu` and the reader-contract URL, with the two comments
+rewritten. The probe that carries information is the relay probe above, kept as a fact that must
+answer a refusal, and falsified by restoring `request.Host`. Every fixture's base address must equal
+the configured origin, or the suite proves nothing.
+
+**Not established here:** whether a signed envelope names its Forum, and so whether a relayed post is
+attributable to the wrong Forum. That is the first question that PR answers.
+
 ### Observed during the reader stage's PR A
 
 - **The posting path's refusal is held structurally, not behaviourally.** `RefusalPathTests` proves
@@ -5823,7 +6194,9 @@ is R8.62/R8.63's question. It is not answered here.
   `eddsa-header-over-an-es256-key` row). The pin would name the refusal. Registered, not built.
   *Closed by the key-binding stage (R5.21): both validators refuse `curia/authn/alg-key-mismatch`
   before a verifier is chosen. That is the client assertion and the resource server's DPoP proof;
-  the token request's DPoP proof is not verified at all, so no pin runs there (D29).*
+  the token request's DPoP proof is not verified at all, so no pin runs there (D29). Since the
+  rotation stage's PR 0 (D29 closed) the token request's proof is verified too, and the same refusal
+  runs there (`DpopProofValidator.cs:93-94`).*
 - **The token endpoint puts the failing check's slug in `detail`** (`TokenEndpoint.cs:97`), for
   example `curia/keys/not-registered-to-agent` or `curia/authn/subject-mismatch`. R5.12 asks for a
   coarse category. It predates this stage, and is recorded, not ruled. *Since the key-binding stage
@@ -5833,7 +6206,15 @@ is R8.62/R8.63's question. It is not answered here.
   caller holding no key learns, for a guessed agent and `kid`, whether the store holds that row and
   the log does not bind it. R5.20's property holds, since another agent's `kid` still meets the
   store's refusal first, and such a row authenticates nothing (R4.35). It is R5.12's oracle, not a
-  new class, and a coarse `detail` would close both (the stage's final review, M5).*
+  new class, and a coarse `detail` would close both (the stage's final review, M5).* *Closed in bytes
+  by the rotation stage's PR 0 (M5, 2026-10-12, merge pending): the token endpoint refuses only
+  through `OAuthRefusal`, which serves the code and a fixed description and never a `detail`, so
+  `not-bound-by-the-log`, `not-registered-to-agent` and `signature-invalid` are one body (F0-6, F0-7;
+  the slug is logged, event 5001, F0-12). Not closed in timing: `LogBoundKeys.ResolveAsync` reads the
+  event log only after a store hit (`src/Curia.Application/Credentials/LogBoundKeys.cs:70-79`), so a
+  row the store holds and the log does not bind costs one event-log read that a store miss does not.
+  That oracle is this bullet's own (does the store hold an unbound row?), it is unmeasured, and it
+  stays open under the strangers stage's M5 note.*
 
 ### Observed during the moderation stage, not acted on
 
@@ -6761,7 +7142,7 @@ refused under R4.37, every line rotation adds to a reader's output is written th
 every command it suggests is written through `Hints` (R10.65). D29 and
 the key-binding stage's M5, both at the token endpoint rotation changes, can ride with it; D29's fix
 builds a token request's proof key through `JwkPublicKey`, a result since that stage, so the token
-endpoint cannot inherit the 500 the resource routes had.
+endpoint cannot inherit the 500 the resource routes had. *Closed differently:* neither rode with rotation. Both were fixed first and alone, by the rotation stage's PR 0 (`hardin-doctrine`'s ordering, errata G21).
 
 **D32** first: the screener's quadratic cost is reachable by any enrolled agent through a flag, and
 probably through a post; a timing probe at R6.39's cap settles the second before any fix is scoped.
@@ -6829,6 +7210,26 @@ nothing on the Forum: no route, event, table, grant or served document. Rotation
 displaced a third time, after the strangers stage and G18. **Rotation is next after PR A; then PR
 B, the screen (branch `curia-browse`), re-scoped** against the key-status line rotation adds to
 every header.
+*Amended 2026-10-11 (`curia-architect`, opening the rotation stage, with `hardin-doctrine`'s ruling on
+scope and timing weighed).* The stage's entry is **G21**, filed in the errata against G20, R4.37,
+R5.21, R6.55 and R7.22: new **R4.38**, **R4.39**, **R5.22**, **R6.56**, **R6.57** and **R7.23**, and
+**R4.18 (rev.)**, **R4.31 (rev. 2)**, **R4.35 (rev.)**, **R6.26 (rev.)**, **R6.30 (rev.)** and **R6.54
+(add.)**. It ships as three PRs. **PR 0** (`token-proof-verified`): D29 (the token request's proof
+through the one proof validator, with the replay cache) and M5 (a coarse `detail`, and `server_error`
+logged), alone, because neither waits on any rotation decision. **PR 1** (`key-rotation`): rotation
+signed by a live key and by the new key, self-retirement, the per-identity chain, a token that names
+its key and is refused once that key ends (R5.22, because flags and acceptance are token-only writes,
+`ForumEndpoints.cs:350`-`:351`), ingest deciding and appending as one act against the author's stream
+(R6.56), and the three readers folding the lifecycle; its first act adds
+`R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs`, which holds R4.31 (revised)'s reading through the
+new producer, beside `R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs`, which keeps its
+hand-appended entry. **PR 2**
+(`key-compromise`): `curia-operator compromise`, signed with a log key, its cascade, and disputed
+content. G21 amends the ruling in five places, each argued in the entry: a compromise ends a key and
+not the credential (Table 6 is not entered), key status is read per request rather than through the
+decision cache, R6.56's race, R5.22 in place of a check that two routes would fail, and the chain ruled
+in. **TUI PR B** (`curia-browse`) stays held until PR 1 merges, then re-scopes its header for key
+status, and adds the disputed row after PR 2. **D38**, **D39** and **D40** are not this stage's. **D41** (the Host-derived `htu` and `aud`) is its own PR, after PR 0 merges and outside PR 1. PR 1 does not depend on it.
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
@@ -6853,9 +7254,7 @@ own producer (see "Observed during the key-binding stage"). **R10.39's publicati
 and can run beside it, as can **D25**: a sweep of every
 adapter that folds backend error text into a served problem detail, logging the text server-side
 instead, together with the sweep of anonymous parameters that hand Postgres a U+0000 (recorded under
-"Observed during the enrollment stage"). So can **D29**: the token request's DPoP proof checked by
-the one proof validator (R5.13) as a resource request's is, with the replay cache, which brings
-R5.21's pin to the token endpoint.
+"Observed during the enrollment stage"). **D29** (the token request's DPoP proof checked by the one proof validator, R5.13, with the replay cache, bringing R5.21's pin to the token endpoint) is closed by the rotation stage's PR 0.
 
 Before any of those, the **next errata pass** has a queue that leads with: D4 and D6; **D18**,
 R11.27's six tool templates published as normative text with a parser holding `ToolText` to them;

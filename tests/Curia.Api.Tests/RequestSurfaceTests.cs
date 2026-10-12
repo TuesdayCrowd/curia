@@ -215,12 +215,14 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// long, a proof with no token, and an <c>alg</c> or <c>kid</c>, and a proof's <c>jwk</c> member,
     /// holding an unpaired-surrogate escape (Task 11's fix review), and an access token whose
     /// <c>kid</c> is absent, empty, white space or a number (the stage's final gate, second round,
-    /// which found each already answered 401, and keeps them here so it stays so). Then an enrolled agent obtains a token bound to a proof key
-    /// that is no point on P-256 -- the token endpoint issues it, since it reads a proof's key without
-    /// building it (register D29) -- and sends it to every route with a proof carrying that key. Every
-    /// route behind authentication threw on it, a 500 any agent could cause (the register's
-    /// "Observed during the enrollment stage"); none may answer 5xx, and some must have read the
-    /// token, or nothing here reached the check.
+    /// which found each already answered 401, and keeps them here so it stays so). Then an enrolled agent's
+    /// token request whose proof key is no point on P-256 is refused: the token endpoint has built a
+    /// proof's key since D29 closed, and until then it issued a token bound to such a key without
+    /// building it (register D29). So the fact mints such a token itself, the agent's issued token
+    /// with its cnf.jkt rebound to that key and re-signed with the issuer's key, and sends it to every
+    /// route with a proof carrying that key. Every route behind authentication threw on it, a 500 any
+    /// agent could cause (the register's "Observed during the enrollment stage"); none may answer 5xx,
+    /// and some must have refused it at the key build, or nothing here reached the check.
     /// </summary>
     [Fact]
     public async Task R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault()
@@ -276,10 +278,10 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
                 faults.Add($"{(int)response.StatusCode} POST /oauth/token (anonymous, a well-formed form, DPoP {proof[..Math.Min(proof.Length, 64)]})");
         }
 
-        // An agent's token bound to a proof key that is no point on the curve.
+        // The token endpoint refuses a proof whose key is no point on the curve: it builds the key.
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create("https://agents.example/off-curve-" + suffix, "off-curve-" + suffix);
-        var (dpop, _) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
+        var (dpop, issuedToken) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "client_credentials",
@@ -290,16 +292,36 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         });
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
         tokenRequest.Headers.Add("DPoP", OffCurveProof("POST", TokenEndpoint, forum.Now));
-        using var issued = await client.SendAsync(tokenRequest, ct);
-        var body = await issued.Content.ReadAsStringAsync(ct);
+        using var refused = await client.SendAsync(tokenRequest, ct);
+        var body = await refused.Content.ReadAsStringAsync(ct);
         Assert.True(
-            issued.StatusCode == HttpStatusCode.OK,
-            $"the token endpoint did not issue a token bound to a key off the curve ({(int)issued.StatusCode} {body}); if it now verifies a proof's key (D29), this fact's second half needs its token minted another way");
-        using var json = JsonDocument.Parse(body);
-        var token = json.RootElement.GetProperty("access_token").GetString()!;
+            refused.StatusCode == HttpStatusCode.BadRequest,
+            $"the token endpoint did not refuse a proof whose key is off the curve: {(int)refused.StatusCode} {body[..Math.Min(body.Length, 240)]}");
+        using (var json = JsonDocument.Parse(body))
+            Assert.Equal("invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
+
+        // The resource path still builds a proof's key, as defence in depth for a token bound to such a
+        // key before D29 closed. The token is minted here: the issued one, its header kept byte for
+        // byte, its cnf.jkt rebound to the off-curve key, re-signed with the issuer's key.
+        var token = Rebound(issuedToken, OffCurveThumbprint());
+
+        // The control: the same re-signing with cnf.jkt as issued, under the agent's own proof, is
+        // accepted by an authenticated read, so a 401 below is the key build's and not the minting's.
+        var control = Rebound(issuedToken, jkt: null);
+        using (var controlRequest = new HttpRequestMessage(HttpMethod.Get, "/v1/inbox"))
+        {
+            controlRequest.Headers.Authorization = new AuthenticationHeaderValue("DPoP", control);
+            controlRequest.Headers.Add("DPoP", dpop.Proof("GET", "http://localhost/v1/inbox", forum.Now, control));
+            using var controlResponse = await client.SendAsync(controlRequest, ct);
+            var controlBody = await controlResponse.Content.ReadAsStringAsync(ct);
+            Assert.True(
+                controlResponse.StatusCode != HttpStatusCode.Unauthorized,
+                $"the re-signed token, unrebound, was refused, so the minting is broken: {controlBody[..Math.Min(controlBody.Length, 240)]}");
+        }
 
         // A write is sent an empty JSON object, so a route that binds its body reads the token too.
         var read = 0;
+        var built = 0;
         foreach (var (method, pattern, parameters) in routes)
         {
             var path = Plain(pattern, parameters);
@@ -312,12 +334,53 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             if ((int)response.StatusCode >= 500)
                 faults.Add($"{(int)response.StatusCode} {method} {path} (a token bound to a proof key off the curve)");
             else if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
                 read++;
+                using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+                if (problem.RootElement.TryGetProperty("type", out var type) && type.GetString() == "curia/authn/malformed-jwk")
+                    built++;
+            }
         }
 
         Assert.True(sent > routes.Count * hostile.Length, $"only {sent} requests were sent over {routes.Count} routes; the sweep did not run");
         Assert.True(faults.Count == 0, "headers a route could not read answered as a server fault:\n" + string.Join('\n', faults));
         Assert.True(read > 0, "no route refused the token bound to a key off the curve, so none read it; a defect in this fact");
+        Assert.True(built > 0, "no route refused the token bound to a key off the curve at the key build (curia/authn/malformed-jwk), so none reached it; a defect in this fact");
+    }
+
+    /// <summary>
+    /// <paramref name="issued"/>'s header segment byte for byte, its payload with <c>cnf.jkt</c> set to
+    /// <paramref name="jkt"/> (left as issued when null), re-signed with ES256 (IEEE P1363) under the
+    /// Forum's issuer key, as the fuzzer's harness re-signs a token.
+    /// </summary>
+    private string Rebound(string issued, string? jkt)
+    {
+        var segments = issued.Split('.');
+        var claims = JsonNode.Parse(Base64Url.DecodeFromChars(segments[1]))!.AsObject();
+        if (jkt is not null) claims["cnf"]!["jkt"] = jkt;
+        var input = segments[0] + "." + Segment(claims.ToJsonString());
+
+        using var issuer = ECDsa.Create();
+        issuer.ImportFromPem(forum.IssuerSigningKeyPem);
+        var signature = issuer.SignData(Encoding.ASCII.GetBytes(input), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+        return input + "." + Base64Url.EncodeToString(signature);
+    }
+
+    /// <summary>A valid proof for a token request, on the curve and with a fresh <c>jti</c>, from a <see cref="ForumAgent"/>'s DPoP client.</summary>
+    private string ValidTokenRequestProof()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var agent = ForumAgent.Create("https://agents.example/proof-" + suffix, "proof-" + suffix);
+        return DpopClient.For(agent, agent.AssertionKey).Proof("POST", TokenEndpoint, forum.Now);
+    }
+
+    /// <summary>The RFC 7638 thumbprint of <see cref="OffCurveProof"/>'s jwk, computed by the helper the Forum uses.</summary>
+    private static string OffCurveThumbprint()
+    {
+        var proof = OffCurveProof("POST", TokenEndpoint, DateTimeOffset.UnixEpoch);
+        using var header = JsonDocument.Parse(Base64Url.DecodeFromChars(proof.Split('.')[0]));
+        Assert.True(Curia.AuthN.Dpop.JwkParser.Parse(header.RootElement.GetProperty("jwk")).TryGetValue(out var jwk, out var error), error?.Detail);
+        return Curia.AuthN.Dpop.JwkThumbprint.Compute(jwk!);
     }
 
     /// <summary>
@@ -437,8 +500,13 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// key that cannot be read is <c>invalid_dpop_proof</c>; an assertion that cannot be read, behind
     /// a proof whose key can, is <c>invalid_client</c>. The last four rows are an assertion whose header
     /// <c>kid</c> is absent, empty, white space or a number (the stage's final gate, second round):
-    /// <c>PostgresAgentKeyStore</c> refuses a blank <c>kid</c> by throwing, and this answered 500 to
-    /// anyone before any signature was checked.
+    /// <c>PostgresAgentKeyStore</c> refused a blank <c>kid</c> by throwing, and this answered 500 to
+    /// anyone before any signature was checked. The assertion's <c>kid</c> is now refused at
+    /// <c>Kid.Parse</c>, before any key is resolved, so these rows guard that throw by never reaching
+    /// the store. An assertion row carries a valid proof, on the curve and with a fresh <c>jti</c>:
+    /// since D29 the proof is checked first, and must pass for the assertion to be read at all, and for
+    /// the last four rows its <c>kid</c> check (<c>Kid.Parse</c>, before any key is resolved) to be
+    /// reached.
     /// </summary>
     [Theory]
     [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"\\ud800\"}}")]
@@ -452,6 +520,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     public async Task R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown(bool inAssertion, string header)
     {
         var ct = TestContext.Current.CancellationToken;
+        await using var captured = new CapturedForum(forum);
         var form = inAssertion
             ? new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -462,15 +531,21 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
             })
             : WellFormedTokenForm();
         using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
-        request.Headers.TryAddWithoutValidation("DPoP", inAssertion ? OffCurveProof("POST", TokenEndpoint, forum.Now) : Segment(header) + ".e30.AA");
+        request.Headers.TryAddWithoutValidation("DPoP", inAssertion ? ValidTokenRequestProof() : Segment(header) + ".e30.AA");
 
-        using var response = await forum.Client.SendAsync(request, ct);
+        var mark = captured.Log.Mark();
+        using var response = await captured.Client.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
         var expected = inAssertion ? HttpStatusCode.Unauthorized : HttpStatusCode.BadRequest;
         Assert.True(response.StatusCode == expected, $"{(int)response.StatusCode} {body[..Math.Min(body.Length, 240)]}");
         using var json = JsonDocument.Parse(body);
         Assert.Equal(inAssertion ? "invalid_client" : "invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
+
+        // Each row is refused by the parser of the part it cannot read, and logs that parser's slug (M5).
+        // An assertion row's is the assertion's own, read past a valid proof, as the base served it in
+        // detail: never a proof slug such as malformed-jwk.
+        Assert.Equal("curia/authn/malformed", captured.Log.SingleType(mark, 5001));
     }
 
     /// <summary>
@@ -572,7 +647,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     {
         ArgumentNullException.ThrowIfNull(target);
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create("https://agents.example/signed-string-" + suffix, "signed-string-" + suffix);
         var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
@@ -601,12 +677,13 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         string body;
         if (path == "/oauth/token")
         {
+            var mark = captured.Log.Mark();
             (status, body) = await dpop.RequestTokenAsync(
                 client, TokenEndpoint, forum.Now, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now, Edit), ct);
             Assert.True(status == HttpStatusCode.Unauthorized, $"{(int)status} {body[..Math.Min(body.Length, 240)]}");
             using var answer = JsonDocument.Parse(body);
             Assert.Equal("invalid_client", answer.RootElement.GetProperty("error").GetString());
-            Assert.Equal("curia/authn/malformed", answer.RootElement.GetProperty("detail").GetString());
+            Assert.Equal("curia/authn/malformed", captured.Log.SingleType(mark, 5001));
             return;
         }
 

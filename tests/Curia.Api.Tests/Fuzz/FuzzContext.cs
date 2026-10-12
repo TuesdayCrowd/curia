@@ -93,6 +93,15 @@ internal sealed class FuzzContext : IDisposable
     /// <summary>Whether the fuzz agent has been raised to T2, which a finding needs (Table 10).</summary>
     internal bool RaisedToT2 { get; set; }
 
+    /// <summary>
+    /// The <c>Type</c> the host logged for the last request <see cref="SendOneAsync"/> sent, as event 5001
+    /// (a token refusal's slug) or 5000 (a server fault's), or empty when it logged neither. A token
+    /// refusal's body names no reason since M5 closed, so the oracle reads it here.
+    /// </summary>
+    internal string CapturedType { get; private set; } = string.Empty;
+
+    private int _inFlight;
+
     internal DateTimeOffset Now => Forum.Now;
 
     /// <summary>A context with placeholder values, for the facts that inspect exemplars without sending them.</summary>
@@ -212,6 +221,56 @@ internal sealed class FuzzContext : IDisposable
         model.Fresh.Add("jws:proof:claims/iat");
         model.Fresh.Add("jws:proof:claims/jti");
     }
+
+    /// <summary>
+    /// Sends one variation and captures what the host logged for it (<see cref="CapturedType"/>). The
+    /// capture is the fixture's, so it is this request's only while no other is in flight: a second
+    /// send while one is throws, and so does a request that logged more than one reason.
+    /// </summary>
+    internal async Task<HttpResponseMessage> SendOneAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (Interlocked.Increment(ref _inFlight) != 1)
+        {
+            Interlocked.Decrement(ref _inFlight);
+            throw new InvalidOperationException("the fuzzer sends one request at a time, so what the host logged is that request's");
+        }
+
+        try
+        {
+            CapturedType = string.Empty;
+            var log = (Forum as FuzzForumFixture)?.Log
+                ?? throw new InvalidOperationException("only the fuzzer's fixture captures what its host logs");
+            var mark = log.Mark();
+            var response = await Client!.SendAsync(request, ct);
+            var reasons = log.Since(mark).Where(IsTokenReason).ToList();
+            if (reasons.Count > 1)
+            {
+                response.Dispose();
+                throw new InvalidOperationException($"{reasons.Count} reasons were logged for one request");
+            }
+
+            CapturedType = reasons.Count == 1 ? reasons[0].Value("Type") ?? string.Empty : string.Empty;
+            return response;
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _inFlight);
+        }
+    }
+
+    /// <summary>
+    /// A reason the token endpoint logged: event 5001 from <c>OAuthRefusal</c>, or event 5000 from it or
+    /// from <c>ServerFault</c>. Matched by category as well as id, so another component's event that
+    /// reuses an id is not read as the request's reason. The categories are the loggers' type names
+    /// (<c>CreateLogger&lt;OAuthRefusal&gt;</c> in <c>Curia.Api.Issuer</c>, <c>CreateLogger&lt;ServerFault&gt;</c>
+    /// in <c>Curia.Api</c>); both types are internal to <c>Curia.Api</c>, so they are named here.
+    /// </summary>
+    private static bool IsTokenReason(LoggedEvent logged) =>
+        (logged.EventId, logged.Category) is (5001, OAuthRefusalCategory) or (5000, OAuthRefusalCategory) or (5000, ServerFaultCategory);
+
+    private const string OAuthRefusalCategory = "Curia.Api.Issuer.OAuthRefusal";
+
+    private const string ServerFaultCategory = "Curia.Api.ServerFault";
 
     /// <summary>A nonce the Forum issued at this clock instant: asked for again whenever the clock has moved.</summary>
     internal async Task EnsureNonceAsync(FuzzAgent agent, CancellationToken ct)

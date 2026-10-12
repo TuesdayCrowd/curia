@@ -39,7 +39,11 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
     /// fraction of 0.528; half of it is 0.264, and 4 is the smallest integer whose reciprocal is at
     /// most that. The figure first recorded here, 643 of 1,151 (0.559), counted 149 ADMIT refusals
     /// (139 curia/admit/noncharacter) as past the parser (review of 6cbfa9f). The per-unit generator
-    /// before both measured 87 of 1,100 (0.079) with the same seed.
+    /// before both measured 87 of 1,100 (0.079) with the same seed. Re-measured once D29 and M5 closed,
+    /// with the token endpoint's proof run through the one validator and a token refusal classified by
+    /// the slug it logged (this pass reads <c>PastFirstParser</c> alone, so <c>Reached</c>'s rule for a
+    /// refusal logged with no reason does not bear on it): 629 of 1,217, a fraction
+    /// of 0.517; half of it is 0.258, and 4 is still the smallest integer whose reciprocal is at most that.
     /// </summary>
     internal const int Divisor = 4;
 
@@ -135,7 +139,7 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
             {
                 try
                 {
-                    using var response = await context.Client!.SendAsync(request, ct);
+                    using var response = await context.SendOneAsync(request, ct);
                     body = await response.Content.ReadAsStringAsync(ct);
                     status = (int)response.StatusCode;
                 }
@@ -152,7 +156,7 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
             statuses[status] = statuses.GetValueOrDefault(status) + 1;
             var ms = (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds);
             if (!warmUp) slowest[row.Route] = Math.Max(slowest.GetValueOrDefault(row.Route), ms);
-            var problemType = Oracle.ProblemType(row.Pattern, body);
+            var problemType = Oracle.ProblemType(row.Pattern, body, context.CapturedType);
             if (part.Kind is PartKind.Json or PartKind.Jws)
             {
                 jsonOrJws++;

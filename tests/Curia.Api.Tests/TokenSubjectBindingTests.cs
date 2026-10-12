@@ -34,9 +34,16 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     private const string TokenEndpoint = "http://localhost/oauth/token";
     private const string PostsUrl = "http://localhost/v1/posts";
 
-    /// <summary>The body the token endpoint answers a <c>kid</c> registered to no agent with (§1.3 of the ruling).</summary>
+    /// <summary>
+    /// The body the token endpoint answers a <c>kid</c> registered to no agent with (§1.3 of the ruling).
+    /// Since M5 every client it cannot authenticate is answered these bytes, so each refusal below is
+    /// also compared by the reason it logged (event 5001).
+    /// </summary>
     private const string NotRegisteredToThatAgent =
-        "{\"error\":\"invalid_client\",\"error_description\":\"No key with that identifier is registered to that agent\",\"detail\":\"curia/keys/not-registered-to-agent\"}";
+        "{\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}";
+
+    /// <summary>The reason the token endpoint logs for a <c>kid</c> registered to no agent.</summary>
+    private const string NotRegisteredType = "curia/keys/not-registered-to-agent";
 
     private sealed record Victim(ForumAgent Agent, string PostId);
 
@@ -136,25 +143,30 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     public async Task R5_20_AKeyEnrolledUnderItsHoldersOwnIdentifierMintsNoTokenForAnother()
     {
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var victim = await EnrolledVictimAsync(client, ct);
 
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var attacker = ForumAgent.Create($"https://agents.example/attacker-own-{suffix}", $"attacker-{suffix}");
         var attack = Asserting(victim.Agent.AgentId, attacker);
 
+        var controlMark = captured.Log.Mark();
         var (controlStatus, controlBody) = await attack.RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.Agent.AgentId, ct);
         Assert.Equal(HttpStatusCode.Unauthorized, controlStatus);
         Assert.Equal(NotRegisteredToThatAgent, controlBody);
+        Assert.Equal(NotRegisteredType, captured.Log.SingleType(controlMark, 5001));
 
         using (var enrolled = await attacker.EnrollAsync(client, ct))
             Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
 
+        var mark = captured.Log.Mark();
         var (status, body) = await attack.RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.Agent.AgentId, ct);
 
         await AssertNoFlagIsRecordedAsTheVictimsAsync(client, attack, status, body, victim, ct);
         Assert.Equal(HttpStatusCode.Unauthorized, status);
         Assert.Equal(controlBody, body);
+        Assert.Equal(NotRegisteredType, captured.Log.SingleType(mark, 5001));
 
         var (ownStatus, ownBody) = await DpopClient.For(attacker, attacker.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, attacker.AgentId, ct);
@@ -175,15 +187,18 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     public async Task R5_20_AKeyNoEnrollmentRecordedMintsNoTokenForAnyIdentity()
     {
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var victim = await EnrolledVictimAsync(client, ct);
 
         var keyHolder = ForumAgent.Create($"https://agents.example/orphan-holder-{Guid.NewGuid().ToString("N")[..8]}", $"orphan-{Guid.NewGuid().ToString("N")[..8]}");
         var attack = Asserting(victim.Agent.AgentId, keyHolder);
 
+        var controlMark = captured.Log.Mark();
         var (controlStatus, controlBody) = await attack.RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.Agent.AgentId, ct);
         Assert.Equal(HttpStatusCode.Unauthorized, controlStatus);
         Assert.Equal(NotRegisteredToThatAgent, controlBody);
+        Assert.Equal(NotRegisteredType, captured.Log.SingleType(controlMark, 5001));
 
         await using (var admin = new NpgsqlConnection(forum.ConnectionString))
         {
@@ -199,19 +214,20 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
             Assert.Equal(1, await orphan.ExecuteNonQueryAsync(ct));
         }
 
+        var mark = captured.Log.Mark();
         var (status, body) = await attack.RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.Agent.AgentId, ct);
 
         await AssertNoFlagIsRecordedAsTheVictimsAsync(client, attack, status, body, victim, ct);
         Assert.Equal(HttpStatusCode.Unauthorized, status);
         Assert.Equal(controlBody, body);
+        Assert.Equal(NotRegisteredType, captured.Log.SingleType(mark, 5001));
 
+        var orphanMark = captured.Log.Mark();
         var (orphanStatus, orphanBody) = await Asserting(victim.PostId, keyHolder)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.PostId, ct);
         Assert.Equal(HttpStatusCode.Unauthorized, orphanStatus);
-        var orphanRefusal = JsonNode.Parse(orphanBody)!;
-        Assert.Equal(
-            "curia/keys/not-bound-by-the-log",
-            orphanRefusal["detail"]?.GetValue<string>() ?? orphanRefusal["error_description"]?.GetValue<string>());
+        Assert.Equal(NotRegisteredToThatAgent, orphanBody);
+        Assert.Equal("curia/keys/not-bound-by-the-log", captured.Log.SingleType(orphanMark, 5001));
     }
 
     /// <summary>
@@ -224,7 +240,8 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     public async Task R5_20_AnAssertionNamingAnotherSubjectThanItsClientIsRefused()
     {
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var victim = await EnrolledVictimAsync(client, ct);
 
         var suffix = Guid.NewGuid().ToString("N")[..8];
@@ -232,13 +249,15 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
         using (var enrolled = await attacker.EnrollAsync(client, ct))
             Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
 
+        var mark = captured.Log.Mark();
         var (status, body) = await Asserting(victim.Agent.AgentId, attacker)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, attacker.AgentId, ct);
         var answer = JsonNode.Parse(body)!;
 
         Assert.True(answer["access_token"] is null, $"a token was issued for sub={victim.Agent.AgentId} to a client that named {attacker.AgentId}: {body}");
         Assert.Equal(HttpStatusCode.Unauthorized, status);
-        Assert.Equal("curia/authn/subject-mismatch", answer["detail"]?.GetValue<string>());
+        Assert.Equal(NotRegisteredToThatAgent, body);
+        Assert.Equal("curia/authn/subject-mismatch", captured.Log.SingleType(mark, 5001));
     }
 
     /// <summary>
@@ -257,31 +276,40 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     {
         const string Nul = "\0";
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var holder = ForumAgent.Create($"https://agents.example/nul-holder-{suffix}", $"nul-holder-{suffix}");
         using (var enrolled = await holder.EnrollAsync(client, ct))
             Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
 
+        var controlMark = captured.Log.Mark();
         var (controlStatus, controlBody) = await DpopClient.For(ForumAgent.Create(holder.AgentId, $"nowhere-{suffix}"), holder.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);
         Assert.Equal(HttpStatusCode.Unauthorized, controlStatus);
         Assert.Equal(NotRegisteredToThatAgent, controlBody);
+        Assert.Equal(NotRegisteredType, captured.Log.SingleType(controlMark, 5001));
 
         var nulSubject = $"https://agents.example/nul{Nul}{suffix}";
+        var subjectMark = captured.Log.Mark();
         var (subjectStatus, subjectBody) = await RequestTokenAsMultipartAsync(
             client, Asserting(nulSubject, holder), nulSubject, forum.Now, ct);
+        var subjectType = captured.Log.Since(subjectMark).Where(e => e.EventId == 5001).Select(e => e.Value("Type")).ToList();
+        var kidMark = captured.Log.Mark();
         var (kidStatus, kidBody) = await DpopClient.For(ForumAgent.Create(holder.AgentId, $"nul{Nul}{suffix}"), holder.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);
+        var kidType = captured.Log.Since(kidMark).Where(e => e.EventId == 5001).Select(e => e.Value("Type")).ToList();
 
         Assert.True(
             subjectStatus == HttpStatusCode.Unauthorized && kidStatus == HttpStatusCode.Unauthorized,
             $"a client_id holding U+0000 was answered {(int)subjectStatus}: {subjectBody[..Math.Min(120, subjectBody.Length)]} -- " +
             $"a kid holding U+0000 was answered {(int)kidStatus}: {kidBody[..Math.Min(120, kidBody.Length)]}");
         Assert.Equal(controlBody, subjectBody);
+        Assert.Equal([NotRegisteredType], subjectType);
         Assert.Equal(
-            "{\"error\":\"invalid_client\",\"error_description\":\"Malformed token\",\"detail\":\"curia/authn/malformed\"}",
+            "{\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}",
             kidBody);
+        Assert.Equal(["curia/authn/malformed"], kidType);
 
         var (ownStatus, ownBody) = await DpopClient.For(holder, holder.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, holder.AgentId, ct);
@@ -305,11 +333,12 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
     public async Task R11_34_TheTokenEndpointAnswersAClientIdThatIsNoAgentIdAfterTheAssertionsOwnChecks(string row)
     {
         const string AlgNotAllowed =
-            "{\"error\":\"invalid_client\",\"error_description\":\"Algorithm not in the allow-list\",\"detail\":\"curia/authn/alg-not-allowed\"}";
+            "{\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}";
         const string Malformed =
-            "{\"error\":\"invalid_client\",\"error_description\":\"Malformed token\",\"detail\":\"curia/authn/malformed\"}";
+            "{\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}";
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var overCap = "https://agents.example/" + new string('x', 1100);
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create($"https://agents.example/over-cap-{suffix}", $"over-cap-{suffix}");
@@ -321,6 +350,7 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
                 Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
         }
 
+        var mark = captured.Log.Mark();
         var (status, body) = row switch
         {
             "alg-none" => await dpop.RequestTokenAsync(client, TokenEndpoint, forum.Now, overCap, Segment("{\"alg\":\"none\",\"typ\":\"JWT\",\"kid\":\"k\"}") + ".e30.AA", ct),
@@ -339,6 +369,14 @@ public sealed class TokenSubjectBindingTests(ForumFixture forum) : IClassFixture
                 _ => NotRegisteredToThatAgent,
             },
             body);
+        Assert.Equal(
+            row switch
+            {
+                "alg-none" or "alg-none-control" => "curia/authn/alg-not-allowed",
+                "kid-nul" => "curia/authn/malformed",
+                _ => NotRegisteredType,
+            },
+            captured.Log.SingleType(mark, 5001));
     }
 
     private static string Segment(string json) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(json));
