@@ -8459,12 +8459,16 @@ of its keys, can make its later posts permanently uncheckable by rotating (item 
 declared compromised only by the Forum's operator, out of band, by a declaration signed with a key of the
 log's key set (R6.50) — never by the Forum process, and never in-band by an agent — as a detached JWS in
 R6.37's form whose protected header `typ` is `curia-key-compromise+jws`, never a head's, and whose header
-`kid` names a key the log's key set holds and that is valid at the declaration's position, naming the
-agent, the compromised key's `kid` and every key R6.57 compromises with it, an effective log
+`kid` names a key the log's key set holds and that is valid at the declaration's position, that is,
+whose `log.key` entry's index is below the declaration's, naming the agent, the compromised key's `kid`
+and every key R6.57 compromises with it, an effective log
 index `t_c` no lower than the index of the entry that binds the key, a reason from a closed set
 (`owner-reported`, `operator-observed`), and the log index of the agent's latest lifecycle entry, and
 appended as an `agent.key-compromised` entry carrying the declaration and its signature, with the
-operator as its actor. The actor SHOULD be a role name and never a person's name. The log's key signs
+operator as its actor. A reader SHALL report a declaration whose `kid` names no such key as failed, and
+one whose key's index it is not given as could not be checked; the operator's tool SHALL NOT sign a
+declaration under a log key the log has not yet published. The actor SHOULD be a role name and never a
+person's name. The log's key signs
 declarations provisionally: before any head is signed unattended or by an automated process, declarations
 SHALL move to an operator declaration key of their own. A head verifier SHALL refuse a signature whose
 header names a lifecycle `typ`; that refusal already holds, by R6.49's exact `typ` match, and this entry
@@ -8478,7 +8482,10 @@ cannot have been stolen before it existed. The log key signs both heads and decl
 distinct `typ`s a declaration's signature would verify as a head's and the reverse; with them it is safe
 for a key one person holds and uses by hand, and not for one a process uses unattended, which could then
 declare as readily as it signs. An actor written into a permanent statement outlives the person, and
-their name in it would be published for good.
+their name in it would be published for good. Without the position, any log key ever published, one
+published after the declaration included, would carry the operator's authority over the history before
+it, and two readers that read position differently would report contradicting verdicts on the same bytes
+(R14.6).
 
 **R6.57** A declaration (R6.26 (revised)) SHALL also compromise every key the compromised key bound by
 rotation at or after `t_c`, and every key those bound at or after `t_c`, and SHALL name each. A
@@ -8705,7 +8712,11 @@ with the break that must turn it red; the implementation plan's register will re
 - **R6.26 (revised), R6.57, R6.30 (revised).** Accept a declaration signed by a key outside the log's key
   set, a `t_c` below the binding, or skip the cascade. Each operator and reader fact must go red. Stop a
   reader fetching declarations after the first lifecycle entry following the post: a post whose key is
-  declared compromised after an intervening rotation must stop reading disputed, in both readers.
+  declared compromised after an intervening rotation must stop reading disputed, in both readers. Read a
+  declaration whose key's `log.key` entry follows it as valid, or an absent `log_index` as valid, and
+  `compromise-declaration-kid-not-valid-at-position` and `compromise-declaration-kid-position-unknown`
+  must go red in each reader in turn; drop the operator's published-key check and
+  `R6_26_TheOperatorRefusesALogKeyTheLogHasNotPublished` must go red.
 - **Type separation and roles (R4.18 (revised), R4.39, R6.26 (revised)).** Accept any `typ` on a
   lifecycle signature: `rotation-signed-as-post` (a valid signature under `curia-post+jws`) and
   `declaration-signed-as-head` must stop failing, in both runners. The head verifier's refusal of a
@@ -8884,7 +8895,7 @@ with the break that must turn it red; the implementation plan's register will re
 | R6.56 | A post is persisted only where the log binds its key and has neither retired nor declared it compromised, the decision and the append one act against the author's stream, decided again when that stream moved | G21 |
 | R6.54 (add.) | A verifying client also folds the author's lifecycle before the post under the same head: links, rotation and retirement statements, the authorizing key live, no retirement or declaration before the post, the next entry's link; failed on any break, a wrong header `typ` or `kid`, or a member outside its set; could not be checked beyond 1,024 entries, when unfetchable, or on an unknown entry type, statement `typ` or reason, whatever members it carries (the type and `typ` read before any member set); `curia-testis log author` takes the lifecycle from its caller | G21 |
 | R7.23 | At most four live keys and three rotations a trailing day per identity, and 511 rotations a lifetime, refused by name before anything is written; retirement unbudgeted, by these or the posting budget; the daily numbers provisional | G21 |
-| R6.26 (rev.) | Until R4.10, compromise is declared only by the operator, out of band, signed with a log key under `curia-key-compromise+jws` (provisionally; a key of its own before unattended head signing), naming the key and its cascade, `t_c` as a log index no lower than the binding, a closed-set reason and the latest lifecycle index; a head verifier's refusal of a lifecycle `typ`, already held by R6.49's exact `typ` match, pinned | G21 |
+| R6.26 (rev.) | Until R4.10, compromise is declared only by the operator, out of band, signed with a log key the log published before the declaration under `curia-key-compromise+jws` (provisionally; a key of its own before unattended head signing), naming the key and its cascade, `t_c` as a log index no lower than the binding, a closed-set reason and the latest lifecycle index; a head verifier's refusal of a lifecycle `typ`, already held by R6.49's exact `typ` match, pinned | G21 |
 | R6.57 | A declaration compromises every key the compromised key bound by rotation from `t_c`, transitively; content under a compromised key from `t_c` to the declaration is disputed: served, marked, out of ranking and weight, reported distinctly by every reference reader; content below `t_c` stands; readers recompute the cascade and fail a declaration whose `kids`, bindings or `from_index` disagree | G21 |
 | R6.30 (rev.) | Declarations are logged entries signed as R6.26 (rev.) says, served with the affected content, each disputed post's provenance naming the declaration's index | G21 |
 

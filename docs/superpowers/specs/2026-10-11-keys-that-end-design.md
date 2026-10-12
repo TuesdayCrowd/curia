@@ -90,7 +90,7 @@ Quoted in full in the errata. In summary:
 | Label | Rule | Source |
 |---|---|---|
 | KF1 | Each lifecycle kind's detached JWS names its kind in its protected header `typ`, distinct from a post's and a head's; a verifier refuses any other `typ`, an absent one included | from the cybersecurity report of 2026-10-11, its B1 |
-| KF2 | Each signature's header `kid` is its role's member (`authorized_by` or `kid`); a declaration's `kid` is in the log's key set and valid at the declaration's position | from the cybersecurity report of 2026-10-11, its B2 |
+| KF2 | Each signature's header `kid` is its role's member (`authorized_by` or `kid`); a declaration's `kid` is in the log's key set and valid at the declaration's position (valid at its position: the key's `log.key` index is below the declaration's index; an index not given is could not be checked) | from the cybersecurity report of 2026-10-11, its B2 |
 | KF3 | A reader recomputes a declaration's cascade and fails one whose `kids`, bindings or `from_index` disagree | from the cybersecurity report of 2026-10-11, its B3 |
 | KF4 | Fail closed: statement and entry member sets are closed and a member outside them fails; an unknown entry type, statement `typ` or reason is could not be checked, never verified and never skipped | from the cybersecurity report of 2026-10-11, its B4 |
 | KF5 | A rotation's `jwk.alg` is the algorithm its `kty`/`crv` determine, and `authorized_by` differs from `kid` | from the cybersecurity report of 2026-10-11, its B5 |
@@ -157,13 +157,15 @@ Each signature is a detached JWS in R6.37's form: header `{"alg","b64":false,"cr
 
 **Each kind has its own header `typ` (KF1).** A verifier refuses any other value, an absent one included, and the statement's `typ` member must be the version of the header's kind. A lifecycle signature never carries `curia-post+jws` or `curia-head+jws`, and a head verifier refuses a lifecycle `typ` (RFC 8725 §3.11).
 
-**Each header `kid` is its role's member (KF2).** `authorization` ↔ `authorized_by` (rotation) or `kid` (retirement); `possession` ↔ `kid`; a declaration's `kid` is in the log's key set and valid at the declaration's position.
+**Each header `kid` is its role's member (KF2).** `authorization` ↔ `authorized_by` (rotation) or `kid` (retirement); `possession` ↔ `kid`; a declaration's `kid` is in the log's key set and valid at the declaration's position (valid at its position: the key's `log.key` index is below the declaration's index; an index not given is could not be checked).
+
+**A residual, named.** A reader with no retained head can be shown a wholly forged log whose `log.key` sits earlier than the declaration. That is R6.53's general first-contact residual, not specific to declarations; no one has accepted it, and only retained heads or a monitor close it.
 
 | Statement | Members (JCS order, closed) | statement `typ` | header `typ` | Signed by (header `kid`) |
 |---|---|---|---|---|
 | rotation | `agent_id, authorized_by, jwk, kid, prev, typ` | `curia.key-rotation/1` | `curia-key-rotation+jws` | the authorizing key (`authorization`, `authorized_by`) and the new key (`possession`, `kid`) |
 | retirement | `agent_id, kid, prev, typ` | `curia.key-retirement/1` | `curia-key-retirement+jws` | the key being retired (`authorization`, `kid`) |
-| compromise (PR 2) | `agent_id, from_index, kids, prev, reason, typ` | `curia.key-compromise/1` | `curia-key-compromise+jws` | a key in the log's key set (`declaration`), valid at the declaration's position |
+| compromise (PR 2) | `agent_id, from_index, kids, prev, reason, typ` | `curia.key-compromise/1` | `curia-key-compromise+jws` | a key in the log's key set (`declaration`), whose `log.key` entry precedes the declaration |
 
 **KF5.** A rotation's `jwk.alg` must equal the algorithm its `kty`/`crv` determine (`curia/keys/jwk-alg-mismatch`), and `authorized_by` must differ from `kid` (`curia/keys/self-authorized`).
 
@@ -245,6 +247,8 @@ Vectors write files, not a log, so the guard does not touch them. Publishing one
 | `compromise-from-index-after-declaration` | PR 2: failed (KF3) |
 | `compromise-kid-of-other-identity` | PR 2: failed (KF3) |
 | `compromise-unknown-reason` | PR 2: could not be checked (KF4) |
+| `compromise-declaration-kid-not-valid-at-position` | PR 2: failed: the declaration verifies under a log key whose `log.key` entry follows it (KF2) |
+| `compromise-declaration-kid-position-unknown` | PR 2: could not be checked: the log key set gives the declaring key no `log_index` (KF2, KF4's rule) |
 
 Outside the lifecycle family: each runner's head verifier, given a valid signature by a log key under `curia-key-compromise+jws` (and, in PR 1, under the two PR 1 `typ`s), refuses it (already, by exact `typ` match, R6.49: these are regression guards, green before the stage starts); and each new `typ` goes through both runners' existing `b64`/`crit` negatives (`tests/Curia.Canon.Tests/Jws/DetachedJwsTests.cs`, `rust/curia-testis/src/jws.rs`'s tests).
 
@@ -313,8 +317,8 @@ At log position p, key K of identity A is:
 |---|---|
 | verified | K bound at b < p by a valid enrolment or rotation (each rotation's authorizing key active at the rotation's index, checked recursively along the chain); no retirement of K, and no declaration naming K, at an index < p; every link holds through the first lifecycle entry ≥ p that lies under the head |
 | disputed (PR 2) | a declaration at d > p names K with `from_index` ≤ p, found by fetching every declaration the key set names for K after p under the head (R6.57); reported as of that head |
-| failed | a retirement or declaration of K at an index < p; a broken link; a statement whose signature fails or whose members disagree; a header `typ` not its kind's or a header `kid` not its role's member (KF1, KF2); a statement or entry member outside its set (KF4); a rotation whose `jwk.alg` disagrees or that authorizes itself (KF5); PR 2: a declaration whose `kids` are not the recomputed cascade in order, name a key not bound to `agent_id`, or whose `from_index` is below the first key's binding or not below the declaration's index (KF3) |
-| could not be checked | the lifecycle cannot be fetched or folded, or it has more than 1,024 entries before p; a lifecycle index whose entry type is none of the four, a statement `typ` the reader does not know, or a reason outside the closed set (KF4): never verified, never skipped |
+| failed | a retirement or declaration of K at an index < p; a broken link; a statement whose signature fails or whose members disagree; a header `typ` not its kind's or a header `kid` not its role's member (KF1, KF2); a statement or entry member outside its set (KF4); a rotation whose `jwk.alg` disagrees or that authorizes itself (KF5); PR 2: a declaration whose `kids` are not the recomputed cascade in order, name a key not bound to `agent_id`, or whose `from_index` is below the first key's binding or not below the declaration's index (KF3); PR 2: a declaration whose header `kid` is not a log key published before it (KF2) |
+| could not be checked | the lifecycle cannot be fetched or folded, or it has more than 1,024 entries before p; a lifecycle index whose entry type is none of the four, a statement `typ` the reader does not know, or a reason outside the closed set (KF4); PR 2: a declaration whose key's log index is not given (KF2): never verified, never skipped |
 
 ### 4.9 What each reader prints
 
@@ -437,7 +441,7 @@ R11.33's sentence ("a 5xx … carries no detail") then holds at this endpoint to
 - **Chokepoint.** `PostgresEventStore` takes the gate as a required constructor argument and checks every append, the one `AppendAsync` (and, from Task 1.2, its conditioned overload) through one private core, inside the transaction before any INSERT: an append containing `agent.key-retired` (kind retirement), containing `agent.key-compromised` (compromise), or containing `agent.key-bound` and not exactly `[agent.enrolled, agent.key-bound]` at `AggregateVersion.New` (rotation) is refused `curia/domain/lifecycle-append-refused` unless the gate enables the kind. The exact-pair rule is `hopper-doctrine`'s tightening of the ruling's "does not begin with `agent.enrolled`", which would have passed `[enrolled, key-bound, key-bound]`; it is what `EnrollAgent.cs:208`–`:210` appends. Matched by type and append shape only, never a payload. The in-memory store (`tests/Curia.Application.Tests/InMemory/InMemoryEventStore.cs`, a test file) takes the gate as a required constructor argument with no default; the production protection is `PostgresEventStore` alone, so an architecture fact holds that it is the only `IEventStore` implementer in `src/` and `tools/`.
 - **Routes** (§4.7): 403 `curia/keys/lifecycle-not-enabled`, as the handler's first act.
 - **Key set** (§4.7): `curia_lifecycle_kinds`.
-- **Operator verb.** `curia-operator compromise` asks the gate before it reads `CURIA_LOG_SIGNING_KEY_PEM` or signs anything; on refusal it prints the slug and exits `4` (`ExitCode.LifecycleNotEnabled`, new beside 0–3), with the log unchanged.
+- **Operator verb.** `curia-operator compromise` asks the gate before it reads `CURIA_LOG_SIGNING_KEY_PEM` or signs anything; on refusal it prints the slug and exits `4` (`ExitCode.LifecycleNotEnabled`, new beside 0–3), with the log unchanged. After the gate and the key read, and before signing, it refuses a log key the folded log has not published (`log.key` with the same public JWK), with the log unchanged.
 - **Startup (lock 2).** The Forum and `curia-operator` fail to start, loudly, when the opt-in names a kind the build does not approve, enables rotation or retirement without compromise, or is not `none` or a comma list over the three kinds. A guarded Forum reads the log at start and counts entries of the three guarded shapes by event type and stream shape; with a nonzero count it starts and logs event 7006 `LifecycleEntriesUnderGuard` at Error with the count (PR 0.5). From PR 1, where `KeyLifecycle` reaches the Forum's read path, the guarded Forum also folds such an entry as readers do (R6.54 (add.)).
 - **Tests.** The permissive gate lives only in `tests/Shared` and is injected through the in-memory adapter's constructor and the test composition's DI override. From PR 0.5, `ForumFixture` composes it by default, so the hand-appended bindings existing tests make stay green; Api tests and the fuzzer run the routes behind it. Every production-gate fact (GF1, GF4's HTTP half, GF9, GF10, and the key set's `curia_lifecycle_kinds` fact) runs on `GuardedForumFixture`, a subclass of `ForumFixture` (as `FuzzForumFixture` and `KestrelForumFixture` are) that re-registers the embedded gate. Any fixture that injects the permissive gate refuses a database it did not create in the same run, checked by the name prefix it generated (`curia_e2e_` for `ForumFixture`, `curia_test_` for `PostgresDatabaseFixture`).
 - **Throwaway runs.** A run outside the tests that needs a lifecycle append uses the test composition against a database created and dropped by that run, never the production binary with a setting. The five-agent exercise runs with the guard on.
@@ -474,7 +478,7 @@ Every GF row has a positive control: the same input under the permissive gate in
 | R5.22 facts | the per-request read is dropped |
 | R6.54 (add.) facts in `Curia.Client.Tests`, `Curia.Mcp.Tests`, `log_author.rs` | the fold is skipped, the order is misread, or a link check is skipped |
 | Table 10 conformance | the white paper's two rows are not followed by `ResourceActionModel`, or the reverse |
-| KF1/KF2/KF5 facts and `lifecycle/*` cases in both runners; the head verifier's lifecycle-`typ` refusal; each `typ` through the `b64`/`crit` negatives | a `typ`, header-`kid`, `alg` or self-authorization check is skipped |
+| KF1/KF2/KF5 facts and `lifecycle/*` cases in both runners; the head verifier's lifecycle-`typ` refusal; each `typ` through the `b64`/`crit` negatives | a `typ`, header-`kid`, `alg` or self-authorization check is skipped; a declaration's position check is skipped |
 | KF4 cases (`unknown-lifecycle-kind`, `unknown-statement-typ`, `unknown-statement-typ-extra-member`, `statement-extra-member`, `compromise-unknown-reason`) | an unknown kind, `typ` or reason is skipped or verified; a member set is opened; the member-set check runs ahead of the `typ` check |
 | KF3 cases (PR 2) | `kids` taken as given; the binding or `from_index` bounds dropped |
 | `R4_39_AQuarantinedAgentRetires` | quarantine refuses retirement again |
