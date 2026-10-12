@@ -77,7 +77,8 @@
 | `src/Curia.AuthN/AccessTokenValidator.cs` | calls it | 0.1 |
 | `src/Curia.Api/Issuer/TokenEndpoint.cs` | calls it; `OAuthRefusal` | 0.1, 0.2 |
 | `src/Curia.Api/Issuer/OAuthRefusal.cs` (new) | M5 | 0.2 |
-| `tests/Curia.Api.Tests/TokenEndpointProofTests.cs` (new), `TokenEndpointRefusalTests.cs` (new) | D29, M5 facts | 0.1, 0.2 |
+| `tests/Curia.Api.Tests/TokenEndpointProofTests.cs` (new), `TokenEndpointProofRetentionTests.cs` (new), `TokenEndpointRefusalTests.cs` (new), `RequestSurfaceTests.cs` | D29, R5.14's retention, M5 facts | 0.1, 0.2 |
+| `tests/Curia.Api.Tests/Support/` (the capturing logger, lifted) | events 5001 and 5000, captured | 0.2 |
 | `tests/Curia.Api.Tests/Fuzz/*` | D29's off-curve rows now refused | 0.1 |
 | `tools/GenerateEnvelopeFixtures/{Fixtures.cs, Lifecycle.cs (new)}`, `conformance/acta/{key-rotated-entry,key-retired-entry,key-bound-entry-es256}/`, `conformance/lifecycle/*`, `conformance/index.json` | frozen formats | 1.1 (acta), 1.9 (lifecycle) |
 | `tests/Curia.Canon.Tests/Vectors/ActaLeafVectorTests.cs`, `rust/curia-testis/tests/vectors.rs` | leaf recomputation of the new vectors | 1.1 |
@@ -117,6 +118,11 @@
 
 **Ordering facts first, green on the base** (`tests/Curia.AuthN.Tests/AccessTokenValidatorOrderingTests.cs`; today its seven facts are the access token's own and nothing pins the proof path). Each builds a proof with two faults and asserts the earlier check's error type: `R5_13_AProofsBindingIsCheckedBeforeItsAlgKeyPin` (wrong `cnf.jkt` and an alg/key mismatch → binding-mismatch), `R5_13_AProofsAlgKeyPinIsCheckedBeforeItsSignature`, `R5_13_AProofsSignatureIsCheckedBeforeItsClaims` (bad signature and wrong `htm` → signature-invalid), `R5_13_AProofsAthIsCheckedBeforeTheNonce`, `R5_13_AProofsNonceIsCheckedBeforeTheReplayInsert` (also asserts the `jti` was not consumed). Run them on the base: all green. Commit them before the extraction: `R5.13: the proof path's order, pinned before it moves`.
 
+**Base observations, before any source change.** Task 0.1's source changes remove the base, and it cannot be run again without `git checkout`, which is banned. Capture these first, on the base, and keep them for Task 0.4:
+- the status lines of the red run below, including `D29_AProofSentTwiceIsRefusedTheSecondTime`'s second send (200 on the base);
+- the `detail` the base serves for each of `R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown`'s five `inAssertion` rows (`RequestSurfaceTests.cs:465`). Read them from one base run that writes each body to the test output, and remove that write before any commit. These five slugs are the captured Types Task 0.2 re-pins them to. After D29 the off-curve proof stops those rows before the assertion, so this run is the only source.
+Every other "red on the base" line in PR 0 is likewise run before the source change it precedes.
+
 **Red facts first** (`tests/Curia.Api.Tests/TokenEndpointProofTests.cs`). Each sends a valid client assertion through `ForumAgent`'s token path with one proof part changed, and asserts `400` with `error == "invalid_dpop_proof"`:
 
 | Fact | Proof part changed |
@@ -130,11 +136,23 @@
 | `D29_AProofOverAnOffCurveKeyIsRefused` | key off the curve |
 
 Plus:
-- `D29_AProofSentTwiceIsRefusedTheSecondTime`: the first send is 200, the second is 400 `invalid_dpop_proof`.
+- `D29_AProofSentTwiceIsRefusedTheSecondTime`: one proof and two client assertions, each with its own jti. The first send (proof + assertion 1) is 200. The second (the same proof + assertion 2) is 400 `invalid_dpop_proof`, and after M5 its captured 5001 Type is the replay slug. Resending the identical request is refused 401 `invalid_client` by the assertion's jti, on the base and after the fix alike, because ClientAssertionValidator shares the replay cache and inserts first. So it would test nothing, and loosening the fact to 'is refused' makes F0-3 vacuous. The fact asserts the status and the error code exactly, never 'not 200'.
 - `D29_TheReferenceClientsTokenRequestStillSucceeds`: `ForumSession`'s own token flow returns 200.
 
-- [ ] Write the facts. Run them on the base: every fact but the last must be **RED** (each 200 today). Record each status line under D29 in the register (Task 0.4).
-- [ ] Create `DpopProofValidator.cs`. Move `AccessTokenValidator.cs:120`–`:177` into `Validate`, keeping the order, the error constructors and comments, with `ath` checked only when `expected.AccessToken` is non-null. Move `:201`–`:209` into `ConsumeAsync`. The `cnf.jkt` comparison moves into `Validate` at its current position (after the thumbprint, before the R5.21 pin), written exactly `if (expected.ExpectedThumbprint is { } jkt && !FixedTimeEquals(thumbprint, jkt))`; `AccessTokenValidator` passes `claims.CnfJkt` and keeps the nonce block between `Validate` and `ConsumeAsync`. Write the `htu` check exactly `if (proofClaims.Htu != expected.Url)` and the skew check exactly `if (skew > AuthNConstants.MaxSkew)`; F0-1 and F0-2 anchor on them.
+**R5.14's retention.** These belong to the `TokenEndpointProofTests` list, but live in their own class, `tests/Curia.Api.Tests/TokenEndpointProofRetentionTests.cs`, with its own `IClassFixture<ForumFixture>`. Their 35 s and 60 s clock advances then cannot age another fact's token, nonce or assertion, as `DedupeEndpointTests` and `InboxEndpointTests` already arrange.
+- `R5_14_AProofDatedAheadIsNotAcceptedAgainOnceTheOldRetentionLapses`:
+  - Build one proof with `iat = forum.Now + 20 s`.
+  - Send it with a fresh client assertion: expect 200.
+  - `forum.Clock.Advance(TimeSpan.FromSeconds(35))`.
+  - Send the same proof with a new client assertion (new jti, iat at the new now): expect 400 `invalid_dpop_proof`, and after M5 a captured Type of `curia/authn/replay` (the slug `AuthNErrors.Replay()` carries).
+- `R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain`: as the fact above, but with `iat = forum.Now + 30 s` and an advance of exactly 60 s.
+
+Both are RED against the verbatim move, and green once the expiry line is written (see the `DpopProofValidator.cs` step).
+
+And in `tests/Curia.AuthN.Tests`, `R5_14_ConsumeHoldsAProofUntilItsIatPlusSkew`. It uses an in-memory `IReplayCache` that records the expiry it is given. Call `ConsumeAsync` at `now` with `Claims.Iat = now + 20 s`. Assert that the recorded expiry is `>= iat + MaxSkew` and `> iat + MaxSkew` (strict). This covers the resource path, which calls the same `ConsumeAsync`.
+
+- [ ] Write the facts. Run them on the base: every fact but the last must be **RED** (each 200 today). Record each status line under D29 in the register (Task 0.4). `D29_AProofSentTwiceIsRefusedTheSecondTime`'s second send is 200 on the base. Record it. The R5.14 facts' recorded red lines are the ones against the verbatim move, below.
+- [ ] Create `DpopProofValidator.cs`. Move `AccessTokenValidator.cs:120`–`:177` into `Validate`, keeping the order, the error constructors and comments, with `ath` checked only when `expected.AccessToken` is non-null. Move `:201`–`:209` into `ConsumeAsync`, changing only the expiry. Write it exactly `var proofExpiry = (proof.Claims.Iat > now ? proof.Claims.Iat : now) + AuthNConstants.MaxSkew + TimeSpan.FromSeconds(1);` with the comment `// R5.14: a proof is acceptable until iat + MaxSkew (Validate's skew test is |iat - now| <= MaxSkew), so its jti is held at least that long. The second is because PostgresReplayCache readmits a jti whose expires_at <= now, and at exactly iat + MaxSkew Validate still accepts.` This is the one deliberate change in the move. F0-11 anchors on it. The `cnf.jkt` comparison moves into `Validate` at its current position (after the thumbprint, before the R5.21 pin), written exactly `if (expected.ExpectedThumbprint is { } jkt && !FixedTimeEquals(thumbprint, jkt))`; `AccessTokenValidator` passes `claims.CnfJkt` and keeps the nonce block between `Validate` and `ConsumeAsync`. Write the `htu` check exactly `if (proofClaims.Htu != expected.Url)` and the skew check exactly `if (skew > AuthNConstants.MaxSkew)`; F0-1 and F0-2 anchor on them.
 - [ ] In `TokenEndpoint.IssueAsync`, replace lines `:112`–`:114` with exactly:
   ```csharp
   var proofResult = DpopProofValidator.Validate(proof, new DpopExpectation("POST", TokenEndpointUrl(http), null, null), verifiers, clock.GetUtcNow());
@@ -148,8 +166,34 @@ Plus:
       return OAuthError("invalid_dpop_proof", "The DPoP proof was not accepted", consumeError!.Type);
   ```
   Bind the token to `validatedProof!.Thumbprint`. Delete `DpopThumbprintOf` and `ProofKey`.
+- [ ] Before writing the expiry line, with the move still verbatim (`now + AuthNConstants.MaxSkew`), keep a copy of that `DpopProofValidator.cs` outside the tree. Run the two R5.14 Api facts and the AuthN fact against it, and record their red lines under D29. Then write the expiry line. Never go back with `git checkout --`.
 - [ ] Run `Curia.AuthN.Tests` (all, including `AccessTokenValidatorOrderingTests`) and `Curia.Api.Tests`. The facts are green.
 - [ ] The fuzzer's `perturbed-first` POST /oauth/token rows for `jws:proof:header/jwk/x` and `/y` now answer 400. If the fuzzer pins those rows as 200, update that pin and name D29 in its comment. Never add a ledger row.
+- [ ] `RequestSurfaceTests` sends `OffCurveProof` to /oauth/token twice. Once the proof is validated before the assertion, both change. Neither may be re-pinned to the new status.
+  1. `R11_33_NoHeaderARouteCannotReadIsAnsweredAsAServerFault` (base :279–:297).
+     - Its first half becomes an assertion that the off-curve proof is refused: 400 with `error == "invalid_dpop_proof"`.
+     - Its second half still needs a token bound to the off-curve key, because the resource path's key build (`JwkPublicKey`, `AccessTokenValidator`'s R11.33 refusal) stays as defence in depth. Mint that token another way:
+       - Obtain a normal token through `agent.AuthenticateAsync`.
+       - Keep its header segment byte for byte.
+       - Parse its payload and set `cnf.jkt` to the RFC 7638 thumbprint of `OffCurveProof`'s jwk, computed with the same AuthN thumbprint helper the Forum uses (`JwkThumbprint.Compute`).
+       - Re-sign `header.payload` with ES256 (IEEE P1363) using an `ECDsa` imported from `forum.IssuerSigningKeyPem`, as `Fuzz/FuzzContext.cs:47-48` and `:183` do.
+     - Reword the failure message so it no longer anticipates D29.
+     - Its last check, `read > 0`, counts any 401. A mis-minted token (wrong kid, a DER signature, a re-serialized payload) is refused as `signature-invalid` by every route, still 401, and would pass without reaching the key build. So also assert that at least one route's 401 body has `type == "curia/authn/malformed-jwk"` (resource 401s are problem documents carrying `error.Type`, `ForumEndpoints.cs:2278`).
+     - Add a control: the same re-signing with `cnf.jkt` left as issued, sent with the agent's own on-curve proof, gets a non-401 answer on one authenticated read route.
+  2. `R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown`'s five `inAssertion` rows (base :465).
+     - Replace `OffCurveProof("POST", TokenEndpoint, forum.Now)` with a valid on-curve proof from a `ForumAgent`'s `dpop.Proof("POST", TokenEndpoint, forum.Now)`, with a fresh jti per row.
+     - The rows keep 401 `invalid_client`.
+     - Add a sentence to the summary: the proof must pass so that the assertion, and PostgresAgentKeyStore's blank-kid path, is reached at all.
+  Run both on the post-D29 tree once with `OffCurveProof` still in place and record that they go red (six tests). Then make the change and record them green.
+- [ ] Measure the random pass's floor (the first of two measurements; the second is in Task 0.2). Run `RequestFuzzRandomTests` at seed `0000001diyh1`, the seed of the 6cbfa9f measurement. Read the fraction of JSON and JWS draws past the first parser from the output line `RequestFuzzRandomTests.cs:203` writes. It no longer includes the ~40 token-endpoint draws that answered 200. Record the fraction under D29. `Divisor` is set from Task 0.2's measurement, not this one, because Task 0.2's oracle change moves the fraction again.
+- [ ] D29's old behaviour is cited as current in code comments and a test message. Reword each to the past tense, keeping its reason:
+  - `tests/Curia.Api.Tests/Fuzz/RequestModel.cs:317`: the rebinding probe now exercises the resource path's key build as defence in depth. The token endpoint has refused an off-curve proof since D29 closed, and the harness mints the rebound token itself.
+  - `src/Curia.AuthN/AccessTokenValidator.cs:152-153`. This moves with the extraction into `DpopProofValidator.cs`. Reword it there: until D29 closed, the token endpoint bound a token to a key it never built, and this refusal remains for any token so bound before then.
+  - `src/Curia.AuthN/Dpop/JwkPublicKey.cs:36-38`: same tense change.
+  - `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs:86`: same tense change.
+  - `tests/Curia.Api.Tests/RequestSurfaceTests.cs:220`, the doc comment "…without building it (register D29)…": same tense change, and it describes the token the fact now mints itself.
+  - `tests/Curia.Api.Tests/RequestSurfaceTests.cs:297`, the failure message, is reworded by the `RequestSurfaceTests` step above.
+  Then grep `grep -rn 'register D29\|(D29)' src tests`, excluding the files this task creates. Every hit must be one of `Fuzz/RequestModel.cs`, `DpopProofValidator.cs`, `JwkPublicKey.cs`, `AccessTokenValidatorDpopTests.cs` and `RequestSurfaceTests.cs` at the places above, and none may be in `AccessTokenValidator.cs`. Stop if any hit is not one of these.
 - [ ] Commit: `D29: the token request's DPoP proof passes the one proof validator`.
 
 ### Task 0.2: Coarse refusals, logged (M5)
@@ -158,11 +202,30 @@ Plus:
 - `M5_AKidRegisteredToAnotherAgentAndASignatureThatFailsReadTheSame`: two refusals, one the other agent's `kid` and one a bad signature. Both bodies are byte-equal: `{"error":"invalid_client","error_description":"The client could not be authenticated"}`.
 - `M5_NoTokenRefusalCarriesADetail`: across every `TokenEndpointProofTests` and `TokenSubjectBindingTests` request, no body has a `detail` member.
 - `M5_AServerErrorIsLoggedWithItsReason`: with the event reader failing, the body is `{"error":"server_error","error_description":"The Forum could not issue a token"}` and the captured log holds event 5000 with the reader's slug.
-- [ ] Facts RED on the base (detail present).
-- [ ] Create `OAuthRefusal.cs` (spec §4.11) as `internal sealed partial class OAuthRefusal(string code, string description, Error? reason) : IResult`, with `[LoggerMessage(EventId = 5001, Level = LogLevel.Information, Message = "Token request refused {Code}: {Type} {Detail}")]` and `[LoggerMessage(EventId = 5000, Level = LogLevel.Error, Message = "Served {Status} {Type} without its detail, which was: {Detail}")]`.
+- `M5_ARefusalLogsItsSlugAndNoneOfTheCallersText`: send a token request whose DPoP proof header has `typ` = `"x\r\nfail: forged\u001b[31m\u202E"` followed by 2,000 `a`. In the test source, write `\u001b` and `\u202E` as C# escapes, never as literal characters. Expect 400 `invalid_dpop_proof`. Assert:
+  - exactly one 5001 is captured for the request, and its Type is `curia/authn/typ-mismatch` (the slug `TypMismatch` carries);
+  - the formatted message and every structured value of the captured event contain none of `\r`, `\n`, `\u001b` and `\u202E`, and neither `forged` nor `aaaa`.
+  It is red on the base because no 5001 is logged.
+- [ ] Facts RED on the base (detail present; for the log fact, no 5001).
+- [ ] The capturing logger. `ServerFaultTests.Captured` keeps only `formatter(state, exception)`. Lift it into `tests/Curia.Api.Tests/Support/` so that each entry records `eventId.Id`, the formatted message, and the state's `IReadOnlyList<KeyValuePair<string, object?>>`. Every "captured Type" in PR 0, F0-10 and the M5 log fact read the `Type` value from that list. Without it, "every structured value contains none of …" checks an empty set and passes vacuously. Each fact and re-pin that reads a captured Type first asserts that **exactly one** 5001 (or 5000) was captured for its request.
+- [ ] Create `OAuthRefusal.cs` (spec §4.11) as `internal sealed partial class OAuthRefusal(string code, string description, Error? reason) : IResult`, with `[LoggerMessage(EventId = 5001, Level = LogLevel.Information, Message = "Token request refused {Code}: {Type}")] private static partial void Refused(ILogger logger, string code, string type);` and `[LoggerMessage(EventId = 5000, Level = LogLevel.Error, Message = "Served {Status} {Type} without its detail, which was: {Detail}")]`. It is called exactly as `Refused(logger, code, reason?.Type ?? string.Empty);`. F0-12 anchors on it. A 4xx logs its slug and never `reason.Detail`, which can hold a header value the caller chose (spec §4.11).
 - [ ] Replace `OAuthError(code, description, detail)` with `OAuthRefusal`. `invalid_client`, `invalid_dpop_proof` and `server_error` take the fixed descriptions; `invalid_request` keeps its text. The old `detail` argument becomes `reason`.
 - [ ] Fuzzer oracle. Once `detail` goes, `Oracle.ProblemType` for `/oauth/token` is the bare `error`, `Slug` is empty, and `Reached` and `PastFirstParser` count every `invalid_client` — `signature-invalid` included — as reach (`Oracle.cs:99`–`:103`, `:122`–`:149`); the reach clause (`FuzzRun.cs:297`) goes green reaching nothing. Lift `ServerFaultTests`' capturing logger into `tests/Curia.Api.Tests/Support/` and have `FuzzContext` capture events 5001 and 5000 per request (assert that the fuzzer sends one request at a time, or key the capture by trace identifier). `ProblemType` for `/oauth/token` becomes `error + " " + <the captured Type>`, and a token refusal with no captured reason counts as not reached. Rewrite `TokenEndpointProofRefusal`'s comment for D29: `invalid_dpop_proof` now covers signature and claim refusals, classified by the captured slug. Fact `M5_TheFuzzOracleClassifiesATokenRefusalByItsLoggedReason`: a recorded `invalid_client` whose captured reason is `curia/authn/signature-invalid` is not reached, and the same body with no capture is not reached either.
-- [ ] Re-pin every token-refusal test that reads `detail`, to the coarse body **and** the captured event's `Type`: `KeyBindingTests.cs:36`, `:218`; `StoredKeyFormTests.cs:48`, `:54`, `:283`, `:299`, `:308`, `:310`; `TokenSubjectBindingTests.cs:39`, `:214`, `:241`. Re-derive the list with `grep -rn 'invalid_client\|server_error' tests/Curia.Api.Tests` and stop if it differs. A re-pin to the body alone passes whichever check refused, and is a finding. `RefusalClassificationTests.cs:123` is a client stub and stays.
+- [ ] Re-pin every token-refusal assertion to the coarse body **and** the captured event's `Type`. The list is by file and test, with lines as at 3d2cf24. Task 0.1 moves RequestSurfaceTests' lines, so compare by content, not line number.
+  - `KeyBindingTests.cs`: :36 (the expected body) and :218 (the `server_error` InlineData; its captured event is 5000). The :210 doc comment is reworded if it names `detail`.
+  - `StoredKeyFormTests.cs`: :48, :54, :299.
+  - `TokenSubjectBindingTests.cs`: :39, :283, :308, :310 (expected bodies); :214 (`detail ?? error_description` == `curia/keys/not-bound-by-the-log`, so after M5 it compares the fixed description and goes red); :241 (`detail` == `curia/authn/subject-mismatch`).
+  - `RequestSurfaceTests.cs`: :473 (the inAssertion rows, per Task 0.1) and :608–:609. :609 asserts `detail == "curia/authn/malformed"` for the nine token jti rows, so re-pin it to the captured 5001 Type == `curia/authn/malformed`.
+  - The doc comments at RequestSurfaceTests :438 and :565 stay.
+
+  The five `inAssertion` rows also assert the captured event 5001's `Type`. That is the assertion-side slug the base serves today as `detail` for each row (the five values recorded from a base run in Task 0.1's base observations), and never a `curia/authn/*` proof slug such as malformed-jwk.
+
+  Gates, both of which must print exactly the hits named above, or stop and report. Run both with `--exclude` for the files Tasks 0.1 and 0.2 create (`TokenEndpointProofTests.cs`, `TokenEndpointProofRetentionTests.cs`, `TokenEndpointRefusalTests.cs`, and the file holding `M5_TheFuzzOracleClassifiesATokenRefusalByItsLoggedReason`), and compare by file and line content, not by line number:
+  1. `grep -rn 'invalid_client\|server_error' tests/Curia.Api.Tests`. 14 lines at 3d2cf24: RequestSurfaceTests :438 :473 :565 :608; StoredKeyFormTests :48 :54 :299; KeyBindingTests :36 :210 :218; TokenSubjectBindingTests :39 :283 :308 :310.
+  2. `grep -n '\["detail"\]\|GetProperty("detail")' tests/Curia.Api.Tests/KeyBindingTests.cs tests/Curia.Api.Tests/StoredKeyFormTests.cs tests/Curia.Api.Tests/TokenSubjectBindingTests.cs tests/Curia.Api.Tests/RequestSurfaceTests.cs`. At 3d2cf24 this finds TokenSubjectBindingTests :214 and :241, and RequestSurfaceTests :609 and :773. :773 is a /v1 problem document and stays.
+
+  Gate 1 cannot see a `detail` reader that does not also name the code, which is why gate 2 exists. A re-pin to the body alone passes whichever check refused it, and is a finding. `RefusalClassificationTests.cs:123` is a client stub and stays.
+- [ ] Re-measure the random pass's floor after the oracle change above, which counts a token refusal with no captured reason as not reached. Run `RequestFuzzRandomTests` at seed `0000001diyh1` and read the fraction from the output line `RequestFuzzRandomTests.cs:203` writes. Recompute `Divisor` (`tests/Curia.Api.Tests/Fuzz/RequestFuzzRandomTests.cs:44`) from this second measurement, by the method its doc comment at :36-:43 states: half the measured fraction, rounded so the floor is not raised past the measurement. If the value changes, change it and its comment's numbers. If it does not, record the new fraction in the comment anyway. A floor measured with draws that reached nothing is a floor that gates nothing. Record both fractions (Task 0.1's and this one) and the Divisor under D29.
 - [ ] Grep `src/Curia.Client` for any branch on a token refusal's `detail`. If one exists, stop and report: the client's classification would change.
 - [ ] Commit: `M5: the token endpoint's refusals are coarse and their reasons logged`.
 
@@ -181,16 +244,23 @@ Count each anchor once against the tree after Task 0.2.
 | F0-7 | `OAuthRefusal.cs` | the served anonymous object gains `detail = reason?.Type` | `M5_NoTokenRefusalCarriesADetail` |
 | F0-8 | `DpopProofValidator.cs` | the block beginning `if (expected.ExpectedThumbprint is { } jkt && !FixedTimeEquals(thumbprint, jkt))`, with its return, moved to after the proof's signature check | `R5_13_AProofsBindingIsCheckedBeforeItsAlgKeyPin` |
 | F0-9 | `Oracle.cs` | `ProblemType`'s captured-reason term removed, so token refusals classify by body only | `M5_TheFuzzOracleClassifiesATokenRefusalByItsLoggedReason` |
+| F0-10 | `ClientAssertionValidator.cs` | `CompactJws.AsMalformed(kidError, "kid", null)` → `AuthNErrors.Replay()` | the four kid rows of `R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown` (absent, empty, white space, number), by their captured Type |
+| F0-11 | `DpopProofValidator.cs` | `(proof.Claims.Iat > now ? proof.Claims.Iat : now) + AuthNConstants.MaxSkew + TimeSpan.FromSeconds(1)` → `now + AuthNConstants.MaxSkew` | both R5_14 Api facts and `R5_14_ConsumeHoldsAProofUntilItsIatPlusSkew` |
+| F0-11b | `DpopProofValidator.cs` | the same anchor → `(proof.Claims.Iat > now ? proof.Claims.Iat : now) + AuthNConstants.MaxSkew` | `R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain` and the AuthN fact's strict clause |
+| F0-12 | `OAuthRefusal.cs` | `Refused(logger, code, reason?.Type ?? string.Empty);` → `Refused(logger, code, (reason?.Type ?? string.Empty) + " " + reason?.Detail);` | `M5_ARefusalLogsItsSlugAndNoneOfTheCallersText` |
 
-- [ ] Expect `falsify: 9 cases, 0 not RED`. A green case is a finding (trap 13).
+- [ ] Before the first patch, keep copies outside the tree of every file a row patches: `DpopProofValidator.cs`, `TokenEndpoint.cs`, `OAuthRefusal.cs`, `Oracle.cs`, `ClientAssertionValidator.cs`.
+- [ ] Expect `falsify: 13 cases, 0 not RED` (F0-1…F0-9, F0-10, F0-11, F0-11b, F0-12). A green case is a finding (trap 13).
 - [ ] Commit nothing from this task except the runner's record, which goes into Task 0.4.
 
 ### Task 0.4: Register and documents (PR 0)
 
 - [ ] `IMPLEMENTATION_PLAN.md`:
-  - **D29** closed: the facts, the five proof-ordering facts, the base's red lines, and F0-1…F0-5, F0-8.
-  - **M5** closed: under "Observed during the strangers stage", the token-endpoint bullet is struck through with the facts and F0-6/F0-7/F0-9.
+  - **D29** closed: the facts, the five proof-ordering facts, the base's red lines, and F0-1…F0-5, F0-8, F0-10. The two `RequestSurfaceTests` changes: the off-curve proof is refused at the token endpoint and the rebound token is minted by the test, and the `inAssertion` rows send an on-curve proof so the assertion is reached. R5.14's retention corrected: a proof's jti is held until max(now, iat) + MaxSkew + 1 s; F0-11, F0-11b. The two random-pass fractions and the Divisor.
+  - The register note at :5013-:5017 ("…When D29 closes, these draws become refusals, and Divisor should be re-measured") is marked acted on, with the measurements Tasks 0.1 and 0.2 recorded.
+  - **M5** closed: under "Observed during the strangers stage", the token-endpoint bullet is struck through with the facts and F0-6/F0-7/F0-9/F0-12; a 4xx logs its slug only.
   - The Start-here line for PR 0 is marked merged-pending.
+- [ ] `curia-whitepaper-ERRATA-AND-ADDENDUM.md`, G21's applied-changes table, row `| §5.5, §5.6 |` (line 8402 at 3d2cf24). Re-read the errata immediately before the edit. After "as G16 said they would." insert "R5.14 holds for a proof only once its jti is retained until the end of the window in which `Validate` accepts it, max(consume time, `iat`) + the permitted skew, and not consume time + skew as the resource path retained it before; a proof dated ahead was acceptable again in between." Then run `python3 tools/spec-checks/check-spec.py` and get clean. No new requirement number: this is R5.14 as written, which it now meets.
 - [ ] `CLAUDE.md`: the parenthesis "(the token endpoint's RFC 6749 server_error still carries its slug, the key-binding stage's M5 in the register)" is removed.
 - [ ] Re-read every file:line you wrote. Scan added lines for invisible characters.
 - [ ] Commit: `Register: D29 and M5 closed`.

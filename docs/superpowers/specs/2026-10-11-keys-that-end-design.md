@@ -331,7 +331,7 @@ public static class DpopProofValidator
 
 ### 4.11 M5
 
-`TokenEndpoint.OAuthError` is replaced by `OAuthRefusal(string code, Error? reason) : IResult`. It serves `{error, error_description}` with a fixed description per code, and never a `detail`:
+`TokenEndpoint.OAuthError` is replaced by `OAuthRefusal(string code, string description, Error? reason) : IResult`. It serves `{error, error_description}` and never a `detail`. The description is fixed per code, except for `invalid_request`, whose caller passes the per-case text:
 
 | Code | Description |
 |---|---|
@@ -340,9 +340,9 @@ public static class DpopProofValidator
 | `invalid_dpop_proof` | `The DPoP proof was not accepted` |
 | `server_error` | `The Forum could not issue a token` |
 
-It logs `reason.Type` and `reason.Detail`:
-- event 5001 at Information for a 4xx;
-- event 5000's message at Error for a 5xx, via a `[LoggerMessage]` on the type itself, as `ServerFault` does.
+It logs:
+- for a 4xx, event 5001 at Information with the code and `reason.Type` only. `reason.Detail` is never logged for a 4xx: it can hold a header value the caller chose (TypMismatch's typ, AlgNotAllowed's alg, MalformedJwk's kty or crv), and an anonymous caller would otherwise write control characters and unbounded text into the operator's log, G17's class of defect carried into the log. R5.12's specific reason is the slug.
+- for a 5xx, event 5000 at Error with `reason.Type` and `reason.Detail`, via a `[LoggerMessage]` on the type itself, as `ServerFault` does.
 
 R11.33's sentence ("a 5xx … carries no detail") then holds at this endpoint too, although its shape is RFC 6749's.
 
