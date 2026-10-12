@@ -5953,6 +5953,10 @@ not fired.
 
 **Next action.** Before the trigger fires: move declarations to an operator declaration key of their
 own, as R6.26 (revised) requires; how that key is published and how readers find it is decided then.
+The move SHALL be shipped as a new statement version (`curia.key-compromise/2`) or a new entry type,
+both of which every `/1` reader reports as could not be checked (R6.54 (addendum), KF4's order; case
+`compromise-v2-under-unknown-signer`); it SHALL NOT be shipped by re-signing `/1` statements under a
+new key, which `/1` readers fail.
 This entry records the obligation only. It is filed now, before PR 2 is built, so the obligation exists
 before the code that creates it; PR 2's register task confirms it (plan Task 2.5).
 

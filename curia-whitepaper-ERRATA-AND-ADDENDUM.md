@@ -8309,7 +8309,7 @@ one identity name the same `prev`. A statement an entry carries SHALL be carried
 text, and every member the entry states beside it SHALL equal the statement's. Under the four entry
 types and the `/1` statements this entry defines, a statement's member set and an entry's member set
 SHALL each be exactly the set this entry gives for its kind; a reader SHALL determine the entry type and
-then the statement `typ` before it applies either set (R6.54 (addendum)). Each new entry's
+then the statement `typ` before any other check it makes on the entry (R6.54 (addendum)). Each new entry's
 payload SHALL be the one `conformance/acta/` pins for it and, once a Forum has appended one, SHALL be
 frozen with R15.1's set: a member whose name or meaning changed would change what every existing entry
 says. Until the owner's approval record pins a vector's digests (R4.38 (addendum)), the vector is a
@@ -8321,7 +8321,10 @@ says who can see that.
 **R4.38 (addendum)** A Forum SHALL NOT append an entry of a lifecycle kind other than an enrollment's
 pair unless its build carries the owner's approval record naming that kind and the digests of its
 pinned vector, and its operator has enabled the kind; and SHALL NOT enable rotation or retirement where
-it does not enable compromise declarations. The reason: R15.1 freezes a payload at its first append and
+it does not enable compromise declarations. The ordering rule is enforced within each process; where
+the Forum enables rotation or retirement and `curia-operator` does not enable compromise declarations,
+`curia-operator compromise` SHALL refuse with exit 4 and a message naming `Curia__Lifecycle__Enabled`, so
+the gap fails closed and visibly rather than silently. The reason: R15.1 freezes a payload at its first append and
 R11.6 makes the entry permanent, so the first lifecycle append to a retained log is the act that freezes
 its kind, and the owner withheld approval for that (decision 12). A rule the application keeps can be
 bypassed by any caller of the event store, so the refusal sits in both event-store adapters, below every
@@ -8430,9 +8433,13 @@ whose header `kid` is not its role's member, and a statement or entry carrying a
 set, SHALL be reported as failed. A lifecycle index whose entry type is none of R4.38's four, a statement
 `typ` the reader does not know, and a reason outside R6.26 (revised)'s set SHALL be reported as could not
 be checked, never as verified and never skipped. A reader SHALL determine the entry type and then the
-statement `typ` before any member-set check; an unknown entry type or statement `typ` SHALL be reported
+statement `typ` before every other lifecycle check: the header `typ`, the header `kid`, signature
+verification, the cascade (R6.57), the rotation key's `alg` derivation and `authorized_by` (R4.18
+(revised)) and the member sets; an unknown entry type or statement `typ` SHALL be reported
 as could not be checked whatever members it carries, and the closed member sets SHALL apply only under an
-entry type and statement `typ` the reader knows. `curia-testis log author` SHALL take the lifecycle as documents
+entry type and statement `typ` the reader knows. The entry type and statement `typ` are read from the
+unverified statement only to choose which rules apply; a statement whose type or `typ` the reader does
+not know SHALL NOT contribute to any verdict but could not be checked. `curia-testis log author` SHALL take the lifecycle as documents
 its caller hands it, and report could not be checked when handed none. The reason: R6.54 established a
 key's binding, and a key that can end needs its ending read too, from the same log under the same head;
 otherwise a retirement the Forum withheld from its key set would leave a post under a retired key
@@ -8719,7 +8726,9 @@ with the break that must turn it red; the implementation plan's register will re
   `R6_26_TheOperatorRefusesALogKeyTheLogHasNotPublished` must go red.
 - **Type separation and roles (R4.18 (revised), R4.39, R6.26 (revised)).** Accept any `typ` on a
   lifecycle signature: `rotation-signed-as-post` (a valid signature under `curia-post+jws`) and
-  `declaration-signed-as-head` must stop failing, in both runners. The head verifier's refusal of a
+  `declaration-signed-as-head` must stop failing, in both runners. Accept any lifecycle `typ` on any
+  lifecycle kind: `retirement-signed-as-rotation` (a valid retirement signature under
+  `curia-key-rotation+jws`) must stop failing, in both runners. The head verifier's refusal of a
   lifecycle `typ` already holds by R6.49's exact `typ` match and is pinned here, not built: relax that
   shared comparison for the lifecycle `typ`s and the head verifier must accept a
   `curia-key-compromise+jws` signature. Drop the header-`kid` check: `header-kid-disagrees` must stop
@@ -8730,10 +8739,15 @@ with the break that must turn it red; the implementation plan's register will re
   `unknown-lifecycle-kind` and `unknown-statement-typ` must stop reading could not be checked, and a
   Forum that reads an unknown statement `typ` as `/1` must stop refusing it. Open the member set:
   `statement-extra-member` must stop failing. Check the member set ahead of the statement `typ`:
-  `unknown-statement-typ-extra-member` must turn failed.
-- **Declaration cross-checks (R6.57).** Take `kids` as given, skip the binding check, or drop the
-  `from_index` bounds: `compromise-kids-omits-cascade`, `compromise-kid-of-other-identity` and
-  `compromise-from-index-after-declaration` must each stop failing, in both runners.
+  `unknown-statement-typ-extra-member` must turn failed. Determine the statement `typ` after the header
+  `kid` check: `compromise-v2-under-unknown-signer` (a `curia.key-compromise/2` statement signed by a
+  P-256 key outside the log key set) must turn failed, in both runners.
+- **Declaration cross-checks (R6.57).** Take `kids` as given, skip the binding check, or drop either
+  `from_index` bound, the lower (the binding of `kids[0]` at or below `from_index`) or the upper
+  (`from_index` below the declaration's index): `compromise-kids-omits-cascade`,
+  `compromise-kid-of-other-identity`, `compromise-from-index-before-binding` and
+  `compromise-from-index-after-declaration` must each stop failing, in both runners. Compare `kids` as
+  a set: `compromise-kids-reordered` must stop failing, in both runners.
 - **Quarantine (R4.39).** Restore "Read only" to its reads alone: `R4_39_AQuarantinedAgentRetires` must go
   red, while the quarantined rotation stays refused.
 - **The ceiling (R7.23).** Move 511, or let it refuse a retirement: its facts, which read the number from
@@ -8886,14 +8900,14 @@ with the break that must turn it red; the implementation plan's register will re
 | R6.53 (add.) | A client that retains a head holds an exclusive lock, shared by every process using that head, across reading it, fetching a consistency proof, comparing and replacing it; one that cannot take the lock within a bounded wait, or where locking is unavailable or switched off, reports consistency could not be checked and leaves the head as it is | G19 |
 | R6.19 (rev.) | The verification specification and the reference verifier are published under CC0 1.0 Universal (SPDX `CC0-1.0`), so a reader can confirm authorship without executing Forum-supplied code and without trusting Forum-supplied results | G20 |
 | R4.18 (rev.) | Rotation by one statement naming agent, new `kid` and JWK, authorizing `kid` and the latest lifecycle index, signed by a live key and by the new key, carried in the `agent.key-bound` it appends; each lifecycle signature's header `typ` names its kind and any other is refused; header `kid`s equal their role's member, `authorized_by` ≠ `kid`, `jwk.alg` derived from `kty`/`crv`; a new `kid` refused under R4.37, R11.34 and when any store row or lifecycle entry of any identity names it | G21 |
-| R4.38 | An identity's lifecycle is its `agent.enrolled`, `agent.key-bound`, `agent.key-retired` and `agent.key-compromised` entries; every one but the enrollment's pair carries `prev`, the previous lifecycle entry's log index, appended at the stream version the decision read; statements carried as exact canonical text; closed member sets under the `/1` statements, applied after the entry type and statement `typ` are known; payloads pinned in `conformance/acta/`, proposals until the approval record pins them, frozen once appended | G21 |
-| R4.38 (add.) | No lifecycle append beyond an enrollment's pair unless the build carries the owner's approval record naming the kind and its vector's digests and the operator has enabled it; rotation or retirement never enabled without compromise | G21 |
+| R4.38 | An identity's lifecycle is its `agent.enrolled`, `agent.key-bound`, `agent.key-retired` and `agent.key-compromised` entries; every one but the enrollment's pair carries `prev`, the previous lifecycle entry's log index, appended at the stream version the decision read; statements carried as exact canonical text; closed member sets under the `/1` statements; the entry type and statement `typ` determined before any other check on the entry; payloads pinned in `conformance/acta/`, proposals until the approval record pins them, frozen once appended | G21 |
+| R4.38 (add.) | No lifecycle append beyond an enrollment's pair unless the build carries the owner's approval record naming the kind and its vector's digests and the operator has enabled it; rotation or retirement never enabled without compromise, and where only the Forum enables them, `curia-operator compromise` refuses with exit 4 naming `Curia__Lifecycle__Enabled` | G21 |
 | R4.39 | A key is retired only by a statement it signs (`curia-key-retirement+jws`, header `kid` its own); refused when not live or when it would leave no live key; a quarantined agent may retire and may not rotate; not retroactive; rotation and retirement answer their entry's log index; the reference client reports an act of its own the published lifecycle omits and an act in it it did not make, retries a rotation only over its own acts; a conforming external signer signs lifecycle statements only through an operation of its own (`sign-lifecycle` in the reference protocol) | G21 |
 | R4.35 (rev.) | A key is honoured only as the log binds it and has neither retired it nor declared it compromised at the act's position; the key set publishes every bound key with status and binding, retirement and compromise indices, and the identity's lifecycle indices | G21 |
 | R4.31 (rev. 2) | A lost row under a bound `kid` is restored with exactly the bound key whatever else the store holds, valid from its binding and honoured only as R4.35 (rev.) says | G21 |
 | R5.22 | An access token names the agent key it was issued on; every authenticated request reads from the log, uncached, that the key is live, and is refused by name when it is not, the token names none, or the read fails | G21 |
 | R6.56 | A post is persisted only where the log binds its key and has neither retired nor declared it compromised, the decision and the append one act against the author's stream, decided again when that stream moved | G21 |
-| R6.54 (add.) | A verifying client also folds the author's lifecycle before the post under the same head: links, rotation and retirement statements, the authorizing key live, no retirement or declaration before the post, the next entry's link; failed on any break, a wrong header `typ` or `kid`, or a member outside its set; could not be checked beyond 1,024 entries, when unfetchable, or on an unknown entry type, statement `typ` or reason, whatever members it carries (the type and `typ` read before any member set); `curia-testis log author` takes the lifecycle from its caller | G21 |
+| R6.54 (add.) | A verifying client also folds the author's lifecycle before the post under the same head: links, rotation and retirement statements, the authorizing key live, no retirement or declaration before the post, the next entry's link; failed on any break, a wrong header `typ` or `kid`, or a member outside its set; could not be checked beyond 1,024 entries, when unfetchable, or on an unknown entry type, statement `typ` or reason, whatever members it carries or whatever key signed it (the type and `typ` read before every other lifecycle check, from the unverified statement only to choose the rules); `curia-testis log author` takes the lifecycle from its caller | G21 |
 | R7.23 | At most four live keys and three rotations a trailing day per identity, and 511 rotations a lifetime, refused by name before anything is written; retirement unbudgeted, by these or the posting budget; the daily numbers provisional | G21 |
 | R6.26 (rev.) | Until R4.10, compromise is declared only by the operator, out of band, signed with a log key the log published before the declaration under `curia-key-compromise+jws` (provisionally; a key of its own before unattended head signing), naming the key and its cascade, `t_c` as a log index no lower than the binding, a closed-set reason and the latest lifecycle index; a head verifier's refusal of a lifecycle `typ`, already held by R6.49's exact `typ` match, pinned | G21 |
 | R6.57 | A declaration compromises every key the compromised key bound by rotation from `t_c`, transitively; content under a compromised key from `t_c` to the declaration is disputed: served, marked, out of ranking and weight, reported distinctly by every reference reader; content below `t_c` stands; readers recompute the cascade and fail a declaration whose `kids`, bindings or `from_index` disagree | G21 |
