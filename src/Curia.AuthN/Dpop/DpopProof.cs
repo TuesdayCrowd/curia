@@ -31,11 +31,13 @@ public sealed record DpopProofHeader(string Alg, string Typ)
     }
 }
 
-/// <summary>RFC 9449 §4.2's proof claims. <see cref="Ath"/> is only present (and only checked)
-/// when the proof accompanies a protected-resource request bound to an access token: the type is
-/// constructed only through <see cref="Parse"/>, which only <see cref="DpopProofValidator.Validate"/>
-/// calls, and that checks it only when its expectation carries an access token, which
-/// <see cref="AccessTokenValidator"/> passes and the token endpoint does not.
+/// <summary>RFC 9449 §4.2's proof claims. <see cref="Ath"/> is read from every proof, a token
+/// request's included, and checked only when the proof accompanies a protected-resource request bound
+/// to an access token: <see cref="DpopProofValidator.Validate"/> checks it only when its expectation
+/// carries an access token, which <see cref="AccessTokenValidator"/> passes and the token endpoint does
+/// not. Today the type is constructed only in <see cref="Parse"/>, which only
+/// <see cref="DpopProofValidator.Validate"/> calls. That is a convention, not a fence: the record's
+/// positional constructor is public, as <see cref="ValidatedProof"/>'s is.
 /// <see cref="Nonce"/> is optional on the wire; whether its absence is itself a failure is a
 /// caller decision (R5.19 is a SHOULD, scoped to write paths) -- see
 /// <see cref="AccessTokenValidator"/>'s nonce check. It stays the string the guarded reader read: a

@@ -25,7 +25,8 @@ namespace Curia.AuthN.Dpop;
 public sealed record DpopExpectation(string HttpMethod, string Url, string? AccessToken, string? ExpectedThumbprint);
 
 /// <summary>A proof that passed <see cref="DpopProofValidator.Validate"/>: its embedded key, that key's
-/// RFC 7638 thumbprint, and its claims.</summary>
+/// RFC 7638 thumbprint, and its claims. Today only Validate constructs one; the constructor is public,
+/// so <see cref="DpopProofValidator.ConsumeAsync"/> relies on its callers passing Validate's result.</summary>
 public sealed record ValidatedProof(Jwk Key, string Thumbprint, DpopProofClaims Claims);
 
 /// <summary>The value of an operation that succeeds with nothing to return.</summary>
@@ -37,8 +38,13 @@ public readonly record struct Unit
 /// <summary>
 /// R5.13: a DPoP proof is validated once, in one module, for every host. The resource server's Phase
 /// 4 (<see cref="AccessTokenValidator"/>) and the token endpoint both call <see cref="Validate"/>, then
-/// <see cref="ConsumeAsync"/>, so the token request's proof is held to every check a resource request's
-/// is (register D29). Before D29 closed, the token endpoint read a proof only for its key.
+/// <see cref="ConsumeAsync"/>, so the token request's proof passes the same typ, alg, key, signature,
+/// htm, htu and iat checks and the same jti replay insert as a resource request's (register D29). It is
+/// not held to the three checks that need a token or a write path: the token endpoint's expectation
+/// carries no access token and no thumbprint, so <c>ath</c> and the <c>cnf.jkt</c> binding are not
+/// checked there (there is no token yet), and the nonce is checked only by
+/// <see cref="AccessTokenValidator"/> (R5.19). Before D29 closed, the token endpoint read a proof only
+/// for its key.
 /// </summary>
 public static class DpopProofValidator
 {
