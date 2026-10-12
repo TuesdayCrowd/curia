@@ -60,7 +60,18 @@ public sealed class OracleTests(ForumFixture forum) : IClassFixture<ForumFixture
         var body = await response.Content.ReadAsStringAsync(ct);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problemType = Oracle.ProblemType("/oauth/token", body);
-        Assert.Equal(Oracle.TokenEndpointProofRefusal, problemType);
+        if (sendProof)
+        {
+            // Since D29 closed, the proof runs the one proof validator, whose refusal of a header that
+            // does not decode carries its slug: a parser's refusal, so the proof was read no further.
+            Assert.Contains(Oracle.Slug(problemType), Oracle.ParserRefusals);
+            Assert.Equal("invalid_dpop_proof curia/authn/malformed", problemType);
+        }
+        else
+        {
+            Assert.Equal(Oracle.TokenEndpointProofRefusal, problemType);
+        }
+
         Assert.False(Oracle.PastFirstParser(response.StatusCode, problemType), $"{problemType} counted as past the first parser");
     }
 }

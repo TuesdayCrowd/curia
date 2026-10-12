@@ -314,8 +314,9 @@ internal sealed class RequestModel(string method, string pattern)
     /// Only the re-signed copy of a variation of <c>jws:proof:header/jwk</c> or a member under it, on a
     /// request carrying both a token and a proof, is rebound: a re-signed copy stopped by a binding its
     /// own request carries has not reached past verification, which is what re-signing is for (R14.10),
-    /// and the token endpoint binds a token to any jwk it can read (register D29). The unre-signed copy
-    /// keeps the token as issued. The claims are a copy; the exemplar's are never changed.
+    /// and the rebinding probe exercises the resource path's key build, kept as defence in depth: the
+    /// token endpoint has refused an off-curve proof since D29 closed (register D29), so the harness
+    /// mints the rebound token itself. The unre-signed copy keeps the token as issued. The claims are a copy; the exemplar's are never changed.
     /// </summary>
     private JsonObject? ReboundTokenClaims(string? address, VariedValue? value, CopyKind copy)
     {

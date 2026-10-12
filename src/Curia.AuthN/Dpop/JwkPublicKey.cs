@@ -33,10 +33,10 @@ public static class JwkPublicKey
     ///
     /// <para><b>Why a result, never a throw.</b> <see cref="JwkParser"/> checks a coordinate's
     /// length, not that the two make a point, and the BCL refuses a point off the curve by throwing.
-    /// The token endpoint binds a token to a proof's key without building it (register D29), so an
-    /// agent could hold a token bound to such a key, and every route behind authentication threw on
-    /// its proof: a 500, which tells a caller to retry and never says what was wrong (R11.33, errata
-    /// G17).</para>
+    /// Until D29 closed, the token endpoint bound a token to a proof's key without building it
+    /// (register D29), so an agent could hold a token bound to such a key, and every route behind
+    /// authentication threw on its proof: a 500, which tells a caller to retry and never says what was
+    /// wrong (R11.33, errata G17).</para>
     /// </summary>
     /// <param name="jwk">The parsed DPoP proof key.</param>
     /// <param name="kid">DPoP proofs carry no separate <c>kid</c> header member (the key <i>is</i>

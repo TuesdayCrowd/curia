@@ -109,9 +109,9 @@ public static class TokenEndpoint
         if (string.IsNullOrWhiteSpace(proof))
             return OAuthError("invalid_dpop_proof", "A DPoP proof is required on the token request");
 
-        var thumbprint = DpopThumbprintOf(proof);
-        if (thumbprint is null)
-            return OAuthError("invalid_dpop_proof", "The DPoP proof's key could not be read");
+        var proofResult = DpopProofValidator.Validate(proof, new DpopExpectation("POST", TokenEndpointUrl(http), null, null), verifiers, clock.GetUtcNow());
+        if (!proofResult.TryGetValue(out var validatedProof, out var proofError))
+            return OAuthError("invalid_dpop_proof", "The DPoP proof was not accepted", proofError!.Type);
 
         // R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.
         var expectedSubject = AgentId.Parse(clientId, "client_id");
@@ -135,6 +135,10 @@ public static class TokenEndpoint
                 ? OAuthError("server_error", error.Title, error.Type)
                 : OAuthError("invalid_client", error.Title, error.Type);
         }
+
+        var consumed = await DpopProofValidator.ConsumeAsync(validatedProof!, replayCache, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        if (!consumed.TryGetValue(out _, out var consumeError))
+            return OAuthError("invalid_dpop_proof", "The DPoP proof was not accepted", consumeError!.Type);
 
         // Who is enrolled is a projection of the event log (R4.21), not something this process
         // remembers -- so a host that has just come up knows exactly as much as one that has been
@@ -170,7 +174,7 @@ public static class TokenEndpoint
 
         var token = issuer.Mint(
             claims.Sub,
-            thumbprint,
+            validatedProof!.Thumbprint,
             owner: claims.Sub,
             tier: tier.Tier.ToString(),
             scope: string.IsNullOrWhiteSpace(scope) ? "question:create answer:create" : scope);
@@ -183,28 +187,6 @@ public static class TokenEndpoint
             scope = token.Scope,
         });
     }
-
-    /// <summary>
-    /// The RFC 9449 <c>jkt</c> of the proof's embedded public key, read without verifying the proof.
-    ///
-    /// <para>Safe to read before verification because the thumbprint is only used to *bind* the
-    /// token to whatever key the client presented. If the client presented a key it does not hold,
-    /// it has bound its own token to something it cannot prove possession of -- a self-inflicted
-    /// denial, not an escalation. The proof itself is verified on every resource request, which is
-    /// where possession actually has to hold.</para>
-    /// </summary>
-    private static string? DpopThumbprintOf(string proof) =>
-        CompactJws.Split(proof)
-            .Bind(parts => CompactJws.ParseHeader(parts, ProofKey))
-            .TryGetValue(out var key, out _)
-            ? JwkThumbprint.Compute(key!)
-            : null;
-
-    /// <summary>The proof's <c>jwk</c>, read through <see cref="CompactJws"/> as every other compact JWS is (R5.13). A header that is not an object, or that holds a string which does not decode, is a key that cannot be read (R11.33), never a throw: the endpoint keeps no parse of its own to fall behind CompactJws's.</summary>
-    private static Result<Jwk> ProofKey(JsonElement header) =>
-        header.TryGetProperty("jwk", out var jwk) && jwk.ValueKind == JsonValueKind.Object
-            ? JwkParser.Parse(jwk)
-            : Result<Jwk>.Fail(AuthNErrors.MalformedJwk("missing jwk header parameter"));
 
     /// <summary>
     /// The absolute token-endpoint URL, which the assertion's <c>aud</c> must match.

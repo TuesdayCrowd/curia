@@ -1,5 +1,3 @@
-using System.Buffers.Text;
-using System.Security.Cryptography;
 using Curia.AuthN.Dpop;
 using Curia.AuthN.Jwt;
 using Curia.Domain.Primitives;
@@ -117,70 +115,21 @@ public static class AccessTokenValidator
         if (request.DpopProof is null)
             return Result<ValidatedRequest>.Fail(AuthNErrors.MissingDpopProof());
 
-        if (!CompactJws.Split(request.DpopProof).TryGetValue(out var proofParts, out var proofSplitError))
-            return Result<ValidatedRequest>.Fail(proofSplitError!);
-
-        if (!CompactJws.ParseHeader(proofParts, DpopProofHeader.Parse).TryGetValue(out var proofHeader, out var proofHeaderError))
-            return Result<ValidatedRequest>.Fail(proofHeaderError!);
-
-        // Errata A17's first addition: "require proof.header.typ == 'dpop+jwt'" -- placed here,
-        // as early in Phase 4 as R5.9 places the access token's own type/algorithm pins in Phase
-        // 1, and before any of the embedded key is even parsed.
-        if (proofHeader.Typ != "dpop+jwt")
-            return Result<ValidatedRequest>.Fail(AuthNErrors.TypMismatch("dpop+jwt", proofHeader.Typ));
-
-        // Not an errata item -- Stage C's own hardening, mirroring R5.9's reasoning for the DPoP
-        // proof's own header: a proof carrying alg:"none" or an HMAC alg must never reach
-        // verify_signature. See the Stage C report.
-        if (!AuthNConstants.AllowedAlgorithms.Contains(proofHeader.Alg))
-            return Result<ValidatedRequest>.Fail(AuthNErrors.AlgNotAllowed(proofHeader.Alg));
-
-        if (!CompactJws.ParseHeader(proofParts, DpopProofHeader.ParseJwk).TryGetValue(out var jwk, out var jwkError))
-            return Result<ValidatedRequest>.Fail(jwkError!);
-
-        var thumbprint = JwkThumbprint.Compute(jwk);
-        if (!FixedTimeEquals(thumbprint, claims.CnfJkt))
-            return Result<ValidatedRequest>.Fail(AuthNErrors.BindingMismatch());
-
-        // R5.21 (errata G16): the proof's alg names the embedded key's algorithm, which its jwk's type
-        // fixes, before any key material is built or any verifier chosen by the header.
-        var keyAlg = jwk!.Match(okpEd25519: _ => "EdDSA", ecP256: _ => "ES256");
-        if (!string.Equals(proofHeader.Alg, keyAlg, StringComparison.Ordinal))
-            return Result<ValidatedRequest>.Fail(AuthNErrors.AlgKeyMismatch(proofHeader.Alg, keyAlg));
-
-        // R11.33 (errata G17): a jwk whose coordinates are no point on the curve is a malformed
-        // proof, answered as one. The token endpoint binds a token to a proof's key without building
-        // it (register D29), so an agent can hold a token bound to such a key, and this threw.
-        if (!jwk.ToPublicKeyMaterial(kid: "").TryGetValue(out var proofKey, out var proofKeyError))
-            return Result<ValidatedRequest>.Fail(proofKeyError!);
-
-        if (!context.VerifiersByAlg.TryGetValue(proofHeader.Alg, out var proofVerifier))
-            return Result<ValidatedRequest>.Fail(AuthNErrors.AlgNotAllowed(proofHeader.Alg));
-
-        if (!CompactJws.VerifySignature(proofParts, proofVerifier, proofKey))
-            return Result<ValidatedRequest>.Fail(AuthNErrors.SignatureInvalid());
-
-        if (!CompactJws.ParsePayload(proofParts, DpopProofClaims.Parse).TryGetValue(out var proofClaims, out var proofClaimsError))
-            return Result<ValidatedRequest>.Fail(proofClaimsError!);
-
-        if (proofClaims.Htm != request.HttpMethod)
-            return Result<ValidatedRequest>.Fail(AuthNErrors.MethodMismatch());
-
-        if (proofClaims.Htu != request.CanonicalUrl)
-            return Result<ValidatedRequest>.Fail(AuthNErrors.UrlMismatch());
-
-        var skew = proofClaims.Iat > now ? proofClaims.Iat - now : now - proofClaims.Iat;
-        if (skew > AuthNConstants.MaxSkew)
-            return Result<ValidatedRequest>.Fail(AuthNErrors.ProofWindowExceeded());
-
-        if (proofClaims.Ath != ComputeAth(token))
-            return Result<ValidatedRequest>.Fail(AuthNErrors.AthMismatch());
+        // R5.13: the proof's checks run in the one validator the token endpoint runs too, here with
+        // the token's cnf.jkt and the access token its ath must name.
+        var proofResult = DpopProofValidator.Validate(
+            request.DpopProof,
+            new DpopExpectation(request.HttpMethod, request.CanonicalUrl, token, claims.CnfJkt),
+            context.VerifiersByAlg,
+            now);
+        if (!proofResult.TryGetValue(out var validatedProof, out var proofError))
+            return Result<ValidatedRequest>.Fail(proofError!);
 
         // Errata B4/R5.19: required only on write paths, and only when this resource server has
         // a nonce store configured at all (a deployment may not have adopted the SHOULD yet).
         if (request.RequireDpopNonce && context.DpopNonceStore is { } nonceStore)
         {
-            if (proofClaims.Nonce is not { } nonce)
+            if (validatedProof!.Claims.Nonce is not { } nonce)
                 return Result<ValidatedRequest>.Fail(AuthNErrors.NonceMissing());
 
             // R11.33 (errata G17): a nonce the Forum could not have issued is a stale one, answered
@@ -198,31 +147,12 @@ public static class AccessTokenValidator
                 return Result<ValidatedRequest>.Fail(AuthNErrors.NonceStale());
         }
 
-        var proofExpiry = now + AuthNConstants.MaxSkew;
-        var insertResult = await context.ReplayCache
-            .TryInsertAsync(proofClaims.Jti, proofExpiry, cancellationToken)
-            .ConfigureAwait(false);
-        if (!insertResult.TryGetValue(out var inserted, out var insertError))
-            return Result<ValidatedRequest>.Fail(insertError!);
-
-        if (!inserted)
-            return Result<ValidatedRequest>.Fail(AuthNErrors.Replay());
+        var consumed = await DpopProofValidator.ConsumeAsync(validatedProof!, context.ReplayCache, now, cancellationToken).ConfigureAwait(false);
+        if (!consumed.TryGetValue(out _, out var consumeError))
+            return Result<ValidatedRequest>.Fail(consumeError!);
 
         // ---- Phases 5-6: live state and authorization --------------------------------------
         // Deliberately not implemented here -- see ValidatedRequest's remarks.
-        return Result<ValidatedRequest>.Ok(new ValidatedRequest(claims, thumbprint));
+        return Result<ValidatedRequest>.Ok(new ValidatedRequest(claims, validatedProof!.Thumbprint));
     }
-
-    /// <summary>RFC 9449 §4.2's <c>ath</c>: <c>base64url(sha256(access_token))</c>, where
-    /// <paramref name="accessToken"/> is the compact access token string Phase 1 extracted (not
-    /// the DPoP proof itself).</summary>
-    private static string ComputeAth(string accessToken) =>
-        Base64Url.EncodeToString(SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(accessToken)));
-
-    /// <summary>Both operands are already-computed digests/thumbprints (fixed-length, base64url
-    /// text), not secrets an attacker recovers bit-by-bit through a comparison, but comparing
-    /// them in constant time costs nothing here and removes the question.</summary>
-    private static bool FixedTimeEquals(string a, string b) =>
-        a.Length == b.Length && CryptographicOperations.FixedTimeEquals(
-            System.Text.Encoding.ASCII.GetBytes(a), System.Text.Encoding.ASCII.GetBytes(b));
 }

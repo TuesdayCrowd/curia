@@ -112,7 +112,18 @@ internal sealed class DpopClient
     internal string Proof(string method, string url, DateTimeOffset now, string? accessToken, string? nonce, Action<JsonObject> edit) =>
         Proof(method, url, now.ToUnixTimeSeconds(), accessToken, nonce, edit);
 
-    private string Proof(string method, string url, long iat, string? accessToken, string? nonce, Action<JsonObject> edit)
+    /// <summary>
+    /// The proof with its header and its payload edited as written, then signed by the bound DPoP key:
+    /// for a proof no honest client would send, such as one whose <c>typ</c> or <c>alg</c> is not its
+    /// own, or whose <c>jwk</c> is no point on the curve.
+    /// </summary>
+    internal string Proof(string method, string url, DateTimeOffset now, Action<JsonObject> editHeader, Action<JsonObject> editPayload) =>
+        Proof(method, url, now.ToUnixTimeSeconds(), accessToken: null, nonce: null, editPayload, editHeader);
+
+    private string Proof(string method, string url, long iat, string? accessToken, string? nonce, Action<JsonObject> edit) =>
+        Proof(method, url, iat, accessToken, nonce, edit, _ => { });
+
+    private string Proof(string method, string url, long iat, string? accessToken, string? nonce, Action<JsonObject> edit, Action<JsonObject> editHeader)
     {
         var header = new JsonObject
         {
@@ -120,6 +131,7 @@ internal sealed class DpopClient
             ["typ"] = "dpop+jwt",
             ["jwk"] = DpopJwk(),
         };
+        editHeader(header);
 
         var payload = new JsonObject
         {
@@ -166,8 +178,16 @@ internal sealed class DpopClient
     /// proof: for an assertion no honest client would sign, such as one whose header names another
     /// algorithm than its key's.
     /// </summary>
-    internal async Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenAsync(
-        HttpClient client, string tokenEndpoint, DateTimeOffset now, string clientId, string assertion, CancellationToken ct)
+    internal Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenAsync(
+        HttpClient client, string tokenEndpoint, DateTimeOffset now, string clientId, string assertion, CancellationToken ct) =>
+        RequestTokenWithProofAsync(client, clientId, assertion, Proof("POST", tokenEndpoint, now), ct);
+
+    /// <summary>
+    /// One token request carrying <paramref name="assertion"/> and <paramref name="proof"/> as
+    /// written: for a proof no honest client would send, or one sent twice.
+    /// </summary>
+    internal static async Task<(System.Net.HttpStatusCode Status, string Body)> RequestTokenWithProofAsync(
+        HttpClient client, string clientId, string assertion, string proof, CancellationToken ct)
     {
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -179,7 +199,7 @@ internal sealed class DpopClient
         });
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
-        request.Headers.Add("DPoP", Proof("POST", tokenEndpoint, now));
+        request.Headers.TryAddWithoutValidation("DPoP", proof);
 
         using var response = await client.SendAsync(request, ct);
         return (response.StatusCode, await response.Content.ReadAsStringAsync(ct));

@@ -82,8 +82,8 @@ public sealed class AccessTokenValidatorDpopTests
 
     /// <summary>
     /// R11.33 (errata G17): a proof whose <c>jwk</c> is no point on P-256, under a token bound to
-    /// that jwk -- which the token endpoint issues, since it reads a proof's key without building it
-    /// (register D29) -- is refused as a malformed key, never thrown. It threw: the key was built with
+    /// that jwk -- which the token endpoint issued until D29 closed, since it read a proof's key without
+    /// building it (register D29) -- is refused as a malformed key, never thrown. It threw: the key was built with
     /// <c>ECDsa.Create</c>, which refuses a point off the curve with an exception nothing caught, and
     /// every route behind authentication answered 500.
     /// </summary>
