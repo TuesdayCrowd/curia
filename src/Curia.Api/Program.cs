@@ -18,6 +18,7 @@ using Curia.Domain.Authorization;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Infrastructure;
+using Curia.Infrastructure.Lifecycle;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Curia.Api;
@@ -102,6 +103,19 @@ public sealed class Program
 
             return new PostgresAdapters(connectionString, sp.GetRequiredService<TimeProvider>());
         });
+
+        // R4.38 (add.): the lifecycle guard's gate, built by its one public factory over the approval
+        // record embedded in the build (lock 1) and the opt-in Curia:Lifecycle:Enabled (lock 2). An opt-in
+        // that does not parse, enables rotation or retirement without compromise, or names a kind the
+        // record does not approve stops the host at startup, by name: resolved below, before the host
+        // runs, so a refusal is never logged and continued past.
+        builder.Services.AddSingleton<ILifecycleAppendGate>(_ =>
+            EmbeddedLifecycleAppendGate.FromEmbedded(builder.Configuration["Curia:Lifecycle:Enabled"]).Match(
+                gate => gate,
+                error => throw new InvalidOperationException(
+                    $"Curia:Lifecycle:Enabled is refused ({error.Type}: {error.Title}; {error.Detail}). " +
+                    "The lifecycle guard is on until the owner lifts it (R4.38 (add.)); the opt-in is none " +
+                    "until then.")));
 
         // The Registrar's key store, satisfying three ports from one table (see
         // PostgresAgentKeyStore's remarks: Curia.Application and Curia.AuthN cannot see each
@@ -294,6 +308,11 @@ public sealed class Program
         builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
 
         var app = builder.Build();
+
+        // Lock 2 at startup: the gate is built now, so a refused opt-in fails the start rather than the
+        // first append.
+        _ = app.Services.GetRequiredService<ILifecycleAppendGate>();
+
         app.UseUnreadableRequests();
         app.UseUtf8JsonBodies();
         TokenEndpoint.Map(app);

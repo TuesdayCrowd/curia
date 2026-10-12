@@ -43,4 +43,14 @@
       <LogicalName>Curia.Infrastructure.Migrations.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
+  <ItemGroup>
+    <!--
+      R4.38 (add.): the lifecycle approval record, embedded so the build carries it and a missing or
+      unparsable record fails closed (spec section 4.13). Its manifest name is written once in source,
+      as LifecycleApprovalRecord.ResourceName. Empty until the owner lifts the guard.
+    -->
+    <EmbeddedResource Include="Lifecycle/lifecycle-approval.json">
+      <LogicalName>Curia.Infrastructure.Lifecycle.lifecycle-approval.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

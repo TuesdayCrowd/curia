@@ -37,6 +37,12 @@ public static class DomainErrors
     public const string ConcurrencyConflictType = "curia/domain/concurrency-conflict";
 
     /// <summary>
+    /// R4.38 (add.): the problem type the event store answers when an append carries a lifecycle kind
+    /// its gate does not enable. The append writes nothing (spec section 4.13).
+    /// </summary>
+    public const string LifecycleAppendRefusedType = "curia/domain/lifecycle-append-refused";
+
+    /// <summary>
     /// R11.6/CS-15's optimistic-concurrency failure: the caller's belief about how many events
     /// an aggregate already has does not match the store's. A <see cref="Result{T}"/> failure,
     /// never an exception and never a silent overwrite (per Stage 1's brief).
