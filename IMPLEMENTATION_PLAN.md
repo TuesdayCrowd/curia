@@ -168,7 +168,8 @@ set; SP scores recorded even if not yet weighted.*
 > carries out **D16**'s decided CI change: the architecture rules run in
 > Debug in CI as well as in Release. And it opens **D29**, which its Task 6's review found: the
 > token endpoint verifies nothing of the DPoP proof a token request carries, so R5.21's pin holds at
-> the two validators and not there. Its final wave closes **D30**, which the stage's final review
+> the two validators and not there (since the rotation stage's PR 0, D29 closed, it holds there too).
+> Its final wave closes **D30**, which the stage's final review
 > found (errata G16): an identifier NFC maps onto another enrolled identity's had a post accepted
 > signed in that identity's name. VERIFY now reads the envelope from the canonical form the
 > signature covers (R6.55), and the enrollment route refuses an agent identifier outside NFC (R4.36).
@@ -220,12 +221,18 @@ set; SP scores recorded even if not yet weighted.*
 > `declared_license` in R8.45, §8.1, C.3 and the signed fixture, and `license` in `PostEnvelope` and
 > `SubmissionBuilder`. It is a schema `v: 1` question (R15.1) and waits on a ruling.
 >
+> **D41** was opened on 2026-10-12, by the review of the rotation stage's PR 0. The token endpoint's
+> `htu` and the client assertion's `aud`, and the resource server's `htu`, are built from the `Host`
+> header the caller sent, not from the Forum's origin, so a request signed for another server and
+> relayed here under that server's `Host` is honoured. It predates D29, is open, and is its own PR
+> after PR 0.
+>
 > **The rotation stage is opened, not done** (2026-10-11, errata **G21**; its spec
 > `docs/superpowers/specs/2026-10-11-keys-that-end-design.md` and plan
 > `docs/superpowers/plans/2026-10-11-keys-that-end.md`). Three PRs, in order: **PR 0** (branch
 > `token-proof-verified`) closes **D29** and the key-binding stage's **M5** at the token endpoint and
-> changes no requirement (*merged-pending*, 2026-10-12: D29 and M5 closed on the branch, every gate
-> run; not met until its PR merges); **PR 1** (branch `key-rotation`) builds rotation and self-retirement (R4.18
+> changes no requirement (*merged-pending*, 2026-10-12: D29 and M5 closed on the branch; not met until
+> its PR merges); **PR 1** (branch `key-rotation`) builds rotation and self-retirement (R4.18
 > (rev.), R4.38, R4.39, R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's
 > two `key` rows; **PR 2** (branch `key-compromise`) builds the operator's compromise declaration
 > (R6.26 (rev.), R6.57, R6.30 (rev.)). No requirement of G21 is met until its PR merges; read this line
@@ -1958,8 +1965,9 @@ problem document the Forum composes goes through `ServerFault` (`src/Curia.Api/S
 which serves the fault's type and title and logs its detail, event 5000; `ForumEndpoints.Problem`
 returns one for every 5xx (`src/Curia.Api/ForumEndpoints.cs:2171`) and the Acta's fold for both of its
 faults (`src/Curia.Api/ActaEndpoints.cs:233`, `:239`). Two 5xx do not: the token endpoint's
-`server_error`, which is RFC 6749's shape rather than a problem document and keeps its slug `detail`
-(the key-binding stage's M5, with D29), and an exception nothing handles, which a production host
+`server_error`, which is RFC 6749's shape rather than a problem document. Since the rotation stage's
+PR 0 (M5) it serves its code and a fixed description, and logs its slug and detail as event 5000
+(`src/Curia.Api/Issuer/OAuthRefusal.cs`), and an exception nothing handles, which a production host
 answers with its own empty 500 (the Development host's exception page is a developer's tool). The
 vector index still folds Postgres's text into its error
 (`src/Curia.Infrastructure/PostgresVectorIndex.cs:185`); the log is where it now goes. The sweep,
@@ -2924,9 +2932,11 @@ key's, so a header naming the other allowed algorithm read as a bad signature
   `AccessTokenValidatorDpopTests.R5_21_AProofWhoseHeaderNamesAnotherAlgorithmThanItsJwkIsRefusedByName`,
   and over HTTP
   `StoredKeyFormTests.R5_21_AnAssertionWhoseHeaderNamesAnotherAlgorithmThanItsKeyIsRefusedByName`).
-  The pin holds at those two alone: a client assertion's at the token endpoint, and a DPoP proof's at
-  the resource server. The token endpoint verifies nothing of the DPoP proof a token request carries,
-  so no pin runs there (D29).
+  At the key-binding stage the pin held at those two alone: a client assertion's at the token
+  endpoint, and a DPoP proof's at the resource server. Since the rotation stage's PR 0 (D29 closed) it
+  holds at a third: the token request's DPoP proof passes `DpopProofValidator.Validate`, which refuses
+  `curia/authn/alg-key-mismatch` before a verifier is chosen
+  (`src/Curia.AuthN/Dpop/DpopProofValidator.cs:93-94`).
 - **R6.54.** `PostVerifier`'s fourth check, `key`, and `curia-testis log author`, which reads no agent
   key set. The overall verdict needs the fourth check verified. Each reader compares the binding with
   the post's author and `kid` before it trusts the binding's key
@@ -4036,7 +4046,8 @@ text, not an escalation.
 **Not fixed here.** R5.21 is not scoped to exclude the token endpoint: once the endpoint verifies its
 proof, the requirement holds there without a word changed, and errata G16 says so. The fix routes
 the token request's proof through the one proof validator (R5.13): the resource path's proof checks,
-with the endpoint's own `htu` and without `ath` or `cnf.jkt`, answering `invalid_dpop_proof`, with
+with the endpoint's ~~own~~ `htu` *(the one it builds from the request; corrected at the review of
+91fe326, D41)* and without `ath` or `cnf.jkt`, answering `invalid_dpop_proof`, with
 the replay cache. That is a behaviour change to the token endpoint, with a fact for each row above.
 "What comes next" carries it. Since Task A5 (406a5ed), the fuzzer's `perturbed-first` class exercises this
 on every closed pass: the 8 POST /oauth/token rows for `jws:proof:header/jwk/x` and `/y`, re-signed and
@@ -4048,8 +4059,11 @@ recorded by Task 0.4; its plan, `docs/superpowers/plans/2026-10-11-keys-that-end
 merge pending). The token request's DPoP proof passes the one proof validator
 (`src/Curia.AuthN/Dpop/DpopProofValidator.cs`): `Validate` holds the checks `AccessTokenValidator` ran,
 in the same order and with the same errors, and `ConsumeAsync` the replay insert. The token endpoint
-validates the proof against its own `POST` and `htu`, with no `ath`, no `cnf.jkt` binding and no nonce
-(R5.19), before it reads the client assertion; it consumes the proof only after the assertion
+validates the proof against `POST` and the `htu` it builds from the request (scheme, `Host`, path base
+and path; `TokenEndpoint.cs:199-200`). That binds a proof to the URL the caller addressed, not to this
+Forum's origin: a caller who sends another `Host` chooses the expected `htu`, and the client
+assertion's `aud`, through the same helper (D41). It does so with no `ath`, no `cnf.jkt` binding and
+no nonce (R5.19), before it reads the client assertion; it consumes the proof only after the assertion
 authenticates, and binds the token to `ValidatedProof.Thumbprint`. `DpopThumbprintOf` and `ProofKey` are
 deleted. The resource path calls the same two methods, with its nonce block between them. No word of
 R5.13, R5.14, R5.16 or R5.21 changed (errata G21's §5.5, §5.6 row).
@@ -4889,7 +4903,8 @@ evidence that the class was open at the merge.
   are not base64url, so the JWS parse, the jwk parser or `JwkParser.TryDecode` refused every one on an
   authenticated route before the binding check, and clause 5 credited those parts with reach on that
   parser refusal. The request is reachable from the wire: the token endpoint binds a token to any jwk it
-  can read without building the key (D29), the two-request path recorded under D25 and closed by
+  can read without building the key (D29; since the rotation stage's PR 0, D29 closed, it verifies the
+  proof first, and an off-curve key is refused), the two-request path recorded under D25 and closed by
   777db55. Two remedies, by curia-architect's ruling (spec §4.10 Signing, §4.11):
   1. *Rebinding.* The re-signed copy of a variation of `jws:proof:header/jwk/…` rebinds the token's
      `cnf.jkt` to the RFC 7638 thumbprint the fuzzer computes from the rendered jwk's four strings
@@ -5092,7 +5107,13 @@ evidence that the class was open at the merge.
   - *Observed, not acted on* (review of Task 0.2, 2026-10-12; one entry): the coarse body makes a `kid`
     registered to another agent and a failing signature equal in bytes, not in timing
     (`LogBoundKeys`' read, by reading the code, not measured); that leaks nothing, because the Forum
-    serves the kid-to-agent mapping. An anonymous caller can force one event-log read per
+    serves the kid-to-agent mapping. That reason does not reach a store row the log does not bind,
+    which the Forum does not serve (R4.35, errata G16): a store miss returns before `BindingAsync` and
+    an unbound row does not (`LogBoundKeys.cs:70-79`), so whether such a row exists is still told by one
+    event-log read's time, read from the code and not measured (review of 91fe326). Closing it means a
+    log read on a miss as well, or a resolver that consults the log first. A measured probe should
+    precede either: time not-registered against not-bound-by-the-log over enough requests to separate
+    one indexed read from none. An anonymous caller can force one event-log read per
     `/oauth/token` request with a public agent id and kid, which predates D29. `/oauth/token` has no
     rate limiter, and the register has no entry for one. Event 5001 carries no correlation id.
   - *Deferred* (review of Task 0.2, 2026-10-12): tightening `ProblemShape.NotAProblem` to the exact
@@ -5833,6 +5854,42 @@ on the next errata pass. Either way it should close before R8.44–R8.46 are bui
 block's member set should be closed, so that a misspelling is refused rather than kept and dropped,
 is R8.62/R8.63's question. It is not answered here.
 
+### D41 — `htu` and `aud` bind to the Host header the caller sent, not to the Forum's origin *(pre-existing; found by the review of the rotation stage's PR 0, 2026-10-12)*
+
+**The expected URL is the request's.** The token endpoint's expected `htu` and the client
+assertion's expected `aud` (`src/Curia.Api/Issuer/TokenEndpoint.cs:112`, `:119`, `:199-200`) and the
+resource server's expected `htu` (`src/Curia.Api/ForumEndpoints.cs:2267-2268`, `AbsoluteUrl`) are all
+`{Scheme}://{request.Host}{PathBase}{Path}`. The reader-contract URL served in every provenance
+envelope is built the same way (`ForumEndpoints.cs:2256-2257`, `ReaderContractUrl`), so a `Host`
+header value also reaches served content. Nothing in `src/` configures `AllowedHosts`, host
+filtering or forwarded headers.
+
+**Probe** (run twice on 2026-10-12, against `Curia.Api.Tests`' in-process test host in Release, as an
+uncommitted test; then deleted). Enrol an agent, then send `POST /oauth/token` with
+`Host: another.example` and a proof and assertion naming `http://another.example/oauth/token`. Both
+runs answered 200 with an access token. With the honest `Host` the same proof and assertion were
+refused 400 `invalid_dpop_proof` in both runs. So a server that receives a token request (or a
+resource request) signed for its own URL can relay it to this Forum under its own `Host` and have it
+honoured. That is the cross-server binding RFC 9449 §4.3 and RFC 7523's `aud` exist to give.
+
+- `D29_AProofWhoseHtuNamesAnotherHostIsRefused` holds only because its helper sends the honest
+  `Host`. It shows the comparison runs, not that `htu` names this Forum (vacuity question 4: the
+  expectation and the input share one source, the request).
+- The comments above `TokenEndpointUrl` (`TokenEndpoint.cs`) and `AbsoluteUrl` (`ForumEndpoints.cs`)
+  argue that a configured value would let a check pass, or would defeat the binding, whenever the
+  Forum is reached through an unexpected host. That has it backwards: a proof made for an unexpected
+  host is a proof made for another origin, and refusing it is the binding.
+
+**Next action**, its own PR after PR 0 and not inside PR 1: a configured public origin, read at
+startup and failing loudly when absent, like `CURIA_EVENTS_POSTGRES`. It is used for the token
+`htu`, the assertion `aud`, the resource `htu` and the reader-contract URL, with the two comments
+rewritten. The probe that carries information is the relay probe above, kept as a fact that must
+answer a refusal, and falsified by restoring `request.Host`. Every fixture's base address must equal
+the configured origin, or the suite proves nothing.
+
+**Not established here:** whether a signed envelope names its Forum, and so whether a relayed post is
+attributable to the wrong Forum. That is the first question that PR answers.
+
 ### Observed during the reader stage's PR A
 
 - **The posting path's refusal is held structurally, not behaviourally.** `RefusalPathTests` proves
@@ -6136,7 +6193,9 @@ is R8.62/R8.63's question. It is not answered here.
   `eddsa-header-over-an-es256-key` row). The pin would name the refusal. Registered, not built.
   *Closed by the key-binding stage (R5.21): both validators refuse `curia/authn/alg-key-mismatch`
   before a verifier is chosen. That is the client assertion and the resource server's DPoP proof;
-  the token request's DPoP proof is not verified at all, so no pin runs there (D29).*
+  the token request's DPoP proof is not verified at all, so no pin runs there (D29). Since the
+  rotation stage's PR 0 (D29 closed) the token request's proof is verified too, and the same refusal
+  runs there (`DpopProofValidator.cs:93-94`).*
 - **The token endpoint puts the failing check's slug in `detail`** (`TokenEndpoint.cs:97`), for
   example `curia/keys/not-registered-to-agent` or `curia/authn/subject-mismatch`. R5.12 asks for a
   coarse category. It predates this stage, and is recorded, not ruled. *Since the key-binding stage
@@ -6146,7 +6205,15 @@ is R8.62/R8.63's question. It is not answered here.
   caller holding no key learns, for a guessed agent and `kid`, whether the store holds that row and
   the log does not bind it. R5.20's property holds, since another agent's `kid` still meets the
   store's refusal first, and such a row authenticates nothing (R4.35). It is R5.12's oracle, not a
-  new class, and a coarse `detail` would close both (the stage's final review, M5).*
+  new class, and a coarse `detail` would close both (the stage's final review, M5).* *Closed in bytes
+  by the rotation stage's PR 0 (M5, 2026-10-12, merge pending): the token endpoint refuses only
+  through `OAuthRefusal`, which serves the code and a fixed description and never a `detail`, so
+  `not-bound-by-the-log`, `not-registered-to-agent` and `signature-invalid` are one body (F0-6, F0-7;
+  the slug is logged, event 5001, F0-12). Not closed in timing: `LogBoundKeys.ResolveAsync` reads the
+  event log only after a store hit (`src/Curia.Application/Credentials/LogBoundKeys.cs:70-79`), so a
+  row the store holds and the log does not bind costs one event-log read that a store miss does not.
+  That oracle is this bullet's own (does the store hold an unbound row?), it is unmeasured, and it
+  stays open under the strangers stage's M5 note.*
 
 ### Observed during the moderation stage, not acted on
 
