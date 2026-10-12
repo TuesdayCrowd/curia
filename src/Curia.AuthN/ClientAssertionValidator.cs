@@ -54,7 +54,8 @@ public static class ClientAssertionValidator
         if (header.Typ != "JWT")
             return Result<ClientAssertionClaims>.Fail(AuthNErrors.TypMismatch("JWT", header.Typ));
 
-        // Detail text only. TokenEndpoint serves an error's Title and Type, never its Detail, and a caller's unparsable client_id is not echoed into one.
+        // Detail text only. The token endpoint serves only RFC 6749's error code and a fixed description, and for a 4xx logs only its code and slug
+        // (OAuthRefusal), so no Title, Type or Detail reaches a caller; even so, a caller's unparsable client_id is not echoed into one.
         var subjectText = context.ExpectedSubject.TryGetValue(out var parsedSubject, out _) ? parsedSubject!.Value : "(client_id is no agent id)";
 
         // R11.33 (errata G17): CompactJws.ReadString makes an absent or non-string kid "", and the
