@@ -242,7 +242,8 @@ set; SP scores recorded even if not yet weighted.*
 > `token-proof-verified`) closes **D29** and the key-binding stage's **M5** at the token endpoint and
 > changes no requirement (*merged-pending*, 2026-10-12: D29 and M5 closed on the branch; not met until
 > its PR merges); **PR 0.5** (branch `lifecycle-guard`) builds the lifecycle append guard (R4.38
-> (add.), guard facts GF1–GF10), must merge before PR 1, and leaves every lifecycle kind refused until
+> (add.), guard facts GF3–GF8 and GF10; GF1 lands with Task 1.6 and GF9 with Task 1.8 in PR 1, GF2
+> with Task 2.1 in PR 2), must merge before PR 1, and leaves every lifecycle kind refused until
 > the owner's own lift, which is in no PR of this stage (owner answer Q2, 2026-10-11); **PR 1** (branch
 > `key-rotation`) builds, behind the guard, rotation and self-retirement (R4.18 (rev.), R4.38, R4.39,
 > R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's two `key` rows;

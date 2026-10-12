@@ -8664,8 +8664,8 @@ and enforced where every lifecycle append must pass.
 **Lifting it is the owner's own act, under two locks.** Lock 1, the build: a change on `main` adds the
 approval record the build embeds, holding (a) the owner's decision in the owner's words, with its date
 and where it was given, best of all as the owner's own review of the lifting change; (b) the kinds
-approved; (c) for each kind, its event type and the sha256 of its pinned vector's `expected.canonical`
-and `expected.leaf`; (d) the owner's sign-off on the payloads' member names and event types; and (e) the
+approved; (c) for each kind, its event type, the name of its pinned vector's directory under
+`conformance/acta/`, and the sha256 of that vector's `expected.canonical` and `expected.leaf`; (d) the owner's sign-off on the payloads' member names and event types; and (e) the
 cybersecurity agent's sign-off on the lifecycle formats, at high confidence, and `hopper-doctrine`'s gate on the first append. A
 build-time fact recomputes (c) from `conformance/acta/` and fails on any mismatch; a tripwire fact asserts
 the approved set is empty, so the lifting change must change it. Compromise must be approved no later than
