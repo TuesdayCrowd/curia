@@ -176,6 +176,110 @@ public sealed class AccessTokenValidatorOrderingTests
         Assert.Empty(resolver.RequestedKids);
     }
 
+    // ---- The proof path (R5.13): each fact below builds a DPoP proof with two faults and asserts the
+    // earlier check's error, so the order of Phase 4 is pinned before the proof checks move into one
+    // validator both the token endpoint and the resource server call.
+
+    [Fact]
+    public async Task R5_13_AProofsBindingIsCheckedBeforeItsAlgKeyPin()
+    {
+        // The token's cnf.jkt names another key than the proof's, AND the proof's header alg (ES256)
+        // is not its Ed25519 jwk's. The binding is checked first, so binding-mismatch.
+        var scenario = new AccessTokenScenario();
+        var other = TestKeys.Ed25519("another-dpop-key");
+        var payload = scenario.ValidAccessTokenPayload()
+            .WithClaim("cnf", new Dictionary<string, object?> { ["jkt"] = other.Thumbprint });
+        var token = scenario.SignAccessToken(payload: payload);
+        var proof = scenario.SignDpopProof(token, header: scenario.ValidDpopHeader().With("alg", "ES256"));
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/binding-mismatch", error!.Type);
+    }
+
+    [Fact]
+    public async Task R5_13_AProofsAlgKeyPinIsCheckedBeforeItsSignature()
+    {
+        // The header alg (ES256) is not the Ed25519 jwk's, AND the signature is corrupted. The
+        // R5.21 pin runs before any key material is built or verified, so alg-key-mismatch.
+        var scenario = new AccessTokenScenario();
+        var token = scenario.SignAccessToken();
+        var proof = TestJwt.SignWithTamperedSignature(
+            scenario.ValidDpopHeader().With("alg", "ES256"), scenario.ValidDpopPayload(token), scenario.DpopKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/alg-key-mismatch", error!.Type);
+    }
+
+    [Fact]
+    public async Task R5_13_AProofsSignatureIsCheckedBeforeItsClaims()
+    {
+        // The signature is corrupted, AND htm names another method. The signature is verified before
+        // any claim is read, so signature-invalid.
+        var scenario = new AccessTokenScenario();
+        var token = scenario.SignAccessToken();
+        var proof = TestJwt.SignWithTamperedSignature(
+            scenario.ValidDpopHeader(), scenario.ValidDpopPayload(token).WithClaim("htm", "GET"), scenario.DpopKey);
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/signature-invalid", error!.Type);
+    }
+
+    [Fact]
+    public async Task R5_13_AProofsAthIsCheckedBeforeTheNonce()
+    {
+        // ath names another token, AND the write path requires a nonce the proof does not carry. ath
+        // is checked before the nonce, so ath-mismatch.
+        var scenario = new AccessTokenScenario();
+        var token = scenario.SignAccessToken();
+        var proof = scenario.SignDpopProof(token, payload: scenario.ValidDpopPayload(token).WithClaim("ath", TestJwt.ComputeAth("another-token")));
+        var request = scenario.ValidRequest(accessToken: token, dpopProof: proof, requireNonce: true);
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(request, scenario.Context, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/ath-mismatch", error!.Type);
+    }
+
+    [Fact]
+    public async Task R5_13_AProofsNonceIsCheckedBeforeTheReplayInsert()
+    {
+        // The proof's jti has been seen, AND the write path requires a nonce it does not carry. The
+        // nonce is checked before the replay insert, so nonce-missing.
+        var scenario = new AccessTokenScenario();
+        var ct = TestContext.Current.CancellationToken;
+        var token = scenario.SignAccessToken();
+        var seen = Guid.NewGuid().ToString("N");
+        Assert.True(Curia.Domain.Primitives.Boundary.Jti.Parse(seen).TryGetValue(out var seenJti, out _));
+        Assert.True((await scenario.ReplayCache.TryInsertAsync(seenJti!, scenario.Iat + TimeSpan.FromMinutes(5), ct)).TryGetValue(out var inserted, out _) && inserted);
+        var replayed = scenario.SignDpopProof(token, payload: scenario.ValidDpopPayload(token, jti: seen));
+
+        var result = await AccessTokenValidator.ValidateRequestAsync(
+            scenario.ValidRequest(accessToken: token, dpopProof: replayed, requireNonce: true), scenario.Context, ct);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("curia/authn/nonce-missing", error!.Type);
+
+        // And a proof refused at the nonce is not consumed: its jti never reaches the replay cache.
+        var fresh = Guid.NewGuid().ToString("N");
+        var unspent = scenario.SignDpopProof(token, payload: scenario.ValidDpopPayload(token, jti: fresh));
+
+        var second = await AccessTokenValidator.ValidateRequestAsync(
+            scenario.ValidRequest(accessToken: token, dpopProof: unspent, requireNonce: true), scenario.Context, ct);
+
+        Assert.False(second.TryGetValue(out _, out var secondError));
+        Assert.Equal("curia/authn/nonce-missing", secondError!.Type);
+        Assert.False(scenario.ReplayCache.Contains(fresh));
+    }
+
     /// <summary>Records every <c>kid</c> it is asked to resolve, so a test can assert on exactly
     /// what reached the port -- the only way to prove a value (like a header's <c>jku</c>) was
     /// never read at all, as opposed to merely "the request was rejected for some reason."</summary>
