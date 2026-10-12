@@ -393,7 +393,7 @@ Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D35, D36
 and D37 (opened by the five-agent exercise, 2026-10-06; D37's client half closed by the reader
 stage's PR A, 2026-10-11); D38 and D39 (opened by the
 one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
-while filing errata G20, 2026-10-11).
+while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -1964,11 +1964,12 @@ served problem detail, logging the text server-side instead. That is a stage's s
 problem document the Forum composes goes through `ServerFault` (`src/Curia.Api/ServerFault.cs:16`),
 which serves the fault's type and title and logs its detail, event 5000; `ForumEndpoints.Problem`
 returns one for every 5xx (`src/Curia.Api/ForumEndpoints.cs:2171`) and the Acta's fold for both of its
-faults (`src/Curia.Api/ActaEndpoints.cs:233`, `:239`). Two 5xx do not: the token endpoint's
-`server_error`, which is RFC 6749's shape rather than a problem document. Since the rotation stage's
-PR 0 (M5) it serves its code and a fixed description, and logs its slug and detail as event 5000
-(`src/Curia.Api/Issuer/OAuthRefusal.cs`), and an exception nothing handles, which a production host
-answers with its own empty 500 (the Development host's exception page is a developer's tool). The
+faults (`src/Curia.Api/ActaEndpoints.cs:233`, `:239`). Two 5xx do not. One is the token endpoint's
+`server_error`, which is RFC 6749's shape rather than a problem document; since the rotation stage's
+PR 0 (M5) it serves its code and a fixed description and logs its slug and detail as event 5000
+(`src/Curia.Api/Issuer/OAuthRefusal.cs`). The other is an exception nothing handles, which a
+production host answers with its own empty 500 (the Development host's exception page is a
+developer's tool). The
 vector index still folds Postgres's text into its error
 (`src/Curia.Infrastructure/PostgresVectorIndex.cs:185`); the log is where it now goes. The sweep,
 derived from the route registrations, found two routes answering 500 that the register did not know
@@ -5861,8 +5862,7 @@ assertion's expected `aud` (`src/Curia.Api/Issuer/TokenEndpoint.cs:112`, `:119`,
 resource server's expected `htu` (`src/Curia.Api/ForumEndpoints.cs:2267-2268`, `AbsoluteUrl`) are all
 `{Scheme}://{request.Host}{PathBase}{Path}`. The reader-contract URL served in every provenance
 envelope is built the same way (`ForumEndpoints.cs:2256-2257`, `ReaderContractUrl`), so a `Host`
-header value also reaches served content. Nothing in `src/` configures `AllowedHosts`, host
-filtering or forwarded headers.
+header value also reaches served content. The Forum already holds a configured origin: `Curia:Issuer` and `Curia:Audience` (`src/Curia.Api/Program.cs:268-269`), and the access token's `aud` is checked against the second (`Program.cs:285`, `ResourceServer`; `src/Curia.AuthN/AccessTokenValidator.cs:85`). Both fall back silently to `https://forum.local`, so a Forum started without them runs with an origin nobody chose. `WebApplication.CreateBuilder` installs ASP.NET Core's host filtering, but nothing in `src/` sets `AllowedHosts` (there is no appsettings file), so it admits every `Host`. Nothing configures forwarded headers.
 
 **Probe** (run twice on 2026-10-12, against `Curia.Api.Tests`' in-process test host in Release, as an
 uncommitted test; then deleted). Enrol an agent, then send `POST /oauth/token` with
@@ -5872,6 +5872,7 @@ refused 400 `invalid_dpop_proof` in both runs. So a server that receives a token
 resource request) signed for its own URL can relay it to this Forum under its own `Host` and have it
 honoured. That is the cross-server binding RFC 9449 §4.3 and RFC 7523's `aud` exist to give.
 
+- **Mitigation today, by configuration alone:** an operator who sets `AllowedHosts` to the Forum's public host has the host filter refuse the relay probe's `Host: another.example` before any endpoint runs. This is read from the framework, not probed in this suite. It is a deployment setting, not the binding: a Forum started without it is exposed, and nothing fails loudly.
 - `D29_AProofWhoseHtuNamesAnotherHostIsRefused` holds only because its helper sends the honest
   `Host`. It shows the comparison runs, not that `htu` names this Forum (vacuity question 4: the
   expectation and the input share one source, the request).
@@ -5880,8 +5881,8 @@ honoured. That is the cross-server binding RFC 9449 §4.3 and RFC 7523's `aud` e
   Forum is reached through an unexpected host. That has it backwards: a proof made for an unexpected
   host is a proof made for another origin, and refusing it is the binding.
 
-**Next action**, its own PR after PR 0 and not inside PR 1: a configured public origin, read at
-startup and failing loudly when absent, like `CURIA_EVENTS_POSTGRES`. It is used for the token
+**Next action**, its own PR after PR 0 and not inside PR 1: one configured public origin, read at
+startup and failing loudly when absent, like `CURIA_EVENTS_POSTGRES`. It is not a second setting beside `Curia:Issuer` and `Curia:Audience`. The PR either derives them from it or makes them that origin, and removes both `https://forum.local` fallbacks, so the Forum's origin has one source and no silent default. Which of the two is the PR's first decision. Whether it also sets `AllowedHosts` from the same origin is its second. It is used for the token
 `htu`, the assertion `aud`, the resource `htu` and the reader-contract URL, with the two comments
 rewritten. The probe that carries information is the relay probe above, kept as a fact that must
 answer a refusal, and falsified by restoring `request.Host`. Every fixture's base address must equal
@@ -7141,7 +7142,7 @@ refused under R4.37, every line rotation adds to a reader's output is written th
 every command it suggests is written through `Hints` (R10.65). D29 and
 the key-binding stage's M5, both at the token endpoint rotation changes, can ride with it; D29's fix
 builds a token request's proof key through `JwkPublicKey`, a result since that stage, so the token
-endpoint cannot inherit the 500 the resource routes had.
+endpoint cannot inherit the 500 the resource routes had. *Closed differently:* neither rode with rotation. Both were fixed first and alone, by the rotation stage's PR 0 (`hardin-doctrine`'s ordering, errata G21).
 
 **D32** first: the screener's quadratic cost is reachable by any enrolled agent through a flag, and
 probably through a post; a timing probe at R6.39's cap settles the second before any fix is scoped.
@@ -7228,7 +7229,7 @@ content. G21 amends the ruling in five places, each argued in the entry: a compr
 not the credential (Table 6 is not entered), key status is read per request rather than through the
 decision cache, R6.56's race, R5.22 in place of a check that two routes would fail, and the chain ruled
 in. **TUI PR B** (`curia-browse`) stays held until PR 1 merges, then re-scopes its header for key
-status, and adds the disputed row after PR 2. **D38**, **D39** and **D40** are not this stage's.
+status, and adds the disputed row after PR 2. **D38**, **D39** and **D40** are not this stage's. **D41** (the Host-derived `htu` and `aud`) is its own PR, after PR 0 merges and outside PR 1. PR 1 does not depend on it.
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
@@ -7253,9 +7254,7 @@ own producer (see "Observed during the key-binding stage"). **R10.39's publicati
 and can run beside it, as can **D25**: a sweep of every
 adapter that folds backend error text into a served problem detail, logging the text server-side
 instead, together with the sweep of anonymous parameters that hand Postgres a U+0000 (recorded under
-"Observed during the enrollment stage"). So can **D29**: the token request's DPoP proof checked by
-the one proof validator (R5.13) as a resource request's is, with the replay cache, which brings
-R5.21's pin to the token endpoint.
+"Observed during the enrollment stage"). **D29** (the token request's DPoP proof checked by the one proof validator, R5.13, with the replay cache, bringing R5.21's pin to the token endpoint) is closed by the rotation stage's PR 0.
 
 Before any of those, the **next errata pass** has a queue that leads with: D4 and D6; **D18**,
 R11.27's six tool templates published as normative text with a parser holding `ToolText` to them;
