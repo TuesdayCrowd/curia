@@ -30,7 +30,7 @@
 - R15.1's set does not move.
 - No content is normalized; a statement is rejected, never repaired.
 - `Curia.Domain` depends on nothing new.
-- Every new port parameter carrying a caller's identifier is a boundary type (`AgentId`, `Kid`, or a new type in `Curia.Domain.Primitives/Boundary`). The R11.34 fence must stay green with **no new allowlist row**.
+- Every new port parameter carrying a caller's identifier is a boundary type (`AgentId`, `Kid`, or a new type in `Curia.Domain.Primitives/Boundary`), and never an allowlist row. A string-like parameter the R11.34 fence newly reaches that is not a caller's identifier takes a row only under the one-part-at-a-time spec §4.8's classification rule, with the reason that rule gives and an existing row as precedent, and the task that adds it lists it. Retyping or moving a type to keep it out of the fence's reach is not a fix. The R11.34 fence stays green. (Amended at Task 0.1 by the architect's ruling: §4.10's types bring `DpopProofValidator.Validate`, `DpopExpectation`, `ValidatedProof` and `DpopProofClaims` into the fence's scope through `TokenEndpoint`, and none of their eleven string-like parameters is a caller's identifier.)
 - A refusal names a field and a limit, never a key, a statement or a signature.
 - The store is never written by retirement or compromise.
 
@@ -81,6 +81,8 @@
 | `tests/Curia.Api.Tests/Support/` (the capturing logger, lifted) | events 5001 and 5000, captured | 0.2 |
 | `tests/Curia.AuthN.Tests/AccessTokenValidatorOrderingTests.cs`, `tests/Curia.AuthN.Tests/DpopProofRetentionTests.cs` (new), `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs` | the proof path's order, R5.14's retention on both paths, D29's tense | 0.1 |
 | `src/Curia.AuthN/Dpop/JwkPublicKey.cs` | D29's tense | 0.1 |
+| `tests/Curia.Architecture.Tests/PortStringAllowlist.cs` | R11.34 rows for §4.10's types; five stale rows removed | 0.1 |
+| `tests/Curia.Api.Tests/DpopClient.cs` | a header-editing Proof overload; RequestTokenWithProofAsync, which sends a proof as written | 0.1 |
 | `tests/Curia.Api.Tests/{KeyBindingTests.cs, StoredKeyFormTests.cs, TokenSubjectBindingTests.cs, ServerFaultTests.cs}` | M5 re-pins; the capturing logger lifted to Support/ | 0.2 |
 | `tests/Curia.Api.Tests/Fuzz/{RequestModel.cs, Oracle.cs, OracleTests.cs, FuzzContext.cs, FuzzRun.cs, RequestFuzzRandomTests.cs}` | D29's off-curve rows; the oracle's captured reason; Divisor | 0.1, 0.2 |
 | `src/Curia.Client/ForumClient.cs` (ReadProblem's summary) | M5's wire shape | 0.2 |
@@ -182,6 +184,7 @@ And in `tests/Curia.AuthN.Tests/DpopProofRetentionTests.cs` (new), `R5_14_Consum
       return OAuthError("invalid_dpop_proof", "The DPoP proof was not accepted", consumeError!.Type);
   ```
   Bind the token to `validatedProof!.Thumbprint`. Delete `DpopThumbprintOf` and `ProofKey`.
+- [ ] R11.34's fence (`PortStringFenceTests.R11_34_…`) now goes red: TokenEndpoint reaches §4.10's types, and the deleted `DpopThumbprintOf`/`ProofKey` were the only host references to `AuthNErrors`, `CompactJws.Split` and `CompactJwsParts`. Record its red lines verbatim under D29. In `tests/Curia.Architecture.Tests/PortStringAllowlist.cs`, delete the five rows it reports stale and add these eleven, with Member strings copied from the fence's output: `DpopProofValidator.Validate(proof, verifiers)`, `DpopExpectation..ctor(HttpMethod, Url, AccessToken, ExpectedThumbprint)`, `ValidatedProof..ctor(Thumbprint)`, `DpopProofClaims..ctor(Htm, Htu, Ath, Nonce)`, each with the reason the ruling gives. If the fence names any other parameter or stale row, stop. Green in Release, and in Debug after a Debug solution build.
 - [ ] Before writing the expiry line, with the move still verbatim (`now + AuthNConstants.MaxSkew`), keep a copy of that `DpopProofValidator.cs` outside the tree. Run the two R5.14 Api facts and the two AuthN facts against it, and record their red lines under D29. Then write the expiry line. Never go back with `git checkout --`.
 - [ ] Run `Curia.AuthN.Tests` (all, including `AccessTokenValidatorOrderingTests`) and `Curia.Api.Tests`. Every test is green, OracleTests included after its re-pin below.
 - [ ] The fuzzer's `perturbed-first` POST /oauth/token rows for `jws:proof:header/jwk/x` and `/y` now answer 400. If the fuzzer pins those rows as 200, update that pin and name D29 in its comment. Never add a ledger row.
