@@ -227,14 +227,27 @@ set; SP scores recorded even if not yet weighted.*
 > relayed here under that server's `Host` is honoured. It predates D29, is open, and is its own PR
 > after PR 0.
 >
+> **D42** was opened on 2026-10-12, by `curia-architect`'s ruling on KF2. Neither reader checks that a
+> head's log key was published before the head (R6.50). It is deferred until PR 2's positioned
+> log-key reader exists, and reuses it.
+>
+> **D43** was opened on 2026-10-12, by `curia-architect`'s ruling on review round 2 of the rotation
+> stage's documents. The operator's log key signs compromise declarations only provisionally (KF6):
+> before `curia-operator sign-head` runs unattended or from any automated process, declarations move to
+> a separate operator declaration key. Open by decision, not a defect in current behaviour.
+>
 > **The rotation stage is opened, not done** (2026-10-11, errata **G21**; its spec
 > `docs/superpowers/specs/2026-10-11-keys-that-end-design.md` and plan
-> `docs/superpowers/plans/2026-10-11-keys-that-end.md`). Three PRs, in order: **PR 0** (branch
+> `docs/superpowers/plans/2026-10-11-keys-that-end.md`). Four PRs, in order: **PR 0** (branch
 > `token-proof-verified`) closes **D29** and the key-binding stage's **M5** at the token endpoint and
 > changes no requirement (*merged-pending*, 2026-10-12: D29 and M5 closed on the branch; not met until
-> its PR merges); **PR 1** (branch `key-rotation`) builds rotation and self-retirement (R4.18
-> (rev.), R4.38, R4.39, R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's
-> two `key` rows; **PR 2** (branch `key-compromise`) builds the operator's compromise declaration
+> its PR merges); **PR 0.5** (branch `lifecycle-guard`) builds the lifecycle append guard (R4.38
+> (add.), guard facts GF3–GF8 and GF10; GF1 lands with Task 1.6 and GF9 with Task 1.8 in PR 1, GF2
+> with Task 2.1 in PR 2), must merge before PR 1, and leaves every lifecycle kind refused until
+> the owner's own lift, which is in no PR of this stage (owner answer Q2, 2026-10-11); **PR 1** (branch
+> `key-rotation`) builds, behind the guard, rotation and self-retirement (R4.18 (rev.), R4.38, R4.39,
+> R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's two `key` rows;
+> **PR 2** (branch `key-compromise`) builds, behind the guard, the operator's compromise declaration
 > (R6.26 (rev.), R6.57, R6.30 (rev.)). No requirement of G21 is met until its PR merges; read this line
 > for what is scheduled, never for what is built.
 >
@@ -393,7 +406,9 @@ Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D35, D36
 and D37 (opened by the five-agent exercise, 2026-10-06; D37's client half closed by the reader
 stage's PR A, 2026-10-11); D38 and D39 (opened by the
 one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
-while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12).
+while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12); D42 (opened by
+`curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
+round 2 of the rotation stage's documents, 2026-10-12).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -5890,6 +5905,60 @@ the configured origin, or the suite proves nothing.
 
 **Not established here:** whether a signed envelope names its Forum, and so whether a relayed post is
 attributable to the wrong Forum. That is the first question that PR answers.
+
+### D42 — neither reader checks that a head's key was published before the head *(observed by `curia-architect`'s ruling on the cybersecurity agent's KF2 finding, 2026-10-12; deferred to this register by that ruling)*
+
+**R6.50 asks for an order nobody reads.** Errata R6.50 publishes a log key to the log (`log.key`)
+"before any head is signed under them", and `curia-operator sign-head` keeps that order on the
+writing side: a key's first use appends its `log.key` entry before the head
+(`src/Curia.Operator/Program.cs:297`–`:313`). The Forum serves each log key's position at
+`GET /v1/log/jwks` (`valid_from` and `log_index`, `src/Curia.Api/ActaEndpoints.cs:190`–`:191`). Neither
+reader uses it for a head. The reference client parses it (`LogJwk.ValidFrom`, `LogJwk.LogIndex`,
+`src/Curia.Client/ActaDocuments.cs:102`, `:218`), and `ActaCheck.HeadSignature`
+(`src/Curia.Client/ActaCheck.cs:398`) matches the head's `kid` and verifies the signature without
+reading either. `curia-testis`'s `verify_head` (`rust/curia-testis/src/acta.rs:256`) parses the log key
+set with `JwkSet::parse` (`:267`), whose `Jwk` holds only `kid` and the key
+(`rust/curia-testis/src/jwk.rs:58`–`:61`), so it cannot. A head signed under a log key whose `log.key`
+entry lies at or beyond the head's `tree_size` verifies exactly like one signed after the key was
+published.
+
+**Why it was not fixed with KF2.** The rotation stage's PR 2 makes both readers check a compromise
+declaration's log key at its position (errata G21, R6.26 (revised); the spec's KF2): a declaration at
+index d verifies only under a log key whose `log_index` k is a non-negative integer with k < d, an
+unknown `kid` failed and an index not given could not be checked. Doing the same for heads mid-stage
+would change head verification for every existing reader and for the differential harness, for a
+check no current path exercises, since `sign-head` already publishes first.
+
+**Next action.** Reuse PR 2's mechanism: the positioned log-key reader it adds to `curia-testis`, and
+the same definition in `ActaCheck`. A head whose key's `log_index` is not below its `tree_size` is
+failed; an absent, negative or non-integer index is could not be checked, never verified, in both
+readers alike. The red-first probe is a lifecycle-free conformance case whose head is signed by a
+key whose `log.key` entry follows `tree_size`, which must read failed in both runners before the
+check is built and pass after it. Under **D8** (log-key retirement), both this check and KF2's gain an
+upper bound: a key retired at index r signs nothing at or after r.
+
+### D43 — compromise declarations are signed with the log key, which must not stay so once heads are signed unattended *(observed by `curia-architect`'s ruling on review round 2 of the rotation stage's documents, 2026-10-12; KF6, the cybersecurity report's B6)*
+
+**Status: open, by decision, not a defect in current behaviour.** The rotation stage's PR 2 signs an
+operator's compromise declaration with the operator's log key (`CURIA_LOG_SIGNING_KEY_PEM`), under
+`curia-key-compromise+jws` (errata G21, R6.26 (revised); the stage spec's §4.5 and its owner question
+4, kept provisionally and only with KF1). KF6 makes that provisional: the key that signs heads would
+also be the key that ends an identity's keys, so whatever process holds it for head signing could also
+declare a compromise.
+
+**Trigger.** Before `curia-operator sign-head` runs unattended or from any automated process,
+compromise declarations move off the log key to a separate operator declaration key (R6.26 (rev.),
+KF6; cybersecurity Report B6). Today `sign-head` is run by a person, out of band, so the trigger has
+not fired.
+
+**Next action.** Before the trigger fires: move declarations to an operator declaration key of their
+own, as R6.26 (revised) requires; how that key is published and how readers find it is decided then.
+The move SHALL be shipped as a new statement version (`curia.key-compromise/2`) or a new entry type,
+both of which every `/1` reader reports as could not be checked (R6.54 (addendum), KF4's order; case
+`compromise-v2-under-unknown-signer`); it SHALL NOT be shipped by re-signing `/1` statements under a
+new key, which `/1` readers fail.
+This entry records the obligation only. It is filed now, before PR 2 is built, so the obligation exists
+before the code that creates it; PR 2's register task confirms it (plan Task 2.5).
 
 ### Observed during the reader stage's PR A
 
