@@ -44,6 +44,13 @@
 - **CP-C** (any local Forum run, the five-agent exercise included): the guard is on, and the count of lifecycle-kind entries beyond enrolment pairs in the retained log is 0 before and after (event 7006 is the detector). Nonzero is a divergence: halt and report.
 - **CP-D** (Task 2.5's dry run): the database name came from that run's own create step, checked before any append.
 
+**Reading this plan's claims.** The plan is pinned to 007f4f4. Every line number, anchor, count and statement about the code in it (`:120`–`:177`, `Program.cs:58`, the grep that prints 24 hits, and the like) is a claim checked when its task runs, not a fact. A mismatch is a stop: the implementer reports "blocked", the plan is corrected in a docs commit under curia-architect's ruling, and the task resumes. The implementer never adjusts a task on their own judgement.
+
+**Review tripwire (hardin-doctrine, 2026-10-12).** The plan merged after six review rounds whose counts of real defects had stopped falling (22, 16, 12, 6, 10, 5). Execution catches executability defects as stops, and they are fixed as they come. Execution does not catch a security-conformance defect: a missing check, a wrong signing or verification order, or a gap in the guard's coverage, since an implementer builds what is written. So:
+- Each task's two reviews include a conformance lens by the `cybersecurity` agent against its rulings (spec §4, KF1–KF6, §4.13).
+- A security-conformance defect found in execution stops the loop for curia-architect and a `cybersecurity` re-rule, followed by one conformance-only review round over that PR's remaining tasks.
+- Three or more plan-defect stops within PR 0.5's or PR 1's first three tasks also trip that round: the rate would mean the reviews missed a systematic problem.
+
 **Naming.** The owner's "Q1: Yes." (2026-10-11) accepted G21's cost item 9, the takeover. It is not Task 1.0's "owner question 1" (the Table 10 rows), which proceeds on the default yes curia-architect keeps as spec authority; that is not an owner answer.
 
 **Numbering:** G21; R4.38, R4.39, R5.22, R6.56, R6.57, R7.23; R4.18 (rev.), R4.31 (rev. 2), R4.35 (rev.), R6.26 (rev.), R6.30 (rev.), R6.54 (add.), R4.38 (add.). Task 0.0 re-derives these and **stops** if the tree disagrees; Task L.0 re-derives R4.38 (add.).
