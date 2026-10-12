@@ -44,7 +44,7 @@ public sealed class PostgresEventStoreDuplicateMemberRefusalTests
         var ct = TestContext.Current.CancellationToken;
         await _fixture.ResetEventsTableAsync(ct);
 
-        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System);
+        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate());
         var aggregateId = Require(AggregateId.Create("agg-duplicate-member"));
 
         var payload = new JsonValue.Object(
@@ -87,7 +87,7 @@ public sealed class PostgresEventStoreDuplicateMemberRefusalTests
         var ct = TestContext.Current.CancellationToken;
         await _fixture.ResetEventsTableAsync(ct);
 
-        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System);
+        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate());
         var aggregateId = Require(AggregateId.Create("agg-duplicate-member-nested"));
 
         var payload = new JsonValue.Object(

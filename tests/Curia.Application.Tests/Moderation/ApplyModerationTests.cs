@@ -9,6 +9,7 @@ using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Moderation;
 
@@ -39,7 +40,7 @@ public sealed class ApplyModerationTests
     private static async Task<World> WorldWithPostAsync(CancellationToken ct)
     {
         var clock = new ManualTimeProvider(Start);
-        var world = new World(new InMemoryEventStore(clock), new InMemoryFlagDetailStore(), clock);
+        var world = new World(new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate()), new InMemoryFlagDetailStore(), clock);
         await AcceptPostAsync(world, Post, Digest, ct).ConfigureAwait(false);
         return world;
     }

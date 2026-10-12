@@ -5,6 +5,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -62,7 +63,7 @@ public sealed class PostProjectorTests
     public async Task R6_7_PrevIsReadFromTheSignedCanonicalBytes()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PersistAsync(store, "q-1", "question",
             """{"board":"board","body":"a question","kind":"question","prev":null}""", ct);

@@ -42,6 +42,6 @@ public sealed class PostgresEventStoreContractTests : EventStorePortContractTest
         // specifically needs true per-call isolation, including under CsCheck's own
         // concurrent case execution.
         var schema = _fixture.CreateIsolatedSchemaAsync().GetAwaiter().GetResult();
-        return new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, schema);
+        return new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate(), schema);
     }
 }

@@ -101,7 +101,7 @@ public sealed class Program
                     "CURIA_EVENTS_POSTGRES. The Forum does not run without one: R11.6's " +
                     "append-only guarantee is a database grant, not application code.");
 
-            return new PostgresAdapters(connectionString, sp.GetRequiredService<TimeProvider>());
+            return new PostgresAdapters(connectionString, sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILifecycleAppendGate>());
         });
 
         // R4.38 (add.): the lifecycle guard's gate, built by its one public factory over the approval
@@ -160,6 +160,7 @@ public sealed class Program
             sp.GetRequiredService<ITextEmbedder>(),
             sp.GetRequiredService<IVectorIndex>()));
         builder.Services.AddHostedService<EmbeddingReconcileService>();
+        builder.Services.AddHostedService<LifecycleEntryScan>();
 
         // R10.2's floors: the published table with configuration laid over it, and R8.21's dedupe
         // thresholds likewise. A surface or level configuration cannot name stops the host here,

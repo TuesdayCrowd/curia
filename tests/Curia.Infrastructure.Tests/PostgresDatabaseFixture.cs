@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.Application.Ports;
 using Curia.Infrastructure.Migrations;
+using Curia.Tests.Shared;
 using Npgsql;
 using Xunit;
 
@@ -98,6 +100,31 @@ public sealed class PostgresDatabaseFixture : IAsyncLifetime
             Password = rolePassword,
         };
         _appRoleDataSource = NpgsqlDataSource.Create(appRoleBuilder.ConnectionString);
+    }
+
+    /// <summary>
+    /// R4.38 (add.): the permissive lifecycle gate, for a store built on <see cref="AppRoleDataSource"/>.
+    /// </summary>
+    internal ILifecycleAppendGate PermissiveLifecycleGate() => PermissiveLifecycleGateFor(AppRoleDataSource);
+
+    /// <summary>
+    /// R4.38 (add.): the permissive gate, handed out only for the database this fixture created in this
+    /// run (<c>curia_test_</c> plus a suffix generated in <see cref="InitializeAsync"/>), checked by
+    /// name before anything connects. A composition pointed at any other database, a retained one
+    /// included, is refused: the permissive gate is a path to the freeze (spec section 4.13).
+    /// </summary>
+    internal ILifecycleAppendGate PermissiveLifecycleGateFor(NpgsqlDataSource dataSource)
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+        var database = new NpgsqlConnectionStringBuilder(dataSource.ConnectionString).Database;
+        if (string.IsNullOrEmpty(_databaseName) || !string.Equals(database, _databaseName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "the permissive lifecycle gate is only for the database this run created (curia_test_...); " +
+                $"refusing '{database}'");
+        }
+
+        return new PermissiveLifecycleAppendGate();
     }
 
     /// <summary>

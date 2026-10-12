@@ -151,7 +151,7 @@ internal sealed class FuzzContext : IDisposable
         using (var stderr = new StringWriter(CultureInfo.InvariantCulture))
         {
             var exit = await OperatorCommands.RunAsync(
-                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, stdout, stderr, ct, logSigningKeyPem: LogKeyPem);
+                ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), stdout, stderr, ct, logSigningKeyPem: LogKeyPem);
             Require(exit == ExitCode.Ok, $"the head was not signed: {stderr}");
         }
 

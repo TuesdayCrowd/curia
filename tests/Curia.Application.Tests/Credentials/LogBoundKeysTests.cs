@@ -9,6 +9,7 @@ using Curia.Domain;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Credentials;
 
@@ -59,7 +60,7 @@ public sealed class LogBoundKeysTests
     private static async Task<(LogBoundKeys Keys, InMemoryEventStore Events)> EnrolledAsync(PublicKeyMaterial enrolled, params (string AgentId, RegisteredKey Key)[] held)
     {
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), enrolled, CancellationToken.None).ConfigureAwait(false));
         var store = new HeldKeys(held);
         return (new LogBoundKeys(store, store, events), events);
@@ -109,7 +110,7 @@ public sealed class LogBoundKeysTests
     public async Task R4_35_AnIdentityEnrolledBeforeR4_34IsBoundByItsKidAlone()
     {
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Alice)),
             AggregateVersion.New,

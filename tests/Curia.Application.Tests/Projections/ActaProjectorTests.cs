@@ -8,6 +8,7 @@ using Curia.Domain;
 using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -34,7 +35,7 @@ public sealed class ActaProjectorTests
         payload);
 
     private static InMemoryEventStore NewStore() =>
-        new(new ManualTimeProvider(new DateTimeOffset(2026, 9, 4, 16, 0, 0, TimeSpan.Zero)));
+        new(new ManualTimeProvider(new DateTimeOffset(2026, 9, 4, 16, 0, 0, TimeSpan.Zero)), new PermissiveLifecycleAppendGate());
 
     private static async Task<InMemoryEventStore> LogOfAsync(int n, CancellationToken ct)
     {

@@ -16,6 +16,7 @@ using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Serving;
 using Curia.Infrastructure;
+using Curia.Infrastructure.Lifecycle;
 
 namespace Curia.OperatorTool;
 
@@ -61,11 +62,25 @@ public static class Program
             return ExitCode.Environment;
         }
 
+        // R4.38 (add.), lock 2: the same setting the Forum reads, as ASP.NET maps it from the
+        // environment (Curia:Lifecycle:Enabled), so one exported variable governs both processes. A
+        // refusal stops the tool before any verb runs.
+        var gate = EmbeddedLifecycleAppendGate.FromEmbedded(System.Environment.GetEnvironmentVariable("Curia__Lifecycle__Enabled"));
+        if (!gate.TryGetValue(out var lifecycleGate, out var gateError))
+        {
+            await Console.Error.WriteLineAsync(
+                $"error: Curia__Lifecycle__Enabled is refused ({gateError!.Type}: {gateError.Title}; {gateError.Detail}). " +
+                "The lifecycle guard is on until the owner lifts it (R4.38 (add.)); the setting is none until then.")
+                .ConfigureAwait(false);
+            return ExitCode.Environment;
+        }
+
         return await OperatorCommands
             .RunAsync(
                 args,
                 connectionString,
                 TimeProvider.System,
+                lifecycleGate!,
                 Console.Out,
                 Console.Error,
                 CancellationToken.None,
@@ -141,6 +156,10 @@ public static class OperatorCommands
         "hint: another write reached this post after this record was decided, so nothing was written. " +
         "Re-read the post (curia-operator flags --post <post-id>) and re-run moderate if the record is still wanted.";
 
+    /// <param name="lifecycleGate">
+    /// R4.38 (add.): the gate every append this tool makes passes. Required, with no default;
+    /// <see cref="Program.Main"/> builds it from <c>Curia__Lifecycle__Enabled</c>.
+    /// </param>
     /// <param name="logSigningKeyPem">
     /// <c>CURIA_LOG_SIGNING_KEY_PEM</c>: the Acta's signing key, needed by <c>sign-head</c> alone.
     /// A parameter rather than a read of the environment here so the end-to-end suite can hand
@@ -150,6 +169,7 @@ public static class OperatorCommands
         IReadOnlyList<string> args,
         string connectionString,
         TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken cancellationToken,
@@ -157,6 +177,7 @@ public static class OperatorCommands
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(lifecycleGate);
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
 
@@ -167,15 +188,15 @@ public static class OperatorCommands
         }
 
         if (args[0] == "sign-head")
-            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, stdout, stderr, logSigningKeyPem, cancellationToken)
+            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, logSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "moderate")
-            return await ModerateAsync(args.Skip(1).ToArray(), connectionString, clock, stdout, stderr, cancellationToken)
+            return await ModerateAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "flags")
-            return await FlagsAsync(args.Skip(1).ToArray(), connectionString, clock, stdout, stderr, cancellationToken)
+            return await FlagsAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] != "attest-owner")
@@ -192,7 +213,7 @@ public static class OperatorCommands
         }
 
         Result<OwnerAttestation> result;
-        var adapters = new PostgresAdapters(connectionString, clock);
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
         await using (adapters.ConfigureAwait(false))
         {
             result = await new AttestOwner(adapters.EventStore, clock).RecordAsync(
@@ -241,6 +262,7 @@ public static class OperatorCommands
         string[] argv,
         string connectionString,
         TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
         TextWriter stdout,
         TextWriter stderr,
         string? logSigningKeyPem,
@@ -284,7 +306,7 @@ public static class OperatorCommands
         }
 
         {
-            var adapters = new PostgresAdapters(connectionString, clock);
+            var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
             await using (adapters.ConfigureAwait(false))
             {
                 var store = adapters.EventStore;
@@ -361,6 +383,7 @@ public static class OperatorCommands
         string[] argv,
         string connectionString,
         TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken cancellationToken)
@@ -403,7 +426,7 @@ public static class OperatorCommands
         // the use case answers every refusal where it answered it before the types existed: after the
         // operator checks, which are this path's authorization.
         Result<ModerationRecorded> result;
-        var adapters = new PostgresAdapters(connectionString, clock);
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
         await using (adapters.ConfigureAwait(false))
         {
             result = await new ApplyModeration(adapters.EventStore, adapters.FlagDetails, clock)
@@ -444,6 +467,7 @@ public static class OperatorCommands
         string[] argv,
         string connectionString,
         TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken cancellationToken)
@@ -461,7 +485,7 @@ public static class OperatorCommands
 
         IReadOnlyList<AppendedEvent> log;
         IReadOnlyList<FlagDetail> details;
-        var adapters = new PostgresAdapters(connectionString, clock);
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
         await using (adapters.ConfigureAwait(false))
         {
             var read = await adapters.EventStore.ReadAllAsync(cancellationToken).ConfigureAwait(false);

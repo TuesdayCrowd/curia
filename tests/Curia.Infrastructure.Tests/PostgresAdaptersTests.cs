@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Infrastructure.Tests;
 
@@ -24,7 +25,7 @@ public sealed class PostgresAdaptersTests
     public void R7_22_APoolTooSmallToSplitIsRefusedAtStartup()
     {
         var refused = Assert.Throws<InvalidOperationException>(
-            () => new PostgresAdapters(Unreached + ";Maximum Pool Size=1", Clock()));
+            () => new PostgresAdapters(Unreached + ";Maximum Pool Size=1", Clock(), new PermissiveLifecycleAppendGate()));
 
         Assert.Contains("R7.22", refused.Message, StringComparison.Ordinal);
     }
@@ -33,7 +34,7 @@ public sealed class PostgresAdaptersTests
     [Fact]
     public async Task R7_22_APoolOfTwoIsAccepted()
     {
-        var adapters = new PostgresAdapters(Unreached + ";Maximum Pool Size=2", Clock());
+        var adapters = new PostgresAdapters(Unreached + ";Maximum Pool Size=2", Clock(), new PermissiveLifecycleAppendGate());
         await adapters.DisposeAsync();
     }
 }

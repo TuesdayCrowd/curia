@@ -43,7 +43,7 @@ public sealed class PostgresEventStoreClockTests
         // now() (the DDL's DEFAULT, or an explicit now() call), the recorded server_ts would
         // land near the real wall clock, nowhere near 2026-01-01 -- an unmissable failure.
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var store = new PostgresEventStore(_fixture.AppRoleDataSource, clock);
+        var store = new PostgresEventStore(_fixture.AppRoleDataSource, clock, _fixture.PermissiveLifecycleGate());
         var aggregateId = Agg("agg-clock");
 
         var firstBatch = (await store.AppendAsync(aggregateId, AggregateVersion.New, [NewEvent("first")], ct))
@@ -66,7 +66,7 @@ public sealed class PostgresEventStoreClockTests
         await _fixture.ResetEventsTableAsync(ct);
 
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero));
-        var store = new PostgresEventStore(_fixture.AppRoleDataSource, clock);
+        var store = new PostgresEventStore(_fixture.AppRoleDataSource, clock, _fixture.PermissiveLifecycleGate());
         var aggregateId = Agg("agg-batch-clock");
 
         var batch = (await store.AppendAsync(

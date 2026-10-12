@@ -4,6 +4,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -49,7 +50,7 @@ public sealed class AggregateSummaryProjectorTests
     public async Task FoldComputesCountAndFirstLastSeqPerAggregate()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(TimeProvider.System);
+        var store = new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
         var a = Agg("agg-a");
         var b = Agg("agg-b");
 
@@ -76,7 +77,7 @@ public sealed class AggregateSummaryProjectorTests
     public async Task FoldUntouchedAggregateNeverAppearsInTheProjection()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(TimeProvider.System);
+        var store = new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
         await store.AppendAsync(Agg("agg-touched"), AggregateVersion.New, [NewEvent("t-1")], ct);
 
         var all = Require(await store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct));
@@ -94,7 +95,7 @@ public sealed class AggregateSummaryProjectorTests
     public async Task FoldThrowsWhenGivenEventsOutOfAscendingSeqOrder()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(TimeProvider.System);
+        var store = new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
         await store.AppendAsync(Agg("agg-order"), AggregateVersion.New, [NewEvent("o-1"), NewEvent("o-2")], ct);
 
         var inOrder = Require(await store.ReadForwardAsync(EventSequence.Zero, cancellationToken: ct));
@@ -118,7 +119,7 @@ public sealed class AggregateSummaryProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var a = Agg("agg-clock-skew");
 
         var laterLookingFirstBatch = Require(await store.AppendAsync(a, AggregateVersion.New, [NewEvent("skew-1")], ct));
@@ -140,7 +141,7 @@ public sealed class AggregateSummaryProjectorTests
     public async Task RebuildAsyncOnAnEmptyStoreReturnsAnEmptyProjection()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(TimeProvider.System);
+        var store = new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
 
         var summaries = await AggregateSummaryProjector.RebuildAsync(store, cancellationToken: ct);
 
@@ -158,7 +159,7 @@ public sealed class AggregateSummaryProjectorTests
     public async Task RebuildAsyncPagingProducesTheSameResultAsAnUnpagedFold()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(TimeProvider.System);
+        var store = new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
         var a = Agg("agg-page-a");
         var b = Agg("agg-page-b");
         var c = Agg("agg-page-c");
@@ -180,7 +181,7 @@ public sealed class AggregateSummaryProjectorTests
     public async Task RebuildAsyncPageSizeLargerThanTheWholeStoreStillProducesTheFullProjection()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(TimeProvider.System);
+        var store = new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
         await store.AppendAsync(Agg("agg-single-page"), AggregateVersion.New, [NewEvent("sp-1"), NewEvent("sp-2")], ct);
 
         var summaries = await AggregateSummaryProjector.RebuildAsync(store, pageSize: 1000, cancellationToken: ct);
@@ -192,7 +193,7 @@ public sealed class AggregateSummaryProjectorTests
     [Fact]
     public void RebuildAsyncRejectsANonPositivePageSize()
     {
-        var store = new InMemoryEventStore(TimeProvider.System);
+        var store = new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
         var ct = TestContext.Current.CancellationToken;
 
         var ex = Assert.Throws<ArgumentOutOfRangeException>(

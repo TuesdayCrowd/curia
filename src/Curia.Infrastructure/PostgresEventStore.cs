@@ -35,6 +35,7 @@ public sealed class PostgresEventStore : IEventStore
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _clock;
+    private readonly ILifecycleAppendGate _gate;
     private readonly string _schema;
     private readonly string _qualifiedTable;
 
@@ -60,18 +61,36 @@ public sealed class PostgresEventStore : IEventStore
     /// </summary>
     public static string SerializationLockKey(string schema) => schema + ":acta";
 
-    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, string schema = "public")
+    /// <summary>
+    /// <paramref name="gate"/> is R4.38 (add.)'s lifecycle guard: required, with no default, so no
+    /// composition builds a store that forgot it. Every append is classified against it before anything
+    /// is written (spec section 4.13).
+    /// </summary>
+    public PostgresEventStore(NpgsqlDataSource dataSource, TimeProvider clock, ILifecycleAppendGate gate, string schema = "public")
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(gate);
         ArgumentException.ThrowIfNullOrWhiteSpace(schema);
         _dataSource = dataSource;
         _clock = clock;
+        _gate = gate;
         _schema = schema;
         _qualifiedTable = SqlIdentifier.Quote(schema) + ".events";
     }
 
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        CancellationToken cancellationToken = default) =>
+        AppendCoreAsync(aggregateId, expectedVersion, events, cancellationToken);
+
     /// <summary>
+    /// The one core every INSERT into <c>events</c> passes (R4.38 (add.)): the lifecycle gate is asked
+    /// after the batch is admitted and before a connection is opened, so a refused append costs no round
+    /// trip and writes nothing.
+    ///
     /// Three round trips inside one transaction -- advisory lock, version check, batched
     /// insert -- not one. The scoping doc's "single batched insert returning seq" describes
     /// the *insert* of however many events a single call carries (one INSERT, many VALUES
@@ -99,11 +118,11 @@ public sealed class PostgresEventStore : IEventStore
             "constructor from QuoteIdentifier(schema) -- never caller-supplied per call -- and every " +
             "per-call value (aggregateId, the lock key) is bound through a parameterized " +
             "NpgsqlParameter, never concatenated into CommandText.")]
-    public async Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+    private async Task<Result<IReadOnlyList<AppendedEvent>>> AppendCoreAsync(
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -121,6 +140,9 @@ public sealed class PostgresEventStore : IEventStore
                 return Result<IReadOnlyList<AppendedEvent>>.Fail(payloadError!);
             payloads[i] = payloadText;
         }
+
+        if (LifecycleAppendGuard.Check(_gate, expectedVersion, events) is { } refused)
+            return Result<IReadOnlyList<AppendedEvent>>.Fail(refused);
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);

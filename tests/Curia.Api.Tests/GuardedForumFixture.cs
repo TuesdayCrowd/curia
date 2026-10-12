@@ -8,4 +8,5 @@ namespace Curia.Api.Tests;
 /// </summary>
 public sealed class GuardedForumFixture : ForumFixture
 {
+    protected override bool ComposesPermissiveLifecycleGate => false;
 }

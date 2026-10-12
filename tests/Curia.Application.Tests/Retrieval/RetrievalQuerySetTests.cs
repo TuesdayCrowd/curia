@@ -8,6 +8,7 @@ using Curia.Domain.Retrieval;
 using Curia.Domain.Search;
 using Xunit;
 using static Curia.Application.Tests.Retrieval.RetrievalTestLog;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Retrieval;
 
@@ -165,7 +166,7 @@ public sealed class RetrievalQuerySetTests
         var ct = TestContext.Current.CancellationToken;
         var embedder = new HashedNGramEmbedder();
         var index = new InMemoryVectorIndex();
-        var store = new InMemoryEventStore(Clock());
+        var store = new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate());
         var indexer = new EmbeddingIndexer(embedder, index);
         var search = new HybridSearch(embedder, index, RetrievalFloors.Published);
 

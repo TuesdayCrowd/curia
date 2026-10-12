@@ -7,6 +7,7 @@ using Curia.Domain;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -88,7 +89,7 @@ public sealed class FlagDirectoryTests
     public async Task R10_62_ACommittedFlagIsJoinedToItsPostAndRaiser()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
 
         await CommitAsync(store, details, "01JFLAG000000000000000001", FlagKind.Spam, ct);
@@ -109,7 +110,7 @@ public sealed class FlagDirectoryTests
     public async Task R10_62_ALegacyFlagIsStillListed()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await RaiseLegacyAsync(store, "01JLEGACY00000000000000001", FlagKind.Injection, ct);
 
@@ -125,7 +126,7 @@ public sealed class FlagDirectoryTests
     public async Task R10_62_ACommittedFlagWithNoDetailIsSkippedAndCounted()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
 
         await CommitAsync(store, details, "01JFLAG000000000000000001", FlagKind.Spam, ct, storeDetail: false);
@@ -141,7 +142,7 @@ public sealed class FlagDirectoryTests
     public async Task R10_62_ATamperedDetailIsSkippedAndCounted()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
 
         await CommitAsync(store, details, "01JFLAG000000000000000001", FlagKind.Spam, ct,
@@ -177,7 +178,7 @@ public sealed class FlagDirectoryTests
     public async Task R11_9_TheDirectoryRebuildsFromBothStores()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
 
         await CommitAsync(store, details, "01JFLAG000000000000000001", FlagKind.Spam, ct);

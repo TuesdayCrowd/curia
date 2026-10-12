@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using Curia.Application.Ports;
+using Curia.Application.Tests;
 using Curia.Domain.Primitives;
 using Curia.Infrastructure.Lifecycle;
 using Xunit;
@@ -271,4 +272,83 @@ public sealed class LifecycleGuardTests
         return dir?.FullName
             ?? throw new InvalidOperationException("Could not find repo root (a 'conformance' directory) above " + AppContext.BaseDirectory);
     }
+}
+
+/// <summary>
+/// The production gate, <c>EmbeddedLifecycleAppendGate</c> over the shipped (empty) record with the opt-in
+/// <c>none</c>: what GF3's and GF4's production-gate runs hand the store.
+/// </summary>
+internal static class ProductionGate
+{
+    internal static ILifecycleAppendGate Build() =>
+        EmbeddedLifecycleAppendGate.FromEmbedded("none")
+            .Match(g => (ILifecycleAppendGate)g, e => throw new InvalidOperationException($"{e.Type}: {e.Detail}"));
+}
+
+/// <summary>GF3 and GF4 against the in-memory store, under the production gate.</summary>
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "xUnit discovers concrete test classes only when public; the facts are inherited.")]
+public sealed class EmbeddedGateInMemoryLifecycleRefusalTests : InMemoryLifecycleRefusalContract
+{
+    protected override ILifecycleAppendGate RefusingGate() => ProductionGate.Build();
+}
+
+/// <summary>GF3 and GF4 against <see cref="PostgresEventStore"/>, under the production gate.</summary>
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "xUnit discovers concrete test classes only when public; the facts are inherited.")]
+[Collection(PostgresCollectionDefinition.Name)]
+public sealed class EmbeddedGatePostgresLifecycleRefusalTests(PostgresDatabaseFixture fixture) : LifecycleRefusalContract
+{
+    protected override ILifecycleAppendGate RefusingGate() => ProductionGate.Build();
+
+    protected override IEventStore CreateStore(ILifecycleAppendGate gate)
+    {
+        var schema = fixture.CreateIsolatedSchemaAsync().GetAwaiter().GetResult();
+        return new PostgresEventStore(fixture.AppRoleDataSource, TimeProvider.System, gate, schema);
+    }
+}
+
+/// <summary>The positive control against <see cref="PostgresEventStore"/>: the five appends land under the permissive gate.</summary>
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "xUnit discovers concrete test classes only when public; the facts are inherited.")]
+[Collection(PostgresCollectionDefinition.Name)]
+public sealed class PermissiveGatePostgresLifecycleTests(PostgresDatabaseFixture fixture) : LifecyclePermissiveContract
+{
+    protected override ILifecycleAppendGate PermissiveGate() => fixture.PermissiveLifecycleGate();
+
+    protected override IEventStore CreateStore(ILifecycleAppendGate gate)
+    {
+        var schema = fixture.CreateIsolatedSchemaAsync().GetAwaiter().GetResult();
+        return new PostgresEventStore(fixture.AppRoleDataSource, TimeProvider.System, gate, schema);
+    }
+}
+
+/// <summary>
+/// R4.38 (add.): the permissive gate is handed out only for the database the fixture created in this run.
+/// Red when the check is removed.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[Collection(PostgresCollectionDefinition.Name)]
+public sealed class PermissiveGateDatabaseGuardTests(PostgresDatabaseFixture fixture)
+{
+    [Fact]
+    public void R4_38_APermissiveCompositionRefusesADatabaseItDidNotCreate()
+    {
+        using var retained = Npgsql.NpgsqlDataSource.Create("Host=198.51.100.10;Database=curia_retained;Username=nobody");
+
+        Assert.Throws<InvalidOperationException>(() => fixture.PermissiveLifecycleGateFor(retained));
+    }
+
+    [Fact]
+    public void R4_38_APermissiveCompositionAcceptsTheDatabaseItCreated() =>
+        Assert.NotNull(fixture.PermissiveLifecycleGate());
 }

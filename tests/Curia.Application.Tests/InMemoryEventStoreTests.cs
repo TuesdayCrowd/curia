@@ -4,6 +4,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests;
 
@@ -14,7 +15,7 @@ namespace Curia.Application.Tests;
 /// </summary>
 public sealed class InMemoryEventStoreTests : EventStorePortContractTests
 {
-    protected override IEventStore CreateStore() => new InMemoryEventStore(TimeProvider.System);
+    protected override IEventStore CreateStore() => new InMemoryEventStore(TimeProvider.System, new PermissiveLifecycleAppendGate());
 
     private static DomainEvent NewEvent(string id) => new(
         EventId.Create(id).Match(v => v, e => throw new InvalidOperationException(e.Type)),
@@ -38,7 +39,7 @@ public sealed class InMemoryEventStoreTests : EventStorePortContractTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var aggregateId = Agg("agg-clock");
 
         var firstBatch = (await store.AppendAsync(aggregateId, AggregateVersion.New, [NewEvent("first")], ct))
@@ -64,7 +65,7 @@ public sealed class InMemoryEventStoreTests : EventStorePortContractTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero));
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var aggregateId = Agg("agg-batch-clock");
 
         var batch = (await store.AppendAsync(

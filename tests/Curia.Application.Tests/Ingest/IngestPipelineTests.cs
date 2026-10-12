@@ -13,6 +13,7 @@ using Curia.Domain;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Ingest;
 
@@ -70,7 +71,7 @@ public sealed class IngestPipelineTests
         var keys = new FixedKeyResolver();
         keys.Register(Agent, Kid, new PublicKeyMaterial(TestEs256.Alg, Kid, crypto.PublicKey));
         var clock = new ManualTimeProvider(Now);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         var pipeline = new IngestPipeline(
             keys,
@@ -563,7 +564,7 @@ public sealed class IngestPipelineTests
         var clock = new ManualTimeProvider(Now);
         var pipeline = new IngestPipeline(
             new NeverAsked(),
-            new InMemoryEventStore(clock),
+            new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate()),
             new Dictionary<string, IContentVerifier> { [TestEs256.Alg] = harness.Crypto },
             clock);
 

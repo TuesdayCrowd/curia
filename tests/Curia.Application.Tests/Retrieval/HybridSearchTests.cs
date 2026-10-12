@@ -9,6 +9,7 @@ using Curia.Domain.Search;
 using Curia.Domain.Verification;
 using Xunit;
 using static Curia.Application.Tests.Retrieval.RetrievalTestLog;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Retrieval;
 
@@ -24,7 +25,7 @@ public sealed class HybridSearchTests
     {
         var embedder = new HashedNGramEmbedder();
         var index = new InMemoryVectorIndex();
-        return new Harness(new InMemoryEventStore(Clock()), new EmbeddingIndexer(embedder, index), new HybridSearch(embedder, index, floors ?? RetrievalFloors.Published));
+        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new HybridSearch(embedder, index, floors ?? RetrievalFloors.Published));
     }
 
     private static SearchQuery Query(string? text, int limit = 25, RetrievalCursor? cursor = null, VerificationLevel? floor = null, PostKind? kind = null) =>
