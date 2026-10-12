@@ -131,20 +131,23 @@
 - the red line of `R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew` (below), which compiles on the base and records the base's `now + MaxSkew`.
 Every other "red on the base" line in PR 0 is likewise run before the source change it precedes.
 
-**Red facts first** (`tests/Curia.Api.Tests/TokenEndpointProofTests.cs`). Each sends a valid client assertion through `ForumAgent`'s token path with one proof part changed, and asserts `400` with `error == "invalid_dpop_proof"`:
+**Red facts first** (`tests/Curia.Api.Tests/TokenEndpointProofTests.cs`). Each sends a valid client assertion through `ForumAgent`'s token path with one proof part changed, and asserts `400`, `error == "invalid_dpop_proof"`, and the served `detail` equal to the slug of the check the changed part targets (table column added). Each slug is written as a literal and was confirmed by a run; a fact whose served slug differs is a stop, never an adopted value, because a mismatch means the fault is caught by some other check:
 
-| Fact | Proof part changed |
-|---|---|
-| `D29_AProofWhoseIatIsThirtyDaysOldIsRefused` | `iat` 30 days old |
-| `D29_AProofWhoseHtuNamesAnotherHostIsRefused` | `htu` names another host |
-| `D29_AProofWhoseHtmIsGetIsRefused` | `htm` is GET |
-| `D29_AProofWhoseTypIsNotDpopJwtIsRefused` | `typ` is not `dpop+jwt` |
-| `D29_AProofSignedOverAnotherPayloadIsRefused` | 64 zero bytes as the signature |
-| `D29_AProofWhoseHeaderAlgIsEdDsaOverAP256JwkIsRefused` | header alg EdDSA over a P-256 jwk |
-| `D29_AProofOverAnOffCurveKeyIsRefused` | key off the curve |
+| Fact | Proof part changed | Slug |
+|---|---|---|
+| `D29_AProofWhoseIatIsThirtyDaysOldIsRefused` | `iat` 30 days old | `curia/authn/proof-window-exceeded` |
+| `D29_AProofWhoseHtuNamesAnotherHostIsRefused` | `htu` names another host | `curia/authn/url-mismatch` |
+| `D29_AProofWhoseHtmIsGetIsRefused` | `htm` is GET | `curia/authn/method-mismatch` |
+| `D29_AProofWhoseTypIsNotDpopJwtIsRefused` | `typ` is not `dpop+jwt` | `curia/authn/typ-mismatch` |
+| `D29_AProofSignedOverAnotherPayloadIsRefused` | 64 zero bytes as the signature | `curia/authn/signature-invalid` |
+| `D29_AProofWhoseHeaderAlgIsEdDsaOverAP256JwkIsRefused` | header alg EdDSA over a P-256 jwk | `curia/authn/alg-key-mismatch` |
+| `D29_AProofOverAnOffCurveKeyIsRefused` | key off the curve | `curia/authn/malformed-jwk` |
+
+`D29_AProofSentTwiceIsRefusedTheSecondTime`'s second send is pinned the same way, to `curia/authn/replay`.
 
 Plus:
 - `D29_AProofSentTwiceIsRefusedTheSecondTime`: one proof and two client assertions, each with its own jti. The first send (proof + assertion 1) is 200. The second (the same proof + assertion 2) is 400 `invalid_dpop_proof`, and after M5 its captured 5001 Type is the replay slug. Resending the identical request is refused 401 `invalid_client` by the assertion's jti, on the base and after the fix alike, because ClientAssertionValidator shares the replay cache and inserts first. So it would test nothing, and loosening the fact to 'is refused' makes F0-3 vacuous. The fact asserts the status and the error code exactly, never 'not 200'.
+- `D29_AProofRefusedForItsAssertionIsNotConsumed` (directly after the fact above): one proof, sent first with a client assertion whose signature is 64 zero bytes, then with a fresh valid assertion. The first send is 401, `error` is not `invalid_dpop_proof` and is exactly `invalid_client`, and (until M5) the served `detail` is `curia/authn/signature-invalid`, so the refusal came from the assertion's signature and not from the proof. The second send is 200, with the failure message `the proof was consumed by a request refused before authentication: {status} {body}`. It pins R5.13 with spec §4.10's order: a proof's jti is recorded only after the client assertion validates, so a caller with no credential writes no replay row (and so runs no prune; `PostgresReplayCache` prunes on insert), and a request refused for its assertion does not burn its proof. Neither assertion is ever loosened to 'not 200' or 'is refused'. It is green on the base and after D29 alike: its information is in its F0 row (F0-14), not in a red line.
 - `D29_TheReferenceClientsTokenRequestStillSucceeds`: `ForumSession`'s own token flow returns 200.
 
 **R5.14's retention.** These belong to the `TokenEndpointProofTests` list, but live in their own class, `tests/Curia.Api.Tests/TokenEndpointProofRetentionTests.cs`, with its own `IClassFixture<ForumFixture>`. Their 35 s and 60 s clock advances then cannot age another fact's token, nonce or assertion, as `DedupeEndpointTests` and `InboxEndpointTests` already arrange.
@@ -202,7 +205,7 @@ And in `tests/Curia.AuthN.Tests/DpopProofRetentionTests.cs` (new), `R5_14_Consum
   2. `R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown`'s five `inAssertion` rows (base :465).
      - Replace `OffCurveProof("POST", TokenEndpoint, forum.Now)` with a valid on-curve proof from a `ForumAgent`'s `dpop.Proof("POST", TokenEndpoint, forum.Now)`, with a fresh jti per row.
      - The rows keep 401 `invalid_client`.
-     - Add a sentence to the summary: the proof must pass so that the assertion, and PostgresAgentKeyStore's blank-kid path, is reached at all.
+     - Add a sentence to the summary: the proof must pass so that the assertion is read at all, and for the last four rows its kid check (Kid.Parse, before any key is resolved) is reached; the store's blank-kid throw is the history these rows guard against, not a path they reach. (The first row, `{"alg":"\ud800","typ":"JWT"}`, is refused when the assertion header is read, before Kid.Parse.)
   Run both on the post-D29 tree once with `OffCurveProof` still in place and record that they go red (six tests). Then make the change and record them green.
 - [ ] `tests/Curia.Api.Tests/Fuzz/OracleTests.cs` `R14_10_TheTokenEndpointsProofRefusalsStopAtTheFirstParser`.
   - Its `sendProof: true` row sends the proof `a.b.c`. After D29 that proof is refused with a detail, so the row's exact match against `Oracle.TokenEndpointProofRefusal` goes red. Run it on the post-D29 tree before changing it, and record the red line under D29. That red line is this row's falsification: it shows the row sees a detail being added.
@@ -222,7 +225,8 @@ And in `tests/Curia.AuthN.Tests/DpopProofRetentionTests.cs` (new), `R5_14_Consum
   - `tests/Curia.AuthN.Tests/AccessTokenValidatorDpopTests.cs:86`: same tense change.
   - `tests/Curia.Api.Tests/RequestSurfaceTests.cs:220`, the doc comment "…without building it (register D29)…": same tense change, and it describes the token the fact now mints itself.
   - `tests/Curia.Api.Tests/RequestSurfaceTests.cs:297`, the failure message, is reworded by the `RequestSurfaceTests` step above.
-  Then grep `grep -rn 'register D29\|(D29)' src tests`, excluding the files this task creates. Every hit must be one of `Fuzz/RequestModel.cs`, `DpopProofValidator.cs`, `JwkPublicKey.cs`, `AccessTokenValidatorDpopTests.cs` and `RequestSurfaceTests.cs` at the places above, and none may be in `AccessTokenValidator.cs`. Stop if any hit is not one of these.
+  - `src/Curia.AuthN/Dpop/DpopProof.cs:34-36` (DpopProofClaims summary): names the type's one constructor, which the extraction moved; it carries no D29 marker, so the grep below cannot find it. It now reads that the type is constructed only through `DpopProofClaims.Parse`, which only `DpopProofValidator.Validate` calls, and that `ath` is checked only when the expectation carries an access token, which `AccessTokenValidator` passes and the token endpoint does not.
+  Then grep `grep -rn 'register D29\|(D29)' src tests`, excluding the files this task creates. Every hit must be one of `Fuzz/RequestModel.cs`, `DpopProofValidator.cs`, `JwkPublicKey.cs`, `AccessTokenValidatorDpopTests.cs` and `RequestSurfaceTests.cs` at the places above, and none may be in `AccessTokenValidator.cs`. Stop if any hit is not one of these. The grep finds only comments that name D29. Also read every doc comment in `src/Curia.AuthN/Dpop/` and `AccessTokenValidator.cs` that names `AccessTokenValidator`, and check it against the move; `grep -rn 'only place this type is constructed\|AccessTokenValidator.s Phase 4' src tests` must print nothing.
 - [ ] Commit: `D29: the token request's DPoP proof passes the one proof validator`.
 
 ### Task 0.2: Coarse refusals, logged (M5)
@@ -246,6 +250,7 @@ And in `tests/Curia.AuthN.Tests/DpopProofRetentionTests.cs` (new), `R5_14_Consum
   - `TokenSubjectBindingTests.cs`: :39, :283, :308, :310 (expected bodies); :214 (`detail ?? error_description` == `curia/keys/not-bound-by-the-log`, so after M5 it compares the fixed description and goes red); :241 (`detail` == `curia/authn/subject-mismatch`).
   - `RequestSurfaceTests.cs`: :473 (the inAssertion rows, per Task 0.1) and :608–:609. :609 asserts `detail == "curia/authn/malformed"` for the nine token jti rows, so re-pin it to the captured 5001 Type == `curia/authn/malformed`.
   - The doc comments at RequestSurfaceTests :438 and :565 stay.
+  - `TokenEndpointProofTests.cs`: both helpers that read the served `detail` are re-pinned, `AssertInvalidDpopProof` (every proof-refusal fact, and `D29_AProofSentTwiceIsRefusedTheSecondTime`'s second send) and `D29_AProofRefusedForItsAssertionIsNotConsumed`'s first send. Each asserts exactly one captured 5001 for the request and that its Type equals the slug it pins today (Task 0.1's Slug column; `curia/authn/signature-invalid` for the assertion refusal). They no longer read `detail`, whose `GetProperty("detail")` throws `KeyNotFoundException` once M5 lands: that is the intended loud failure, and deleting the read without the captured-Type pin is a finding, as is re-pinning to the body alone. After M5 a 500 captures no 5001, so "exactly one 5001" is what turns a mutant answered 500 red.
   - `Fuzz/FuzzRun.cs` (:385 at 3d2cf24) and `Fuzz/RequestFuzzRandomTests.cs` (:155): each `Oracle.ProblemType(` call passes the captured Type (gate 3).
   - `Fuzz/OracleTests.cs`.
     - The test runs on a plain `ForumFixture`. Give it the lifted Support/ capturing logger through `forum.WithWebHostBuilder(... ConfigureTestServices ...)`, as `ServerFaultTests` does.
@@ -294,6 +299,8 @@ Count each anchor once against the tree after Task 0.2.
 | F0-11b | `DpopProofValidator.cs` | the same anchor → `(proof.Claims.Iat > now ? proof.Claims.Iat : now) + AuthNConstants.MaxSkew` | `R5_14_AProofAtTheEdgeOfItsWindowIsNotAcceptedAgain` and both AuthN facts' strict clause |
 | F0-12 | `OAuthRefusal.cs` | `Refused(logger, code, reason?.Type ?? string.Empty);` → `Refused(logger, code, (reason?.Type ?? string.Empty) + " " + reason?.Detail);` | `M5_ARefusalLogsItsSlugAndNoneOfTheCallersText` |
 | F0-13 | `AccessTokenValidator.cs` | the `ConsumeAsync` call → the base's inline insert with expiry `now + AuthNConstants.MaxSkew` | `R5_14_TheResourcePathHoldsAProofUntilItsIatPlusSkew` |
+| F0-14 | `TokenEndpoint.cs` | the three lines from `var consumed = await DpopProofValidator.ConsumeAsync(validatedProof!, replayCache, ...)` through its return, moved to immediately after the `proofResult` refusal, before the line `// R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.` (that full comment is the anchor; the bare `// R5.20` is not unique) | `D29_AProofRefusedForItsAssertionIsNotConsumed` |
+| F0-15 | `DpopProofValidator.cs` | the R5.21 condition `!string.Equals(proofHeader.Alg, keyAlg, StringComparison.Ordinal)` → the same `&& expected.HttpMethod == "NEVER"` | `D29_AProofWhoseHeaderAlgIsEdDsaOverAP256JwkIsRefused` (by its captured Type; the AuthN R5_13 facts going red do not count for this row) |
 
 - [ ] Before the first patch, keep copies outside the tree of every file a row patches: `DpopProofValidator.cs`, `TokenEndpoint.cs`, `OAuthRefusal.cs`, `Oracle.cs`, `ClientAssertionValidator.cs`, `AccessTokenValidator.cs`.
 - [ ] F0-13's anchor is the three lines Task 0.1 pins in `AccessTokenValidator.cs` (`var consumed = await DpopProofValidator.ConsumeAsync(validatedProof!, context.ReplayCache, now, cancellationToken).ConfigureAwait(false);` and its `if` and return). Its replacement is exactly:
@@ -309,14 +316,15 @@ Count each anchor once against the tree after Task 0.2.
       return Result<ValidatedRequest>.Fail(AuthNErrors.Replay());
   ```
   Build the F0-13 mutant once before counting it. A compile error is not RED: an F0-13 that fails to build tested nothing, so stop and report rather than count it.
+- [ ] Build the F0-14 and F0-15 mutants once before counting them, by the same rule. For F0-15, record whether the fact went red by a different captured Type or by a 500 (after M5 a 500 captures no 5001, and the "exactly one 5001" assertion is what turns it red); a row red for an unknown reason is not counted. Probed on the Task 0.1 tree with the served `detail`, in Release: F0-14 compiled and its fact went red, the second send 400 `invalid_dpop_proof` with `curia/authn/replay`; F0-15 compiled and its fact went red by a different slug, 400 with `curia/authn/signature-invalid` in place of `curia/authn/alg-key-mismatch`.
 - [ ] Restore each case by plain copy (`cp` without `-p`, or `shutil.copyfile`; never `cp -p` or `shutil.copy2`, whose kept mtime lets MSBuild keep the patched DLL), rebuild with `--no-incremental`, and run once unpatched before the next case.
-- [ ] Expect `falsify: 14 cases, 0 not RED` (F0-1…F0-9, F0-10, F0-11, F0-11b, F0-12, F0-13). A green case is a finding (trap 13).
+- [ ] Expect `falsify: 16 cases, 0 not RED` (F0-1…F0-9, F0-10, F0-11, F0-11b, F0-12, F0-13, F0-14, F0-15). A green case is a finding (trap 13).
 - [ ] Commit nothing from this task except the runner's record, which goes into Task 0.4.
 
 ### Task 0.4: Register and documents (PR 0)
 
 - [ ] `IMPLEMENTATION_PLAN.md`:
-  - **D29** closed: the facts, the five proof-ordering facts, the base's red lines, and F0-1…F0-5, F0-8, F0-10. The two `RequestSurfaceTests` changes: the off-curve proof is refused at the token endpoint and the rebound token is minted by the test, and the `inAssertion` rows send an on-curve proof so the assertion is reached. R5.14's retention corrected: a proof's jti is held until max(now, iat) + MaxSkew + 1 s; F0-11, F0-11b, F0-13. The two random-pass fractions and the Divisor, as the runner's output lines verbatim, with no expected delta.
+  - **D29** closed: the facts (with `D29_AProofRefusedForItsAssertionIsNotConsumed`: a proof is consumed only after the assertion authenticates), each proof fact pinned to the slug of the check that refused it, the five proof-ordering facts, the base's red lines, and F0-1…F0-5, F0-8, F0-10, F0-14, F0-15. The two `RequestSurfaceTests` changes: the off-curve proof is refused at the token endpoint and the rebound token is minted by the test, and the `inAssertion` rows send an on-curve proof so the assertion is read and, for the last four rows, its kid check is reached. Observed: with the off-curve key-build refusal made unreachable (`if (!jwk.ToPublicKeyMaterial(kid: "").TryGetValue(out var proofKey, out var proofKeyError) && expected.HttpMethod == "NEVER")`, which compiles), `D29_AProofOverAnOffCurveKeyIsRefused` went red by a 500, an `ArgumentNullException` (parameter `key`) from the signature check given a null key, not by a different slug. R5.14's retention corrected: a proof's jti is held until max(now, iat) + MaxSkew + 1 s; F0-11, F0-11b, F0-13. The two random-pass fractions and the Divisor, as the runner's output lines verbatim, with no expected delta.
   - The register note at :5013-:5017 ("…When D29 closes, these draws become refusals, and Divisor should be re-measured") is marked acted on, with the measurements Tasks 0.1 and 0.2 recorded. It also records that its expectation held only in part: `htm` and `htu` draws became refusals that still count past the first parser, and parsable `jti` draws still answer 200. The fraction fell by what the measurement shows, not by ~40 draws.
   - **M5** closed: under "Observed during the strangers stage", the token-endpoint bullet is struck through with the facts and F0-6/F0-7/F0-9/F0-12; a 4xx logs its slug only.
   - Under **M5**, observed, not acted on: the missing-proof refusal still logs no reason. Giving it `AuthNErrors.MissingDpopProof()` would make the fuzz oracle count `curia/authn/missing-dpop-proof`, which is not in `ParserRefusals`, as past the first parser and move the floor, so PR 0 leaves it.

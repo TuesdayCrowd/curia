@@ -500,10 +500,13 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     /// key that cannot be read is <c>invalid_dpop_proof</c>; an assertion that cannot be read, behind
     /// a proof whose key can, is <c>invalid_client</c>. The last four rows are an assertion whose header
     /// <c>kid</c> is absent, empty, white space or a number (the stage's final gate, second round):
-    /// <c>PostgresAgentKeyStore</c> refuses a blank <c>kid</c> by throwing, and this answered 500 to
-    /// anyone before any signature was checked. An assertion row carries a valid proof, on the curve and
-    /// with a fresh <c>jti</c>: the proof must pass so that the assertion, and PostgresAgentKeyStore's
-    /// blank-kid path, is reached at all.
+    /// <c>PostgresAgentKeyStore</c> refused a blank <c>kid</c> by throwing, and this answered 500 to
+    /// anyone before any signature was checked. The assertion's <c>kid</c> is now refused at
+    /// <c>Kid.Parse</c>, before any key is resolved, so these rows guard that throw by never reaching
+    /// the store. An assertion row carries a valid proof, on the curve and with a fresh <c>jti</c>:
+    /// since D29 the proof is checked first, and must pass for the assertion to be read at all, and for
+    /// the last four rows its <c>kid</c> check (<c>Kid.Parse</c>, before any key is resolved) to be
+    /// reached.
     /// </summary>
     [Theory]
     [InlineData(false, "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\",\"jwk\":{\"kty\":\"\\ud800\"}}")]

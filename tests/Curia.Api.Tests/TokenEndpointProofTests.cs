@@ -28,19 +28,21 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
 
     [Fact]
     public Task D29_AProofWhoseIatIsThirtyDaysOldIsRefused() =>
-        AssertRefusedAsync(dpop => dpop.Proof("POST", TokenEndpoint, forum.Now - TimeSpan.FromDays(30)));
+        AssertRefusedAsync(dpop => dpop.Proof("POST", TokenEndpoint, forum.Now - TimeSpan.FromDays(30)), "curia/authn/proof-window-exceeded");
 
     [Fact]
     public Task D29_AProofWhoseHtuNamesAnotherHostIsRefused() =>
-        AssertRefusedAsync(dpop => dpop.Proof("POST", "http://another.example/oauth/token", forum.Now));
+        AssertRefusedAsync(dpop => dpop.Proof("POST", "http://another.example/oauth/token", forum.Now), "curia/authn/url-mismatch");
 
     [Fact]
     public Task D29_AProofWhoseHtmIsGetIsRefused() =>
-        AssertRefusedAsync(dpop => dpop.Proof("GET", TokenEndpoint, forum.Now));
+        AssertRefusedAsync(dpop => dpop.Proof("GET", TokenEndpoint, forum.Now), "curia/authn/method-mismatch");
 
     [Fact]
     public Task D29_AProofWhoseTypIsNotDpopJwtIsRefused() =>
-        AssertRefusedAsync(dpop => dpop.Proof("POST", TokenEndpoint, forum.Now, header => header["typ"] = "JWT", _ => { }));
+        AssertRefusedAsync(
+            dpop => dpop.Proof("POST", TokenEndpoint, forum.Now, header => header["typ"] = "JWT", _ => { }),
+            "curia/authn/typ-mismatch");
 
     [Fact]
     public Task D29_AProofSignedOverAnotherPayloadIsRefused() =>
@@ -48,11 +50,13 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
         {
             var proof = dpop.Proof("POST", TokenEndpoint, forum.Now);
             return proof[..(proof.LastIndexOf('.') + 1)] + Base64Url.EncodeToString(new byte[64]);
-        });
+        }, "curia/authn/signature-invalid");
 
     [Fact]
     public Task D29_AProofWhoseHeaderAlgIsEdDsaOverAP256JwkIsRefused() =>
-        AssertRefusedAsync(dpop => dpop.Proof("POST", TokenEndpoint, forum.Now, header => header["alg"] = "EdDSA", _ => { }));
+        AssertRefusedAsync(
+            dpop => dpop.Proof("POST", TokenEndpoint, forum.Now, header => header["alg"] = "EdDSA", _ => { }),
+            "curia/authn/alg-key-mismatch");
 
     [Fact]
     public Task D29_AProofOverAnOffCurveKeyIsRefused() =>
@@ -62,7 +66,7 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
             ["crv"] = "P-256",
             ["x"] = Base64Url.EncodeToString(Enumerable.Repeat((byte)1, 32).ToArray()),
             ["y"] = Base64Url.EncodeToString(Enumerable.Repeat((byte)2, 32).ToArray()),
-        }, _ => { }));
+        }, _ => { }), "curia/authn/malformed-jwk");
 
     /// <summary>
     /// R5.14 at the token endpoint: a proof's <c>jti</c> is recorded, so one proof is accepted once. Two
@@ -84,7 +88,42 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
 
         var (secondStatus, secondBody) = await DpopClient.RequestTokenWithProofAsync(
             forum.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
-        AssertInvalidDpopProof(secondStatus, secondBody);
+        AssertInvalidDpopProof(secondStatus, secondBody, "curia/authn/replay");
+    }
+
+    /// <summary>
+    /// R5.13 with §4.10's order: a proof's <c>jti</c> is recorded only after the client assertion
+    /// validates. A caller with no credential then writes no replay row (and so runs no prune;
+    /// <c>PostgresReplayCache</c> prunes on insert), and a request refused for its assertion does not
+    /// burn its proof. Moving <c>ConsumeAsync</c> before the assertion makes the second send 400
+    /// <c>invalid_dpop_proof</c>.
+    /// </summary>
+    [Fact]
+    public async Task D29_AProofRefusedForItsAssertionIsNotConsumed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (agent, dpop) = await EnrolledAsync(ct);
+        var proof = dpop.Proof("POST", TokenEndpoint, forum.Now);
+
+        var good = dpop.ClientAssertion(TokenEndpoint, forum.Now);
+        var badAssertion = good[..(good.LastIndexOf('.') + 1)] + Base64Url.EncodeToString(new byte[64]);
+
+        var (firstStatus, firstBody) = await DpopClient.RequestTokenWithProofAsync(
+            forum.Client, agent.AgentId, badAssertion, proof, ct);
+        Assert.True(firstStatus == HttpStatusCode.Unauthorized, $"{(int)firstStatus} {firstBody[..Math.Min(firstBody.Length, 240)]}");
+        using (var json = JsonDocument.Parse(firstBody))
+        {
+            var error = json.RootElement.GetProperty("error").GetString();
+            Assert.NotEqual("invalid_dpop_proof", error);
+            Assert.Equal("invalid_client", error);
+            Assert.Equal("curia/authn/signature-invalid", json.RootElement.GetProperty("detail").GetString());
+        }
+
+        var (secondStatus, secondBody) = await DpopClient.RequestTokenWithProofAsync(
+            forum.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
+        Assert.True(
+            secondStatus == HttpStatusCode.OK,
+            $"the proof was consumed by a request refused before authentication: {(int)secondStatus} {secondBody}");
     }
 
     /// <summary>The reference client's own token flow, through <see cref="ForumSession"/>, is still answered with a token.</summary>
@@ -119,7 +158,7 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
         }
     }
 
-    private async Task AssertRefusedAsync(Func<DpopClient, string> proof)
+    private async Task AssertRefusedAsync(Func<DpopClient, string> proof, string slug)
     {
         var ct = TestContext.Current.CancellationToken;
         var (agent, dpop) = await EnrolledAsync(ct);
@@ -127,14 +166,15 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
         var (status, body) = await DpopClient.RequestTokenWithProofAsync(
             forum.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof(dpop), ct);
 
-        AssertInvalidDpopProof(status, body);
+        AssertInvalidDpopProof(status, body, slug);
     }
 
-    private static void AssertInvalidDpopProof(HttpStatusCode status, string body)
+    private static void AssertInvalidDpopProof(HttpStatusCode status, string body, string slug)
     {
         Assert.True(status == HttpStatusCode.BadRequest, $"{(int)status} {body[..Math.Min(body.Length, 240)]}");
         using var json = JsonDocument.Parse(body);
         Assert.Equal("invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
+        Assert.Equal(slug, json.RootElement.GetProperty("detail").GetString());
     }
 
     private async Task<(ForumAgent Agent, DpopClient Dpop)> EnrolledAsync(CancellationToken ct)

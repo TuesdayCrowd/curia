@@ -32,8 +32,10 @@ public sealed record DpopProofHeader(string Alg, string Typ)
 }
 
 /// <summary>RFC 9449 §4.2's proof claims. <see cref="Ath"/> is only present (and only checked)
-/// when the proof accompanies a protected-resource request bound to an access token -- exactly
-/// <see cref="AccessTokenValidator"/>'s Phase 4 use, the only place this type is constructed.
+/// when the proof accompanies a protected-resource request bound to an access token: the type is
+/// constructed only through <see cref="Parse"/>, which only <see cref="DpopProofValidator.Validate"/>
+/// calls, and that checks it only when its expectation carries an access token, which
+/// <see cref="AccessTokenValidator"/> passes and the token endpoint does not.
 /// <see cref="Nonce"/> is optional on the wire; whether its absence is itself a failure is a
 /// caller decision (R5.19 is a SHOULD, scoped to write paths) -- see
 /// <see cref="AccessTokenValidator"/>'s nonce check. It stays the string the guarded reader read: a
