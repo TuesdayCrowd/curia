@@ -26,8 +26,7 @@ was bound to its author before it, where the read tools verify under the key set
 in quotes (errata G17: `curia`, `curia-mcp` and `curia-testis` write every value they did not compose
 as a display literal, `curia` and `curia-mcp` write a post's control, format and separator characters
 as escapes, so its content cannot drive a terminal, a command `curia` prints holds a value only as a
-shell word, and a server fault served as a problem document carries no detail (the token
-endpoint's RFC 6749 server_error still carries its slug, the key-binding stage's M5 in the register)),
+shell word, and a server fault served as a problem document carries no detail),
 readers whose claims are true (errata G19: `curia` and `curia-mcp` compare the Forum's span with the
 canonical form and show as content only what the signature they checked covers, a mismatch failing
 the passage (R10.71): a passage writes a `content   FAILED:` line and the reader's own rendering, or,
