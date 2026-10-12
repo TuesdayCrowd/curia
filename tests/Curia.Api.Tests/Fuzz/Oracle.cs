@@ -48,19 +48,28 @@ internal static partial class Oracle
     ];
 
     /// <summary>
-    /// The token endpoint's two refusals of its DPoP proof, src/Curia.Api/Issuer/TokenEndpoint.cs:109
-    /// (no proof) and :113 (a proof whose key CompactJws or JwkParser could not read). Both are answered
-    /// through OAuthError with no detail, so ProblemType reads them as the bare error code. Neither got a
-    /// value past the proof's parser: one had nothing to parse and the other was refused by it, the same
-    /// parse failure that answers curia/authn/malformed or malformed-jwk on other routes (review of
-    /// 6cbfa9f). Compared by exact equality only, so a future <c>invalid_dpop_proof &lt;slug&gt;</c>
-    /// answer is classified by its slug, not by this constant.
+    /// The token endpoint's refusal of its DPoP proof logged with no reason, which is today the missing
+    /// proof alone: nothing was parsed, so no value got past the proof's parser. Since D29 closed the
+    /// one proof validator refuses a proof's signature and its claims too, and since M5 closed no body
+    /// says why: each of those refusals is classified by the slug it logged (event 5001), as
+    /// <c>invalid_dpop_proof &lt;slug&gt;</c>, and never by this constant, which is compared by exact
+    /// equality only.
     /// </summary>
     internal const string TokenEndpointProofRefusal = "invalid_dpop_proof";
 
     /// <summary>
+    /// The token endpoint's refusal of a request it could not read as a token request (TokenEndpoint's
+    /// form checks: not a form, an unreadable form, client_assertion_type, missing client_assertion or
+    /// client_id). Logged with no reason, because nothing past the form reader was parsed. It is a parser
+    /// refusal, which counts as reach (register D33, "the reach clause counts a parser refusal as
+    /// reach"), as it did before M5. Compared by exact equality only.
+    /// </summary>
+    internal const string TokenEndpointFormRefusal = "invalid_request";
+
+    /// <summary>
     /// The first <c>curia/&lt;area&gt;/&lt;name&gt;</c> slug in a problem type, or empty. The token
-    /// endpoint's problem type is <c>error + " " + detail</c>, so the slug sits inside the string.
+    /// endpoint's problem type is <c>error + " " + </c> the slug it logged, so the slug sits inside the
+    /// string.
     /// </summary>
     internal static string Slug(string problemType)
     {
@@ -87,10 +96,13 @@ internal static partial class Oracle
 
     /// <summary>
     /// The answer's problem type: a problem document's <c>type</c>, or at the token endpoint RFC 6749's
-    /// <c>error</c> and the slug it carries in <c>detail</c>. Empty for an answer that has neither.
+    /// <c>error</c> and <paramref name="capturedType"/>, the slug the refusal logged (event 5001, or
+    /// 5000 for a server fault), since its body no longer carries one (M5). A token refusal logged with
+    /// no reason is its bare <c>error</c>. Empty for an answer that has neither.
     /// </summary>
-    internal static string ProblemType(string pattern, string body)
+    internal static string ProblemType(string pattern, string body, string capturedType)
     {
+        ArgumentNullException.ThrowIfNull(capturedType);
         try
         {
             using var json = JsonDocument.Parse(body);
@@ -99,8 +111,7 @@ internal static partial class Oracle
             if (string.Equals(pattern, "/oauth/token", StringComparison.Ordinal))
             {
                 var error = root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString()! : string.Empty;
-                var detail = root.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String ? " " + d.GetString() : string.Empty;
-                return error + detail;
+                return capturedType.Length > 0 ? error + " " + capturedType : error;
             }
 
             return root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String ? type.GetString()! : string.Empty;
@@ -136,12 +147,18 @@ internal static partial class Oracle
     /// Whether an answer shows a variation reached (clause 5): a 2xx, or a 4xx refusal other than the
     /// credential and signature refusals (<see cref="AuthenticationAndSignatureRefusals"/>). A parser
     /// refusal counts, though it comes before signature verification (register D33, "Observed, not acted
-    /// on (Task A5): the reach clause counts a parser refusal as reach").
+    /// on (Task A5): the reach clause counts a parser refusal as reach"). A token refusal counts only by
+    /// the reason it logged: one logged with none, whose problem type is its bare <c>error</c>, says
+    /// nothing of what was reached, so it is not reach (M5), except a bare <c>invalid_request</c>
+    /// (<see cref="TokenEndpointFormRefusal"/>), the form checks' refusal, which is a parser refusal and
+    /// is reach (D33).
     /// </summary>
-    internal static bool Reached(HttpStatusCode status, string problemType)
+    internal static bool Reached(string pattern, HttpStatusCode status, string problemType)
     {
+        ArgumentNullException.ThrowIfNull(problemType);
         var code = (int)status;
         if (code is >= 200 and < 300) return true;
+        if (string.Equals(pattern, "/oauth/token", StringComparison.Ordinal) && !problemType.Contains(' ', StringComparison.Ordinal) && !string.Equals(problemType, TokenEndpointFormRefusal, StringComparison.Ordinal)) return false;
         // Answers unchanged from the substring match: no slug in src extends any of the four entries (review of 6cbfa9f).
         return code is >= 400 and < 500
             && problemType.Length > 0

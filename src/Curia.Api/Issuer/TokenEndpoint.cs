@@ -71,7 +71,7 @@ public static class TokenEndpoint
         // the form reader, and answered 500 to anyone too (the stage's final gate, second round).
         // JsonCharset exempts /oauth, so this catch is the only refusal.
         if (!http.HasFormContentType)
-            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+            return new OAuthRefusal("invalid_request", "The request body is not a form this endpoint can read", null);
 
         IFormCollection form;
         try
@@ -80,15 +80,15 @@ public static class TokenEndpoint
         }
         catch (InvalidDataException)
         {
-            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+            return new OAuthRefusal("invalid_request", "The request body is not a form this endpoint can read", null);
         }
         catch (IOException)
         {
-            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+            return new OAuthRefusal("invalid_request", "The request body is not a form this endpoint can read", null);
         }
         catch (NotSupportedException)
         {
-            return OAuthError("invalid_request", "The request body is not a form this endpoint can read");
+            return new OAuthRefusal("invalid_request", "The request body is not a form this endpoint can read", null);
         }
 
         var assertion = form["client_assertion"].ToString();
@@ -97,21 +97,21 @@ public static class TokenEndpoint
         var scope = form["scope"].ToString();
 
         if (assertionType != "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
-            return OAuthError("invalid_request", "client_assertion_type must be jwt-bearer");
+            return new OAuthRefusal("invalid_request", "client_assertion_type must be jwt-bearer", null);
 
         if (string.IsNullOrWhiteSpace(assertion) || string.IsNullOrWhiteSpace(clientId))
-            return OAuthError("invalid_request", "client_assertion and client_id are required");
+            return new OAuthRefusal("invalid_request", "client_assertion and client_id are required", null);
 
         // The DPoP proof on the token request names the key the token will be bound to (RFC 9449
         // §5). Required here, not optional: a token issued without one would be a bearer token, and
         // there would be no later point at which it could acquire a binding.
         var proof = http.Headers["DPoP"].ToString();
         if (string.IsNullOrWhiteSpace(proof))
-            return OAuthError("invalid_dpop_proof", "A DPoP proof is required on the token request");
+            return new OAuthRefusal("invalid_dpop_proof", OAuthRefusal.ProofNotAccepted, null);
 
         var proofResult = DpopProofValidator.Validate(proof, new DpopExpectation("POST", TokenEndpointUrl(http), null, null), verifiers, clock.GetUtcNow());
         if (!proofResult.TryGetValue(out var validatedProof, out var proofError))
-            return OAuthError("invalid_dpop_proof", "The DPoP proof was not accepted", proofError!.Type);
+            return new OAuthRefusal("invalid_dpop_proof", OAuthRefusal.ProofNotAccepted, proofError);
 
         // R5.20 (errata G15): the assertion's key is resolved for client_id, and its sub must name it.
         var expectedSubject = AgentId.Parse(clientId, "client_id");
@@ -132,13 +132,13 @@ public static class TokenEndpoint
         if (!validated.TryGetValue(out var claims, out var error))
         {
             return string.Equals(error!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
-                ? OAuthError("server_error", error.Title, error.Type)
-                : OAuthError("invalid_client", error.Title, error.Type);
+                ? new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, error)
+                : new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, error);
         }
 
         var consumed = await DpopProofValidator.ConsumeAsync(validatedProof!, replayCache, clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
         if (!consumed.TryGetValue(out _, out var consumeError))
-            return OAuthError("invalid_dpop_proof", "The DPoP proof was not accepted", consumeError!.Type);
+            return new OAuthRefusal("invalid_dpop_proof", OAuthRefusal.ProofNotAccepted, consumeError);
 
         // Who is enrolled is a projection of the event log (R4.21), not something this process
         // remembers -- so a host that has just come up knows exactly as much as one that has been
@@ -147,11 +147,11 @@ public static class TokenEndpoint
         // each agent re-announced itself.
         var read = await events.ReadAllAsync(cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var log, out var readError))
-            return OAuthError("server_error", "The credential log could not be read", readError!.Type);
+            return new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, readError);
 
         var standings = AgentStandingProjector.Fold(log!);
         if (!standings.ContainsKey(claims!.Sub))
-            return OAuthError("invalid_client", "That agent is not enrolled");
+            return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
 
         // The tier is stamped for observability only; R7.7 forbids relying on a token claim, and
         // the resource server recomputes from live posture on every request. Recomputing it here
@@ -164,11 +164,11 @@ public static class TokenEndpoint
         // The validator refuses an assertion whose client_id is no AgentId, and one whose sub is not
         // client_id, so the subject here is the parsed client_id (R11.34, errata G18).
         if (!expectedSubject.TryGetValue(out var subject, out _))
-            return OAuthError("invalid_client", "That agent is not enrolled");
+            return new OAuthRefusal("invalid_client", OAuthRefusal.ClientNotAuthenticated, null);
 
         var posture = AgentStandingProjector.PostureOf(standings, subject!);
         if (!posture.TryGetValue(out var facts, out var postureError))
-            return OAuthError("server_error", postureError!.Title, postureError.Type);
+            return new OAuthRefusal("server_error", OAuthRefusal.CouldNotIssue, postureError);
 
         var tier = TierPolicy.Evaluate(facts!, clock.GetUtcNow());
 
@@ -198,22 +198,4 @@ public static class TokenEndpoint
     /// </summary>
     private static string TokenEndpointUrl(HttpRequest request) =>
         $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
-
-    /// <summary>
-    /// RFC 6749 §5.2's error response. <c>invalid_client</c> is the one code §5.2 pairs with a 401;
-    /// everything it defines for this endpoint is a 400. <c>server_error</c> is §4.1.2.1's code
-    /// rather than §5.2's -- the token endpoint has no code of its own for "the Forum could not
-    /// read its own log" -- and it is mapped to a 500 because that is what it is: a client that
-    /// retries an identical request may well succeed, which is exactly the distinction a 4xx would
-    /// erase.
-    /// </summary>
-    private static IResult OAuthError(string code, string description, string? detail = null) =>
-        Results.Json(
-            new { error = code, error_description = description, detail },
-            statusCode: code switch
-            {
-                "invalid_client" => StatusCodes.Status401Unauthorized,
-                "server_error" => StatusCodes.Status500InternalServerError,
-                _ => StatusCodes.Status400BadRequest,
-            });
 }

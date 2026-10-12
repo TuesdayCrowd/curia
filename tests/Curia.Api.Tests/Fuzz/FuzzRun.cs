@@ -29,7 +29,14 @@ public sealed class FuzzForumFixture : ForumFixture
 
     internal HeaderReadRecorder Recorder { get; }
 
-    protected override void ConfigureFuzz(IServiceCollection services) => services.AddSingleton<IStartupFilter>(Recorder);
+    /// <summary>Every event this fixture's hosts log: the oracle reads a token refusal's reason here (M5).</summary>
+    internal LogCapture Log { get; } = new();
+
+    protected override void ConfigureFuzz(IServiceCollection services)
+    {
+        services.AddSingleton<IStartupFilter>(Recorder);
+        services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Log);
+    }
 }
 
 /// <summary>One failed answer, as the failure line, the ledger and <c>CURIA_FUZZ_FAILURES</c> name it.</summary>
@@ -364,7 +371,7 @@ internal static class FuzzRun
             {
                 try
                 {
-                    using var response = await context.Client!.SendAsync(request, ct);
+                    using var response = await context.SendOneAsync(request, ct);
                     body = await response.Content.ReadAsStringAsync(ct);
                     status = (int)response.StatusCode;
                 }
@@ -382,7 +389,7 @@ internal static class FuzzRun
             state.Elapsed.Add(ms);
             if (part is not null) state.Sent++;
 
-            var problemType = thrown ?? Oracle.ProblemType(row.Pattern, body);
+            var problemType = thrown ?? Oracle.ProblemType(row.Pattern, body, context.CapturedType);
             _answers[key] = $"{status.ToString(CultureInfo.InvariantCulture)} {problemType}".TrimEnd();
 
             var reason = thrown is null
@@ -414,7 +421,7 @@ internal static class FuzzRun
                     Lines.Add($"rebinding: the re-signed copy of {part.Address} {label} on {row.Route} answered {status.ToString(CultureInfo.InvariantCulture)} {problemType} ({DetailOf(body) ?? "no detail"}), not the key build's curia/authn/malformed-jwk");
             }
 
-            if (part is not null && copy != CopyKind.Unsigned && thrown is null && Oracle.Reached((HttpStatusCode)status, problemType))
+            if (part is not null && copy != CopyKind.Unsigned && thrown is null && Oracle.Reached(row.Pattern, (HttpStatusCode)status, problemType))
                 state.Reached.Add(part.Address);
 
             // Only a submission creates a post: a flag's or an acceptance's 201 names a post it did not create.

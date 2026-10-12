@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ports;
@@ -34,12 +33,12 @@ public sealed class ServerFaultTests(ForumFixture forum) : IClassFixture<ForumFi
     public async Task R11_33_AnAnonymousSearchTheIndexFailsIsServedWithoutTheBackendsWords()
     {
         var ct = TestContext.Current.CancellationToken;
-        var logged = new ConcurrentQueue<string>();
+        using var logged = new LogCapture();
 
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IVectorIndex>(sp => new FailingNearest(sp.GetRequiredService<Curia.Infrastructure.PostgresAdapters>().VectorIndex));
-            services.AddSingleton<ILoggerProvider>(_ => new Captured(logged));
+            services.AddSingleton<ILoggerProvider>(logged);
         }));
         using var client = host.CreateClient();
 
@@ -51,7 +50,7 @@ public sealed class ServerFaultTests(ForumFixture forum) : IClassFixture<ForumFi
             $"{(int)response.StatusCode} {body}");
 
         // And the words are where an operator reads: withheld from the caller, not lost.
-        Assert.Contains(logged, line => line.Contains(BackendText, StringComparison.Ordinal));
+        Assert.Contains(logged.All, e => e.Message.Contains(BackendText, StringComparison.Ordinal));
     }
 
     /// <summary>The host's own index, except that a nearest-neighbour query fails as Postgres failed it under D24.</summary>
@@ -70,27 +69,5 @@ public sealed class ServerFaultTests(ForumFixture forum) : IClassFixture<ForumFi
 
         public Task<Result<long>> MaxSequenceAsync(EmbeddingModel model, CancellationToken cancellationToken = default) =>
             inner.MaxSequenceAsync(model, cancellationToken);
-    }
-
-    /// <summary>Every log line the host writes, formatted.</summary>
-    private sealed class Captured(ConcurrentQueue<string> lines) : ILoggerProvider
-    {
-        public ILogger CreateLogger(string categoryName) => new Logger(lines);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class Logger(ConcurrentQueue<string> lines) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state)
-                where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                lines.Enqueue(formatter(state, exception));
-        }
     }
 }

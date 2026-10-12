@@ -520,6 +520,7 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     public async Task R11_33_ATokenRequestsProofOrAssertionItCannotReadIsRefusedNotThrown(bool inAssertion, string header)
     {
         var ct = TestContext.Current.CancellationToken;
+        await using var captured = new CapturedForum(forum);
         var form = inAssertion
             ? new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -532,13 +533,19 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/token") { Content = form };
         request.Headers.TryAddWithoutValidation("DPoP", inAssertion ? ValidTokenRequestProof() : Segment(header) + ".e30.AA");
 
-        using var response = await forum.Client.SendAsync(request, ct);
+        var mark = captured.Log.Mark();
+        using var response = await captured.Client.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
         var expected = inAssertion ? HttpStatusCode.Unauthorized : HttpStatusCode.BadRequest;
         Assert.True(response.StatusCode == expected, $"{(int)response.StatusCode} {body[..Math.Min(body.Length, 240)]}");
         using var json = JsonDocument.Parse(body);
         Assert.Equal(inAssertion ? "invalid_client" : "invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
+
+        // Each row is refused by the parser of the part it cannot read, and logs that parser's slug (M5).
+        // An assertion row's is the assertion's own, read past a valid proof, as the base served it in
+        // detail: never a proof slug such as malformed-jwk.
+        Assert.Equal("curia/authn/malformed", captured.Log.SingleType(mark, 5001));
     }
 
     /// <summary>
@@ -640,7 +647,8 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
     {
         ArgumentNullException.ThrowIfNull(target);
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var agent = ForumAgent.Create("https://agents.example/signed-string-" + suffix, "signed-string-" + suffix);
         var (dpop, token) = await agent.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
@@ -669,12 +677,13 @@ public sealed class RequestSurfaceTests(ForumFixture forum) : IClassFixture<Foru
         string body;
         if (path == "/oauth/token")
         {
+            var mark = captured.Log.Mark();
             (status, body) = await dpop.RequestTokenAsync(
                 client, TokenEndpoint, forum.Now, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now, Edit), ct);
             Assert.True(status == HttpStatusCode.Unauthorized, $"{(int)status} {body[..Math.Min(body.Length, 240)]}");
             using var answer = JsonDocument.Parse(body);
             Assert.Equal("invalid_client", answer.RootElement.GetProperty("error").GetString());
-            Assert.Equal("curia/authn/malformed", answer.RootElement.GetProperty("detail").GetString());
+            Assert.Equal("curia/authn/malformed", captured.Log.SingleType(mark, 5001));
             return;
         }
 

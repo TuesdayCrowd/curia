@@ -31,9 +31,9 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     private const string TokenEndpoint = "http://localhost/oauth/token";
     private const string PostsUrl = "http://localhost/v1/posts";
 
-    /// <summary>What the token endpoint answers a stored key the log does not bind to the agent named.</summary>
+    /// <summary>What the token endpoint answers a stored key the log does not bind to the agent named; why is in the log (M5).</summary>
     private const string NotBoundByTheLog =
-        "{\"error\":\"invalid_client\",\"error_description\":\"The event log binds no such key to that agent\",\"detail\":\"curia/keys/not-bound-by-the-log\"}";
+        "{\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}";
 
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
 
@@ -53,7 +53,8 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     public async Task R4_35_AKeyTheStoreHoldsAndTheLogDoesNotBindSignsNothingAndMintsNothing()
     {
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var suffix = Suffix();
         var owner = ForumAgent.Create($"https://agents.example/bound-{suffix}", $"bound-{suffix}");
         var (dpop, token) = await owner.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
@@ -73,6 +74,7 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
             Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
         }
 
+        var mark = captured.Log.Mark();
         var (tokenStatus, tokenBody) = await DpopClient.For(hole, hole.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, owner.AgentId, ct);
         using var forged = await dpop.PostAsync(
@@ -86,6 +88,7 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
             tokenStatus != HttpStatusCode.OK && forged.StatusCode != HttpStatusCode.Created && !keySet.Contains(hole.Kid, StringComparison.Ordinal),
             $"a key the log never bound acted as {owner.AgentId}: token request {(int)tokenStatus}, question {(int)forged.StatusCode} {forgedBody}, key set {keySet}");
         Assert.Equal($"401 {NotBoundByTheLog}", $"{(int)tokenStatus} {tokenBody}");
+        Assert.Equal("curia/keys/not-bound-by-the-log", captured.Log.SingleType(mark, 5001));
         Assert.Equal(
             "401 curia/keys/not-bound-by-the-log",
             $"{(int)forged.StatusCode} {JsonNode.Parse(forgedBody)!["type"]!.GetValue<string>()}");
@@ -211,11 +214,12 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
     /// failure, and ingest and the key set answer 503 <c>curia/log/unreadable</c>, where a 401 would
     /// tell an agent its key had been refused. With a reader that refuses the whole-log read the key
     /// set's positions are folded from, the key set answers 503 too, rather than serving its keys
-    /// without the leaves that bind them. The token endpoint names the reader's refusal by its slug; a
-    /// 5xx problem names none, and its detail goes to the log (R11.33, errata G17).
+    /// without the leaves that bind them. Neither the token endpoint nor a 5xx problem names the reader's
+    /// refusal: the token endpoint logs its slug as event 5000 (M5), and a 5xx problem's detail goes to
+    /// the log (R11.33, errata G17).
     /// </summary>
     [Theory]
-    [InlineData("token", "stream", "500 {\"error\":\"server_error\",\"error_description\":\"The event log could not be read\",\"detail\":\"curia/log/unreadable\"}")]
+    [InlineData("token", "stream", "500 {\"error\":\"server_error\",\"error_description\":\"The Forum could not issue a token\"}")]
     [InlineData("question", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     [InlineData("key set", "stream", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
     [InlineData("key set", "whole", "503 {\"type\":\"curia/log/unreadable\",\"title\":\"The event log could not be read\",\"detail\":null}")]
@@ -229,8 +233,12 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
         // The reader refuses only once the host is up: a host reconciles its vector index from the whole
         // log as it starts, and does not start on a log it cannot read.
         var started = false;
+        using var logged = new LogCapture();
         await using var host = forum.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<IEventReader>(sp => new UnreadableLog(sp.GetRequiredService<IEventStore>(), refuses, () => started))));
+        {
+            services.AddSingleton<IEventReader>(sp => new UnreadableLog(sp.GetRequiredService<IEventStore>(), refuses, () => started));
+            services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(logged);
+        }));
         using var client = host.CreateClient();
         started = true;
 
@@ -239,9 +247,12 @@ public sealed class KeyBindingTests(ForumFixture forum) : IClassFixture<ForumFix
         {
             case "token":
             {
+                var mark = logged.Mark();
                 var (status, body) = await DpopClient.For(agent, agent.AssertionKey)
                     .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
                 answer = $"{(int)status} {body}";
+                Assert.Equal(expected, answer);
+                Assert.Equal("curia/log/unreadable", logged.SingleType(mark, 5000));
                 break;
             }
 

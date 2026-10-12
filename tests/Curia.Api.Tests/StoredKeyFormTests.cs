@@ -43,15 +43,15 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     private const string TokenEndpoint = "http://localhost/oauth/token";
     private const string PostsUrl = "http://localhost/v1/posts";
 
-    /// <summary>What the token endpoint answers an assertion that does not verify under the named agent's own key.</summary>
+    /// <summary>What the token endpoint answers an assertion that does not verify under the named agent's own key; why is in the log (M5).</summary>
     private const string SignatureDoesNotVerify =
-        "{\"error\":\"invalid_client\",\"error_description\":\"Signature does not verify\",\"detail\":\"curia/authn/signature-invalid\"}";
+        "{\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}";
 
     private static readonly byte[] Message = Encoding.UTF8.GetBytes("stored key form");
 
-    /// <summary>What the token endpoint answers a stored key the log does not bind to the agent named (R4.35).</summary>
+    /// <summary>What the token endpoint answers a stored key the log does not bind to the agent named (R4.35); why is in the log (M5).</summary>
     private const string NotBoundByTheLog =
-        "{\"error\":\"invalid_client\",\"error_description\":\"The event log binds no such key to that agent\",\"detail\":\"curia/keys/not-bound-by-the-log\"}";
+        "{\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}";
 
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
 
@@ -155,7 +155,8 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     public async Task R4_35_AnotherHoldersKeyUnderABoundKidSignsNothingMintsNothingAndIsNotPublished()
     {
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var suffix = Suffix();
         var victim = ForumAgent.Create($"https://agents.example/stored-victim-{suffix}", $"stored-victim-{suffix}");
         var (dpop, token) = await victim.AuthenticateAsync(client, TokenEndpoint, forum.Now, ct);
@@ -163,6 +164,7 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
         var impostor = ForumAgent.Create(victim.AgentId, victim.Kid);
         await ReplaceAsync(victim.Kid, "ES256", impostor.AssertionKey.ExportSubjectPublicKeyInfo(), ct);
 
+        var mark = captured.Log.Mark();
         var (tokenStatus, tokenBody) = await DpopClient.For(impostor, impostor.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, victim.AgentId, ct);
         using var forged = await dpop.PostAsync(
@@ -176,6 +178,7 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
             tokenStatus != HttpStatusCode.OK && forged.StatusCode != HttpStatusCode.Created && keySet == "200 kids=[] x= y=",
             $"another holder's key under {victim.Kid} acted as {victim.AgentId}: token request {(int)tokenStatus}, question {(int)forged.StatusCode} {forgedBody}, key set {keySet}");
         Assert.Equal($"401 {NotBoundByTheLog}", $"{(int)tokenStatus} {tokenBody}");
+        Assert.Equal("curia/keys/not-bound-by-the-log", captured.Log.SingleType(mark, 5001));
         Assert.Equal(
             "401 curia/keys/not-bound-by-the-log",
             $"{(int)forged.StatusCode} {JsonNode.Parse(forgedBody)!["type"]!.GetValue<string>()}");
@@ -202,16 +205,20 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     public async Task R4_15_AStoredKeyThatIsNotAKeyOfItsAlgorithmMintsNoTokenAndIsAnsweredAsABadSignatureIs(string row)
     {
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var suffix = Suffix();
 
         var honest = await EnrolledAsync($"stored-control-{suffix}", ct);
         using var stranger = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var controlMark = captured.Log.Mark();
         var (controlStatus, controlBody) = await DpopClient.For(honest, stranger)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, honest.AgentId, ct);
         Assert.Equal($"401 {SignatureDoesNotVerify}", $"{(int)controlStatus} {controlBody}");
+        Assert.Equal("curia/authn/signature-invalid", captured.Log.SingleType(controlMark, 5001));
 
         var agent = await EnrolledBeforeKeyBindingAsync($"stored-{row}-{suffix}", ct);
+        var mark = captured.Log.Mark();
         HttpStatusCode status;
         string body;
         switch (row)
@@ -237,6 +244,7 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
 
         var line = body.Split('\n')[0];
         Assert.Equal($"{(int)controlStatus} {controlBody}", $"{(int)status} {line[..Math.Min(line.Length, 200)]}");
+        Assert.Equal("curia/authn/signature-invalid", captured.Log.SingleType(mark, 5001));
     }
 
     /// <summary>
@@ -251,17 +259,20 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     public async Task R4_35_ARowReplacedUnderAKeyTheLogBindsMintsNoToken(string material)
     {
         var ct = TestContext.Current.CancellationToken;
-        var client = forum.Client;
+        await using var captured = new CapturedForum(forum);
+        var client = captured.Client;
         var agent = await EnrolledAsync($"stored-bound-{material}-{Suffix()}", ct);
 
         using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
         var replaced = material == "p384-spki" ? p384.ExportSubjectPublicKeyInfo() : KeyMaterials.Build(material, Message).Material;
         await ReplaceAsync(agent.Kid, "ES256", replaced, ct);
 
+        var mark = captured.Log.Mark();
         var (status, body) = await DpopClient.For(agent, material == "p384-spki" ? p384 : agent.AssertionKey)
             .RequestTokenAsync(client, TokenEndpoint, forum.Now, agent.AgentId, ct);
 
         Assert.Equal($"401 {NotBoundByTheLog}", $"{(int)status} {body}");
+        Assert.Equal("curia/keys/not-bound-by-the-log", captured.Log.SingleType(mark, 5001));
     }
 
     /// <summary>
@@ -275,6 +286,7 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
     public async Task R5_21_AnAssertionWhoseHeaderNamesAnotherAlgorithmThanItsKeyIsRefusedByName()
     {
         var ct = TestContext.Current.CancellationToken;
+        await using var captured = new CapturedForum(forum);
         var agent = await EnrolledAsync($"stored-eddsa-header-{Suffix()}", ct);
 
         var header = new JsonObject { ["alg"] = "EdDSA", ["kid"] = agent.Kid, ["typ"] = "JWT" };
@@ -292,11 +304,13 @@ public sealed class StoredKeyFormTests(ForumFixture forum) : IClassFixture<Forum
             Base64Url.EncodeToString(Encoding.UTF8.GetBytes(claims.ToJsonString())) + "." +
             Base64Url.EncodeToString(new byte[64]);
 
+        var mark = captured.Log.Mark();
         var (status, body) = await DpopClient.For(agent, agent.AssertionKey)
-            .RequestTokenAsync(forum.Client, TokenEndpoint, forum.Now, agent.AgentId, assertion, ct);
+            .RequestTokenAsync(captured.Client, TokenEndpoint, forum.Now, agent.AgentId, assertion, ct);
 
         Assert.Equal(
-            "401 {\"error\":\"invalid_client\",\"error_description\":\"The header names another algorithm than its key\",\"detail\":\"curia/authn/alg-key-mismatch\"}",
+            "401 {\"error\":\"invalid_client\",\"error_description\":\"The client could not be authenticated\"}",
             $"{(int)status} {body}");
+        Assert.Equal("curia/authn/alg-key-mismatch", captured.Log.SingleType(mark, 5001));
     }
 }

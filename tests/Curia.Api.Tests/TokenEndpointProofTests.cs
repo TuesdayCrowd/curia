@@ -79,16 +79,18 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
     public async Task D29_AProofSentTwiceIsRefusedTheSecondTime()
     {
         var ct = TestContext.Current.CancellationToken;
+        await using var captured = new CapturedForum(forum);
         var (agent, dpop) = await EnrolledAsync(ct);
         var proof = dpop.Proof("POST", TokenEndpoint, forum.Now);
 
         var (firstStatus, firstBody) = await DpopClient.RequestTokenWithProofAsync(
-            forum.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
+            captured.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
         Assert.True(firstStatus == HttpStatusCode.OK, $"the first send was refused, so this fact proves nothing: {(int)firstStatus} {firstBody}");
 
+        var mark = captured.Log.Mark();
         var (secondStatus, secondBody) = await DpopClient.RequestTokenWithProofAsync(
-            forum.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
-        AssertInvalidDpopProof(secondStatus, secondBody, "curia/authn/replay");
+            captured.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
+        AssertInvalidDpopProof(captured.Log, mark, secondStatus, secondBody, "curia/authn/replay");
     }
 
     /// <summary>
@@ -102,25 +104,27 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
     public async Task D29_AProofRefusedForItsAssertionIsNotConsumed()
     {
         var ct = TestContext.Current.CancellationToken;
+        await using var captured = new CapturedForum(forum);
         var (agent, dpop) = await EnrolledAsync(ct);
         var proof = dpop.Proof("POST", TokenEndpoint, forum.Now);
 
         var good = dpop.ClientAssertion(TokenEndpoint, forum.Now);
         var badAssertion = good[..(good.LastIndexOf('.') + 1)] + Base64Url.EncodeToString(new byte[64]);
 
+        var mark = captured.Log.Mark();
         var (firstStatus, firstBody) = await DpopClient.RequestTokenWithProofAsync(
-            forum.Client, agent.AgentId, badAssertion, proof, ct);
+            captured.Client, agent.AgentId, badAssertion, proof, ct);
         Assert.True(firstStatus == HttpStatusCode.Unauthorized, $"{(int)firstStatus} {firstBody[..Math.Min(firstBody.Length, 240)]}");
         using (var json = JsonDocument.Parse(firstBody))
         {
             var error = json.RootElement.GetProperty("error").GetString();
             Assert.NotEqual("invalid_dpop_proof", error);
             Assert.Equal("invalid_client", error);
-            Assert.Equal("curia/authn/signature-invalid", json.RootElement.GetProperty("detail").GetString());
+            Assert.Equal("curia/authn/signature-invalid", captured.Log.SingleType(mark, 5001));
         }
 
         var (secondStatus, secondBody) = await DpopClient.RequestTokenWithProofAsync(
-            forum.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
+            captured.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof, ct);
         Assert.True(
             secondStatus == HttpStatusCode.OK,
             $"the proof was consumed by a request refused before authentication: {(int)secondStatus} {secondBody}");
@@ -161,20 +165,27 @@ public sealed class TokenEndpointProofTests(ForumFixture forum) : IClassFixture<
     private async Task AssertRefusedAsync(Func<DpopClient, string> proof, string slug)
     {
         var ct = TestContext.Current.CancellationToken;
+        await using var captured = new CapturedForum(forum);
         var (agent, dpop) = await EnrolledAsync(ct);
+        var assertion = dpop.ClientAssertion(TokenEndpoint, forum.Now);
+        var sent = proof(dpop);
 
-        var (status, body) = await DpopClient.RequestTokenWithProofAsync(
-            forum.Client, agent.AgentId, dpop.ClientAssertion(TokenEndpoint, forum.Now), proof(dpop), ct);
+        var mark = captured.Log.Mark();
+        var (status, body) = await DpopClient.RequestTokenWithProofAsync(captured.Client, agent.AgentId, assertion, sent, ct);
 
-        AssertInvalidDpopProof(status, body, slug);
+        AssertInvalidDpopProof(captured.Log, mark, status, body, slug);
     }
 
-    private static void AssertInvalidDpopProof(HttpStatusCode status, string body, string slug)
+    /// <summary>
+    /// A 400 <c>invalid_dpop_proof</c>, refused by the check <paramref name="slug"/> names: the one
+    /// reason the request logged (event 5001), since M5 closed and the body names none.
+    /// </summary>
+    private static void AssertInvalidDpopProof(LogCapture log, int mark, HttpStatusCode status, string body, string slug)
     {
         Assert.True(status == HttpStatusCode.BadRequest, $"{(int)status} {body[..Math.Min(body.Length, 240)]}");
         using var json = JsonDocument.Parse(body);
         Assert.Equal("invalid_dpop_proof", json.RootElement.GetProperty("error").GetString());
-        Assert.Equal(slug, json.RootElement.GetProperty("detail").GetString());
+        Assert.Equal(slug, log.SingleType(mark, 5001));
     }
 
     private async Task<(ForumAgent Agent, DpopClient Dpop)> EnrolledAsync(CancellationToken ct)
