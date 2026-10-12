@@ -8305,7 +8305,13 @@ read two ways.
 entry except `agent.enrolled` and the `agent.key-bound` an enrollment appends beside it (R4.34) SHALL
 carry `prev`, the log index of the identity's previous lifecycle entry, and SHALL be appended under the
 identity's stream at the version the Forum read when it decided the act, so no two lifecycle entries of
-one identity name the same `prev`. A statement an entry carries SHALL be carried as its exact canonical
+one identity name the same `prev`. Where an identity's lifecycle before it is `agent.enrolled` alone, an
+`agent.key-bound` with exactly R4.34's members, whose `kid` is the enrollment's, SHALL be read as that
+identity's first binding (R6.54's binding after a history) and needs no `prev`. Its link is its
+position: it is the first lifecycle entry after the enrollment. Any other `agent.key-bound` without
+`prev` is a broken link. A first binding after a history is the log's record of a key the Forum already
+held; reading it as a broken chain would turn an honest pre-R4.34 identity's every post into a failure,
+which R6.54 refuses to do. A statement an entry carries SHALL be carried as its exact canonical
 text, and every member the entry states beside it SHALL equal the statement's. Under the four entry
 types and the `/1` statements this entry defines, a statement's member set and an entry's member set
 SHALL each be exactly the set this entry gives for its kind; a reader SHALL determine the entry type and
@@ -8419,7 +8425,7 @@ under the lock it already takes.
 **R6.54 (addendum)** A client that reports a served post as verified SHALL also have established, from
 the author's lifecycle entries (R4.38) before the post, each recomputed and held to the same signed head
 as R6.54 holds the binding, that the post's key was live at the post's position: the chain from the
-enrollment's pair to the last entry before the post, each `prev` naming the entry before it; each
+enrollment's pair, or from `agent.enrolled` and its first binding (R4.38), to the last entry before the post, each `prev` naming the entry before it; each
 rotation's statement and both its signatures verified, its authorizing key live at the rotation's
 position by the same chain, and the members its entry states equal to the statement's; each retirement's
 statement verified under the key it retires; and no retirement of the post's key, and no compromise
