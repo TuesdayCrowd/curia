@@ -8,9 +8,10 @@
 
 **Architecture:**
 - **PR 0** (branch `token-proof-verified`): Tasks 0.0–0.5. No requirement applied, and no event, table or grant changes; G21 is committed as proposed.
-- **PR 1** (branch `key-rotation`): Tasks 1.0–1.12. Opened from `main` after PR 0 merges, and only after GitButler's target base is the merged `main` and `but status` shows none of PR 0's commits.
-- **PR 2** (branch `key-compromise`): Tasks 2.0–2.7, after PR 1 merges, under the same base rule.
-- No `db/` migration (spec §4.2). New Acta payloads are frozen once appended (R4.38); vectors land before any producer.
+- **PR 0.5** (branch `lifecycle-guard`): Tasks L.0–L.5. The lifecycle guard (spec §4.13, R4.38 (add.)), alone, merged before PR 1 starts, under the same base rule. Its body names the NEEDS item.
+- **PR 1** (branch `key-rotation`): Tasks 1.0–1.12. Opened from `main` after PR 0.5 merges, and only after GitButler's target base is the merged `main` and `but status` shows none of PR 0.5's commits.
+- **PR 2** (branch `key-compromise`): Tasks 2.0–2.6, right after PR 1 merges (not deferred to the lift; spec §4.1, amended), under the same base rule. The five-agent exercise and TUI work may run between PR 1 and PR 2, with the guard on.
+- No `db/` migration (spec §4.2). **No producer appends to a retained log until the lift. Vectors are proposals until the lift record pins their digests.** Vectors still land before any producer. Lifting the guard is the owner's act and is in no PR of this plan.
 
 **Tech stack:** .NET 10, C# 14, xUnit v3, CsCheck 4.8.0, Npgsql + Postgres 18 with pgvector, Rust (`curia-testis`), python3, GitButler (`but`).
 
@@ -33,8 +34,19 @@
 - Every new port parameter carrying a caller's identifier is a boundary type (`AgentId`, `Kid`, or a new type in `Curia.Domain.Primitives/Boundary`), and never an allowlist row. A string-like parameter the R11.34 fence newly reaches that is not a caller's identifier takes a row only under the one-part-at-a-time spec §4.8's classification rule, with the reason that rule gives and an existing row as precedent, and the task that adds it lists it. Retyping or moving a type to keep it out of the fence's reach is not a fix. The R11.34 fence stays green. (Amended at Task 0.1 by the architect's ruling: §4.10's types bring `DpopProofValidator.Validate`, `DpopExpectation`, `ValidatedProof` and `DpopProofClaims` into the fence's scope through `TokenEndpoint`, and none of their eleven string-like parameters is a caller's identifier.)
 - A refusal names a field and a limit, never a key, a statement or a signature.
 - The store is never written by retirement or compromise.
+- **The guard (R4.38 (add.)).** No task appends a lifecycle entry beyond an enrolment's pair to a retained log: the local Forum database used for the `curia` skill and the five-agent exercise, or any `CURIA_EVENTS_POSTGRES` database. `CURIA_TEST_POSTGRES` is an admin connection to the same server, so a test composition pointed at a retained database is a path to the freeze: every fixture that injects the permissive gate refuses a database whose name does not carry the `curia_test_` prefix it generated in the same run (`R4_38_APermissiveCompositionRefusesADatabaseItDidNotCreate`).
+- No task edits `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json` after PR 0.5 creates it empty, or the G6 fact `R4_38_TheApprovedSetIsEmpty`. Any diff that does is a stop.
+- Every lifecycle signature carries its kind's header `typ` (spec §4.5, B1). No task signs a statement as `SubmissionBuilder` signs a post or as R6.49 signs a head.
 
-**Numbering:** G21; R4.38, R4.39, R5.22, R6.56, R6.57, R7.23; R4.18 (rev.), R4.31 (rev. 2), R4.35 (rev.), R6.26 (rev.), R6.30 (rev.), R6.54 (add.). Task 0.0 re-derives these and **stops** if the tree disagrees.
+**Checkpoints (hopper-doctrine).**
+- **CP-A** (end of Task L.2): run the production composition; assert the resolved gate's type is `EmbeddedLifecycleAppendGate`, the approved set is empty, and (once Task 1.6 lands) the key set's `curia_lifecycle_kinds` is `{"approved":[],"enabled":[]}`.
+- **CP-B** (before each PR leaves draft, and before merge): G6 green in Release and Debug; `git diff origin/main...HEAD --name-only` names neither the approval record nor G6's file (PR 0.5 excepted, where it creates both, the record empty); the falsify output includes the PR's G rows with `0 not RED`; the PR body says "merging does not freeze; the lift is the owner's separate act". Decision agents may merge green PRs, so CP-B is the only gate against an agent merging a lift before NEEDS is met.
+- **CP-C** (any local Forum run, the five-agent exercise included): the guard is on, and the count of lifecycle-kind entries beyond enrolment pairs in the retained log is 0 before and after (event 7006 is the detector). Nonzero is a divergence: halt and report.
+- **CP-D** (Task 2.5's dry run): the database name came from that run's own create step, checked before any append.
+
+**Naming.** The owner's "Q1: Yes." (2026-10-11) accepted G21's cost item 9, the takeover. It is not Task 1.0's "owner question 1" (the Table 10 rows), which proceeds on its default yes.
+
+**Numbering:** G21; R4.38, R4.39, R5.22, R6.56, R6.57, R7.23; R4.18 (rev.), R4.31 (rev. 2), R4.35 (rev.), R6.26 (rev.), R6.30 (rev.), R6.54 (add.), R4.38 (add.). Task 0.0 re-derives these and **stops** if the tree disagrees; Task L.0 re-derives R4.38 (add.).
 
 **Characters:**
 - No added line may contain a character of category Cf, Zl, Zp or Co, or Cc other than LF and TAB.
@@ -55,14 +67,22 @@
 ## Review Focus
 
 1. **PR 0.** The token endpoint and the resource server run one validator. The resource path's order and error types are byte-identical to before. No refusal from `/oauth/token` carries `detail`.
-2. **PR 1.**
+2. **PR 0.5.**
+   - Every INSERT into the events table passes the gated core; the exact-pair rule admits `[agent.enrolled, agent.key-bound]` at `AggregateVersion.New` and nothing else of the three shapes.
+   - The approval record is embedded, empty, and fails closed when missing.
+   - The permissive gate is reachable from no `src/` or `tools/` assembly.
+3. **PR 1.**
+   - Every lifecycle route's gate is its handler's first act, committed with the route.
+   - Every lifecycle signature names its kind's `typ`; header `kid`s are their roles' members.
    - Every lifecycle append is conditioned on the identity stream's version.
    - Every post append is conditioned on its author stream's version.
    - Statements are read from canonical bytes, and every entry member equals its statement's.
    - A retirement can be signed only by the key it retires.
    - The fence has no new row.
    - Readers verify rotations recursively, and check the link after the post.
-3. **PR 2.**
+4. **PR 2.**
+   - The operator verb asks the gate before it reads the log key.
+   - The declaration is signed under `curia-key-compromise+jws`, and readers recompute its cascade (B3).
    - The declaration verifies under the log key set and never under an agent key.
    - `t_c` is floored at the binding.
    - The cascade is transitive.
@@ -87,7 +107,11 @@
 | `tests/Curia.Api.Tests/Fuzz/{RequestModel.cs, Oracle.cs, OracleTests.cs, FuzzContext.cs, FuzzRun.cs, RequestFuzzRandomTests.cs}` | D29's off-curve rows; the oracle's captured reason; Divisor | 0.1, 0.2 |
 | `src/Curia.Client/ForumClient.cs` (ReadProblem's summary) | M5's wire shape | 0.2 |
 | `curia-whitepaper-ERRATA-AND-ADDENDUM.md` | G21 committed; the R5.14 sentence in the §5.5, §5.6 row | 0.0, 0.4 |
-| `tools/GenerateEnvelopeFixtures/{Fixtures.cs, Lifecycle.cs (new)}`, `conformance/acta/{key-rotated-entry,key-retired-entry,key-bound-entry-es256}/`, `conformance/lifecycle/*`, `conformance/index.json` | frozen formats | 1.1 (acta), 1.9 (lifecycle) |
+| `src/Curia.Application/Ports/ILifecycleAppendGate.cs` (new), `src/Curia.Infrastructure/Lifecycle/{EmbeddedLifecycleAppendGate.cs, LifecycleApprovalRecord.cs, lifecycle-approval.json}` (new), `src/Curia.Infrastructure/{PostgresEventStore.cs, PostgresAdapters.cs, Curia.Infrastructure.csproj}`, `src/Curia.Domain/DomainErrors.cs`, `src/Curia.Api/Program.cs`, `src/Curia.Operator/Program.cs` | the guard, the chokepoint, lock 2, event 7006 | L.1, L.2 |
+| `tests/Shared/PermissiveLifecycleAppendGate.cs` (new), `tests/Curia.Application.Tests/InMemory/InMemoryEventStore.cs`, `tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs`, every `new PostgresEventStore(` and `new InMemoryEventStore(` in `tests/`, `tests/Curia.Infrastructure.Tests/LifecycleGuardTests.cs` (new), `tests/Curia.Application.Tests/LifecycleGuardTests.cs` (new), `tests/Curia.Api.Tests/LifecycleGuardStartupTests.cs` (new), `tests/Curia.Architecture.Tests/LifecycleGateFenceTests.cs` (new) | G3–G8, G10, fixtures | L.1, L.2, L.3 |
+| `tools/GenerateEnvelopeFixtures/{Fixtures.cs, Lifecycle.cs (new)}`, `conformance/acta/{key-rotated-entry,key-retired-entry,key-bound-entry-es256}/`, `conformance/lifecycle/*`, `conformance/index.json` | proposed formats | 1.1 (acta), 1.9 (lifecycle) |
+| `tests/Curia.Canon.Tests/Jws/DetachedJwsTests.cs`, `rust/curia-testis/src/jws.rs` (tests), `src/Curia.Client/ActaCheck.cs` (head verifier) | each lifecycle `typ` through `b64`/`crit`; head refuses lifecycle `typ`s | 1.9, 2.3 |
+| `tests/Shared/test-signer.py`, `tests/Shared/TestSigner.cs`, `src/Curia.Client/ExternalSigner*.cs` (the `sign-lifecycle` verb) | signer verb split (R4.39, R11.20) | 1.8 |
 | `tests/Curia.Canon.Tests/Vectors/ActaLeafVectorTests.cs`, `rust/curia-testis/tests/vectors.rs` | leaf recomputation of the new vectors | 1.1 |
 | `src/Curia.Application/Ports/IEventStore.cs`, `src/Curia.Infrastructure/PostgresEventStore.cs`, the in-memory store, `src/Curia.Domain/DomainErrors.cs` | `StreamCondition` | 1.2 |
 | `src/Curia.Domain/Keys/KeyStatements.cs` (new) | statement read/verify (pure) | 1.3 |
@@ -357,27 +381,126 @@ Count each anchor once against the tree after Task 0.2 and its review follow-ups
 
 ---
 
+## PR 0.5 — the lifecycle guard (branch `lifecycle-guard`)
+
+The owner answered "Q2: No." on 2026-10-11: the lifecycle formats are not approved to freeze. This PR puts the chokepoint on `main` before any lifecycle producer exists on any branch (spec §4.1 amended, §4.13). It refuses nothing `main` appends today; G4 proves that.
+
+### Task L.0: Base and re-derivation
+
+- [ ] `but branch new lifecycle-guard` from the merged `main` (PR 0 merged, 007f4f4 or later, and the `keys-that-end-rulings` documents merged). Confirm with `but status` that it carries none of PR 0's commits.
+- [ ] Re-derive, or **stop**: `grep -c '^\*\*R4\.38 (addendum)\*\*' curia-whitepaper-ERRATA-AND-ADDENDUM.md` → `1`; `grep -c '^### 4.13 The guard' docs/superpowers/specs/2026-10-11-keys-that-end-design.md` → `1`; `grep -rn 'lifecycle-not-enabled\|lifecycle-append-refused\|EventId = 7006' src tests` → nothing; `grep -n 'public const int' src/Curia.Operator/Program.cs` → exactly 0–3.
+- [ ] Record each assembly's test count at this base.
+
+### Task L.1: The port, the record, the opt-in
+
+**Interfaces:**
+```csharp
+// Curia.Application.Ports
+public enum LifecycleKind { Rotation, Retirement, Compromise }
+public interface ILifecycleAppendGate { bool Enables(LifecycleKind kind); }
+// Curia.Infrastructure.Lifecycle
+public sealed record LifecycleApprovalRecord(int Version, ImmutableArray<ApprovedKind> Approved /* , decision, sign-offs */)
+{
+    public static Result<LifecycleApprovalRecord> Embedded();             // the manifest resource; missing or unparsable fails
+    public static Result<LifecycleApprovalRecord> Parse(ReadOnlySpan<byte> json);
+    public Result<Unit> VerifyDigests(string actaVectorsRoot);           // recomputes (c); G7 runs this, not a copy of it
+}
+public sealed record ApprovedKind(LifecycleKind Kind, string EventType, string CanonicalSha256, string LeafSha256);
+public sealed class EmbeddedLifecycleAppendGate : ILifecycleAppendGate
+{
+    public static Result<EmbeddedLifecycleAppendGate> Create(LifecycleApprovalRecord record, string? optIn); // lock 2
+}
+// DomainErrors.LifecycleAppendRefusedType = "curia/domain/lifecycle-append-refused"
+```
+- `lifecycle-approval.json` is `{"version":1,"approved":[]}`, an `EmbeddedResource` of `Curia.Infrastructure`, read through the guarded JSON reader (R11.34), never `System.Text.Json`.
+- `Create` refuses, by name: an opt-in naming a kind the record does not approve; an opt-in enabling `rotation` or `retirement` without `compromise`; an opt-in that is not `none` or a comma list over the three kinds. `null` is `none`. The record itself refuses approving rotation or retirement without compromise.
+- `tests/Shared/PermissiveLifecycleAppendGate.cs`: `Enables` returns true for all three. Nowhere else.
+
+**Red facts first** (`tests/Curia.Application.Tests/LifecycleGuardTests.cs` unless named):
+- `R4_38_TheApprovedSetIsEmpty` (G6; `tests/Curia.Architecture.Tests/LifecycleGateFenceTests.cs`): reads `LifecycleApprovalRecord.Embedded()` from the production assembly; asserts it is present, parses, and approves nothing. Red when a kind is added (deliberately, only in the lift PR).
+- `R4_38_AMissingApprovalRecordFailsClosed`: `Parse` over empty bytes and over `{}` fails; `Create` given that failure fails; a missing resource is never read as empty. Red when a missing record is treated as `approved: []`.
+- `R4_38_TheApprovalDigestCheckFailsOnAOneByteChange` (G7): copy `conformance/acta/key-bound-entry/` to a temporary directory; build a test-only record approving `rotation` with `EventType` `agent.key-bound` and digests are the sha256 of that vector's `expected.canonical` and `expected.leaf` (recomputed in the test with `SHA256.HashData`, not by `VerifyDigests`); assert `VerifyDigests(copy)` is Ok; change one byte of the copy's `expected.leaf`; assert it fails naming the kind. Red when the comparison is skipped.
+- `R4_38_StartupRefusesAnUnapprovedKind`, `R4_38_StartupRefusesRotationWithoutCompromise`, `R4_38_StartupRefusesAnUnreadableOptIn` (G8; `tests/Curia.Api.Tests/LifecycleGuardStartupTests.cs`): the host's start throws with a named message; logging and continuing does not count. Control `R4_38_StartupWithOptInNoneStarts`. Red when either check is removed.
+
+- [ ] Facts RED (compile the signatures first). Implement. Green.
+- [ ] Commit: `R4.38 (add.): the lifecycle gate, an empty approval record, and the opt-in`.
+
+### Task L.2: The chokepoint, in both adapters
+
+- [ ] `PostgresEventStore(NpgsqlDataSource, TimeProvider, ILifecycleAppendGate gate, …)`: required, no default. Every INSERT into the events table goes through one private core that classifies the append before the transaction writes: contains `agent.key-retired` → `Retirement`; contains `agent.key-compromised` → `Compromise`; contains `agent.key-bound` and is not exactly `[agent.enrolled, agent.key-bound]` at `AggregateVersion.New` → `Rotation`. If any classified kind is not enabled, return `DomainErrors.LifecycleAppendRefused(kind)` and write nothing. Type and shape only, never a payload. `PostgresAdapters` takes the gate and passes it. The Api and `curia-operator` compose `EmbeddedLifecycleAppendGate.Create(LifecycleApprovalRecord.Embedded(), configuration["Curia:Lifecycle:Enabled"])` and fail startup on its error (lock 2).
+- [ ] `InMemoryEventStore(ILifecycleAppendGate gate)`: required, no default, same classification. Every `new InMemoryEventStore(` and `new PostgresEventStore(` in `tests/` passes a gate explicitly; `EnrollIdentityTests.cs:746`'s hand-appended `agent.key-bound` fact injects `PermissiveLifecycleAppendGate` and says why in one line.
+- [ ] Startup scan (G10): the Api, at start, folds the log (as readers do) and counts entries of the three shapes; with a nonzero count it logs event 7006 `LifecycleEntriesUnderGuard` at Error with the count, and starts.
+- [ ] Throwaway guard: every test fixture that injects the permissive gate checks the database name carries the `curia_test_` prefix it generated in this run, or throws before connecting.
+
+**Red facts first:**
+- `R4_38_TheChokepointRefusesEachLifecycleShape` (G3; the shared event-store contract suite, both adapters, production gate): theory over `[key-retired]`, `[key-compromised]`, `[key-bound]` on an existing stream, `[owner-attested, key-bound]`, and `[enrolled, key-bound, key-bound]`; each answers exactly `curia/domain/lifecycle-append-refused`, and the stream is unchanged. Red when the check is removed from either adapter (two F rows, each red on its own adapter's line).
+- `R4_38_TheChokepointAdmitsEachShapeUnderThePermissiveGate` (positive control): the same five appends land.
+- `R4_38_EnrollmentStillAppendsItsPairUnderTheGuard` (G4): `EnrollAgent` through the use case (in-memory, production-shaped gate with an empty record) and over HTTP (`ForumFixture` with no DI override) both append `[agent.enrolled, agent.key-bound]`. Red when the chokepoint refuses every `key-bound`.
+- `R4_38_NoProductionAssemblyReferencesThePermissiveGate` (G5; `LifecycleGateFenceTests`): over every assembly built from `src/` and `tools/`, no reference to any test assembly, and no type implementing `typeof(ILifecycleAppendGate)` other than `EmbeddedLifecycleAppendGate` (`R4_38_OneLifecycleGateImplementerInSrcAndTools`). Matched by `typeof` and `IsAssignableFrom`, never a name string. `tests/Shared` is linked source, compiled into each test assembly, so `typeof(PermissiveLifecycleAppendGate)` names a different type in each; the implementer check is what finds a copy in `src/`. Run in Release and Debug (D16). Red when a reference or a second implementer is added.
+- `R4_38_PostgresEventStoreIsTheOnlyEventStoreInSrc` (hopper): no other `IEventStore` implementer in `src/` or `tools/`. Red when one is added.
+- `R4_38_AGuardedForumOverALifecycleEntryStartsAndSaysSo` (G10; `LifecycleGuardStartupTests`): seed one `agent.key-retired` through the test composition into a throwaway database, start the production composition over it: it starts, and exactly one 7006 is captured with count 1 (capture by event id and logger category, as M5's capture does). Control `R4_38_AGuardedForumOverNoLifecycleEntrySaysNothing`. Red when the scan is removed.
+- `R4_38_APermissiveCompositionRefusesADatabaseItDidNotCreate`: pointed at a database name without this run's prefix, the fixture throws before connecting. Red when the check is removed.
+
+- [ ] RED; implement; green in all eleven assemblies.
+- [ ] **CP-A.**
+- [ ] Commit: `R4.38 (add.): the event store refuses a lifecycle append the gate does not enable`.
+
+### Task L.3: Falsify PR 0.5
+
+Anchors are the literal lines Tasks L.1–L.2 pin, counted once against the tree after Task L.2, or stop. Same discipline as Task 0.3 (kept copies from `git show <commit>:<path>`, plain-copy restore, `--no-incremental`, one unpatched run).
+
+| # | Anchor → replacement | Must go red |
+|---|---|---|
+| FL-1 | `PostgresEventStore`'s gate check removed | `R4_38_TheChokepointRefusesEachLifecycleShape` (Postgres rows) |
+| FL-2 | `InMemoryEventStore`'s gate check removed | `R4_38_TheChokepointRefusesEachLifecycleShape` (in-memory rows) |
+| FL-3 | the classification refuses every `agent.key-bound` | `R4_38_EnrollmentStillAppendsItsPairUnderTheGuard` (both halves) |
+| FL-4 | the exact-pair rule relaxed to "begins with `agent.enrolled`" | the `[enrolled, key-bound, key-bound]` row of `R4_38_TheChokepointRefusesEachLifecycleShape` |
+| FL-5 | a `src/` project gains a reference to the permissive gate's assembly and uses the type | `R4_38_NoProductionAssemblyReferencesThePermissiveGate` (Release and Debug) |
+| FL-6 | `lifecycle-approval.json` approves `compromise` | `R4_38_TheApprovedSetIsEmpty` |
+| FL-7 | `VerifyDigests`' comparison removed | `R4_38_TheApprovalDigestCheckFailsOnAOneByteChange` |
+| FL-8 | `Create`'s unapproved-kind check removed | `R4_38_StartupRefusesAnUnapprovedKind` |
+| FL-9 | `Create`'s compromise-order check removed | `R4_38_StartupRefusesRotationWithoutCompromise` |
+| FL-10 | the startup scan removed | `R4_38_AGuardedForumOverALifecycleEntryStartsAndSaysSo` |
+| FL-11 | `Embedded()` answers an empty record when the resource is missing | `R4_38_AMissingApprovalRecordFailsClosed` |
+| FL-12 | the fixture's prefix check removed | `R4_38_APermissiveCompositionRefusesADatabaseItDidNotCreate` |
+
+- [ ] Expect `falsify: 12 cases, 0 not RED`.
+
+### Task L.4: Register and documents (PR 0.5)
+
+- [ ] `IMPLEMENTATION_PLAN.md`: a register entry for the guard (opened, built; lifted: no), with FL-1…FL-12 and CP-A's output; **NEEDS (human only, open)**: branch protection on `main` requiring code-owner review, and a `CODEOWNERS` entry naming the owner for `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json`. It gates the lift, not the build.
+- [ ] `CLAUDE.md`: one clause: lifecycle kinds are guarded until the owner lifts the guard.
+- [ ] Scan added lines for invisible characters. Commit: `Register: the lifecycle guard (G21, PR 0.5)`.
+
+### Task L.5: Every gate, then PR 0.5
+
+- [ ] As Task 0.5. **CP-B.**
+- [ ] `but push lifecycle-guard`; draft PR. The body covers R4.38 (add.), the falsification result, "merging does not freeze; the lift is the owner's separate act", and the NEEDS item as an open, human-only item. PR attribution line. CI green, then `gh pr ready`.
+
+---
+
 ## PR 1 — rotation and retirement (branch `key-rotation`)
 
 ### Task 1.0: Base, owner question 1, first act
 
-- [ ] `but branch new key-rotation` from the merged `main`. Confirm with `but status` that it carries none of PR 0's commits.
-- [ ] If the owner said no to question 1, stop: Task 1.6's Table 10 rows cannot be tested. Default yes: in `curia-agent-forum-WHITEPAPER.md`, insert after the `| `flag` | `list` (own) |` row the two rows from G21's "The Table 10 rows", byte for byte. Mark G21's Status: "the two Table 10 rows are applied in v1.1". Run `check-spec.py` and get `clean`.
+- [ ] `but branch new key-rotation` from the merged `main` (PR 0.5 merged). Confirm with `but status` that it carries none of PR 0's or PR 0.5's commits, and that `R4_38_TheApprovedSetIsEmpty` is on `main`.
+- [ ] Owner question 1 (spec §7 q1, the Table 10 rows) proceeds on its default yes, adopted under the owner's standing instruction. The owner's "Q1: Yes." of 2026-10-11 answered the takeover question, not this one. The guard does not change it: tests run the rows behind the permissive gate. If the owner says no to question 1, stop: Task 1.6's Table 10 rows cannot be tested. Default yes: in `curia-agent-forum-WHITEPAPER.md`, insert after the `| `flag` | `list` (own) |` row the two rows from G21's "The Table 10 rows", byte for byte. Mark G21's Status: "the two Table 10 rows are applied in v1.1". Run `check-spec.py` and get `clean`.
 - [ ] **First act.** Add `R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs` to `EnrollIdentityTests` beside the existing `:746` fact. It runs `RotateKey` (Task 1.4) to bind `alice-2`, then asserts the same three assertions as `:746`, plus the stream's types `[enrolled, key-bound, key-bound]`. It does not compile until Task 1.4 and is committed with it. The `:746` fact stays as it is: its hand-appended entry is the one R4.31 (rev.) was written against.
 
-### Task 1.1: Frozen formats first (vectors, both runners)
+### Task 1.1: Proposed formats first (vectors, both runners)
 
 - [ ] `tools/GenerateEnvelopeFixtures/Lifecycle.cs` (new) emits:
   - **`acta/key-rotated-entry`.** The agent is the `key-bound-entry` agent. The authorizing key is `ed25519-minimal`'s, and the new key is a fixed second seed (`0x02` repeated 32 times, kid `conformance-ed25519-second`). `prev` = 1, under the implied log recorded in `meta.json`: 0 `agent.enrolled`, 1 the enrolment's `agent.key-bound`, 2 this rotation, 3 the retirement below. `event_id` `01K4CQ1V9P3R5T7W9Y1A3C5E8H`, `server_ts` `2026-09-04T15:30:00.000000Z`.
   - **`acta/key-retired-entry`.** Retires `conformance-ed25519-minimal`, signed by itself, `prev` = 2. `event_id` `01K4CQ1V9P3R5T7W9Y1A3C5E9J`, `server_ts` `2026-09-04T16:00:00.000000Z`.
   - **`acta/key-bound-entry-es256`.** A P-256 key whose `x` begins with 0x00; the SPKI is in `meta.json`.
 
-  Statements use `CanonicalJson.CanonicalizeWithNfc`; signatures use `Signing.Sign` (R6.37).
+  Statements use `CanonicalJson.CanonicalizeWithNfc`; signatures use `Signing.Sign` (R6.37) with the kind's header `typ` (`curia-key-rotation+jws`, `curia-key-retirement+jws`; spec §4.5, B1) and the role's `kid` in the header (B2). If `Signing.Sign` cannot take a `typ`, add the parameter; never sign a lifecycle statement under `curia-post+jws`.
+  These vectors are proposals: they may be regenerated until the lift record pins their digests. `rotation-es256-then-post` is not generated here; it lands in Task 1.9's commit where both runners verify it.
 - [ ] (Moved to Task 1.9: `conformance/lifecycle/` lands with the runners that read it.)
 - [ ] Compute `expected.digest` and `expected.leaf` for each new `acta/` vector with a python3 script under the scratchpad, using `json` + `hashlib` exactly as `key-bound-entry`'s `meta.json` describes. The generator's own values must equal the script's, or **stop**.
 - [ ] `conformance/index.json`: the `acta` count only; no `lifecycle` row until Task 1.9.
 - [ ] Red first: with `index.json`'s `acta` count raised and the vectors absent, both runners fail on the count; add the vectors and both pass. No family is skipped at any commit.
-- [ ] Commit: `Conformance: the lifecycle's entries, frozen before any producer (R4.38)`.
+- [ ] Commit: `Conformance: the lifecycle's entries, proposed before any producer (R4.38)`.
 
 ### Task 1.2: The append's condition (R6.56 mechanism)
 
@@ -395,7 +518,8 @@ Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, 
 - `R6_56_TheConditionIsReadUnderTheSerializationLock`: Postgres only. In one connection, open a transaction, take `SerializationLockKey` and append to B inside it. Start the conditioned append (A on B@v) and wait until `pg_locks` shows it waiting on the advisory lock. Then commit. Assert `condition-conflict`. Nothing appends after the lock is released.
 - `R6_56_TheVersionComesFromTheReadTheDecisionWasMadeOn` (Task 1.5's tree): a reader double appends a retirement after `ResolveLiveAsync`'s read; the conditioned append conflicts.
 
-- [ ] Implement it in Postgres. Inside the existing transaction, after `:160`'s check, run the same version query for `condition.Aggregate` and compare. Implement it in memory as well.
+- [ ] Implement it in Postgres. Inside the existing transaction, after `:160`'s check, run the same version query for `condition.Aggregate` and compare. Implement it in memory as well. The overload goes through PR 0.5's gated core; it adds no second INSERT path.
+- [ ] Fact `R4_38_TheConditionedOverloadPassesTheChokepoint` (contract suite, both adapters, production gate): an `agent.key-retired` appended through the conditioned overload is refused `curia/domain/lifecycle-append-refused`. Red when the overload writes outside the gated core (F1-48).
 - [ ] `EventStoreWriteSurfaceTests`: if it enumerates `IEventStore`'s methods, add the overload to its expected list, with a remark naming R6.56.
 - [ ] Commit: `R6.56: an append can be conditioned on another stream's version`.
 
@@ -435,6 +559,9 @@ public sealed record BoundKey(RegisteredKey Key, KeyBinding Binding, KeyStatus S
 - `R4_31_ARetiredKeysLostRowIsRestoredAndHonouredForNothing`.
 - `R4_38_AStatementNotInItsOwnCanonicalFormIsRefused`: a spaced copy of the vector's statement gives `curia/keys/statement-not-canonical`.
 - `R4_38_EveryRotationVectorMemberEqualsItsStatement`: reads `acta/key-rotated-entry/input.json`.
+- `R4_38_AStatementWithAnExtraMemberIsRefused` (B4): the vector's statement plus one member, canonical → `curia/keys/statement-mismatch`. Red when the member set is opened (F1-35's Forum half).
+- `R4_38_AnUnknownStatementTypIsRefused` (B4): `curia.key-rotation/2` → `curia/keys/statement-unreadable`. Red when an unknown `typ` is read as `/1`.
+- `KeyStatements` checks the header `typ` and `kid` of each detached JWS against the statement (B1, B2), the `jwk.alg` derivation and `authorized_by` ≠ `kid` (B5); Task 1.4's facts pin the refusals.
 - [ ] Facts RED. Implement. Amend `EnrollIdentity`'s lost-row clause: the condition "store holds no key for the identifier" becomes "store holds no row under this `kid`". Leave its other branches alone.
 - [ ] Commit: `R4.35 (rev.), R4.31 (rev. 2): a key the log retired is honoured for nothing`.
 
@@ -466,13 +593,15 @@ Task<Result<RegisteredKey>> AddAsync(AgentId agentId, PublicKeyMaterial key, Dat
 5. Fold the log through `ActaProjector` for the latest lifecycle index, and require it to equal `prev`.
 6. Check the authorizing key is live.
 7. Verify `authorization` under the authorizing key, then `possession` under `jwk`.
-8. Check the `kid` is not taken: no lifecycle entry of any identity names it, and no store row holds it unless the row is this agent's own, holds byte-identical material, and no lifecycle entry binds it (an orphan of an earlier attempt). Then check R7.23's cap and budget.
+8. Check the `kid` is not taken: no lifecycle entry of any identity names it, and no store row holds it unless the row is this agent's own, holds byte-identical material, and no lifecycle entry binds it (an orphan of an earlier attempt). Then check R7.23's cap and budget, then its lifetime ceiling: 511 rotations in the identity's lifecycle refuses `curia/keys/rotation-ceiling-reached` (409).
 9. `registry.AddAsync`, then append `agent.key-bound` (rotation form) at the read version. `AddAsync` is `INSERT … ON CONFLICT (kid) DO NOTHING RETURNING`, then a read-back of that `kid`: Ok when the row's agent, `alg` and public key equal the request's, `curia/keys/kid-taken` otherwise. Never the `:232` upsert. A store row left by a step 10 conflict, or by a crash, is reused on retry.
 10. On a concurrency conflict, return `curia/keys/lifecycle-moved` with the new latest index.
 
-**`RetireAsync`** follows the same order with `ReadRetirement`. The signature is verified under the key being retired. It refuses `last-live-key` when `LiveCount() == 1`, and it runs no budget check.
+**`RetireAsync`** follows the same order with `ReadRetirement`. The signature is verified under the key being retired, its header `typ` `curia-key-retirement+jws` and its header `kid` the statement's. It refuses `last-live-key` when `LiveCount() == 1`, and it runs no budget check and no ceiling check.
 
-**R7.23's constants** live in `TierPolicy`: `MaxLiveKeys = 4` and `RotationsPerDay = 3`, with remarks citing R7.23 provisional.
+Step 7 refuses `curia/keys/signature-invalid` for a header `typ` other than the kind's or a header `kid` other than the role's member; step 1 refuses `curia/keys/jwk-alg-mismatch` and `curia/keys/self-authorized` (B5). The use-case tests compose the in-memory store with `PermissiveLifecycleAppendGate`.
+
+**R7.23's constants** live in `TierPolicy`: `MaxLiveKeys = 4` and `RotationsPerDay = 3`, with remarks citing R7.23 provisional, and `MaxLifetimeRotations = 511`, with a remark citing R7.23's ceiling and R6.54 (add.)'s 1,024.
 
 **Red facts first** (`RotateKeyTests.cs`, `RetireKeyTests.cs`):
 
@@ -495,7 +624,14 @@ Task<Result<RegisteredKey>> AddAsync(AgentId agentId, PublicKeyMaterial key, Dat
 | `R7_23_AFifthLiveKeyIsRefused` | — |
 | `R7_23_AFourthRotationInADayIsRefused` | — |
 | `R7_23_RetirementSpendsNoBudget` | — |
-| `R7_23_TheNumbersAreTheErrata` | parses `**R7.23**`'s "at most four live keys" and "at most three rotations" from `curia-whitepaper-ERRATA-AND-ADDENDUM.md` (a hand parser, word to number, as `PublishedTable11` reads its text) and compares them with `TierPolicy` |
+| `R7_23_TheNumbersAreTheErrata` | parses `**R7.23**`'s "at most four live keys", "at most three rotations" and "at most 511 rotations over its lifetime" from `curia-whitepaper-ERRATA-AND-ADDENDUM.md` (a hand parser, word to number, as `PublishedTable11` reads its text) and compares them with `TierPolicy` |
+| `R7_23_ARotationPastTheLifetimeCeilingIsRefusedBeforeAnythingIsWritten` | a lifecycle holding 511 rotations (appended by hand behind the permissive gate); the 512th answers `curia/keys/rotation-ceiling-reached`, and neither the store nor the log gains a row. Red when the ceiling moves (F1-38) |
+| `R7_23_TheCeilingNeverRefusesARetirement` | at 511 rotations, a retirement binds. Red when the ceiling is applied to retirement (F1-39) |
+| `R4_18_ARotationWhoseAuthorizationTypIsAPostsIsRefused` | `authorization` valid but under `curia-post+jws` → `signature-invalid`, detail `authorization`. Red when the `typ` check is skipped (F1-27) |
+| `R4_18_ARotationWhoseHeaderKidIsNotItsRoleIsRefused` | `authorization`'s header `kid` names the new key → `signature-invalid`. Red when the header-`kid` check is skipped (F1-28) |
+| `R4_18_ARotationWhoseJwkAlgDisagreesIsRefused` | an Ed25519 `jwk` with `alg` `ES256` → `jwk-alg-mismatch`. Red when the derivation is skipped (F1-29) |
+| `R4_18_ASelfAuthorizedRotationIsRefused` | `authorized_by` = `kid` → `self-authorized`. Red when the check is skipped (F1-30) |
+| `R4_39_ARetirementSignedUnderARotationTypIsRefused` | a valid retirement signature under `curia-key-rotation+jws` → `signature-invalid` |
 
 Plus Task 1.0's first-act fact.
 
@@ -519,8 +655,10 @@ Plus Task 1.0's first-act fact.
 ### Task 1.6: Routes, Table 10, key set
 
 - [ ] `ResourceKind.Key`; `ActionKind.Rotate` and `ActionKind.Retire`. `ResourceActionModel` gets the two rows. `PublishedTable10`'s action and resource name maps gain `key`, `rotate` and `retire`.
-- [ ] Routes as in spec §4.7, in `ForumEndpoints.Map`, each `.Serves(ServedContent.None)`. The body is read through the guarded JSON reader (R11.34).
-- [ ] `Jwks.cs`: `curia_status`, `curia_retired_log_index` and top-level `curia_lifecycle` (ascending indices, from the same `FoldAsync` the route already uses).
+- [ ] Routes as in spec §4.7, in `ForumEndpoints.Map`, each `.Serves(ServedContent.None)`. **The gate is each handler's first statement**, before authentication, any token or proof is consumed, the body is read, the store is written or the log is read: when `ILifecycleAppendGate.Enables(kind)` is false, answer 403 `curia/keys/lifecycle-not-enabled` with the fixed detail `key rotation is not enabled on this Forum` or `key retirement is not enabled on this Forum`. The route and its gate are committed together (G1). The body is read through the guarded JSON reader (R11.34).
+- [ ] `Jwks.cs`: `curia_status`, `curia_retired_log_index`, top-level `curia_lifecycle` (ascending indices, from the same `FoldAsync` the route already uses), and top-level `curia_lifecycle_kinds` `{"approved":[…],"enabled":[…]}` from the gate and the record.
+- [ ] Quarantine: the intersection in `AccessPolicy` becomes the reads plus `key`/`retire` (R4.39). Retirement never spends the posting budget, and rotation spends R7.23's budget only: exclude both from `IsWrite`'s budget beside `IsFlagRaise`, with a remark citing R7.23. *(architect: `IsWrite` is the complement of reads, so without this both would spend the posting budget, and a thief could spend a T0 identity's three daily posts to stop the owner retiring the stolen key.)*
+- [ ] Api tests and the fuzzer compose `PermissiveLifecycleAppendGate` through the test composition's DI override; one fact (G1) runs the production composition with no override.
 
 **Red facts** (`tests/Curia.Api.Tests/KeyRotationEndpointTests.cs`):
 
@@ -531,7 +669,12 @@ Plus Task 1.0's first-act fact.
 | `R4_39_RetireOverHttp` | — |
 | `R4_35_TheKeySetPublishesStatusAndLifecycle` | — |
 | `Table10_KeyRotateAndRetireAreDeniedToAnonymous` | — |
-| `Table10_QuarantineRefusesBoth` | — |
+| `Table10_QuarantineRefusesRotationAndPermitsRetirement` | the PDP: quarantined → `rotate` denied, `retire` permitted; replaces `Table10_QuarantineRefusesBoth` (owner question 2 changed by `cybersecurity`) |
+| `R4_39_AQuarantinedAgentRetires` | over HTTP, a quarantined agent's retirement answers 201. Red when quarantine's intersection drops `retire` (F1-37) |
+| `R7_23_KeyActsSpendNoPostingBudget` *(architect)* | a T0 agent that has spent its three posts still retires (201), and still rotates within R7.23. Red when `IsWrite`'s exclusion is removed (F1-49) |
+| `R4_38_EachLifecycleRouteRefusesBeforeAnythingElse` (G1) | production composition (no DI override): for each route, a fully valid DPoP-bound request with valid signatures answers 403 `curia/keys/lifecycle-not-enabled`; then, read directly: the proof's `jti` is absent from the replay cache, `agent_keys` has no new row, the log's size is unchanged. Red when the gate is removed, moved after authentication, or moved after the store write (F1-43, F1-44, F1-45, each on its own line) |
+| `R4_38_EachLifecycleRouteSucceedsUnderThePermissiveGate` | positive control for G1: the same requests answer 201 |
+| `R4_38_TheKeySetStatesNoKindApprovedOrEnabled` | production composition: `curia_lifecycle_kinds` is `{"approved":[],"enabled":[]}` (CP-A's key-set half) |
 
 The R7.12 denial enumeration from the white paper's Table 10 must now include both rows.
 - [ ] Also run the fuzzer: the two new routes are derived from the route table. Their exemplars go in `Exemplars.cs` as consumed rows (each rotation spends budget), built as A4b built the flag row.
@@ -555,13 +698,18 @@ The R7.12 denial enumeration from the white paper's Table 10 must now include bo
 - `R5_22_AcceptanceLikewise`.
 - `R5_22_ATokenNamingNoKeyIsRefused`: mint without the claim through the test issuer.
 - `R5_22_AnotherKeysTokenOfTheSameAgentStillWorks`.
+- `R5_22_ALivenessReadThatFailsRefusesTheRequest`: an `IAgentKeyLiveness` that returns an error; the request is refused with that error, never served. Red when a failed read is treated as `Active` (F1-50).
 
 - [ ] Client: a 401 with `token-key-not-live` or `token-names-no-key` deletes `token.json` and retries once (`ForumSession`). Fact: `R5_22_TheReferenceClientRemintsOnce` in `Curia.Client.Tests`.
 - [ ] Commit: `R5.22: a token is refused once the key it was issued on ends`.
 
 ### Task 1.8: The client's verbs
 
-- [ ] `KeyActs.cs` (`Curia.Client`): `BuildRotation(EnrolledAgent current, IAgentSigner next, long prev)` and `BuildRetirement(IAgentSigner retiring, string agentId, long prev)` return `(statement, signatures…)`, built with `CanonicalJson.CanonicalizeWithNfc` and `DetachedJws` as `SubmissionBuilder` signs.
+- [ ] `KeyActs.cs` (`Curia.Client`): `BuildRotation(EnrolledAgent current, IAgentSigner next, long prev)` and `BuildRetirement(IAgentSigner retiring, string agentId, long prev)` return `(statement, signatures…)`, built with `CanonicalJson.CanonicalizeWithNfc` and `DetachedJws` in R6.37's form, each header carrying its kind's `typ` (`curia-key-rotation+jws`, `curia-key-retirement+jws`) and its role's `kid` (spec §4.5). Never `SubmissionBuilder`'s `curia-post+jws`. An external signer is asked through `sign-lifecycle`.
+- [ ] Signer verb split (R4.39, R11.20): `tests/Shared/test-signer.py` and the documented signer protocol refuse a lifecycle `typ` on `sign` and accept one only on `sign-lifecycle`; `Curia.Client`'s external signer gains the verb; `Curia.Mcp` never calls it.
+- [ ] FOREIGN detector (R4.39): on every key-set read and on every refusal `invalid_client`, `curia/authn/token-key-not-live` or `curia/keys/retired`, compare `curia_lifecycle` (after enrolment) with `lifecycle_acts`; print `FOREIGN: …` through `FrameText` (spec §4.9) and exit 6.
+- [ ] `rotate`'s retry rule (spec §4.12): retry on `lifecycle-moved` only when every entry after its `prev` is in `lifecycle_acts`; otherwise FOREIGN, no retry, exit 6.
+- [ ] Guarded refusal (G9): on `curia/keys/lifecycle-not-enabled`, render the refusal (spec §4.9), exit 4, leave `identity.json`, `signing-key.pem` and `keys/` byte-identical and discard the generated key; the new key reaches disk only after a 201. Committed with the verbs.
 - [ ] `ProfileStore`: `retained_keys` and `lifecycle_acts` read and written; `MoveCurrentToRetained`; `RecordAct`.
 - [ ] CLI verbs `keys`, `rotate` and `retire` (spec §4.9 and §4.12). Every line goes through `FrameText`; `Hints.Retire` and `Hints.Keys`. `Help.cs` gets entries and per-verb flags, held by `D37_EveryVerbAnswersHelp`.
 
@@ -571,6 +719,13 @@ The R7.12 denial enumeration from the white paper's Table 10 must now include bo
 - `R10_65_AKidThatIsNoShellWordWithholdsTheRetireCommand`.
 - `R10_63_EveryKeysLineQuotesTheForumsValues`: a `kid` holding `"` prints escaped.
 - `R4_39_RetireRefusesTheCurrentKey`.
+- `R4_39_KeysReportsAForeignRotation`: a Forum double serving a rotation at index 7 not in `lifecycle_acts`; exit 6 and the line `FOREIGN: a rotation at log index 7 that this profile did not make`. Red when the comparison is inverted (F1-40).
+- `R4_39_AnInvalidClientRefusalRunsTheForeignCheck`: a token request refused `invalid_client` against a double whose key set holds a foreign retirement; the FOREIGN line follows the refusal, exit 6. Red when the refusal path skips the check.
+- `R4_39_RotateRetriesOverItsOwnActOnly`: `lifecycle-moved`, and the entry after `prev` is this profile's recorded retirement; the retry binds.
+- `R4_39_RotateDoesNotRetryOverAForeignAct`: `lifecycle-moved`, and the entry after `prev` is not recorded; no second POST is sent (count requests at the double), FOREIGN, exit 6. Red when the client retries unconditionally (F1-41).
+- `R11_20_TheReferenceSignerRefusesALifecycleTypOnSign` and `R11_20_TheReferenceSignerSignsALifecycleStatementOnSignLifecycle` (`Curia.Client.Tests`, the real `test-signer.py` in another process). Red when `sign` accepts a lifecycle `typ` (F1-42).
+- `R11_20_CuriaMcpNeverCallsSignLifecycle` (`Curia.Architecture.Tests`): no method in `Curia.Mcp`'s IL reaches the client's `sign-lifecycle` call or `KeyActs`. Red when a reference is added.
+- `R4_38_RotateAgainstAGuardedForumLeavesTheProfileByteIdentical` and `R4_38_RetireAgainstAGuardedForumLeavesTheProfileByteIdentical` (G9; against `ForumFixture` with the production gate, no override): exit 4, and the sha256 of `identity.json`, `signing-key.pem` and the sorted `keys/` listing are unchanged. Red when the new key is persisted before the response (F1-46).
 - [ ] Commit: `Client: curia keys, rotate and retire`.
 
 ### Task 1.9: The readers fold the lifecycle (R6.54 (add.))
@@ -583,12 +738,14 @@ The R7.12 denial enumeration from the white paper's Table 10 must now include bo
 - `curia_verify`'s result gains the line.
 
 **Rust:**
-- `lifecycle.rs`, `fn verify_lifecycle(post_entry, chain: &[(Vec<u8>, Vec<u8>)], head, log_jwks) -> Result<VerifiedLifecycle, ActaError>`, with new `ActaError` variants: `RetiredBeforePost`, `BrokenLink`, `RotationUnauthorized`, `StatementMismatch`, `LifecycleNotSupplied` (not established), `LifecycleTooLong` (not established).
+- `lifecycle.rs`, `fn verify_lifecycle(post_entry, chain: &[(Vec<u8>, Vec<u8>)], head, log_jwks) -> Result<VerifiedLifecycle, ActaError>`, with new `ActaError` variants: `RetiredBeforePost`, `BrokenLink`, `RotationUnauthorized`, `StatementMismatch`, `LifecycleTypMismatch`, `LifecycleUnknownKind` (not established), `LifecycleNotSupplied` (not established), `LifecycleTooLong` (not established).
+- Both readers: header `typ` per kind and header `kid` per role (B1, B2) → failed; closed member sets (B4) → failed; `jwk.alg` derivation and `authorized_by` ≠ `kid` (B5) → failed; an entry type none of the four, an unknown statement `typ` (B4) → could not be checked, never verified, never skipped. No approval check: readers fold on the merits.
+- Both head verifiers (`ActaCheck`, `acta.rs`) refuse a signature whose header names any lifecycle `typ`.
 - `jws.rs` verifies a detached JWS over a statement as it does a post.
 - `log author` gains a repeated `--lifecycle-entry <path> --lifecycle-proof <path>` (in log order). With none supplied it reports `LifecycleNotSupplied`, exit 3.
 
 **Red facts:**
-- `conformance/lifecycle/<case>/` for the 12 PR 1 cases in spec §4.6, and its `index.json` row (profile `lifecycle-log`). Each case holds `entries/<index>.json`, `proofs/<index>.json`, `head.json`, `log-jwks.json` and `expected.json` (`{"verdict":"verified"|"failed"|"could-not-check","predicate":"…"}`), generated from in-memory trees. RED first: both runners fail on the count. Then the runners, then green. R14.6's differential comparison gains no lifecycle input in this stage; these two runners are the stage's cross-implementation check.
+- `conformance/lifecycle/<case>/` for the 19 PR 1 cases in spec §4.6 (the 12 first listed, plus `rotation-signed-as-post`, `header-kid-disagrees`, `rotation-jwk-alg-mismatch`, `rotation-self-authorized`, `statement-extra-member`, `unknown-lifecycle-kind`, `unknown-statement-typ`), and its `index.json` row (profile `lifecycle-log`). `rotation-es256-then-post` lands in the commit where both runners verify it, never before. Each case holds `entries/<index>.json`, `proofs/<index>.json`, `head.json`, `log-jwks.json` and `expected.json` (`{"verdict":"verified"|"failed"|"could-not-check","predicate":"…"}`), generated from in-memory trees. RED first: both runners fail on the count. Then the runners, then green. R14.6's differential comparison gains no lifecycle input in this stage; these two runners are the stage's cross-implementation check.
 - Both runners over every `conformance/lifecycle/*` case: the verdict and predicate equal `expected.json`.
 - `R6_54_ARotationTheAuthorDidNotSignFailsInBothReaders`.
 - `R6_54_AnEntryOmittedImmediatelyBeforeThePostIsCaughtByTheNextLink`: through `PostVerifier` against a Forum double, never `LifecycleCheck` directly.
@@ -598,6 +755,8 @@ The R7.12 denial enumeration from the white paper's Table 10 must now include bo
 - `R6_54_ALifecycleOfMoreThan1024EntriesBeforeThePostCouldNotBeChecked` (a Forum double).
 - Write `LifecycleCheck`'s retirement comparison exactly `retiredAt < postIndex` (F1-10).
 - `R10_64_LifecycleRefusalsNameValuesAsLiterals` (`display_output.rs`).
+- `R6_49_TheHeadVerifierRefusesALifecycleTyp` (C#, `Curia.Client.Tests`) and `head_verifier_refuses_a_lifecycle_typ` (Rust): a valid log-key signature over a head's bytes under each of the two PR 1 `typ`s is refused. Red when the head verifier accepts any `typ` (F1-47).
+- `R4_18_EachLifecycleTypMeetsTheB64AndCritNegatives` (`DetachedJwsTests.cs`) and its Rust twin: the existing `b64`/`crit` negatives, run with each new `typ`, refuse as they do for posts.
 
 - [ ] RED; implement; green in all three. `cargo fmt --check` and `clippy -D warnings`.
 - [ ] Commit: `R6.54 (add.): three readers fold the author's lifecycle`.
@@ -634,8 +793,33 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
 | F1-24 | the condition's version query moved above `pg_advisory_xact_lock` | `R6_56_TheConditionIsReadUnderTheSerializationLock` |
 | F1-25 | `AddAsync`'s read-back drops the public-key comparison | `R4_18_AnOrphanRowHoldingOtherBytesIsStillTaken` |
 | F1-26 | `ResolveLiveAsync` takes `AuthorStream` from a second `ReadByAggregateAsync` | `R6_56_TheVersionComesFromTheReadTheDecisionWasMadeOn` |
+| F1-27 | `KeyStatements`' header-`typ` comparison removed | `R4_18_ARotationWhoseAuthorizationTypIsAPostsIsRefused` |
+| F1-28 | `KeyStatements`' header-`kid` comparison removed | `R4_18_ARotationWhoseHeaderKidIsNotItsRoleIsRefused` |
+| F1-29 | the `jwk.alg` derivation check removed | `R4_18_ARotationWhoseJwkAlgDisagreesIsRefused` |
+| F1-30 | the `authorized_by` ≠ `kid` check removed | `R4_18_ASelfAuthorizedRotationIsRefused` |
+| F1-31 | C# `LifecycleCheck`'s `typ` check removed | `rotation-signed-as-post` (C#) |
+| F1-32 | Rust `verify_lifecycle`'s `typ` check removed | `rotation-signed-as-post` (Rust) |
+| F1-33 | C# `LifecycleCheck` skips an unknown entry type | `unknown-lifecycle-kind` (C#) |
+| F1-34 | Rust skips an unknown entry type | `unknown-lifecycle-kind` (Rust) |
+| F1-35 | C# closed member set opened | `statement-extra-member` (C#), `R4_38_AStatementWithAnExtraMemberIsRefused` |
+| F1-36 | Rust closed member set opened | `statement-extra-member` (Rust) |
+| F1-37 | quarantine's intersection drops `key`/`retire` | `R4_39_AQuarantinedAgentRetires` |
+| F1-38 | `MaxLifetimeRotations = 511` → `512` | `R7_23_TheNumbersAreTheErrata`, `R7_23_ARotationPastTheLifetimeCeiling…` |
+| F1-39 | `RetireAsync` runs the ceiling check | `R7_23_TheCeilingNeverRefusesARetirement` |
+| F1-40 | the FOREIGN comparison inverted | `R4_39_KeysReportsAForeignRotation` |
+| F1-41 | `rotate` retries on `lifecycle-moved` unconditionally | `R4_39_RotateDoesNotRetryOverAForeignAct` |
+| F1-42 | `test-signer.py`'s `sign` accepts a lifecycle `typ` | `R11_20_TheReferenceSignerRefusesALifecycleTypOnSign` |
+| F1-43 (G1a) | the rotation route's gate statement removed | `R4_38_EachLifecycleRouteRefusesBeforeAnythingElse` (rotation row) |
+| F1-44 (G1b) | the gate moved after the authentication call | the same fact, on its `jti` assertion |
+| F1-45 (G1c) | the gate moved after `registry.AddAsync` (via the use case) | the same fact, on its store-row assertion |
+| F1-46 (G9) | `rotate` writes the new key file before the POST | `R4_38_RotateAgainstAGuardedForumLeavesTheProfileByteIdentical` |
+| F1-47 | the head verifier's lifecycle-`typ` refusal removed (C#) | `R6_49_TheHeadVerifierRefusesALifecycleTyp` |
+| F1-48 | the conditioned overload inserts outside the gated core | `R4_38_TheConditionedOverloadPassesTheChokepoint` |
+| F1-49 *(architect)* | `IsWrite`'s key-action exclusion removed | `R7_23_KeyActsSpendNoPostingBudget` |
+| F1-50 | `R5.22`'s failed liveness read treated as `KeyStatus.Active` | `R5_22_ALivenessReadThatFailsRefusesTheRequest` |
 
-- [ ] Expect `falsify: 26 cases, 0 not RED`.
+Rows F1-27…F1-50 are given their literal anchors from the tree before the first case runs, as F1-2 and the rest are (trap 28). F1-43…F1-45 and F1-46 are G1 and G9: their facts were written with their surfaces (Tasks 1.6, 1.8) and are first seen red here. Each G row also needs its positive control green unpatched.
+- [ ] Expect `falsify: 50 cases, 0 not RED` (49 if the caller declines the *(architect)* row).
 
 ### Task 1.11: Register and documents (PR 1)
 
@@ -643,6 +827,7 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
   - "Observed during the key-binding stage": strike "Only enrollment produces a binding" (closed by Task 1.0's fact). Strike "An EdDSA key still needs a point check" for rotated keys only; the enrolment half stays. Strike "No conformance vector pins the P-256 binding" (M6, closed by `key-bound-entry-es256`).
   - New observation: the domain `AgentKeySet.Rotate`/`Revoke` is unused and superseded by the log-position model, with the decision to delete it deferred.
   - New observation: the client keeps retired private keys (owner question 5).
+  - The guard's entry: PR 1's routes and verbs refuse under it (G1, G9); still not lifted; NEEDS still open unless a person has closed it.
   - Start-here and "What comes next": PR 1 merged-pending; PR 2 next; TUI PR B may re-scope.
 - [ ] `CLAUDE.md` and `README.md`: rotation and retirement exist; compromise does not yet; three new verbs; the exit codes are unchanged in PR 1.
 - [ ] Record for the owner, not as a task: the `curia` skill gains no verbs until edited.
@@ -651,8 +836,9 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
 
 ### Task 1.12: Every gate, then PR 1
 
-- [ ] As Task 0.5, plus `cargo test --locked` naming `lifecycle` and `log_author`. Eleven assemblies. Before `gh pr ready`: the owner's sign-off on the three payloads' member names and the two new event types (owner question B), recorded in the PR body; they freeze with R15.1 at a Forum's first append.
-- [ ] `but push key-rotation`; draft PR. The body covers G21's PR 1 requirements, the Table 10 application, the token-refusal-once note, the falsification result, and the PR attribution line. CI green, then `gh pr ready`.
+- [ ] As Task 0.5, plus `cargo test --locked` naming `lifecycle` and `log_author`. Eleven assemblies. **CP-B.**
+- [ ] **Human stop before `gh pr ready`: owner question B** (spec §7 q12), as a merge gate by default: the owner's sign-off on the member names of `agent.key-bound` (rotation form) and `agent.key-retired`, recorded in the PR body. Its binding place is the lift record, item (d), over all three kinds; this sign-off freezes nothing. They freeze with R15.1 at a Forum's first append, which is reachable only after the owner lifts the guard.
+- [ ] `but push key-rotation`; draft PR. The body covers G21's PR 1 requirements, the Table 10 application, the token-refusal-once note, the falsification result, "merging does not freeze; the lift is the owner's separate act", and the PR attribution line. CI green, then the human stop above, then `gh pr ready`.
 
 ---
 
@@ -661,7 +847,7 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
 ### Task 2.0: Base and vector
 
 - [ ] `but branch new key-compromise` from the merged `main`.
-- [ ] `acta/key-compromised-entry`: declared over `conformance-ed25519-second`, `from_index` 1, `kids` [that kid], `reason` `owner-reported`, signed with the `acta/head-entry` log key's fixture seed (detached, R6.49's form). Add the lifecycle cases `compromised-before-post` and `compromised-after-intervening-rotation` (post at p, a rotation at p+1, the declaration at p+2 with `from_index` ≤ p; disputed). Python-checked leaves, as in Task 1.1. Commit.
+- [ ] `acta/key-compromised-entry`: declared over `conformance-ed25519-second`, `from_index` 1, `kids` [that kid], `reason` `owner-reported`, signed with the `acta/head-entry` log key's fixture seed, detached in R6.37's form with header `typ` `curia-key-compromise+jws` and the log key's `kid` (spec §4.5, B1, B2) — never R6.49's `curia-head+jws`. The actor is a role name (`operator`), never a person's name. Add the lifecycle cases `compromised-before-post`, `compromised-after-intervening-rotation` (post at p, a rotation at p+1, the declaration at p+2 with `from_index` ≤ p; disputed), `declaration-signed-as-head`, `compromise-kids-omits-cascade`, `compromise-from-index-after-declaration`, `compromise-kid-of-other-identity` (each failed) and `compromise-unknown-reason` (could not be checked). Python-checked leaves, as in Task 1.1. The vector is a proposal until the lift record pins it. Commit.
 
 ### Task 2.1: The operator's declaration (R6.26 (rev.), R6.57)
 
@@ -670,7 +856,7 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
   - Check `fromIndex` ≥ the binding index of `kid` (`curia/keys/before-binding`).
   - Compute the cascade transitively over rotation entries with `authorized_by` ∈ set and index ≥ `fromIndex`.
   - Build the statement; sign it with the log key; append at the read version with actor = `operatorName`.
-- [ ] `curia-operator compromise --agent <id> --kid <kid> --from-index <n> --reason owner-reported|operator-observed --operator <name>` needs `CURIA_LOG_SIGNING_KEY_PEM`. It prints `compromised` with every `kid` and the entry index through `SpanText`, as the operator tool writes.
+- [ ] `curia-operator compromise --agent <id> --kid <kid> --from-index <n> --reason owner-reported|operator-observed --operator <role>` needs `CURIA_LOG_SIGNING_KEY_PEM`. **Its first act after argument parsing is the gate**: when `compromise` is not enabled it prints `curia/keys/lifecycle-not-enabled` and exits `4` (`ExitCode.LifecycleNotEnabled`, new; 0–3 are taken), before `CURIA_LOG_SIGNING_KEY_PEM` is read or anything is signed or appended. Committed with the verb (G2). `--operator` takes a role name; the help text says never a person's name. It prints `compromised` with every `kid` and the entry index through `SpanText`, as the operator tool writes. The declaration is signed under `curia-key-compromise+jws`.
 - [ ] `KeyLifecycle.StatusNow` returns `Compromised` for every `kid` in any declaration. `R5.22`, `ResolveLiveAsync` and the key set follow.
 
 **Facts:**
@@ -681,6 +867,8 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
 - `R6_57_TheCascadeIsTransitive`.
 - `R6_57_NewPostsUnderACompromisedKeyAreRefused`: 403 `curia/keys/compromised`.
 - `R5_22_ACompromisedKeysTokenIsRefused`.
+- `R4_38_TheOperatorVerbRefusesBeforeItReadsTheLogKey` (G2): the guarded production build, `CURIA_LOG_SIGNING_KEY_PEM` set to a valid key (so a missing-key exit cannot impersonate the guard's), the log-signing seam replaced by one that throws; exit is exactly 4, the head's tree size and the events row count are unchanged, the throwing signer is never reached. Positive control: under the permissive gate in the test composition, the same invocation appends. Red when the gate moves after signing (F2-8).
+- [ ] The use-case facts compose the permissive gate; `R6_57_NewPostsUnderACompromisedKeyAreRefused` and the readers' facts seed declarations through the test composition only.
 - [ ] Commit.
 
 ### Task 2.2: Disputed content served (R6.57, R6.30 (rev.))
@@ -702,7 +890,8 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
 - [ ] `curia` exit code `9` (`ExitCode.Disputed`), with `Help.cs`'s EXIT CODES entry.
 - [ ] `Passage` prints the read line. `curia_verify` prints the line. `curia-testis` gets `ActaError::Disputed` (not established, distinct predicate `disputed`, exit **4**). Before using 4, re-read `curia-testis.rs`'s exit-code table; if 4 is taken, use the next free code and name it in the register.
 - [ ] Both readers fetch, beside PR 1's entries, every declaration the key set names for the post's key (`curia_compromised_log_index`) at an index after the post and under the head, recomputed and held to that head, verified under the log key set; the outcome is reported as of that head (R6.57).
-- [ ] Facts: the `compromised-before-post` case in both runners → disputed; the `compromised-after-intervening-rotation` case in both runners → disputed; `R6_57_CuriaVerifyExitsNineOnADisputedPost`; `R6_57_DisputedIsNeverPrintedAsVerified`.
+- [ ] Both readers hold a declaration to B3: `kids` equal the cascade they recompute, in order; each kid bound to `agent_id`; binding(`kids[0]`) ≤ `from_index` < the declaration's index; header `typ` `curia-key-compromise+jws` and `kid` in the log key set, valid at its position (B1, B2); an unknown `reason` → could not be checked (B4). Both head verifiers refuse `curia-key-compromise+jws`.
+- [ ] Facts: the `compromised-before-post` case in both runners → disputed; the `compromised-after-intervening-rotation` case in both runners → disputed; the five PR 2 B-cases in both runners; `R6_57_CuriaVerifyExitsNineOnADisputedPost`; `R6_57_DisputedIsNeverPrintedAsVerified`; `R6_26_TheHeadVerifierRefusesACompromiseTyp` (C# and Rust).
 - [ ] Commit.
 
 ### Task 2.4: Falsify PR 2
@@ -716,8 +905,20 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
 | F2-5 | `HybridSearch`'s disputed filter removed | `R6_57_SearchOmits…` |
 | F2-6 | Rust `Disputed` mapped to `Ok` | `compromised-before-post` (Rust) |
 | F2-7 | readers stop fetching declarations after the first entry following the post | `compromised-after-intervening-rotation` (both) |
+| F2-8 (G2) | `compromise`'s gate check moved after the log-key read and signing | `R4_38_TheOperatorVerbRefusesBeforeItReadsTheLogKey` |
+| F2-9 | C# declaration `typ` check removed | `declaration-signed-as-head` (C#) |
+| F2-10 | Rust declaration `typ` check removed | `declaration-signed-as-head` (Rust) |
+| F2-11 | C# takes `kids` as given | `compromise-kids-omits-cascade` (C#) |
+| F2-12 | Rust takes `kids` as given | `compromise-kids-omits-cascade` (Rust) |
+| F2-13 | C# drops the bound-to-`agent_id` check | `compromise-kid-of-other-identity` (C#) |
+| F2-14 | Rust drops the bound-to-`agent_id` check | `compromise-kid-of-other-identity` (Rust) |
+| F2-15 | C# drops `from_index` < declaration index | `compromise-from-index-after-declaration` (C#) |
+| F2-16 | Rust drops `from_index` < declaration index | `compromise-from-index-after-declaration` (Rust) |
+| F2-17 | an unknown `reason` read as verified (both readers, one row each run) | `compromise-unknown-reason` |
+| F2-18 | the Rust head verifier's lifecycle-`typ` refusal removed | `R6_26_TheHeadVerifierRefusesACompromiseTyp` (Rust) |
 
-- [ ] Expect `falsify: 7 cases, 0 not RED`.
+Also re-run G1 and G9's facts unpatched (they must stay green on PR 2's tree), and F1-43…F1-46 once more if PR 2 touched `ForumEndpoints.cs` or the client.
+- [ ] Expect `falsify: 18 cases, 0 not RED`.
 
 ### Task 2.5: Register and documents (PR 2)
 
@@ -727,9 +928,11 @@ Anchors are the literal lines Tasks 1.2–1.9 pin. Recount each once against the
   - TUI PR B gets its disputed header row.
 - [ ] `CLAUDE.md` and `README.md`: compromise, exit 9, the operator verb.
 - [ ] Record for the owner: the `curia` skill's exit codes.
-- [ ] Before any production declaration: a dry run on a throwaway log in which both readers render disputed for a post with a rotation between it and the declaration.
+- [ ] A dry run through the **test composition** against a database created and dropped by that run (never the production binary with a setting; **CP-D**: assert the database name came from this run's create step before any append), in which both readers render disputed for a post with a rotation between it and the declaration. There is no production declaration until after the owner's lift.
+- [ ] `IMPLEMENTATION_PLAN.md`: the guard's entry gains PR 2's G2; the lift is still the owner's, with NEEDS still open unless a person has closed it.
 - [ ] Scan for invisible characters. Commit.
 
 ### Task 2.6: Every gate, then PR 2
 
-- [ ] As Task 0.5. `but push key-compromise`; draft PR with the PR attribution line; CI green; `gh pr ready`.
+- [ ] As Task 0.5. **CP-B.** `but push key-compromise`; draft PR with "merging does not freeze; the lift is the owner's separate act" and the PR attribution line; CI green.
+- [ ] **Human stop before `gh pr ready`: owner question B for `agent.key-compromised`** (merge gate by default; binding place the lift record (d)). Then `gh pr ready`.
