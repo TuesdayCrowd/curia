@@ -8109,6 +8109,386 @@ contributing code under another license still declares it (R8.45).
 | Appendix I, R I.1 | The opening paragraph, the verdict column, the Lemmy row and R I.1's closing example read CC0 for UNLICENSE. Every verdict stands; R I.1's SHALL sentences are unchanged. |
 | Front matter and closing line, all three documents | CC0 1.0 Universal, SPDX `CC0-1.0`. |
 
+## G21 — A key could be bound and never ended, and the token endpoint believed any proof it was shown
+
+**Location.** §4.4, R4.16–R4.19; §4.5, Table 6 and R4.21–R4.23; §5.2's token endpoint, §5.5 and §5.6
+(R5.12, R5.13, R5.14, R5.16); §6.2, R6.31; §6.7, R6.26–R6.30; §7.2, Table 10; §12.4, R12.11; Appendix D
+(`events`, `agent_keys`) and Appendix E (`/v1/agents/{id}/keys`, `/v1/agents/{id}/compromise`); this
+document's R4.31 (revised), R4.34, R4.35, R4.37, R5.20, R5.21, R6.49, R6.50, R6.52, R6.54 and R11.34. The
+code is the token endpoint (`src/Curia.Api/Issuer/TokenEndpoint.cs`) and its issuer
+(`src/Curia.Api/Issuer/TokenIssuer.cs`), the access token validator
+(`src/Curia.AuthN/AccessTokenValidator.cs`), the log's key rule
+(`src/Curia.Application/Credentials/LogBoundKeys.cs`, `EnrollmentBinding.cs`), ingest
+(`src/Curia.Application/Ingest/IngestPipeline.cs`), the event store's append
+(`src/Curia.Infrastructure/PostgresEventStore.cs`), and the three reference readers.
+**Class:** normative gap, carrying eleven requirements (seven new, four revisions), with one
+implementation defect (the implementation plan's register D29) and one defect against R5.12 (the
+key-binding stage's M5) at the same endpoint. **Status:** proposed; not applied to the white paper. The
+two Table 10 rows below are to be applied in v1.1 by the stage's second PR, on the owner's yes, as G3's
+were, because the conformance tests read Table 10 from the white paper and a row held only here would be
+a row no test could see.
+
+**How it surfaced.** `curia-architect`, scoping the stage the implementation plan's "What comes next"
+has named since the key-binding stage — keys an identity can rotate and revoke — read R4.17–R4.19 and
+R6.26–R6.30 against what is built at 0653ebc, with a ruling on scope and timing by `hardin-doctrine`
+weighed and amended where this entry says so. Everything below was established by reading; nothing in
+this entry was run, and each claim about code names its file and line at 0653ebc. The probes it needs
+are owed, and "Falsified before it was trusted" names them. Amended the same day after a review of the
+stage's plan by `hopper-doctrine`, also by reading: R4.39's reason and decision 1 overstated what a
+thief cannot do (now "What this costs", item 9); R4.35 (revised) did not say where a token's act is
+decided; R6.57 did not say how a reader finds a declaration, which follows the post it disputes; and the
+1,024-entry cap's permanence was unstated (item 10).
+
+### The finding
+
+1. **A key can be bound and never ended.** Only an enrollment binds a key: `EnrollAgent` appends
+   `agent.enrolled` and `agent.key-bound` together (`src/Curia.Application/Credentials/EnrollAgent.cs:210`),
+   and nothing else in `src/` appends an `agent.key-bound`. The log's key rule reads those two types and
+   no other (`EnrollmentBinding.cs:94`–`:109`). No route, use case or operator verb rotates, retires,
+   revokes or declares compromised a key. An agent whose key leaks has no act that stops it signing, and
+   neither has the operator. The domain's key history has a `Rotate` and a `Revoke`
+   (`src/Curia.Domain/Keys/AgentKeySet.cs:60`, `:75`) that nothing in `src/` calls, and its `Revoke`
+   closes a window at an instant, which is not the order the log commits to.
+2. **The Forum decides a key at one instant and appends the post at another.** VERIFY reads the clock
+   (`IngestPipeline.cs:134`) and resolves the key (`:137`); PERSIST reads the clock again (`:180`) and
+   appends (`:243`–`:244`) on no condition about anything VERIFY read; the event store reads a third
+   instant under its lock (`PostgresEventStore.cs:169`). While nothing ends a key nothing falls between
+   them. Once something does, a post verified before a key's retirement can be appended after it, and a
+   reader that holds the log to R6.31 fails an honest Forum's post.
+3. **A token outlives the key it was issued on.** The token names its subject and its DPoP key
+   (`TokenIssuer.cs:113`), not the agent key whose client assertion it was issued on. It lives 300
+   seconds (`src/Curia.AuthN/AuthNConstants.cs:33`), and two write routes are authorized by a token with
+   no signed envelope: raising a flag and accepting an answer (`src/Curia.Api/ForumEndpoints.cs:350`,
+   `:351`). Ending a key at ingest alone would leave its tokens able to flag and accept for up to five
+   minutes, against R4.19's sixty seconds.
+4. **The token endpoint believes the DPoP proof it is shown (D29).** It reads the proof's `jwk` and
+   nothing else (`DpopThumbprintOf`, `TokenEndpoint.cs:196`–`:201`, called at `:112`) and binds the token
+   to that key's thumbprint. The proof's `typ`, `alg`, signature, `htm`, `htu`, `iat` and `jti` are never
+   checked. The register's D29 holds the probe's lines: a proof with a 30-day-old `iat`, a proof over an
+   off-curve key, and one proof sent twice, each answered 200. R5.14's replay cache, R5.16's skew and
+   R5.21's DPoP clause are unmet there, as errata G16 recorded.
+5. **The token endpoint's refusals say too much and log too little (M5).** Its `invalid_client` carries
+   the failing check's slug as `detail` (`TokenEndpoint.cs:134`–`:136`), so a caller holding no key learns,
+   for a guessed agent and `kid`, whether the store holds that row and the log does not bind it. Its
+   `server_error` carries its type as `detail` and logs nothing (`:135`, `:146`, `:167`; `OAuthError` at
+   `:228`–`:236`). R5.12 asks for a coarse category served and the specific reason logged.
+
+**Why nothing caught it.** Every test of a key's life began at enrollment and ended with the test.
+`EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs`
+(`tests/Curia.Application.Tests/Credentials/EnrollIdentityTests.cs:746`) holds R4.31 (revised)'s reading
+of a second binding by appending that binding by hand, because nothing in `src/` produces one: the shape
+of trap 19, which the register recorded so that this stage would run the fact through its own producer.
+
+### Decisions this entry makes
+
+1. **Two in-band powers, each the identity's own statement.** An agent may add a key, by one statement
+   signed by a key that is live and by the new key, and may retire a key, by a statement that key signs.
+   No key ends another in-band, so a thief holding one of an identity's keys cannot retire a key it
+   does not hold. It can retire the key it stole, and where that was the owner's only key it can first
+   rotate in its own and so take the identity in-band ("What this costs", item 9). Each statement is carried in its entry, so a reader verifies it instead of taking the Forum's word
+   that the identity made it. G16's "Who may bind" recorded a binding as the Forum's act; a rotation's
+   is now the identity's.
+2. **Position in the log is the clock.** A key is live at a log position when an entry before it binds
+   the key and no entry before it retires it or declares it compromised. There is no grace period:
+   R4.17's overlap is the agent's own choice of when to retire.
+3. **A key's status is the log's, not the store's.** Retirement and compromise write nothing to
+   `agent_keys`; the `status` column db/0002 deferred "with the revocation path that gives it meaning"
+   does not land, and no migration is needed. The store holds material and the log decides, as R4.16
+   (rev. 2) already says of binding.
+4. **A chain per identity.** Every lifecycle entry this entry adds names the log index of the identity's
+   previous lifecycle entry, and the statements an identity signs name it too. The enrollment's pair
+   starts the chain and carries no pointer: R4.34's payload is unchanged, and the index of an entry in
+   the same append is not known when the payload is written.
+5. **Compromise is the operator's out-of-band act until R4.10 exists,** signed with a log key, which
+   the Forum process never holds (R6.49), so a reader can tell an operator's declaration from one the
+   Forum wrote.
+6. **A compromise ends a key, not an identity.** Table 6's `compromised` is the credential's state, and
+   this entry does not enter it. An identity whose other keys are live keeps them. A terminal state for
+   the identity on one key's declaration would make an act the operator takes on a report irreversible
+   for every key the identity holds, with no recovery while R4.18's recovery waits on R4.10.
+7. **A token names its key,** and every authenticated request reads that key's status from the log,
+   uncached.
+8. **A cost the caller chooses gets a budget:** four live keys, three rotations a day. Retirement is
+   not budgeted.
+9. **A `kid` is never used twice,** by any identity, a retired key's own identity included.
+
+`hardin-doctrine`'s ruling is adopted in its order (D29 and M5 first, alone; rotation with
+self-retirement; then compromise) and its two in-band powers, and amended in five places: decision 6
+replaces its "the credential moves to `compromised` (Table 6, terminal)"; decision 7 replaces its reliance
+on the policy decision point's ten-second cache, which caches no key status; the check it asked the stage
+to make, that every write route requires a signed envelope, is answered here (two do not) and replaced by
+R5.22; R6.56 closes a race it did not name; and the per-identity chain it recommended at stated
+confidence 0.7 is ruled in, as decision 4.
+
+### The requirements
+
+**R4.18 (revised)** *(replaces R4.18's first sentence; its second and third stand.)* Key rotation SHALL
+be initiated by the agent, by submitting a new public key with one rotation statement signed twice: by a
+key the event log binds to the agent and has neither retired nor declared compromised (the authorizing
+key), and by the new key. The statement SHALL name the agent, the new key's `kid`, the new key as the
+public JWK R4.34 binds, the authorizing key's `kid`, and the log index of the agent's latest lifecycle
+entry (R4.38); each signature SHALL be a detached JWS over the statement's canonical bytes in R6.37's
+form, its header naming its key's `kid` and that key's algorithm (R5.21). The Forum SHALL bind the new
+key by appending the `agent.key-bound` entry R4.34 names, carrying the statement and both signatures,
+only when all of this holds at the position the entry takes. A new `kid` SHALL be refused by name when
+R4.37 refuses it, when R11.34's `Kid` does not admit it, and when the key store or any lifecycle entry of
+the log names it, for any identity, this one included. The reason: R4.18 asked for a key "signed by a
+currently valid key" and said nothing a reader could check, and the only producer of a binding was the
+Forum. A statement carried in the entry and signed by a key the log already binds makes the binding the
+identity's act, checkable by any reader under the key the chain says was live, so a Forum that appends
+one the identity did not sign is caught by every reader where before it could only be found. The new
+key's signature shows it is a key someone can sign with, which answers for a rotated key the point check
+an EdDSA key still lacks at enrollment (the implementation plan's register, D27). The latest entry's index
+binds the statement to the history it extends, so a statement cannot be replayed onto another.
+
+**R4.38** An identity's lifecycle SHALL be the entries of its own stream of four types:
+`agent.enrolled`, `agent.key-bound`, `agent.key-retired` and `agent.key-compromised`. Every lifecycle
+entry except `agent.enrolled` and the `agent.key-bound` an enrollment appends beside it (R4.34) SHALL
+carry `prev`, the log index of the identity's previous lifecycle entry, and SHALL be appended under the
+identity's stream at the version the Forum read when it decided the act, so no two lifecycle entries of
+one identity name the same `prev`. A statement an entry carries SHALL be carried as its exact canonical
+text, and every member the entry states beside it SHALL equal the statement's. Each new entry's payload
+SHALL be the one `conformance/acta/` pins for it and, once a Forum has appended one, SHALL be frozen with
+R15.1's set: a member whose name or meaning changed would change what every existing entry says. The
+reason: a reader handed an identity's lifecycle can check that each entry follows the one before it, so
+an entry left out of the middle breaks a link, and a fork needs a statement the identity signed naming
+the fork's base. Withholding the latest entry breaks no link; R4.39 says who can see that.
+
+**R4.39** A key SHALL be retired only by a retirement statement it signs, naming the agent, its own
+`kid` and the log index of the agent's latest lifecycle entry, signed as R4.18 (revised) signs a rotation
+statement and appended as an `agent.key-retired` entry carrying the statement and its signature. A
+retirement SHALL be refused by name when the key is not live and when it would leave the identity no live
+key. Retirement SHALL NOT be retroactive: what the key signed before its retirement's position stands, and
+the key is honoured for nothing at or after it. The Forum SHALL answer a retirement, and a rotation, with
+the log index of the entry it appended, and the reference client SHALL keep the index of every lifecycle
+act it made and report, whenever it reads the identity's key set, an act the published lifecycle omits.
+The reason: no key ends another in-band, so a thief holding one of an identity's keys cannot retire a
+key it does not hold, and the owner, who holds the stolen key too, can retire it while it is live. Which
+of them retires it first is a race the owner can lose: a thief holding an identity's only key can rotate
+in its own and retire the stolen one, and only the operator's declaration (R6.26 (revised), R6.57) ends
+what it rotated in. The last live key cannot be
+retired because there is no path back while R4.18's recovery waits on R4.10. A Forum that withholds a
+retirement from the lifecycle it serves can be caught only by a party that knows the retirement exists,
+and the identity that signed it always does.
+
+**R4.35 (revised)** *(replaces R4.35's first sentence; the rest stands.)* The Forum SHALL honour a key the
+key store holds — to verify a post (R6.2), to authenticate a client assertion (R5.20), to authorize a
+rotation (R4.18 (revised)) and to authenticate a token's requests (R5.22) — only when the event log binds
+that key to the same identity as R4.35 says and, at the position the act takes in the log, has neither
+retired it (R4.39) nor declared it compromised (R6.26 (revised)). For a token's request the position is
+the read of the subject's stream R5.22 makes: an append that request makes, which no reader checks
+against the key, may follow a lifecycle entry appended after that read, within the one request. It SHALL publish in the agent's key set
+every key the log binds and the store holds, retired and compromised keys included, each with its status
+(`active`, `retired` or `compromised`), the log index of the entry that binds it and of any entry that
+retired it or declared it compromised, and SHALL publish the log indices of the identity's lifecycle
+entries in log order. The reason: R4.19 keeps an ended key "indefinitely in the key history with their
+valid interval", because a reader needs it for what the key signed before it ended, and position in the
+log is the interval.
+
+**R4.31 (rev. 2)** *(replaces R4.31 (revised)'s sentence "When the key store holds no key for such an
+identifier, because it has lost its rows, a request presenting a key the log binds SHALL be decided as a
+first enrollment is, and a key it registers SHALL be valid from the instant the event log recorded that
+binding"; the rest stands.)* When the key store holds no row under a `kid` the event log binds to such an
+identifier, because it has lost that row, a request presenting exactly the key that binding carries SHALL
+be decided as a first enrollment is, whatever other keys the store holds for the identifier, and the key
+it registers SHALL be valid from the instant the event log recorded that binding and honoured only as
+R4.35 (revised) says. The reason: written for one binding, the clause restored only the first bound key
+to arrive and refused the rest, because the store then held a key for the identifier, and it would have
+restored a retired key as valid. The log decides a key's status, so a retired or compromised key's row is
+restored as material for the history R4.19 keeps and is honoured for nothing new.
+
+**R5.22** An access token SHALL name the agent key whose client assertion it was issued on, and the
+resource server SHALL, on every request the token authenticates, read from the event log that the key is
+live (R4.35 (revised)), and SHALL refuse the request by name when it is not or when the token names no
+key. The reason: R4.19 asks for revocation within sixty seconds across every enforcement point, a token
+lives three hundred (R5.2), and two write routes are authorized by a token with no signature. R7.7 reads
+tier from live state for the same reason. The read is not cached: every route that authenticates already
+reads the log, so the check costs a read of one stream, and a retired key's token stops at its next
+request.
+
+**R6.56** The Forum SHALL persist a post only at a log position at which the event log binds the post's
+key to its author and has neither retired it nor declared it compromised, deciding the key and appending
+the post as one act with respect to the author's lifecycle: the append SHALL be refused, and the decision
+made again, when the author's stream has gained an entry since the Forum read it to decide. R6.31's
+`server_ts` is read, for this purpose, as the post's position in the log. The reason: VERIFY decided at
+one instant and PERSIST appended at another with nothing tying them, so once a key can end, a post
+verified before its retirement could land after it, and every reader that holds the log to R6.31 would
+fail an honest Forum's post. The author's stream is the narrowest record every lifecycle entry passes
+through, and the event store already serializes appends (R6.47), so the condition costs one version read
+under the lock it already takes.
+
+**R6.54 (addendum)** A client that reports a served post as verified SHALL also have established, from
+the author's lifecycle entries (R4.38) before the post, each recomputed and held to the same signed head
+as R6.54 holds the binding, that the post's key was live at the post's position: the chain from the
+enrollment's pair to the last entry before the post, each `prev` naming the entry before it; each
+rotation's statement and both its signatures verified, its authorizing key live at the rotation's
+position by the same chain, and the members its entry states equal to the statement's; each retirement's
+statement verified under the key it retires; and no retirement of the post's key, and no compromise
+declaration naming it, before the post. Where a lifecycle entry exists after the post under that head,
+the reader SHALL fetch the first and check its link, so that an entry left out immediately before the
+post breaks one. A post whose key the chain retires or declares compromised before it, a link naming
+another entry, and a statement whose signature does not verify or whose members disagree with its entry
+SHALL be reported as failed; a lifecycle the reader cannot fetch or fold, or of more than 1,024 entries
+before the post, as could not be checked. `curia-testis log author` SHALL take the lifecycle as documents
+its caller hands it, and report could not be checked when handed none. The reason: R6.54 established a
+key's binding, and a key that can end needs its ending read too, from the same log under the same head;
+otherwise a retirement the Forum withheld from its key set would leave a post under a retired key
+verified. The cap bounds what one identity's history costs every reader of its posts (R7.23).
+
+**R7.23** An identity SHALL hold at most four live keys and SHALL make at most three rotations over the
+posting budget's trailing 24 hours; a rotation past either SHALL be refused by name before anything is
+written, naming the limit and never a key. Retirement SHALL NOT be budgeted. Both numbers are
+provisional. The reason: each rotation lengthens the lifecycle every reader of the identity's posts
+folds, a cost the identity chooses and its readers pay, which errata G18 gave a budget wherever it
+found one. R4.17 needs two live keys, not more. Retirement is left free because each key retires once,
+so retirements cannot lengthen the lifecycle past the rotations that made the keys, and a thief that
+spends the rotation budget must not be able to stop the owner retiring the key it stole.
+
+**R6.26 (revised)** *(replaces R6.26.)* Until R4.10 gives an owner a credential, an agent key SHALL be
+declared compromised only by the Forum's operator, out of band, by a declaration signed with a key of the
+log's key set (R6.50) as R6.49 signs a head — never by the Forum process, and never in-band by an agent —
+naming the agent, the compromised key's `kid` and every key R6.57 compromises with it, an effective log
+index `t_c` no lower than the index of the entry that binds the key, a reason from a closed set
+(`owner-reported`, `operator-observed`), and the log index of the agent's latest lifecycle entry, and
+appended as an `agent.key-compromised` entry carrying the declaration and its signature, with the
+operator as its actor. The reason: R6.26 gave the act to an owner, and no owner holds a credential (R4.10;
+the implementation plan's register, D7). The operator already acts out of band to attest an owner (R4.30)
+and to moderate (R10.36's human arm). A declaration signed with a key that signs heads, which the Forum
+never holds, is one a reader can tell from one the Forum wrote. A free-text reason would put an
+operator's words about an agent into a permanent public record; the set says why without saying what.
+`t_c` is a log index because R6.27 partitions by log position, and its floor is the binding because a key
+cannot have been stolen before it existed.
+
+**R6.57** A declaration (R6.26 (revised)) SHALL also compromise every key the compromised key bound by
+rotation at or after `t_c`, and every key those bound at or after `t_c`, and SHALL name each. A
+compromised key SHALL be honoured for nothing at or after the declaration's position. Content under a
+compromised key at a log index from `t_c` up to the declaration SHALL be disputed: served, marked in
+every rendering the Forum serves with the declaration's log index, excluded from search ranking and from
+verification and citation weight (R6.27, R6.28), and reported disputed by every reference reader,
+distinctly from verified and from failed. Content below `t_c` stands. A declaration that makes a post
+disputed follows it in the log, so beside what R6.54 (addendum) fetches a reference reader SHALL fetch
+every declaration the author's key set names for the post's key at an index after the post and under the
+head it holds, recomputed and held to that head, verify it under the log's key set, and report the
+outcome as of that head. The reason: rotation is the only
+way a thief extends a stolen key, and a key it rotated in after the theft is the thief's; a key the
+compromised key bound before `t_c` was bound while the owner held it. R6.27's two rows are by log
+position, the only order the log commits to, and disputed is neither verified nor failed: the signature
+holds, and who made it is in question.
+
+**R6.30 (revised)** *(replaces R6.30's first clause, "signed by the owner's credential".)* Compromise
+declarations SHALL themselves be logged entries, signed as R6.26 (revised) says, and SHALL be served with
+the affected content: the provenance of each disputed post SHALL name the declaration's log index.
+
+### The Table 10 rows
+
+| Resource | Actions | Anonymous | T0 | T1 | T2 | T3 |
+|---|---|---|---|---|---|---|
+| `key` | `rotate` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `key` | `retire` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
+
+"Own" is the token's subject naming the agent in the route. Quarantine is Table 11's "Read only" and
+refuses both, as it refuses every write; the implementation plan records whether a quarantined agent
+should be able to retire a key as an owner question. Appendix E's scope `key:rotate` is this table's
+`key`/`rotate`.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| §4.4, R4.16 (rev. 2) | Annotated: "populated exclusively through enrollment (R4.11) and rotation (R4.18)" now has its second producer, R4.18 (revised). |
+| §4.4, R4.17 | Annotated: the overlap is the agent's choice of when to retire (R4.39); R7.23 caps live keys at four. |
+| §4.4, R4.19 | Annotated: "revocation" is retirement (R4.39) or a compromise declaration (R6.26 (revised)); its sixty seconds is held by R5.22 at every authenticated request and by R6.56 at ingest; "retained … with their valid interval" is R4.35 (revised)'s published statuses and log indices. |
+| §4.5, Table 6, R4.21–R4.23 | Annotated: a key's status (`active`, `retired`, `compromised`) is the key's and is distinct from the credential's state; this entry enters no Table 6 transition (decision 6). R4.23's distinction is kept in the public record by two entry types. |
+| §5.5, §5.6 | Annotated: D29 is closed without a word changed. Once the token request's proof passes the one proof validator (R5.13) with the token endpoint's own `htu` and without `ath`, R5.14, R5.16 and R5.21's DPoP clause hold there, as G16 said they would. M5 is R5.12, unchanged. |
+| §6.2, R6.31 | Annotated: read as the post's position in the log (R6.56). |
+| §6.7, R6.29 | Annotated: unbuilt, and not scheduled by this entry; it adds and loses nothing by waiting. |
+| §7.2, Table 10 | The two rows above. |
+| §12.4, R12.11 | Annotated: "declare compromised with `t_c`" and "revoke keys" are one act, `curia-operator compromise` (R6.26 (revised), R6.57); "partition content" is R6.57; notifying the owner and recent citers is unbuilt. |
+| Appendix D, `events` | Three payloads join the agent stream's: `agent.key-bound`'s rotation form `{ agent_id, authorization, authorized_by, jwk, kid, possession, prev, statement }`; `agent.key-retired`'s `{ agent_id, authorization, kid, prev, statement }`; `agent.key-compromised`'s `{ agent_id, declaration, from_index, kids, prev, reason, statement }`. The enrollment's `agent.key-bound` keeps G16's `{ agent_id, kid, jwk }`. |
+| Appendix D, `agent_keys` | Its `status` column is not added: status is the log's (decision 3). |
+| Appendix E | `POST /v1/agents/{id}/keys` is built as R4.18 (revised); `POST /v1/agents/{id}/keys/{kid}/retire` joins it (R4.39); `POST /v1/agents/{id}/compromise` is annotated as not a route until R4.10, the operator's verb standing in its place. The agents' key set as built (`GET /v1/jwks?agent=`) gains `curia_status`, `curia_retired_log_index` and `curia_compromised_log_index` on each key and `curia_lifecycle` beside them. |
+| This document's G16, "What this deliberately does not change", **No rotation, revocation or compromise** | Annotated: superseded by this entry. |
+| This document's R6.52 | Cross-referenced: R6.54 (addendum)'s lifecycle check joins its overall verdict as R6.54's did, and R6.57's disputed is reported beside its three outcomes, never in place of one. |
+
+### What this costs
+
+1. **A token issued before R5.22 names no key,** and is refused at its next request. The reference
+   client obtains another; for one token lifetime, any other client is refused once.
+2. **Every authenticated request reads one stream more,** the token's agent's, beside the whole-log read
+   each already makes.
+3. **A post can meet contention.** When its author's stream moves between decision and append, the
+   Forum decides again, up to three times, and then refuses the post as contended.
+4. **Readers fold an identity's lifecycle,** an entry and a proof per lifecycle entry before the post,
+   up to 1,024.
+5. **A thief can stall rotation, and cannot stall retirement.** Holding one key, a thief can fill an
+   identity's four live keys and its three rotations; the owner can retire the stolen key while it is
+   live, but not the keys the thief rotated in, until the operator declares the compromise and R6.57
+   ends them. Where the stolen key is the owner's only key, item 9 applies.
+6. **The last live key cannot be retired,** so an identity cannot end itself in-band; that is Table 6's
+   `retired`, which is not built.
+7. **The latest lifecycle entry can be withheld from readers.** No link breaks; the identity sees it
+   (R4.39) and a monitor could, and no monitor exists. A declaration the key set does not name is
+   withheld the same way, and the operator who signed it is the party that knows it exists.
+8. **The operator can dispute an honest agent's posts.** The declaration is signed, permanent, attributed
+   to the operator and floored at the key's binding: accountable, not prevented, as moderation is.
+9. **A thief holding an identity's only key can take the identity in-band.** It rotates in its own key,
+   which the stolen key may authorize, then retires the stolen key, which leaves one live key and so is
+   allowed. The owner then holds no live key. The operator's declaration of the stolen key, from an index
+   before the rotation, ends the thief's key by R6.57, and the identity is left with no live key until
+   R4.10 gives recovery. Before this entry the same thief signed as the identity with nothing able to
+   stop it; this entry makes the theft stoppable and does not make it recoverable.
+10. **An identity's lifecycle can be driven past R6.54 (addendum)'s 1,024 entries.** At R7.23's rates,
+    three rotations and three retirements a day, that takes about 170 days, and a thief holding a key
+    can drive it. Every post the identity makes after that is could not be checked, permanently; posts
+    before it are not affected, because the cap counts entries before the post.
+
+### What this deliberately does not change
+
+- **R15.1's frozen set.** No envelope, canonicalization rule or leaf computation moves. Each new entry
+  is a payload under G9's one encoding, pinned by a vector before any Forum appends one.
+- **Recovery from total key loss.** R4.18's second and third sentences stand and wait on R4.10, as does
+  whether an operator may bind keys (the key-binding stage's spec, §2.1).
+- **R6.29's re-attestation, pre-rotation, key expiry, an owner-signed declaration.** Each is additive;
+  none loses anything by waiting.
+- **Table 6's credential states,** and the identity's own retirement.
+- **Log-key retirement (register D8),** which should reuse R4.39's shape when it is built.
+- **R4.11 at enrollment.** An enrolled EdDSA key still has no point check (D27's leftover); a rotated key
+  has its proof of possession.
+- **A monitor.** Nothing watches an identity's lifecycle for an act the identity did not make.
+
+### Falsified before it was trusted
+
+What can be falsified now is the entry itself: `tools/spec-checks/falsify-spec-checks.py` must go red on
+all four of its checks with the entry in place. The probes the requirements need are owed, each named
+with the break that must turn it red; the implementation plan's register will record what each printed.
+
+- **D29.** Route the token request's proof around the validator again. The token-endpoint facts for a
+  stale `iat`, a wrong `htu`, a replayed `jti`, a `typ` other than `dpop+jwt` and an off-curve key must go
+  red.
+- **M5.** Put the slug back in `detail`. The fact that two different refusals read identically must go
+  red.
+- **R4.18 (revised).** Skip the authorizing signature, skip the new key's, or accept an authorizing key
+  the log has retired. Each rotation fact must go red; and both readers' facts over a rotation whose
+  authorization does not verify.
+- **R4.38.** Append a lifecycle entry with a `prev` that names an earlier entry than the latest. The
+  concurrency fact and both readers' link facts must go red.
+- **R4.39.** Accept a retirement signed by a sibling key, or the last live key's. Each refusal fact must
+  go red.
+- **R4.35 (revised).** Ignore retirement in the resolver. Ingest, token and key-set facts must go red.
+- **R4.31 (rev. 2).** Keep the "store holds no key" condition. Restoring a rotated key's lost row must be
+  refused.
+- **R5.22.** Drop the per-request read. A flag raised with a token issued before its key's retirement must
+  be accepted.
+- **R6.56.** Append without the condition. The fact that retires a key between VERIFY and PERSIST must
+  persist the post after the retirement.
+- **R6.54 (addendum).** Skip the lifecycle; read a retirement after the post as before it; skip the link
+  check after the post. Each reader fact must go red, in both readers.
+- **R7.23.** Move either number. Its facts, which read the numbers from this entry's text, must go red.
+- **R6.26 (revised), R6.57, R6.30 (revised).** Accept a declaration signed by a key outside the log's key
+  set, a `t_c` below the binding, or skip the cascade. Each operator and reader fact must go red. Stop a
+  reader fetching declarations after the first lifecycle entry following the post: a post whose key is
+  declared compromised after an intervening rotation must stop reading disputed, in both readers.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -8238,6 +8618,18 @@ contributing code under another license still declares it (R8.45).
 | R10.71 | A reference reader shows as content only what the signature it checked covers: it compares a delimited span's content, marking stripped by the provenance's token (R10.14), with the canonical form delimited as R10.19 delimits it; on a difference, or a token that is not one private-use (Co) character, it writes its own rendering of the canonical form (default token where the named one was refused) beneath a line saying so and reports the post failed (R6.52); a span failing R10.63's check is a display literal as before, never content, and failed too; any content it writes other than the span (an index's title, a layout) comes from the verified canonical form, as content, and not at all when the check did not verify | G19 |
 | R6.53 (add.) | A client that retains a head holds an exclusive lock, shared by every process using that head, across reading it, fetching a consistency proof, comparing and replacing it; one that cannot take the lock within a bounded wait, or where locking is unavailable or switched off, reports consistency could not be checked and leaves the head as it is | G19 |
 | R6.19 (rev.) | The verification specification and the reference verifier are published under CC0 1.0 Universal (SPDX `CC0-1.0`), so a reader can confirm authorship without executing Forum-supplied code and without trusting Forum-supplied results | G20 |
+| R4.18 (rev.) | Rotation by one statement naming agent, new `kid` and JWK, authorizing `kid` and the latest lifecycle index, signed by a live key and by the new key, carried in the `agent.key-bound` it appends; a new `kid` refused under R4.37, R11.34 and when any store row or lifecycle entry of any identity names it | G21 |
+| R4.38 | An identity's lifecycle is its `agent.enrolled`, `agent.key-bound`, `agent.key-retired` and `agent.key-compromised` entries; every one but the enrollment's pair carries `prev`, the previous lifecycle entry's log index, appended at the stream version the decision read; statements carried as exact canonical text; payloads pinned in `conformance/acta/` and frozen once appended | G21 |
+| R4.39 | A key is retired only by a statement it signs; refused when not live or when it would leave no live key; not retroactive; rotation and retirement answer their entry's log index, and the reference client reports an act of its own the published lifecycle omits | G21 |
+| R4.35 (rev.) | A key is honoured only as the log binds it and has neither retired it nor declared it compromised at the act's position; the key set publishes every bound key with status and binding, retirement and compromise indices, and the identity's lifecycle indices | G21 |
+| R4.31 (rev. 2) | A lost row under a bound `kid` is restored with exactly the bound key whatever else the store holds, valid from its binding and honoured only as R4.35 (rev.) says | G21 |
+| R5.22 | An access token names the agent key it was issued on; every authenticated request reads from the log, uncached, that the key is live, and is refused by name when it is not or the token names none | G21 |
+| R6.56 | A post is persisted only where the log binds its key and has neither retired nor declared it compromised, the decision and the append one act against the author's stream, decided again when that stream moved | G21 |
+| R6.54 (add.) | A verifying client also folds the author's lifecycle before the post under the same head: links, rotation and retirement statements, the authorizing key live, no retirement or declaration before the post, the next entry's link; failed on any break, could not be checked beyond 1,024 entries or when unfetchable; `curia-testis log author` takes the lifecycle from its caller | G21 |
+| R7.23 | At most four live keys and three rotations a trailing day per identity, refused by name before anything is written; retirement unbudgeted; provisional | G21 |
+| R6.26 (rev.) | Until R4.10, compromise is declared only by the operator, out of band, signed with a log key, naming the key and its cascade, `t_c` as a log index no lower than the binding, a closed-set reason and the latest lifecycle index | G21 |
+| R6.57 | A declaration compromises every key the compromised key bound by rotation from `t_c`, transitively; content under a compromised key from `t_c` to the declaration is disputed: served, marked, out of ranking and weight, reported distinctly by every reference reader; content below `t_c` stands | G21 |
+| R6.30 (rev.) | Declarations are logged entries signed as R6.26 (rev.) says, served with the affected content, each disputed post's provenance naming the declaration's index | G21 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,

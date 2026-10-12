@@ -220,6 +220,16 @@ set; SP scores recorded even if not yet weighted.*
 > `declared_license` in R8.45, §8.1, C.3 and the signed fixture, and `license` in `PostEnvelope` and
 > `SubmissionBuilder`. It is a schema `v: 1` question (R15.1) and waits on a ruling.
 >
+> **The rotation stage is opened, not done** (2026-10-11, errata **G21**; its spec
+> `docs/superpowers/specs/2026-10-11-keys-that-end-design.md` and plan
+> `docs/superpowers/plans/2026-10-11-keys-that-end.md`). Three PRs, in order: **PR 0** (branch
+> `token-proof-verified`) closes **D29** and the key-binding stage's **M5** at the token endpoint and
+> changes no requirement; **PR 1** (branch `key-rotation`) builds rotation and self-retirement (R4.18
+> (rev.), R4.38, R4.39, R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's
+> two `key` rows; **PR 2** (branch `key-compromise`) builds the operator's compromise declaration
+> (R6.26 (rev.), R6.57, R6.30 (rev.)). No requirement of G21 is met until its PR merges; read this line
+> for what is scheduled, never for what is built.
+>
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
 > adapter has lifted: it may open its own plan, and "What comes next" below says what that plan
 > and the Phase 4 one inherit from this one. This document stays as the Phase 3 record and the
@@ -4029,6 +4039,7 @@ the replay cache. That is a behaviour change to the token endpoint, with a fact 
 "What comes next" carries it. Since Task A5 (406a5ed), the fuzzer's `perturbed-first` class exercises this
 on every closed pass: the 8 POST /oauth/token rows for `jws:proof:header/jwk/x` and `/y`, re-signed and
 unsigned, answer 200 for an off-curve key.
+*Scheduled 2026-10-11: the rotation stage's PR 0 (errata G21), with M5.*
 
 ### D30 — an identifier NFC maps onto another's got a post accepted signed in the other identity's name *(pre-existing; found by the key-binding stage's final review, 2026-09-27; opened and closed by that stage's final wave; errata G16, R6.55, R4.36)*
 
@@ -6829,6 +6840,26 @@ nothing on the Forum: no route, event, table, grant or served document. Rotation
 displaced a third time, after the strangers stage and G18. **Rotation is next after PR A; then PR
 B, the screen (branch `curia-browse`), re-scoped** against the key-status line rotation adds to
 every header.
+*Amended 2026-10-11 (`curia-architect`, opening the rotation stage, with `hardin-doctrine`'s ruling on
+scope and timing weighed).* The stage's entry is **G21**, filed in the errata against G20, R4.37,
+R5.21, R6.55 and R7.22: new **R4.38**, **R4.39**, **R5.22**, **R6.56**, **R6.57** and **R7.23**, and
+**R4.18 (rev.)**, **R4.31 (rev. 2)**, **R4.35 (rev.)**, **R6.26 (rev.)**, **R6.30 (rev.)** and **R6.54
+(add.)**. It ships as three PRs. **PR 0** (`token-proof-verified`): D29 (the token request's proof
+through the one proof validator, with the replay cache) and M5 (a coarse `detail`, and `server_error`
+logged), alone, because neither waits on any rotation decision. **PR 1** (`key-rotation`): rotation
+signed by a live key and by the new key, self-retirement, the per-identity chain, a token that names
+its key and is refused once that key ends (R5.22, because flags and acceptance are token-only writes,
+`ForumEndpoints.cs:350`-`:351`), ingest deciding and appending as one act against the author's stream
+(R6.56), and the three readers folding the lifecycle; its first act adds
+`R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs`, which holds R4.31 (revised)'s reading through the
+new producer, beside `R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs`, which keeps its
+hand-appended entry. **PR 2**
+(`key-compromise`): `curia-operator compromise`, signed with a log key, its cascade, and disputed
+content. G21 amends the ruling in five places, each argued in the entry: a compromise ends a key and
+not the credential (Table 6 is not entered), key status is read per request rather than through the
+decision cache, R6.56's race, R5.22 in place of a check that two routes would fail, and the chain ruled
+in. **TUI PR B** (`curia-browse`) stays held until PR 1 merges, then re-scopes its header for key
+status, and adds the disputed row after PR 2. **D38**, **D39** and **D40** are not this stage's.
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding
