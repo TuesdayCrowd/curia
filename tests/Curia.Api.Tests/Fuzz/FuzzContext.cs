@@ -242,7 +242,7 @@ internal sealed class FuzzContext : IDisposable
                 ?? throw new InvalidOperationException("only the fuzzer's fixture captures what its host logs");
             var mark = log.Mark();
             var response = await Client!.SendAsync(request, ct);
-            var reasons = log.Since(mark).Where(e => e.EventId is 5000 or 5001).ToList();
+            var reasons = log.Since(mark).Where(IsTokenReason).ToList();
             if (reasons.Count > 1)
             {
                 response.Dispose();
@@ -257,6 +257,20 @@ internal sealed class FuzzContext : IDisposable
             Interlocked.Decrement(ref _inFlight);
         }
     }
+
+    /// <summary>
+    /// A reason the token endpoint logged: event 5001 from <c>OAuthRefusal</c>, or event 5000 from it or
+    /// from <c>ServerFault</c>. Matched by category as well as id, so another component's event that
+    /// reuses an id is not read as the request's reason. The categories are the loggers' type names
+    /// (<c>CreateLogger&lt;OAuthRefusal&gt;</c> in <c>Curia.Api.Issuer</c>, <c>CreateLogger&lt;ServerFault&gt;</c>
+    /// in <c>Curia.Api</c>); both types are internal to <c>Curia.Api</c>, so they are named here.
+    /// </summary>
+    private static bool IsTokenReason(LoggedEvent logged) =>
+        (logged.EventId, logged.Category) is (5001, OAuthRefusalCategory) or (5000, OAuthRefusalCategory) or (5000, ServerFaultCategory);
+
+    private const string OAuthRefusalCategory = "Curia.Api.Issuer.OAuthRefusal";
+
+    private const string ServerFaultCategory = "Curia.Api.ServerFault";
 
     /// <summary>A nonce the Forum issued at this clock instant: asked for again whenever the clock has moved.</summary>
     internal async Task EnsureNonceAsync(FuzzAgent agent, CancellationToken ct)

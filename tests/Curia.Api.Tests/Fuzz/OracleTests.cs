@@ -142,15 +142,19 @@ public sealed class OracleTests(ForumFixture forum) : IClassFixture<ForumFixture
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using (var json = System.Text.Json.JsonDocument.Parse(body))
+        {
             Assert.Equal("invalid_request", json.RootElement.GetProperty("error").GetString());
+            Assert.Equal(
+                "error,error_description",
+                string.Join(",", json.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal)));
+        }
 
         var capturedType = logged.SingleType(0, 5001);
         Assert.Equal(string.Empty, capturedType);
         var problemType = Oracle.ProblemType("/oauth/token", body, capturedType);
         Assert.Equal(Oracle.TokenEndpointFormRefusal, problemType);
         Assert.True(Oracle.Reached("/oauth/token", response.StatusCode, problemType), $"{problemType} not counted as reach");
-        // The floor is untouched: main read this refusal as "invalid_request <detail>", true there; M5 makes it bare, true here.
-        Assert.True(Oracle.PastFirstParser(response.StatusCode, "invalid_request The request body is not a form this endpoint can read"), "main's reading of the form refusal not counted as past the first parser");
+        // The floor is untouched: main served the form refusals' detail as JSON null, which its ProblemType did not append, so main's problem type was this same bare invalid_request, past the first parser there as here.
         Assert.True(Oracle.PastFirstParser(response.StatusCode, problemType), $"{problemType} not counted as past the first parser, which main counted");
     }
 }

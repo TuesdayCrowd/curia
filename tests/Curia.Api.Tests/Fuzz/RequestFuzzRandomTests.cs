@@ -41,7 +41,8 @@ public sealed class RequestFuzzRandomTests(FuzzForumFixture forum) : IClassFixtu
     /// (139 curia/admit/noncharacter) as past the parser (review of 6cbfa9f). The per-unit generator
     /// before both measured 87 of 1,100 (0.079) with the same seed. Re-measured once D29 and M5 closed,
     /// with the token endpoint's proof run through the one validator and a token refusal classified by
-    /// the reason it logged, one logged with none counted as reaching nothing: 629 of 1,217, a fraction
+    /// the slug it logged (this pass reads <c>PastFirstParser</c> alone, so <c>Reached</c>'s rule for a
+    /// refusal logged with no reason does not bear on it): 629 of 1,217, a fraction
     /// of 0.517; half of it is 0.258, and 4 is still the smallest integer whose reciprocal is at most that.
     /// </summary>
     internal const int Divisor = 4;

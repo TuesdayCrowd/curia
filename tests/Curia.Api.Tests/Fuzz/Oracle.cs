@@ -62,7 +62,8 @@ internal static partial class Oracle
     /// form checks: not a form, an unreadable form, client_assertion_type, missing client_assertion or
     /// client_id). Logged with no reason, because nothing past the form reader was parsed. It is a parser
     /// refusal, which counts as reach (register D33, "the reach clause counts a parser refusal as
-    /// reach"), as it did before M5. Compared by exact equality only.
+    /// reach"), as it did before M5, and, as on main, <c>PastFirstParser</c> counts it too. Compared by
+    /// exact equality only.
     /// </summary>
     internal const string TokenEndpointFormRefusal = "invalid_request";
 

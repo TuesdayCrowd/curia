@@ -6,8 +6,8 @@ using Xunit;
 
 namespace Curia.Api.Tests;
 
-/// <summary>One log event a host wrote: its id, its formatted message, and its structured values.</summary>
-internal sealed record LoggedEvent(int EventId, string Message, IReadOnlyList<KeyValuePair<string, object?>> Values)
+/// <summary>One log event a host wrote: its id, its logger's category, its formatted message, and its structured values.</summary>
+internal sealed record LoggedEvent(int EventId, string Category, string Message, IReadOnlyList<KeyValuePair<string, object?>> Values)
 {
     /// <summary>The structured value named <paramref name="name"/>, as text, or null when the event has none.</summary>
     internal string? Value(string name) =>
@@ -15,8 +15,8 @@ internal sealed record LoggedEvent(int EventId, string Message, IReadOnlyList<Ke
 }
 
 /// <summary>
-/// Every log event a host writes, each with its event id, its formatted message, and the state's
-/// structured values (lifted from <c>ServerFaultTests</c>, which kept only the formatted message).
+/// Every log event a host writes, each with its event id, its logger's category, its formatted message,
+/// and the state's structured values (lifted from <c>ServerFaultTests</c>, which kept only the formatted message).
 /// A fact that reads what a refusal logged reads the <c>Type</c> value from the structured values, so
 /// "no structured value holds the caller's text" checks a list that is not empty.
 ///
@@ -63,7 +63,7 @@ internal sealed class LogCapture : ILoggerProvider
     /// <summary>The <c>Type</c> the one event of id <paramref name="eventId"/> since <paramref name="mark"/> carries.</summary>
     internal string SingleType(int mark, int eventId) => Single(mark, eventId).Value("Type") ?? string.Empty;
 
-    public ILogger CreateLogger(string categoryName) => new Logger(this);
+    public ILogger CreateLogger(string categoryName) => new Logger(this, categoryName);
 
     public void Dispose()
     {
@@ -74,7 +74,7 @@ internal sealed class LogCapture : ILoggerProvider
         lock (_gate) _events.Add(logged);
     }
 
-    private sealed class Logger(LogCapture capture) : ILogger
+    private sealed class Logger(LogCapture capture, string category) : ILogger
     {
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -86,7 +86,7 @@ internal sealed class LogCapture : ILoggerProvider
         {
             ArgumentNullException.ThrowIfNull(formatter);
             var values = state is IReadOnlyList<KeyValuePair<string, object?>> list ? [.. list] : (IReadOnlyList<KeyValuePair<string, object?>>)[];
-            capture.Add(new LoggedEvent(eventId.Id, formatter(state, exception), values));
+            capture.Add(new LoggedEvent(eventId.Id, category, formatter(state, exception), values));
         }
     }
 }

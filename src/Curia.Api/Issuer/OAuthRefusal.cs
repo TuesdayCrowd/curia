@@ -5,8 +5,8 @@ namespace Curia.Api.Issuer;
 /// <summary>
 /// RFC 6749 §5.2's error response, and nothing beside it: <c>error</c> and <c>error_description</c>,
 /// never a <c>detail</c> (M5; spec §4.11). Every code but <c>invalid_request</c> takes a fixed
-/// description, so a <c>kid</c> registered to another agent and a signature that fails read the same
-/// (R5.12). The reason goes to the log.
+/// description, so a <c>kid</c> registered to another agent and a signature that fails read the same,
+/// byte for byte (R5.12). The reason goes to the log.
 ///
 /// <para><b>What is logged, and what is not.</b> A 4xx logs event 5001 with its code and the reason's
 /// slug only. The reason's detail can hold a header value the caller chose (a proof's <c>typ</c>, an

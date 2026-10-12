@@ -68,9 +68,14 @@ public sealed class TokenEndpointRefusalTests(ForumFixture forum) : IClassFixtur
     }
 
     /// <summary>
-    /// No token refusal carries a <c>detail</c>: every request <see cref="TokenEndpointProofTests"/> and
-    /// <see cref="TokenSubjectBindingTests"/> send, on a host that records every body the token endpoint
-    /// answers. Each of their facts runs, and must pass, so each request is the one it sends.
+    /// No token refusal carries a <c>detail</c>, or anything else beside RFC 6749's two members: every
+    /// request <see cref="TokenEndpointProofTests"/> and <see cref="TokenSubjectBindingTests"/> send, on
+    /// a host that records every body the token endpoint answers. Each of their facts runs, and must
+    /// pass, so each request is the one it sends. Every recorded body with an <c>error</c> has exactly
+    /// the members <c>error</c> and <c>error_description</c>, and an <c>invalid_client</c>,
+    /// <c>invalid_dpop_proof</c> or <c>server_error</c> has that code's one fixed description, so no
+    /// reason reaches the caller through the description either. Main's shape, a <c>detail</c> served as
+    /// JSON null, fails here as a member.
     /// </summary>
     [Fact]
     public async Task M5_NoTokenRefusalCarriesADetail()
@@ -99,8 +104,11 @@ public sealed class TokenEndpointRefusalTests(ForumFixture forum) : IClassFixtur
 
         var bodies = recording.Bodies.ToList();
         Assert.True(ran > 10 && bodies.Count > ran, $"{ran} facts ran and {bodies.Count} token answers were recorded, so this fact read too little");
-        var detailed = bodies.Where(HasDetail).ToList();
-        Assert.True(detailed.Count == 0, $"{detailed.Count} of {bodies.Count} token answers carry a detail: {string.Join(" | ", detailed.Take(5))}");
+        var misshapen = bodies.Select(b => (Body: b, Fault: RefusalShapeFault(b))).Where(r => r.Fault is not null).ToList();
+        Assert.True(
+            misshapen.Count == 0,
+            $"{misshapen.Count} of {bodies.Count} token answers are refusals that are not RFC 6749's two members with their code's description: " +
+            string.Join(" | ", misshapen.Take(5).Select(r => $"{r.Fault}: {r.Body}")));
     }
 
     /// <summary>
@@ -174,16 +182,34 @@ public sealed class TokenEndpointRefusalTests(ForumFixture forum) : IClassFixtur
         }
     }
 
-    private static bool HasDetail(string body)
+    /// <summary>
+    /// Why a token answer with an <c>error</c> is not a coarse refusal, or null when it is one or has no
+    /// <c>error</c>. The fixed descriptions are <c>OAuthRefusal</c>'s, which this assembly cannot see.
+    /// </summary>
+    private static string? RefusalShapeFault(string body)
     {
         try
         {
             using var json = JsonDocument.Parse(body);
-            return json.RootElement.ValueKind == JsonValueKind.Object && json.RootElement.TryGetProperty("detail", out _);
+            var root = json.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("error", out var error)) return null;
+            var members = string.Join(",", root.EnumerateObject().Select(m => m.Name).Order(StringComparer.Ordinal));
+            if (!string.Equals(members, "error,error_description", StringComparison.Ordinal)) return $"members {members}";
+            var expected = error.ValueKind != JsonValueKind.String ? null : error.GetString() switch
+            {
+                "invalid_client" => "The client could not be authenticated",
+                "invalid_dpop_proof" => "The DPoP proof was not accepted",
+                "server_error" => "The Forum could not issue a token",
+                _ => null,
+            };
+            var description = root.GetProperty("error_description");
+            return expected is null || (description.ValueKind == JsonValueKind.String && string.Equals(description.GetString(), expected, StringComparison.Ordinal))
+                ? null
+                : $"description {description}";
         }
         catch (JsonException)
         {
-            return false;
+            return null;
         }
     }
 
