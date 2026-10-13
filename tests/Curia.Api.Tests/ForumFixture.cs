@@ -336,6 +336,7 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             }
 
             ConfigureFuzz(services);
+            ConfigureStore(services);
         });
     }
 
@@ -344,6 +345,14 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// headers and query parameters. Nothing else overrides it, and the base adds nothing.
     /// </summary>
     protected virtual void ConfigureFuzz(IServiceCollection services)
+    {
+    }
+
+    /// <summary>
+    /// The event store's hook (R6.56's route facts): a fixture that must see or disturb the host's
+    /// appends decorates the registered <see cref="IEventStore"/> here. The base changes nothing.
+    /// </summary>
+    protected virtual void ConfigureStore(IServiceCollection services)
     {
     }
 }
