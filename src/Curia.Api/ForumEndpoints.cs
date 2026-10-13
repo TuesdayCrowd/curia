@@ -1338,7 +1338,12 @@ public static class ForumEndpoints
     /// post signed under one fails a reader's signature check, as it should. Each published key names
     /// the leaf that binds it (<c>curia_log_index</c>), so a reader can check the binding against a
     /// signed head instead of trusting this key set. An identity the store holds no row for is 404, as
-    /// before; one whose every row the log refuses gets an empty set.</para>
+    /// before; one whose every row the log refuses gets an empty set. An identity whose stream the fold
+    /// REFUSES (R4.38: a lifecycle entry the fold cannot attribute, or a statement-less binding that is
+    /// not the enrolment's own) is 503 with the fold's own problem type
+    /// (<c>curia/keys/statement-mismatch</c>), the same answer as an unreadable log: no key of that
+    /// agent is published until the stream folds, so a broken link never reads as a deliberate empty
+    /// set.</para>
     /// </summary>
     private static async Task<IResult> GetJwks(
         string? agent, LogBoundKeys keys, IEventReader events, CancellationToken cancellationToken)
