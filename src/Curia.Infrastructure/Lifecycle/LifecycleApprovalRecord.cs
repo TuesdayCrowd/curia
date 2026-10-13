@@ -275,11 +275,8 @@ public sealed class LifecycleApprovalRecord
             return Result<ApprovedKind>.Fail(LifecycleApprovalErrors.EventTypeNotTheKinds(kindName));
 
         var directory = Text(entry, "vector_directory");
-        if (directory.Length == 0
-            || directory.Contains('/', StringComparison.Ordinal)
-            || directory.Contains('\\', StringComparison.Ordinal)
-            || directory.Contains("..", StringComparison.Ordinal)
-            || string.Equals(directory, EnrolmentVectorDirectory, StringComparison.Ordinal))
+        if (!IsVectorName(directory)
+            || string.Equals(directory, EnrolmentVectorDirectory, StringComparison.OrdinalIgnoreCase))
         {
             return Result<ApprovedKind>.Fail(LifecycleApprovalErrors.VectorDirectoryRefused(kindName));
         }
@@ -357,6 +354,22 @@ public sealed class LifecycleApprovalRecord
 
     private static string? Unknown(JsonValue.Object value, ImmutableHashSet<string> allowed) =>
         value.Members.Select(m => m.Key).FirstOrDefault(k => !allowed.Contains(k));
+
+    // A vector directory is an allowlist, not a denylist: 1 to 64 characters of a-z, 0-9 and '-', neither
+    // end a '-'. A plain loop, because the project bans backtracking regex engines (R10.69).
+    private static bool IsVectorName(string value)
+    {
+        if (value.Length is 0 or > 64 || value[0] == '-' || value[^1] == '-')
+            return false;
+
+        foreach (var c in value)
+        {
+            if (c is not ((>= 'a' and <= 'z') or (>= '0' and <= '9') or '-'))
+                return false;
+        }
+
+        return true;
+    }
 
     private static bool IsSha256Hex(string value) =>
         value.Length == 64 && value.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));

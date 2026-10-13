@@ -5974,7 +5974,7 @@ reachable from no `src/` or `tools/` assembly. `Program.cs` and `curia-operator`
 gate factory, and the Forum scans the log at start (event 7006, GF10). Lifting the guard is the owner's
 separate act and is in no PR of this stage; merging does not freeze.
 
-**Falsification (Task L.3).** `FL-1` to `FL-29` were run against the tree after Task L.2: `falsify: 29
+**Falsification (Task L.3).** `FL-1` to `FL-30` were run against the tree after Task L.2: `falsify: 30
 cases, 0 not RED`. Each case was RED on its own `Failed!` line naming the expected test or row, in the
 configuration the plan states (Release, and Debug for the architecture rows), and each was restored by
 plain copy, rebuilt with `--no-incremental` and green unpatched. The cases cover: the adapters' call

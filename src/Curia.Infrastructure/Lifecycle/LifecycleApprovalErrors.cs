@@ -51,7 +51,7 @@ public static class LifecycleApprovalErrors
 
     public static Error VectorDirectoryRefused(string kind) => new(
         VectorDirectoryRefusedType,
-        "An approved kind's vector directory is one non-empty name under conformance/acta/, never key-bound-entry",
+        "An approved kind's vector directory is one name under conformance/acta/ of 1 to 64 lowercase letters, digits and hyphens, neither end a hyphen, and never key-bound-entry in any case",
         kind);
 
     public static Error CompromiseOrder(string where) => new(

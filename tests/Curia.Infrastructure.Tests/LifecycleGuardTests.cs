@@ -221,6 +221,34 @@ public sealed class LifecycleGuardTests
         Assert.Equal("compromise", wrongEventType.Detail);
     }
 
+    /// <summary>
+    /// An approved kind's vector directory is one lowercase name, an allowlist (FL-30); enrolment's own
+    /// directory is refused in any case. Each record is otherwise valid and approves compromise.
+    /// </summary>
+    [Fact]
+    public void R4_38_AVectorDirectoryIsOneLowercaseName()
+    {
+        string[] refused =
+        [
+            "Key-Bound-Entry", "KEY-BOUND-ENTRY", ".", "key-bound-entry ", "key-bound-entry.", "x:y", "-a", "a-", string.Empty,
+            new string('a', 65),
+        ];
+
+        foreach (var directory in refused)
+        {
+            var result = ParseRecord(
+                CompromiseApproval + "," + Approval("rotation", "agent.key-bound", directory), Decision, MemberNames, Security);
+            var error = RequireError(result);
+            Assert.True(
+                LifecycleApprovalErrors.VectorDirectoryRefusedType == error.Type,
+                $"vector_directory \"{directory}\" was not refused as a vector directory: {error.Type}");
+        }
+
+        var control = Require(ParseRecord(
+            CompromiseApproval + "," + Approval("rotation", "agent.key-bound", "key-rotated-entry"), Decision, MemberNames, Security));
+        Assert.NotNull(control);
+    }
+
     /// <summary>GF8, lock 2's order with the approval check out of the way (FL-9).</summary>
     [Fact]
     public void R4_38_CreateRefusesRotationWithoutCompromiseOverAnApprovingRecord()
