@@ -26,6 +26,7 @@
 - Count assemblies, never totals: **eleven** must appear. Record each assembly's count at each PR's base, and never quote counts from this plan.
 - Read gate output only through `grep -E "Passed!|Failed!"`. Never `head` it.
 - Long runs go to the background with output to a file, which you read when the run ends. Never `tail -f`.
+- A plan task must not change a spec table that a conformance test parses before the code that implements it (Task 1.0 applied Table 10's rows ahead of the model and six tests went red).
 
 **Invariants**
 - R15.1's set does not move.
@@ -582,11 +583,10 @@ Anchors are the literal lines Tasks L.1–L.2 pin, counted once against the tree
 
 ## PR 1 — rotation and retirement (branch `key-rotation`)
 
-### Task 1.0: Base, owner question 1, first act
+### Task 1.0: Base and owner question 1
 
 - [ ] `but branch new key-rotation` from the merged `main` (PR 0.5 merged). Confirm with `but status` that it carries none of PR 0's or PR 0.5's commits, and that `R4_38_TheApprovedSetIsEmpty` is on `main`.
-- [ ] Owner question 1 (spec §7 q1, the Table 10 rows) proceeds on its default yes: the cybersecurity report leaves it to the spec authority and recommends yes; curia-architect, as spec authority, keeps yes (2026-10-12). This is not an owner answer, and the plan stops if the owner answers no. The owner's "Q1: Yes." of 2026-10-11 answered the takeover question, not this one. The guard does not change it: tests run the rows behind the permissive gate. If the owner says no to question 1, stop: Task 1.6's Table 10 rows cannot be tested. Default yes: in `curia-agent-forum-WHITEPAPER.md`, insert after the `| `flag` | `list` (own) |` row the two rows from G21's "The Table 10 rows", byte for byte. Mark G21's Status: "the two Table 10 rows are applied in v1.1". Run `check-spec.py` and get `clean`.
-- [ ] **First act.** Add `R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs` to `EnrollIdentityTests` beside the existing `:746` fact. It runs `RotateKey` (Task 1.4) to bind `alice-2`, then asserts the same three assertions as `:746`, plus the stream's types `[enrolled, key-bound, key-bound]`. It does not compile until Task 1.4 and is committed with it. The `:746` fact stays as it is: its hand-appended entry is the one R4.31 (rev.) was written against.
+- [ ] Owner question 1 (spec §7 q1, the Table 10 rows) proceeds on its default yes: the cybersecurity report leaves it to the spec authority and recommends yes; curia-architect, as spec authority, keeps yes (2026-10-12). This is not an owner answer, and the plan stops if the owner answers no. The owner's "Q1: Yes." of 2026-10-11 answered the takeover question, not this one. The guard does not change it: tests run the rows behind the permissive gate. The rows are applied in Task 1.6, in the same commit as the model and `PublishedTable10` name maps, because the conformance tests read Table 10 from the white paper and a row the model has no member for fails the suite. (Found by building Task 1.0: applying the rows alone left six tests red.)
 
 ### Task 1.1: Proposed formats first (vectors, both runners)
 
@@ -740,6 +740,7 @@ Plus Task 1.0's first-act fact.
 
 - [ ] RED (compile errors do not count as red: write the types' signatures first so the facts compile and fail). Implement. Green.
 - [ ] Fences: `PortStringFenceTests` and `JsonReaderFenceTests` green. `PortStringAllowlist.cs` gains exactly these rows, and `JsonReaderFenceTests` gains none: `("Curia.Application.Credentials.RotateKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under")` and `("Curia.Application.Credentials.RetireKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under")` (`RetireKey` takes the same parameters minus the registry, so it carries `verifiers`). Each is a dictionary keyed by `alg` names the host registers, not a caller's identifier, which is the one-part-at-a-time spec §4.8's host-configuration class, as the Global Constraint requires; the precedent is `IngestPipeline..ctor`'s `verifiersByAlg` row (`tests/Curia.Architecture.Tests/PortStringAllowlist.cs:22`). Re-read `PortStringAllowlist.cs` when adding them and match its row shape at that time. Every other new string-like parameter of Tasks 1.3 and 1.4 is a boundary type. `KeyStatements` parses through `Curia.Canon.Json.JsonReader.Parse` with ADMIT's limits (duplicate members refused), never `System.Text.Json`.
+- [ ] **First act.** Add `R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs` to `EnrollIdentityTests` beside the existing `:746` fact. It runs `RotateKey` (Task 1.4) to bind `alice-2`, then asserts the same three assertions as `:746`, plus the stream's types `[enrolled, key-bound, key-bound]`. It does not compile until Task 1.4 and is committed with it. The `:746` fact stays as it is: its hand-appended entry is the one R4.31 (rev.) was written against.
 - [ ] Commit: `R4.18 (rev.), R4.39, R7.23: rotation and self-retirement`.
 
 ### Task 1.5: Ingest decides and appends as one act (R6.56)
@@ -757,7 +758,8 @@ Plus Task 1.0's first-act fact.
 
 ### Task 1.6: Routes, Table 10, key set
 
-- [ ] `ResourceKind.Key`; `ActionKind.Rotate` and `ActionKind.Retire`. `ResourceActionModel` gets the two rows. `PublishedTable10`'s action and resource name maps gain `key`, `rotate` and `retire`.
+- [ ] In `curia-agent-forum-WHITEPAPER.md`, insert after the `| `flag` | `list` (own) |` row the two rows from G21's "The Table 10 rows", byte for byte; mark G21's Status as applied in v1.1 (the "proposed; the two Table 10 rows are applied in v1.1" sentence saved from the blocked Task 1.0 run). Run `python3 tools/spec-checks/check-spec.py` (clean) and `falsify-spec-checks.py` (all red as expected).
+- [ ] `ResourceKind.Key`; `ActionKind.Rotate` and `ActionKind.Retire`. `ResourceActionModel` gets the two rows. `PublishedTable10`'s action and resource name maps gain `key`, `rotate` and `retire`. Update `HelpTextTests.D37_TheTierReminderListsWhatTable10GrantsT0` to the tier reminder the new rows produce (it failed in the blocked run). The T0 `rotate`/`retire` cells show a denial, and the R7.12 denial count in `Table10ConformanceTests` (`The_published_table_still_contains_26_denials`) must be re-derived from the published table, not edited to fit. Check `Table_10_is_monotone_in_tier` (quarantine/monotonicity) in both directions.
 - [ ] Routes as in spec §4.7, in `ForumEndpoints.Map`, each `.Serves(ServedContent.None)`. **The gate is each handler's first statement**, before authentication, any token or proof is consumed, the body is read, the store is written or the log is read: when `ILifecycleAppendGate.Enables(kind)` is false, answer 403 `curia/keys/lifecycle-not-enabled` with the fixed detail `key rotation is not enabled on this Forum` or `key retirement is not enabled on this Forum`. The route and its gate are committed together (GF1). The body is read through the guarded JSON reader (R11.34).
 - [ ] `Jwks.cs`: `curia_status`, `curia_retired_log_index`, top-level `curia_lifecycle` (ascending indices, from the same `FoldAsync` the route already uses), and top-level `curia_lifecycle_kinds` `{"approved":[…],"enabled":[…]}` from the gate and the record.
 - [ ] Quarantine: the intersection in `AccessPolicy` becomes the reads plus `key`/`retire` (R4.39). Retirement never spends the posting budget, and rotation spends R7.23's budget only: exclude both from `IsWrite`'s budget beside `IsFlagRaise`, with a remark citing R7.23. Required for retirement: R7.23 states it as a SHALL NOT. For rotation, the Table 10 paragraph says rotation has R7.23's budget and not the posting budget; this is descriptive text, not a SHALL. The reason: `IsWrite` is the complement of reads, so without this both would spend the posting budget, and a thief could spend a T0 identity's three daily posts to stop the owner retiring the stolen key.
