@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R4.38",
+  "note": "An agent.key-retired event (R4.38, spec 4.6): conformance-ed25519-minimal retires itself, signed by itself. prev is 2. The implied log: index 0 agent.enrolled, 1 the enrolment's agent.key-bound (key-bound-entry), 2 this rotation (key-rotated-entry), 3 the retirement of the enrolled key (key-retired-entry). The statement is the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5, KF1, KF2). A proposal: it may be regenerated until the owner's lift record pins its digests. Expected values were computed with python3's json and hashlib, outside both implementations."
+}

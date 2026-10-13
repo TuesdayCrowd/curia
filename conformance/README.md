@@ -372,6 +372,18 @@ unchanged, and its values were computed the same way as `flag-committed-entry`'s
 `Curia.Application.Tests`' `EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload`
 holds the Forum's writer to the vector's payload, so the vector pins a shape the Forum writes.
 
+`key-rotated-entry`, `key-retired-entry` and `key-bound-entry-es256` pin the key lifecycle's
+entries (keys that end, spec 4.5 and 4.6) and are **proposals**: they may be regenerated, with
+`dotnet run --project tools/GenerateEnvelopeFixtures -- --lifecycle`, until the owner's lift record
+pins their digests. The rotation and the retirement carry a statement (the exact output of
+`CanonicalizeWithNfc`) and detached signatures under their kind's header `typ`
+(`curia-key-rotation+jws`, `curia-key-retirement+jws`) with the role's member as the header `kid`;
+the implied log they sit in (0 enrolled, 1 the enrolment's binding, 2 the rotation, 3 the
+retirement) is recorded in their `meta.json`. `key-bound-entry-es256` binds a P-256 key whose `x`
+begins with the byte 0x00, its SPKI beside it in `meta.json` (milestone M6). Ed25519 is
+deterministic and the P-256 key is derived from a counter, so a rerun writes the same bytes. Their
+expected values were computed with python3's `json` and `hashlib`, outside both implementations.
+
 **Four runners consume this family, and the client's is why the pure/NFC vector earns its
 place twice over.** `Curia.Canon.Tests` pins the computation; `Curia.Domain.Tests`'
 `LogLeafTests` pins the domain's rendering of an event into the leaf input (`actor_id` as null,

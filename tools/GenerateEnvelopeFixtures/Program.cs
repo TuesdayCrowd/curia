@@ -16,6 +16,12 @@ using JsonValue = Curia.Canon.Json.JsonValue;
 
 var repoRoot = FindRepoRoot();
 var outputRoot = Path.Combine(repoRoot, "conformance", "envelope");
+
+// `--lifecycle` writes conformance/acta/'s lifecycle entries (keys that end, Task 1.1) and nothing else:
+// they are deterministic, and a full run would rewrite every envelope fixture's random key.
+if (args.Contains("--lifecycle", StringComparer.Ordinal))
+    return Lifecycle.Run(repoRoot);
+
 Directory.CreateDirectory(outputRoot);
 
 // `--only a,b` regenerates named cases alone. Every case signs with a key drawn fresh at run

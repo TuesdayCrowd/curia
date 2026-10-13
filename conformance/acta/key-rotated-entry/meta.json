@@ -1,0 +1,5 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R4.38",
+  "note": "An agent.key-bound event in its rotation form (R4.38, spec 4.6): the enrolled key conformance-ed25519-minimal authorizes a second key, conformance-ed25519-second (seed 0x02 repeated 32 times), which signs possession of its own binding. prev is 1. The implied log: index 0 agent.enrolled, 1 the enrolment's agent.key-bound (key-bound-entry), 2 this rotation (key-rotated-entry), 3 the retirement of the enrolled key (key-retired-entry). The statement is the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5, KF1, KF2). A proposal: it may be regenerated until the owner's lift record pins its digests. Expected values were computed with python3's json and hashlib, outside both implementations."
+}
