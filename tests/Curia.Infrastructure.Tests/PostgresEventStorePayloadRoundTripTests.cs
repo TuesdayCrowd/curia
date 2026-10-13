@@ -48,7 +48,7 @@ public sealed class PostgresEventStorePayloadRoundTripTests
         var ct = TestContext.Current.CancellationToken;
         await _fixture.ResetEventsTableAsync(ct);
 
-        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System);
+        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate());
         var aggregateId = Require(AggregateId.Create("agg-payload-roundtrip"));
 
         // Deliberately member-order-scrambled relative to how CanonicalJson would sort it

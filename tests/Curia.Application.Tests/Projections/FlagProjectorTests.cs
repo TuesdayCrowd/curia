@@ -6,6 +6,7 @@ using Curia.Domain;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -101,7 +102,7 @@ public sealed class FlagProjectorTests
     public async Task APostNoRecordNamesIsAbsentFromTheProjection()
     {
         var ct = TestContext.Current.CancellationToken;
-        Assert.Empty(FlagProjector.Fold(await LogAsync(new InMemoryEventStore(new ManualTimeProvider(Start)), ct)));
+        Assert.Empty(FlagProjector.Fold(await LogAsync(new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate()), ct)));
     }
 
     /// <summary>R10.36: an automated quarantine takes the post out of the serving path — and upholds nothing (R10.61).</summary>
@@ -109,7 +110,7 @@ public sealed class FlagProjectorTests
     public async Task R10_36_AQuarantineMakesThePostUnservable()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Quarantine, ct,
             ModeratorKind.Automated, true, Flag);
@@ -124,7 +125,7 @@ public sealed class FlagProjectorTests
     public async Task ARestoreMakesThePostServableAgain()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Withhold, ct, ModeratorKind.Human, true, Flag);
         await ModerateAsync(store, "01JMOD0000000000000000002", FlagKind.Injection, ModerationEffect.Restore, ct, ModeratorKind.Human, true, Flag);
@@ -139,7 +140,7 @@ public sealed class FlagProjectorTests
     public async Task R10_61_AFlagIsUpheldOnlyWhenARecordThatNamesItActs()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Dismiss, ct, ModeratorKind.Human, true, Flag);
         Assert.False(FlagProjector.Fold(await LogAsync(store, ct))[Post].HasUpheldFlag);
@@ -165,7 +166,7 @@ public sealed class FlagProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct);
         clock.Advance(TimeSpan.FromMinutes(1));
@@ -201,7 +202,7 @@ public sealed class FlagProjectorTests
     public async Task R10_61_ARecordWithoutAdjudicatesStillWithholdsAndUpholdsNothing()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Spam, ModerationEffect.Withhold, ct,
             ModeratorKind.Human, withAdjudicates: false);
@@ -219,7 +220,7 @@ public sealed class FlagProjectorTests
     public async Task R11_9_TheProjectionRebuildsFromZeroToTheIdenticalState()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await ModerateAsync(store, "01JMOD0000000000000000001", FlagKind.Injection, ModerationEffect.Quarantine, ct, ModeratorKind.Human, true, Flag);
 

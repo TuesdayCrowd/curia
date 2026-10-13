@@ -15,6 +15,7 @@ using Curia.Domain.Acta;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Credentials;
 
@@ -190,6 +191,16 @@ public sealed class EnrollIdentityTests
     }
 
     /// <summary>
+    /// A gate implementing the port that enables no kind. <c>Curia.Application.Tests</c> cannot reach
+    /// the production gate (<c>EmbeddedLifecycleAppendGate</c>); GF4 holds the same shape against it from
+    /// <c>Curia.Infrastructure.Tests</c>.
+    /// </summary>
+    private sealed class NoLifecycleGate : ILifecycleAppendGate
+    {
+        public bool Enables(LifecycleKind kind) => false;
+    }
+
+    /// <summary>
     /// An event store that takes one append and refuses every later one, changing nothing, as a store
     /// does when a write fails after the first of two appends. What it tells apart is R4.34's "same
     /// append": an enrollment written in one append is taken whole, and one written in two is not.
@@ -229,7 +240,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var keys = new InMemoryAuthorKeyRegistry();
         var key = NewKey("alice-1");
 
@@ -247,7 +258,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var keys = new InMemoryAuthorKeyRegistry();
         var key = NewKey("alice-1");
         var enroll = Enroll(events, keys, clock);
@@ -268,7 +279,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var keys = new InMemoryAuthorKeyRegistry();
         var enroll = Enroll(events, keys, clock);
 
@@ -290,7 +301,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
 
@@ -312,7 +323,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var key = NewKey("alice-1");
 
         Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), key, ct));
@@ -340,7 +351,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var bound = NewKey("alice-1");
         var unbound = NewKey("mallory-1");
 
@@ -359,7 +370,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var log = new EnrollAgent(events, clock);
         var alice = NewKey("alice-1");
 
@@ -380,7 +391,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var log = new EnrollAgent(events, clock);
         var alice = NewKey("alice-1");
 
@@ -402,7 +413,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Alice)),
@@ -435,7 +446,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var keys = new InMemoryAuthorKeyRegistry();
         var enroll = Enroll(events, keys, clock);
 
@@ -457,7 +468,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var keys = new InMemoryAuthorKeyRegistry();
         var converging = new ConvergingRegistry(keys, racers: 8);
         var enroll = Enroll(events, converging, clock);
@@ -484,7 +495,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var key = NewKey("alice-1");
 
         Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), key, ct));
@@ -517,7 +528,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var oneAppend = new OneAppendEventStore(events);
         var enroll = new EnrollIdentity(oneAppend, new InMemoryAuthorKeyRegistry(), new EnrollAgent(oneAppend, clock), clock);
 
@@ -539,7 +550,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var keys = new InMemoryAuthorKeyRegistry();
 
         var refused = Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial("EdDSA", "alice-1", new byte[31]), ct));
@@ -560,7 +571,8 @@ public sealed class EnrollIdentityTests
         const string Mallory = "https://agents.example/mallory";
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        // Permissive: the planted entry is a lone key-bound (rotation-shaped); this fact is about stream ownership, not the guard.
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var planted = NewKey("alice-2");
 
         Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), NewKey("alice-1"), ct));
@@ -598,7 +610,7 @@ public sealed class EnrollIdentityTests
         const string Scriptor = "agent://curia.example/tuesdaycrowd/scriptor";
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await new EnrollAgent(events, clock).RecordAsync(
             Typed.Agent(Scriptor),
@@ -630,7 +642,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var key = NewKey("alice-1");
 
         Require(await Enroll(events, new InMemoryAuthorKeyRegistry(), clock).EnrollAsync(Typed.Agent(Alice), key, ct));
@@ -659,7 +671,8 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        // The exact enrolment pair, which the production gate admits without enabling any kind, so a gate that enables none.
+        var events = new InMemoryEventStore(clock, new NoLifecycleGate());
 
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Alice)),
@@ -708,7 +721,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await events.AppendAsync(
             Require(AggregateId.Create(Alice)),
@@ -747,7 +760,8 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        // Permissive: BindAnotherKeyAsync appends a lone key-bound after the pair (rotation-shaped), written by hand.
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var first = NewKey("alice-1");
         var second = NewKey("alice-2");
 
@@ -779,7 +793,7 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var own = NewKey("alice-1");
         var hole = NewKey("hole-1");
         var several = new PreG14KeyStore(Alice, [new RegisteredKey(own, Start, null), new RegisteredKey(hole, Start.AddHours(1), null)]);
@@ -808,7 +822,7 @@ public sealed class EnrollIdentityTests
         const string PostId = "01M0572TG0X22FT8T07WK7819H";
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var events = new InMemoryEventStore(clock);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await events.AppendAsync(
             Require(AggregateId.Create(PostId)),
@@ -864,7 +878,7 @@ public sealed class EnrollIdentityTests
         foreach (var (name, identifier) in minted)
         {
             var clock = new ManualTimeProvider(Start);
-            var events = new InMemoryEventStore(clock);
+            var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
             var keys = new CountingKeyStore(new InMemoryAuthorKeyRegistry());
 
             var answer = (await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(identifier), NewKey("minted-" + name), ct)).Match(_ => "enrolled", e => e.Type);

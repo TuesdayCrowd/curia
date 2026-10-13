@@ -5,6 +5,7 @@ using Curia.Canon.Json;
 using Curia.Domain;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -81,7 +82,7 @@ public sealed class AcceptanceProjectorTests
     public async Task AnAcceptanceRecordsTheThreadsAcceptedAnswer()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptedPostAsync(store, "q1", Asker, "question", null, ct);
         await AcceptedPostAsync(store, "a1", Answerer, "answer", "q1", ct);
@@ -101,7 +102,7 @@ public sealed class AcceptanceProjectorTests
     public async Task TheMostRecentAcceptanceStands()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptedPostAsync(store, "q1", Asker, "question", null, ct);
         await AcceptedPostAsync(store, "a1", Answerer, "answer", "q1", ct);
@@ -125,7 +126,7 @@ public sealed class AcceptanceProjectorTests
     public async Task Table11_AnAcceptedAnswerCreditsItsAuthorNotTheAcceptor()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptedPostAsync(store, "q1", Asker, "question", null, ct);
         await AcceptedPostAsync(store, "a1", Answerer, "answer", "q1", ct);
@@ -146,7 +147,7 @@ public sealed class AcceptanceProjectorTests
     public async Task Table11_ChangingTheAcceptedAnswerMovesTheCredit()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptedPostAsync(store, "q1", Asker, "question", null, ct);
         await AcceptedPostAsync(store, "a1", Answerer, "answer", "q1", ct);
@@ -166,7 +167,7 @@ public sealed class AcceptanceProjectorTests
     public async Task R11_9_TheProjectionRebuildsFromZeroToTheIdenticalState()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptedPostAsync(store, "q1", Asker, "question", null, ct);
         await AcceptedPostAsync(store, "a1", Answerer, "answer", "q1", ct);

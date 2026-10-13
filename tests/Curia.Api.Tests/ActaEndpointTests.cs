@@ -31,7 +31,7 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var exit = await OperatorCommands.RunAsync(
-            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, stdout, stderr, ct, logSigningKeyPem: LogKeyPem);
+            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), stdout, stderr, ct, logSigningKeyPem: LogKeyPem);
         return (exit, stdout.ToString(), stderr.ToString());
     }
 

@@ -11,6 +11,7 @@ using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Moderation;
 
@@ -68,7 +69,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         await PostExistsAsync(store, ct);
 
         Require(await new RaiseFlag(store, new InMemoryFlagDetailStore(), clock, () => FixedSalt)
@@ -97,7 +98,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
         await PostExistsAsync(store, ct);
 
@@ -122,7 +123,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
         await PostExistsAsync(store, ct);
 
@@ -150,7 +151,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var details = new DownDetailStore();
         await PostExistsAsync(store, ct);
 
@@ -174,7 +175,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
         await PostExistsAsync(store, ct);
 
@@ -201,7 +202,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         await PostExistsAsync(store, ct);
         var value = rationale switch
         {
@@ -228,7 +229,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         await PostExistsAsync(store, ct);
         var raise = new RaiseFlag(store, new InMemoryFlagDetailStore(), clock);
 
@@ -253,7 +254,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
 
         var result = await new RaiseFlag(store, details, clock).RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct);
@@ -270,7 +271,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var details = new InMemoryFlagDetailStore();
         await PostExistsAsync(store, ct);
 
@@ -295,7 +296,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         await PostExistsAsync(store, ct);
         var events = new CountingEventStore(store);
         var raise = new RaiseFlag(events, new InMemoryFlagDetailStore(), clock, () => FixedSalt);
@@ -321,7 +322,7 @@ public sealed class RaiseFlagTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         await PostExistsAsync(store, ct);
 
         var refused = await new RaiseFlag(store, new InMemoryFlagDetailStore(), clock, () => FixedSalt)

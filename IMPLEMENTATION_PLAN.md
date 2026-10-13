@@ -241,14 +241,16 @@ set; SP scores recorded even if not yet weighted.*
 > `docs/superpowers/plans/2026-10-11-keys-that-end.md`). Four PRs, in order: **PR 0** (branch
 > `token-proof-verified`) closes **D29** and the key-binding stage's **M5** at the token endpoint and
 > changes no requirement (*merged-pending*, 2026-10-12: D29 and M5 closed on the branch; not met until
-> its PR merges); **PR 0.5** (branch `lifecycle-guard`) builds the lifecycle append guard (R4.38
+> its PR merges); **PR 0.5** (branch `lifecycle-guard`; *merged-pending*, 2026-10-13: the guard is built and not lifted,
+> and not met until its PR merges) builds the lifecycle append guard (R4.38
 > (add.), guard facts GF3–GF8 and GF10; GF1 lands with Task 1.6 and GF9 with Task 1.8 in PR 1, GF2
 > with Task 2.1 in PR 2), must merge before PR 1, and leaves every lifecycle kind refused until
 > the owner's own lift, which is in no PR of this stage (owner answer Q2, 2026-10-11); **PR 1** (branch
 > `key-rotation`) builds, behind the guard, rotation and self-retirement (R4.18 (rev.), R4.38, R4.39,
 > R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's two `key` rows;
 > **PR 2** (branch `key-compromise`) builds, behind the guard, the operator's compromise declaration
-> (R6.26 (rev.), R6.57, R6.30 (rev.)). No requirement of G21 is met until its PR merges; read this line
+> (R6.26 (rev.), R6.57, R6.30 (rev.)). PR 1 and PR 2 are still to build, behind the guard. No requirement
+> of G21 is met until its PR merges; read this line
 > for what is scheduled, never for what is built.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
@@ -5959,6 +5961,59 @@ both of which every `/1` reader reports as could not be checked (R6.54 (addendum
 new key, which `/1` readers fail.
 This entry records the obligation only. It is filed now, before PR 2 is built, so the obligation exists
 before the code that creates it; PR 2's register task confirms it (plan Task 2.5).
+
+### G21 PR 0.5 — the lifecycle append guard *(opened and built by the rotation stage's PR 0.5, 2026-10-13; errata G21, R4.38 (add.); lifted: no)*
+
+**Status: built, merge pending; the guard is on and nothing lifts it in this stage.** Every INSERT into
+the events table passes one gated core. Both event-store adapters classify an append through the one
+`LifecycleAppendGuard` and refuse, writing nothing, a rotation, retirement or compromise their gate does
+not enable; an enrolment's pair `[agent.enrolled, agent.key-bound]` at `AggregateVersion.New` still
+appends. The approval record (`src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json`) is embedded,
+empty, and fails closed when missing. The permissive gate is `internal` to the test assemblies and
+reachable from no `src/` or `tools/` assembly. `Program.cs` and `curia-operator` compose the one public
+gate factory, and the Forum scans the log at start (event 7006, GF10). Lifting the guard is the owner's
+separate act and is in no PR of this stage; merging does not freeze.
+
+**Falsification (Task L.3).** `FL-1` to `FL-30` were run against the tree after Task L.2: `falsify: 30
+cases, 0 not RED`. Each case was RED on its own `Failed!` line naming the expected test or row, in the
+configuration the plan states (Release, and Debug for the architecture rows), and each was restored by
+plain copy, rebuilt with `--no-incremental` and green unpatched. The cases cover: the adapters' call
+sites and the shared classification (FL-1 to FL-4); the permissive gate's reachability (FL-5, FL-17,
+FL-18, FL-28, FL-29, the last two the value-type arm); the approval record and its digests (FL-6 to
+FL-9, FL-11, FL-13 to FL-16, FL-19, FL-24 to FL-26); the startup scan (FL-10, FL-27); the fixture's
+prefix check (FL-12); the composition (FL-20); and the public factory, the record's constructor and the
+record-taking `Create` (FL-21 to FL-23). FL-5 carries `ExcludeAssets` on its `ProjectReference` so its
+mutant builds.
+
+**CP-A (end of Task L.2).** The production composition (`GuardedForumFixture`, which registers nothing
+lifecycle-related, so the host runs `Program.cs`'s own composition) resolves `EmbeddedLifecycleAppendGate`
+as its `ILifecycleAppendGate`, the gate enables no `LifecycleKind`, and a rotation-shaped append through
+the resolved event store is refused with the stream unchanged. `Curia.Api.Tests`, `LifecycleGuardStartupTests`
+in Release: `Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7`, including
+`R4_38_TheProductionCompositionsGateApprovesNothing`. The key set's `curia_lifecycle_kinds` check waits
+for Task 1.6, which adds that member.
+
+**Known residual, not a defect to close in this stage.** The guard is adapter-level, in both
+event-store adapters. A database-level refusal (a trigger, or a grant per event type) is not built, so a
+holder of the application role's INSERT grant can write a lifecycle row by SQL. Readers still fold such a
+row on its merits, and the guarded Forum's startup event names it (GF10). GF10 undercounts a separately
+appended position-2 `agent.key-bound`: the log shows no append boundary, so it looks like an enrolment
+pair (`R4_38_TheScanDoesNotCountALoneKeyBoundAtPositionTwo` documents it, with a pair control). Recovery
+is the database-level refusal, not built, not accepted by anyone; revisit when it is scheduled or PR 1
+Task 1.3's fold lands (the fold folds on merits and is not affected). The implementer fences (FL-17,
+FL-18) saw reference types only until the L.2 review round of 2026-10-12, whose
+`R4_38_TheImplementerScanSeesAValueTypeImplementer` (FL-28, FL-29) widened them to value types.
+
+**NEEDS (human only, open).** Branch protection on `main` requiring code-owner review, and a
+`CODEOWNERS` entry naming the owner for `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json`.
+It gates the lift, not the build. Until it is met, the only gate against a merged edit of the approval
+record is CP-B's diff check, and decision agents may merge green PRs.
+
+**Related register entry.** KF6's **D43** (compromise declarations are signed with the log key, which
+must not stay so once heads are signed unattended) is present above and open, by decision, not a defect
+in current behaviour. Its trigger: before `curia-operator sign-head` runs unattended or from any
+automated process, compromise declarations move off the log key to a separate operator declaration key
+(R6.26 (rev.), KF6; cybersecurity Report B6).
 
 ### Observed during the reader stage's PR A
 

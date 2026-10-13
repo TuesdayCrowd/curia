@@ -79,7 +79,7 @@ public sealed class AggregateSummaryProjectionRebuildDrillTests
         var ct = TestContext.Current.CancellationToken;
         var schema = await _fixture.CreateIsolatedSchemaAsync(ct);
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var eventStore = new PostgresEventStore(_fixture.AppRoleDataSource, clock, schema);
+        var eventStore = new PostgresEventStore(_fixture.AppRoleDataSource, clock, _fixture.PermissiveLifecycleGate(), schema);
         var projection = new PostgresAggregateSummaryProjection(_fixture.AdminDataSource, clock, schema);
 
         var alpha = Agg("agg-alpha");
@@ -167,7 +167,7 @@ public sealed class AggregateSummaryProjectionRebuildDrillTests
             {
                 var schema = _fixture.CreateIsolatedSchemaAsync().GetAwaiter().GetResult();
                 var clock = new ManualTimeProvider(new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
-                var eventStore = new PostgresEventStore(_fixture.AppRoleDataSource, clock, schema);
+                var eventStore = new PostgresEventStore(_fixture.AppRoleDataSource, clock, _fixture.PermissiveLifecycleGate(), schema);
                 var projection = new PostgresAggregateSummaryProjection(_fixture.AdminDataSource, clock, schema);
 
                 var versions = new Dictionary<int, AggregateVersion>();

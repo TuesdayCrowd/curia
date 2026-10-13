@@ -28,11 +28,13 @@ public sealed class PostgresAdapters : IAsyncDisposable
     private readonly NpgsqlDataSource _dataSource;
     private readonly NpgsqlDataSource _gateDataSource;
     private readonly TimeProvider _clock;
+    private readonly ILifecycleAppendGate _lifecycleGate;
 
-    public PostgresAdapters(string connectionString, TimeProvider clock)
+    public PostgresAdapters(string connectionString, TimeProvider clock, ILifecycleAppendGate lifecycleGate)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(lifecycleGate);
 
         // R7.22 (errata G18, review of 980fb0e): the raiser gate's pool, a quarter of the Forum's; see
         // FlagRaiserGate. Refused before either data source is built, so nothing is left to dispose.
@@ -50,16 +52,17 @@ public sealed class PostgresAdapters : IAsyncDisposable
         _dataSource = NpgsqlDataSource.Create(connectionString);
         _gateDataSource = NpgsqlDataSource.Create(gate.ConnectionString);
         _clock = clock;
+        _lifecycleGate = lifecycleGate;
     }
 
     /// <summary>The append-only event log (R11.6), which is the system of record.</summary>
-    public IEventStore EventStore => new PostgresEventStore(_dataSource, _clock);
+    public IEventStore EventStore => new PostgresEventStore(_dataSource, _clock, _lifecycleGate);
 
     /// <summary>
     /// The read half. CS-15: a component typed to this has no member reaching the write surface, so
     /// a read path cannot append even by accident.
     /// </summary>
-    public IEventReader EventReader => new PostgresEventStore(_dataSource, _clock);
+    public IEventReader EventReader => new PostgresEventStore(_dataSource, _clock, _lifecycleGate);
 
     /// <summary>R5.17's replay cache, shared across instances rather than per process.</summary>
     public IReplayCache ReplayCache => new PostgresReplayCache(_dataSource, _clock);

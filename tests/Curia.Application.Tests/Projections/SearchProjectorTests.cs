@@ -12,6 +12,7 @@ using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -125,7 +126,7 @@ public sealed class SearchProjectorTests
     public async Task TheEnvelopesTitleBodyAndTagsBecomeSearchable()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptAsync(store, "01JPOST1", ct, tags: ["jcs", "rfc8785"]);
 
@@ -147,7 +148,7 @@ public sealed class SearchProjectorTests
     public async Task R9_7_TheSequenceComesFromTheEvent()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptAsync(store, "01JPOST1", ct);
         await AcceptAsync(store, "01JPOST2", ct);
@@ -169,7 +170,7 @@ public sealed class SearchProjectorTests
     public async Task R10_36_AWithheldPostIsNotSearchable()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptAsync(store, "01JPOST1", ct);
         await AcceptAsync(store, "01JPOST2", ct);
@@ -192,7 +193,7 @@ public sealed class SearchProjectorTests
     public async Task AnUnparseableEnvelopeIsSkippedNotThrown()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         Require(await store.AppendAsync(
             Require(AggregateId.Create("01JBAD")),
@@ -224,7 +225,7 @@ public sealed class SearchProjectorTests
     public async Task R11_9_TheProjectionRebuildsFromZeroToTheIdenticalState()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await AcceptAsync(store, "01JPOST1", ct);
         await AcceptAsync(store, "01JPOST2", ct, tags: ["nfc"]);
@@ -251,7 +252,7 @@ public sealed class SearchProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
         Require(await new AttestOwner(store, clock).RecordAsync(
@@ -280,7 +281,7 @@ public sealed class SearchProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Author), TestKeys.Es256("alice-1"), ct));
         await AcceptAsync(store, "post-unowned", ct);

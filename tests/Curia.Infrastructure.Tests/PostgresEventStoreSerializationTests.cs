@@ -38,7 +38,7 @@ public sealed class PostgresEventStoreSerializationTests
     {
         var ct = TestContext.Current.CancellationToken;
         var schema = await _fixture.CreateIsolatedSchemaAsync(ct);
-        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, schema);
+        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate(), schema);
 
         // Hold the log's lock in a transaction of our own, as a concurrent appender would mid-insert.
         await using var holder = await _fixture.AppRoleDataSource.OpenConnectionAsync(ct);
@@ -77,7 +77,7 @@ public sealed class PostgresEventStoreSerializationTests
             await take.ExecuteNonQueryAsync(ct);
         }
 
-        var storeB = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, schemaB);
+        var storeB = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate(), schemaB);
         var append = storeB.AppendAsync(Require(AggregateId.Create("b")), AggregateVersion.New, [NewEvent("e1")], ct);
         Assert.True(await Task.WhenAny(append, Task.Delay(TimeSpan.FromSeconds(5), ct)) == append, "log B waited for log A's lock");
         Require(await append);

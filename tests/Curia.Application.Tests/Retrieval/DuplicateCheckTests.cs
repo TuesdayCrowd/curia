@@ -7,6 +7,7 @@ using Curia.Domain.Content;
 using Curia.Domain.Search;
 using Xunit;
 using static Curia.Application.Tests.Retrieval.RetrievalTestLog;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Retrieval;
 
@@ -22,7 +23,7 @@ public sealed class DuplicateCheckTests
     {
         var embedder = new HashedNGramEmbedder();
         var index = new InMemoryVectorIndex();
-        return new Harness(new InMemoryEventStore(Clock()), new EmbeddingIndexer(embedder, index), new DuplicateCheck(embedder, index, thresholds ?? DuplicateThresholds.Published));
+        return new Harness(new InMemoryEventStore(Clock(), new PermissiveLifecycleAppendGate()), new EmbeddingIndexer(embedder, index), new DuplicateCheck(embedder, index, thresholds ?? DuplicateThresholds.Published));
     }
 
     private static PostEnvelope Envelope(PostKind kind, string title, string body, string board = "postgres", bool? notDuplicate = null, string? rationale = null)

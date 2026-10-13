@@ -11,6 +11,7 @@ using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 using Curia.Infrastructure.Migrations;
+using Curia.Tests.Shared;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -71,6 +72,38 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     internal DateTimeOffset Now => Clock.GetUtcNow();
 
     internal HttpClient Client => CreateClient();
+
+    /// <summary>
+    /// R4.38 (add.): whether this fixture's host composes the permissive lifecycle gate. By default it
+    /// does, so the lifecycle-shaped appends existing tests make by hand stay green; a fixture that
+    /// overrides this to false registers nothing lifecycle-related, and the host runs
+    /// <c>Program.cs</c>'s own composition (spec section 4.13).
+    /// </summary>
+    protected virtual bool ComposesPermissiveLifecycleGate => true;
+
+    /// <summary>
+    /// R4.38 (add.): the permissive gate for this fixture's database, which tests that drive
+    /// <c>curia-operator</c> in process hand it.
+    /// </summary>
+    internal ILifecycleAppendGate PermissiveGate() => PermissiveGateFor(_connectionString);
+
+    /// <summary>
+    /// R4.38 (add.): the permissive gate, handed out only for the database this fixture created in this
+    /// run (<c>curia_e2e_</c> plus a suffix generated at construction), checked by name before anything
+    /// connects; any other database is refused.
+    /// </summary>
+    internal ILifecycleAppendGate PermissiveGateFor(string connectionString)
+    {
+        var database = new NpgsqlConnectionStringBuilder(connectionString).Database;
+        if (!string.Equals(database, _database, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "the permissive lifecycle gate is only for the database this run created (curia_e2e_...); " +
+                $"refusing '{database}'");
+        }
+
+        return new PermissiveLifecycleAppendGate();
+    }
 
     /// <summary>The provisioned database, so a test can drive the operator tool against the same log the host serves from.</summary>
     internal string ConnectionString => _connectionString;
@@ -296,6 +329,12 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Clock);
+            if (ComposesPermissiveLifecycleGate)
+            {
+                services.RemoveAll<ILifecycleAppendGate>();
+                services.AddSingleton(PermissiveGateFor(_connectionString));
+            }
+
             ConfigureFuzz(services);
         });
     }

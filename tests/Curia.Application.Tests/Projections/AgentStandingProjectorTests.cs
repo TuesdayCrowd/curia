@@ -10,6 +10,7 @@ using Curia.Domain.Credentials;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -128,7 +129,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         var recorded = Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
@@ -163,7 +164,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var aggregate = Require(AggregateId.Create(Agent));
 
         Require(await store.AppendAsync(aggregate, AggregateVersion.New,
@@ -206,7 +207,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         var facts = Require(AgentStandingProjector.PostureOf(
             AgentStandingProjector.Fold(await LogAsync(store, ct)), Typed.Agent(Agent)));
@@ -228,7 +229,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
@@ -257,7 +258,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
@@ -292,7 +293,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
         Require(await AttestAsync(store, clock, Agent, ct, method: OwnerVerificationMethod.Domain));
@@ -318,7 +319,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
@@ -340,7 +341,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         Require(await new EnrollAgent(store, clock).RecordAsync(Typed.Agent(Agent), AgentKey, ct));
 
@@ -357,7 +358,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         var refused = await AttestAsync(store, clock, Agent, ct);
 
@@ -377,7 +378,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
 
@@ -414,7 +415,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         Require(await AttestAsync(store, clock, Agent, ct, verified: false));
@@ -437,7 +438,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
 
         for (var i = 0; i < 3; i++)
@@ -465,7 +466,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
@@ -492,7 +493,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
@@ -532,7 +533,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
@@ -578,7 +579,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
@@ -609,7 +610,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var enroll = new EnrollAgent(store, clock);
 
         Require(await enroll.RecordAsync(Typed.Agent(Agent), AgentKey, ct));
@@ -693,7 +694,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         for (var i = 0; i < 3; i++)
@@ -718,7 +719,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         for (var i = 0; i < 3; i++)
@@ -745,7 +746,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         for (var i = 0; i < 3; i++)
@@ -773,7 +774,7 @@ public sealed class AgentStandingProjectorTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        var store = new InMemoryEventStore(clock);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
 
         await EnrollVerifiedAsync(store, clock, Agent, Kid, ct);
         await AcceptPostAsync(store, Agent, "answer", "answer-1", ct);

@@ -23,10 +23,23 @@ internal sealed class InMemoryEventStore : IEventStore
 {
     private readonly object _gate = new();
     private readonly TimeProvider _clock;
+    private readonly ILifecycleAppendGate _lifecycleGate;
     private readonly List<AppendedEvent> _log = [];
     private readonly Dictionary<string, List<AppendedEvent>> _byAggregate = [];
 
-    public InMemoryEventStore(TimeProvider clock) => _clock = clock;
+    /// <summary>
+    /// <paramref name="lifecycleGate"/> is required, with no default: R4.38 (add.)'s guard classifies
+    /// every append here exactly as <c>PostgresEventStore</c> does, by the same
+    /// <see cref="LifecycleAppendGuard"/>, so a fake more permissive than the real store cannot hide a
+    /// lifecycle append from a test.
+    /// </summary>
+    public InMemoryEventStore(TimeProvider clock, ILifecycleAppendGate lifecycleGate)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(lifecycleGate);
+        _clock = clock;
+        _lifecycleGate = lifecycleGate;
+    }
 
     public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
         AggregateId aggregateId,
@@ -89,6 +102,9 @@ internal sealed class InMemoryEventStore : IEventStore
 
             admitted[i] = domainEvent with { Payload = ordered };
         }
+
+        if (LifecycleAppendGuard.Check(_lifecycleGate, expectedVersion, events) is { } refused)
+            return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(refused));
 
         lock (_gate)
         {

@@ -12,4 +12,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Curia.Application/Curia.Application.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- R4.38 (add.): the test composition's gate, linked so each test assembly holds its own internal copy. -->
+    <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
+  </ItemGroup>
 </Project>

@@ -9,6 +9,7 @@ using Curia.Domain;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Xunit;
+using Curia.Tests.Shared;
 
 namespace Curia.Application.Tests.Projections;
 
@@ -124,7 +125,7 @@ public sealed class InboxSelectorTests
     public async Task AnUnansweredQuestionByAnotherAgentIsInTheInbox()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
 
@@ -143,7 +144,7 @@ public sealed class InboxSelectorTests
     public async Task AQuestionWithAnAcceptedAnswerIsNotOpen()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "a1", PostKind.Answer, Other, ct, parent: "q1");
@@ -160,7 +161,7 @@ public sealed class InboxSelectorTests
     public async Task MyOwnQuestionIsExcludedAndCounted()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Me, ct);
 
@@ -179,7 +180,7 @@ public sealed class InboxSelectorTests
     public async Task AQuestionIAlreadyAnsweredIsExcludedAndCounted()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "a1", PostKind.Answer, Me, ct, parent: "q1");
@@ -198,7 +199,7 @@ public sealed class InboxSelectorTests
     public async Task AQuestionAnsweredByAnotherAgentButNotAcceptedStaysOpen()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "a1", PostKind.Answer, Other, ct, parent: "q1");
@@ -211,7 +212,7 @@ public sealed class InboxSelectorTests
     public async Task OnlyQuestionsAppear()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "c1", PostKind.Comment, Other, ct, parent: "q1");
@@ -228,7 +229,7 @@ public sealed class InboxSelectorTests
     public async Task TheUnexcludedSetIsReportedSoAnEmptyInboxCanSayWhy()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Me, ct);
         await PostAsync(store, "q2", PostKind.Question, Other, ct);
@@ -247,7 +248,7 @@ public sealed class InboxSelectorTests
     public async Task OpenQuestionsArriveOldestFirst()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "q2", PostKind.Question, Other, ct);
@@ -263,7 +264,7 @@ public sealed class InboxSelectorTests
     public async Task R11_9_TheSelectionRebuildsFromZeroToTheIdenticalState()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryEventStore(new ManualTimeProvider(Start));
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
 
         await PostAsync(store, "q1", PostKind.Question, Other, ct);
         await PostAsync(store, "q2", PostKind.Question, Me, ct);
