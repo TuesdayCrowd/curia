@@ -172,4 +172,24 @@ public interface IEventStore : IEventReader
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// R6.56: <see cref="AppendAsync(AggregateId, AggregateVersion, IReadOnlyList{DomainEvent}, CancellationToken)"/>
+    /// that also lands only if <paramref name="condition"/>'s stream is at the version the caller decided on.
+    /// The condition is read under the same serialization lock as the target's own version, so decision and
+    /// append are one act: a mismatch answers <see cref="DomainErrors.ConditionConflict"/> and writes nothing.
+    /// Every other promise of the overload above holds, the lifecycle gate included (R4.38 (add.)).
+    /// </summary>
+    Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition condition,
+        CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// R6.56: a second stream's version an append is conditioned on. The append lands only while
+/// <see cref="Aggregate"/> holds exactly <see cref="Expected"/> events.
+/// </summary>
+public sealed record StreamCondition(AggregateId Aggregate, AggregateVersion Expected);

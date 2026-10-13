@@ -36,6 +36,18 @@ public static class DomainErrors
     /// </summary>
     public const string ConcurrencyConflictType = "curia/domain/concurrency-conflict";
 
+    /// <summary>The problem type <see cref="ConditionConflict"/> reports (R6.56).</summary>
+    public const string ConditionConflictType = "curia/domain/condition-conflict";
+
+    /// <summary>
+    /// R6.56: an append conditioned on another stream's version found that stream elsewhere. The detail
+    /// names the condition's aggregate and both versions, as <see cref="ConcurrencyConflict"/> does.
+    /// </summary>
+    public static Error ConditionConflict(AggregateId conditionAggregate, AggregateVersion expected, AggregateVersion actual) => new(
+        ConditionConflictType,
+        "Append was conditioned on a stream that has moved",
+        $"aggregate={conditionAggregate.Value} expected={expected.Value.ToString(CultureInfo.InvariantCulture)} actual={actual.Value.ToString(CultureInfo.InvariantCulture)}");
+
     /// <summary>
     /// R4.38 (add.): the problem type the event store answers when an append carries a lifecycle kind
     /// its gate does not enable. The append writes nothing (spec section 4.13).

@@ -216,6 +216,13 @@ public sealed class EnrollIdentityTests
                 : Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
                     new Error("test/append-failed", "This store takes one append", "a write failed after the first append")));
 
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+            AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition condition, CancellationToken cancellationToken = default) =>
+            Interlocked.Increment(ref _appends) == 1
+                ? inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken)
+                : Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
+                    new Error("test/append-failed", "This store takes one append", "a write failed after the first append")));
+
         public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default) =>
             inner.ReadByAggregateAsync(aggregateId, cancellationToken);
 

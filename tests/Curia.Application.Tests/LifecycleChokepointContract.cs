@@ -186,6 +186,55 @@ public abstract class InMemoryLifecycleRefusalContract : LifecycleRefusalContrac
     protected override IEventStore CreateStore(ILifecycleAppendGate gate) => new InMemoryEventStore(TimeProvider.System, gate);
 }
 
+/// <summary>
+/// R4.38 (add.) for R6.56's overload: an append conditioned on another stream's version passes the same
+/// chokepoint as the plain one. Red when the overload writes outside the gated core. Public and abstract so
+/// <c>Curia.Infrastructure.Tests</c> subclasses it for the Postgres store; the in-memory subclass builds the
+/// internal store here.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "Public so Curia.Infrastructure.Tests can subclass it; it carries no [Fact] of its own, so the analyzer's test-class heuristic does not apply.")]
+public abstract class ConditionedAppendChokepointContract : LifecycleChokepointShapes
+{
+    /// <summary>The gate under test: the production gate over the shipped record.</summary>
+    protected abstract ILifecycleAppendGate RefusingGate();
+
+    [Fact]
+    public async Task R4_38_TheConditionedOverloadPassesTheChokepoint()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore(RefusingGate());
+        var shaped = await ShapeAsync("key-retired", store, ct);
+        var condition = new StreamCondition(Require(AggregateId.Create("agg-conditioned-chokepoint")), AggregateVersion.New);
+
+        var appended = await store.AppendAsync(shaped.Stream, shaped.Expected, shaped.Events, condition, ct);
+
+        Assert.False(appended.IsOk, "the conditioned key-retired append was written");
+        Assert.Equal(DomainErrors.LifecycleAppendRefusedType, appended.Match(_ => string.Empty, e => e.Type));
+        var stream = await store.ReadByAggregateAsync(shaped.Stream, ct);
+        Assert.Equal(shaped.PriorLength, stream.Match(s => (long)s.Count, e => -1));
+    }
+
+    private static T Require<T>(Result<T> result) =>
+        result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+}
+
+/// <summary>The in-memory store's run of <see cref="ConditionedAppendChokepointContract"/>.</summary>
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "Public so Curia.Infrastructure.Tests can subclass it; it carries no [Fact] of its own, so the analyzer's test-class heuristic does not apply.")]
+public abstract class InMemoryConditionedAppendChokepointContract : ConditionedAppendChokepointContract
+{
+    protected override IEventStore CreateStore(ILifecycleAppendGate gate) => new InMemoryEventStore(TimeProvider.System, gate);
+}
+
 /// <summary>The in-memory store's runs of <see cref="LifecyclePermissiveContract"/>.</summary>
 [SuppressMessage(
     "Design",

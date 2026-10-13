@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ports;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
@@ -17,6 +18,10 @@ namespace Curia.Application.Tests;
 /// point ("Put it where the test projects can use it and Stage 2's Postgres adapter can be
 /// checked against the *same* suite").
 /// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public abstract class EventStorePortContractTests
 {
     /// <summary>A fresh, empty store. Called once per test (and, for the property test below,
@@ -58,6 +63,44 @@ public abstract class EventStorePortContractTests
         Assert.Single(read);
         Assert.Equal(appended[0].Seq, read[0].Seq);
         Assert.Equal(proposed.Id, read[0].Event.Id);
+    }
+
+    /// <summary>
+    /// R6.56: stream B is read at v, then moves; an append to A conditioned on B@v is refused as
+    /// <c>condition-conflict</c> and A is unchanged. Red when the overload drops its condition.
+    /// </summary>
+    [Fact]
+    public async Task R6_56_AnAppendWhoseConditionStreamMovedIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var a = Agg("agg-condition-target");
+        var b = Agg("agg-condition-stream");
+        Require(await store.AppendAsync(b, AggregateVersion.New, [NewEvent("cond-b-1")], ct));
+        var decidedOn = new StreamCondition(b, Require(AggregateVersion.From(1)));
+        Require(await store.AppendAsync(b, decidedOn.Expected, [NewEvent("cond-b-2")], ct));
+
+        var refused = await store.AppendAsync(a, AggregateVersion.New, [NewEvent("cond-a-1")], decidedOn, ct);
+
+        Assert.Equal(DomainErrors.ConditionConflictType, refused.Match(_ => string.Empty, e => e.Type));
+        Assert.Empty(Require(await store.ReadByAggregateAsync(a, ct)));
+    }
+
+    /// <summary>R6.56: while the condition stream is where the caller decided, the append lands.</summary>
+    [Fact]
+    public async Task R6_56_AnAppendWhoseConditionHoldsLands()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var a = Agg("agg-condition-holds-target");
+        var b = Agg("agg-condition-holds-stream");
+        Require(await store.AppendAsync(b, AggregateVersion.New, [NewEvent("hold-b-1")], ct));
+
+        var appended = Require(await store.AppendAsync(
+            a, AggregateVersion.New, [NewEvent("hold-a-1")], new StreamCondition(b, Require(AggregateVersion.From(1))), ct));
+
+        Assert.Single(appended);
+        Assert.Single(Require(await store.ReadByAggregateAsync(a, ct)));
     }
 
     [Fact]
