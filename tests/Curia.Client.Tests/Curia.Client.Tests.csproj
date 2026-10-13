@@ -32,7 +32,7 @@
       absence is the assertion.
     -->
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
-    <!-- R11.20's external signer, a real process: tests/Shared/test-signer.py behind a wrapper. -->
+    <!-- R11.20's external signer, a real process: tests/Shared/test-signer.py reached through a per-test symlink (D44). -->
     <Compile Include="../Shared/TestSigner.cs" Link="Shared/TestSigner.cs" />
     <!--
       D37: the tier reminder is checked against Table 10 as the white paper publishes it, parsed by the
