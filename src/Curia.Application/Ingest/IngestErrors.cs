@@ -32,6 +32,16 @@ public static class IngestErrors
             detail);
     }
 
+    /// <summary>The slug of <see cref="Contended"/>, which the submit route maps to 503.</summary>
+    public const string ContendedType = "curia/ingest/contended";
+
+    /// <summary>
+    /// R6.56: the author's stream moved under every attempt to decide and append (see
+    /// <see cref="IngestAttempts"/>). Nothing was stored; the submission may be sent again.
+    /// </summary>
+    public static Error Contended() =>
+        new(ContendedType, "The author's stream changed under every attempt; nothing was stored");
+
     /// <summary>The slug of <see cref="UnstorableMember"/>, which the submit route maps to 422.</summary>
     public const string UnstorableMemberType = "curia/ingest/unstorable-member";
 

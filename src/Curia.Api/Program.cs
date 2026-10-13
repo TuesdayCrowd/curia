@@ -133,6 +133,7 @@ public sealed class Program
             sp.GetRequiredService<PostgresAgentKeyStore>(),
             sp.GetRequiredService<IEventReader>()));
         builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
+        builder.Services.AddSingleton<ILiveKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
         builder.Services.AddSingleton<IAgentKeyResolver>(sp => new LogBoundAgentKeyResolver(sp.GetRequiredService<LogBoundKeys>()));
 
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventStore);
@@ -199,7 +200,7 @@ public sealed class Program
             sp.GetRequiredService<DuplicateThresholds>()));
 
         builder.Services.AddSingleton<IIngestPipeline>(sp => new IngestPipeline(
-            sp.GetRequiredService<IAuthorKeyResolver>(),
+            sp.GetRequiredService<ILiveKeyResolver>(),
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
             sp.GetRequiredService<TimeProvider>()));

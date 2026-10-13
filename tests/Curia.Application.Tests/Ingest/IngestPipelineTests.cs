@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
+using Curia.Application.Credentials;
 using Curia.Application.Ingest;
 using Curia.Application.Ports;
 using Curia.Application.Tests.InMemory;
@@ -37,7 +38,7 @@ public sealed class IngestPipelineTests
     /// against -- a resolver that returned the same key for anyone would make that test pass
     /// vacuously.
     /// </summary>
-    private sealed class FixedKeyResolver : IAuthorKeyResolver
+    private sealed class FixedKeyResolver : ILiveKeyResolver
     {
         private readonly Dictionary<(string Agent, string Kid), PublicKeyMaterial> _keys = new();
 
@@ -47,13 +48,15 @@ public sealed class IngestPipelineTests
 
         internal void Forget(string agentId, string kid) => _keys.Remove((agentId, kid));
 
-        public Task<Result<PublicKeyMaterial>> ResolveAsync(
+        public Task<Result<LiveKey>> ResolveLiveAsync(
             AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
         {
             AskedAt = at;
+
+            // No stream is modelled here: the agent's stream is empty in these tests, so version zero.
             return Task.FromResult(_keys.TryGetValue((agentId.Value, kid.Value), out var key)
-                ? Result<PublicKeyMaterial>.Ok(key)
-                : Result<PublicKeyMaterial>.Fail(new Error("test/unknown-key", "no key for that agent", kid.Value)));
+                ? Result<LiveKey>.Ok(new LiveKey(key, AggregateVersion.New))
+                : Result<LiveKey>.Fail(new Error("test/unknown-key", "no key for that agent", kid.Value)));
         }
     }
 
@@ -543,9 +546,9 @@ public sealed class IngestPipelineTests
     /// G18), so a <c>kid</c> no key can have is answered before any resolver is asked, where
     /// <c>PostgresAgentKeyStore</c> once threw on a blank one.
     /// </summary>
-    private sealed class NeverAsked : IAuthorKeyResolver
+    private sealed class NeverAsked : ILiveKeyResolver
     {
-        public Task<Result<PublicKeyMaterial>> ResolveAsync(
+        public Task<Result<LiveKey>> ResolveLiveAsync(
             AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("the resolver was asked about kid " + kid);
     }

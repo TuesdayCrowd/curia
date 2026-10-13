@@ -30,7 +30,7 @@ public sealed class IngestPipeline : IIngestPipeline
 {
     private static readonly EventType PostAcceptedType = MustCreate(EventType.Create("post.accepted"));
 
-    private readonly IAuthorKeyResolver _keys;
+    private readonly ILiveKeyResolver _keys;
     private readonly IEventStore _events;
     private readonly DetachedJws _jws;
     private readonly TimeProvider _clock;
@@ -38,7 +38,7 @@ public sealed class IngestPipeline : IIngestPipeline
     private readonly AdmitLimits _limits;
 
     public IngestPipeline(
-        IAuthorKeyResolver keys,
+        ILiveKeyResolver keys,
         IEventStore events,
         IReadOnlyDictionary<string, IContentVerifier> verifiersByAlg,
         TimeProvider clock,
@@ -134,12 +134,14 @@ public sealed class IngestPipeline : IIngestPipeline
         var serverTs = ServerTimestamp.At(_clock.GetUtcNow());
 
         // The author equals the principal, ordinally (checked above), so the principal is the author.
-        var key = await _keys.ResolveAsync(principalAgentId, kid!, serverTs, cancellationToken).ConfigureAwait(false);
-        if (!key.TryGetValue(out var publicKey, out var keyError))
+        var key = await _keys.ResolveLiveAsync(principalAgentId, kid!, serverTs, cancellationToken).ConfigureAwait(false);
+        if (!key.TryGetValue(out var live, out var keyError))
             return Result<VerifiedSubmission>.Fail(keyError!);
 
-        return _jws.Verify(canonicalBytes, admitted.Signature, publicKey!)
-            .Map(verified => new VerifiedSubmission(verified, admitted.Signature, envelope!, principalAgentId));
+        // R6.56: the stream version the key was read at travels with the verified submission, and PERSIST
+        // appends on it, so the decision and the append are one act.
+        return _jws.Verify(canonicalBytes, admitted.Signature, live!.Key)
+            .Map(verified => new VerifiedSubmission(verified, admitted.Signature, envelope!, principalAgentId, live.AuthorStream));
     }
 
     /// <inheritdoc/>
@@ -240,8 +242,18 @@ public sealed class IngestPipeline : IIngestPipeline
 
         var domainEvent = new DomainEvent(evId, PostAcceptedType, actorId, payload);
 
+        // R6.56: conditioned on the author's stream being where VERIFY read it. A retirement (or any
+        // entry) that joined it since makes this a condition conflict, and the caller decides again.
+        if (!AggregateId.Create(screened.Inner.AuthorAgentId.Value).TryGetValue(out var authorAggregate, out var e4))
+            return Result<PostAccepted>.Fail(e4!);
+
         var appended = await _events
-            .AppendAsync(aggId, AggregateVersion.New, [domainEvent], cancellationToken)
+            .AppendAsync(
+                aggId,
+                AggregateVersion.New,
+                [domainEvent],
+                new StreamCondition(authorAggregate, screened.Inner.AuthorStream),
+                cancellationToken)
             .ConfigureAwait(false);
 
         return appended.Map(events => new PostAccepted(postId, serverTs, digest.ToPrefixed(), events[0].Seq.Value));

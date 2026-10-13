@@ -641,7 +641,43 @@ public static class ForumEndpoints
         if (!PrincipalOf(subject).TryGetValue(out var author, out var subjectError))
             return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
-        var verified = await pipeline.VerifyAsync(a!, author!, cancellationToken).ConfigureAwait(false);
+        // R6.56: VERIFY through PERSIST is one act against the author's stream, repeated while the stream
+        // moves under it (IngestAttempts), and answered 503 contended after three. The attempt answers
+        // null when its append lost that race and every other outcome as the response it is.
+        var attempted = await IngestAttempts.RunAsync(
+            async token =>
+            {
+                var response = await SubmitAttemptAsync(
+                    a!, author!, pipeline, pdp, events, indexer, dedupe, http, clock, token).ConfigureAwait(false);
+                return response is null
+                    ? Result<IResult>.Fail(new Error(DomainErrors.ConditionConflictType, "The author's stream moved"))
+                    : Result<IResult>.Ok(response);
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return attempted.Match(
+            response => response,
+            error => Problem(StatusCodes.Status503ServiceUnavailable, error));
+    }
+
+    /// <summary>
+    /// One attempt at VERIFY, AUTHORIZE, SCREEN and PERSIST for <see cref="SubmitAsync"/>, decided on the
+    /// log as it stands now. <see langword="null"/> when PERSIST's append found the author's stream moved
+    /// since VERIFY read it (R6.56); the caller runs the attempt again.
+    /// </summary>
+    private static async Task<IResult?> SubmitAttemptAsync(
+        AdmittedSubmission a,
+        AgentId author,
+        IIngestPipeline pipeline,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        EmbeddingIndexer indexer,
+        DuplicateCheck dedupe,
+        HttpRequest http,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var verified = await pipeline.VerifyAsync(a, author, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
         {
             return Problem(
@@ -729,7 +765,13 @@ public static class ForumEndpoints
         // PERSIST.
         var accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
         if (!accepted.TryGetValue(out var post, out var persistError))
-            return Problem(StatusCodes.Status500InternalServerError, persistError!);
+        {
+            // R6.56: the author's stream moved since VERIFY read it. Nothing was written; the caller
+            // decides again from VERIFY (null answers "again").
+            return string.Equals(persistError!.Type, DomainErrors.ConditionConflictType, StringComparison.Ordinal)
+                ? null
+                : Problem(StatusCodes.Status500InternalServerError, persistError);
+        }
 
         // The vector channel sees the post in the same request the lexical channel does. The
         // index and the log are the same database, so a failure here is the database failing

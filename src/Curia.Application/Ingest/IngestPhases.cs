@@ -1,6 +1,7 @@
 using Curia.Canon.Canonical;
 using Curia.Canon.Envelope;
 using Curia.Canon.Jws;
+using Curia.Domain;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
@@ -43,12 +44,16 @@ public sealed record AdmittedSubmission(EnvelopeDocument Document, JwsSignature 
 /// it arrived (R6.55). It is deliberately not a route to the bytes: there is no
 /// serializer on <see cref="PostEnvelope"/>, so nothing can accidentally persist the reading
 /// instead of the reading's source.</para>
+///
+/// <para><see cref="AuthorStream"/> is the version of the author's stream the key was resolved at
+/// (R6.56): PERSIST appends on it, so a post lands only where its key is still live.</para>
 /// </summary>
 public sealed record VerifiedSubmission(
     VerifiedContent Content,
     JwsSignature Signature,
     PostEnvelope Envelope,
-    AgentId AuthorAgentId)
+    AgentId AuthorAgentId,
+    AggregateVersion AuthorStream)
 {
     /// <summary>The exact bytes the signature was verified over, and the ones PERSIST must write.</summary>
     public CanonicalBytes Canonical => Content.Canonical;

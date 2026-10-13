@@ -777,8 +777,9 @@ Step 7 refuses `curia/keys/signature-invalid` for a header `typ` other than the 
 - `R6_56_AnUnrelatedEntryInTheAuthorsStreamOnlyRetries`: an owner attestation appended in between, and the post lands.
 - `R6_56_ThreeConflictsAnswerContended`.
 
-- [ ] RED on Task 1.4's tree. Implement. Green.
-- [ ] Commit: `R6.56: a post lands only where its key is live`.
+- [x] RED on Task 1.4's tree. Implement. Green.
+- [x] As built (recorded at execution): the block did not say how the pipeline reaches `ResolveLiveAsync`, which `IAuthorKeyResolver` does not carry. `ILiveKeyResolver` (`Curia.Application/Ports`, one method) is the port, `LogBoundKeys` implements it beside `IAuthorKeyResolver`, `IngestPipeline` takes it in place of `IAuthorKeyResolver`, and `Program.cs` registers it. The retry is `IngestAttempts.RunAsync` (`Curia.Application/Ingest`, three attempts, repeating only on `DomainErrors.ConditionConflictType`, then `IngestErrors.Contended()`, type `curia/ingest/contended`), so the three facts exercise the real loop at the Application layer; `SubmitAsync` calls it around a new `SubmitAttemptAsync` that holds the old body from VERIFY on (AUTHORIZE and dedupe included, so a retry decides them again on the log as it now stands) and answers `null` on a condition conflict; the contended answer is 503. The facts run `IngestPipeline` over `LogBoundKeys` through `KeyActHarness`; `IngestPipelineTests`' two fakes implement `ILiveKeyResolver` and report an empty author stream. Falsified once at execution: dropping the `StreamCondition` argument turns all three facts RED.
+- [x] Commit: `R6.56: a post lands only where its key is live`.
 
 ### Task 1.6: Routes, Table 10, key set
 

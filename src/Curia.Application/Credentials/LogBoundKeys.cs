@@ -50,7 +50,7 @@ public sealed record AgentKeySet(int Stored, IReadOnlyList<BoundKey> Bound);
 /// handed on as if it were the key's: ingest answers it 503 and the token endpoint
 /// <c>server_error</c>, where a 401 would tell an agent its key had been refused.</para>
 /// </summary>
-public sealed class LogBoundKeys : IAuthorKeyResolver
+public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
 {
     /// <summary>The slug of <see cref="LogUnreadable"/>, for callers that match on it.</summary>
     public const string LogUnreadableType = "curia/log/unreadable";
