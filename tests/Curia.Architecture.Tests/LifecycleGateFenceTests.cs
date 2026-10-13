@@ -237,7 +237,7 @@ public sealed class LifecycleGateFenceTests
     /// <summary>
     /// The implementer fences (FL-17, FL-18) see a value type. A <c>readonly struct</c> implementing the
     /// port is returned, so it cannot be boxed into a composition unseen; controls: a type that does not
-    /// implement the port, and an interface extending it, are not. Red when the filter admits classes only (FL-30).
+    /// implement the port, and an interface extending it, are not. Red when the filter admits classes only (FL-29).
     /// </summary>
     [Fact]
     public void R4_38_TheImplementerScanSeesAValueTypeImplementer()
