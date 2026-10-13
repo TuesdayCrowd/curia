@@ -1,11 +1,10 @@
 using System.Security.Cryptography;
-using System.Text;
 
 namespace Curia.Tests.Shared;
 
 /// <summary>
 /// An external signer in another process, for R11.20's tests: <c>tests/Shared/test-signer.py</c>
-/// behind a one-line wrapper, holding a key this test process generated and then handed over.
+/// reached through a per-test symlink, holding a key this test process generated and then handed over.
 ///
 /// <para><b>Why a real process.</b> <c>ExternalSigner</c>'s whole claim is that the key lives on the
 /// other side of a process boundary and only signatures cross it. A fake implementing
@@ -54,11 +53,11 @@ internal sealed class TestSigner : IDisposable
 
     internal static TestSigner Create(string kid)
     {
-        // A shell wrapper around a Python script: POSIX only, and said so rather than skipped. A test
+        // A symlink to an executable Python script: POSIX only, and said so rather than skipped. A test
         // that returned early here would report R11.20's separation as tested on a platform where
         // it never ran.
         if (OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException("the test signer is a POSIX shell wrapper");
+            throw new PlatformNotSupportedException("the test signer is a POSIX symlink to a script");
 
         var directory = System.IO.Directory.CreateTempSubdirectory("curia-test-signer-").FullName;
 
@@ -72,8 +71,10 @@ internal sealed class TestSigner : IDisposable
             $$"""{"alg":"ES256","kid":"{{kid}}","public_key":"{{Convert.ToBase64String(publicKey)}}"}""");
 
         var command = Path.Combine(directory, "signer");
-        File.WriteAllText(command, $"#!/bin/sh\nexec python3 '{Script()}' '{directory}' \"$@\"\n", Encoding.ASCII);
-        File.SetUnixFileMode(command, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        // A symlink, not a file written here: nothing opens an executable for writing, so no other
+        // test's fork can hold a write descriptor on it when it is exec'd (ETXTBSY, D44). The script
+        // finds the key directory from the path it was invoked as.
+        File.CreateSymbolicLink(command, Script());
 
         return new TestSigner(directory, command, kid, publicKey);
     }

@@ -5962,6 +5962,53 @@ new key, which `/1` readers fail.
 This entry records the obligation only. It is filed now, before PR 2 is built, so the obligation exists
 before the code that creates it; PR 2's register task confirms it (plan Task 2.5).
 
+### D44 — the R11.20 test signer wrote an executable at run time, so a concurrent fork could make its exec fail with ETXTBSY *(closed by this change, 2026-10-13; test-harness defect, CI flake in PR #89's run 38296548542; `curia-architect`'s ruling)*
+
+**A test-harness defect, not a product one.** No requirement changes. In CI (Linux),
+`Curia.Client.Tests.ExternalSignerContractTests.R11_20_TwoSignaturesOverOneInputAreDistinctAndBothVerify`
+failed with `An error occurred trying to start process '/tmp/curia-test-signer-XXXX/signer' … Text file
+busy`; a rerun passed. `TestSigner.Create` wrote a `#!/bin/sh` wrapper with `File.WriteAllText`, set its
+mode, and `ExternalSigner` later exec'd it. xUnit runs test classes in parallel, so another thread's
+`Process.Start` can fork while this thread holds the wrapper open for writing; the child carries the
+write descriptor until its own exec closes it, and an `execve` of the wrapper in that window fails with
+ETXTBSY. **That mechanism is the working hypothesis. It was not shown** (see the evidence below).
+
+**The product's launch has no such window.** `ExternalSigner.Run` (`src/Curia.Client/AgentSigners.cs`)
+starts the configured command with the verb as its only argument; nothing in `src/` writes the command
+it launches, and a user's signer is written by the user. `Run` reports the failing `Win32Exception` as
+`SignerUnusable`, so the test helper could not wrap that call in a retry.
+
+**The fix.** Nothing executable is written at run time. `tests/Shared/test-signer.py` is a tracked
+executable (git mode 100755), and `TestSigner.Create` reaches it through a per-test symlink named
+`signer` in the key directory (`File.CreateSymbolicLink`), which opens nothing for writing. The script
+takes only the verb and finds its key directory from `os.path.dirname(os.path.abspath(sys.argv[0]))`
+(`abspath`, not `realpath`, which would resolve to the script's own directory). The process boundary
+is unchanged: the command is still an executable path launched by `ExternalSigner`'s unmodified
+`Process.Start`, and the key stays in the per-test directory.
+
+**Evidence, and its limit.** A race has no deterministic red fact. A stress loop (a small console
+program compiling `TestSigner.cs` as it stood and as it is now: 8 or 16 worker threads each doing
+`TestSigner.Create` then a `describe` exec of `Command`, beside 8 to 32 threads that continuously
+`Process.Start` `/bin/true`), run in a Linux container (`mcr.microsoft.com/dotnet/sdk:10.0`, aarch64
+VM, Release):
+
+| Run | Parameters (iterations per worker, forkers, workers) | Before (run-time wrapper) | After (symlink) |
+|---|---|---|---|
+| 1 | 500, 8, 8 | 4000 ok, 0 failed | 4000 ok, 0 failed |
+| 2 | 1500, 16, 8 | 12000 ok, 0 failed | 12000 ok, 0 failed |
+| 3 | 6000, 16, 8 | 48000 ok, 0 failed | 48000 ok, 0 failed |
+
+(A fourth run with 32 forkers and 16 workers stalled without error in both and was killed; it is not
+counted.)
+
+**The "before" loop did not reproduce ETXTBSY.** So the mechanism stays a hypothesis, and this change
+is recorded as removing a candidate cause, not as a confirmed cure. A loop that never failed before
+says nothing about after (vacuity question 1), and zero failures after bounds a rate; it is not a
+proof. A green rerun is not evidence either: the original flake also passed on rerun. This was not run
+on macOS as evidence about Linux, and no CI run was used.
+
+**Reopen if** `ETXTBSY` or `Text file busy` appears again in a `TestSigner`-based test.
+
 ### G21 PR 0.5 — the lifecycle append guard *(opened and built by the rotation stage's PR 0.5, 2026-10-13; errata G21, R4.38 (add.); lifted: no)*
 
 **Status: built, merge pending; the guard is on and nothing lifts it in this stage.** Every INSERT into

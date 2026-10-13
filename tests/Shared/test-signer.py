@@ -7,8 +7,10 @@ Speaks the reference client's signer protocol (src/Curia.Client/AgentSigners.cs,
     <command> sign       -> reads base64url signing input on stdin, writes a base64url
                             IEEE P1363 (r || s) ES256 signature on stdout
 
-It is invoked as `test-signer.py <key-directory> <verb>` through a one-line wrapper the tests
-write, because ExternalSigner runs a single command with the verb as its only argument.
+It is invoked as `<verb>` alone, because ExternalSigner runs a single command with the verb as its
+only argument, through a per-test symlink named `signer` that sits in the key directory. The key
+directory is the directory of the path the script was invoked as (sys.argv[0], not resolved), so
+nothing executable is written at run time (D44).
 
 P-256 is implemented here in the standard library alone, deliberately. The signatures are
 verified by .NET, so this is a second, independent implementation of the primitive rather than
@@ -82,11 +84,13 @@ def unbase64url(text):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("usage: test-signer.py <key-directory> describe|sign", file=sys.stderr)
+    if len(sys.argv) != 2:
+        print("usage: <key-directory>/signer describe|sign", file=sys.stderr)
         return 2
 
-    directory, verb = sys.argv[1], sys.argv[2]
+    # abspath, not realpath: the symlink's directory is the key directory; realpath would resolve
+    # to this script's own.
+    directory, verb = os.path.dirname(os.path.abspath(sys.argv[0])), sys.argv[1]
 
     if verb == "describe":
         with open(os.path.join(directory, "describe.json"), encoding="utf-8") as described:
