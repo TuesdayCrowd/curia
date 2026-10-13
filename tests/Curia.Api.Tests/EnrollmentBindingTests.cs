@@ -419,6 +419,35 @@ public sealed class EnrollmentBindingTests(ForumFixture forum) : IClassFixture<F
     }
 
     /// <summary>
+    /// The same recovery, but the store still holds another row of the victim's, so the lost row is
+    /// restored through the registry's add and not its enrollment. The <c>kid</c> is held by another
+    /// identity, and the add refuses it by name: <c>curia/keys/kid-taken</c>, a refusal of the caller's
+    /// key and so a 409, never a 500. Its detail names the <c>kid</c> the caller sent and nothing of who
+    /// holds it. The victim's stream still holds its one <c>agent.enrolled</c>.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_ALostRowsKidTakenWhileTheStoreHoldsAnotherRowAnswers409KidTaken()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var victim = await EnrolledVictimAsync(client, ct);
+        await LoseKeyRowAsync(victim.Agent.AgentId, ct);
+        await WriteKeyRowAsync(ForumAgent.Create(victim.Agent.AgentId, "orphan-" + Guid.NewGuid().ToString("N")[..8]), ct);
+        var newcomer = ForumAgent.Create("https://agents.example/newcomer-" + Guid.NewGuid().ToString("N")[..8], victim.Agent.Kid);
+        using (var taken = await newcomer.EnrollAsync(client, ct))
+            Assert.Equal(HttpStatusCode.Created, taken.StatusCode);
+
+        using var recovered = await victim.Agent.EnrollAsync(client, ct);
+        var body = await recovered.Content.ReadAsStringAsync(ct);
+        var (type, detail) = await ProblemAsync(recovered, ct);
+
+        Assert.Equal(
+            $"409 curia/keys/kid-taken kid={victim.Agent.Kid}: nothing was registered. holder-named=False",
+            $"{(int)recovered.StatusCode} {type} {detail} holder-named={body.Contains(newcomer.AgentId, StringComparison.Ordinal)}");
+        Assert.Equal(1, await EnrollmentsRecordedAsync(victim.Agent.AgentId, ct));
+    }
+
+    /// <summary>
     /// The case R4.31 keeps: an agent re-announcing the key it enrolled. Accepted, the enrollment
     /// instant unmoved, and still exactly one key served.
     /// </summary>

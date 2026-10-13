@@ -497,6 +497,7 @@ public static class ForumEndpoints
             return enrollError!.Type is AuthorKeyErrors.AlreadyEnrolledType
                     or AuthorKeyErrors.MaterialImmutableType
                     or AuthorKeyErrors.KidRegisteredToAnotherAgentType
+                    or AuthorKeyErrors.KidTakenType
                     or EnrollmentErrors.IdentifierReservedType
                     or EnrollmentErrors.KeysAmbiguousType
                 ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))

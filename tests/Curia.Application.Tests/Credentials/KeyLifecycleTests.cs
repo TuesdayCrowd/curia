@@ -70,7 +70,7 @@ public sealed class KeyLifecycleTests
             ("prev", Num(prev)),
             ("statement", Str(RetirementStatement(agent, kid, prev))));
 
-    private static JsonValue.Object RotationPayload(string agent, string authorizedBy, PublicKeyMaterial key, long prev) =>
+    internal static JsonValue.Object RotationPayload(string agent, string authorizedBy, PublicKeyMaterial key, long prev) =>
         Obj(
             ("agent_id", Str(agent)),
             ("authorization", Str("signature")),
@@ -148,6 +148,210 @@ public sealed class KeyLifecycleTests
         var (events, _) = await EnrolledAsync(agent, TestKeys.Es256("conformance-ed25519-minimal")).ConfigureAwait(false);
         await AppendAsync(events, agent, AgentStandingProjector.KeyBoundType, "01K4CQ1V9P3R5T7W9Y1A3C5E8H", payload).ConfigureAwait(false);
         return events;
+    }
+
+    private static JsonValue.Object EnrolledPayload(string agent, string? kid) =>
+        Obj([("agent_id", Str(agent)), .. kid is null ? Array.Empty<(string, JsonValue)>() : [("kid", Str(kid))], ("reason", Str("Enrollment accepted"))]);
+
+    /// <summary>The binding an enrolment appends: <c>{agent_id, jwk, kid}</c> and no statement.</summary>
+    private static JsonValue.Object BindingPayload(string agent, PublicKeyMaterial key) =>
+        Obj(("agent_id", Str(agent)), ("jwk", Require(PublicJwk.Of(key))), ("kid", Str(key.Kid)));
+
+    private static async Task<InMemoryEventStore> StreamOfAsync(string agent, params (string Type, JsonValue Payload)[] entries)
+    {
+        var events = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
+        for (var i = 0; i < entries.Length; i++)
+            await AppendAsync(events, agent, entries[i].Type, $"entry-{i}", entries[i].Payload).ConfigureAwait(false);
+        return events;
+    }
+
+    private static async Task<string> FoldAsync(InMemoryEventStore events, string agent)
+    {
+        var folded = KeyLifecycle.Of(await StreamAsync(events, agent).ConfigureAwait(false), Typed.Agent(agent));
+        return folded.Match(
+            l => "ok: " + string.Join(", ", l.Entries.Select(e => $"{e.Type}@{e.Kid}")),
+            e => $"{e.Type} {e.Detail}");
+    }
+
+    private const string EntryMismatch = "curia/keys/statement-mismatch field=entry";
+
+    private const string Enrolled = AgentStandingProjector.EnrolledType;
+
+    private const string KeyBound = AgentStandingProjector.KeyBoundType;
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingAfterARotationIsABrokenLink()
+    {
+        var (first, second) = (TestKeys.Es256("alice-1"), TestKeys.Es256("alice-2"));
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, first)),
+            (KeyBound, RotationPayload(Alice, "alice-1", second, 1)), (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingAfterARetirementIsABrokenLink()
+    {
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")),
+            (LifecycleAppendGuard.KeyRetiredType, RetirementPayload(Alice, "alice-1", 1)),
+            (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingAfterOnlyARetirementIsABrokenLink()
+    {
+        // One entry before the binding, so only the type test on that entry (an enrolment) can refuse it.
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice,
+            (LifecycleAppendGuard.KeyRetiredType, RetirementPayload(Alice, "alice-1", 1)),
+            (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_ASecondStatementLessBindingUnderTheSameKidIsABrokenLink()
+    {
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, first)), (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_ASecondStatementLessBindingUnderAnotherKidIsABrokenLink()
+    {
+        var (first, second) = (TestKeys.Es256("alice-1"), TestKeys.Es256("alice-2"));
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, first)), (KeyBound, BindingPayload(Alice, second)));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingUnderAKidTheEnrolmentDoesNotNameIsABrokenLink()
+    {
+        var second = TestKeys.Es256("alice-2");
+        var events = await StreamOfAsync(Alice, (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, second)));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingBeforeTheEnrolmentIsABrokenLink()
+    {
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice, (KeyBound, BindingPayload(Alice, first)), (Enrolled, EnrolledPayload(Alice, "alice-1")));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingFollowingAnEnrolmentThatNamesNoKidIsABrokenLink()
+    {
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice, (Enrolled, EnrolledPayload(Alice, null)), (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingWithoutAJwkIsABrokenLink()
+    {
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, Obj(("agent_id", Str(Alice)), ("kid", Str("alice-1")))));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AStatementLessBindingWithAnExtraMemberIsABrokenLink()
+    {
+        var first = TestKeys.Es256("alice-1");
+        var binding = BindingPayload(Alice, first);
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")),
+            (KeyBound, new JsonValue.Object([.. binding.Members, new KeyValuePair<string, JsonValue>("extra", Num(1))])));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_TheEnrolmentsOwnBindingFolds()
+    {
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice, (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal($"ok: {Enrolled}@alice-1, {KeyBound}@alice-1", await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AnEnrolmentsBindingThatComesAfterPostsStillFolds()
+    {
+        // Pre-G16: the first binding follows the identity's posts, which are no lifecycle entries.
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")),
+            ("post.created", Obj(("title", Str("a post")))),
+            (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal($"ok: {Enrolled}@alice-1, {KeyBound}@alice-1", await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_TheSecondEnrolmentIsSkippedAsTheFirstOneAlwaysWas()
+    {
+        // FindIn and Of both use the first enrolment; a second counts for nothing, so the binding after it is the first's.
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")), (Enrolled, EnrolledPayload(Alice, "alice-2")), (KeyBound, BindingPayload(Alice, first)));
+
+        Assert.Equal($"ok: {Enrolled}@alice-1, {KeyBound}@alice-1", await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_38_AnEnrolmentTheProducerWritesFolds()
+    {
+        // The rule is no tighter than what EnrollIdentity writes. The RotateKey half is owed to Task 1.4.
+        var first = TestKeys.Es256("alice-1");
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
+        var registry = new InMemoryAuthorKeyRegistry();
+        Require(await new EnrollIdentity(events, registry, new EnrollAgent(events, clock), clock).EnrollAsync(Typed.Agent(Alice), first, TestContext.Current.CancellationToken));
+
+        Assert.Equal($"ok: {Enrolled}@alice-1, {KeyBound}@alice-1", await FoldAsync(events, Alice));
+    }
+
+    [Theory]
+    [InlineData(KeyBound, false)]
+    [InlineData(LifecycleAppendGuard.KeyRetiredType, false)]
+    [InlineData(LifecycleAppendGuard.KeyRetiredType, true)]
+    [InlineData(LifecycleAppendGuard.KeyCompromisedType, false)]
+    public async Task R4_35_ALifecycleEntryOfThisAggregateThatNamesNoAgentIsRefusedNotSkipped(string type, bool namesAnotherAgent)
+    {
+        var first = TestKeys.Es256("alice-1");
+        JsonValue payload = namesAnotherAgent
+            ? Obj(("agent_id", Str("https://agents.example/bob")), ("kid", Str("alice-1")), ("prev", Num(1)))
+            : Obj(("kid", Str("alice-1")), ("prev", Num(1)));
+        var events = await StreamOfAsync(Alice, (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, first)), (type, payload));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
+    }
+
+    [Fact]
+    public async Task R4_35_ALifecycleEntryWhosePayloadIsNotAnObjectIsRefusedNotSkipped()
+    {
+        var first = TestKeys.Es256("alice-1");
+        var events = await StreamOfAsync(Alice,
+            (Enrolled, EnrolledPayload(Alice, "alice-1")), (KeyBound, BindingPayload(Alice, first)), (LifecycleAppendGuard.KeyRetiredType, Str("retired")));
+
+        Assert.Equal(EntryMismatch, await FoldAsync(events, Alice));
     }
 
     [Fact]

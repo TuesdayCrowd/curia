@@ -186,4 +186,63 @@ public sealed class LogBoundKeysTests
             "stored=1 bound=[]",
             $"stored={set.Stored} bound=[{string.Join(",", set.Bound.Select(b => $"{b.Key.Key.Kid}@{b.Binding.EventId}"))}]");
     }
+
+    private static async Task AppendLifecycleAsync(InMemoryEventStore events, string type, string eventId, JsonValue payload)
+    {
+        var aggregate = Require(AggregateId.Create(Alice));
+        var stream = Require(await events.ReadByAggregateAsync(aggregate, CancellationToken.None).ConfigureAwait(false));
+        Require(await events.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(stream.Count)),
+            [new DomainEvent(Require(EventId.Create(eventId)), Require(EventType.Create(type)), Require(ActorId.Create(Alice)), payload)],
+            CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>What each reader of the lifecycle answers for <c>alice-1</c>: resolve, resolve live, and the key set.</summary>
+    private static async Task<string> ReadersAnswerAsync(LogBoundKeys keys)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        return $"resolve: {(await keys.ResolveAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), At, ct).ConfigureAwait(false)).Match(_ => "resolved", e => e.Type)}; "
+            + $"live: {(await keys.ResolveLiveAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), At, ct).ConfigureAwait(false)).Match(_ => "resolved", e => e.Type)}; "
+            + $"set: {(await keys.KeySetAsync(Typed.Agent(Alice), ct).ConfigureAwait(false)).Match(set => "listed " + set.Bound.Count, e => e.Type)}";
+    }
+
+    /// <summary>
+    /// R4.35 (rev.), fail closed: a retirement in the identity's own stream that names no agent is
+    /// refused by the fold, never skipped, so the key it retires is neither honoured nor published. The
+    /// resolvers stop earlier, where the log binds nothing while such an entry is there; the key set
+    /// reaches the fold and answers its refusal.
+    /// </summary>
+    [Fact]
+    public async Task R4_35_ARetirementThatNamesNoAgentHonoursAndPublishesNothing()
+    {
+        var key = TestKeys.Es256("alice-1");
+        var (keys, events) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
+        await AppendLifecycleAsync(events, "agent.key-retired", "retirement-without-agent", new JsonValue.Object([new("kid", new JsonValue.String("alice-1")), new("prev", new JsonValue.Number(1))]));
+
+        Assert.Equal(
+            "resolve: curia/keys/not-bound-by-the-log; live: curia/keys/not-bound-by-the-log; set: curia/keys/statement-mismatch",
+            await ReadersAnswerAsync(keys));
+    }
+
+    /// <summary>
+    /// R4.38, fail closed: a second statement-less binding is a broken link the fold refuses, so the
+    /// identity's key, which the log does bind, is neither honoured nor published while it stands.
+    /// </summary>
+    [Fact]
+    public async Task R4_38_ABrokenLinkInTheStreamHonoursAndPublishesNothing()
+    {
+        var key = TestKeys.Es256("alice-1");
+        var (keys, events) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
+        await AppendLifecycleAsync(events, AgentStandingProjector.KeyBoundType, "second-binding", new JsonValue.Object(
+        [
+            new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+            new(AgentStandingProjector.KeyIdField, new JsonValue.String("alice-2")),
+            new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(TestKeys.Es256("alice-2")))),
+        ]));
+
+        Assert.Equal(
+            "resolve: curia/keys/statement-mismatch; live: curia/keys/statement-mismatch; set: curia/keys/statement-mismatch",
+            await ReadersAnswerAsync(keys));
+    }
 }

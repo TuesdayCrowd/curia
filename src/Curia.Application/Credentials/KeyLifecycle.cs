@@ -58,11 +58,23 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
         var enrolled = false;
         foreach (var appended in stream)
         {
+            // Another aggregate's entries in a wider read are not this identity's, and are skipped.
             if (!string.Equals(appended.AggregateId.Value, agent.Value, StringComparison.Ordinal)) continue;
+
+            var type = appended.Event.Type.Value;
+
+            // An entry of this identity's own aggregate that ends or binds a key and names no agent, or
+            // another, cannot be attributed, and skipping it would let a retirement be dropped: the key
+            // would stay active. Refused by name, as the class summary says (R4.35 rev., fail closed).
+            if (IsLifecycleKind(type)
+                && (appended.Event.Payload is not JsonValue.Object attributed
+                    || !string.Equals(Text(attributed, AgentStandingProjector.AgentIdField), agent.Value, StringComparison.Ordinal)))
+                return Result<KeyLifecycle>.Fail(KeyStatementErrors.Mismatch("entry"));
+
+            // An enrolment that names no agent binds nothing, and a non-lifecycle type is no entry.
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
             if (!string.Equals(Text(payload, AgentStandingProjector.AgentIdField), agent.Value, StringComparison.Ordinal)) continue;
 
-            var type = appended.Event.Type.Value;
             var id = appended.Event.Id.Value;
             var at = appended.ServerTimestamp.Value;
 
@@ -74,7 +86,7 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
             }
             else if (string.Equals(type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal))
             {
-                var bound = BoundEntry(payload, id, at);
+                var bound = BoundEntry(payload, id, at, entries);
                 if (!bound.TryGetValue(out var entry, out var error)) return Result<KeyLifecycle>.Fail(error!);
                 entries.Add(entry!);
             }
@@ -128,15 +140,47 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
         && (string.Equals(e.Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
             || string.Equals(e.Type, AgentStandingProjector.EnrolledType, StringComparison.Ordinal));
 
-    private static Result<LifecycleEntry> BoundEntry(JsonValue.Object payload, string id, DateTimeOffset at)
+    /// <summary>
+    /// Whether <paramref name="type"/> is a kind that binds or ends a key (spec section 4.4), as opposed to
+    /// the enrolment or an event that is no lifecycle entry at all.
+    /// </summary>
+    internal static bool IsLifecycleKind(string type) =>
+        string.Equals(type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
+        || string.Equals(type, LifecycleAppendGuard.KeyRetiredType, StringComparison.Ordinal)
+        || string.Equals(type, LifecycleAppendGuard.KeyCompromisedType, StringComparison.Ordinal);
+
+    /// <summary>
+    /// R4.38: the one rule for a statement-less <c>agent.key-bound</c>, the binding an enrolment appends
+    /// beside <c>agent.enrolled</c>. It is that binding only when the enrolment is the single lifecycle
+    /// entry before it, it names the enrolment's own <c>kid</c>, and its member set is exactly
+    /// <c>{agent_id, jwk, kid}</c>. Anything else statement-less is a broken link. The fold refuses it and
+    /// <see cref="EnrollmentBinding"/> does not bind by it, from this one predicate so they cannot drift.
+    /// </summary>
+    /// <param name="payload">The entry's payload.</param>
+    /// <param name="enrolmentIsOnlyPriorEntry">Whether the identity's own aggregate holds exactly one lifecycle entry before this one, and it is the enrolment. Posts are no lifecycle entries, so a binding that comes after posts still satisfies it.</param>
+    /// <param name="enrolmentKid">The <c>kid</c> the enrolment names, or null when it names none.</param>
+    internal static bool IsEnrolmentBinding(JsonValue.Object payload, bool enrolmentIsOnlyPriorEntry, string? enrolmentKid)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        return enrolmentIsOnlyPriorEntry
+            && enrolmentKid is not null
+            && string.Equals(Text(payload, AgentStandingProjector.KeyIdField), enrolmentKid, StringComparison.Ordinal)
+            && payload.Members.Length == BoundEnrolmentMembers.Length
+            && MembersWithin(payload, BoundEnrolmentMembers);
+    }
+
+    private static Result<LifecycleEntry> BoundEntry(JsonValue.Object payload, string id, DateTimeOffset at, ImmutableArray<LifecycleEntry>.Builder prior)
     {
         var type = AgentStandingProjector.KeyBoundType;
 
         // The enrolment's binding is {agent_id, kid, jwk} and nothing else (errata G16); a rotation's
-        // carries its statement. The member set of each is closed (KF4).
+        // carries its statement. The member set of each is closed (KF4). A statement-less binding is the
+        // enrolment's only as the one entry that follows it, under its kid (R4.38).
         if (Member(payload, "statement") is null)
         {
-            if (!MembersWithin(payload, BoundEnrolmentMembers)) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("entry"));
+            var enrolmentOnly = prior.Count == 1 && string.Equals(prior[0].Type, AgentStandingProjector.EnrolledType, StringComparison.Ordinal);
+            if (!IsEnrolmentBinding(payload, enrolmentOnly, enrolmentOnly ? prior[0].Kid : null)) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("entry"));
             return Result<LifecycleEntry>.Ok(new LifecycleEntry(id, type, Text(payload, AgentStandingProjector.KeyIdField), null, at));
         }
 
