@@ -127,7 +127,7 @@ public sealed class LifecycleGateFenceTests
     /// <summary>
     /// GF5, the implementer clause: within the assemblies built from <c>src/</c>, the only type implementing
     /// <see cref="ILifecycleAppendGate"/> is <see cref="EmbeddedLifecycleAppendGate"/>. Matched by
-    /// <c>typeof</c> and <c>IsAssignableFrom</c>, never a name string, so a renamed copy is found. Red when a
+    /// <c>typeof</c> and <c>IsAssignableFrom</c>, never a name string, so a renamed copy, class or struct, is found. Red when a
     /// second implementer is added (FL-18). The projects under <c>tools/</c> reference neither the port nor
     /// the Application layer (held by <see cref="R4_38_NoProductionAssemblyReferencesThePermissiveGate"/>'s
     /// project-reference check and the next fact).
@@ -187,24 +187,66 @@ public sealed class LifecycleGateFenceTests
 
     private static List<string> ImplementersInShipped(Type port)
     {
-        var found = new List<string>();
+        var all = new List<Type?>();
         foreach (var path in Shipped.ShippedAssemblies())
         {
-            Type?[] types;
             try
             {
-                types = Assembly.LoadFrom(path).GetTypes();
+                all.AddRange(Assembly.LoadFrom(path).GetTypes());
             }
             catch (ReflectionTypeLoadException e)
             {
-                types = e.Types;
+                // A partly loaded assembly yields nulls; ImplementersAmong refuses them, so a load failure
+                // cannot make the fence pass by finding nothing.
+                all.AddRange(e.Types);
             }
+        }
 
-            found.AddRange(types.Where(t => t is { IsClass: true } && port.IsAssignableFrom(t)).Select(t => t!.FullName!));
+        return ImplementersAmong(port, all);
+    }
+
+    /// <summary>
+    /// The full names of the types in <paramref name="types"/> that implement <paramref name="port"/>,
+    /// sorted. Anything that is not an interface counts, so a renamed copy, class or struct, is found;
+    /// interfaces stay out, because the port itself and an interface extending it implement nothing.
+    /// A null entry (a type the loader could not load) is an error, not a skip.
+    /// </summary>
+    private static List<string> ImplementersAmong(Type port, IEnumerable<Type?> types)
+    {
+        var found = new List<string>();
+        foreach (var t in types)
+        {
+            Assert.True(t is not null, "an assembly built from src/ or tools/ did not load fully; the implementer fence cannot see its types");
+            if (t is { IsInterface: false } && port.IsAssignableFrom(t))
+                found.Add(t.FullName!);
         }
 
         found.Sort(StringComparer.Ordinal);
         return found;
+    }
+
+    private readonly struct ValueTypeGate : ILifecycleAppendGate
+    {
+        public bool Enables(LifecycleKind kind) => true;
+    }
+
+    private interface IGateExtension : ILifecycleAppendGate;
+
+    private static class NotAGate;
+
+    /// <summary>
+    /// The implementer fences (FL-17, FL-18) see a value type. A <c>readonly struct</c> implementing the
+    /// port is returned, so it cannot be boxed into a composition unseen; controls: a type that does not
+    /// implement the port, and an interface extending it, are not. Red when the filter admits classes only (FL-30).
+    /// </summary>
+    [Fact]
+    public void R4_38_TheImplementerScanSeesAValueTypeImplementer()
+    {
+        var found = ImplementersAmong(
+            typeof(ILifecycleAppendGate),
+            [typeof(ValueTypeGate), typeof(NotAGate), typeof(IGateExtension), typeof(ILifecycleAppendGate)]);
+
+        Assert.Equal([typeof(ValueTypeGate).FullName!], found);
     }
 
     /// <summary>The projects under <c>tools/</c> reference no project that holds the port, the store or the gate.</summary>

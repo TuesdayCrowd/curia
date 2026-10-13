@@ -8,9 +8,12 @@ namespace Curia.Api.Adapters;
 /// R4.38 (add.), guard fact GF10: at start, counts the log's entries of the three guarded lifecycle
 /// shapes by event type and stream shape, and says so when there are any and the guard is on. It starts
 /// the Forum either way: an entry already in a retained log is a fact the operator has to hear about,
-/// not a reason to take the Forum down. The shapes are the chokepoint's (<see cref="LifecycleAppendGuard"/>):
-/// <c>agent.key-retired</c>, <c>agent.key-compromised</c>, and an <c>agent.key-bound</c> that is not the
-/// second event of a stream whose first is <c>agent.enrolled</c>.
+/// not a reason to take the Forum down. The shapes are the chokepoint's (<see cref="LifecycleAppendGuard"/>)
+/// with one stated undercount: a log read cannot see append boundaries, so a lone <c>agent.key-bound</c>
+/// appended separately onto a stream whose only event is <c>agent.enrolled</c> is indistinguishable from an
+/// enrolment pair and is not counted. The chokepoint refuses it as a Rotation; this scan cannot see it.
+/// The counted shapes are <c>agent.key-retired</c>, <c>agent.key-compromised</c>, and an
+/// <c>agent.key-bound</c> that is not the second event of a stream whose first is <c>agent.enrolled</c>.
 /// </summary>
 public sealed partial class LifecycleEntryScan : IHostedService
 {

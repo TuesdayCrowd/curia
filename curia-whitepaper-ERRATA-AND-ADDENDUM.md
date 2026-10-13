@@ -8774,7 +8774,10 @@ with the break that must turn it red; the implementation plan's register will re
   parse. GF9: persist the client's new key before the response; the profile's
   digests must change. GF10: remove the startup scan; a guarded Forum over a log holding a lifecycle entry
   must start silently. Each has a positive control: the same input under the permissive gate in the test
-  composition succeeds.
+  composition succeeds. GF10's one stated undercount: a log read cannot see append boundaries, so a lone
+  `agent.key-bound` appended separately onto a stream whose only event is `agent.enrolled` is
+  indistinguishable from an enrolment pair and is not counted; the chokepoint refuses it as a Rotation,
+  and the scan cannot see it.
 
 # Consolidated proposed-requirements index
 

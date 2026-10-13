@@ -106,9 +106,11 @@ public sealed class LifecycleGuardStartupTests(GuardedForumFixture forum) : ICla
         Assert.Throws<InvalidOperationException>(
             () => forum.PermissiveGateFor("Host=198.51.100.10;Database=curia_retained;Username=nobody"));
 
-    internal static DomainEvent KeyBound(string id) => new(
+    internal static DomainEvent KeyBound(string id) => Event(AgentStandingProjector.KeyBoundType, id);
+
+    internal static DomainEvent Event(string type, string id) => new(
         Require(EventId.Create("evt-" + Guid.NewGuid().ToString("N"))),
-        Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+        Require(EventType.Create(type)),
         Require(ActorId.Create(id)),
         new JsonValue.Object([new(AgentStandingProjector.AgentIdField, new JsonValue.String(id))]));
 
@@ -186,6 +188,83 @@ public sealed class LifecycleEntryScanControlTests(GuardedForumFixture forum) : 
         var agent = ForumAgent.Create("https://agents.example/scan-" + suffix, "scan-" + suffix);
         using (var enrolled = await agent.EnrollAsync(forum.Client, ct))
             Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+
+        await using var captured = new CapturedForum(forum);
+
+        Assert.DoesNotContain(captured.Log.All, e => e.EventId == 7006);
+    }
+}
+
+/// <summary>
+/// GF10's named undercount (spec section 4.13): the log carries no append boundary, so a lone
+/// <c>agent.key-bound</c> appended separately at position 2 of an enrolled-first stream looks like an
+/// enrolment pair, and the scan does not count it. The chokepoint refuses that append as a Rotation; the
+/// scan cannot see it. The fact documents the undercount so that a later change that counts it goes red
+/// on purpose (FL-27 is its red-first proof). Its own class, so its own database holds only this seed.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[Collection("forum")]
+public sealed class LifecycleEntryScanUndercountTests(GuardedForumFixture forum) : IClassFixture<GuardedForumFixture>
+{
+    [Fact]
+    public async Task R4_38_TheScanDoesNotCountALoneKeyBoundAtPositionTwo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = "agent://example/undercount-" + Guid.NewGuid().ToString("N")[..12];
+        var stream = LifecycleGuardStartupTests.Require(AggregateId.Create(id));
+        var adapters = new PostgresAdapters(forum.ConnectionString, forum.Clock, forum.PermissiveGate());
+        await using (adapters)
+        {
+            // Two appends, not one: a single append of the pair is the control's seed.
+            LifecycleGuardStartupTests.Require(
+                await adapters.EventStore.AppendAsync(stream, AggregateVersion.New, [LifecycleGuardStartupTests.Event(AgentStandingProjector.EnrolledType, id)], ct));
+            LifecycleGuardStartupTests.Require(
+                await adapters.EventStore.AppendAsync(
+                    stream,
+                    LifecycleGuardStartupTests.Require(AggregateVersion.From(1)),
+                    [LifecycleGuardStartupTests.Event(AgentStandingProjector.KeyBoundType, id)],
+                    ct));
+            var seeded = LifecycleGuardStartupTests.Require(await adapters.EventReader.ReadByAggregateAsync(stream, ct));
+            Assert.Equal(
+                [AgentStandingProjector.EnrolledType, AgentStandingProjector.KeyBoundType],
+                seeded.Select(e => e.Event.Type.Value).ToArray());
+        }
+
+        await using var captured = new CapturedForum(forum);
+
+        Assert.DoesNotContain(captured.Log.All, e => e.EventId == 7006);
+    }
+}
+
+/// <summary>
+/// GF10's control for the undercount: an enrolment pair appended in one append, as enrolment does, says
+/// nothing. Red-first proof of the scan's pair rule is FL-27.
+/// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[Collection("forum")]
+public sealed class LifecycleEntryScanPairControlTests(GuardedForumFixture forum) : IClassFixture<GuardedForumFixture>
+{
+    [Fact]
+    public async Task R4_38_AGuardedForumOverAnEnrolmentPairSaysNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = "agent://example/pair-" + Guid.NewGuid().ToString("N")[..12];
+        var adapters = new PostgresAdapters(forum.ConnectionString, forum.Clock, forum.PermissiveGate());
+        await using (adapters)
+        {
+            LifecycleGuardStartupTests.Require(
+                await adapters.EventStore.AppendAsync(
+                    LifecycleGuardStartupTests.Require(AggregateId.Create(id)),
+                    AggregateVersion.New,
+                    [LifecycleGuardStartupTests.Event(AgentStandingProjector.EnrolledType, id), LifecycleGuardStartupTests.Event(AgentStandingProjector.KeyBoundType, id)],
+                    ct));
+        }
 
         await using var captured = new CapturedForum(forum);
 
