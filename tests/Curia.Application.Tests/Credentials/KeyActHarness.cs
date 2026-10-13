@@ -195,8 +195,13 @@ internal sealed class KeyActHarness
             inner.KeysForAsync(agentId, cancellationToken);
     }
 
-    /// <summary>A store that runs <paramref name="beforeFirstLogRead"/> once, just before the first whole-log read, so an entry can join between a stream read and a log read.</summary>
-    internal sealed class InterceptingStore(IEventStore inner, Func<Task> beforeFirstLogRead) : IEventStore
+    /// <summary>
+    /// A store that runs <paramref name="beforeFirstLogRead"/> once, just before the first whole-log read, and
+    /// <paramref name="afterFirstLogRead"/> once, just after it returns, so an entry can join on either side
+    /// of that read. The stream read (<c>ReadByAggregateAsync</c>) passes through unintercepted, which is what
+    /// makes the window after the log read real: a use case that read the stream after the log would see the entry.
+    /// </summary>
+    internal sealed class InterceptingStore(IEventStore inner, Func<Task>? beforeFirstLogRead = null, Func<Task>? afterFirstLogRead = null) : IEventStore
     {
         private bool _fired;
 
@@ -205,13 +210,20 @@ internal sealed class KeyActHarness
 
         public async Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default)
         {
-            if (!_fired)
-            {
-                _fired = true;
-                await beforeFirstLogRead().ConfigureAwait(false);
-            }
+            if (_fired)
+                return await inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken).ConfigureAwait(false);
 
-            return await inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken).ConfigureAwait(false);
+            // Set before awaiting a hook: a hook's own use case reads through its own store, but this keeps
+            // the injection once-only even if one ever reads through this one.
+            _fired = true;
+            if (beforeFirstLogRead is not null)
+                await beforeFirstLogRead().ConfigureAwait(false);
+
+            var read = await inner.ReadForwardAsync(afterSeq, maxCount, cancellationToken).ConfigureAwait(false);
+            if (afterFirstLogRead is not null)
+                await afterFirstLogRead().ConfigureAwait(false);
+
+            return read;
         }
 
         public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken = default) =>

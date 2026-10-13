@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Credentials;
+using Curia.Application.Ports;
 using Curia.Domain;
 using Curia.Domain.Keys;
 using Curia.Domain.Primitives;
@@ -123,5 +124,28 @@ public sealed class RetireKeyTests
         Assert.Equal(
             "alice-1 at 3 by none; live: 1",
             $"{recorded.Kid} at {recorded.LogIndex} by {recorded.AuthorizedBy ?? "none"}; live: {lifecycle.LiveCount()}");
+    }
+
+    [Fact]
+    public async Task R4_39_RetireReadsTheVersionBeforeTheLog()
+    {
+        var (harness, first, second) = await TwoKeysAsync();
+        var third = TestIdentity.New("alice-3");
+        var text = RetirementStatement(Alice, first.Kid, await harness.LatestIndexAsync(Alice));
+        var signature = harness.Sign(text, KeyStatements.RetirementHeaderTyp, first.Signing);
+
+        // An entry joins just AFTER step 5's log read and before step 9. In the right order step 4 has
+        // already read the stream's version, so the append must conflict; a swapped order reads the stream
+        // after this entry, sees the new version, and binds over it. The competing rotation runs on
+        // harness.Events directly, so its own reads do not pass through the interceptor.
+        harness.Store = new InterceptingStore(harness.Events, afterFirstLogRead: async () =>
+            Require(await harness.RotateAsync(Alice, second, third).ConfigureAwait(false)));
+
+        var answer = await harness.Retirer().RetireAsync(Typed.Agent(Alice), Typed.Kid(first.Kid), Require(StatementText.Parse(text)), signature, Ct);
+
+        var types = (await harness.StreamAsync(Alice)).Select(e => e.Event.Type.Value);
+        Assert.Equal(
+            "curia/keys/lifecycle-moved 3; retirements: 0",
+            $"{Describe(answer)}; retirements: {types.Count(t => t == LifecycleAppendGuard.KeyRetiredType)}");
     }
 }

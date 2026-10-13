@@ -123,15 +123,37 @@ public sealed partial class RotateKeyTests
         Assert.Equal($"curia/keys/kid-taken kid=alice-2: nothing was registered.; {before}", $"{Describe(answer)}; {await WrittenAsync(harness)}");
     }
 
-    [Fact]
-    public async Task R4_37_ARotatedKidHoldingAControlCharacterIsRefused()
+    // One case per arm of the category test, and one beyond the Basic Multilingual Plane (a tag character,
+    // Cf), which only a walk by scalar value finds. The code points are numbers, built with
+    // char.ConvertFromUtf32, so no invisible character is written in this file. Kid.Parse refuses none of
+    // them first (it refuses only NUL, an unpaired surrogate and an over-long value), so each reaches the rule.
+    [Theory]
+    [InlineData(0x0007, "Cc")]
+    [InlineData(0x200B, "Cf")]
+    [InlineData(0x2028, "Zl")]
+    [InlineData(0x2029, "Zp")]
+    [InlineData(0xE0041, "Cf")]
+    public async Task R4_37_ARotatedKidHoldingAControlCharacterIsRefused(int codePoint, string category)
     {
         var (harness, first) = await EnrolledAliceAsync();
         var before = await WrittenAsync(harness);
 
-        var answer = await harness.RotateAsync(Alice, first, TestIdentity.New("k" + (char)0x2028));
+        var answer = await harness.RotateAsync(Alice, first, TestIdentity.New("k" + char.ConvertFromUtf32(codePoint)));
 
-        Assert.Equal($"curia/enroll/identifier-control-character; {before}", $"{answer.Match(_ => "ok", e => e.Type)}; {await WrittenAsync(harness)}");
+        Assert.Equal(
+            $"curia/enroll/identifier-control-character field=kid: U+{codePoint:X4} ({category}); {before}",
+            $"{Describe(answer).Split(';')[0]}; {await WrittenAsync(harness)}");
+    }
+
+    [Fact]
+    public async Task R4_37_ASymbolOutsideTheFourCategoriesIsNotRefusedAsAControlCharacter()
+    {
+        var (harness, first) = await EnrolledAliceAsync();
+
+        // U+1F600 is So, a symbol, and a supplementary-plane scalar: the rule walks past it.
+        var answer = await harness.RotateAsync(Alice, first, TestIdentity.New("k" + char.ConvertFromUtf32(0x1F600)));
+
+        Assert.Equal("ok", Describe(answer));
     }
 
     [Fact]
@@ -222,7 +244,7 @@ public sealed partial class RotateKeyTests
     }
 
     [Fact]
-    public async Task R4_38_RotateReadsTheVersionBeforeTheLog()
+    public async Task R4_38_AnEntryBetweenTheVersionReadAndTheLogReadIsRefusedByThePrevCheck()
     {
         var (harness, first) = await EnrolledAliceAsync();
         var (second, third) = (TestIdentity.New("alice-2"), TestIdentity.New("alice-3"));
@@ -240,6 +262,32 @@ public sealed partial class RotateKeyTests
 
         Assert.Equal(
             "curia/keys/lifecycle-moved 2; bound: alice-3; store holds alice-2: False",
+            $"{Describe(answer)}; bound: {string.Join(",", EnrollmentBinding.Find(await harness.StreamAsync(Alice), Typed.Agent(Alice))!.Keys.Skip(1).Select(k => k.Kid))}; "
+            + $"store holds alice-2: {(await harness.Registry.KeysForAsync(Typed.Agent(Alice), Ct)).Any(k => k.Key.Kid == "alice-2")}");
+    }
+
+    [Fact]
+    public async Task R4_38_RotateReadsTheVersionBeforeTheLog()
+    {
+        var (harness, first) = await EnrolledAliceAsync();
+        var (second, third) = (TestIdentity.New("alice-2"), TestIdentity.New("alice-3"));
+        var (statement, authorization, possession) = await harness.RotationAsync(Alice, first, second);
+
+        // An entry joins just AFTER step 5's log read and before step 9. In the right order step 4 has
+        // already read the stream's version, so the append must conflict; a swapped order reads the stream
+        // after this entry, sees the new version, and binds over it. The competing rotation runs on
+        // harness.Events directly, so its own reads do not pass through the interceptor.
+        harness.Store = new InterceptingStore(harness.Events, afterFirstLogRead: async () =>
+        {
+            var (s, a, p) = await harness.RotationAsync(Alice, first, third).ConfigureAwait(false);
+            Require(await new RotateKey(harness.Events, harness.Registry, harness.KeysOver(), harness.Verifiers, harness.Clock)
+                .RotateAsync(Typed.Agent(Alice), s, a, p, Ct).ConfigureAwait(false));
+        });
+
+        var answer = await harness.Rotator().RotateAsync(Typed.Agent(Alice), statement, authorization, possession, Ct);
+
+        Assert.Equal(
+            "curia/keys/lifecycle-moved 2; bound: alice-3; store holds alice-2: True",
             $"{Describe(answer)}; bound: {string.Join(",", EnrollmentBinding.Find(await harness.StreamAsync(Alice), Typed.Agent(Alice))!.Keys.Skip(1).Select(k => k.Kid))}; "
             + $"store holds alice-2: {(await harness.Registry.KeysForAsync(Typed.Agent(Alice), Ct)).Any(k => k.Key.Kid == "alice-2")}");
     }
