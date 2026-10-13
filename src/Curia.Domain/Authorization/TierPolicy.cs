@@ -128,6 +128,25 @@ public static class TierPolicy
         _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, "Not a Table 11 tier"),
     };
 
+    /// <summary>
+    /// R7.23 (provisional): the most keys an identity may hold live at once. A rotation that would make a
+    /// fifth is refused by name before anything is written. R4.17 needs two live keys, not more.
+    /// </summary>
+    public const int MaxLiveKeys = 4;
+
+    /// <summary>
+    /// R7.23 (provisional): the most rotations an identity may make over the trailing 24 hours. Retirement
+    /// is unbudgeted, by this and by the posting budget.
+    /// </summary>
+    public const int RotationsPerDay = 3;
+
+    /// <summary>
+    /// R7.23's ceiling: the most rotations an identity may make over its lifetime. It keeps the identity's
+    /// own acts within R6.54 (add.)'s 1,024 lifecycle entries (an enrollment's pair, 511 rotations and the
+    /// at most 511 retirements they allow). It never refuses a retirement.
+    /// </summary>
+    public const int MaxLifetimeRotations = 511;
+
     /// <summary>Table 11's "Rate budget" column, reads per minute. Quarantined's 10 is on <see cref="QuarantinedReadsPerMinute"/>.</summary>
     public static int ReadsPerMinute(PrincipalTier tier) => tier switch
     {

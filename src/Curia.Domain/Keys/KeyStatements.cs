@@ -93,6 +93,74 @@ public static class KeyStatements
     }
 
     /// <summary>
+    /// The key a rotation statement's <c>jwk</c> describes, under the statement's <c>kid</c> (spec section
+    /// 4.5): <c>EdDSA</c> as the raw 32 bytes of <c>x</c>, <c>ES256</c> as the DER SubjectPublicKeyInfo of
+    /// <c>x</c> and <c>y</c>. The <c>jwk</c> must equal, member for member, <see cref="PublicJwk.Of"/> of
+    /// that key, so a <c>curia_</c> member, a non-canonical coordinate or a <c>kid</c> that is not the
+    /// statement's is <c>statement-mismatch</c>, rejected and never repaired.
+    /// </summary>
+    public static Result<PublicKeyMaterial> MaterialOf(RotationStatement statement)
+    {
+        ArgumentNullException.ThrowIfNull(statement);
+
+        var jwk = statement.Jwk;
+        PublicKeyMaterial material;
+        try
+        {
+            switch (AlgOf(jwk))
+            {
+                case "EdDSA":
+                {
+                    if (Member(jwk, "x") is not JsonValue.String x) return Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Unreadable("jwk"));
+                    var raw = System.Buffers.Text.Base64Url.DecodeFromChars(x.Value);
+                    if (raw.Length != 32) return Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Unreadable("jwk"));
+                    material = new PublicKeyMaterial("EdDSA", statement.Kid, raw);
+                    break;
+                }
+
+                case "ES256":
+                {
+                    if (Member(jwk, "x") is not JsonValue.String x || Member(jwk, "y") is not JsonValue.String y)
+                        return Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Unreadable("jwk"));
+
+                    var parameters = new System.Security.Cryptography.ECParameters
+                    {
+                        Curve = System.Security.Cryptography.ECCurve.NamedCurves.nistP256,
+                        Q = new System.Security.Cryptography.ECPoint
+                        {
+                            X = System.Buffers.Text.Base64Url.DecodeFromChars(x.Value),
+                            Y = System.Buffers.Text.Base64Url.DecodeFromChars(y.Value),
+                        },
+                    };
+
+                    using var ecdsa = System.Security.Cryptography.ECDsa.Create(parameters);
+                    material = new PublicKeyMaterial("ES256", statement.Kid, ecdsa.ExportSubjectPublicKeyInfo());
+                    break;
+                }
+
+                default:
+                    return Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Unreadable("jwk"));
+            }
+        }
+        catch (FormatException)
+        {
+            return Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Unreadable("jwk"));
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            return Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Unreadable("jwk"));
+        }
+        catch (ArgumentException)
+        {
+            return Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Unreadable("jwk"));
+        }
+
+        return PublicJwk.Of(material).TryGetValue(out var rendered, out _) && PublicJwk.SameKey(jwk, rendered!)
+            ? Result<PublicKeyMaterial>.Ok(material)
+            : Result<PublicKeyMaterial>.Fail(KeyStatementErrors.Mismatch("jwk"));
+    }
+
+    /// <summary>
     /// KF1 and KF2: the header of <paramref name="signature"/> names the kind's <c>typ</c> and the role's
     /// member as its <c>kid</c>. Any other value, or a header that will not read, is
     /// <see cref="KeyStatementErrors.SignatureInvalid"/> naming <paramref name="role"/>.

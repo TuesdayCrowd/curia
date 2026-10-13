@@ -816,6 +816,31 @@ public sealed class EnrollIdentityTests
     }
 
     /// <summary>
+    /// R4.31 rev. with the real producer: the key a rotation (R4.18 rev.) binds is re-announced as the first
+    /// is, and writes nothing. <c>RotateKey</c> binds <c>alice-2</c>; the same three assertions as
+    /// <see cref="R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs"/>, whose hand-appended entry is the
+    /// one R4.31 (rev.) was written against, hold for it, and the stream is the three entries the producers write.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = new KeyActHarness();
+        var first = TestIdentity.New("alice-1");
+        var second = TestIdentity.New("alice-2");
+        await harness.EnrollAsync(Alice, first);
+        KeyActHarness.Require(await harness.RotateAsync(Alice, first, second));
+        var enroll = Enroll(harness.Events, harness.Registry, harness.Clock);
+
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Material.Alg, second.Kid, second.Material.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(first.Material.Alg, first.Kid, first.Material.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-3"), ct)).Type);
+        Assert.Equal(
+            [AgentStandingProjector.EnrolledType, AgentStandingProjector.KeyBoundType, AgentStandingProjector.KeyBoundType],
+            Types(await StreamAsync(harness.Events, Alice, ct)));
+    }
+
+    /// <summary>
     /// R4.38: a second statement-less <c>agent.key-bound</c> is a broken link, so the log binds no key by
     /// it. Re-presenting that key through either use case that reads the binding gets
     /// <c>already-enrolled</c> and appends nothing, the safe direction; the fold refuses the stream.
