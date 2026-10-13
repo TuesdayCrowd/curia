@@ -53,6 +53,9 @@ public sealed class LogBoundKeysTests
         public Task<Result<RegisteredKey>> EnrollAsync(AgentId agentId, PublicKeyMaterial key, DateTimeOffset notBefore, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("R4.35 registers nothing");
 
+        public Task<Result<RegisteredKey>> AddAsync(AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("R4.35 registers nothing");
+
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<RegisteredKey>>([.. rows.Where(r => r.AgentId == agentId.Value).Select(r => r.Key)]);
     }

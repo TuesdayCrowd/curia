@@ -177,6 +177,68 @@ public abstract class AuthorKeyRegistryPortContractTests
 
         Assert.Equal(original, Assert.Single(await store.KeysForAsync(Typed.Agent(Alice), ct)).Key.Public.ToArray());
     }
+
+    /// <summary>R4.18 (rev.), R4.31 (rev. 2): an identity that holds a key gains another through the add, window as given.</summary>
+    [Fact]
+    public async Task R4_18_AddRegistersASecondKeyForAnIdentityHoldingOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        Require(await store.EnrollAsync(Typed.Agent(Alice), NewKey("alice-1"), LastMonth, ct));
+
+        var added = Require(await store.AddAsync(Typed.Agent(Alice), NewKey("alice-2"), Today, ct));
+
+        Assert.Equal(
+            "alice-1@" + LastMonth.ToString("O") + ", alice-2@" + Today.ToString("O"),
+            string.Join(", ", (await store.KeysForAsync(Typed.Agent(Alice), ct)).OrderBy(k => k.Key.Kid, StringComparer.Ordinal).Select(k => $"{k.Key.Kid}@{k.NotBefore:O}")));
+        Assert.Equal("alice-2", added.Key.Kid);
+    }
+
+    /// <summary>An orphan row of an earlier attempt, re-presented with the same material, is reused with its window unmoved.</summary>
+    [Fact]
+    public async Task R4_18_AddReusesARowHoldingTheSameMaterialAndKeepsItsWindow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var key = NewKey("alice-2");
+        Require(await store.AddAsync(Typed.Agent(Alice), key, LastMonth, ct));
+
+        var again = Require(await store.AddAsync(Typed.Agent(Alice), Copy(key), Today, ct));
+
+        Assert.Equal(LastMonth, again.NotBefore);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), key, LastMonth);
+    }
+
+    /// <summary>Other bytes under a held kid are refused as taken and nothing changes (R4.32).</summary>
+    [Fact]
+    public async Task R4_18_AddRefusesOtherBytesUnderAHeldKid()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var key = NewKey("alice-2");
+        Require(await store.AddAsync(Typed.Agent(Alice), key, LastMonth, ct));
+
+        var refused = Refusal(await store.AddAsync(Typed.Agent(Alice), NewKey("alice-2"), Today, ct));
+
+        Assert.Equal("curia/keys/kid-taken", refused.Type);
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Alice), ct), key, LastMonth);
+    }
+
+    /// <summary>A kid another identity holds is taken, with the same material or not, and the holder's row is untouched.</summary>
+    [Fact]
+    public async Task R4_18_AddRefusesAKidAnotherIdentityHolds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var key = NewKey("shared-1");
+        Require(await store.AddAsync(Typed.Agent(Bob), key, LastMonth, ct));
+
+        var refused = Refusal(await store.AddAsync(Typed.Agent(Alice), Copy(key), Today, ct));
+
+        Assert.Equal("curia/keys/kid-taken", refused.Type);
+        Assert.Empty(await store.KeysForAsync(Typed.Agent(Alice), ct));
+        AssertHolds(await store.KeysForAsync(Typed.Agent(Bob), ct), key, LastMonth);
+    }
 }
 
 /// <summary>R11.4's in-memory adapter, held to the contract.</summary>

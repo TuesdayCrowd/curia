@@ -633,19 +633,21 @@ Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(AggregateId aggregateId, 
 public enum KeyStatus { Unbound, Active, Retired, Compromised }   // in Curia.Domain.Primitives, not Curia.Domain.Keys: Curia.AuthN references Canon and Domain.Primitives only (Curia.AuthN.csproj:23–24); no new project reference
 public static class KeyStatements   // pure
 {
-    public static Result<RotationStatement> ReadRotation(ReadOnlySpan<byte> statement);   // canonical check, members, typ
+    public static Result<RotationStatement> ReadRotation(ReadOnlySpan<byte> statement);   // typ, canonical check, members, KF5
     public static Result<RetirementStatement> ReadRetirement(ReadOnlySpan<byte> statement);
+    public static Result<JwsProtectedHeader> CheckHeader(JwsSignature signature, string role, string expectedTyp, string expectedKid);   // KF1, KF2 (added at execution)
 }
 public sealed record RotationStatement(string AgentId, string AuthorizedBy, JsonValue.Object Jwk, string Kid, long Prev);
 public sealed record RetirementStatement(string AgentId, string Kid, long Prev);
 // Curia.Application.Credentials
-public sealed record LifecycleEntry(string EventId, string Type, string? Kid, long? Prev);
+public sealed record LifecycleEntry(string EventId, string Type, string? Kid, long? Prev, DateTimeOffset At);   // At added at execution: RotationsSince needs it
 public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)   // stream order
 {
-    public static KeyLifecycle Of(IReadOnlyList<AppendedEvent> stream, AgentId agent);
+    public static Result<KeyLifecycle> Of(IReadOnlyList<AppendedEvent> stream, AgentId agent);   // a Result at execution: the fold refuses an entry it cannot accept (KF4)
     public KeyStatus StatusNow(string kid);   // every entry counts
     public int LiveCount();
     public int RotationsSince(DateTimeOffset since);
+    public LifecycleEntry? EndedBy(string kid);   // added at execution: the retirement that ended it
 }
 public sealed record LiveKey(PublicKeyMaterial Key, AggregateVersion AuthorStream);
 // LogBoundKeys
@@ -665,9 +667,15 @@ public sealed record BoundKey(RegisteredKey Key, KeyBinding Binding, KeyStatus S
 - `R4_38_AnEntryWithAnExtraMemberIsRefused` (KF4, R6.54 (add.)): an otherwise-valid rotation entry, the vector's, carrying one undeclared member beside `statement`, is refused by the fold → `curia/keys/statement-mismatch`. Red when the entry member set is opened (F1-67's Forum half).
 - `R4_38_AnUnknownStatementTypIsRefused` (KF4): `curia.key-rotation/2` → `curia/keys/statement-unreadable`. Red when an unknown `typ` is read as `/1` (F1-57).
 - `KeyStatements` checks the header `typ` and `kid` of each detached JWS against the statement (KF1, KF2), the `jwk.alg` derivation and `authorized_by` ≠ `kid` (KF5); Task 1.4's facts pin the refusals.
-- [ ] Facts RED. Implement. Amend `EnrollIdentity`'s lost-row clause: the condition "store holds no key for the identifier" becomes "store holds no row under this `kid`". Leave its other branches alone.
-- [ ] From this task on, `KeyLifecycle` is on the Forum's read path, so the guarded Forum also folds a lifecycle-kind entry it finds in its log as readers do (R6.54 (add.)); Task L.2's startup scan still counts it and logs event 7006.
-- [ ] Commit: `R4.35 (rev.), R4.31 (rev. 2): a key the log retired is honoured for nothing`.
+- [x] Facts RED. Implement. Amend `EnrollIdentity`'s lost-row clause: the condition "store holds no key for the identifier" becomes "store holds no row under this `kid`". Leave its other branches alone.
+- [x] From this task on, `KeyLifecycle` is on the Forum's read path, so the guarded Forum also folds a lifecycle-kind entry it finds in its log as readers do (R6.54 (add.)); Task L.2's startup scan still counts it and logs event 7006.
+- [x] As built (recorded at execution):
+  - `IAuthorKeyRegistry.AddAsync` and `AuthorKeyErrors.KidTaken` (`curia/keys/kid-taken`) land here, not in Task 1.4: the lost-row fact needs a registry write that adds a second key, and `EnrollAsync` refuses one (`already-enrolled`). Task 1.4's interface line "gains" is already true; its use of `AddAsync` is unchanged. The Postgres adapter and `InMemoryAuthorKeyRegistry` implement it, and the contract suite (`AuthorKeyRegistryPortContractTests`) holds both to four `R4_18_Add…` facts. The test doubles that implement the port gained the method.
+  - `EnrollIdentity`: when the log binds the `kid`, the store holds rows, and none is under this `kid`, it calls `AddAsync` (the restored row dated from the binding); otherwise `EnrollAsync` as before.
+  - `KeyLifecycle.Of` returns `Result<KeyLifecycle>`; `LifecycleEntry` carries `At`; `EndedBy(kid)` is public. `KeyStatements.CheckHeader` (KF1, KF2) and `KeyStatementErrors` (the seven `curia/keys/…` statement slugs) are in `src/Curia.Domain/Keys/KeyStatements.cs`.
+  - A key-bound entry without `statement` is the enrolment form, its member set `{agent_id, jwk, kid}`; one with it is the rotation form, its set exactly the eight members of spec section 4.6. A retirement's set is the five. A declaration (`agent.key-compromised`) is folded as an entry that ends no key until PR 2.
+  - Facts beyond the list: `R6_56_AResolvedKeyCarriesTheVersionOfTheStreamItWasReadAt`, `R4_38_TheFoldCountsLiveKeysStatusAndRotationsFromTheStream`, `R4_38_AnotherIdentitysEntryInAWiderReadIsNotThisLifecycles`, `R4_38_AnEntryWhoseMemberDisagreesWithItsStatementIsRefused`, `R4_38_AnUnknownTypWithAnExtraMemberIsReadAsUnreadableBeforeItsMembers`, the retirement and KF5 reads, and `R4_38_AHeaderTypAndKidAreHeldToTheirKindAndRole`.
+- [x] Commit: `R4.35 (rev.), R4.31 (rev. 2): a key the log retired is honoured for nothing`.
 
 ### Task 1.4: The use cases (R4.18 (rev.), R4.39, R7.23)
 
@@ -685,7 +693,7 @@ public sealed class RotateKey(IEventStore events, IAuthorKeyRegistry registry, L
 public sealed class RetireKey(/* same minus registry */)
 { public Task<Result<KeyActRecorded>> RetireAsync(AgentId agent, Kid kid, StatementText statement,
     DetachedSignature authorization, CancellationToken ct); }
-// IAuthorKeyRegistry gains:
+// IAuthorKeyRegistry gains (landed in Task 1.3, with its Postgres and in-memory adapters and the contract facts):
 Task<Result<RegisteredKey>> AddAsync(AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken ct);
 ```
 

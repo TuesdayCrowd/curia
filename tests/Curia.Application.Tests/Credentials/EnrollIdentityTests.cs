@@ -97,6 +97,10 @@ public sealed class EnrollIdentityTests
             if (Interlocked.Increment(ref _accountedFor) == racers) _all.SetResult();
         }
 
+        public Task<Result<RegisteredKey>> AddAsync(
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default) =>
+            inner.AddAsync(agentId, key, validFrom, cancellationToken);
+
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             inner.KeysForAsync(agentId, cancellationToken);
     }
@@ -127,6 +131,10 @@ public sealed class EnrollIdentityTests
                 existing ?? throw new InvalidOperationException($"this store never writes, and {agentId} holds no key in it")));
         }
 
+        public Task<Result<RegisteredKey>> AddAsync(
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("this store never writes");
+
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             Task.FromResult(HeldBy(agentId));
 
@@ -152,6 +160,10 @@ public sealed class EnrollIdentityTests
             Interlocked.Increment(ref _enrollments);
             return inner.EnrollAsync(agentId, key, notBefore, cancellationToken);
         }
+
+        public Task<Result<RegisteredKey>> AddAsync(
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default) =>
+            inner.AddAsync(agentId, key, validFrom, cancellationToken);
 
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             inner.KeysForAsync(agentId, cancellationToken);

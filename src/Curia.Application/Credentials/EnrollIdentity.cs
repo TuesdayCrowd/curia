@@ -125,10 +125,30 @@ public sealed class EnrollIdentity
         if (!PublicJwk.Of(key).TryGetValue(out _, out var renderError))
             return Result<AgentEnrollment>.Fail(renderError!);
 
-        var registered = await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
+        // R4.31 (rev. 2): the store registers a first key through its enrollment, and a key the log binds
+        // beside others it holds through its add. The lost-row clause reads "the store holds no row under
+        // this kid", not "the store holds no key for the identifier": after a rotation the store holds the
+        // first key, the log binds the second, and re-presenting the second restores its row. A kid the
+        // store holds still goes to enrollment, which re-announces it or refuses other bytes under it.
+        var restore = bound is not null && !await StoreHoldsRowAsync(agentId, key, cancellationToken).ConfigureAwait(false);
+        var registered = restore
+            ? await _keys.AddAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false)
+            : await _keys.EnrollAsync(agentId, key, notBefore, cancellationToken).ConfigureAwait(false);
         if (!registered.TryGetValue(out _, out var keyError))
             return Result<AgentEnrollment>.Fail(keyError!);
 
         return await _log.RecordAsync(agentId, key, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether the store holds a row under <paramref name="key"/>'s kid for <paramref name="agentId"/>, or
+    /// holds none at all (an identity enrolling afresh or after losing every row, which enrollment
+    /// registers). False only when it holds rows and none is under this kid: the lost row of a key a
+    /// rotation bound.
+    /// </summary>
+    private async Task<bool> StoreHoldsRowAsync(AgentId agentId, PublicKeyMaterial key, CancellationToken cancellationToken)
+    {
+        var held = await _keys.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false);
+        return held.Count == 0 || held.Any(k => string.Equals(k.Key.Kid, key.Kid, StringComparison.Ordinal));
     }
 }
