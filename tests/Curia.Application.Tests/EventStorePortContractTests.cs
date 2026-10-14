@@ -1,9 +1,13 @@
 using System.Diagnostics.CodeAnalysis;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
+using Curia.Application.Tests.InMemory;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Domain;
+using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using CsCheck;
 using Xunit;
 
@@ -101,6 +105,67 @@ public abstract class EventStorePortContractTests
 
         Assert.Single(appended);
         Assert.Single(Require(await store.ReadByAggregateAsync(a, ct)));
+    }
+
+    /// <summary>
+    /// R6.56: the version a resolved key carries is the version of the read the decision was made on. A
+    /// reader double appends an <c>agent.key-retired</c> to the author's stream right after
+    /// <see cref="LogBoundKeys.ResolveLiveAsync"/>'s read, so a version taken from a second read would
+    /// already include it and the conditioned append would land; the version of the first read conflicts.
+    /// The retirement is lifecycle-shaped, so this fact needs a store built with a permissive gate:
+    /// <see cref="CreateStore"/> gives one in both subclasses (the other facts do not depend on it).
+    /// Red when <c>ResolveLiveAsync</c> takes <c>AuthorStream</c> from a second read (F1-26).
+    /// </summary>
+    [Fact]
+    public async Task R6_56_TheVersionComesFromTheReadTheDecisionWasMadeOn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var key = TestKeys.Es256("alice-1");
+        var agent = Typed.Agent("https://agents.example/alice");
+        Require(await new EnrollAgent(store, TimeProvider.System).RecordAsync(agent, key, ct));
+        var author = Agg(agent.Value);
+        var other = Agg("agg-condition-after-read-target");
+        var keys = new LogBoundKeys(new HeldKeyResolver(key), new InMemoryAuthorKeyRegistry(), new RetiringAfterFirstRead(store, author, agent.Value));
+
+        var live = Require(await keys.ResolveLiveAsync(agent, Typed.Kid("alice-1"), ServerTimestamp.At(DateTimeOffset.UtcNow.AddDays(1)), ct));
+        var refused = await store.AppendAsync(other, AggregateVersion.New, [NewEvent("after-read-1")], new StreamCondition(author, live.AuthorStream), ct);
+
+        Assert.Equal(
+            "2 entries read; conflict; target empty",
+            $"{live.AuthorStream.Value} entries read; "
+            + $"{refused.Match(_ => "landed", e => e.Type == DomainErrors.ConditionConflictType ? "conflict" : e.Type)}; "
+            + $"target {(Require(await store.ReadByAggregateAsync(other, ct)).Count == 0 ? "empty" : "written")}");
+    }
+
+    private sealed class HeldKeyResolver(PublicKeyMaterial key) : IAuthorKeyResolver
+    {
+        public Task<Result<PublicKeyMaterial>> ResolveAsync(
+            AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result<PublicKeyMaterial>.Ok(key));
+    }
+
+    /// <summary>Reads through to the store and, after the first read of the author's stream, appends a retirement to it.</summary>
+    private sealed class RetiringAfterFirstRead(IEventStore store, AggregateId author, string agent) : IEventReader
+    {
+        private bool _retired;
+
+        public async Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
+        {
+            var read = await store.ReadByAggregateAsync(aggregateId, cancellationToken).ConfigureAwait(false);
+            if (_retired || aggregateId != author || !read.TryGetValue(out var history, out _)) return read;
+
+            _retired = true;
+            Require(await store.AppendAsync(
+                author,
+                Require(AggregateVersion.From(history!.Count)),
+                [new DomainEvent(Require(EventId.Create("retired-after-read")), Require(EventType.Create(LifecycleAppendGuard.KeyRetiredType)), Require(ActorId.Create(agent)), new JsonValue.Object([]))],
+                cancellationToken).ConfigureAwait(false));
+            return read;
+        }
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
+            store.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 
     [Fact]
