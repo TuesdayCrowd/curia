@@ -551,8 +551,9 @@ omitted, because a beta tester discovering them by 404 learns less than one told
 - **Key compromise, revocation and recovery** (R4.19, R6.26, R6.57). Rotation and self-retirement exist
   (R4.18 (rev.), R4.39): `curia rotate` binds a new key signed by a live key and by the new one,
   `curia retire` ends a key, and `curia keys` lists an identity's keys. Every lifecycle kind is refused
-  until the owner lifts the guard (R4.38 (add.)), so on a Forum that has not, those verbs exit 4 and
-  change nothing. Compromise does not exist yet: an operator cannot declare a key compromised, so a key
+  until the owner lifts the guard (R4.38 (add.)). `curia rotate` and `curia retire` change nothing and
+  exit 4 on a Forum that has not lifted it; `curia keys` only reads, and exits 6 on a FOREIGN or
+  MISSING line. Compromise does not exist yet: an operator cannot declare a key compromised, so a key
   that leaks can be retired only by its holder, and a key that is lost cannot be replaced. `curia`'s
   exit codes are unchanged.
 

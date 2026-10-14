@@ -1092,9 +1092,10 @@ Rows F1-27…F1-123 and F1-48b (F1-47 and F1-71…F1-75 excepted, whose literal 
   - The guard's entry: PR 1's routes and verbs refuse under it (GF1, GF9); still not lifted; NEEDS still open unless a person has closed it.
   - New observation, a one-line doc gap (Task 1.9's round-3 rulings): spec §4.6's table lacks rows for the seven earlier prev-less refusal vectors (`prevless-binding-after-rotation`, `prevless-binding-after-retirement`, `second-prevless-binding`, `prevless-binding-other-kid`, `prevless-binding-before-enrolled`, `prevless-binding-missing-jwk`, `retirement-without-agent-id`); they stay a recorded gap, not fixed in Task 1.9.
   - Start-here and "What comes next": PR 1 merged-pending; PR 2 next; TUI PR B may re-scope.
-- [ ] `CLAUDE.md` and `README.md`: rotation and retirement exist; compromise does not yet; three new verbs; the exit codes are unchanged in PR 1.
+- [ ] `CLAUDE.md` and `README.md`: rotation and retirement exist; compromise does not yet; three new verbs; the exit codes are unchanged in PR 1. State the guard behaviour per verb: `curia rotate` and `curia retire` exit 4 under the guard, and `curia keys` is a read that the guard does not refuse; it exits 6 on a FOREIGN or MISSING line.
 - [ ] Record for the owner, not as a task: the `curia` skill gains no verbs until edited.
 - [ ] Scan added lines for invisible characters. Re-read every file:line you wrote.
+- [ ] Grep `README.md`, `CLAUDE.md` and `IMPLEMENTATION_PLAN.md` for every sentence naming `curia keys` (`grep -n "curia keys"`, reading the line before and after each hit, since wrapped sentences hide the verb list) and confirm none attaches exit 4 to it.
 - [ ] Commit: `Register: rotation and retirement (G21, PR 1)`.
 
 ### Task 1.12: Every gate, then PR 1
