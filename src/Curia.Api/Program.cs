@@ -224,6 +224,20 @@ public sealed class Program
             sp.GetRequiredService<EnrollAgent>(),
             sp.GetRequiredService<TimeProvider>()));
 
+        // R4.18 (rev.), R4.39: the use cases behind the key routes. Each holds the event store, whose
+        // chokepoint asks the lifecycle gate again (R4.38 (add.)); the routes ask it first.
+        builder.Services.AddSingleton(sp => new RotateKey(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<IAuthorKeyRegistry>(),
+            sp.GetRequiredService<LogBoundKeys>(),
+            sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
+            sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp => new RetireKey(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<LogBoundKeys>(),
+            sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
+            sp.GetRequiredService<TimeProvider>()));
+
         // R4.30's attestation path (errata G5), reached by no HTTP route: an operator endpoint would
         // need a Table 10 pair that does not exist, and ResourceActionModel reports an unmodelled
         // pair as a failure precisely so nobody invents one to reach a route. Registered so this

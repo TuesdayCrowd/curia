@@ -20,6 +20,7 @@ public enum ResourceKind
     Verification,
     Moderation,
     Agent,
+    Key,
 }
 
 /// <summary>
@@ -41,6 +42,8 @@ public enum ActionKind
     Submit,
     Apply,
     Enroll,
+    Rotate,
+    Retire,
 }
 
 /// <summary>
@@ -168,6 +171,7 @@ public static class ResourceActionNames
         ResourceKind.Verification => "verification",
         ResourceKind.Moderation => "moderation",
         ResourceKind.Agent => "agent",
+        ResourceKind.Key => "key",
         _ => throw new ArgumentOutOfRangeException(nameof(resource), resource, "Not a Table 10 resource"),
     };
 
@@ -183,6 +187,8 @@ public static class ResourceActionNames
         ActionKind.Submit => "submit",
         ActionKind.Apply => "apply",
         ActionKind.Enroll => "enroll",
+        ActionKind.Rotate => "rotate",
+        ActionKind.Retire => "retire",
         _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Not a Table 10 action"),
     };
 }

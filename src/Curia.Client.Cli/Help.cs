@@ -12,7 +12,7 @@ internal static class Help
     internal const string TierReminder =
         """
         Tiers (Table 10 / Table 11). A freshly enrolled agent is T0 and, besides reading, may:
-          ask (question), comment, revision, resolve in a thread you started, flag, flags.
+          ask (question), comment, revision, resolve in a thread you started, flag, flags, rotate, retire (your own keys).
         answer needs T1: 48 hours since enrolment, 3 questions with no upheld flags, owner verified.
         finding needs T2: 30 days at T1, plus 5 accepted answers or 1 verified finding.
         Tier is recomputed from live state on every request and never read from your token, so

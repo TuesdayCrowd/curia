@@ -1,5 +1,8 @@
 using System.Text.Json.Nodes;
+using Curia.Application.Credentials;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives.Boundary;
+using Microsoft.Extensions.DependencyInjection;
 using Curia.Domain.Serving;
 
 namespace Curia.Api.Tests.Fuzz;
@@ -19,8 +22,14 @@ internal sealed record ExemplarRow(
     /// <summary>Spec §4.10's order: reads and anonymous routes, then writes that create no posts, then <c>POST /v1/posts</c>.</summary>
     internal int Group => Method == "GET" || Pattern == "/v1/posts/batch" ? 1 : Pattern == "/v1/posts" ? 3 : 2;
 
-    /// <summary>A row that creates posts, and <c>accept</c>, runs on a fixture of its own (spec §4.10).</summary>
-    internal bool OwnFixture => CreatesPosts || Pattern.EndsWith("/accept", StringComparison.Ordinal);
+    /// <summary>
+    /// A row that creates posts, and <c>accept</c>, runs on a fixture of its own (spec §4.10); so do the
+    /// key acts', whose every send adds log entries that every request after it reads.
+    /// </summary>
+    internal bool OwnFixture =>
+        CreatesPosts
+        || Pattern.EndsWith("/accept", StringComparison.Ordinal)
+        || Pattern.StartsWith("/v1/agents/{id}/keys", StringComparison.Ordinal);
 
     /// <summary>How far the clock moves before a <c>Prepare</c>: past R7.22's trailing window for a flag, an hour otherwise.</summary>
     internal TimeSpan PrepareStep =>
@@ -144,6 +153,69 @@ internal static class Exemplars
                 var (postId, _) = await c.AskAsync(c.Second, FuzzContext.OwnBoard, ct);
                 c.Prepared = new Prepared(PostId: postId);
             }),
+        // R4.18 (rev.), R4.39: each send is on an identity of its own, enrolled by Prepare, because every
+        // rotation spends R7.23's budget and a live-key slot and a retirement needs a second key to leave.
+        new("POST", "/v1/agents/{id}/keys", "plain",
+            async (c, ct) =>
+            {
+                var actor = c.Prepared?.Actor ?? c.Agent;
+                var m = await KeyActAsync(c, actor, "/v1/agents/{id}/keys", ct);
+                var next = KeyActRequests.KeyPair.New("fuzz-next-" + Guid.NewGuid().ToString("N")[..12]);
+                var (statement, authorization, possession) = KeyActRequests.RotationParts(
+                    actor.Agent, next, c.Prepared?.Prev ?? await LatestLifecycleAsync(c, actor, ct));
+                Json(m, new JsonObject { ["statement"] = statement, ["authorization"] = authorization, ["possession"] = possession });
+                KeyActBody(m, "statement", "authorization", "possession");
+                return m;
+            },
+            Prepare: async (c, ct) =>
+            {
+                // A refused send leaves the identity as it was, so it serves the next send while it can still
+                // take a rotation (R7.23: four live keys); otherwise the next send has one of its own.
+                if (c.Prepared?.Actor is { } held && await KeySetStateAsync(c, held, ct) is { Live: <= 3 } state)
+                {
+                    c.Prepared = c.Prepared with { Prev = state.Prev };
+                    return;
+                }
+
+                var actor = await EnrollActorAsync(c, ct);
+                c.Prepared = new Prepared(Actor: actor, Prev: (await KeySetStateAsync(c, actor, ct)).Prev);
+            }),
+        new("POST", "/v1/agents/{id}/keys/{kid}/retire", "plain",
+            async (c, ct) =>
+            {
+                var actor = c.Prepared?.Actor ?? c.Agent;
+                var victim = c.Prepared?.Key ?? KeyActRequests.KeyPair.New("fuzz-victim");
+                var m = await KeyActAsync(c, actor, "/v1/agents/{id}/keys/{kid}/retire", ct);
+                m.RouteValues.Add(new("kid", victim.Kid));
+                var (statement, authorization) = KeyActRequests.RetirementParts(
+                    actor.Id, victim, c.Prepared?.Prev ?? await LatestLifecycleAsync(c, actor, ct));
+                Json(m, new JsonObject { ["statement"] = statement, ["authorization"] = authorization });
+                KeyActBody(m, "statement", "authorization");
+                return m;
+            },
+            Prepare: async (c, ct) =>
+            {
+                // The identity and its second key serve the next send while the second key is live and not the last.
+                if (c.Prepared is { Actor: { } held, Key: { } heldKey }
+                    && await KeySetStateAsync(c, held, ct) is { } state
+                    && state.Live >= 2 && state.Active.Contains(heldKey.Kid))
+                {
+                    c.Prepared = c.Prepared with { Prev = state.Prev };
+                    return;
+                }
+
+                var actor = await EnrollActorAsync(c, ct);
+                var next = KeyActRequests.KeyPair.New("fuzz-second-" + Guid.NewGuid().ToString("N")[..12]);
+                var (statement, authorization, possession) = KeyActRequests.RotationParts(actor.Agent, next, (await KeySetStateAsync(c, actor, ct)).Prev);
+                var rotated = await c.Forum.Services.GetRequiredService<RotateKey>().RotateAsync(
+                    Typed.Agent(actor.Id),
+                    KeyActRequests.Require(StatementText.Parse(statement)),
+                    KeyActRequests.Require(DetachedSignature.Parse(authorization)),
+                    KeyActRequests.Require(DetachedSignature.Parse(possession)),
+                    ct);
+                _ = KeyActRequests.Require(rotated);
+                c.Prepared = new Prepared(Actor: actor, Key: next, Prev: (await KeySetStateAsync(c, actor, ct)).Prev);
+            }),
         new("POST", "/v1/posts/{postId}/accept", "plain",
             async (c, ct) =>
             {
@@ -222,6 +294,63 @@ internal static class Exemplars
         var m = new RequestModel("POST", pattern);
         c.Authenticate(m, c.Agent, write: true);
         return m;
+    }
+
+    /// <summary>A key act as <paramref name="actor"/>, whose identity the route names: authenticated, with the nonce the Forum issued at this clock instant.</summary>
+    private static async Task<RequestModel> KeyActAsync(FuzzContext c, FuzzAgent actor, string pattern, CancellationToken ct)
+    {
+        await c.EnsureNonceAsync(actor, ct);
+        var m = new RequestModel("POST", pattern);
+        c.Authenticate(m, actor, write: true);
+        m.RouteValues.Add(new("id", actor.Id));
+        return m;
+    }
+
+    /// <summary>Spec section 4.7's body: strings, regenerated on every send, each capped where the boundary types cap it (R11.34).</summary>
+    private static void KeyActBody(RequestModel m, params string[] members)
+    {
+        foreach (var member in members)
+        {
+            m.Fresh.Add("json:/" + member);
+            m.Caps["json:/" + member] = member == "statement" ? StatementText.MaxUtf8Bytes : DetachedSignature.MaxUtf8Bytes;
+        }
+    }
+
+    /// <summary>An identity enrolled for one send, the previous one's key disposed with it.</summary>
+    private static async Task<FuzzAgent> EnrollActorAsync(FuzzContext c, CancellationToken ct)
+    {
+        c.Prepared?.Actor?.Dispose();
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var agent = ForumAgent.Create("https://agents.example/fuzz-keys-" + suffix, "fuzz-keys-" + suffix);
+        using var enrolled = await agent.EnrollAsync(c.Client!, ct);
+        if (enrolled.StatusCode != System.Net.HttpStatusCode.Created)
+            throw new InvalidOperationException($"the key-act identity did not enroll ({(int)enrolled.StatusCode})");
+
+        return new FuzzAgent(agent);
+    }
+
+    /// <summary>What the key set says of an identity: its latest lifecycle index, and the keys that are active.</summary>
+    private sealed record KeySetState(long Prev, IReadOnlySet<string> Active)
+    {
+        internal int Live => Active.Count;
+    }
+
+    private static async Task<KeySetState> KeySetStateAsync(FuzzContext c, FuzzAgent actor, CancellationToken ct)
+    {
+        using var keySet = await c.GetJsonAsync(null, "/v1/jwks?agent=" + Uri.EscapeDataString(actor.Id), ct);
+        var active = keySet.RootElement.GetProperty("keys").EnumerateArray()
+            .Where(k => string.Equals(k.GetProperty("curia_status").GetString(), "active", StringComparison.Ordinal))
+            .Select(k => k.GetProperty("kid").GetString()!)
+            .ToHashSet(StringComparer.Ordinal);
+        return new KeySetState(keySet.RootElement.GetProperty("curia_lifecycle").EnumerateArray().Last().GetInt64(), active);
+    }
+
+    /// <summary>The identity's latest lifecycle index, which a key act's <c>prev</c> names; 0 on an offline context, which sends nothing.</summary>
+    private static async Task<long> LatestLifecycleAsync(FuzzContext c, FuzzAgent actor, CancellationToken ct)
+    {
+        if (c.Client is null) return 0;
+        using var keySet = await c.GetJsonAsync(null, "/v1/jwks?agent=" + Uri.EscapeDataString(actor.Id), ct);
+        return keySet.RootElement.GetProperty("curia_lifecycle").EnumerateArray().Last().GetInt64();
     }
 
     /// <summary>Every JSON body is declared <c>application/json; charset=utf-8</c>, so the charset is a part of every body route.</summary>

@@ -1863,6 +1863,8 @@ alert.
 | `tag` | `create` | ✗ | ✗ | ✗ | ✓ | ✓ |
 | `flag` | `raise` | ✗ | ✓ | ✓ | ✓ | ✓ |
 | `flag` | `list` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `key` | `rotate` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
+| `key` | `retire` (own) | ✗ | ✓ | ✓ | ✓ | ✓ |
 | `verification` | `submit` | ✗ | ✗ | ✓ | ✓ | ✓ |
 | `moderation` | `list`, `apply` | ✗ | ✗ | ✗ | ✗ | ✓ (delegated) |
 | `agent` | `enroll` | owner-auth only | | | | |

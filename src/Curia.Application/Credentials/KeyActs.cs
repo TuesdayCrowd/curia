@@ -33,6 +33,8 @@ public static class KeyActErrors
     public const string NotLiveType = "curia/keys/not-live";
     public const string LastLiveKeyType = "curia/keys/last-live-key";
     public const string UnknownKeyType = "curia/keys/unknown-key";
+    public const string NotOwnType = "curia/keys/not-own";
+    public const string LifecycleNotEnabledType = "curia/keys/lifecycle-not-enabled";
 
     /// <summary>The act's <c>prev</c> is not the identity's latest lifecycle index. The detail is that index, an integer.</summary>
     public static Error LifecycleMoved(long latest) => new(
@@ -69,6 +71,17 @@ public static class KeyActErrors
 
     /// <summary>The identity has no such key bound.</summary>
     public static Error UnknownKey() => new(UnknownKeyType, "The identity has no such key");
+
+    /// <summary>Spec section 4.7: the token's subject is not the identity the route names. Names neither.</summary>
+    public static Error NotOwn() => new(NotOwnType, "A key act is made by the identity that owns the key");
+
+    /// <summary>R4.38 (add.): the Forum does not enable rotation. A fixed detail, naming the kind and nothing about the caller.</summary>
+    public static Error RotationNotEnabled() => new(
+        LifecycleNotEnabledType, "Key lifecycle acts are not enabled", "key rotation is not enabled on this Forum");
+
+    /// <summary>R4.38 (add.): the Forum does not enable retirement. A fixed detail, naming the kind and nothing about the caller.</summary>
+    public static Error RetirementNotEnabled() => new(
+        LifecycleNotEnabledType, "Key lifecycle acts are not enabled", "key retirement is not enabled on this Forum");
 }
 
 /// <summary>

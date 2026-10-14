@@ -8123,9 +8123,8 @@ code is the token endpoint (`src/Curia.Api/Issuer/TokenEndpoint.cs`) and its iss
 (`src/Curia.Infrastructure/PostgresEventStore.cs`), and the three reference readers.
 **Class:** normative gap, carrying thirteen requirements (six new, seven revisions or addenda), with one
 implementation defect (the implementation plan's register D29) and one defect against R5.12 (the
-key-binding stage's M5) at the same endpoint. **Status:** proposed; not applied to the white paper. The
-two Table 10 rows below are to be applied in v1.1 by the stage's third PR (PR 1, Task 1.6), unless the
-owner answers no, as G3's were, because the conformance tests read Table 10 from the white paper and a row held only here would be
+key-binding stage's M5) at the same endpoint. **Status:** proposed; the two Table 10 rows below are applied in v1.1 (PR 1, Task 1.6); the
+rest of G21 stays proposed and is not adopted, because the conformance tests read Table 10 from the white paper and a row held only here would be
 a row no test could see. **Guarded (2026-10-11):** the owner did not approve the lifecycle's formats to
 freeze ("Q2: No."), so rotation, retirement and compromise are built behind the guard R4.38 (addendum)
 states, and no Forum appends an entry of a lifecycle kind other than an enrollment's pair until the owner

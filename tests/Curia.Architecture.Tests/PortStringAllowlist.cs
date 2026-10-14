@@ -19,6 +19,8 @@ internal static class PortStringAllowlist
         ("Curia.Application.Credentials.EnrollmentErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail"),
         ("Curia.Application.Ports.AuthorKeyErrors.*", "*", "an error factory's detail: a static class whose every public method returns Error, and whose strings are a refusal's detail"),
         ("Curia.Application.Credentials.AttestOwner.RecordAsync", "reason", "not an identifier the rule retypes: the operator's own free-text reason, given out of band to curia-operator, which no caller of the Forum reaches; AttestOwner checks it before the attestation is recorded"),
+        ("Curia.Application.Credentials.RetireKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under"),
+        ("Curia.Application.Credentials.RotateKey..ctor", "verifiers", "host configuration: the algorithm names the composition root registers its verifiers under"),
         ("Curia.Application.Ingest.IngestPipeline..ctor", "verifiersByAlg", "host configuration: the algorithm names the composition root registers its verifiers under"),
         ("Curia.Application.Ingest.PossibleDuplicate..ctor", "OfDigest", "a Forum-minted value: the digest the Forum computed for the nearest projected post"),
         ("Curia.Application.Ingest.PossibleDuplicate..ctor", "Model", "host configuration: the configured embedding model's id"),

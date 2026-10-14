@@ -43,6 +43,8 @@ public sealed class FlagPrivacyGateTests(ForumFixture forum) : IClassFixture<For
     private static readonly HashSet<string> WriteRoutes = new(StringComparer.Ordinal)
     {
         "POST /v1/agents",
+        "POST /v1/agents/{id}/keys",
+        "POST /v1/agents/{id}/keys/{kid}/retire",
         "POST /v1/posts",
         "POST /v1/posts/{postId}/flags",
         "POST /v1/posts/{postId}/accept",

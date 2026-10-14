@@ -95,6 +95,8 @@ public sealed class HelpTextTests
             [(ResourceKind.Answer, ActionKind.Create)] = ["answer"],
             [(ResourceKind.Vote, ActionKind.Cast)] = ["endorse"],
             [(ResourceKind.Verification, ActionKind.Submit)] = ["reproduce", "contradict"],
+            [(ResourceKind.Key, ActionKind.Rotate)] = ["rotate"],
+            [(ResourceKind.Key, ActionKind.Retire)] = ["retire"],
         };
 
         static bool Grants(Table10Cell cell) => cell is Table10Cell.Allowed or Table10Cell.RateLimited;

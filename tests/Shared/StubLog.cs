@@ -771,7 +771,8 @@ internal sealed class StubLog : IDisposable
         return $$"""
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
         "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}",
-        "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}}}]}
+        "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}},"curia_status":"active"}],
+        "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{KeyIndex}}]}
         """.ReplaceLineEndings(string.Empty);
     }
 

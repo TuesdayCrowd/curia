@@ -22,7 +22,9 @@ internal sealed class FuzzAgent(ForumAgent agent) : IDisposable
 }
 
 /// <summary>What a consumed row's <c>Prepare</c> left for its next send.</summary>
-internal sealed record Prepared(string? PostId = null, string? Digest = null, string? Board = null, ForumAgent? Enrollee = null);
+internal sealed record Prepared(
+    string? PostId = null, string? Digest = null, string? Board = null, ForumAgent? Enrollee = null,
+    FuzzAgent? Actor = null, KeyActRequests.KeyPair? Key = null, long? Prev = null);
 
 /// <summary>
 /// One seeded Forum the fuzzer sends to: a T0 seed agent and its questions, the T1 fuzz agent and a
