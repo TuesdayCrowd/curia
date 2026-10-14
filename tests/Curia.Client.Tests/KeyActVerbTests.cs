@@ -385,6 +385,105 @@ public sealed class KeyActVerbTests
         Assert.Equal(before, rig.Fingerprint());
     }
 
+    // ---- a key set that names a lifecycle and no binding cannot be compared (cybersecurity F-A) ------------
+
+    private const string NoBindingType = "curia/client/key-set-names-no-binding";
+
+    [Fact]
+    public async Task R4_39_RotateRefusesAKeySetThatNamesNoBinding()
+    {
+        using var rig = KeyActRig.Create();
+        rig.Double.KeySet = KeyActDouble.KeySetJson([Key("a-0000abcd", null)], [0, 1]);
+        var before = rig.Fingerprint();
+
+        var (exit, _, stderr) = await KeyActRig.CaptureAsync(() => Program.RotateKeyAsync(rig.Client, rig.Session, rig.Agent, rig.Store, null, Ct));
+
+        Assert.Equal(ExitCode.ForumFault, exit);
+        Assert.Contains("names no key's binding", stderr, StringComparison.Ordinal);
+        Assert.Equal(0, rig.Double.LifecyclePosts);
+        Assert.Equal(before, rig.Fingerprint());
+    }
+
+    [Fact]
+    public async Task R4_39_RotateProceedsWhenAKeyNamesItsBinding()
+    {
+        using var rig = KeyActRig.Create();
+        rig.Double.KeySet = KeyActDouble.KeySetJson([Key("a-0000abcd", 1)], [0, 1]);
+
+        var (exit, _, stderr) = await KeyActRig.CaptureAsync(() => Program.RotateKeyAsync(rig.Client, rig.Session, rig.Agent, rig.Store, null, Ct));
+
+        Assert.True(exit == 0, stderr);
+        Assert.Equal(1, rig.Double.LifecyclePosts);
+    }
+
+    [Fact]
+    public async Task R4_39_RotateRefusingNoBindingCallsNoSigner()
+    {
+        using var rig = KeyActRig.Create();
+        rig.Double.KeySet = KeyActDouble.KeySetJson([Key("a-0000abcd", null)], [0, 1]);
+        using var signer = TestSigner.Create("held-1");
+
+        var (exit, _, _) = await KeyActRig.CaptureAsync(() => Program.RotateKeyAsync(rig.Client, rig.Session, rig.Agent, rig.Store, signer.Command, Ct));
+
+        Assert.Equal(ExitCode.ForumFault, exit);
+        Assert.Equal(0, signer.Signatures);
+        Assert.Equal(0, rig.Double.LifecyclePosts);
+    }
+
+    [Fact]
+    public async Task R4_39_RetireRefusesAKeySetThatNamesNoBinding()
+    {
+        using var rig = KeyActRig.Create();
+        await RotatedAsync(rig);
+        rig.Double.KeySet = KeyActDouble.KeySetJson([Key("a-0000abcd", null)], [0, 1, 3]);
+        var before = rig.Fingerprint();
+
+        var (exit, _, stderr) = await KeyActRig.CaptureAsync(() => Program.RetireKeyAsync(rig.Client, rig.Session, rig.Store, rig.Profile(), "a-0000abcd", Ct));
+
+        Assert.Equal(ExitCode.ForumFault, exit);
+        Assert.Contains("names no key's binding", stderr, StringComparison.Ordinal);
+        Assert.Equal(0, rig.Double.LifecyclePosts);
+        Assert.Equal(before, rig.Fingerprint());
+    }
+
+    [Fact]
+    public void R4_39_TheNoBindingRefusalHasItsOwnType() =>
+        Assert.Equal(NoBindingType, Curia.Client.ClientErrors.KeySetNamesNoBinding().Type);
+
+    [Fact]
+    public async Task R4_39_KeysExitsEightWhenNoBindingIsNamed()
+    {
+        using var rig = KeyActRig.Create();
+        rig.Double.KeySet = KeyActDouble.KeySetJson([Key("a-0000abcd", null)], [0, 1]);
+
+        var (exit, _, stderr) = await KeyActRig.CaptureAsync(() => Program.ShowKeysAsync(rig.Client, rig.Profile(), Ct));
+
+        Assert.Equal(ExitCode.ForumFault, exit);
+        Assert.Contains("could not compare: no key names its binding", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task R4_39_KeysExitsEightWhenNoLifecycleIsNamed()
+    {
+        using var rig = KeyActRig.Create();
+        rig.Double.KeySet = KeyActDouble.KeySetJson([Key("a-0000abcd", 1)], lifecycle: null);
+
+        var (exit, _, stderr) = await KeyActRig.CaptureAsync(() => Program.ShowKeysAsync(rig.Client, rig.Profile(), Ct));
+
+        Assert.Equal(ExitCode.ForumFault, exit);
+        Assert.Contains("could not compare", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task R4_39_KeysExitsZeroOnACleanComparison()
+    {
+        using var rig = KeyActRig.Create();
+
+        var (exit, _, stderr) = await KeyActRig.CaptureAsync(() => Program.ShowKeysAsync(rig.Client, rig.Profile(), Ct));
+
+        Assert.True(exit == 0, stderr);
+    }
+
     // ---- the FOREIGN check on a refusal (spec section 4.9) ----------------------------------------------
 
     [Fact]
@@ -509,5 +608,24 @@ public sealed class KeyActVerbTests
             () => Program.RenderAsync(client, [served!], StubLog.Forum, new ForeignWatch(stranger), Ct));
 
         Assert.DoesNotContain("FOREIGN", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task R4_39_SearchTitlesReportsAForeignEntryInTheAgentsOwnKeySet()
+    {
+        using var log = new StubLog { ForeignLifecycleIndex = 3 };
+        Assert.True(log.Store.ReadProfile("alice").TryGetValue(out var profile, out _));
+        var args = Args.Parse(["search", "x", "--titles", "--agent", "alice"], 1);
+
+        var (exit, _, stderr) = await KeyActRig.CaptureAsync(
+            () => Program.SearchPageAsync(args, "x", null, log.Client(), Curia.Domain.Serving.MarkingMode.None, profile, Ct));
+
+        Assert.Equal(ExitCode.Unverified, exit);
+        Assert.Contains("FOREIGN: a lifecycle entry at log index 3 that this profile did not make", stderr, StringComparison.Ordinal);
+
+        var (plain, _, plainError) = await KeyActRig.CaptureAsync(
+            () => Program.SearchPageAsync(args, "x", null, log.Client(), Curia.Domain.Serving.MarkingMode.None, null, Ct));
+        Assert.DoesNotContain("FOREIGN", plainError, StringComparison.Ordinal);
+        Assert.NotEqual(ExitCode.Unverified, plain);
     }
 }

@@ -78,6 +78,15 @@ public static class ClientErrors
         "The Forum's key set for this identity names no lifecycle, so no act can be linked from it; nothing was changed",
         null);
 
+    /// <summary>
+    /// The identity's key set names a lifecycle and no key's binding, so the foreign scan has nothing to compare
+    /// against and finds nothing: an absence of findings that is not a clean comparison (errata G21, cybersecurity F-A).
+    /// </summary>
+    public static Error KeySetNamesNoBinding() => new(
+        "curia/client/key-set-names-no-binding",
+        "The Forum's key set for this identity names no key's binding, so its lifecycle cannot be compared with this profile's acts; nothing was changed",
+        null);
+
     public static Error TokenRefused(string detail) => new(
         "curia/client/token-refused",
         "The Forum refused to issue an access token",

@@ -703,7 +703,7 @@ internal static class Program
     private static async Task<int> SearchAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown([
-                "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles", "min-verification",
+                "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles", "min-verification", "agent",
             ]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -731,9 +731,19 @@ internal static class Program
             limit = parsed;
         }
 
-        var (forum, marking, _) = ReadContext(args);
+        var (forum, marking, profile) = ReadContext(args);
         using var http = HttpFor(forum);
-        var client = new ForumClient(http, forum);
+        return await SearchPageAsync(args, terms, limit, new ForumClient(http, forum), marking, profile, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The search once its Forum is chosen: <c>search --titles --agent</c> compares the named identity's key set as
+    /// <c>read</c>, <c>thread</c> and <c>board</c> do (R4.39), so it takes the profile and builds the watch here.
+    /// </summary>
+    internal static async Task<int> SearchPageAsync(
+        Args args, string terms, int? limit, ForumClient client, MarkingMode marking, AgentProfile? profile, CancellationToken ct)
+    {
+        var watch = profile is null ? null : new ForeignWatch(profile);
 
         var request = new SearchRequest(terms.Length == 0 ? null : terms)
         {
@@ -764,7 +774,7 @@ internal static class Program
         if (args.Has("titles"))
         {
             var (frame, exit) = await TitledAsync(
-                client, [.. page.Results.Select(hit => hit.Post)], marking, [.. page.Results.Select(hit => (SearchScore?)SearchScore.Of(hit))], ct).ConfigureAwait(false);
+                client, [.. page.Results.Select(hit => hit.Post)], marking, [.. page.Results.Select(hit => (SearchScore?)SearchScore.Of(hit))], ct, watch).ConfigureAwait(false);
             Output.Frame(frame);
 
             if (page.NextCursor is { Length: > 0 } nextTitled)
@@ -1268,7 +1278,16 @@ internal static class Program
         else
             Output.Line("lifecycle kinds this Forum enables: its key set does not say");
 
-        return findings.IsEmpty ? ExitCode.Ok : ExitCode.Unverified;
+        if (!findings.IsEmpty) return ExitCode.Unverified;
+
+        // No finding is a clean comparison only if one could be made: a lifecycle to read and a key naming its binding.
+        if (last is null)
+            return Output.Fail("could not compare: the Forum's key set names no lifecycle", ExitCode.ForumFault);
+
+        if (!keySet.Keys.Any(k => k.LogIndex is not null))
+            return Output.Fail("could not compare: no key names its binding", ExitCode.ForumFault);
+
+        return ExitCode.Ok;
     }
 
     private static OwnText RetiredAt(ForumJwk key) =>
@@ -1608,6 +1627,14 @@ internal static class Program
         {
             var absent = ClientErrors.KeySetNamesNoLifecycle();
             return (Output.Fail($"error: {absent.Title}", ExitCode.ForumFault), 0);
+        }
+
+        // A lifecycle with no key naming its binding leaves the foreign scan nothing to compare against: no finding
+        // is then not a clean comparison, so no act is signed over it (cybersecurity F-A).
+        if (!keySet.Keys.Any(k => k.LogIndex is not null))
+        {
+            var unbound = ClientErrors.KeySetNamesNoBinding();
+            return (Output.Fail($"error: {unbound.Title}", ExitCode.ForumFault), 0);
         }
 
         return (null, lifecycle.Max());
