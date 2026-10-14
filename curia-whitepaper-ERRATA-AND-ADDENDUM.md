@@ -8618,6 +8618,12 @@ has none.
     `4`, and the key set says no kind is enabled. A key that leaks before the lift still has no act that
     ends it, as before this entry; item 9's residual applies only from the lift, and only where
     compromise is enabled with the others.
+12. **The detector trusts the Forum's receipt.** `curia rotate` and `curia retire` persist the 201's
+    `{agent_id, kid, log_index}` as the profile's record of its own act, without cross-checking it against
+    the request they sent. The detector's adversary is a key thief, who cannot forge the Forum's 201; a
+    Forum that lies in a receipt already controls the key set that the FOREIGN and MISSING comparison
+    reads. Refusing on a mismatch would strand an owner whose new key is already bound in the log. No
+    refusal is added. A residual that no one has accepted, as items 7 and 8.
 
 ### What this deliberately does not change
 
@@ -8675,19 +8681,31 @@ and enforced where every lifecycle append must pass.
 
 **Lifting it is the owner's own act, under two locks.** Lock 1, the build: a change on `main` adds the
 approval record the build embeds, holding (a) the owner's decision in the owner's words, with its date
-and where it was given, best of all as the owner's own review of the lifting change; (b) the kinds
+and where it was given, best of all as the owner's own review of the lifting change; the owner personally merges the lift pull request, and no agent merges it; (b) the kinds
 approved; (c) for each kind, its event type, the name of its pinned vector's directory under
 `conformance/acta/`, and the sha256 of that vector's `expected.canonical` and `expected.leaf`; (d) the owner's sign-off on the payloads' member names and event types; and (e) the
-cybersecurity agent's sign-off on the lifecycle formats, at high confidence, and `hopper-doctrine`'s gate on the first append. A
+cybersecurity agent's sign-off on the lifecycle formats, at high confidence, naming the sha256 of the exact bytes of the approval record and of the vectors it covers, and `hopper-doctrine`'s gate on the first append. A
 build-time fact recomputes (c) from `conformance/acta/` and fails on any mismatch; a tripwire fact asserts
 the approved set is empty, so the lifting change must change it. Compromise must be approved no later than
 rotation or retirement. Lock 2, the runtime opt-in: startup fails loudly when the setting names a kind the
 build does not approve, enables rotation or retirement without compromise, or cannot be read.
 
-**Open, and only a person can close it.** Branch protection on `main` requiring a code owner's review,
-and a `CODEOWNERS` entry naming the owner for the approval record's path. Until both exist, anyone able to
-merge can lift the guard, and the lift is caught only by review of the change and by the tripwire. This
-gates the lift, not the build.
+**Partly met; the rest is open, and only a person can close it.** `main` is protected by the ruleset
+"protect-main" (recorded 2026-10-14 from the GitHub API by the main session; not checked by anything in
+this repository): no deletion, no non-fast-forward, a pull request required with zero required approvals
+and no code-owner review, and all four CI jobs required on a branch that is up to date. So a change to the
+approval record reaches `main` only by a pull request on which GF6 and the guard's fences are green. Not
+met: two-person control. The agents act through the owner's own GitHub account, so an approval rule cannot
+separate them, and no `CODEOWNERS` file exists. A pull request that edits the approval record together with
+GF6 and its fences runs its own edited tests and can pass CI. An admin can also disable or edit the
+ruleset. What remains are two barriers held outside the repository: the owner personally merges the lift
+pull request (lift item (a)), and the main session's merge-time path check refuses, and hands to the
+owner, any pull request touching `lifecycle-approval.json`, `LifecycleGateFenceTests.cs`,
+`.github/workflows/` or the gate's composition. Nothing in the repository detects a lift that bypasses that
+check. The owner's acceptance of this residual: not yet restated by the owner. The owner's earlier
+statement of 2026-10-13, "I am not doing branch protection", accepted the larger residual that the ruleset
+has since reduced. Revisit when a second human or a distinct non-owner identity can approve, or when the
+ruleset and the path check are recorded in the repository. This gates the lift, not the build.
 
 **Recorded dissent, on the spec's §4.5.** The stage's spec said lifecycle signatures are made "exactly as
 posts and heads are signed" and listed a header with no `typ`; posts and heads both carry one. R4.18

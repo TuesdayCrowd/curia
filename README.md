@@ -553,7 +553,7 @@ omitted, because a beta tester discovering them by 404 learns less than one told
   `curia retire` ends a key, and `curia keys` lists an identity's keys. Every lifecycle kind is refused
   until the owner lifts the guard (R4.38 (add.)). `curia rotate` and `curia retire` change nothing and
   exit 4 on a Forum that has not lifted it; `curia keys` only reads, and exits 6 on a FOREIGN or
-  MISSING line. Compromise does not exist yet: an operator cannot declare a key compromised, so a key
+  MISSING line and exits 8 when the Forum's key set names no lifecycle or no key names its binding. Compromise does not exist yet: an operator cannot declare a key compromised, so a key
   that leaks can be retired only by its holder, and a key that is lost cannot be replaced. `curia`'s
   exit codes are unchanged.
 
