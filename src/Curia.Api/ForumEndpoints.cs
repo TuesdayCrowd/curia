@@ -27,6 +27,7 @@ using Curia.Domain.Search;
 using Curia.Domain.Serving;
 using Curia.Domain.Verification;
 using Curia.Infrastructure.Lifecycle;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 
@@ -2347,13 +2348,114 @@ public static class ForumEndpoints
             ? new ServerFault(status, error)
             : Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
 
+    private static readonly Error MalformedPath = new("curia/request/malformed-path", "The request path is malformed");
+
     /// <summary>
-    /// A route value with its escaped slashes restored. An agent identifier is usually a URL, a segment
-    /// cannot hold a slash, and the framework leaves <c>%2F</c> escaped in the value it binds while it
-    /// decodes every other escape; so this restores those and nothing else, which cannot decode twice.
+    /// The identity and the kid a key route names, read from the request target as the client wrote it and
+    /// decoded exactly once (errata G21).
+    ///
+    /// <para>The framework's path has lost the distinction that matters here: Kestrel binds both <c>%2F</c>
+    /// and <c>%252F</c> to the route value <c>%2F</c>, so a route value cannot say whether an identifier held
+    /// a slash or a literal <c>%2F</c>, and restoring slashes from it made any identity with a percent
+    /// sign in its identifier unable to rotate or retire. The raw target keeps the distinction: each
+    /// segment is decoded once, left to right, by <see cref="DecodeOnce"/>, which refuses a percent sign
+    /// not followed by two hex digits and a result that is not UTF-8, and never repairs one (R6.12). The
+    /// segments are found by their literal markers (<c>agents</c>, then <c>keys</c>), after the query, any
+    /// scheme and authority, and the path base are removed, never by position.</para>
+    ///
+    /// <para>A host that hands the pipeline no raw target (the in-memory test server) takes the one fallback
+    /// here: the framework's path with <c>%2F</c> restored once. It is the old, lossy reading, taken only
+    /// when there is nothing better, and a fact on the real host pins that production does not take it.
+    /// A proof's <c>htu</c> is still the path <see cref="AbsoluteUrl"/> builds, which cannot tell <c>%2F</c>
+    /// from <c>%252F</c>, so a proof replays across those two URLs; that is harmless because they name two
+    /// identities and the token's subject is compared with the identity decoded here.</para>
     /// </summary>
-    private static string SlashesOf(string routeValue) =>
-        routeValue.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+    private static (string? Id, string? Kid, IResult? Refusal) KeyRouteValues(HttpRequest http, bool wantKid)
+    {
+        var rawTarget = http.HttpContext.Features.Get<IHttpRequestFeature>()?.RawTarget;
+        var fromRawTarget = !string.IsNullOrEmpty(rawTarget);
+
+        string[] segments;
+        if (fromRawTarget)
+        {
+            var path = rawTarget!;
+            var query = path.IndexOf('?', StringComparison.Ordinal);
+            if (query >= 0) path = path[..query];
+
+            if (!path.StartsWith('/'))
+            {
+                var scheme = path.IndexOf("://", StringComparison.Ordinal);
+                var slash = scheme < 0 ? -1 : path.IndexOf('/', scheme + 3);
+                if (slash < 0) return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+                path = path[slash..];
+            }
+
+            var pathBase = http.PathBase.Value;
+            if (!string.IsNullOrEmpty(pathBase) && path.StartsWith(pathBase, StringComparison.OrdinalIgnoreCase))
+                path = path[pathBase.Length..];
+
+            segments = path.Split('/');
+        }
+        else
+        {
+            segments = (http.Path.Value ?? string.Empty).Split('/');
+        }
+
+        var agents = Array.IndexOf(segments, "agents");
+        var idIndex = agents + 1;
+        var kidIndex = idIndex + 2;
+        if (agents < 0
+            || kidIndex - 1 >= segments.Length
+            || !string.Equals(segments[idIndex + 1], "keys", StringComparison.Ordinal)
+            || (wantKid && kidIndex >= segments.Length))
+            return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+
+        var id = fromRawTarget ? DecodeOnce(segments[idIndex]) : RestoreSlashes(segments[idIndex]);
+        var kid = wantKid ? (fromRawTarget ? DecodeOnce(segments[kidIndex]) : RestoreSlashes(segments[kidIndex])) : string.Empty;
+        return id is null || kid is null
+            ? (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath))
+            : (id, wantKid ? kid : null, null);
+    }
+
+    private static string RestoreSlashes(string pathSegment) =>
+        pathSegment.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// One segment of a raw target decoded once, left to right: every <c>%</c> must be followed by two hex
+    /// digits, and the bytes must be UTF-8. Anything else is null, never repaired. A decoded <c>%</c> is
+    /// not read again, so <c>%252F</c> is the three characters <c>%2F</c>.
+    /// </summary>
+    private static string? DecodeOnce(string segment)
+    {
+        var strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+        var bytes = new List<byte>(segment.Length);
+        try
+        {
+            for (var i = 0; i < segment.Length;)
+            {
+                if (segment[i] == '%')
+                {
+                    if (i + 2 >= segment.Length || !Uri.IsHexDigit(segment[i + 1]) || !Uri.IsHexDigit(segment[i + 2]))
+                        return null;
+
+                    bytes.Add(byte.Parse(segment.AsSpan(i + 1, 2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture));
+                    i += 3;
+                    continue;
+                }
+
+                var end = segment.IndexOf('%', i);
+                if (end < 0) end = segment.Length;
+                bytes.AddRange(strict.GetBytes(segment[i..end]));
+                i = end;
+            }
+
+            return strict.GetString(bytes.ToArray());
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// The body limits of a key act (spec section 4.7): an object of at most three members, each a string,
@@ -2387,8 +2489,11 @@ public static class ForumEndpoints
         if (!gate.Enables(LifecycleKind.Rotation))
             return Problem(StatusCodes.Status403Forbidden, KeyActErrors.RotationNotEnabled());
 
+        var (routeId, _, pathProblem) = KeyRouteValues(http, wantKid: false);
+        if (pathProblem is not null) return pathProblem;
+
         var (agent, refused) = await AuthorizeKeyActAsync(
-            id, ActionKind.Rotate, http, pdp, events, authn, nonces, clock, cancellationToken).ConfigureAwait(false);
+            routeId!, ActionKind.Rotate, http, pdp, events, authn, nonces, clock, cancellationToken).ConfigureAwait(false);
         if (refused is not null) return refused;
 
         var (body, bodyProblem) = await ReadKeyActBodyAsync(http, ["statement", "authorization", "possession"], cancellationToken).ConfigureAwait(false);
@@ -2439,14 +2544,17 @@ public static class ForumEndpoints
         if (!gate.Enables(LifecycleKind.Retirement))
             return Problem(StatusCodes.Status403Forbidden, KeyActErrors.RetirementNotEnabled());
 
+        var (routeId, routeKid, pathProblem) = KeyRouteValues(http, wantKid: true);
+        if (pathProblem is not null) return pathProblem;
+
         var (agent, refused) = await AuthorizeKeyActAsync(
-            id, ActionKind.Retire, http, pdp, events, authn, nonces, clock, cancellationToken).ConfigureAwait(false);
+            routeId!, ActionKind.Retire, http, pdp, events, authn, nonces, clock, cancellationToken).ConfigureAwait(false);
         if (refused is not null) return refused;
 
         var (body, bodyProblem) = await ReadKeyActBodyAsync(http, ["statement", "authorization"], cancellationToken).ConfigureAwait(false);
         if (bodyProblem is not null) return bodyProblem;
 
-        if (!Kid.Parse(SlashesOf(kid), "kid").TryGetValue(out var parsedKid, out var kidError))
+        if (!Kid.Parse(routeKid, "kid").TryGetValue(out var parsedKid, out var kidError))
             return Problem(StatusCodes.Status400BadRequest, kidError!);
         if (!StatementText.Parse(body!["statement"], "statement").TryGetValue(out var statement, out var statementError))
             return Problem(StatusCodes.Status400BadRequest, statementError!);
@@ -2496,7 +2604,7 @@ public static class ForumEndpoints
             return (null, await NonceChallengeOrProblemAsync(authError!, nonces, cancellationToken).ConfigureAwait(false));
 
         var subject = authenticated!.Claims.Sub;
-        if (!string.Equals(subject, SlashesOf(id), StringComparison.Ordinal))
+        if (!string.Equals(subject, id, StringComparison.Ordinal))
             return (null, Problem(StatusCodes.Status403Forbidden, KeyActErrors.NotOwn()));
 
         if (!PrincipalOf(subject).TryGetValue(out var agent, out var subjectError))

@@ -36,17 +36,62 @@ internal static class KeyActRequests
     internal static string Unique(string stem) => $"https://agents.example/{stem}-{Guid.NewGuid().ToString("N")[..8]}";
 
     /// <summary>
-    /// The route for an agent whose identifier is a URL. A slash is escaped, since a segment cannot hold one,
-    /// and a colon is not: the Forum reads its own request URL back from the path the server hands it (the
-    /// colon decoded, <c>%2F</c> kept), and a proof's <c>htu</c> must equal that string.
+    /// The route for an agent whose identifier is a URL, as the client sends it (the client's rule: an
+    /// escape for everything but the colon). A slash is escaped, since a segment cannot hold one, and a
+    /// percent sign is escaped, so an identifier holding a literal <c>%2F</c> goes as <c>%252F</c>.
     /// </summary>
-    internal static string RotateUrl(string agentId) =>
-        $"http://localhost/v1/agents/{Segment(agentId)}/keys";
+    internal static string RotateUrl(string agentId, string origin = "http://localhost") =>
+        $"{origin}/v1/agents/{Segment(agentId)}/keys";
 
     private static string Segment(string value) => Uri.EscapeDataString(value).Replace("%3A", ":", StringComparison.Ordinal);
 
-    internal static string RetireUrl(string agentId, string kid) =>
-        $"{RotateUrl(agentId)}/{Segment(kid)}/retire";
+    internal static string RetireUrl(string agentId, string kid, string origin = "http://localhost") =>
+        $"{RotateUrl(agentId, origin)}/{Segment(kid)}/retire";
+
+    /// <summary>
+    /// A proof's <c>htu</c> for the rotation route: the path form the host reads, which is not the sent URL
+    /// whenever the identifier holds a percent sign (the framework's path has decoded one level of escapes
+    /// and kept <c>%2F</c>, so <c>%252F</c> and <c>%2F</c> read the same). <see cref="PathForm"/> says how;
+    /// <c>KeyRouteIdentityTests</c> pins it against what a real host reads.
+    /// </summary>
+    internal static string RotateHtu(string agentId, string origin = "http://localhost") =>
+        PathForm(RotateUrl(agentId, origin));
+
+    /// <summary>A proof's <c>htu</c> for the retirement route, as <see cref="RotateHtu"/>.</summary>
+    internal static string RetireHtu(string agentId, string kid, string origin = "http://localhost") =>
+        PathForm(RetireUrl(agentId, kid, origin));
+
+    /// <summary>
+    /// The URL as the host builds it from its path: every escape decoded once, left to right, except
+    /// <c>%2F</c> and <c>%5C</c>, which stay as written, then the framework's own re-escape of the result.
+    /// </summary>
+    internal static string PathForm(string sentUrl)
+    {
+        var uri = new Uri(sentUrl);
+        var path = uri.AbsolutePath;
+        var bytes = new List<byte>(path.Length);
+        for (var i = 0; i < path.Length;)
+        {
+            if (path[i] == '%' && i + 2 < path.Length && Uri.IsHexDigit(path[i + 1]) && Uri.IsHexDigit(path[i + 2]))
+            {
+                var hex = path.Substring(i + 1, 2);
+                if (string.Equals(hex, "2F", StringComparison.OrdinalIgnoreCase) || string.Equals(hex, "5C", StringComparison.OrdinalIgnoreCase))
+                    bytes.AddRange(Encoding.ASCII.GetBytes("%" + hex));
+                else
+                    bytes.Add(Convert.ToByte(hex, 16));
+
+                i += 3;
+            }
+            else
+            {
+                bytes.Add((byte)path[i]); // AbsolutePath is ASCII
+                i++;
+            }
+        }
+
+        return uri.GetLeftPart(UriPartial.Authority)
+            + new Microsoft.AspNetCore.Http.PathString(Encoding.UTF8.GetString(bytes.ToArray())).ToUriComponent();
+    }
 
     internal static T Require<T>(Result<T> result) =>
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} {e.Detail}"));

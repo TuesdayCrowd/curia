@@ -221,6 +221,11 @@ internal sealed class DpopClient
     /// Set for endpoints that bind a JSON body. The submission path deliberately leaves it unset:
     /// it reads the raw wire bytes, and a submission is canonical JSON that no binder may reshape.
     /// </param>
+    /// <param name="htu">
+    /// The URL the proof is signed over, when it is not the URL sent: the key routes' <c>htu</c> is the
+    /// path form the host reads (see <c>KeyActRequests.RotateHtu</c>), which differs from the sent URL for an
+    /// identifier holding a percent sign. Unset, the proof is over <paramref name="absoluteUrl"/>.
+    /// </param>
     internal async Task<HttpResponseMessage> PostAsync(
         HttpClient client,
         string absoluteUrl,
@@ -228,7 +233,8 @@ internal sealed class DpopClient
         byte[] wire,
         DateTimeOffset now,
         CancellationToken ct,
-        string? contentType = null)
+        string? contentType = null,
+        string? htu = null)
     {
         var response = await Send(nonce: null);
 
@@ -255,7 +261,7 @@ internal sealed class DpopClient
                 Content = content,
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("DPoP", accessToken);
-            request.Headers.Add("DPoP", Proof("POST", absoluteUrl, now, accessToken, nonce));
+            request.Headers.Add("DPoP", Proof("POST", htu ?? absoluteUrl, now, accessToken, nonce));
 
             // Read the body before the request is disposed: HttpClient does not buffer by default,
             // and a response whose content stream outlives its request reads as an empty body --
