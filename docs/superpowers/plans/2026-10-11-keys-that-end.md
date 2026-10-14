@@ -1244,7 +1244,7 @@ Also re-run GF1 and GF9's facts unpatched (they must stay green on PR 2's tree),
 - [ ] `CLAUDE.md` and `README.md`: compromise, exit 9, the operator verb, and beside them R12.11's rule in the help text's sentence: 'Pass --from-index no later than the first index the owner's client reports as FOREIGN (their lifecycle_acts are the evidence); a later --from-index leaves live any key the compromised key bound before it (R6.57 cascades only at or after from_index).'
 - [ ] Record for the owner: the `curia` skill's exit codes.
 - [ ] A dry run through the **test composition** against a database created and dropped by that run (never the production binary with a setting; **CP-D**: assert the database name came from this run's create step before any append), in which both readers render disputed for a post with a rotation between it and the declaration. There is no production declaration until after the owner's lift.
-- [ ] `IMPLEMENTATION_PLAN.md`: the guard's entry gains PR 2's GF2; the lift is still the owner's, with NEEDS still open unless a person has closed it.
+- [ ] `IMPLEMENTATION_PLAN.md`: the guard's entry gains PR 2's GF2; the lift is still the owner's; NEEDS is partly met and its remainder accepted by the owner (2026-10-14).
 - [ ] Scan for invisible characters. Commit.
 
 ### Task 2.6: Every gate, then PR 2
