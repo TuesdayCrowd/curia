@@ -36,6 +36,14 @@ public static class AuthNErrors
         "No key with that identifier is registered to that agent",
         $"agent={agentId} kid={kid}");
 
+    /// <summary>R5.22: the token carries no usable <c>curia_akid</c>, so no key can be read as live for it.</summary>
+    public static Error TokenNamesNoKey() => new(
+        "curia/authn/token-names-no-key", "The token names no assertion key");
+
+    /// <summary>R5.22: the key the token was issued on is no longer live. Names no key.</summary>
+    public static Error TokenKeyNotLive() => new(
+        "curia/authn/token-key-not-live", "The key this token was issued on is no longer live");
+
     public static Error KidNotFound(string kid) => new(
         "curia/authn/kid-not-found", "kid not found in the configured JWKS", kid);
 

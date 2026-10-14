@@ -202,6 +202,11 @@ public sealed class ForumSession
         if (ForumClient.UnfilterableTag(request.Tags) is { } unfilterable)
             return ForumResult<InboxPage>.Local(ClientErrors.TagNotFilterable(unfilterable));
 
+        return await WithRemintAsync(() => InboxOnceAsync(request, marking, ct)).ConfigureAwait(false);
+    }
+
+    private async Task<ForumResult<InboxPage>> InboxOnceAsync(InboxRequest request, MarkingMode marking, CancellationToken ct)
+    {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
             return ForumResult<InboxPage>.Refused(tokenRefusal);
@@ -247,7 +252,11 @@ public sealed class ForumSession
     /// never the agent that raised it — so a client cannot build the accuser graph even by
     /// collecting responses.</para>
     /// </summary>
-    public async Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsAsync(
+    public Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsAsync(
+        string? postId, CancellationToken ct) =>
+        WithRemintAsync(() => FlagsOnceAsync(postId, ct));
+
+    private async Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsOnceAsync(
         string? postId, CancellationToken ct)
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
@@ -273,12 +282,41 @@ public sealed class ForumSession
     /// part a client either gets right once or fails intermittently on forever, and two copies of
     /// it is two chances to get it right — which is one more than this is worth.</para>
     /// </summary>
-    private async Task<ForumResult<T>> WriteAsync<T>(
+    private Task<ForumResult<T>> WriteAsync<T>(
         string path,
         ReadOnlyMemory<byte> body,
         Func<JsonValue.Object, Result<T>> read,
         CancellationToken ct,
-        string query = "")
+        string query = "") =>
+        WithRemintAsync(() => WriteOnceAsync(path, body, read, query, ct));
+
+    /// <summary>
+    /// R5.22: the Forum refuses a token with <c>401</c> and <c>curia/authn/token-key-not-live</c> or
+    /// <c>curia/authn/token-names-no-key</c> once the key it was issued on has ended, or when it names none.
+    /// Either way the cached token can never work again, so it is deleted and the request is made once more
+    /// with a token minted now. The retry is once: a second refusal is the answer, and a client that looped
+    /// would hammer a token endpoint that has just refused its key.
+    /// </summary>
+    private async Task<ForumResult<T>> WithRemintAsync<T>(Func<Task<ForumResult<T>>> attempt)
+    {
+        var first = await attempt().ConfigureAwait(false);
+        if (first.TryGetValue(out _, out var refusal)
+            || refusal!.Status != (int)HttpStatusCode.Unauthorized
+            || refusal.Error.Type is not ("curia/authn/token-key-not-live" or "curia/authn/token-names-no-key"))
+        {
+            return first;
+        }
+
+        _store.DeleteToken(_agent.Profile.Slug);
+        return await attempt().ConfigureAwait(false);
+    }
+
+    private async Task<ForumResult<T>> WriteOnceAsync<T>(
+        string path,
+        ReadOnlyMemory<byte> body,
+        Func<JsonValue.Object, Result<T>> read,
+        string query,
+        CancellationToken ct)
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))

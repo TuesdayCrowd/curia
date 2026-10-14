@@ -177,7 +177,8 @@ public static class TokenEndpoint
             validatedProof!.Thumbprint,
             owner: claims.Sub,
             tier: tier.Tier.ToString(),
-            scope: string.IsNullOrWhiteSpace(scope) ? "question:create answer:create" : scope);
+            scope: string.IsNullOrWhiteSpace(scope) ? "question:create answer:create" : scope,
+            assertionKid: claims.Kid);
 
         return Results.Ok(new
         {

@@ -107,6 +107,27 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
             : Result<LiveKey>.Fail(AuthorKeyErrors.Retired(agentId.Value, kid.Value));
     }
 
+    /// <summary>
+    /// What the log says of <paramref name="kid"/> of <paramref name="agentId"/> now (R5.22): <see cref="KeyStatus.Unbound"/>
+    /// when no entry binds it to the identity, otherwise the lifecycle's answer. Read from the log on every
+    /// call; <see cref="LogUnreadable"/> when it cannot be read, which is never an answer about the key.
+    /// </summary>
+    public async Task<Result<KeyStatus>> StatusAsync(AgentId agentId, Kid kid, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        var read = await ReadAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var stream, out var readError))
+            return Result<KeyStatus>.Fail(readError!);
+
+        if (stream!.Binding?.For(kid) is null) return Result<KeyStatus>.Ok(KeyStatus.Unbound);
+
+        return KeyLifecycle.Of(stream.History, agentId).TryGetValue(out var lifecycle, out var foldError)
+            ? Result<KeyStatus>.Ok(lifecycle!.StatusNow(kid.Value))
+            : Result<KeyStatus>.Fail(foldError!);
+    }
+
     /// <summary>The keys the store holds for <paramref name="agentId"/> that the log binds to it, each with its binding.</summary>
     public async Task<Result<AgentKeySet>> KeySetAsync(AgentId agentId, CancellationToken cancellationToken = default)
     {

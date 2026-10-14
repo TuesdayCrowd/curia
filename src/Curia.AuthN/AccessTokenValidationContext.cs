@@ -20,6 +20,7 @@ public sealed record AccessTokenValidationContext(
     IReplayCache ReplayCache,
     IReadOnlyDictionary<string, IContentVerifier> VerifiersByAlg,
     TimeProvider Clock,
+    IAgentKeyLiveness KeyLiveness,
     IDpopNonceStore? DpopNonceStore = null);
 
 /// <summary>

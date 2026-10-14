@@ -20,7 +20,8 @@ public sealed record AccessTokenClaims(
     string Scope,
     string CnfJkt,
     string Owner,
-    string Tier)
+    string Tier,
+    string AssertionKid)
 {
     internal static Result<AccessTokenClaims> Parse(JsonElement root)
     {
@@ -45,7 +46,8 @@ public sealed record AccessTokenClaims(
             Scope: CompactJws.ReadString(root, "scope"),
             CnfJkt: ReadCnfJkt(root),
             Owner: CompactJws.ReadString(root, "owner"),
-            Tier: CompactJws.ReadString(root, "tier")));
+            Tier: CompactJws.ReadString(root, "tier"),
+            AssertionKid: CompactJws.ReadString(root, "curia_akid")));
     }
 
     /// <summary><c>aud</c> is a single string or an array of strings per RFC 7519 §4.1.3; both

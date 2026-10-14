@@ -76,6 +76,7 @@ public sealed class TokenIssuer
     /// on every request. This is what makes the token sender-constrained -- a stolen token is
     /// useless without the private key whose thumbprint this is.
     /// </param>
+    /// <param name="assertionKid">R5.22: the <c>kid</c> of the key the client assertion was signed with, carried as <c>curia_akid</c>, so that every request can read that the key is still live.</param>
     /// <param name="tier">
     /// The tier at issuance, carried for observability only. R7.7 forbids <i>relying</i> on it:
     /// "Tier SHALL be computed from live state at decision time, never read solely from a token
@@ -83,9 +84,10 @@ public sealed class TokenIssuer
     /// and understood, and <see cref="EvaluatedTier"/> makes using it for a decision impossible to
     /// express anyway.
     /// </param>
-    public IssuedToken Mint(string subject, string dpopThumbprint, string owner, string tier, string scope)
+    public IssuedToken Mint(string subject, string dpopThumbprint, string owner, string tier, string scope, string assertionKid)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assertionKid);
         ArgumentException.ThrowIfNullOrWhiteSpace(dpopThumbprint);
 
         var now = _clock.GetUtcNow();
@@ -113,6 +115,7 @@ public sealed class TokenIssuer
             ["cnf"] = new JsonObject { ["jkt"] = dpopThumbprint },
             ["owner"] = owner,
             ["tier"] = tier,
+            ["curia_akid"] = assertionKid,
         };
 
         var signingInput =

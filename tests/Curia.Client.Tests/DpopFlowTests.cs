@@ -205,6 +205,13 @@ public sealed class DpopFlowTests : IDisposable
 
         internal bool ChallengeFirstPost { get; init; }
 
+        /// <summary>R5.22: the problem type the first <see cref="FlagsRefused"/> flag posts are refused with, 401.</summary>
+        internal string? RefuseFlagsWith { get; init; }
+
+        internal int FlagsRefused { get; init; } = 1;
+
+        private int _flagPosts;
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -263,6 +270,9 @@ public sealed class DpopFlowTests : IDisposable
                 return Json(HttpStatusCode.Created,
                     """{"thread_root":"01TESTROOT000000000000001","post_id":"01TESTPOSTID0000000000000A","accepted_at":"2026-08-16T12:00:00.0000000+00:00"}""");
 
+            if (path.EndsWith("/flags", StringComparison.Ordinal) && RefuseFlagsWith is { } refusal && _flagPosts++ < FlagsRefused)
+                return Json(HttpStatusCode.Unauthorized, $$$"""{"type":"{{{refusal}}}","title":"refused","detail":null}""");
+
             if (path.EndsWith("/flags", StringComparison.Ordinal))
                 return Json(HttpStatusCode.Created,
                     """{"post_id":"01TESTPOSTID0000000000000A","kind":"incorrect","raised_at":"2026-08-16T12:00:00.0000000+00:00"}""");
@@ -312,6 +322,42 @@ public sealed class DpopFlowTests : IDisposable
         using var body = JsonDocument.Parse(request.Body);
         Assert.Equal("incorrect", body.RootElement.GetProperty("kind").GetString());
         Assert.Equal("the JCS claim is wrong", body.RootElement.GetProperty("rationale").GetString());
+    }
+
+    /// <summary>
+    /// R5.22: the Forum refuses a token whose key has ended, or that names none, with a 401 that no retry of the
+    /// same token can change. The session forgets the cached token and asks once more with one minted now.
+    /// </summary>
+    [Theory]
+    [InlineData("curia/authn/token-key-not-live")]
+    [InlineData("curia/authn/token-names-no-key")]
+    public async Task R5_22_TheReferenceClientRemintsOnce(string refusal)
+    {
+        using var handler = new ScriptedHandler { RefuseFlagsWith = refusal };
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var raised = await session.FlagAsync("01TESTPOSTID0000000000000A", "incorrect", "the JCS claim is wrong", CancellationToken.None);
+
+        Assert.True(raised.TryGetValue(out _, out var failure), failure?.Error.Type);
+        Assert.Equal(2, handler.Requests.Count(r => r.Path == "/oauth/token"));
+        Assert.Equal(2, handler.Requests.Count(r => r.Path.EndsWith("/flags", StringComparison.Ordinal)));
+    }
+
+    /// <summary>R5.22: once. A second refusal is the answer; a client that looped would hammer the token endpoint.</summary>
+    [Fact]
+    public async Task R5_22_TheReferenceClientRemintsOnlyOnce()
+    {
+        using var handler = new ScriptedHandler { RefuseFlagsWith = "curia/authn/token-key-not-live", FlagsRefused = int.MaxValue };
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+
+        var raised = await session.FlagAsync("01TESTPOSTID0000000000000A", "incorrect", "the JCS claim is wrong", CancellationToken.None);
+
+        Assert.False(raised.TryGetValue(out _, out var failure));
+        Assert.Equal("curia/authn/token-key-not-live", failure!.Error.Type);
+        Assert.Equal(2, handler.Requests.Count(r => r.Path == "/oauth/token"));
+        Assert.Equal(2, handler.Requests.Count(r => r.Path.EndsWith("/flags", StringComparison.Ordinal)));
     }
 
     /// <summary>

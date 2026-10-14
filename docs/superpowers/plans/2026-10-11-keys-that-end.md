@@ -844,7 +844,15 @@ The R7.12 denial enumeration from the white paper's Table 10 must now include bo
 - `R5_22_AnotherKeysTokenOfTheSameAgentStillWorks`.
 - `R5_22_ALivenessReadThatFailsRefusesTheRequest`: an `IAgentKeyLiveness` that returns an error; the request is refused with that error, never served. Red when a failed read is treated as `Active` (F1-50).
 
-- [ ] Client: a 401 with `token-key-not-live` or `token-names-no-key` deletes `token.json` and retries once (`ForumSession`). Fact: `R5_22_TheReferenceClientRemintsOnce` in `Curia.Client.Tests`.
+- [ ] The block above needs these members, which it did not name (found at execution):
+  - `ClientAssertionClaims` gains `Kid` (an init property the validator sets with `claims with { Kid = kid.Value }` once the assertion verified), and `TokenEndpoint` passes `claims.Kid` to `Mint`.
+  - `AccessTokenValidationContext` gains the required member `IAgentKeyLiveness KeyLiveness`, before the optional `DpopNonceStore`; `Program.cs` registers `LogKeyLiveness` and passes it.
+  - `LogBoundKeys.StatusAsync(AgentId, Kid, ct)` is the read `LogKeyLiveness` adapts: `Unbound` when no entry binds the kid, else the lifecycle's `StatusNow`; `LogUnreadable` when the log cannot be read.
+  - `subject` in the block is `AgentId.Parse(claims.Sub, "sub")`; a subject that is no `AgentId` is `TokenKeyNotLive`.
+  - A liveness read that fails with `curia/log/unreadable` is answered 503 by `NonceChallengeOrProblemAsync` (the 401 would tell the client to mint again).
+  - `AuthNErrors.TokenNamesNoKey()` and `TokenKeyNotLive()` are the two 401s.
+  - `R5_22_ALivenessReadThatFailsRefusesTheRequest` runs on `UnreadableLivenessForumFixture` (the host with `FailingKeyLiveness`) and expects 503 `curia/log/unreadable`; `Curia.AuthN.Tests` adds `AccessTokenValidatorKeyLivenessTests` over `InMemoryAgentKeyLiveness`.
+- [ ] Client: a 401 with `token-key-not-live` or `token-names-no-key` deletes `token.json` and retries once (`ForumSession`: `WithRemintAsync` wraps the write, inbox and flag-listing paths; `ProfileStore.DeleteToken`). Fact: `R5_22_TheReferenceClientRemintsOnce` in `Curia.Client.Tests`, with `R5_22_TheReferenceClientRemintsOnlyOnce` for the second refusal.
 - [ ] Commit: `R5.22: a token is refused once the key it was issued on ends`.
 
 ### Task 1.8: The client's verbs

@@ -356,6 +356,16 @@ public sealed class ProfileStore
             : null;
     }
 
+    /// <summary>
+    /// Forgets the cached access token for a slug (R5.22): the Forum has refused it because the key it was
+    /// issued on has ended, so the next request mints one on a live key. Absent is not an error.
+    /// </summary>
+    public void DeleteToken(string slug)
+    {
+        var path = Path.Combine(DirectoryFor(slug), TokenFile);
+        if (File.Exists(path)) File.Delete(path);
+    }
+
     public void WriteToken(string slug, CachedToken token)
     {
         ArgumentNullException.ThrowIfNull(token);

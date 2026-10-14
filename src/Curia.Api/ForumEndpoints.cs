@@ -2254,6 +2254,11 @@ public static class ForumEndpoints
     private static async Task<IResult> NonceChallengeOrProblemAsync(
         Error error, IDpopNonceStore nonces, CancellationToken cancellationToken)
     {
+        // R5.22: a liveness read that failed decided nothing about the key; the server's fault, as every
+        // other read of the log answers it (R4.35), and never the 401 that tells a client to mint again.
+        if (string.Equals(error.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal))
+            return Problem(StatusCodes.Status503ServiceUnavailable, error);
+
         if (error.Type is not ("curia/authn/nonce-missing" or "curia/authn/nonce-stale"))
             return Problem(StatusCodes.Status401Unauthorized, error);
 

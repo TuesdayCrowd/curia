@@ -135,6 +135,7 @@ public sealed class Program
         builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
         builder.Services.AddSingleton<ILiveKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
         builder.Services.AddSingleton<IAgentKeyResolver>(sp => new LogBoundAgentKeyResolver(sp.GetRequiredService<LogBoundKeys>()));
+        builder.Services.AddSingleton<IAgentKeyLiveness>(sp => new LogKeyLiveness(sp.GetRequiredService<LogBoundKeys>()));
 
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventStore);
 
@@ -317,6 +318,7 @@ public sealed class Program
                 ReplayCache: sp.GetRequiredService<IReplayCache>(),
                 VerifiersByAlg: sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
                 Clock: sp.GetRequiredService<TimeProvider>(),
+                KeyLiveness: sp.GetRequiredService<IAgentKeyLiveness>(),
                 DpopNonceStore: sp.GetRequiredService<IDpopNonceStore>());
         });
 
