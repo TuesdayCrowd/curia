@@ -6057,15 +6057,15 @@ FL-18) saw reference types only until the L.2 review round of 2026-10-12, whose
 their routes and verbs behind this guard, and they refuse under it: `POST` of a rotation or a
 retirement answers `curia/keys/lifecycle-not-enabled` (GF1), and `curia rotate` and `curia retire`
 exit 4 and leave the profile and its keys unchanged (GF9). The guard is still not lifted, by anyone,
-in any PR of this stage. NEEDS below is partly met and otherwise open. Known residual: the detector trusts the Forum's receipt (G21, 'What this costs', item 12).
+in any PR of this stage. NEEDS below is partly met and its remainder accepted by the owner. Known residual, accepted by the owner (the owner's answer, 2026-10-14, in the working session): the detector trusts the Forum's receipt (G21, 'What this costs', item 12). Owner question B for PR 1 is signed off (the owner's answer, 2026-10-14, in the working session); it freezes nothing, and the lift record's item (d) still covers all three kinds.
 
-**NEEDS (partly met, the rest human only, open).** The "protect-main" ruleset (id 25038871, recorded
+**NEEDS (partly met; the remainder accepted by the owner).** The "protect-main" ruleset (id 25038871, recorded
 2026-10-14 by the main session from the GitHub API; unverified here) requires a pull request and the four
 CI jobs green on an up-to-date branch. Not met: code-owner review or any second-person control, and a
 `CODEOWNERS` entry. A pull request editing the approval record and GF6 together can pass its own tests.
 Held outside the repository: the owner's personal merge of the lift PR and the main session's merge-time
 path check. It gates the lift, not the build. Until a second identity exists, decision agents may merge
-green PRs that touch none of the paths that check names. The owner's acceptance: not yet restated.
+green PRs that touch none of the paths that check names. The owner accepts the remainder (the owner's answer, 2026-10-14, in the working session); it stays a recorded weakening, not a mitigation.
 
 **Related register entry.** KF6's **D43** (compromise declarations are signed with the log key, which
 must not stay so once heads are signed unattended) is present above and open, by decision, not a defect

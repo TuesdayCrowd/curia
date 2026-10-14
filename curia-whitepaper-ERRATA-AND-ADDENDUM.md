@@ -8623,7 +8623,8 @@ has none.
     the request they sent. The detector's adversary is a key thief, who cannot forge the Forum's 201; a
     Forum that lies in a receipt already controls the key set that the FOREIGN and MISSING comparison
     reads. Refusing on a mismatch would strand an owner whose new key is already bound in the log. No
-    refusal is added. A residual that no one has accepted, as items 7 and 8.
+    refusal is added. The owner accepts this as a recorded residual (the owner's answer, 2026-10-14, in the
+    working session), as items 7 and 8.
 
 ### What this deliberately does not change
 
@@ -8702,9 +8703,11 @@ ruleset. What remains are two barriers held outside the repository: the owner pe
 pull request (lift item (a)), and the main session's merge-time path check refuses, and hands to the
 owner, any pull request touching `lifecycle-approval.json`, `LifecycleGateFenceTests.cs`,
 `.github/workflows/` or the gate's composition. Nothing in the repository detects a lift that bypasses that
-check. The owner's acceptance of this residual: not yet restated by the owner. The owner's earlier
-statement of 2026-10-13, "I am not doing branch protection", accepted the larger residual that the ruleset
-has since reduced. Revisit when a second human or a distinct non-owner identity can approve, or when the
+check. The owner accepts this residual (the owner's answer, 2026-10-14, in the working session): no second-person control, a pull request
+that edits the record and GF6 together can pass its own CI, an admin can disable the ruleset, and the lift is
+held by the owner's personal merge and the main session's merge-time path check outside the repository.
+It stays a recorded weakening, not a mitigation. The owner's earlier statement of 2026-10-13, "I am not
+doing branch protection", accepted the larger residual that the ruleset has since reduced. Revisit when a second human or a distinct non-owner identity can approve, or when the
 ruleset and the path check are recorded in the repository. This gates the lift, not the build.
 
 **Recorded dissent, on the spec's §4.5.** The stage's spec said lifecycle signatures are made "exactly as
