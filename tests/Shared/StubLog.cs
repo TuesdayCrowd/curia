@@ -536,6 +536,25 @@ internal sealed class StubLog : IDisposable
     /// <summary>The DPoP proof claims of every write, in order, including the ones the stub refused.</summary>
     internal List<(string? Jti, string? Nonce, string? Htu)> WriteProofs { get; } = [];
 
+    /// <summary>
+    /// GF9's guarded mode (R4.38 (add.); spec sections 4.7 and 4.13), off by default: a POST to either lifecycle route
+    /// is answered at once, before its proof is looked at, with 403 and the refusal document its kind has
+    /// (<see cref="LifecycleRefusals"/>), as a Forum that enables neither kind answers. The request is recorded in
+    /// <see cref="Requests"/> all the same, so a test can count how many reached the route.
+    /// </summary>
+    internal bool GuardsLifecycle { get; set; }
+
+    /// <summary>
+    /// The log index a lifecycle route answers when it is not guarded and accepts an act, in its 201.
+    /// </summary>
+    internal long LifecycleLogIndex { get; set; } = 3;
+
+    /// <summary>
+    /// When set, the key set's <c>curia_lifecycle</c> holds this index beside the enrolment's: an entry in the
+    /// identity's lifecycle that the profile did not make (R4.39).
+    /// </summary>
+    internal long? ForeignLifecycleIndex { get; set; }
+
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
 
@@ -772,7 +791,7 @@ internal sealed class StubLog : IDisposable
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
         "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}",
         "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}},"curia_status":"active"}],
-        "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{KeyIndex}}]}
+        "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{KeyIndex}}{{(ForeignLifecycleIndex is { } foreign ? "," + foreign.ToString(CultureInfo.InvariantCulture) : string.Empty)}}]}
         """.ReplaceLineEndings(string.Empty);
     }
 
@@ -1162,7 +1181,16 @@ internal sealed class StubLog : IDisposable
                 return (HttpStatusCode.OK, StubLog.TokenJson(), null);
             }
 
-            var routed = path == "/v1/posts"
+            // A lifecycle route (spec section 4.7). A guarded Forum answers before it looks at anything else.
+            var lifecycle = LifecycleRoute(path);
+            if (lifecycle is not null && log.GuardsLifecycle)
+            {
+                return (HttpStatusCode.Forbidden,
+                    lifecycle == "rotation" ? LifecycleRefusals.Rotation : LifecycleRefusals.Retirement, null);
+            }
+
+            var routed = lifecycle is not null
+                || path == "/v1/posts"
                 || (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
                     && (path.EndsWith("/flags", StringComparison.Ordinal) || path.EndsWith("/accept", StringComparison.Ordinal)));
 
@@ -1186,6 +1214,8 @@ internal sealed class StubLog : IDisposable
 
             if (jti is null || !log._burnedJtis.Add(jti))
                 return (HttpStatusCode.Unauthorized, Problem("curia/authn/replay", "This DPoP proof has already been used"), null);
+
+            if (lifecycle is not null) return (HttpStatusCode.Created, LifecycleReceipt(log, body), null);
 
             if (path == "/v1/posts")
             {
@@ -1215,6 +1245,33 @@ internal sealed class StubLog : IDisposable
             return path.EndsWith("/flags", StringComparison.Ordinal)
                 ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
                 : (HttpStatusCode.OK, StubLog.AcceptanceJson(), null);
+        }
+
+        /// <summary><c>rotation</c> or <c>retirement</c> for a lifecycle route's path, or null for any other.</summary>
+        private static string? LifecycleRoute(string path)
+        {
+            if (!path.StartsWith("/v1/agents/", StringComparison.Ordinal)) return null;
+            if (path.EndsWith("/retire", StringComparison.Ordinal) && path.Contains("/keys/", StringComparison.Ordinal)) return "retirement";
+            return path.EndsWith("/keys", StringComparison.Ordinal) ? "rotation" : null;
+        }
+
+        /// <summary>The 201 of an accepted act: the identity and the key its statement names, at <see cref="LifecycleLogIndex"/>.</summary>
+        private static string LifecycleReceipt(StubLog log, string requestBody)
+        {
+            using var request = System.Text.Json.JsonDocument.Parse(requestBody);
+            using var statement = System.Text.Json.JsonDocument.Parse(request.RootElement.GetProperty("statement").GetString()!);
+            var root = statement.RootElement;
+            var receipt = new Dictionary<string, object>
+            {
+                ["agent_id"] = root.GetProperty("agent_id").GetString()!,
+                ["kid"] = root.GetProperty("kid").GetString()!,
+                ["log_index"] = log.LifecycleLogIndex,
+            };
+
+            if (root.TryGetProperty("authorized_by", out var authorizedBy))
+                receipt["authorized_by"] = authorizedBy.GetString()!;
+
+            return System.Text.Json.JsonSerializer.Serialize(receipt);
         }
 
         private static string? Proof(HttpRequestMessage request) =>

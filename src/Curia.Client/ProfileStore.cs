@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
@@ -31,8 +33,55 @@ namespace Curia.Client;
 /// one a single forgotten flag reverts -- and the thing it would revert to is a key file this
 /// profile does not have, or worse, one it should not be using.</para>
 /// </param>
+/// <param name="RetainedKeys">
+/// The keys this identity signed with before a rotation (errata G21, spec section 4.12), oldest first, each with
+/// where its private half is: a file under <c>keys/</c>, or the external signer that holds it. A key stays here
+/// after it is retired, marked so, because a post signed under it is still its author's.
+/// </param>
+/// <param name="LifecycleActs">
+/// Every rotation and retirement this profile made and the Forum accepted, with the log index the Forum answered
+/// (spec section 4.12). The evidence a client compares the Forum's published lifecycle with: an entry there that
+/// is not here was not made by this profile (R4.39).
+/// </param>
 public sealed record AgentProfile(
-    string Slug, string AgentId, string Kid, string Alg, Uri Forum, string? EnrolledAt = null, string? Signer = null);
+    string Slug, string AgentId, string Kid, string Alg, Uri Forum, string? EnrolledAt = null, string? Signer = null,
+    ImmutableArray<RetainedKey> RetainedKeys = default, ImmutableArray<LifecycleAct> LifecycleActs = default)
+{
+    /// <summary>The retained keys; empty, never a default array.</summary>
+    public ImmutableArray<RetainedKey> Retained => RetainedKeys.IsDefault ? [] : RetainedKeys;
+
+    /// <summary>The acts this profile made; empty, never a default array.</summary>
+    public ImmutableArray<LifecycleAct> Acts => LifecycleActs.IsDefault ? [] : LifecycleActs;
+}
+
+/// <summary>
+/// A key this identity no longer signs with (spec section 4.12): <c>retained_keys</c> in <c>identity.json</c>.
+/// Where its private half is follows from the key itself: <paramref name="Signer"/> is the external signer
+/// that holds it, and otherwise it is the file <c>keys/&lt;sha256-hex of kid&gt;.pem</c>, a name derived from
+/// the kid and never taken from it.
+/// </summary>
+/// <param name="Kid">The key's identifier.</param>
+/// <param name="Alg">The JWS <c>alg</c> it signs with.</param>
+/// <param name="File">The key file, relative to the profile directory; null when an external signer holds it.</param>
+/// <param name="Signer">The external signer's command; null when <paramref name="File"/> holds the key.</param>
+/// <param name="Retired">Whether the Forum accepted this profile's retirement of the key (R4.39).</param>
+public sealed record RetainedKey(string Kid, string Alg, string? File = null, string? Signer = null, bool Retired = false);
+
+/// <summary>
+/// A rotation or a retirement this profile made and the Forum accepted (spec section 4.12):
+/// <c>lifecycle_acts</c> in <c>identity.json</c>.
+/// </summary>
+/// <param name="Kind"><see cref="Rotation"/> or <see cref="Retirement"/>.</param>
+/// <param name="Kid">The key the act bound (a rotation) or ended (a retirement).</param>
+/// <param name="LogIndex">The log index the Forum appended the act at, as it answered.</param>
+public sealed record LifecycleAct(string Kind, string Kid, long LogIndex)
+{
+    /// <summary>The kind of an act that bound a new key.</summary>
+    public const string Rotation = "rotation";
+
+    /// <summary>The kind of an act that ended a key.</summary>
+    public const string Retirement = "retirement";
+}
 
 /// <summary>
 /// An enrolled identity with its two private keys loaded.
@@ -163,6 +212,7 @@ public sealed class ProfileStore
     private const string SigningKeyFile = "signing-key.pem";
     private const string DpopKeyFile = "dpop-key.pem";
     private const string TokenFile = "token.json";
+    private const string RetainedKeysDirectory = "keys";
 
     public ProfileStore(string root) => Root = root;
 
@@ -338,6 +388,18 @@ public sealed class ProfileStore
         return Result<EnrolledAgent>.Ok(EnrolledAgent.WithSigner(profile, signer, dpopKey!));
     }
 
+    /// <summary>
+    /// The profile alone, without opening a key (spec section 4.9): what <c>curia keys</c> needs, and what a client
+    /// needs to re-read the acts another run of it recorded.
+    /// </summary>
+    public Result<AgentProfile> ReadProfile(string slug)
+    {
+        var identityPath = Path.Combine(DirectoryFor(slug), IdentityFile);
+        return File.Exists(identityPath)
+            ? ReadIdentity(slug, identityPath)
+            : Result<AgentProfile>.Fail(ClientErrors.NoSuchProfile(slug));
+    }
+
     /// <summary>The cached access token for a slug, or <see langword="null"/> when there is none.</summary>
     public CachedToken? ReadToken(string slug)
     {
@@ -398,6 +460,157 @@ public sealed class ProfileStore
             RenderIdentity(profile with { EnrolledAt = enrolledAt }));
     }
 
+    /// <summary>
+    /// Where a retired-from key lives: <c>keys/&lt;sha256-hex of kid&gt;.pem</c> under the profile directory (spec
+    /// section 4.12). Derived from a hash and never from the kid itself, so a kid holding a path separator or
+    /// a dot-dot names nothing outside the directory.
+    /// </summary>
+    public string RetainedKeyFile(string slug, string kid) =>
+        Path.Combine(DirectoryFor(slug), RetainedKeysDirectory, RetainedKeyName(kid));
+
+    private static string RetainedKeyName(string kid) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(kid))) + ".pem";
+
+    /// <summary>
+    /// Keeps the key this profile signs with as a retained key, ahead of a rotation that replaces it (spec section
+    /// 4.12): an in-process key is copied to <c>keys/&lt;sha256-hex of kid&gt;.pem</c> at 0600, an external signer is
+    /// recorded by its command. Writes the copy and nothing else, so a rotation the Forum then refuses leaves
+    /// nothing but a file no profile names; the profile is returned, not written.
+    /// </summary>
+    public AgentProfile MoveCurrentToRetained(AgentProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        if (profile.Signer is { Length: > 0 } command)
+            return profile with
+            {
+                RetainedKeys = [.. profile.Retained, new RetainedKey(profile.Kid, profile.Alg, Signer: command)],
+            };
+
+        var directory = DirectoryFor(profile.Slug);
+        CreatePrivateDirectory(Path.Combine(directory, RetainedKeysDirectory));
+
+        var name = RetainedKeyName(profile.Kid);
+        WritePrivate(
+            Path.Combine(directory, RetainedKeysDirectory, name),
+            File.ReadAllText(Path.Combine(directory, SigningKeyFile)));
+
+        return profile with
+        {
+            RetainedKeys = [.. profile.Retained, new RetainedKey(profile.Kid, profile.Alg, RetainedKeysDirectory + "/" + name)],
+        };
+    }
+
+    /// <summary>Adds an act the Forum accepted to the profile's record of them (spec section 4.12); the profile is returned, not written.</summary>
+    public static AgentProfile RecordAct(AgentProfile profile, LifecycleAct act)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(act);
+
+        return profile with { LifecycleActs = [.. profile.Acts, act] };
+    }
+
+    /// <summary>
+    /// Makes a rotation the Forum accepted this profile's own (spec section 4.12): the key it signed with becomes a
+    /// retained key, the new key becomes the one it signs with, the act is recorded, the cached token (issued on the
+    /// old key) is deleted. Called only after a 201, so a refused or failed rotation leaves
+    /// <c>identity.json</c>, <c>signing-key.pem</c> and <c>keys/</c> as they were, and a key generated for it
+    /// has never reached the disk.
+    /// </summary>
+    /// <param name="profile">The profile as it was loaded, signing with the key that authorized the rotation.</param>
+    /// <param name="newSigner">The key the rotation added: the signer that signed its possession.</param>
+    /// <param name="newPrivateKey">
+    /// The new key's private half to write as <c>signing-key.pem</c>, when this process holds it; null when
+    /// <paramref name="newSigner"/> is an external signer, whose command is then recorded.
+    /// </param>
+    /// <param name="receipt">The Forum's answer to the rotation.</param>
+    /// <returns>The profile as written.</returns>
+    public AgentProfile CompleteRotation(
+        AgentProfile profile, IAgentSigner newSigner, ECDsa? newPrivateKey, KeyActReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(newSigner);
+        ArgumentNullException.ThrowIfNull(receipt);
+
+        var directory = DirectoryFor(profile.Slug);
+        var kept = MoveCurrentToRetained(profile);
+
+        string? command = (newSigner as ExternalSigner)?.Command;
+        if (newPrivateKey is not null)
+            WritePrivate(Path.Combine(directory, SigningKeyFile), newPrivateKey.ExportPkcs8PrivateKeyPem());
+        else if (File.Exists(Path.Combine(directory, SigningKeyFile)))
+            File.Delete(Path.Combine(directory, SigningKeyFile));
+
+        var rotated = RecordAct(
+            kept with { Kid = newSigner.Kid, Alg = newSigner.Alg, Signer = command },
+            new LifecycleAct(LifecycleAct.Rotation, receipt.Kid, receipt.LogIndex));
+
+        WritePrivate(Path.Combine(directory, IdentityFile), RenderIdentity(rotated));
+        DeleteToken(profile.Slug);
+        return rotated;
+    }
+
+    /// <summary>
+    /// Makes a retirement the Forum accepted this profile's own (spec section 4.12): the retained key is marked
+    /// retired, and its file is kept, because a post it signed is still its author's. The act is recorded.
+    /// </summary>
+    public AgentProfile CompleteRetirement(AgentProfile profile, KeyActReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(receipt);
+
+        var retired = RecordAct(
+            profile with
+            {
+                RetainedKeys =
+                [
+                    .. profile.Retained.Select(k => string.Equals(k.Kid, receipt.Kid, StringComparison.Ordinal) ? k with { Retired = true } : k),
+                ],
+            },
+            new LifecycleAct(LifecycleAct.Retirement, receipt.Kid, receipt.LogIndex));
+
+        WritePrivate(Path.Combine(DirectoryFor(profile.Slug), IdentityFile), RenderIdentity(retired));
+        return retired;
+    }
+
+    /// <summary>
+    /// The signer for a retained key that is not yet retired, to sign its retirement (R4.39: only the key it ends
+    /// can). A key file is read under the same mode check as the signing key; an external signer must still
+    /// describe itself as the key the profile recorded. The caller disposes what comes back when it is
+    /// <see cref="IDisposable"/>.
+    /// </summary>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The signer owns the key and is handed to the caller, who disposes it; the one path that " +
+            "abandons a key (a signer that is not the retained key) does not create one.")]
+    public Result<IAgentSigner> LoadRetained(AgentProfile profile, string kid)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        var retained = profile.Retained.FirstOrDefault(k => string.Equals(k.Kid, kid, StringComparison.Ordinal));
+        if (retained is null || retained.Retired)
+            return Result<IAgentSigner>.Fail(ClientErrors.NoRetainedKey(kid));
+
+        if (retained.Signer is { Length: > 0 } command)
+        {
+            if (!ExternalSigner.Describe(command).TryGetValue(out var signer, out var signerError))
+                return Result<IAgentSigner>.Fail(signerError!);
+
+            return string.Equals(signer!.Kid, retained.Kid, StringComparison.Ordinal)
+                && string.Equals(signer.Alg, retained.Alg, StringComparison.Ordinal)
+                    ? Result<IAgentSigner>.Ok(signer)
+                    : Result<IAgentSigner>.Fail(ClientErrors.SignerUnusable(
+                        command, "it no longer describes the key this profile retained"));
+        }
+
+        var loaded = LoadKey(RetainedKeyFile(profile.Slug, kid));
+        return loaded.TryGetValue(out var key, out var keyError)
+            ? Result<IAgentSigner>.Ok(new InProcessSigner(key!, kid))
+            : Result<IAgentSigner>.Fail(keyError!);
+    }
+
     private static string RenderIdentity(AgentProfile profile)
     {
         var members = new List<KeyValuePair<string, JsonValue>>
@@ -414,7 +627,76 @@ public sealed class ProfileStore
         if (profile.Signer is { Length: > 0 } signer)
             members.Add(new("signer", new JsonValue.String(signer)));
 
+        if (!profile.Retained.IsEmpty)
+            members.Add(new("retained_keys", new JsonValue.Array([.. profile.Retained.Select(RenderRetained)])));
+
+        if (!profile.Acts.IsEmpty)
+            members.Add(new("lifecycle_acts", new JsonValue.Array([.. profile.Acts.Select(RenderAct)])));
+
         return ClientJson.Render(members);
+    }
+
+    private static JsonValue RenderRetained(RetainedKey key)
+    {
+        var members = new List<KeyValuePair<string, JsonValue>>
+        {
+            new("alg", new JsonValue.String(key.Alg)),
+            new("kid", new JsonValue.String(key.Kid)),
+        };
+
+        if (key.File is { Length: > 0 } file) members.Add(new("file", new JsonValue.String(file)));
+        if (key.Signer is { Length: > 0 } signer) members.Add(new("signer", new JsonValue.String(signer)));
+        if (key.Retired) members.Add(new("retired", new JsonValue.Bool(true)));
+        return new JsonValue.Object([.. members]);
+    }
+
+    private static JsonValue RenderAct(LifecycleAct act) => new JsonValue.Object(
+    [
+        new("kid", new JsonValue.String(act.Kid)),
+        new("kind", new JsonValue.String(act.Kind)),
+        new("log_index", new JsonValue.Number(act.LogIndex)),
+    ]);
+
+    private static Result<ImmutableArray<RetainedKey>> ReadRetained(JsonValue.Object o)
+    {
+        var read = ImmutableArray.CreateBuilder<RetainedKey>();
+        foreach (var item in ClientJson.Array(o, "retained_keys"))
+        {
+            if (item is not JsonValue.Object k
+                || ClientJson.String(k, "kid") is not { Length: > 0 } kid
+                || ClientJson.String(k, "alg") is not { Length: > 0 } alg)
+                return Result<ImmutableArray<RetainedKey>>.Fail(ClientErrors.MalformedProfile("a retained key needs a kid and an alg"));
+
+            var file = ClientJson.String(k, "file");
+            var signer = ClientJson.String(k, "signer");
+
+            // Held by a file or by a signer, and a file only where the kid derives it: a profile that named a
+            // path of its own would have this client open it.
+            if ((file is null) == (signer is null)
+                || (file is not null && !string.Equals(file, RetainedKeysDirectory + "/" + RetainedKeyName(kid), StringComparison.Ordinal)))
+                return Result<ImmutableArray<RetainedKey>>.Fail(ClientErrors.MalformedProfile("a retained key is held by its derived file or by a signer"));
+
+            read.Add(new RetainedKey(kid, alg, file, signer, ClientJson.Member(k, "retired") is JsonValue.Bool { Value: true }));
+        }
+
+        return Result<ImmutableArray<RetainedKey>>.Ok(read.ToImmutable());
+    }
+
+    private static Result<ImmutableArray<LifecycleAct>> ReadActs(JsonValue.Object o)
+    {
+        var read = ImmutableArray.CreateBuilder<LifecycleAct>();
+        foreach (var item in ClientJson.Array(o, "lifecycle_acts"))
+        {
+            if (item is not JsonValue.Object a
+                || ClientJson.String(a, "kind") is not ({ } kind and (LifecycleAct.Rotation or LifecycleAct.Retirement))
+                || ClientJson.String(a, "kid") is not { Length: > 0 } kid
+                || ClientJson.WholeNumber(a, "log_index") is not (>= 0 and { } index))
+                return Result<ImmutableArray<LifecycleAct>>.Fail(ClientErrors.MalformedProfile("a lifecycle act needs a kind, a kid and a log index"));
+
+            read.Add(new LifecycleAct(kind, kid, index));
+        }
+
+        return Result<ImmutableArray<LifecycleAct>>.Ok(read.ToImmutable());
     }
 
     private static Result<AgentProfile> ReadIdentity(string slug, string path)
@@ -435,10 +717,18 @@ public sealed class ProfileStore
             return Result<AgentProfile>.Fail(
                 ClientErrors.MalformedProfile("agent_id, kid, alg and forum are all required"));
 
-        return Uri.TryCreate(forum, UriKind.Absolute, out var forumUri)
-            ? Result<AgentProfile>.Ok(new AgentProfile(
-                slug, agentId, kid, alg, forumUri, ClientJson.String(o, "enrolled_at"), ClientJson.String(o, "signer")))
-            : Result<AgentProfile>.Fail(ClientErrors.MalformedProfile("forum is not an absolute URI"));
+        if (!Uri.TryCreate(forum, UriKind.Absolute, out var forumUri))
+            return Result<AgentProfile>.Fail(ClientErrors.MalformedProfile("forum is not an absolute URI"));
+
+        if (!ReadRetained(o).TryGetValue(out var retained, out var retainedError))
+            return Result<AgentProfile>.Fail(retainedError!);
+
+        if (!ReadActs(o).TryGetValue(out var acts, out var actsError))
+            return Result<AgentProfile>.Fail(actsError!);
+
+        return Result<AgentProfile>.Ok(new AgentProfile(
+            slug, agentId, kid, alg, forumUri, ClientJson.String(o, "enrolled_at"), ClientJson.String(o, "signer"),
+            retained, acts));
     }
 
     [SuppressMessage(

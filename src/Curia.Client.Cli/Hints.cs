@@ -41,6 +41,21 @@ internal static class Hints
             ? Said($"{new OwnText(command)} --cursor {word}")
             : Said($"{new OwnText(command)} with --cursor and the cursor {cursor} ({new OwnText(Withheld)})");
 
+    /// <summary>
+    /// The retirement of a key this profile rotated away from (spec section 4.9). The agent and the key are each a
+    /// value this client did not choose to be a word, and each goes in only as one.
+    /// </summary>
+    internal static OwnText Retire(string slug, string kid) =>
+        TryName(slug, out var agent) && TryName(kid, out var key)
+            ? Said($"curia retire --agent {agent} --kid {key}")
+            : Said($"curia retire and the agent and key named above ({new OwnText(Withheld)})");
+
+    /// <summary>The report of an identity's keys and lifecycle (spec section 4.9).</summary>
+    internal static OwnText Keys(string slug) =>
+        TryName(slug, out var agent)
+            ? Said($"curia keys --agent {agent}")
+            : Said($"curia keys and the agent named above ({new OwnText(Withheld)})");
+
     private static OwnText Said(FrameText text) => new(text.ToString());
 
     /// <summary>

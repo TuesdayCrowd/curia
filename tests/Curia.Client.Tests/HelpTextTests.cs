@@ -403,6 +403,7 @@ public sealed class HelpTextTests
         [
             "EnrolAsync", "WhoAmI", "PostAsync", "SignalAsync", "ReadAsync", "RecheckAsync", "ThreadAsync", "BoardAsync",
             "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync",
+            "KeysAsync", "RotateAsync", "RetireAsync",
         ];
         Assert.True(onlyAccepted.SetEquals(heldMethods), "methods checked under (iv): " + string.Join(", ", onlyAccepted));
         Assert.True(everyFlagNamed.SetEquals(heldMethods), "methods checked under (v): " + string.Join(", ", everyFlagNamed));

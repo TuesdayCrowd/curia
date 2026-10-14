@@ -182,6 +182,47 @@ public sealed class ForumSession
     }
 
     /// <summary>
+    /// R4.18 (rev.): <c>POST /v1/agents/{id}/keys</c>, a rotation built by <see cref="KeyActs.BuildRotation"/>. The
+    /// identity is in the path as <see cref="KeyActUrls.Segment"/> writes it, so an identifier holding a literal
+    /// <c>%2F</c> goes as <c>%252F</c> and names that identity and no other, and the DPoP proof's <c>htu</c> is the
+    /// path form the host reads (<see cref="KeyActUrls.ProofTarget"/>), which is not the sent URL whenever
+    /// an escape is in it.
+    /// </summary>
+    public Task<ForumResult<KeyActReceipt>> RotateKeyAsync(string agentId, RotationRequest request, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var path = KeyActUrls.RotatePath(agentId);
+        return WriteAsync(
+            path,
+            System.Text.Encoding.UTF8.GetBytes(request.Body()),
+            ForumDocuments.ReadKeyActReceipt,
+            ct,
+            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)));
+    }
+
+    /// <summary>
+    /// R4.39: <c>POST /v1/agents/{id}/keys/{kid}/retire</c>, a retirement built by
+    /// <see cref="KeyActs.BuildRetirement"/>. Escaped and proved as <see cref="RotateKeyAsync"/> is.
+    /// </summary>
+    public Task<ForumResult<KeyActReceipt>> RetireKeyAsync(
+        string agentId, string kid, RetirementRequest request, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kid);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var path = KeyActUrls.RetirePath(agentId, kid);
+        return WriteAsync(
+            path,
+            System.Text.Encoding.UTF8.GetBytes(request.Body()),
+            ForumDocuments.ReadKeyActReceipt,
+            ct,
+            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)));
+    }
+
+    /// <summary>
     /// The board's <c>inbox</c>: open questions this agent could usefully answer.
     ///
     /// <para>The only authenticated <i>read</i> this client makes. Every other read is anonymous
@@ -287,8 +328,9 @@ public sealed class ForumSession
         ReadOnlyMemory<byte> body,
         Func<JsonValue.Object, Result<T>> read,
         CancellationToken ct,
-        string query = "") =>
-        WithRemintAsync(() => WriteOnceAsync(path, body, read, query, ct));
+        string query = "",
+        string? proofTarget = null) =>
+        WithRemintAsync(() => WriteOnceAsync(path, body, read, query, proofTarget, ct));
 
     /// <summary>
     /// R5.22: the Forum refuses a token with <c>401</c> and <c>curia/authn/token-key-not-live</c> or
@@ -316,13 +358,14 @@ public sealed class ForumSession
         ReadOnlyMemory<byte> body,
         Func<JsonValue.Object, Result<T>> read,
         string query,
+        string? proofTarget,
         CancellationToken ct)
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
             return ForumResult<T>.Refused(tokenRefusal);
 
-        var url = _client.UrlFor(path);
+        var url = proofTarget ?? _client.UrlFor(path).ToString();
         var cached = _store.ReadToken(_agent.Profile.Slug);
 
         var target = path + query;
@@ -356,7 +399,7 @@ public sealed class ForumSession
         string path,
         ReadOnlyMemory<byte> wire,
         string token,
-        Uri url,
+        string url,
         string? nonce,
         Func<JsonValue.Object, Result<T>> read,
         CancellationToken ct)
