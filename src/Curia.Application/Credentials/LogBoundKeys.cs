@@ -47,7 +47,7 @@ public sealed record AgentKeySet(int Stored, IReadOnlyList<BoundKey> Bound);
 ///
 /// <para><b>A log that cannot be read refuses nothing.</b> Whether it binds the key is then unknown,
 /// so the answer is <see cref="LogUnreadable"/>, a server fault, and never the reader's refusal
-/// handed on as if it were the key's: ingest answers it 503 and the token endpoint
+/// handed on as if it were the key's (a log that reads but will not fold is as unreadable, for the status read): ingest answers it 503 and the token endpoint
 /// <c>server_error</c>, where a 401 would tell an agent its key had been refused.</para>
 /// </summary>
 public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
@@ -110,7 +110,9 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
     /// <summary>
     /// What the log says of <paramref name="kid"/> of <paramref name="agentId"/> now (R5.22): <see cref="KeyStatus.Unbound"/>
     /// when no entry binds it to the identity, otherwise the lifecycle's answer. Read from the log on every
-    /// call; <see cref="LogUnreadable"/> when it cannot be read, which is never an answer about the key.
+    /// call; <see cref="LogUnreadable"/> when it cannot be read, which is never an answer about the key. A log
+    /// that reads but will not fold into a lifecycle is as unreadable as one that does not read, since no
+    /// answer about the key can be drawn from it.
     /// </summary>
     public async Task<Result<KeyStatus>> StatusAsync(AgentId agentId, Kid kid, CancellationToken cancellationToken = default)
     {
@@ -125,7 +127,7 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
 
         return KeyLifecycle.Of(stream.History, agentId).TryGetValue(out var lifecycle, out var foldError)
             ? Result<KeyStatus>.Ok(lifecycle!.StatusNow(kid.Value))
-            : Result<KeyStatus>.Fail(foldError!);
+            : Result<KeyStatus>.Fail(LogUnreadable(foldError!));
     }
 
     /// <summary>The keys the store holds for <paramref name="agentId"/> that the log binds to it, each with its binding.</summary>

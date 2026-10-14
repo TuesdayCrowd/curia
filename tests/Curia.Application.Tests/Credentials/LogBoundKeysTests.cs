@@ -245,4 +245,33 @@ public sealed class LogBoundKeysTests
             "resolve: curia/keys/statement-mismatch; live: curia/keys/statement-mismatch; set: curia/keys/statement-mismatch",
             await ReadersAnswerAsync(keys));
     }
+
+    /// <summary>
+    /// R5.22: a status read whose lifecycle will not fold is the log unreadable, a server fault, never the
+    /// fold's own refusal, which the token path would serve as a 401 telling the agent to mint again. The
+    /// stream is R4.38's broken link (a second statement-less binding), so the log does bind
+    /// <c>alice-1</c> and it is the fold that fails; a kid the log does not bind is still
+    /// <see cref="KeyStatus.Unbound"/>, which the fold never decides. Arranged through the permissive
+    /// lifecycle gate the other facts here use.
+    /// </summary>
+    [Fact]
+    public async Task R5_22_AStatusReadWhoseLifecycleWillNotFoldIsTheLogUnreadable()
+    {
+        var key = TestKeys.Es256("alice-1");
+        var (keys, events) = await EnrolledAsync(key, (Alice, new RegisteredKey(Copy(key), Start, null)));
+        await AppendLifecycleAsync(events, AgentStandingProjector.KeyBoundType, "second-binding", new JsonValue.Object(
+        [
+            new(AgentStandingProjector.AgentIdField, new JsonValue.String(Alice)),
+            new(AgentStandingProjector.KeyIdField, new JsonValue.String("alice-2")),
+            new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(TestKeys.Es256("alice-2")))),
+        ]));
+        var ct = TestContext.Current.CancellationToken;
+
+        var bound = await keys.StatusAsync(Typed.Agent(Alice), Typed.Kid("alice-1"), ct);
+        var unbound = await keys.StatusAsync(Typed.Agent(Alice), Typed.Kid("never-bound"), ct);
+
+        Assert.Equal(
+            "curia/log/unreadable detail=curia/keys/statement-mismatch; unbound: Unbound",
+            $"{bound.Match(s => s.ToString(), e => $"{e.Type} detail={e.Detail}")}; unbound: {unbound.Match(s => s.ToString(), e => e.Type)}");
+    }
 }

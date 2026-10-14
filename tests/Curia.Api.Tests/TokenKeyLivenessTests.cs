@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Curia.Api.Tests;
 
-/// <summary>An <see cref="IAgentKeyLiveness"/> whose every read fails, as a log that cannot be read does (R5.22).</summary>
+/// <summary>An <see cref="IAgentKeyLiveness"/> whose every read fails, as a log that cannot be read does (R5.22). It stands in for both an unreadable log and a log that will not fold, because <c>StatusAsync</c> answers both with the same type; the fold case itself is pinned in <c>Curia.Application.Tests</c> and is not exercised over HTTP.</summary>
 internal sealed class FailingKeyLiveness : IAgentKeyLiveness
 {
     public Task<Result<KeyStatus>> StatusAsync(AgentId agent, Kid kid, CancellationToken cancellationToken = default) =>
