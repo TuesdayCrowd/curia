@@ -46,6 +46,11 @@ pub const ROTATION_HEADER_TYP: &str = "curia-key-rotation+jws";
 /// The header `typ` of a retirement's signature (KF1).
 pub const RETIREMENT_HEADER_TYP: &str = "curia-key-retirement+jws";
 
+/// Every statement `typ` this verifier knows (KF4). A `typ` outside it is a version or a kind this
+/// verifier cannot fold; one inside it, in the other kind's entry, is a statement that is not this
+/// entry's.
+const KNOWN_STATEMENT_TYPS: [&str; 2] = [ROTATION_STATEMENT_TYP, RETIREMENT_STATEMENT_TYP];
+
 /// How many lifecycle entries before a post a reader will fold (spec §4.8).
 pub const MAX_ENTRIES_BEFORE_POST: usize = 1024;
 
@@ -269,20 +274,24 @@ impl Fold {
         // apply: another version of this kind is not one this verifier knows (KF4), and a `typ` of
         // another kind is a statement that is not this entry's.
         if let (Some(text), Kind::Bound | Kind::Retired) = (statement_text, kind) {
-            let (expected, family) = if kind == Kind::Bound {
-                (ROTATION_STATEMENT_TYP, "curia.key-rotation/")
+            let expected = if kind == Kind::Bound {
+                ROTATION_STATEMENT_TYP
             } else {
-                (RETIREMENT_STATEMENT_TYP, "curia.key-retirement/")
+                RETIREMENT_STATEMENT_TYP
             };
-            if let Some(typ) = serde_json::from_str::<Value>(text)
+            // A statement that does not parse under the ADMIT profile (a repeated member, say) has no
+            // readable `typ`: it is malformed, not a future version, and the checks after this one
+            // refuse it.
+            if let Some(typ) = crate::json::parse(text.as_bytes())
                 .ok()
+                .and_then(|_| serde_json::from_str::<Value>(text).ok())
                 .and_then(|v| v.get("typ").and_then(Value::as_str).map(str::to_string))
             {
                 if typ != expected {
-                    return if typ.starts_with(family) {
-                        Err(ActaError::LifecycleUnknownKind { what: typ })
-                    } else {
+                    return if KNOWN_STATEMENT_TYPS.contains(&typ.as_str()) {
                         Err(mismatch(at, "the statement is not this entry's kind"))
+                    } else {
+                        Err(ActaError::LifecycleUnknownKind { what: typ })
                     };
                 }
             }

@@ -107,6 +107,13 @@ internal static class LifecycleCases
             PrevlessBindingBeforeEnrolled(k1),
             PrevlessBindingMissingJwk(k1),
             RetirementWithoutAgentId(k1),
+            RetirementStatementNotText(k1),
+            RotationStatementNotText(k1, k2),
+            UnrelatedStatementTypInBound(k1, k2),
+            UnrelatedStatementTypInRetired(k1),
+            RetirementTypInBoundEntry(k1, k2),
+            BindingStatementNotText(k1, k2),
+            UnrelatedStatementTypDuplicateMember(k1, k2),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -436,6 +443,82 @@ internal static class LifecycleCases
             log, post, [0, 1, 2], "failed", "statement-mismatch");
     }
 
+    private static Case RetirementStatementNotText(Key k1)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRetirement(log, new Ret(k1, k1, Prev: 1) { StatementValue = Num(7) });
+        var post = AddPost(log, k1, "31");
+        return new Case("retirement-statement-not-text", "R6.54 (add.)",
+            "A retirement entry whose statement member is a JSON number: every other member is valid, so only the statement is wrong. A statement that is not text is a statement that is not the closed form, never a crash (KF4).",
+            log, post, [0, 1, 2], "failed", "statement-mismatch");
+    }
+
+    private static Case RotationStatementNotText(Key k1, Key k2)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1) { StatementValue = Obj(("typ", Str(RotationTyp))) });
+        var post = AddPost(log, k2, "32");
+        return new Case("rotation-statement-not-text", "R6.54 (add.)",
+            "A rotation (the third entry of the chain, to k2) whose statement member is a JSON object, not text: an entry whose statement is not text is read as an enrolment's binding, and a binding that is not the one entry after agent.enrolled is a broken link. It is never read as a rotation and never crashes (KF4).",
+            log, post, [0, 1, 2], "failed", "broken-link");
+    }
+
+    private static Case BindingStatementNotText(Key k1, Key k2)
+    {
+        var log = new Log();
+        log.Add("agent.enrolled", Agent, Agent, Obj(("agent_id", Str(Agent)), ("kid", Str(k1.Kid))));
+        AddRotation(log, new Rot(k1, k2, Prev: 0) { EntryKid = k1.Kid, StatementValue = Num(7) });
+        var post = AddPost(log, k1, "36");
+        return new Case("binding-statement-not-text", "R6.54 (add.)",
+            "The agent.key-bound entry that directly follows agent.enrolled, under the enrolment's kid, carrying a numeric statement member: it is read as the enrolment's binding and fails that binding's closed member set {agent_id, jwk, kid}, never a crash (KF4).",
+            log, post, [0, 1], "failed", "statement-mismatch");
+    }
+
+    private static Case UnrelatedStatementTypDuplicateMember(Key k1, Key k2)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1)
+        {
+            StatementText = "{\"typ\":\"curia.key-rotation/1\",\"typ\":\"curia.key-prerotation/1\"}",
+        });
+        var post = AddPost(log, k2, "37");
+        return new Case("unrelated-statement-typ-duplicate-member", "R6.54 (add.)",
+            "A rotation entry whose statement text repeats the typ member (first curia.key-rotation/1, last curia.key-prerotation/1): not valid I-JSON, so it has no readable typ and is malformed, not a future version (KF4).",
+            log, post, [0, 1, 2], "failed", "statement-mismatch");
+    }
+
+    private static Case UnrelatedStatementTypInBound(Key k1, Key k2)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1) { StatementTyp = "curia.key-prerotation/1", ExtraStatementMember = true });
+        var post = AddPost(log, k2, "33");
+        return new Case("unrelated-statement-typ-in-bound", "R6.54 (add.)",
+            "A rotation entry whose statement typ is curia.key-prerotation/1, outside the family of the kind and outside the typs a reader folds; the extra member shows the typ is read before the member set (KF4).",
+            log, post, [0, 1, 2], "could-not-check", "unknown-lifecycle-kind");
+    }
+
+    private static Case UnrelatedStatementTypInRetired(Key k1)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRetirement(log, new Ret(k1, k1, Prev: 1) { StatementTyp = "curia.key-prerotation/1" });
+        var post = AddPost(log, k1, "34");
+        return new Case("unrelated-statement-typ-in-retired", "R6.54 (add.)",
+            "A retirement entry whose statement typ is curia.key-prerotation/1, a typ a reader does not know (KF4).",
+            log, post, [0, 1, 2], "could-not-check", "unknown-lifecycle-kind");
+    }
+
+    private static Case RetirementTypInBoundEntry(Key k1, Key k2)
+    {
+        var log = EnrolledAndBound(k1);
+        var retirement = Canon(Obj(
+            ("agent_id", Str(Agent)), ("kid", Str(k1.Kid)), ("prev", Num(1)), ("typ", Str(RetirementTyp))));
+        AddRotation(log, new Rot(k1, k2, Prev: 1) { StatementText = Encoding.UTF8.GetString(retirement.Span) });
+        var post = AddPost(log, k2, "35");
+        return new Case("retirement-typ-in-bound-entry", "R6.54 (add.)",
+            "A rotation entry carrying a well-formed curia.key-retirement/1 statement: a typ the reader knows, in the other kind's entry, is not this entry's kind (KF4).",
+            log, post, [0, 1, 2], "failed", "statement-mismatch");
+    }
+
     private static Case Es256ThenPost()
     {
         var a = P256Key("conformance-es256-x00", skip: 0);
@@ -477,6 +560,7 @@ internal static class LifecycleCases
         public bool ExtraEntryMember { get; init; }
         public string? StatementText { get; init; }
         public string? EntryKid { get; init; }
+        public JsonValue? StatementValue { get; init; }
     }
 
     private sealed record Ret(Key Key, Key Authorizer, long Prev)
@@ -485,6 +569,8 @@ internal static class LifecycleCases
         public string? HeaderKid { get; init; }
         public string Typ { get; init; } = RetirementHeaderTyp;
         public bool OmitAgentId { get; init; }
+        public string StatementTyp { get; init; } = RetirementTyp;
+        public JsonValue? StatementValue { get; init; }
     }
 
     private static CanonicalBytes RotationStatement(Rot r)
@@ -519,7 +605,7 @@ internal static class LifecycleCases
             ("kid", Str(r.EntryKid ?? r.NewKey.Kid)),
             ("possession", Str(possession.Compact)),
             ("prev", Num(r.Prev)),
-            ("statement", Str(text)),
+            ("statement", r.StatementValue ?? Str(text)),
         };
         if (r.ExtraEntryMember) members.Add(("note", Str("x")));
         return log.Add("agent.key-bound", Agent, Agent, Obj([.. members]));
@@ -528,7 +614,7 @@ internal static class LifecycleCases
     private static int AddRetirement(Log log, Ret r)
     {
         var canonical = Canon(Obj(
-            ("agent_id", Str(Agent)), ("kid", Str(r.Key.Kid)), ("prev", Num(r.Prev)), ("typ", Str(RetirementTyp))));
+            ("agent_id", Str(Agent)), ("kid", Str(r.Key.Kid)), ("prev", Num(r.Prev)), ("typ", Str(r.StatementTyp))));
         var signer = r.Signer ?? r.Authorizer;
         var authorization = Signing.Sign(canonical, signer.Alg, r.HeaderKid ?? r.Authorizer.Kid, signer.Signing, r.Typ);
 
@@ -537,7 +623,7 @@ internal static class LifecycleCases
         members.Add(("authorization", Str(authorization.Compact)));
         members.Add(("kid", Str(r.Key.Kid)));
         members.Add(("prev", Num(r.Prev)));
-        members.Add(("statement", Str(Encoding.UTF8.GetString(canonical.Span))));
+        members.Add(("statement", r.StatementValue ?? Str(Encoding.UTF8.GetString(canonical.Span))));
         return log.Add("agent.key-retired", Agent, Agent, Obj([.. members]));
     }
 

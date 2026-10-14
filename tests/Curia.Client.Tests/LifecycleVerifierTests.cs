@@ -168,6 +168,55 @@ public sealed class LifecycleVerifierTests : IDisposable
         Assert.DoesNotContain(entries, r => r.EndsWith("/v1/log/entries/500", StringComparison.Ordinal));
     }
 
+    /// <summary>Spec section 4.8: the bound is a literal, 1,024, and not one a refactor may move.</summary>
+    [Fact]
+    public void R6_54_TheBoundOnEntriesBeforeAPostIs1024() =>
+        Assert.Equal(1024, LifecycleCheck.MaxEntriesBeforePost);
+
+    /// <summary>
+    /// Exactly 1,024 entries before the post is within the bound: the reader fetches them and folds, and whatever it
+    /// concludes is not that the lifecycle was too long.
+    /// </summary>
+    [Fact]
+    public async Task R6_54_ALifecycleOfExactly1024EntriesBeforeThePostIsFetched()
+    {
+        using var log = new StubLog(treeSize: 1105, postIndex: 1100, keyIndex: 1);
+        log.ServedLifecycle = [.. Enumerable.Range(0, LifecycleCheck.MaxEntriesBeforePost).Select(i => (long)i)];
+        var requestsBefore = log.Requests.Count;
+
+        var verifier = new PostVerifier(log.Client(), new HeadStore(_home));
+        var result = await verifier.VerifyAsync(StubLog.PostId, MarkingMode.None, TestContext.Current.CancellationToken);
+        Assert.True(result.TryGetValue(out var verification, out var refusal), refusal?.Summary);
+
+        Assert.DoesNotContain("more than 1,024 entries", verification!.Lifecycle.Detail, StringComparison.Ordinal);
+        var entries = log.Requests.Skip(requestsBefore).Where(r => r.Contains("/v1/log/entries/", StringComparison.Ordinal)).ToList();
+        Assert.Contains(entries, r => r.EndsWith("/v1/log/entries/500", StringComparison.Ordinal));
+    }
+
+    /// <summary>One more than 1,024 before the post is refused outright, and the log is asked for none of the lifecycle.</summary>
+    [Fact]
+    public async Task R6_54_ALifecycleOf1025EntriesBeforeThePostIsRefusedWithoutAFetch()
+    {
+        using var log = new StubLog(treeSize: 1105, postIndex: 1100, keyIndex: 1);
+        log.ServedLifecycle = [.. Enumerable.Range(0, LifecycleCheck.MaxEntriesBeforePost + 1).Select(i => (long)i)];
+        var requestsBefore = log.Requests.Count;
+
+        var verifier = new PostVerifier(log.Client(), new HeadStore(_home));
+        var result = await verifier.VerifyAsync(StubLog.PostId, MarkingMode.None, TestContext.Current.CancellationToken);
+        Assert.True(result.TryGetValue(out var verification, out var refusal), refusal?.Summary);
+
+        Assert.Equal(CheckOutcome.CouldNotCheck, verification!.Lifecycle.Outcome);
+        Assert.Contains("more than 1,024 entries before the post", verification.Lifecycle.Detail, StringComparison.Ordinal);
+
+        // The stub's own leaves 0 and 1 are the enrolment and the key's binding, which the key-binding check reads;
+        // the lifecycle fetch is every other entry and every proof below the post.
+        var lifecycleFetches = log.Requests.Skip(requestsBefore)
+            .Where(r => r.Contains("/v1/log/entries/", StringComparison.Ordinal) || r.Contains("/v1/log/proof/", StringComparison.Ordinal))
+            .Where(r => long.TryParse(r[(r.LastIndexOf('/') + 1)..].Split('?')[0], out var i) && i is >= 2 and < 1100)
+            .ToList();
+        Assert.Empty(lifecycleFetches);
+    }
+
     /// <summary>R6.54 (add.), the read path: the Forum's key set says a key was retired, and a passage after it says so as the Forum's word.</summary>
     [Fact]
     public async Task R6_54_ARetiredKeysLineOnReadIsTheForumsWord()

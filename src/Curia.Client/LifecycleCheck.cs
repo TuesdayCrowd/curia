@@ -48,8 +48,13 @@ public static class LifecycleCheck
     public const int MaxEntriesBeforePost = 1024;
 
     private const string RetiredType = "agent.key-retired";
-    private const string RotationStatementPrefix = "curia.key-rotation/";
-    private const string RetirementStatementPrefix = "curia.key-retirement/";
+
+    /// <summary>
+    /// Every statement <c>typ</c> this reader knows (KF4). A <c>typ</c> outside it is a version or a kind this reader
+    /// cannot fold; one inside it, in the other kind's entry, is a statement that is not this entry's.
+    /// </summary>
+    private static readonly string[] KnownStatementTyps =
+        [KeyStatements.RotationStatementTyp, KeyStatements.RetirementStatementTyp];
 
     private static readonly string[] EnrolmentBindingMembers = ["agent_id", "jwk", "kid"];
     private static readonly string[] RotationEntryMembers = ["agent_id", "authorization", "authorized_by", "jwk", "kid", "possession", "prev", "statement"];
@@ -178,14 +183,14 @@ public static class LifecycleCheck
             if (statementText is not null && kind is Kind.Bound or Kind.Retired
                 && StatementTyp(statementText) is { } typ)
             {
-                var (expected, prefix) = kind is Kind.Bound
-                    ? (KeyStatements.RotationStatementTyp, RotationStatementPrefix)
-                    : (KeyStatements.RetirementStatementTyp, RetirementStatementPrefix);
+                var expected = kind is Kind.Bound
+                    ? KeyStatements.RotationStatementTyp
+                    : KeyStatements.RetirementStatementTyp;
                 if (!string.Equals(typ, expected, StringComparison.Ordinal))
-                    return typ.StartsWith(prefix, StringComparison.Ordinal)
-                        ? CouldNotCheck("unknown-lifecycle-kind", Text(
-                            $"the statement at log index {entry.LogIndex} is of version {Check.Quote(typ)}, which this reader does not know (KF4)"))
-                        : Mismatch(entry.LogIndex, "the statement is not this entry's kind");
+                    return KnownStatementTyps.Contains(typ, StringComparer.Ordinal)
+                        ? Mismatch(entry.LogIndex, "the statement is not this entry's kind")
+                        : CouldNotCheck("unknown-lifecycle-kind", Text(
+                            $"the statement at log index {entry.LogIndex} is of type {Check.Quote(typ)}, which this reader does not know (KF4)"));
             }
 
             if (entry.LogIndex != proof.LogIndex)
@@ -310,7 +315,8 @@ public static class LifecycleCheck
             if (!HasExactly(payload, RetirementEntryMembers))
                 return Mismatch(index, "the entry's member set is not a retirement's");
 
-            var text = ClientJson.String(payload, "statement")!;
+            var text = ClientJson.String(payload, "statement");
+            if (text is null) return Mismatch(index, "the entry carries no statement");
             if (!KeyStatements.ReadRetirement(Encoding.UTF8.GetBytes(text)).TryGetValue(out var statement, out _))
                 return Mismatch(index, "the statement is not a retirement statement of the closed form (KF4)");
 

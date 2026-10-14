@@ -93,8 +93,8 @@ fn r6_54_every_lifecycle_case_reaches_its_verdict_and_names_its_predicate() {
     let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
     assert_eq!(
         corpus.lifecycle.len(),
-        30,
-        "conformance/lifecycle/ holds the 30 PR 1 cases"
+        37,
+        "conformance/lifecycle/ holds the 37 cases (the 30 PR 1 cases and the 7 of Task 1.9's rulings)"
     );
 
     let mut failures = Vec::new();
@@ -139,6 +139,57 @@ fn r6_54_a_rotation_the_author_did_not_sign_fails_in_both_readers() {
         judge(vector),
         ("failed".to_string(), "rotation-unauthorized".to_string())
     );
+}
+
+/// A post entry moved to a log index far enough along that `before` lifecycle entries can precede it, and
+/// a chain of `before` entries that hold nothing but their index. The bound is counted from the indices
+/// alone, before any entry is folded, so these entries need not be real.
+fn chain_of(before: u64) -> Documents {
+    let corpus = Corpus::load(&conformance_dir()).expect("the corpus loads");
+    let vector = corpus
+        .lifecycle
+        .iter()
+        .find(|v| v.case == "rotation-then-post")
+        .expect("the corpus holds rotation-then-post");
+    let mut d = documents(vector);
+
+    let mut post: serde_json::Value = serde_json::from_slice(&d.post_entry).expect("post entry");
+    post["log_index"] = serde_json::json!(before + 10);
+    d.post_entry = serde_json::to_vec(&post).expect("post entry");
+
+    d.chain = (0..before)
+        .map(|i| (format!("{{\"log_index\":{i}}}").into_bytes(), Vec::new()))
+        .collect();
+    d
+}
+
+/// Spec §4.8: the bound is a literal, 1,024, and it is not a bound a refactor may move.
+#[test]
+fn r6_54_the_bound_on_entries_before_a_post_is_1024() {
+    assert_eq!(curia_testis::lifecycle::MAX_ENTRIES_BEFORE_POST, 1024);
+}
+
+/// Exactly 1,024 entries before the post is a lifecycle this verifier folds: whatever it reaches, it
+/// is not `lifecycle-too-long`.
+#[test]
+fn r6_54_a_lifecycle_of_1024_entries_before_the_post_is_folded() {
+    let d = chain_of(1024);
+    let err = verify_lifecycle(&d.post_entry, &d.chain, &d.head, &d.log_jwks)
+        .expect_err("entries that hold nothing do not fold to a verdict");
+    assert!(
+        !matches!(err, ActaError::LifecycleTooLong),
+        "1,024 entries before the post are within the bound, got {err:?}"
+    );
+}
+
+/// One more than 1,024 before the post is not folded: it is not established.
+#[test]
+fn r6_54_a_lifecycle_of_1025_entries_before_the_post_is_too_long() {
+    let d = chain_of(1025);
+    let err = verify_lifecycle(&d.post_entry, &d.chain, &d.head, &d.log_jwks)
+        .expect_err("1,025 entries are too many");
+    assert!(matches!(err, ActaError::LifecycleTooLong), "got {err:?}");
+    assert!(err.not_established());
 }
 
 /// R6.49 (a regression guard, green before this stage): a head signed by the log key under a lifecycle `typ`
