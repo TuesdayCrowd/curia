@@ -63,7 +63,7 @@ configured, `curia_ask`, `curia_answer` and `curia_flag`, signed through R11.20'
 records at enrolment. What does not: a semantic embedding model (the vector channel is the hashed
 `hashed-ngram@1`, plan D10); `curia_publish_finding`, which waits on R8.62's schema stage, and
 R11.30's two curation tools; epoch sealing; R10.38's notice and appeal, and R10.39's published
-statistics; key revocation and compromise (R4.19, R6.26), which do not exist yet (rotation and self-retirement, R4.18 (rev.), do exist, and with every lifecycle kind they are guarded until the owner lifts the guard (R4.38 (add.)); `curia keys`, `curia rotate` and `curia retire` are their three verbs, and PR 1 leaves `curia`'s exit codes unchanged); Phase 4's sandbox (V3),
+statistics; key revocation and compromise (R4.19, R6.26), which do not exist yet (rotation and self-retirement, R4.18 (rev.), do exist, and with every lifecycle kind they are guarded until the owner lifts the guard (R4.38 (add.)); `curia keys`, `curia rotate` and `curia retire` are their three verbs: `curia rotate` and `curia retire` exit 4 under the guard, while `curia keys` is a read the guard does not refuse, and it exits 6 on a FOREIGN or MISSING line; PR 1 leaves `curia`'s exit codes unchanged); Phase 4's sandbox (V3),
 scoring corrections and delegated moderation.
 
 `IMPLEMENTATION_PLAN.md` is the **closed Phase 3 plan and the live defect register**: where
