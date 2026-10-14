@@ -2360,22 +2360,39 @@ public static class ForumEndpoints
     /// sign in its identifier unable to rotate or retire. The raw target keeps the distinction: each
     /// segment is decoded once, left to right, by <see cref="DecodeOnce"/>, which refuses a percent sign
     /// not followed by two hex digits and a result that is not UTF-8, and never repairs one (R6.12). The
-    /// segments are found by their literal markers (<c>agents</c>, then <c>keys</c>), after the query, any
-    /// scheme and authority, and the path base are removed, never by position.</para>
+    /// segments are found by their position in the framework's normalised path (its <c>agents</c> segment,
+    /// matched as the router matches it, without regard to case), after the query, any scheme and
+    /// authority, and the path base are removed from the raw target; the raw target must have exactly as
+    /// many segments as that path, which a dot-segment target does not, and it is never required to spell
+    /// <c>agents</c> or <c>keys</c> as the router's literals do (<c>%61gents</c> routes). Each decoded
+    /// value is then compared with the value the framework bound, in the form Kestrel binds it
+    /// (<see cref="RouteForm"/>), so the routed URL, the <c>htu</c> built from the path and the identity
+    /// acted on agree; a disagreement is refused as the request path.</para>
     ///
     /// <para>A host that hands the pipeline no raw target (the in-memory test server) takes the one fallback
     /// here: the framework's path with <c>%2F</c> restored once. It is the old, lossy reading, taken only
     /// when there is nothing better, and a fact on the real host pins that production does not take it.
     /// A proof's <c>htu</c> is still the path <see cref="AbsoluteUrl"/> builds, which cannot tell <c>%2F</c>
-    /// from <c>%252F</c>, so a proof replays across those two URLs; that is harmless because they name two
-    /// identities and the token's subject is compared with the identity decoded here.</para>
+    /// from <c>%252F</c>, so a proof replays across those two URLs; that replay is bounded because the two
+    /// URLs name two identities and the token's subject is compared with the identity decoded here, which
+    /// is now checked against the routed value.</para>
     /// </summary>
-    private static (string? Id, string? Kid, IResult? Refusal) KeyRouteValues(HttpRequest http, bool wantKid)
+    private static (string? Id, string? Kid, IResult? Refusal) KeyRouteValues(
+        HttpRequest http, bool wantKid, string routedId, string? routedKid)
     {
         var rawTarget = http.HttpContext.Features.Get<IHttpRequestFeature>()?.RawTarget;
         var fromRawTarget = !string.IsNullOrEmpty(rawTarget);
 
-        string[] segments;
+        var pathSegments = (http.Path.Value ?? string.Empty).Split('/');
+        var agents = Array.FindIndex(pathSegments, p => string.Equals(p, "agents", StringComparison.OrdinalIgnoreCase));
+        var idIndex = agents + 1;
+        var kidIndex = idIndex + 2;
+        if (agents < 0
+            || idIndex + 1 >= pathSegments.Length
+            || (wantKid && kidIndex >= pathSegments.Length))
+            return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+
+        var segments = pathSegments;
         if (fromRawTarget)
         {
             var path = rawTarget!;
@@ -2395,26 +2412,46 @@ public static class ForumEndpoints
                 path = path[pathBase.Length..];
 
             segments = path.Split('/');
+            if (segments.Length != pathSegments.Length)
+                return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
         }
-        else
-        {
-            segments = (http.Path.Value ?? string.Empty).Split('/');
-        }
-
-        var agents = Array.IndexOf(segments, "agents");
-        var idIndex = agents + 1;
-        var kidIndex = idIndex + 2;
-        if (agents < 0
-            || kidIndex - 1 >= segments.Length
-            || !string.Equals(segments[idIndex + 1], "keys", StringComparison.Ordinal)
-            || (wantKid && kidIndex >= segments.Length))
-            return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
 
         var id = fromRawTarget ? DecodeOnce(segments[idIndex]) : RestoreSlashes(segments[idIndex]);
         var kid = wantKid ? (fromRawTarget ? DecodeOnce(segments[kidIndex]) : RestoreSlashes(segments[kidIndex])) : string.Empty;
-        return id is null || kid is null
-            ? (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath))
-            : (id, wantKid ? kid : null, null);
+        if (id is null || kid is null
+            || (fromRawTarget && !RouteFormAgrees(id, routedId))
+            || (fromRawTarget && wantKid && !RouteFormAgrees(kid, routedKid ?? string.Empty)))
+            return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+
+        return (id, wantKid ? kid : null, null);
+    }
+
+    /// <summary>
+    /// Whether a value decoded once from the raw target is the value the framework bound. Kestrel keeps
+    /// <c>%2F</c> encoded in a route value and decodes everything else, <c>%5C</c> to a backslash included
+    /// (seen by probe: a route value for <c>a%5Cb</c> is <c>a\b</c>), so the decoded value
+    /// is put into that form (<see cref="RouteForm"/>) and compared ordinally, after the hex digits of the
+    /// escapes are upper-cased on both sides: a letter's case is never folded, so <c>Alice</c> is not
+    /// <c>alice</c>.
+    /// </summary>
+    private static bool RouteFormAgrees(string decoded, string routed) =>
+        string.Equals(UpperEscapes(RouteForm(decoded)), UpperEscapes(routed), StringComparison.Ordinal);
+
+    private static string RouteForm(string value) =>
+        value.Replace("/", "%2F", StringComparison.Ordinal);
+
+    private static string UpperEscapes(string value)
+    {
+        var chars = value.ToCharArray();
+        for (var i = 0; i + 2 < chars.Length; i++)
+        {
+            if (chars[i] != '%' || !Uri.IsHexDigit(chars[i + 1]) || !Uri.IsHexDigit(chars[i + 2])) continue;
+            chars[i + 1] = char.ToUpperInvariant(chars[i + 1]);
+            chars[i + 2] = char.ToUpperInvariant(chars[i + 2]);
+            i += 2;
+        }
+
+        return new string(chars);
     }
 
     private static string RestoreSlashes(string pathSegment) =>
@@ -2489,7 +2526,7 @@ public static class ForumEndpoints
         if (!gate.Enables(LifecycleKind.Rotation))
             return Problem(StatusCodes.Status403Forbidden, KeyActErrors.RotationNotEnabled());
 
-        var (routeId, _, pathProblem) = KeyRouteValues(http, wantKid: false);
+        var (routeId, _, pathProblem) = KeyRouteValues(http, wantKid: false, id, null);
         if (pathProblem is not null) return pathProblem;
 
         var (agent, refused) = await AuthorizeKeyActAsync(
@@ -2544,7 +2581,7 @@ public static class ForumEndpoints
         if (!gate.Enables(LifecycleKind.Retirement))
             return Problem(StatusCodes.Status403Forbidden, KeyActErrors.RetirementNotEnabled());
 
-        var (routeId, routeKid, pathProblem) = KeyRouteValues(http, wantKid: true);
+        var (routeId, routeKid, pathProblem) = KeyRouteValues(http, wantKid: true, id, kid);
         if (pathProblem is not null) return pathProblem;
 
         var (agent, refused) = await AuthorizeKeyActAsync(

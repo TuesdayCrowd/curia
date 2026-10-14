@@ -17,10 +17,14 @@ internal sealed class RequestRecorder
     internal volatile string? RawTarget;
     internal volatile string? Url;
 
+    /// <summary>When set, the raw target the pipeline sees after this filter: a host whose raw target and routed path disagree at equal segment count.</summary>
+    internal volatile string? RawTargetOverride;
+
     internal void Clear()
     {
         RawTarget = null;
         Url = null;
+        RawTargetOverride = null;
     }
 }
 
@@ -32,7 +36,9 @@ internal sealed class RecordingStartupFilter(RequestRecorder recorder) : IStartu
     {
         app.Use(async (context, pipeline) =>
         {
-            recorder.RawTarget = context.Features.Get<IHttpRequestFeature>()?.RawTarget;
+            var feature = context.Features.Get<IHttpRequestFeature>();
+            recorder.RawTarget = feature?.RawTarget;
+            if (feature is not null && recorder.RawTargetOverride is { } forced) feature.RawTarget = forced;
             var request = context.Request;
             recorder.Url = $"{request.Scheme}://{request.Host}{request.PathBase}{request.Path}";
             await pipeline();
@@ -109,6 +115,7 @@ public sealed class KeyRouteIdentityTests(KeyRouteKestrelFixture forum) : IClass
     /// </summary>
     [Theory]
     [InlineData("a%2Fb")]
+    [InlineData("a%5Cb")]
     [InlineData("a%20b")]
     [InlineData("a%b")]
     public async Task R4_18_AnIdentityWhoseIdHoldsALiteralPercentEscapeCanRotate(string stem)
@@ -271,6 +278,103 @@ public sealed class KeyRouteIdentityTests(KeyRouteKestrelFixture forum) : IClass
 
         Assert.Equal(400, status);
         Assert.Contains("\"type\":\"curia/request/malformed-path\"", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A dot-segment target is routed to one identity while the raw target names another (the literal
+    /// markers sit at different places), so the routed URL, the <c>htu</c> and the identity acted on could
+    /// disagree. The raw segment count must equal the framework path's: 400 before any token. Red when the
+    /// count check is dropped, for the two targets whose values agree at the positions looked up (F1-112);
+    /// the targets that name another identity are also held by the compare (F1-111).
+    /// </summary>
+    [Theory]
+    [InlineData("/v1/agents/A/keys/../../B/keys")]
+    [InlineData("/v1/agents/A/keys/%2e%2e/%2e%2e/B/keys")]
+    [InlineData("/v1/agents/A/keys/../../B/keys/k1/retire")]
+    [InlineData("/v1/agents/x/keys/k1/../k2/retire")]
+    [InlineData("/v1/agents/x/keys/k1/%2e%2e/k2/retire")]
+    [InlineData("/v1/agents/x/../x/keys")]
+    [InlineData("/v1/agents/x/keys/../keys")]
+    public async Task R4_18_ADotSegmentTargetIsRefusedBeforeAnyToken(string path)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (status, body) = await RawPostAsync(new Uri(Origin), path, ct);
+
+        Assert.Equal(400, status);
+        Assert.Contains("\"type\":\"curia/request/malformed-path\"", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The router matches the literal segments case-insensitively and after one decode, so a marker written
+    /// <c>Agents</c>, <c>%61gents</c> or <c>%6Beys</c> routes; the Forum finds the segments by position and
+    /// so reaches authentication (401), where the literal search answered 400 (red when it returns: F1-110). The plain target is
+    /// the positive control: it reaches authentication too, so a malformed request line cannot pass this vacuously.
+    /// </summary>
+    [Theory]
+    [InlineData("/v1/agents/x/keys")]
+    [InlineData("/v1/%61gents/x/keys")]
+    [InlineData("/v1/Agents/x/KEYS")]
+    [InlineData("/v1/agents/x/%6Beys")]
+    [InlineData("/v1/agents/x/keys/k1/retire")]
+    [InlineData("/v1/%61gents/x/%6Beys/k1/retire")]
+    [InlineData("/v1/agents/a%2fb/keys")]
+    [InlineData("/v1/agents/a%5cb/keys")]
+    [InlineData("/v1/agents/a%5Cb/keys")]
+    [InlineData("/v1/agents/x/keys/k%5Cx/retire")]
+    [InlineData("/v1/agents/x/keys/k%2fx/retire")]
+    [InlineData("/v1/agents/a%252fb/keys")]
+    public async Task R4_18_AnEncodedOrDifferentlyCasedMarkerStillRoutes(string path)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (status, body) = await RawPostAsync(new Uri(Origin), path, ct);
+
+        Assert.Equal(401, status);
+        Assert.Contains("missing-authorization", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Where the raw target and the routed path have the same shape and name different values, the raw
+    /// decode is compared with the routed value and the request is refused: a mismatch of identity, of kid,
+    /// and of a single letter's case (no case-insensitive comparison weakens it). Red when the compare is
+    /// dropped (F1-111); the dot-segment facts stay green because the count check refuses those.
+    /// </summary>
+    [Theory]
+    [InlineData("/v1/agents/A/keys", "/v1/agents/B/keys")]
+    [InlineData("/v1/agents/Alice/keys", "/v1/agents/alice/keys")]
+    [InlineData("/v1/agents/x/keys/K1/retire", "/v1/agents/x/keys/k1/retire")]
+    [InlineData("/v1/agents/x/keys/k1/retire", "/v1/agents/y/keys/k1/retire")]
+    public async Task R4_39_ARawTargetThatDisagreesWithTheRoutedValuesIsRefused(string routed, string raw)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        forum.Recorder.RawTargetOverride = raw;
+        try
+        {
+            var (status, body) = await RawPostAsync(new Uri(Origin), routed, ct);
+
+            Assert.Equal(400, status);
+            Assert.Contains("\"type\":\"curia/request/malformed-path\"", body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            forum.Recorder.Clear();
+        }
+    }
+
+    /// <summary>The same raw target as the routed path is not refused by the compare: the control for the facts above.</summary>
+    [Fact]
+    public async Task R4_39_ARawTargetThatAgreesWithTheRoutedValuesReachesAuthentication()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        forum.Recorder.RawTargetOverride = "/v1/agents/Alice/keys";
+        try
+        {
+            var (status, _) = await RawPostAsync(new Uri(Origin), "/v1/agents/Alice/keys", ct);
+            Assert.Equal(401, status);
+        }
+        finally
+        {
+            forum.Recorder.Clear();
+        }
     }
 
     /// <summary>
