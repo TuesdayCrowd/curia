@@ -482,7 +482,7 @@ public sealed class PostVerifierTests : IDisposable
     }
 
     /// <summary>
-    /// R6.54 (errata G16), the intact case: the key the post names is bound to its author at leaf 0,
+    /// R6.54 (errata G16), the intact case: the key the post names is bound to its author at leaf 1,
     /// before the post at leaf 2, under the head this client verified, and the post verifies under
     /// the key that leaf carries. Asserted on its own for the reason the intact R6.52 case is: every
     /// falsification below changes one thing, and a fixture whose binding did not verify would report
@@ -494,7 +494,11 @@ public sealed class PostVerifierTests : IDisposable
         var result = await VerifyAsync(Log());
 
         Assert.Equal(CheckOutcome.Verified, result.KeyBinding.Outcome);
-        Assert.Contains("bound to \"https://agents.example/alice\" at leaf 0, before this post at leaf 2", result.KeyBinding.Detail, StringComparison.Ordinal);
+        Assert.Contains("bound to \"https://agents.example/alice\" at leaf 1, before this post at leaf 2", result.KeyBinding.Detail, StringComparison.Ordinal);
+
+        // And its lifecycle, from the enrolment at leaf 0, holds (R6.54 (add.)).
+        Assert.Equal(CheckOutcome.Verified, result.Lifecycle.Outcome);
+        Assert.Contains("bound at log index 1 and was live at the post's 2; 2 lifecycle entries checked through log index 1", result.Lifecycle.Detail, StringComparison.Ordinal);
         Assert.Equal(CheckOutcome.Verified, result.Overall);
     }
 
@@ -735,7 +739,7 @@ public sealed class PostVerifierTests : IDisposable
         Assert.Equal(CheckOutcome.Verified, result.Inclusion.Outcome);
         Assert.Equal(CheckOutcome.Failed, result.KeyBinding.Outcome);
         Assert.Contains(
-            member == "leaf_hash" ? "the log-entry route reported" : "the key's entry is leaf 1 and its proof is about leaf 0",
+            member == "leaf_hash" ? "the log-entry route reported" : "the key's entry is leaf 2 and its proof is about leaf 1",
             result.KeyBinding.Detail,
             StringComparison.Ordinal);
     }
@@ -911,10 +915,16 @@ public sealed class PostVerifierTests : IDisposable
         var lines = result.Render().Split('\n');
 
         Assert.Equal(CheckOutcome.Failed, result.Overall);
-        var forged = Assert.Single(lines, l => l.Contains("FORGED LINE", StringComparison.Ordinal));
-        Assert.StartsWith("key         FAILED: ", forged, StringComparison.Ordinal);
-        Assert.Contains("forged summary", forged, StringComparison.Ordinal);
+
+        // The value is named by two lines, the key's and the lifecycle's, each of which reads the post's own record
+        // first; each holds it quoted, and neither is begun by it.
+        var forged = lines.Where(l => l.Contains("FORGED LINE", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, forged.Count);
+        Assert.Single(forged, l => l.StartsWith("key         FAILED: ", StringComparison.Ordinal));
+        Assert.Single(forged, l => l.StartsWith("lifecycle   FAILED: ", StringComparison.Ordinal));
+        Assert.All(forged, l => Assert.Contains("forged summary", l, StringComparison.Ordinal));
         Assert.Single(lines, l => l.StartsWith("key ", StringComparison.Ordinal));
+        Assert.Single(lines, l => l.StartsWith("lifecycle ", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, l => l.StartsWith("VERIFIED.", StringComparison.Ordinal));
     }
 
@@ -1028,7 +1038,7 @@ public sealed class PostVerifierTests : IDisposable
     private static string ForkRoot(StubLog fork, int treeSize) =>
         Curia.Domain.Acta.LogEntries.Prefixed(fork.RootAt(treeSize));
 
-    private StubLog Log(int treeSize = 5, int postIndex = 2, int keyIndex = 0)
+    private StubLog Log(int treeSize = 5, int postIndex = 2, int keyIndex = 1)
     {
         var log = new StubLog(treeSize, postIndex, keyIndex);
         _logs.Add(log);

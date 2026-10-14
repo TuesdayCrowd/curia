@@ -90,6 +90,16 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
             && !string.Equals(Post.Digest, computed, StringComparison.Ordinal))
             frame.Line($"          the Forum reported a different value for digest: {Post.Digest}");
         frame.Line($"signature {new OwnText(Verdict.Describe)}");
+        // R6.54 (add.): when the Forum's key set marks the signing key other than active, the marker is shown, as the
+        // Forum's word and labelled so. A retired key prints where it ended; any other status prints as the status it
+        // is. The kid is an agent's, so it is a display literal.
+        if (Verdict.KeyStatus is { } status && !string.Equals(status, "active", StringComparison.Ordinal))
+        {
+            if (string.Equals(status, "retired", StringComparison.Ordinal) && Verdict.KeyRetiredAt is { } retiredAt)
+                frame.Line($"key       {Verdict.Kid} {new OwnText("retired at log index")} {retiredAt} {new OwnText("(as the Forum's key set says)")}");
+            else
+                frame.Line($"key       {Verdict.Kid} {new OwnText("is marked")} {status} {new OwnText("(as the Forum's key set says)")}");
+        }
         // R10.14: the datamark is the Forum's choice, so a datamarked passage names the character
         // interleaved through the span printed below, in this client's own spelling and never as the
         // character itself. Only where a delimited span is printed: an undelimited one is quoted as

@@ -1061,7 +1061,8 @@ internal static class Program
 
         // R6.52's other two checks: the leaf recomputed from the log's own entry, and the log's
         // growth since the head this client retains; and R6.54's, the signing key bound in the log
-        // before the post. Run against the post already read rather than
+        // before the post, and R6.54 (add.)'s, the key still the author's in its lifecycle when the post was
+        // accepted. Run against the post already read rather than
         // one fetched again, so the verdict is about the document above rather than about whatever
         // the Forum would serve on a second request.
         Output.Blank();
@@ -1071,6 +1072,7 @@ internal static class Program
         Output.Line($"inclusion   {new OwnText(acta.Inclusion.Describe)}");
         Output.Line($"consistency {new OwnText(acta.Consistency.Describe)}");
         Output.Line($"key         {new OwnText(acta.KeyBinding.Describe)}");
+        Output.Line($"lifecycle   {new OwnText(acta.Lifecycle.Describe)}");
 
         return ExitCode.ForOutcomes(local.Outcome, independent.Outcome, acta.Overall);
     }

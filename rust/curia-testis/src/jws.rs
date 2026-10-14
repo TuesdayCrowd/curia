@@ -806,6 +806,76 @@ mod tests {
         assert_eq!(err.predicate(), "curia/jws/crit-invalid");
     }
 
+    /// R4.18: each lifecycle `typ` goes through the `b64` and `crit` negatives exactly as a post's does (spec §4.6),
+    /// the Rust twin of `R4_18_EachLifecycleTypMeetsTheB64AndCritNegatives`. The same forged headers under the header
+    /// `typ` of a rotation and of a retirement, verified for that `typ`: `b64` true or absent, and `crit` absent, empty
+    /// or extended, each refuse with the predicate they have for a post, and a `typ` of another kind is refused
+    /// before either. Red when the `b64` check or the `crit` check is dropped (F1-72, F1-74).
+    #[test]
+    fn each_lifecycle_typ_meets_the_b64_and_crit_negatives() {
+        let (kid, case) = base_header_fields();
+        let jwks = JwkSet::parse(&load(&case, "jwks.json")).unwrap();
+        for typ in ["curia-key-rotation+jws", "curia-key-retirement+jws"] {
+            let verdict = |members: &str| {
+                let header = header_b64(&format!(
+                    r#"{{"alg":"EdDSA","kid":"{kid}","typ":"{typ}"{members}}}"#
+                ));
+                verify_typed(&format!("{header}.."), b"anything", &jwks, typ)
+                    .unwrap_err()
+                    .predicate()
+                    .to_string()
+            };
+
+            assert_eq!(
+                verdict(r#","b64":true,"crit":["b64"]"#),
+                "curia/jws/b64-not-false",
+                "{typ}"
+            );
+            assert_eq!(
+                verdict(r#","crit":["b64"]"#),
+                "curia/jws/b64-not-false",
+                "{typ}"
+            );
+            assert_eq!(
+                verdict(r#","b64":false"#),
+                "curia/jws/crit-invalid",
+                "{typ}"
+            );
+            assert_eq!(
+                verdict(r#","b64":false,"crit":[]"#),
+                "curia/jws/crit-invalid",
+                "{typ}"
+            );
+            assert_eq!(
+                verdict(r#","b64":false,"crit":["b64","zip"]"#),
+                "curia/jws/crit-invalid",
+                "{typ}"
+            );
+
+            // A signature is its kind's alone (KF1).
+            for wrong in [
+                "curia-key-rotation+jws",
+                "curia-key-retirement+jws",
+                "curia-post+jws",
+                "curia-head+jws",
+            ] {
+                if wrong == typ {
+                    continue;
+                }
+                let header = header_b64(&format!(
+                    r#"{{"alg":"EdDSA","kid":"{kid}","typ":"{wrong}","b64":false,"crit":["b64"]}}"#
+                ));
+                let err =
+                    verify_typed(&format!("{header}.."), b"anything", &jwks, typ).unwrap_err();
+                assert_eq!(
+                    err.predicate(),
+                    "curia/jws/typ-invalid",
+                    "{typ} against {wrong}"
+                );
+            }
+        }
+    }
+
     // -----------------------------------------------------------------
     // Compact-serialization shape.
     // -----------------------------------------------------------------

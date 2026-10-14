@@ -62,7 +62,7 @@ internal sealed class StubLog : IDisposable
     private HttpClient? _http;
     private StubHandler? _handler;
 
-    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 0, string bodySuffix = "")
+    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 1, string bodySuffix = "", int? enrolledIndex = null)
     {
         _root = Directory.CreateTempSubdirectory("curia-stub-log-").FullName;
 
@@ -128,6 +128,17 @@ internal sealed class StubLog : IDisposable
             throw new ArgumentOutOfRangeException(nameof(keyIndex), "the key's binding needs a leaf of its own");
 
         KeyIndex = keyIndex;
+
+        // The identity's enrolment, the entry its lifecycle opens with (R4.38): the nearest leaf below the binding that is
+        // neither the post nor the answer, unless the test names one. A binding with nothing before it has no chain to link
+        // from, and R6.54 (add.)'s reader refuses it.
+        EnrolledIndex = enrolledIndex
+            ?? Enumerable.Range(0, keyIndex).Reverse().Cast<int?>().FirstOrDefault(i => i != postIndex && i != AnswerIndex)
+            ?? throw new ArgumentOutOfRangeException(nameof(keyIndex), "the key's binding needs a leaf before it for the enrolment");
+        if (EnrolledIndex == postIndex || EnrolledIndex == AnswerIndex || EnrolledIndex == keyIndex || EnrolledIndex < 0 || EnrolledIndex >= keyIndex)
+            throw new ArgumentOutOfRangeException(nameof(enrolledIndex), "the enrolment needs a leaf of its own, before the binding's");
+
+        EnrolledEntry = BuildEnrolledEntry();
         KeyEntry = BuildKeyEntry(PublicJwk.Of(new PublicKeyMaterial("ES256", AgentKid, PublicSubjectPublicKeyInfo()))
             .TryGetValue(out var jwk, out _)
             ? jwk!
@@ -145,7 +156,9 @@ internal sealed class StubLog : IDisposable
                     ? LeafOf(AnswerEntry)
                     : i == KeyIndex
                         ? LeafOf(KeyEntry)
-                        : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
+                        : i == EnrolledIndex
+                            ? LeafOf(EnrolledEntry)
+                            : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
         }
 
         Leaves = leaves.MoveToImmutable();
@@ -186,6 +199,20 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>R6.46's six members for alice's <c>agent.key-bound</c>.</summary>
     internal JsonValue.Object KeyEntry { get; private set; }
+
+    /// <summary>The leaf of alice's <c>agent.enrolled</c>, which her lifecycle opens with and her binding follows.</summary>
+    internal int EnrolledIndex { get; }
+
+    /// <summary>R6.46's six members for alice's <c>agent.enrolled</c>.</summary>
+    internal JsonValue.Object EnrolledEntry { get; }
+
+    /// <summary>
+    /// The identity's lifecycle indices as the key set lists them: its enrolment and its binding, or, for an identity
+    /// enrolled before R4.34 (<see cref="EnrollBeforeKeyBinding"/>), the enrolment alone.
+    /// </summary>
+    internal IReadOnlyList<int> LifecycleIndices => _enrolledBeforeKeyBinding ? [KeyIndex] : [EnrolledIndex, KeyIndex];
+
+    private bool _enrolledBeforeKeyBinding;
 
     /// <summary>The size the served head covers. Set below the post's index to strand it (R6.48).</summary>
     internal int HeadTreeSize { get; set; }
@@ -332,6 +359,7 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal void EnrollBeforeKeyBinding()
     {
+        _enrolledBeforeKeyBinding = true;
         KeyEntry = new JsonValue.Object(
         [
             new(LogLeaf.ActorIdMember, new JsonValue.String(Author)),
@@ -554,6 +582,12 @@ internal sealed class StubLog : IDisposable
     /// identity's lifecycle that the profile did not make (R4.39).
     /// </summary>
     internal long? ForeignLifecycleIndex { get; set; }
+
+    /// <summary>
+    /// When set, the key set's <c>curia_lifecycle</c> is exactly this list, whatever the log holds: a Forum that lists
+    /// more of the identity's lifecycle than a reader will fold (R6.54 (add.), spec section 4.8).
+    /// </summary>
+    internal IReadOnlyList<long>? ServedLifecycle { get; set; }
 
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
@@ -791,7 +825,7 @@ internal sealed class StubLog : IDisposable
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
         "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}",
         "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}},"curia_status":"active"}],
-        "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{KeyIndex}}{{(ForeignLifecycleIndex is { } foreign ? "," + foreign.ToString(CultureInfo.InvariantCulture) : string.Empty)}}]}
+        "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{(ServedLifecycle is { } served ? string.Join(",", served) : string.Join(",", LifecycleIndices))}}{{(ForeignLifecycleIndex is { } foreign ? "," + foreign.ToString(CultureInfo.InvariantCulture) : string.Empty)}}]}
         """.ReplaceLineEndings(string.Empty);
     }
 
@@ -845,7 +879,11 @@ internal sealed class StubLog : IDisposable
 
     internal string EntryJson(int index)
     {
-        var entry = index == PostIndex ? Entry : index == AnswerIndex ? AnswerEntry : index == KeyIndex ? KeyEntry : null;
+        var entry = index == PostIndex ? Entry
+            : index == AnswerIndex ? AnswerEntry
+            : index == KeyIndex ? KeyEntry
+            : index == EnrolledIndex ? EnrolledEntry
+            : null;
         var body = entry is null
             ? "{\"actor_id\":null,\"aggregate_id\":\"x\",\"event_id\":\"x\",\"event_type\":\"filler\",\"payload\":{},\"server_ts\":\"1970-01-01T00:00:00.000000Z\"}"
             : Render(entry);
@@ -885,7 +923,7 @@ internal sealed class StubLog : IDisposable
     internal string ProofFromAnotherTreeAt(int index, int treeSize)
     {
         var filler = Enumerable.Range(0, treeSize)
-            .Last(i => i != PostIndex && i != AnswerIndex && i != KeyIndex);
+            .Last(i => i != PostIndex && i != AnswerIndex && i != KeyIndex && i != EnrolledIndex);
         var other = Leaves[..treeSize].SetItem(filler, MerkleTree.LeafHash("a leaf this log never held"u8));
         var path = MerkleTree.InclusionPath(other, index);
 
@@ -968,6 +1006,22 @@ internal sealed class StubLog : IDisposable
             new("agent_id", new JsonValue.String(agent)),
             new("kid", new JsonValue.String(AgentKid)),
             new("jwk", jwk),
+        ])),
+        new(LogLeaf.ServerTimestampMember, new JsonValue.String("1970-01-01T00:00:00.000000Z")),
+    ]);
+
+    /// <summary>R6.46's six members, as an enrollment appends alice's <c>agent.enrolled</c> (R4.34).</summary>
+    private static JsonValue.Object BuildEnrolledEntry() => new(
+    [
+        new(LogLeaf.ActorIdMember, new JsonValue.String(Author)),
+        new(LogLeaf.AggregateIdMember, new JsonValue.String(Author)),
+        new(LogLeaf.EventIdMember, new JsonValue.String("01TESTENROLLMENT0000000000")),
+        new(LogLeaf.EventTypeMember, new JsonValue.String("agent.enrolled")),
+        new(LogLeaf.PayloadMember, new JsonValue.Object(
+        [
+            new("agent_id", new JsonValue.String(Author)),
+            new("kid", new JsonValue.String(AgentKid)),
+            new("reason", new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
         ])),
         new(LogLeaf.ServerTimestampMember, new JsonValue.String("1970-01-01T00:00:00.000000Z")),
     ]);

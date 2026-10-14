@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -116,7 +117,27 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
                 ? index.GetInt64()
                 : throw new InvalidOperationException($"the key set names no leaf for {agent.AgentId}'s key");
 
-        async Task<string> AuthorAsync(string post, ForumAgent keyOf, string label)
+        // R6.54 (add.): the lifecycle the client's PostVerifier fetches, in log order -- every lifecycle index the author's
+        // key set lists below the head's tree size, up to and including the first at or after the post.
+        async Task<string> LifecycleArgsAsync(ForumAgent agent, long postIndex, string label)
+        {
+            var treeSize = (await http.GetFromJsonAsync<JsonElement>("/v1/log/head", ct)).GetProperty("head").GetProperty("tree_size").GetInt64();
+            var published = (await http.GetFromJsonAsync<JsonElement>($"/v1/jwks?agent={Uri.EscapeDataString(agent.AgentId)}", ct))
+                .GetProperty("curia_lifecycle").EnumerateArray().Select(e => e.GetInt64()).Where(i => i < treeSize).Order().ToList();
+            var wanted = published.Where(i => i < postIndex).ToList();
+            if (published.FirstOrDefault(i => i >= postIndex, -1) is >= 0 and var stop) wanted.Add(stop);
+
+            var args = new StringBuilder();
+            foreach (var index in wanted)
+            {
+                args.Append(CultureInfo.InvariantCulture, $" --lifecycle-entry \"{await SaveAsync(http, $"/v1/log/entries/{index}", dir, $"{label}-lc-{index}-entry.json", ct)}\"");
+                args.Append(CultureInfo.InvariantCulture, $" --lifecycle-proof \"{await SaveAsync(http, $"/v1/log/proof/{index}?tree_size={treeSize}", dir, $"{label}-lc-{index}-proof.json", ct)}\"");
+            }
+
+            return args.ToString();
+        }
+
+        async Task<string> AuthorAsync(string post, ForumAgent keyOf, string label, bool withLifecycle = true)
         {
             var postIndex = (await http.GetFromJsonAsync<JsonElement>($"/v1/posts/{post}", ct)).GetProperty("log_index").GetInt64();
             var keyIndex = await KeyIndexAsync(keyOf);
@@ -126,13 +147,15 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
                 $" --key-entry \"{await SaveAsync(http, $"/v1/log/entries/{keyIndex}", dir, label + "-key-entry.json", ct)}\"" +
                 $" --key-proof \"{await SaveAsync(http, $"/v1/log/proof/{keyIndex}", dir, label + "-key-proof.json", ct)}\"" +
                 $" --head \"{await SaveAsync(http, "/v1/log/head", dir, label + "-head.json", ct)}\"" +
-                $" --log-jwks \"{await SaveAsync(http, "/v1/log/jwks", dir, label + "-log-jwks.json", ct)}\"";
+                $" --log-jwks \"{await SaveAsync(http, "/v1/log/jwks", dir, label + "-log-jwks.json", ct)}\"" +
+                (withLifecycle ? await LifecycleArgsAsync(keyOf, postIndex, label) : string.Empty);
             var (code, stdout, failure) = TestisBinary.Run(TestisBinary.Locate(), args);
             return $"exit {code}: {stdout}{failure}";
         }
 
         var verified = await AuthorAsync(postId, author, "own");
         Assert.StartsWith("exit 0:", verified, StringComparison.Ordinal);
+        Assert.Contains("lifecycle: verified through leaf ", verified, StringComparison.Ordinal);
         Assert.Contains($"author: {DisplayLiteral.Of(author.AgentId)}", verified, StringComparison.Ordinal);
         Assert.Contains($"kid: {DisplayLiteral.Of(author.Kid)}", verified, StringComparison.Ordinal);
         Assert.Contains($"key_index: {await KeyIndexAsync(author)}", verified, StringComparison.Ordinal);
@@ -145,9 +168,44 @@ public sealed class ActaEndpointTests(ForumFixture forum) : IClassFixture<ForumF
         Assert.StartsWith("exit 3:", notChecked, StringComparison.Ordinal);
         Assert.Contains("curia/acta/key-not-carried", notChecked, StringComparison.Ordinal);
 
+        // The late binding is the identity's prev-less first binding, after its post (spec section 4.4): the lifecycle
+        // the client fetches includes it, and it reads as that binding and not as a broken link.
         var boundLate = await AuthorAsync(latePostId, late, "late");
         Assert.StartsWith("exit 3:", boundLate, StringComparison.Ordinal);
         Assert.Contains("curia/acta/bound-after-post", boundLate, StringComparison.Ordinal);
+        Assert.DoesNotContain("curia/acta/broken-link", boundLate, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R6.54 (add.): the same inputs as the verified control, without the lifecycle. An offline verifier given none cannot
+    /// say the key was not retired, so it reports could not be checked (exit 3) and names the predicate: never a pass.
+    /// </summary>
+    [Fact]
+    public async Task R6_54_TestisWithoutALifecycleCouldNotCheck()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var dir = Scratch();
+
+        var (author, postId) = await AskAsync(http, "nolc", beforeKeyBinding: false, ct);
+        var (exit, _, stderr) = await SignHeadAsync(ct);
+        Assert.True(exit == ExitCode.Ok, stderr);
+
+        var postIndex = (await http.GetFromJsonAsync<JsonElement>($"/v1/posts/{postId}", ct)).GetProperty("log_index").GetInt64();
+        var keyIndex = (await http.GetFromJsonAsync<JsonElement>($"/v1/jwks?agent={Uri.EscapeDataString(author.AgentId)}", ct))
+            .GetProperty("keys")[0].GetProperty("curia_log_index").GetInt64();
+        var args =
+            $"log author --entry \"{await SaveAsync(http, $"/v1/log/entries/{postIndex}", dir, "nolc-entry.json", ct)}\"" +
+            $" --proof \"{await SaveAsync(http, $"/v1/log/proof/{postIndex}", dir, "nolc-proof.json", ct)}\"" +
+            $" --key-entry \"{await SaveAsync(http, $"/v1/log/entries/{keyIndex}", dir, "nolc-key-entry.json", ct)}\"" +
+            $" --key-proof \"{await SaveAsync(http, $"/v1/log/proof/{keyIndex}", dir, "nolc-key-proof.json", ct)}\"" +
+            $" --head \"{await SaveAsync(http, "/v1/log/head", dir, "nolc-head.json", ct)}\"" +
+            $" --log-jwks \"{await SaveAsync(http, "/v1/log/jwks", dir, "nolc-log-jwks.json", ct)}\"";
+        var (code, stdout, failure) = TestisBinary.Run(TestisBinary.Locate(), args);
+
+        Assert.Equal(3, code);
+        Assert.Contains("lifecycle: could not be checked: no lifecycle supplied", stdout, StringComparison.Ordinal);
+        Assert.Contains("curia/acta/lifecycle-not-supplied", failure, StringComparison.Ordinal);
     }
 
     [Fact]

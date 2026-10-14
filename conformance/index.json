@@ -56,6 +56,15 @@
       "count": 8
     },
     {
+      "name": "lifecycle",
+      "family": true,
+      "shape": "lifecycle",
+      "profiles": [
+        "lifecycle-log"
+      ],
+      "count": 30
+    },
+    {
       "name": "merkle",
       "family": true,
       "shape": "merkle",

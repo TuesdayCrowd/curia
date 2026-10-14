@@ -65,6 +65,19 @@ fn refusals(value: &str) -> Vec<(&'static str, String)> {
             ActaError::KeyNotCarried { kid: owned() }.to_string(),
         ),
         (
+            "ActaError::RetiredBeforePost",
+            ActaError::RetiredBeforePost {
+                kid: owned(),
+                retired: 1,
+                post: 2,
+            }
+            .to_string(),
+        ),
+        (
+            "ActaError::LifecycleUnknownKind",
+            ActaError::LifecycleUnknownKind { what: owned() }.to_string(),
+        ),
+        (
             "JwsError::AlgorithmNotAllowed",
             JwsError::AlgorithmNotAllowed { alg: Some(owned()) }.to_string(),
         ),
@@ -97,6 +110,43 @@ fn refusals(value: &str) -> Vec<(&'static str, String)> {
             NfcError::DuplicateNormalizedKey { key: owned() }.to_string(),
         ),
     ]
+}
+
+/// R10.64 (R6.54 (add.)): the two lifecycle refusals that name a value the log holds -- a retired key's `kid` and an
+/// entry or statement kind this verifier does not know -- write it as a display literal, a look-alike letter as its
+/// escape, and the refusal's own line is one line. The others name only indices.
+#[test]
+fn r10_64_lifecycle_refusals_name_values_as_literals() {
+    for (value, literal) in [(HOSTILE, HOSTILE_LITERAL), (LOOK_ALIKE, LOOK_ALIKE_LITERAL)] {
+        for err in [
+            ActaError::RetiredBeforePost {
+                kid: value.to_string(),
+                retired: 1,
+                post: 2,
+            },
+            ActaError::LifecycleUnknownKind {
+                what: value.to_string(),
+            },
+        ] {
+            let text = err.to_string();
+            assert!(
+                text.contains(literal),
+                "{err:?} did not name the value as a literal: {text:?}"
+            );
+            assert!(
+                !text.contains('\n'),
+                "{err:?} let the value end its line: {text:?}"
+            );
+            assert!(
+                printable(&text),
+                "{err:?} wrote a character outside printable ASCII: {text:?}"
+            );
+            assert!(
+                text.ends_with(&format!("[{}]", err.predicate())),
+                "{err:?} did not end by naming its predicate: {text:?}"
+            );
+        }
+    }
 }
 
 /// Printable ASCII and line feeds only: what R10.64 writes, and the line

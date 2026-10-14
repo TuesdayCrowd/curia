@@ -22,6 +22,12 @@ var outputRoot = Path.Combine(repoRoot, "conformance", "envelope");
 if (args.Contains("--lifecycle", StringComparer.Ordinal))
     return Lifecycle.Run(repoRoot);
 
+// `--lifecycle-cases` writes conformance/lifecycle/ (keys that end, Task 1.9): whole small logs, one per
+// verdict a reader that folds the author's lifecycle must reach. Deterministic but for the ES256 case,
+// which is generated once and kept.
+if (args.Contains("--lifecycle-cases", StringComparer.Ordinal))
+    return LifecycleCases.Run(repoRoot);
+
 Directory.CreateDirectory(outputRoot);
 
 // `--only a,b` regenerates named cases alone. Every case signs with a key drawn fresh at run

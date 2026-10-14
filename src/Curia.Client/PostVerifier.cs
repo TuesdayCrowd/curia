@@ -5,8 +5,8 @@ using Curia.Domain.Serving;
 namespace Curia.Client;
 
 /// <summary>
-/// R6.52's three checks over one served post, and R6.54's fourth (errata G16), each reported
-/// separately.
+/// R6.52's three checks over one served post, R6.54's fourth (errata G16) and its fifth, the author's
+/// lifecycle (R6.54 (add.)), each reported separately.
 /// </summary>
 /// <param name="Digest">
 /// SHA-256 over bytes this client re-canonicalized, in the <c>sha256:</c> form the wire uses, so a
@@ -21,21 +21,33 @@ namespace Curia.Client;
 /// R6.54: whether the key that signed the post is the key the log bound to its author before the
 /// post, checked under the key the binding entry carries rather than one a key set serves.
 /// </param>
+/// <param name="Lifecycle">
+/// R6.54 (add.): whether that key was still the author's when the post was accepted. The author's lifecycle,
+/// fetched entry by entry and proven under the same signed head, is folded (<see cref="LifecycleCheck"/>): a key
+/// retired before the post, a broken link, a rotation no live key made, or an entry of a kind this client cannot
+/// fold, is reported here and never as a pass.
+/// </param>
 public sealed record PostVerification(
     string PostId,
     Check Signature,
     Check Inclusion,
     Check Consistency,
     Check KeyBinding,
+    Check Lifecycle,
     string? Digest,
     long? LogIndex,
     long? AnchorTreeSize)
 {
     /// <summary>
-    /// One word for the four, for a caller that wants a single answer.
+    /// One word for the five, for a caller that wants a single answer.
     ///
     /// <para><b>Any failure is a failure.</b> A post whose signature verifies and whose inclusion
     /// proof does not is not partly authentic.</para>
+    ///
+    /// <para><b>Verified needs the key's lifecycle as well as its binding (R6.54 (add.)).</b> A key the log bound
+    /// and later retired is not the key a post accepted after the retirement may be signed under, and the binding
+    /// check alone cannot see the retirement. The lifecycle is held exactly as the binding is: any failure is a
+    /// failure, and anything not established is not verified.</para>
     ///
     /// <para><b>Verified needs the key's binding as well as the signature (R6.54).</b> The signature
     /// check verifies under a key the Forum's key set serves; the binding check is what shows that key
@@ -59,17 +71,19 @@ public sealed record PostVerification(
         || Inclusion.Outcome is CheckOutcome.Failed
         || Consistency.Outcome is CheckOutcome.Failed
         || KeyBinding.Outcome is CheckOutcome.Failed
+        || Lifecycle.Outcome is CheckOutcome.Failed
             ? CheckOutcome.Failed
             : Signature.Outcome is CheckOutcome.Verified
               && Inclusion.Outcome is CheckOutcome.Verified
               && KeyBinding.Outcome is CheckOutcome.Verified
+              && Lifecycle.Outcome is CheckOutcome.Verified
               && (Consistency.Outcome is CheckOutcome.Verified
                   || Consistency is { Outcome: CheckOutcome.CouldNotCheck, NothingToCompare: true })
                 ? CheckOutcome.Verified
                 : CheckOutcome.CouldNotCheck;
 
     /// <summary>
-    /// The four checks as four lines, plus the summary.
+    /// The five checks as five lines, plus the summary.
     ///
     /// <para><b>No post body and no log entry appears here, and none may.</b> This renders verdicts
     /// about a post, not the post: R6.51 forbids surfacing a log entry, and this method is the one
@@ -101,6 +115,7 @@ public sealed record PostVerification(
         builder.Append(culture, $"inclusion   {Inclusion.Describe}\n");
         builder.Append(culture, $"consistency {Consistency.Describe}\n");
         builder.Append(culture, $"key         {KeyBinding.Describe}\n");
+        builder.Append(culture, $"lifecycle   {Lifecycle.Describe}\n");
         builder.Append('\n');
 
         builder.Append(Overall switch
@@ -108,8 +123,8 @@ public sealed record PostVerification(
             CheckOutcome.Verified =>
                 "VERIFIED. This client checked the signature over bytes it re-canonicalized itself, "
                 + "recomputed the log leaf from the log's own entry rather than accepting the "
-                + "digest the Forum served for it, and found the signing key bound to the author in "
-                + "the log before the post.\n",
+                + "digest the Forum served for it, found the signing key bound to the author in "
+                + "the log before the post, and found it live in the author's lifecycle when the post was accepted.\n",
             CheckOutcome.Failed =>
                 "FAILED. At least one check ran and did not hold. Read the failing line above: it "
                 + "names the predicate, and a failure here is a claim about the material, not about "
@@ -200,6 +215,7 @@ public sealed class PostVerifier
         var inclusion = await InclusionAsync(post, head, ct).ConfigureAwait(false);
         var consistency = await ConsistencyAsync(head, ct).ConfigureAwait(false);
         var keyBinding = await KeyBindingAsync(post, head, inclusion, signature, signingKey, ct).ConfigureAwait(false);
+        var lifecycle = await LifecycleAsync(post, head, inclusion, ct).ConfigureAwait(false);
 
         return new PostVerification(
             post.PostId,
@@ -207,6 +223,7 @@ public sealed class PostVerifier
             inclusion.Check,
             consistency,
             keyBinding,
+            lifecycle,
             digest,
             post.LogIndex,
             head.Head?.TreeSize);
@@ -315,6 +332,72 @@ public sealed class PostVerifier
                     $"the key's binding entry at leaf {keyIndex} could not be fetched: {entryRefusal!.Summary}"));
 
         return ActaCheck.KeyBinding(post, postEntry, postProof, keyEntry!, keyProof!, head);
+    }
+
+    /// <summary>
+    /// R6.54 (add.): whether the key that signed the post was live in its author's lifecycle when the post was
+    /// accepted. The key set only says which log indices to fetch; every entry is recomputed, proven under the same
+    /// signed head as the post, and folded by <see cref="LifecycleCheck"/>.
+    ///
+    /// <para><b>What is fetched.</b> Every lifecycle index the key set names that is below the post's, and the first at
+    /// or after it that lies under the head, so a link that skips the entry immediately before the post is caught by the
+    /// next entry's (spec section 4.8). More than 1,024 before the post is could not be checked, and none of them is
+    /// fetched. A key set that lists no lifecycle, or an entry or proof that will not arrive, is could not be checked:
+    /// a fault reaching the material, not a statement about the key.</para>
+    /// </summary>
+    private async Task<Check> LifecycleAsync(ProvenancePost post, Anchor anchor, PostInclusion inclusion, CancellationToken ct)
+    {
+        // No head, or one that did not verify: the inclusion line's verdict, for the same reason.
+        if (anchor.Head is not { } head) return anchor.Verdict;
+
+        if (inclusion.Entry is not { } postEntry || inclusion.Proof is not { } postProof)
+            return inclusion.Check is { Outcome: CheckOutcome.Failed }
+                ? inclusion.Check
+                : Check.CouldNotCheck(
+                    "the post's own log entry and proof were not in hand under the signed head (the "
+                    + "inclusion line says why), and this check reads the post's author and kid from them");
+
+        var record = ActaCheck.PostOfRecord(post, postEntry, postProof, head);
+        if (record.Outcome is not CheckOutcome.Verified) return record;
+
+        var author = post.Provenance.Author;
+        var fetched = await _forum.GetKeySetAsync(author, ct).ConfigureAwait(false);
+        if (!fetched.TryGetValue(out var keySet, out var refusal))
+            return Check.CouldNotCheck(
+                $"the author's key set could not be fetched ({Check.Quote(refusal!.Error.Type)}): {refusal.Summary}. "
+                + "This is a fault reaching the lifecycle, not a statement about the key.");
+
+        if (keySet!.Lifecycle is not { IsDefaultOrEmpty: false } published)
+            return Check.CouldNotCheck("the Forum's key set lists no lifecycle for the author");
+
+        var postIndex = postProof.LogIndex;
+        var indices = published.Where(i => i < head.TreeSize).Order().ToList();
+        var before = indices.Where(i => i < postIndex).ToList();
+        if (before.Count > LifecycleCheck.MaxEntriesBeforePost)
+            return Check.CouldNotCheck("the author's lifecycle has more than 1,024 entries before the post");
+
+        var wanted = before.ToList();
+        if (indices.FirstOrDefault(i => i >= postIndex, -1) is >= 0 and var stop) wanted.Add(stop);
+
+        var chain = new List<(LogEntryDocument Entry, InclusionProofDocument Proof)>(wanted.Count);
+        foreach (var index in wanted)
+        {
+            var proof = await _forum.GetInclusionProofAsync(index, head.TreeSize, ct).ConfigureAwait(false);
+            if (!proof.TryGetValue(out var proven, out var proofRefusal))
+                return Check.CouldNotCheck(Invariant(
+                    $"a proof for the lifecycle entry at leaf {index} could not be fetched: {proofRefusal!.Summary}"));
+
+            var entry = await _forum.GetLogEntryAsync(index, ct).ConfigureAwait(false);
+            if (!entry.TryGetValue(out var served, out var entryRefusal))
+                return ActaCheck.HeadCovers(head, proven!.TreeSize, proven.RootHash) is { Outcome: CheckOutcome.Failed } offHead
+                    ? offHead
+                    : Check.CouldNotCheck(Invariant(
+                        $"the lifecycle entry at leaf {index} could not be fetched: {entryRefusal!.Summary}"));
+
+            chain.Add((served!, proven!));
+        }
+
+        return LifecycleCheck.Verify(post, postEntry, chain, head);
     }
 
     /// <summary>

@@ -218,6 +218,25 @@ public sealed class PropertyP22ToolResultTests : IDisposable
     }
 
     /// <summary>
+    /// R11.29 as R6.54 (add.) extends it: <c>curia_verify</c> reports the author's lifecycle on a line of its own,
+    /// <c>lifecycle   </c>, after the key's. The overall verdict needs that check, so a result without the line would
+    /// state a verdict none of its lines explains. Against the intact stub, whose lifecycle is the enrolment and its
+    /// binding, the fold runs and holds, and the line names the key by what the tool computed and never by an entry.
+    /// </summary>
+    [Fact]
+    public async Task R11_29_CuriaVerifyReportsTheLifecycleLine()
+    {
+        var text = Flatten(await Verify());
+
+        Assert.Contains("lifecycle   verified: the author's key \"alice-1\" was bound at log index 1 and was live at the post's 2", text, StringComparison.Ordinal);
+        Assert.True(
+            text.IndexOf("key         ", StringComparison.Ordinal) < text.IndexOf("lifecycle   ", StringComparison.Ordinal),
+            "the lifecycle line follows the key's");
+        Assert.DoesNotContain("agent.enrolled", text, StringComparison.Ordinal);
+        Assert.Contains("found it live in the author's lifecycle", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A tool result carrying agent-authored content carries the Forum's provenance envelope with
     /// it (R11.18). The read tool is the one that does, and this is the row that would fail if a
     /// future change fused passages or dropped the envelope.

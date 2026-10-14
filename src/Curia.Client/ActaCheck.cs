@@ -299,7 +299,7 @@ public static class ActaCheck
     private const string EnrolledType = "agent.enrolled";
 
     /// <summary>The post as the log records it: its envelope's author, its signature's <c>kid</c>, the signature, and its leaf.</summary>
-    private sealed record LoggedPost(string Author, string Kid, string Signature, long Index);
+    internal sealed record LoggedPost(string Author, string Kid, string Signature, long Index);
 
     /// <summary>
     /// <see cref="PostOfRecord"/>'s checks, in its order, and the post they establish; the post is
@@ -314,10 +314,22 @@ public static class ActaCheck
         var covers = HeadCovers(head, postProof.TreeSize, postProof.RootHash);
         if (covers.Outcome is not CheckOutcome.Verified) return (covers, null);
 
+        return ReadLoggedPost(post, postEntry, postProof.LogIndex);
+    }
+
+    /// <summary>
+    /// <see cref="ReadPostOfRecord"/>'s reading of the post's own entry, once its leaf is proven under the head: the
+    /// entry is the log's record of an acceptance, its envelope passes ADMIT and its signature's protected header
+    /// parses, and the author the Forum served the post as is the author that envelope names. R6.54 (add.)'s lifecycle
+    /// check reads the post's author, <c>kid</c> and index through the same method, so the two cannot read it
+    /// differently.
+    /// </summary>
+    internal static (Check Verdict, LoggedPost? Post) ReadLoggedPost(ProvenancePost post, LogEntryDocument postEntry, long index)
+    {
         var type = ClientJson.String(postEntry.Entry, LogLeaf.EventTypeMember);
         if (!string.Equals(type, PostAcceptedType, StringComparison.Ordinal))
             return (Check.Failed(Text(
-                $"the post's own leaf {postProof.LogIndex} is of type {Check.Quote(type)}, not {PostAcceptedType}: it carries the post's bytes and is not the log's record of the post's acceptance")), null);
+                $"the post's own leaf {index} is of type {Check.Quote(type)}, not {PostAcceptedType}: it carries the post's bytes and is not the log's record of the post's acceptance")), null);
 
         var payload = ClientJson.Object(postEntry.Entry, LogLeaf.PayloadMember);
         var canonical = payload is null ? null : ClientJson.String(payload, "canonical");
@@ -344,8 +356,8 @@ public static class ActaCheck
                 + $", and the envelope its log entry carries, which the signature covers, names {Check.Quote(author)}")), null);
 
         return (Check.Verified(Text(
-            $"leaf {postProof.LogIndex} is the log's record of this post's acceptance: the envelope of {Check.Quote(author)}, signed under kid={Check.Quote(header!.Kid)}")),
-            new LoggedPost(author, header.Kid, signature, postProof.LogIndex));
+            $"leaf {index} is the log's record of this post's acceptance: the envelope of {Check.Quote(author)}, signed under kid={Check.Quote(header!.Kid)}")),
+            new LoggedPost(author, header.Kid, signature, index));
     }
 
     /// <summary>
@@ -353,7 +365,7 @@ public static class ActaCheck
     /// and the entry route each state must be the recomputed one, and the path must carry it to the
     /// proof's root. Shared by the post's check and the key's, so the two cannot come apart.
     /// </summary>
-    private static Check ProofHolds(LogEntryDocument entry, InclusionProofDocument proof)
+    internal static Check ProofHolds(LogEntryDocument entry, InclusionProofDocument proof)
     {
         if (!RecomputeLeaf(entry.Entry).TryGetValue(out var leaf, out var error))
             return Check.Failed($"the entry has no canonical form: {error!.Type}");
