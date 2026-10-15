@@ -56,6 +56,7 @@ internal static partial class LifecycleCases
             DeclarationSignedAsHead(root, k1),
             CompromisedAfterInterveningRotation(root, k1, k2, "compromise-kids-omits-cascade", reorderKids: false, omitCascade: true),
             FromIndexAfterDeclaration(root, k1),
+            FromIndexAtDeclaration(root, k1),
             KidOfOtherIdentity(root, k1, stranger),
             UnknownReason(root, k1),
             DeclarationKidNotValidAtPosition(root, k1),
@@ -97,8 +98,10 @@ internal static partial class LifecycleCases
     }
 
     /// <summary>
-    /// 0 enrolled, 1 binding k1, 2 the post, 3 the rotation k1 to k2 (so k2 is in the cascade), 4 the log key, 5 the declaration
-    /// (from_index 2 is at or below the post). The one defect of the two failed variants is in <c>kids</c>.
+    /// 0 enrolled, 1 binding k1, 2 the post, 3 the rotation k1 to k2 (so k2 is in the cascade), 4 the log key, 5 the declaration.
+    /// The disputed variant and the omits-cascade variant use from_index 2, at or below the post (kids[0] is k1, bound at 1). The
+    /// reordered variant puts k2 first, bound at 3, so it uses from_index 3 (binding 3 &lt;= 3 &lt; 5; the cascade from 3 is still
+    /// [k1, k2], R6.57's membership being at or after from_index): the one defect of both failed variants is in <c>kids</c>.
     /// </summary>
     private static Case CompromisedAfterInterveningRotation(
         string root, Key k1, Key k2, string name, bool reorderKids, bool omitCascade)
@@ -108,13 +111,14 @@ internal static partial class LifecycleCases
         AddRotation(log, new Rot(k1, k2, Prev: 1));
         var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
         var kids = reorderKids ? new[] { k2.Kid, k1.Kid } : omitCascade ? [k1.Kid] : new[] { k1.Kid, k2.Kid };
-        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, kids, FromIndex: 2, Prev: 3), root, name);
+        var fromIndex = reorderKids ? 3 : 2;
+        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, kids, FromIndex: fromIndex, Prev: 3), root, name);
         var (verdict, predicate, note) = name switch
         {
             "compromise-kids-omits-cascade" => ("failed", "declaration-mismatch",
                 "The declaration names the compromised key alone, though the rotation at 3 was authorized by it after from_index: the recomputed cascade is [k1, k2] and kids omits k2 (KF3)."),
             "compromise-kids-reordered" => ("failed", "declaration-mismatch",
-                "The correct cascade with its first two kids swapped: kids is [k2, k1] where the compromised key comes first (KF3)."),
+                "The correct cascade with its first two kids swapped: kids is [k2, k1] where the compromised key, the post's k1, comes first. from_index is 3, so binding(kids[0]) = binding(k2) = 3 holds the bound, 3 is below the declaration at 5, and the cascade from 3 is still [k1, k2]: the only defect is the order (KF3)."),
             _ => ("disputed", "disputed",
                 "The post at 2, a rotation at 3 authorized by the post's key, and the declaration at 5 with from_index 2 at or below the post: the rotation lies between the post and the declaration, and the post is still disputed. The cascade holds two kids."),
         };
@@ -142,6 +146,22 @@ internal static partial class LifecycleCases
         { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
     }
 
+    private static Case FromIndexAtDeclaration(string root, Key k1)
+    {
+        var (log, post, logKeyIndex, decl) = PostThenDeclaration(k1, "50", d => d with { FromIndex = 4 });
+        AddDeclaration(log, decl, root, "compromise-from-index-at-declaration");
+        return new Case("compromise-from-index-at-declaration", "R6.57",
+            "from_index is 4 and the declaration is at 4: from_index is not strictly below the declaration's index (KF3).",
+            log, post, [0, 1, 4], "failed", "declaration-mismatch")
+        { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
+    }
+
+    /// <summary>
+    /// 0 enrolled, 1 binding k1, 2 the stranger's binding (another identity's stream), 3 the post, 4 the log key, 5 the declaration
+    /// naming the stranger's key, from_index 2: binding(kids[0]) = 2 &lt;= 2 &lt; 5, so the bound-to-agent_id check is the only one
+    /// that can refuse it. The recomputed cascade is [k1], so kids cannot equal it either; that is unavoidable, which is why the
+    /// predicate is the distinct <c>kid-not-bound-to-agent</c> and a reader checks it before the cascade.
+    /// </summary>
     private static Case KidOfOtherIdentity(string root, Key k1, Key stranger)
     {
         var log = EnrolledAndBound(k1);
@@ -149,10 +169,10 @@ internal static partial class LifecycleCases
             ("agent_id", Str(OtherAgent)), ("jwk", stranger.Jwk), ("kid", Str(stranger.Kid))));
         var post = AddPost(log, k1, "44");
         var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
-        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, [stranger.Kid], FromIndex: 1, Prev: 1), root, "compromise-kid-of-other-identity");
+        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, [stranger.Kid], FromIndex: 2, Prev: 1), root, "compromise-kid-of-other-identity");
         return new Case("compromise-kid-of-other-identity", "R6.57",
-            "The declaration for this identity names a key that another identity's binding at 2 holds: a key not bound to agent_id (KF3).",
-            log, post, [0, 1, 5], "failed", "declaration-mismatch")
+            "The declaration for this identity names a key that another identity's binding at 2 holds. from_index 2 satisfies the binding bound (binding 2 <= 2 < 5), and the only defect is that kids[0] is bound to another identity at 2, not to agent_id in its own stream (KF3).",
+            log, post, [0, 1, 2, 5], "failed", "kid-not-bound-to-agent")
         { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
     }
 
