@@ -50,9 +50,9 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
 
     /// <summary>
     /// R6.52's outcome for this passage (R10.71, errata G19): failed when the span does not render
-    /// the canonical form the signature covers; otherwise the verdict's.
+    /// the canonical form the signature covers; otherwise the verdict's read outcome (<see cref="SignatureVerdict.ReadOutcome"/>: R6.57's disputed and failed, from the key set).
     /// </summary>
-    public CheckOutcome Outcome => SpanCheck.RendersCanonical(Post) ? Verdict.Outcome : CheckOutcome.Failed;
+    public CheckOutcome Outcome => SpanCheck.RendersCanonical(Post) ? Verdict.ReadOutcome : CheckOutcome.Failed;
 
     /// <summary>
     /// The passage as this client frames it. Every value on the frame's lines that this client did
@@ -89,7 +89,7 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (Verdict.PrefixedDigest is { } computed
             && !string.Equals(Post.Digest, computed, StringComparison.Ordinal))
             frame.Line($"          the Forum reported a different value for digest: {Post.Digest}");
-        frame.Line($"signature {new OwnText(Verdict.Describe)}");
+        frame.Line($"signature {new OwnText(Verdict.DescribeRead)}");
         // R6.54 (add.): when the Forum's key set marks the signing key other than active, the marker is shown, as the
         // Forum's word and labelled so. A retired key prints where it ended; any other status prints as the status it
         // is. The kid is an agent's, so it is a display literal.

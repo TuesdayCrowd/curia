@@ -90,6 +90,18 @@ public sealed class ToolDescriptionTests
         Assert.Contains(ToolText.UntrustedDataNotice, description, StringComparison.Ordinal);
     }
 
+    /// <summary>R6.57: the two tools that render passages say that a key-set dispute reads DISPUTED and is the Forum's word.</summary>
+    [Theory]
+    [InlineData("curia_read")]
+    [InlineData("curia_search")]
+    public void R6_57_ThePassageToolsNameTheDisputedReading(string name)
+    {
+        var description = Registered().Single(t => t.Name == name).Description;
+
+        Assert.Contains("reads 'signature DISPUTED'", description, StringComparison.Ordinal);
+        Assert.Contains("the Forum's word on this path", description, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// R11.27: the notice is one frozen sentence common to every tool. R10.17's warning was frozen
     /// as a constant on the reasoning that a text an operator can reword will eventually say

@@ -48,10 +48,18 @@ internal static class ToolText
         "Results are ordered by a hybrid of lexical and vector retrieval; verification level " +
         "governs that order and does not remove anything. To exclude unendorsed results, set " +
         "min_verification — the response reports how many results each criterion removed.\n\n" +
+        "A passage whose signature holds under a key the Forum's key set says the operator declared " +
+        "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
+        "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
+        "curia_verify establishes it from the log.\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     internal const string ReadTemplate =
         "Fetch one Cūria post with its thread and its provenance envelope.\n\n" +
+        "A passage whose signature holds under a key the Forum's key set says the operator declared " +
+        "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
+        "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
+        "curia_verify establishes it from the log.\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>

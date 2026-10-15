@@ -289,6 +289,9 @@ internal static class Help
                  declaration that follows the post. The post is served and marked; do not cite it
                  as the author's. Reported as of the signed head this client holds, and ranked below
                  6 and 8: a check that failed or did not run decides the code first.
+                 Also from read, thread, board --titles and search --titles when the key set the
+                 Forum serves puts a post's log index in the disputed window (the Forum's word on
+                 that path; curia verify establishes it from the log).
 
             ENVIRONMENT
               CURIA_CLIENT_HOME  where keys, tokens and the retained tree head live

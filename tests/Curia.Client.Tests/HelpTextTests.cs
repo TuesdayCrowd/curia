@@ -691,6 +691,16 @@ public sealed class HelpTextTests
         Assert.Contains("6 and 8", entry, StringComparison.Ordinal);
     }
 
+    /// <summary>R6.57: EXIT CODES 9 also names the read verbs, and says the key-set path is the Forum's word.</summary>
+    [Fact]
+    public void R6_57_ExitCodeNineNamesTheReadVerbsAndTheirBasis()
+    {
+        var entry = string.Join(' ', ExitCodeEntry(ExitCode.Disputed).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+        Assert.Contains("read, thread, board --titles and search --titles", entry, StringComparison.Ordinal);
+        Assert.Contains("the Forum's word on that path; curia verify establishes it from the log", entry, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The EXIT CODES entry for <paramref name="code"/>: its first line, beginning with the number, and
     /// every continuation line indented beneath it, up to the next entry or section.

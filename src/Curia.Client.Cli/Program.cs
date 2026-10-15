@@ -1079,6 +1079,20 @@ internal static class Program
         var acta = await new PostVerifier(client, HeadStore.Default())
             .VerifyAsync(value, ct).ConfigureAwait(false);
 
+        return ReportVerification(local, independent, acta);
+    }
+
+    /// <summary>
+    /// The end of <c>curia verify</c>: the log-derived lines (R6.52, R6.54), the <c>DISPUTED.</c> line when the lifecycle
+    /// check disputes the post (R6.57), and the verb's exit. The exit is derived from <c>local.Outcome</c>, the signature's
+    /// three-valued outcome, and the log's <see cref="PostVerification.Overall"/>, never from the key set's read outcome.
+    /// </summary>
+    internal static int ReportVerification(SignatureVerdict local, TestisResult independent, PostVerification acta)
+    {
+        ArgumentNullException.ThrowIfNull(local);
+        ArgumentNullException.ThrowIfNull(independent);
+        ArgumentNullException.ThrowIfNull(acta);
+
         Output.Line($"inclusion   {new OwnText(acta.Inclusion.Describe)}");
         Output.Line($"consistency {new OwnText(acta.Consistency.Describe)}");
         Output.Line($"key         {new OwnText(acta.KeyBinding.Describe)}");

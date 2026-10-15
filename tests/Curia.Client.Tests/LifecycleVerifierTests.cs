@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using Curia.Canon.Jws;
 using Curia.Canon.Sodium;
 using Curia.Client;
+using Curia.Client.Cli;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
 using Xunit;
@@ -19,6 +20,7 @@ namespace Curia.Client.Tests;
     "Naming",
     "CA1707:Identifiers should not contain underscores",
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[Collection("console")]
 public sealed class LifecycleVerifierTests : IDisposable
 {
     private readonly string _home = Directory.CreateTempSubdirectory("curia-lifecycle-heads-").FullName;
@@ -284,20 +286,45 @@ public sealed class LifecycleVerifierTests : IDisposable
     }
 
     /// <summary>
-    /// R6.57: <c>curia verify</c> exits 9 on a disputed post, and only when nothing failed (6) and nothing could not be
-    /// checked (8): those outrank it. The code is its own, and the help names it.
+    /// R6.57: <c>curia verify</c> exits 9 on a disputed post, through the function the verb ends in
+    /// (<c>Program.ReportVerification</c>), with the <c>DISPUTED.</c> line and the lifecycle line on stdout. Dropping
+    /// <c>acta.Overall</c> from the exit, or the <c>DISPUTED.</c> line, turns it red (F2-54, F2-55).
     /// </summary>
     [Fact]
     public async Task R6_57_CuriaVerifyExitsNineOnADisputedPost()
     {
         var (result, _) = await VerifyCaseAsync("compromised-before-post");
+        Assert.Equal(CheckOutcome.Disputed, result.Overall);
 
-        Assert.Equal(9, Curia.Client.Cli.ExitCode.Disputed);
-        Assert.Equal(Curia.Client.Cli.ExitCode.Disputed, Curia.Client.Cli.ExitCode.ForOutcomes(result.Overall));
-        Assert.Equal(Curia.Client.Cli.ExitCode.Unverified, Curia.Client.Cli.ExitCode.ForOutcomes(CheckOutcome.Disputed, CheckOutcome.Failed));
-        Assert.Equal(Curia.Client.Cli.ExitCode.ForumFault, Curia.Client.Cli.ExitCode.ForOutcomes(CheckOutcome.Disputed, CheckOutcome.CouldNotCheck));
-        Assert.Equal(Curia.Client.Cli.ExitCode.Ok, Curia.Client.Cli.ExitCode.ForOutcomes(CheckOutcome.Verified));
+        var (exit, stdout, _) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportVerification(HeldSignature, HeldTestis, result)));
+
+        Assert.Equal(9, exit);
+        Assert.Contains("DISPUTED. The signature holds", stdout, StringComparison.Ordinal);
+        Assert.Contains("lifecycle   ", stdout, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The controls beside the exit-nine fact, through the same function: a lifecycle that folds exits 0 and prints no
+    /// <c>DISPUTED.</c>; a failed one exits 6 and prints none either, since a failure outranks disputed.
+    /// </summary>
+    [Theory]
+    [InlineData("rotation-then-post", CheckOutcome.Verified, 0)]
+    [InlineData("compromise-kids-omits-cascade", CheckOutcome.Failed, 6)]
+    public async Task R6_57_CuriaVerifyExitsZeroOnAVerifiedPostAndSixOnAFailedOne(string name, CheckOutcome overall, int expectedExit)
+    {
+        var (result, _) = await VerifyCaseAsync(name);
+        Assert.Equal(overall, result.Overall);
+
+        var (exit, stdout, _) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportVerification(HeldSignature, HeldTestis, result)));
+
+        Assert.Equal(expectedExit, exit);
+        Assert.DoesNotContain("DISPUTED.", stdout, StringComparison.Ordinal);
+        Assert.Contains("lifecycle   ", stdout, StringComparison.Ordinal);
+    }
+
+    private static SignatureVerdict HeldSignature => new(true, "alice-1", "held");
+
+    private static TestisResult HeldTestis => new(CheckOutcome.Verified, "held");
 
     /// <summary>
     /// R6.57: <c>Overall</c> ranks failed, then could not be checked, then disputed, then verified. A disputed lifecycle
@@ -361,28 +388,180 @@ public sealed class LifecycleVerifierTests : IDisposable
         Assert.Equal(Curia.Client.Cli.ExitCode.Unverified, Curia.Client.Cli.ExitCode.ForOutcomes(result.Overall));
     }
 
-    /// <summary>
-    /// R6.57, the read path: the Forum's key set says a key was declared compromised, and a passage says so as the Forum's
-    /// word, with the declaration's index and the index the compromise is stated from. The signature line is unchanged: it
-    /// is <c>curia verify</c>, from the log, that disputes a post.
-    /// </summary>
-    [Fact]
-    public async Task R6_57_ACompromisedKeysLineOnReadIsTheForumsWord()
+    // The declaration at 6 and the compromise stated from 3: the window is 3 <= index < 6, and the boundary pairs are 2/3 and 5/6.
+    private const long Declaration = 6;
+    private const long From = 3;
+
+    private static async Task<(ProvenancePost Post, ImmutableArray<ForumJwk> Keys)> ServedAsync(StubLog log)
     {
-        using var log = new StubLog();
         var client = log.Client();
         var posted = await client.GetPostAsync(StubLog.PostId, MarkingMode.None, TestContext.Current.CancellationToken);
         Assert.True(posted.TryGetValue(out var post, out var postRefusal), postRefusal?.Summary);
         var served = await client.GetJwksAsync(StubLog.Author, TestContext.Current.CancellationToken);
         Assert.True(served.TryGetValue(out var keys, out var keysRefusal), keysRefusal?.Summary);
+        return (post!, keys);
+    }
 
-        var compromised = keys.Select(k => k with { Status = "compromised", CompromisedLogIndex = 4, DisputedFrom = 1 }).ToImmutableArray();
-        var rendered = new Passage(post!, SignatureCheck.Verify(post!, compromised)).Render();
+    private static Passage ReadAt(ProvenancePost post, ImmutableArray<ForumJwk> keys, long? index, long? declaration = Declaration, long? from = From)
+    {
+        var at = post with { LogIndex = index };
+        var compromised = keys.Select(k => k with { Status = "compromised", CompromisedLogIndex = declaration, DisputedFrom = from }).ToImmutableArray();
+        return new Passage(at, SignatureCheck.Verify(at, compromised));
+    }
 
+    /// <summary>
+    /// R6.57: a reference reader reports a post whose log index the key set puts in the disputed window as disputed,
+    /// distinctly from verified and from failed. At <c>from</c> and at <c>declaration - 1</c> (F2-49, F2-51, F2-53).
+    /// </summary>
+    [Theory]
+    [InlineData(From)]
+    [InlineData(Declaration - 1)]
+    public async Task R6_57_ReadReportsAPostInTheWindowDisputedNotVerified(long index)
+    {
+        using var log = new StubLog();
+        var (post, keys) = await ServedAsync(log);
+
+        var passage = ReadAt(post, keys, index);
+        var rendered = passage.Render();
+
+        Assert.Equal(CheckOutcome.Disputed, passage.Outcome);
+        Assert.Contains("signature DISPUTED:", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("verified locally", rendered, StringComparison.Ordinal);
+        Assert.Equal(9, ExitCode.ForOutcomes(passage.Outcome));
+    }
+
+    /// <summary>R6.57: content below <c>from</c> stands. A post one before it is verified, and the key line is still printed.</summary>
+    [Fact]
+    public async Task R6_57_ReadLeavesAPostBelowTheCompromiseStanding()
+    {
+        using var log = new StubLog();
+        var (post, keys) = await ServedAsync(log);
+
+        var passage = ReadAt(post, keys, From - 1);
+        var rendered = passage.Render();
+
+        Assert.Equal(CheckOutcome.Verified, passage.Outcome);
+        Assert.Contains("verified locally", rendered, StringComparison.Ordinal);
+        Assert.Equal(0, ExitCode.ForOutcomes(passage.Outcome));
         Assert.Contains(
-            "key       \"alice-1\" compromised at log index 4, content disputed from log index 1 (as the Forum's key set says)",
+            "key       \"alice-1\" compromised at log index 6, content disputed from log index 3 (as the Forum's key set says)",
             rendered, StringComparison.Ordinal);
-        Assert.DoesNotContain("NOT VERIFIED", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R6.57: a compromised key is honoured for nothing at or after the declaration. A post at <c>declaration</c> or after it
+    /// reads as failed (exit 6), on the key set alone. The pair <c>declaration - 1</c> / <c>declaration</c> is the boundary (F2-50).
+    /// </summary>
+    [Theory]
+    [InlineData(Declaration)]
+    [InlineData(Declaration + 1)]
+    public async Task R6_57_ReadFailsAPostAtOrAfterTheDeclaration(long index)
+    {
+        using var log = new StubLog();
+        var (post, keys) = await ServedAsync(log);
+
+        var passage = ReadAt(post, keys, index);
+
+        Assert.Equal(CheckOutcome.Failed, passage.Outcome);
+        Assert.Contains("signature NOT VERIFIED:", passage.Render(), StringComparison.Ordinal);
+        Assert.DoesNotContain("verified locally", passage.Render(), StringComparison.Ordinal);
+        Assert.Equal(6, ExitCode.ForOutcomes(passage.Outcome));
+    }
+
+    /// <summary>
+    /// R6.57, the titled index: a disputed title is never shown. The in-window post prints <c>signature DISPUTED</c>, the
+    /// no-title line and none of the title; the control, one below the window, prints the title under <c>signature verified</c> (F2-49, F2-52).
+    /// </summary>
+    [Fact]
+    public async Task R6_57_TheTitledIndexNeverPrintsADisputedTitle()
+    {
+        using var log = new StubLog();
+        var (post, keys) = await ServedAsync(log);
+        const string title = "t";
+        Assert.Equal(title, ReadAt(post, keys, From - 1).Envelope?.Title);
+
+        string Index(Passage passage)
+        {
+            var frame = new FrameBuilder();
+            TitledIndex.Write(frame, 1, passage, MarkingMode.None, null);
+            return frame.ToString();
+        }
+
+        var disputed = Index(ReadAt(post, keys, From));
+        Assert.Contains("signature DISPUTED", disputed, StringComparison.Ordinal);
+        Assert.Contains("(no title: the key that signed it was declared compromised from before this post, so it is disputed, R6.57;", disputed, StringComparison.Ordinal);
+        Assert.DoesNotContain("<<<", disputed, StringComparison.Ordinal);
+        Assert.DoesNotContain("signature verified", disputed, StringComparison.Ordinal);
+        Assert.Null(TitledIndex.Title(ReadAt(post, keys, From)));
+
+        var control = Index(ReadAt(post, keys, From - 1));
+        Assert.Contains("signature verified", control, StringComparison.Ordinal);
+        Assert.Equal(title, TitledIndex.Title(ReadAt(post, keys, From - 1)));
+        Assert.DoesNotContain("(no title", control, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R6.57: <c>curia verify</c> derives disputed from the log alone. The three-valued <c>SignatureVerdict.Outcome</c> stays
+    /// Verified over every index in and beyond the window, at <c>declaration</c> and after it as well: the read path's
+    /// disputed and failed are <c>ReadOutcome</c>'s.
+    /// </summary>
+    [Theory]
+    [InlineData(From)]
+    [InlineData(Declaration - 1)]
+    [InlineData(Declaration)]
+    [InlineData(Declaration + 1)]
+    public async Task R6_57_VerifyDoesNotDeriveDisputedFromTheKeySet(long index)
+    {
+        using var log = new StubLog();
+        var (post, keys) = await ServedAsync(log);
+
+        var passage = ReadAt(post, keys, index);
+
+        Assert.Equal(CheckOutcome.Verified, passage.Verdict.Outcome);
+        Assert.True(passage.Verdict.Verified);
+    }
+
+    /// <summary>
+    /// R6.57: a Forum that omits the post's log index, or one of the key set's two members, is not caught on the read path
+    /// (the Forum's word); the passage reads verified, as it did. <c>curia verify</c> is what catches it, from the log.
+    /// </summary>
+    [Theory]
+    [InlineData(null, Declaration, From)]
+    [InlineData(Declaration, Declaration, null)]
+    [InlineData(From, null, From)]
+    public async Task R6_57_ReadWithoutAnIndexOrAMemberStaysVerified(long? index, long? declaration, long? from)
+    {
+        using var log = new StubLog();
+        var (post, keys) = await ServedAsync(log);
+
+        var passage = ReadAt(post, keys, index, declaration, from);
+
+        Assert.Equal(CheckOutcome.Verified, passage.Outcome);
+        Assert.Contains("verified locally", passage.Render(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R6.57 on the CLI's read path: <c>read</c>/<c>thread</c> (<c>RenderAsync</c>) and <c>board --titles</c>/<c>search --titles</c>
+    /// (<c>TitledAsync</c>) exit 9 for a post the Forum's key set puts in the window, and print neither as verified.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_TheReadVerbsExitNineOnADisputedPost()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var log = new StubLog { KeyCompromised = (4, 1) };
+        var client = log.Client();
+        var posted = await client.GetPostAsync(StubLog.PostId, MarkingMode.None, ct);
+        Assert.True(posted.TryGetValue(out var post, out var refusal), refusal?.Summary);
+        Assert.Equal(2, post!.LogIndex);
+
+        var (readExit, readOut, _) = await ConsoleCapture.CaptureAsync(() => Program.RenderAsync(client, [post], StubLog.Forum, null, ct));
+        Assert.Equal(9, readExit);
+        Assert.Contains("signature DISPUTED:", readOut, StringComparison.Ordinal);
+        Assert.DoesNotContain("verified locally", readOut, StringComparison.Ordinal);
+
+        var (frame, titledExit) = await Program.TitledAsync(client, [post], MarkingMode.None, [null], ct);
+        Assert.Equal(9, titledExit);
+        Assert.Contains("signature DISPUTED", frame.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>
