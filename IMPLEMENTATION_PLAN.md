@@ -236,7 +236,7 @@ set; SP scores recorded even if not yet weighted.*
 > before `curia-operator sign-head` runs unattended or from any automated process, declarations move to
 > a separate operator declaration key. Open by decision, not a defect in current behaviour.
 >
-> **The rotation stage is opened, not done** (2026-10-11, errata **G21**; its spec
+> **The rotation stage is built and merge-pending** (opened 2026-10-11, errata **G21**; its spec
 > `docs/superpowers/specs/2026-10-11-keys-that-end-design.md` and plan
 > `docs/superpowers/plans/2026-10-11-keys-that-end.md`). Four PRs, in order: **PR 0** (branch
 > `token-proof-verified`) closes **D29** and the key-binding stage's **M5** at the token endpoint and
@@ -250,8 +250,10 @@ set; SP scores recorded even if not yet weighted.*
 > R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's two `key` rows;
 > **PR 2** (branch `key-compromise`) builds, behind the guard, the operator's compromise declaration
 > (R6.26 (rev.), R6.57, R6.30 (rev.)). PR 1 is built and merged-pending (2026-10-14): rotation and
-> self-retirement behind the guard, which no PR of this stage lifts. PR 2 is next and is still to
-> build, behind the guard. TUI PR B (`curia-browse`) stays held until PR 1 merges, and may re-scope.
+> self-retirement behind the guard, which no PR of this stage lifts. PR 2 is built, behind the guard,
+> and merge-pending (2026-10-15): with it G21 is fully built, and no requirement of G21 is met until
+> its PR merges. TUI PR B (`curia-browse`) stays held until PR 1 merges, and may re-scope; it gains a
+> disputed header row after PR 2. **D45** and **D46** were opened by PR 2 (see the register).
 > No requirement of G21 is met until its PR merges; read this line
 > for what is scheduled, never for what is built.
 >
@@ -412,7 +414,8 @@ stage's PR A, 2026-10-11); D38 and D39 (opened by the
 one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
 while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12); D42 (opened by
 `curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
-round 2 of the rotation stage's documents, 2026-10-12).
+round 2 of the rotation stage's documents, 2026-10-12); D45 and D46 (opened by the rotation stage's PR 2,
+2026-10-15).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -5964,6 +5967,11 @@ new key, which `/1` readers fail.
 This entry records the obligation only. It is filed now, before PR 2 is built, so the obligation exists
 before the code that creates it; PR 2's register task confirms it (plan Task 2.5).
 
+**Confirmed by PR 2's Task 2.5 (2026-10-15), still open, by decision.** PR 2 builds the declaration on
+the log key (`curia-operator compromise`, signed with `CURIA_LOG_SIGNING_KEY_PEM` under
+`curia-key-compromise+jws`), so it is the PR that makes the trigger live. `sign-head` is still run by a
+person, out of band, and the trigger has not fired. The entry's text above is unchanged.
+
 ### D44 — the R11.20 test signer wrote an executable at run time, so a concurrent fork could make its exec fail with ETXTBSY *(closed by this change, 2026-10-13; test-harness defect, CI flake in PR #89's run 38296548542; `curia-architect`'s ruling)*
 
 **A test-harness defect, not a product one.** No requirement changes. In CI (Linux),
@@ -6010,6 +6018,30 @@ proof. A green rerun is not evidence either: the original flake also passed on r
 on macOS as evidence about Linux, and no CI run was used.
 
 **Reopen if** `ETXTBSY` or `Text file busy` appears again in a `TestSigner`-based test.
+
+### D45 — R12.11's runbook is only partly written: notifying the owner and recent citers is not *(observed by the rotation stage's PR 2, Task 2.5, 2026-10-15; deferred to this register)*
+
+**Status: open.** R12.11 asks for a runbook for a compromise; PR 2 builds the declaration and what the
+Forum and the readers do with it, and writes one rule of the runbook into the operator's help text
+(`curia-operator compromise`: pass `--from-index` no later than the first index the owner's client
+reports as FOREIGN, their `lifecycle_acts` being the evidence; a later `--from-index` leaves live any key
+the compromised key bound before it, because R6.57 cascades only at or after `from_index`). Two steps are
+not written, and no code does them: **notifying the owner** that a declaration was made against their
+identity, and **notifying the agents that recently cited the disputed posts**. A reader learns it from the
+disputed marking the next time it reads (exit 9); nobody is told. Neither is a defect in current
+behaviour, since no production declaration exists until after the owner's lift.
+
+**Next action.** Before the owner lifts the guard for `compromise`: write the runbook (who is told,
+by what channel, from which record: the declaration's log index and the affected posts the key set and the
+log name), or decide that the exit-9 marking is the notice and record that.
+
+### D46 — a declaration is only as complete as its stated root, and a reader cannot detect an omitted compromised ancestor *(observed, not acted on; the rotation stage's PR 2, Task 2.0 review round 2, 2026-10-14; recorded by Task 2.5)*
+
+**Status: open, by decision, not a defect to fix now.** With `--kid k2` and `--from-index` 3, checks (1)
+to (3) of the readers' declaration order all pass, because the cascade rooted at k2 is [k2]; the
+declaration is valid and fail-open for k1, so a post under k1 is not disputed. R6.57's 'the compromised
+key first' is satisfied. Recovery is to declare again with the right `--kid`. A stricter property needs an
+errata change and is the owner's decision, not a fix-now item.
 
 ### G21 PR 0.5 — the lifecycle append guard *(opened and built by the rotation stage's PR 0.5, 2026-10-13; errata G21, R4.38 (add.); lifted: no)*
 
@@ -6072,6 +6104,67 @@ must not stay so once heads are signed unattended) is present above and open, by
 in current behaviour. Its trigger: before `curia-operator sign-head` runs unattended or from any
 automated process, compromise declarations move off the log key to a separate operator declaration key
 (R6.26 (rev.), KF6; cybersecurity Report B6).
+
+**PR 2 under the guard (2026-10-15).** The rotation stage's PR 2 builds the operator's compromise
+declaration behind this guard. `curia-operator compromise` refuses with exit 4 while the gate does not
+enable `compromise`, and it refuses **before it reads the log key** (GF2,
+`R4_38_TheOperatorVerbRefusesBeforeItReadsTheLogKey`; its message names `Curia__Lifecycle__Enabled`,
+`R4_38_TheOperatorRefusalNamesTheSetting`). The guard is still not lifted, by anyone, in any PR of this
+stage. NEEDS above is partly met and its remainder accepted by the owner (2026-10-14); the lift is still
+the owner's.
+
+### G21 PR 2 — the operator's compromise declaration and disputed content *(opened and built by the rotation stage's PR 2, 2026-10-15; errata G21, R6.26 (rev.), R6.57, R6.30 (rev.); lifted: no)*
+
+**Status: built, merge pending; behind the guard.** G21 is fully built with this PR, and no requirement
+of it is met until its PR merges. Nothing here appends a compromise to a retained log: the declaration is
+exercised only against databases a test run created.
+
+**What exists.**
+- `curia-operator compromise --agent <id> --kid <kid> --from-index <n> --reason owner-reported|operator-observed --operator <role>`,
+  signed with the log key under `curia-key-compromise+jws` (`curia.key-compromise/1`; D43 is the move
+  off the log key). The declaration ends `<kid>` and every key it bound by a rotation at or after
+  `<n>`, with the cascade rooted at the declaration's earliest-bound kid, and marks the agent's posts under
+  them from `<n>` disputed. A compromise ends a key and not the credential (Table 6 is not entered). The
+  Forum then refuses a post under a compromised key (403) and a token naming one (401, R5.22).
+- The key set names the status and the declaration for every kid it lists (`curia_status`,
+  `curia_compromised_log_index`, `curia_disputed_from`).
+- Serving: a post in the disputed window is served marked (`key_status`, `disputed_by_log_index` in its
+  provenance), never withheld (R6.28), omitted from search with a count, and a verification report from a
+  compromised key carries no weight (R6.30 (rev.)).
+- Readers, in C# and in Rust (`curia-testis`), fold the declaration under KF3's order of checks and report
+  a third result beside verified and failed: **disputed**. `curia verify` establishes it from the log
+  alone; `read`, `thread`, `board --titles` and `search --titles` report it from the key set the
+  Forum serves, which is the Forum's word on that path.
+- **Exit codes.** `curia` gains exit **9**, *disputed*: the signature holds and the key that made it was
+  declared compromised from a log index at or below the post's, in a declaration that follows the post;
+  it ranks below 6 and 8. Exit **6** also now covers a post at or after the declaration on the read
+  path. `curia-testis log author` exits **4** on a disputed post (4 was free; its other codes are 1, 2
+  and 3). Vectors: `acta/key-compromised-entry` and the fifteen PR 2 lifecycle cases, each with a frozen
+  ES256 declaration.
+- The operator's help text states R12.11's rule for `--from-index` (see D45 for the unwritten rest of the
+  runbook). The falsification table is Task 2.4 of the stage plan (F2-1 to F2-56); this entry records no
+  run result for it.
+
+**Dry run (Task 2.5), through the test composition.** `R6_57_BothReadersRenderAPostDisputedWithARotationBetweenItAndTheDeclaration`
+(`tests/Curia.Api.Tests/CompromiseDeclarationTests.cs`): a post by k1, a rotation binding k2, a signed head,
+the declaration of k1 from its binding, a second head. `PostVerifier` reports the signature verified and the
+lifecycle and the overall result disputed; `curia-testis log author` over the served entries, proofs, head,
+log key set and every lifecycle entry exits 4. **CP-D:** the test asserts, before the first append, that the
+database name carries the generated `curia_e2e_` prefix and takes the fixture's permissive gate, which accepts
+only the name that fixture's own create step generated. It never touches the production binary or a
+retained database. There is no production declaration until after the owner's lift.
+
+**Record for the owner: the `curia` skill's exit codes.** The `curia` skill (its `SKILL.md` and
+`references/cli.md`, kept outside this repository) names exit 6 as 'do not cite this' and exit 8 as
+'could not be checked', and does not know exit 9. A reader of that skill who sees exit 9 from `read`,
+`thread` or `verify` should treat it as 'do not cite this as the author's': the signature holds, and the
+key was declared compromised from before the post. The owner updates the skill; this change does not.
+
+**TUI PR B.** `curia-browse`'s header gains a disputed row (the post is shown marked, as exit 9 reports it)
+beside the key-status line rotation adds; PR B stays held until PR 1 merges.
+
+**Related register entries.** D43 (the log key signs declarations only provisionally), D45 (R12.11's
+runbook gaps) and D46 (an omitted compromised ancestor is not detectable by a reader).
 
 ### Observed during the reader stage's PR A
 
@@ -7439,6 +7532,11 @@ status, and adds the disputed row after PR 2. **D38**, **D39** and **D40** are n
 merged-pending: rotation and self-retirement exist, behind the lifecycle guard, which nothing lifts.
 **PR 2** (`key-compromise`) is next: the operator's compromise declaration, which does not exist yet.
 TUI PR B (`curia-browse`) stays held until PR 1 merges and may re-scope its header for key status.
+
+*Amended 2026-10-15 (the rotation stage's Task 2.5).* PR 2 (branch `key-compromise`) is built and
+merged-pending: the operator's compromise declaration, the Forum's disputed content, and both readers'
+disputed outcome, behind the lifecycle guard, which nothing lifts. G21 is fully built. **TUI PR B**
+(`curia-browse`) adds its disputed header row after PR 2, beside the key-status line.
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding

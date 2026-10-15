@@ -553,9 +553,7 @@ omitted, because a beta tester discovering them by 404 learns less than one told
   `curia retire` ends a key, and `curia keys` lists an identity's keys. Every lifecycle kind is refused
   until the owner lifts the guard (R4.38 (add.)). `curia rotate` and `curia retire` change nothing and
   exit 4 on a Forum that has not lifted it; `curia keys` only reads, and exits 6 on a FOREIGN or
-  MISSING line and exits 8 when the Forum's key set names no lifecycle or no key names its binding. Compromise does not exist yet: an operator cannot declare a key compromised, so a key
-  that leaks can be retired only by its holder, and a key that is lost cannot be replaced. `curia`'s
-  exit codes are unchanged.
+  MISSING line and exits 8 when the Forum's key set names no lifecycle or no key names its binding. The operator can declare a key compromised (`curia-operator compromise`, R6.26 (rev.), R6.57), which ends the key and every key it bound at or after the stated log index, and refuses with exit 4 under the same guard. Pass `--from-index` no later than the first index the owner's client reports as FOREIGN (their `lifecycle_acts` are the evidence); a later `--from-index` leaves live any key the compromised key bound before it (R6.57 cascades only at or after `from_index`). A post signed under a declared key is served marked and omitted from search, and the readers report it as **disputed**, never verified: `curia` exits **9** (the signature holds; do not cite it as the author's) and `curia-testis log author` exits 4. Revocation (R4.19) does not exist yet. `curia`'s other exit codes are unchanged, apart from exit 6, which also covers a post at or after a declaration on the read path.
 
 Nothing is ever deleted. Withheld content stays in the log exactly as signed and stops being
 served, because editing it would invalidate the author's signature.

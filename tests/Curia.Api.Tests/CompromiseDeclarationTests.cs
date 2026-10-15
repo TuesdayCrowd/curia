@@ -250,6 +250,101 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
             Directory.Delete(home, recursive: true);
         }
     }
+
+    /// <summary>
+    /// Task 2.5's dry run, through the test composition (never the production binary): a post by k1, then a rotation that
+    /// binds k2, then the operator's declaration of k1 from its binding. Both readers render the post disputed -- the
+    /// reference client (<see cref="PostVerifier"/>) and the independent <c>curia-testis log author</c> (exit 4) -- with the
+    /// rotation between the post and the declaration. CP-D: the database is the one this run's fixture created (its name
+    /// carries the generated <c>curia_e2e_</c> prefix and the fixture's permissive gate accepts only that name), asserted
+    /// before the first append. There is no production declaration until after the owner's lift.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_BothReadersRenderAPostDisputedWithARotationBetweenItAndTheDeclaration()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+
+        // CP-D: the name came from this run's create step. PermissiveGate() throws for any other database.
+        Assert.StartsWith("curia_e2e_", new NpgsqlConnectionStringBuilder(forum.ConnectionString).Database, StringComparison.Ordinal);
+        _ = forum.PermissiveGate();
+
+        var first = ForumAgent.Create(Unique("dry-run"), "first-" + Suffix());
+        var (dpop, token) = await first.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var boundAt = await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct);
+
+        string postId;
+        using (var posted = await dpop.PostAsync(
+            client, "http://localhost/v1/posts", token, first.SignQuestion("board-" + Suffix(), "Signed before the rotation?", "Yes", forum.Now), forum.Now, ct))
+        {
+            Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
+            postId = (await posted.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("post_id").GetString()!;
+        }
+
+        var second = ForumAgent.Create(first.AgentId, "second-" + Suffix());
+        using (var rotated = await dpop.PostAsync(
+            client, KeyActRequests.RotateUrl(first.AgentId), token,
+            KeyActRequests.RotationBody(first, new KeyActRequests.KeyPair(second.Kid, second.AssertionKey), boundAt),
+            forum.Now, ct, contentType: "application/json"))
+        {
+            Assert.Equal(HttpStatusCode.Created, rotated.StatusCode);
+        }
+
+        var pem = LogSigningKey.GeneratePem();
+        Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
+        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(pem, first.AgentId, first.Kid, boundAt, ct)).Exit);
+        Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
+
+        var home = Directory.CreateTempSubdirectory("curia-dry-run-heads-").FullName;
+        var dir = Directory.CreateTempSubdirectory("curia-dry-run-").FullName;
+        try
+        {
+            var verifier = new PostVerifier(new ForumClient(client, client.BaseAddress!), new HeadStore(home));
+            var verified = await verifier.VerifyAsync(postId, MarkingMode.None, ct);
+            Assert.True(verified.TryGetValue(out var result, out var refusal), refusal?.Summary);
+            Assert.Equal(
+                $"{CheckOutcome.Verified}; {CheckOutcome.Disputed}; {CheckOutcome.Disputed}",
+                $"{result!.Signature.Outcome}; {result.Lifecycle.Outcome}; {result.Overall}");
+
+            async Task<string> SaveAsync(string url, string name)
+            {
+                using var response = await client.GetAsync(new Uri(url, UriKind.Relative), ct);
+                Assert.True(response.IsSuccessStatusCode, $"{url}: {response.StatusCode}");
+                var path = Path.Combine(dir, name);
+                await File.WriteAllBytesAsync(path, await response.Content.ReadAsByteArrayAsync(ct), ct);
+                return path;
+            }
+
+            var postIndex = (await client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postId}", ct)).GetProperty("log_index").GetInt64();
+            var treeSize = (await client.GetFromJsonAsync<JsonElement>("/v1/log/head", ct)).GetProperty("head").GetProperty("tree_size").GetInt64();
+            using var keySet = await KeyActRequests.KeySetAsync(client, first.AgentId, ct);
+            var keyIndex = keySet.RootElement.GetProperty("keys").EnumerateArray()
+                .Single(k => k.GetProperty("kid").GetString() == first.Kid).GetProperty("curia_log_index").GetInt64();
+
+            // Every lifecycle entry the key set lists below the head, the rotation and the declaration included.
+            var args = new System.Text.StringBuilder(
+                $"log author --entry \"{await SaveAsync($"/v1/log/entries/{postIndex}", "entry.json")}\"" +
+                $" --proof \"{await SaveAsync($"/v1/log/proof/{postIndex}", "proof.json")}\"" +
+                $" --key-entry \"{await SaveAsync($"/v1/log/entries/{keyIndex}", "key-entry.json")}\"" +
+                $" --key-proof \"{await SaveAsync($"/v1/log/proof/{keyIndex}", "key-proof.json")}\"" +
+                $" --head \"{await SaveAsync("/v1/log/head", "head.json")}\"" +
+                $" --log-jwks \"{await SaveAsync("/v1/log/jwks", "log-jwks.json")}\"");
+            foreach (var index in KeyActRequests.LifecycleOf(keySet).Where(i => i < treeSize).Order())
+            {
+                args.Append(System.Globalization.CultureInfo.InvariantCulture, $" --lifecycle-entry \"{await SaveAsync($"/v1/log/entries/{index}", $"lc-{index}-entry.json")}\"");
+                args.Append(System.Globalization.CultureInfo.InvariantCulture, $" --lifecycle-proof \"{await SaveAsync($"/v1/log/proof/{index}?tree_size={treeSize}", $"lc-{index}-proof.json")}\"");
+            }
+
+            var (code, stdout, stderr) = TestisBinary.Run(TestisBinary.Locate(), args.ToString());
+            Assert.True(code == 4, $"exit {code}\n{stdout}\n{stderr}");
+            Assert.Contains("disputed", stdout + stderr, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }
 
 /// <summary>

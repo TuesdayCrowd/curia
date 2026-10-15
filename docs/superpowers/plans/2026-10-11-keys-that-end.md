@@ -1329,18 +1329,18 @@ Also re-run GF1 and GF9's facts unpatched (they must stay green on PR 2's tree),
 
 ### Task 2.5: Register and documents (PR 2)
 
-- [ ] `IMPLEMENTATION_PLAN.md`:
+- [x] `IMPLEMENTATION_PLAN.md`:
   - G21 fully built.
   - R12.11's runbook gaps (notifying the owner and recent citers) opened as a register entry.
   - TUI PR B gets its disputed header row.
   - KF6's register entry: re-read the register and confirm **D43** (filed by the rulings fold of review round 2) is present and open, with the trigger "before `curia-operator sign-head` runs unattended or from any automated process, compromise declarations move off the log key to a separate operator declaration key (R6.26 (rev.), KF6; cybersecurity Report B6)" and the status "open, by decision, not a defect in current behaviour". PR 2 builds the declaration on the log key, so it is the PR that makes the trigger live. If the entry is absent, file it with that trigger and status under the next free D-number, taken only after re-reading the register immediately before the edit.
-- [ ] `IMPLEMENTATION_PLAN.md`: a register entry, observed and not acted on (2026-10-14, the Task 2.0 review round 2): a declaration is only as complete as its stated root, and a reader cannot detect an omitted compromised ancestor. With `--kid k2` and `--from-index` 3, checks (1) to (3) all pass, because the cascade rooted at k2 is [k2]; the declaration is valid and fail-open for k1, so a post under k1 is not disputed. R6.57's 'the compromised key first' is satisfied. Recovery is to declare again with the right `--kid`. A stricter property needs an errata change and is the owner's decision, not a fix-now item.
-- [ ] Task 2.3's open item closed or filed: closed in Task 2.3 by the vector `compromise-sibling-declared-alone`, with F2-45 and F2-46 in Task 2.4's table (the count is 54).
-- [ ] `CLAUDE.md` and `README.md`: compromise, exit 9, the operator verb, and beside them R12.11's rule in the help text's sentence: 'Pass --from-index no later than the first index the owner's client reports as FOREIGN (their lifecycle_acts are the evidence); a later --from-index leaves live any key the compromised key bound before it (R6.57 cascades only at or after from_index).'
-- [ ] Record for the owner: the `curia` skill's exit codes.
-- [ ] A dry run through the **test composition** against a database created and dropped by that run (never the production binary with a setting; **CP-D**: assert the database name came from this run's create step before any append), in which both readers render disputed for a post with a rotation between it and the declaration. There is no production declaration until after the owner's lift.
-- [ ] `IMPLEMENTATION_PLAN.md`: the guard's entry gains PR 2's GF2; the lift is still the owner's; NEEDS is partly met and its remainder accepted by the owner (2026-10-14).
-- [ ] Scan for invisible characters. Commit.
+- [x] `IMPLEMENTATION_PLAN.md`: a register entry, observed and not acted on (2026-10-14, the Task 2.0 review round 2): a declaration is only as complete as its stated root, and a reader cannot detect an omitted compromised ancestor. With `--kid k2` and `--from-index` 3, checks (1) to (3) all pass, because the cascade rooted at k2 is [k2]; the declaration is valid and fail-open for k1, so a post under k1 is not disputed. R6.57's 'the compromised key first' is satisfied. Recovery is to declare again with the right `--kid`. A stricter property needs an errata change and is the owner's decision, not a fix-now item.
+- [x] Task 2.3's open item closed or filed: closed in Task 2.3 by the vector `compromise-sibling-declared-alone`, with F2-45 and F2-46 in Task 2.4's table (the count is 54).
+- [x] `CLAUDE.md` and `README.md`: compromise, exit 9, the operator verb, and beside them R12.11's rule in the help text's sentence: 'Pass --from-index no later than the first index the owner's client reports as FOREIGN (their lifecycle_acts are the evidence); a later --from-index leaves live any key the compromised key bound before it (R6.57 cascades only at or after from_index).'
+- [x] Record for the owner: the `curia` skill's exit codes.
+- [x] A dry run through the **test composition** against a database created and dropped by that run (never the production binary with a setting; **CP-D**: assert the database name came from this run's create step before any append), in which both readers render disputed for a post with a rotation between it and the declaration. There is no production declaration until after the owner's lift. Built as `R6_57_BothReadersRenderAPostDisputedWithARotationBetweenItAndTheDeclaration` in `tests/Curia.Api.Tests/CompromiseDeclarationTests.cs` (the C# reader disputed; `curia-testis log author` exit 4; the CP-D assertion precedes the first append). Register entries filed: D45 (R12.11 runbook gaps), D46 (omitted compromised ancestor); D43 confirmed present and open.
+- [x] `IMPLEMENTATION_PLAN.md`: the guard's entry gains PR 2's GF2; the lift is still the owner's; NEEDS is partly met and its remainder accepted by the owner (2026-10-14).
+- [x] Scan for invisible characters. Commit.
 
 ### Task 2.6: Every gate, then PR 2
 
