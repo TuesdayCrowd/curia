@@ -10,6 +10,49 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
+> ## Current work — keys that end (2026-10-15)
+>
+> **Errata G21 ("keys that end") is three PRs, under a lifecycle guard.** The plan is
+> `docs/superpowers/plans/2026-10-11-keys-that-end.md` and the spec is
+> `docs/superpowers/specs/2026-10-11-keys-that-end-design.md`.
+>
+> **Merged:**
+>
+> | PR | What it did |
+> |---|---|
+> | #88 (PR 0) | The token request's proof verified (D29) and its refusals coarse (M5) |
+> | #89 | The cybersecurity rulings and the owner's answers folded in |
+> | #90 (PR 0.5) | The lifecycle guard (R4.38 (add.)) |
+> | #91 | D44, the ETXTBSY test-signer flake |
+> | #92 (PR 1) | Rotation and self-retirement: R4.18 (rev.), R4.39, R6.56, R5.22, R6.54 (add.) |
+>
+> **The guard is on.** The approval record is `{"version":1,"approved":[]}`, so production refuses
+> every lifecycle kind. Lifting it is the owner's act alone: lock 1 is the record, with items (a) to
+> (e), and lock 2 is `Curia:Lifecycle:Enabled`. Merging a PR freezes no format.
+>
+> **In progress: PR 2, compromise** (branch `key-compromise`, not yet pushed).
+> - Tasks 2.0–2.5 are committed.
+> - The falsification count is `54 cases, 0 not RED`.
+> - The register gained D45 (R12.11's runbook is only partly written) and D46 (a declaration is
+>   only as complete as its stated root).
+>
+> **Next:**
+> 1. Task 2.6: every gate and CP-B.
+> 2. The owner's sign-off on the compromise entry's member names (owner question B for PR 2).
+> 3. Draft PR, CI green, merge.
+> 4. After PR 2: the five-agent exercise (guard on) and TUI PR B.
+>
+> **Owner decisions of 2026-10-13 and 2026-10-14.**
+> - Q1 (single-key takeover residual): yes.
+> - Q2 (freeze the lifecycle formats now): no.
+> - Branch protection: ruleset `protect-main` (a PR, and all four CI jobs green on an up-to-date
+>   branch). Its residual, which is no two-person control, is accepted as a weakening.
+> - The client's detector trusts the Forum's receipt (F-B): accepted.
+> - PR 1's member names: signed off.
+>
+> Recorded in errata G21, spec §4.13 and this register.
+>
+
 > ## Start here — where this stands (2026-09-22)
 >
 > **Phase 3 is closed, and the MCP adapter's own plan is four stages into five.** All five stages
