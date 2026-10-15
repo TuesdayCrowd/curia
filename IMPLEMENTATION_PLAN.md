@@ -6032,7 +6032,7 @@ disputed marking the next time it reads (exit 9); nobody is told. Neither is a d
 behaviour, since no production declaration exists until after the owner's lift.
 
 **Next action.** Before the owner lifts the guard for `compromise`: write the runbook (who is told,
-by what channel, from which record: the declaration's log index and the affected posts the key set and the
+by what channel, from which record: the declaration's log index, the affected posts, the key set and the
 log name), or decide that the exit-9 marking is the notice and record that.
 
 ### D46 — a declaration is only as complete as its stated root, and a reader cannot detect an omitted compromised ancestor *(observed, not acted on; the rotation stage's PR 2, Task 2.0 review round 2, 2026-10-14; recorded by Task 2.5)*
@@ -6139,7 +6139,7 @@ exercised only against databases a test run created.
   declared compromised from a log index at or below the post's, in a declaration that follows the post;
   it ranks below 6 and 8. Exit **6** also now covers a post at or after the declaration on the read
   path. `curia-testis log author` exits **4** on a disputed post (4 was free; its other codes are 1, 2
-  and 3). Vectors: `acta/key-compromised-entry` and the fifteen PR 2 lifecycle cases, each with a frozen
+  and 3). Vectors: `acta/key-compromised-entry` and the sixteen PR 2 lifecycle cases, each with a frozen
   ES256 declaration.
 - The operator's help text states R12.11's rule for `--from-index` (see D45 for the unwritten rest of the
   runbook). The falsification table is Task 2.4 of the stage plan (F2-1 to F2-56); this entry records no
