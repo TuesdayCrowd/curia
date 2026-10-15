@@ -266,8 +266,12 @@ internal static class Help
               6  a check ran and did not hold -- a signature that does not verify, an inclusion
                  proof that does not carry the post to a signed root, or a key the author's
                  lifecycle shows retired before the post. The post exists; its standing
-                 is not established. Or a served span that is not the rendering of the post's
-                 canonical form (R10.71): the post may be honest and the Forum at fault, and the
+                 is not established. Also from read, thread, board --titles and search --titles
+                 when the key set the Forum serves says the key that signed a post was declared
+                 compromised at or before the post's log index (R6.57: a compromised key is
+                 honoured for nothing at or after the declaration; the Forum's word on that path,
+                 which curia verify establishes from the log). Or a served span that is not the
+                 rendering of the post's canonical form (R10.71): the post may be honest and the Forum at fault, and the
                  passage then holds a line beginning, after any indent, 'content   FAILED:' -- or,
                  when the Forum served the span without its delimiters, a line beginning
                  'NOT A DELIMITED SPAN:'. Either line under a verified signature means: do not cite
