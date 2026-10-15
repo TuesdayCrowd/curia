@@ -175,6 +175,23 @@ public static class AccessPolicy
         r.Resource is ResourceKind.Flag && r.Action is ActionKind.Raise;
 
     /// <summary>
+    /// R7.23: <c>key</c>/<c>rotate</c> and <c>key</c>/<c>retire</c> spend no posting budget. Rotation has a
+    /// budget of its own, which its use case counts from the log; retirement has none, and it SHALL NOT
+    /// spend the posting budget: <see cref="IsWrite"/> is the complement of reads, so without this
+    /// exclusion a thief could spend a T0 identity's three daily posts and so stop its owner retiring the
+    /// stolen key.
+    /// </summary>
+    private static bool IsKeyAct(AuthorizationRequest r) =>
+        r.Resource is ResourceKind.Key && r.Action is ActionKind.Rotate or ActionKind.Retire;
+
+    /// <summary>
+    /// R4.39: the one write a quarantined credential keeps. Retiring removes capability, and a thief that
+    /// trips quarantine must not be able to stop the owner retiring the stolen key.
+    /// </summary>
+    private static bool IsKeyRetire(AuthorizationRequest r) =>
+        r.Resource is ResourceKind.Key && r.Action is ActionKind.Retire;
+
+    /// <summary>
     /// R7.6: anonymous read is an explicit <c>allow</c> decided by this function, never the absence
     /// of a check. There is no path through <see cref="Decide"/> that returns an allow without
     /// having consulted Table 10 -- the default is <see cref="DecisionEffect.Deny"/> and every
@@ -226,6 +243,7 @@ public static class AccessPolicy
         if (tierDecision.IsPermitted
             && IsWrite(request.Action)
             && !IsFlagRaise(request)
+            && !IsKeyAct(request)
             && request.PostsToday >= TierPolicy.PostsPerDay(request.Tier.Tier))
             return Result<AuthorizationDecision>.Ok(new AuthorizationDecision(
                 DecisionEffect.Deny, "table-11/rate-budget-exhausted", GrantQualifier.None));
@@ -248,9 +266,11 @@ public static class AccessPolicy
         // reads its tier already had, and nothing else. Written as a restriction rather than as a
         // separate allow so that no future Table 10 edit can make quarantine the more capable
         // state -- the property is structural here, not something a test has to keep watching.
+        // The reads plus `key`/`retire` (R4.39): the intersection keeps its form, so quarantine is
+        // never more capable than the tier.
         if (request.CredentialState is CredentialState.Quarantined)
             return Result<AuthorizationDecision>.Ok(
-                tierDecision.IsPermitted && IsRead(request.Action)
+                tierDecision.IsPermitted && (IsRead(request.Action) || IsKeyRetire(request))
                     ? tierDecision with { Reason = "table-11/quarantined-read-only" }
                     : new AuthorizationDecision(
                         DecisionEffect.Deny, "table-11/quarantined-read-only", GrantQualifier.None));

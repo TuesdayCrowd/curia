@@ -75,12 +75,22 @@ public sealed class InProcessSigner : IAgentSigner, IDisposable
 /// <c>alg</c> and <c>kid</c> rather than accepting them from the caller, so a caller cannot ask it
 /// to sign as somebody else; and a refusal is distinguishable from a forgery, because
 /// <see cref="DetachedJws"/> reports a throw here as <c>curia/jws/signer-refused</c> rather than as
-/// an invalid signature.</para>
+/// an invalid signature; and a lifecycle statement (a rotation or a retirement of a key) is signed
+/// only through an operation of its own, <c>sign-lifecycle</c>, never through the one a post is
+/// signed with, which the MCP adapter never calls (R4.39). That last is a property of every
+/// conforming external signer, not of this protocol alone: a process that may call the signer to
+/// post cannot thereby obtain a lifecycle signature, so it cannot turn transient access into a key
+/// it holds. A profile that holds its key in-process is outside it, since that process already
+/// holds the key.</para>
 ///
 /// <para><b>The protocol.</b> <c>&lt;command&gt; describe</c> writes one line of JSON to stdout —
 /// <c>{"alg":…,"kid":…,"public_key":…}</c>, the public key base64 SubjectPublicKeyInfo — and
 /// <c>&lt;command&gt; sign</c> reads the signing input as base64url on stdin and writes the
-/// signature as base64url on stdout. Both are read as UTF-8 by R10.64's rule, through
+/// signature as base64url on stdout. <c>&lt;command&gt; sign-lifecycle</c> is the same exchange for a
+/// lifecycle statement, and the two refuse each other's inputs: <c>sign</c> refuses a signing input
+/// whose protected header names a lifecycle <c>typ</c> (<c>curia-key-rotation+jws</c>,
+/// <c>curia-key-retirement+jws</c>, <c>curia-key-compromise+jws</c>), and <c>sign-lifecycle</c> accepts
+/// only those. Both are read as UTF-8 by R10.64's rule, through
 /// <see cref="ProgramOutput"/>, so a byte order mark is kept as U+FEFF and refused as the start of the
 /// output rather than dropped: a signer writes its output without one, as RFC 8259 §8.1 asks of JSON.
 /// Until Task 10's review the process's own reader dropped it, and such a signer was accepted (Task
@@ -157,10 +167,20 @@ public sealed class ExternalSigner : IAgentSigner
     /// refusal becomes a <c>Result</c> — one place, so the two adapters cannot disagree about what a
     /// failure looks like.
     /// </summary>
-    public byte[] Sign(ReadOnlySpan<byte> signingInput)
+    public byte[] Sign(ReadOnlySpan<byte> signingInput) => SignWith("sign", signingInput);
+
+    /// <summary>
+    /// Signs a lifecycle statement's signing input through the signer's <c>sign-lifecycle</c> verb
+    /// (R4.39, R11.20). Reached only from <see cref="KeyActs"/>: the MCP adapter never calls it, and an
+    /// architecture fact holds that, because a process that can post must not be able to obtain a
+    /// signature that ends or adds a key.
+    /// </summary>
+    internal byte[] SignLifecycle(ReadOnlySpan<byte> signingInput) => SignWith("sign-lifecycle", signingInput);
+
+    private byte[] SignWith(string verb, ReadOnlySpan<byte> signingInput)
     {
         var encoded = System.Buffers.Text.Base64Url.EncodeToString(signingInput);
-        var signed = Run(_command, "sign", encoded);
+        var signed = Run(_command, verb, encoded);
 
         if (!signed.TryGetValue(out var output, out var error))
             throw new CryptographicException($"{error!.Type}: {error.Title}. {error.Detail}");

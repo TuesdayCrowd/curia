@@ -299,6 +299,13 @@ internal static class Output
         Console.Out.Write(frame.ToString());
     }
 
+    /// <summary>A frame on stderr, where a refusal is written: the FOREIGN lines that follow one (R4.39).</summary>
+    internal static void Error(FrameBuilder frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        Console.Error.Write(frame.ToString());
+    }
+
     internal static void Passages(Reading reading)
     {
         ArgumentNullException.ThrowIfNull(reading);

@@ -17,6 +17,7 @@ using Curia.Domain;
 using Curia.Domain.Authorization;
 using Curia.Domain.Content;
 using Curia.Domain.Credentials;
+using Curia.Domain.Keys;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
@@ -25,6 +26,8 @@ using Curia.Application.Retrieval;
 using Curia.Domain.Search;
 using Curia.Domain.Serving;
 using Curia.Domain.Verification;
+using Curia.Infrastructure.Lifecycle;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 
@@ -340,6 +343,11 @@ public static class ForumEndpoints
         // that serve agent-authored content are exactly the seven that reach ToResponse.
         app.MapPost("/v1/agents", EnrollAsync).Serves(ServedContent.None);
 
+        // R4.18 (rev.), R4.39: an identity's own key acts. Each handler's first act is the guard's gate
+        // (R4.38 (add.)), so a Forum that has not lifted the guard answers 403 before anything else.
+        app.MapPost("/v1/agents/{id}/keys", RotateKeyAsync).Serves(ServedContent.None);
+        app.MapPost("/v1/agents/{id}/keys/{kid}/retire", RetireKeyAsync).Serves(ServedContent.None);
+
         // The 409 duplicate refusal carries the canonical thread's answers with their envelopes
         // (R8.61), so this write route is a serving path.
         app.MapPost("/v1/posts", SubmitAsync).Serves(ServedContent.AgentAuthored);
@@ -497,6 +505,7 @@ public static class ForumEndpoints
             return enrollError!.Type is AuthorKeyErrors.AlreadyEnrolledType
                     or AuthorKeyErrors.MaterialImmutableType
                     or AuthorKeyErrors.KidRegisteredToAnotherAgentType
+                    or AuthorKeyErrors.KidTakenType
                     or EnrollmentErrors.IdentifierReservedType
                     or EnrollmentErrors.KeysAmbiguousType
                 ? Results.Conflict(new Problem(enrollError.Type, enrollError.Title, enrollError.Detail))
@@ -640,7 +649,43 @@ public static class ForumEndpoints
         if (!PrincipalOf(subject).TryGetValue(out var author, out var subjectError))
             return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
-        var verified = await pipeline.VerifyAsync(a!, author!, cancellationToken).ConfigureAwait(false);
+        // R6.56: VERIFY through PERSIST is one act against the author's stream, repeated while the stream
+        // moves under it (IngestAttempts), and answered 503 contended after three. The attempt answers
+        // null when its append lost that race and every other outcome as the response it is.
+        var attempted = await IngestAttempts.RunAsync(
+            async token =>
+            {
+                var response = await SubmitAttemptAsync(
+                    a!, author!, pipeline, pdp, events, indexer, dedupe, http, clock, token).ConfigureAwait(false);
+                return response is null
+                    ? Result<IResult>.Fail(new Error(DomainErrors.ConditionConflictType, "The author's stream moved"))
+                    : Result<IResult>.Ok(response);
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return attempted.Match(
+            response => response,
+            error => Problem(StatusCodes.Status503ServiceUnavailable, error));
+    }
+
+    /// <summary>
+    /// One attempt at VERIFY, AUTHORIZE, SCREEN and PERSIST for <see cref="SubmitAsync"/>, decided on the
+    /// log as it stands now. <see langword="null"/> when PERSIST's append found the author's stream moved
+    /// since VERIFY read it (R6.56); the caller runs the attempt again.
+    /// </summary>
+    private static async Task<IResult?> SubmitAttemptAsync(
+        AdmittedSubmission a,
+        AgentId author,
+        IIngestPipeline pipeline,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        EmbeddingIndexer indexer,
+        DuplicateCheck dedupe,
+        HttpRequest http,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var verified = await pipeline.VerifyAsync(a, author, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
         {
             return Problem(
@@ -728,7 +773,13 @@ public static class ForumEndpoints
         // PERSIST.
         var accepted = await pipeline.PersistAsync(s!, cancellationToken).ConfigureAwait(false);
         if (!accepted.TryGetValue(out var post, out var persistError))
-            return Problem(StatusCodes.Status500InternalServerError, persistError!);
+        {
+            // R6.56: the author's stream moved since VERIFY read it. Nothing was written; the caller
+            // decides again from VERIFY (null answers "again").
+            return string.Equals(persistError!.Type, DomainErrors.ConditionConflictType, StringComparison.Ordinal)
+                ? null
+                : Problem(StatusCodes.Status500InternalServerError, persistError);
+        }
 
         // The vector channel sees the post in the same request the lexical channel does. The
         // index and the log are the same database, so a failure here is the database failing
@@ -1337,10 +1388,15 @@ public static class ForumEndpoints
     /// post signed under one fails a reader's signature check, as it should. Each published key names
     /// the leaf that binds it (<c>curia_log_index</c>), so a reader can check the binding against a
     /// signed head instead of trusting this key set. An identity the store holds no row for is 404, as
-    /// before; one whose every row the log refuses gets an empty set.</para>
+    /// before; one whose every row the log refuses gets an empty set. An identity whose stream the fold
+    /// REFUSES (R4.38: a lifecycle entry the fold cannot attribute, or a statement-less binding that is
+    /// not the enrolment's own) is 503 with the fold's own problem type
+    /// (<c>curia/keys/statement-mismatch</c>), the same answer as an unreadable log: no key of that
+    /// agent is published until the stream folds, so a broken link never reads as a deliberate empty
+    /// set.</para>
     /// </summary>
     private static async Task<IResult> GetJwks(
-        string? agent, LogBoundKeys keys, IEventReader events, CancellationToken cancellationToken)
+        string? agent, LogBoundKeys keys, IEventReader events, ILifecycleAppendGate gate, CancellationToken cancellationToken)
     {
         // R11.34 (errata G18): the agent as the AgentId the key set is read for. Bound as a nullable
         // string, so an absent parameter reaches this handler: bound non-nullable, the binder answered
@@ -1372,7 +1428,22 @@ public static class ForumEndpoints
         if (failure is ServerFault { Type: LogBoundKeys.LogUnreadableType })
             return failure;
 
-        return Results.Ok(Jwks.ForAgent(keySet.Bound, acta is null ? _ => null : acta.IndexOf));
+        // R4.35 (rev.): the identity's lifecycle indices, from the same fold; left out when the log would
+        // not fold, as the keys' own positions are, so an absence never reads as an empty lifecycle.
+        var lifecycle = acta is not null && KeyLifecycle.Of(acta.Events, agentId!).TryGetValue(out var folded, out _)
+            ? folded!.Entries.Select(e => acta.IndexOf(e.EventId)).Where(i => i is not null).Select(i => i!.Value).ToList()
+            : null;
+
+        // R4.38 (add.): the kinds the build approves and the Forum enables. A record that cannot be read
+        // is the Forum's fault, never an empty approval.
+        if (!LifecycleApprovalRecord.Embedded().TryGetValue(out var record, out var recordError))
+            return Problem(StatusCodes.Status500InternalServerError, recordError!);
+
+        return Results.Ok(Jwks.ForAgent(
+            keySet.Bound,
+            acta is null ? _ => null : acta.IndexOf,
+            lifecycle,
+            Jwks.LifecycleKinds(record!.Approved.Select(a => a.Kind), gate)));
     }
 
     /// <summary>
@@ -2183,6 +2254,11 @@ public static class ForumEndpoints
     private static async Task<IResult> NonceChallengeOrProblemAsync(
         Error error, IDpopNonceStore nonces, CancellationToken cancellationToken)
     {
+        // R5.22: a liveness read that failed decided nothing about the key; the server's fault, as every
+        // other read of the log answers it (R4.35), and never the 401 that tells a client to mint again.
+        if (string.Equals(error.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal))
+            return Problem(StatusCodes.Status503ServiceUnavailable, error);
+
         if (error.Type is not ("curia/authn/nonce-missing" or "curia/authn/nonce-stale"))
             return Problem(StatusCodes.Status401Unauthorized, error);
 
@@ -2276,6 +2352,399 @@ public static class ForumEndpoints
         status >= StatusCodes.Status500InternalServerError
             ? new ServerFault(status, error)
             : Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
+
+    private static readonly Error MalformedPath = new("curia/request/malformed-path", "The request path is malformed");
+
+    /// <summary>
+    /// The identity and the kid a key route names, read from the request target as the client wrote it and
+    /// decoded exactly once (errata G21).
+    ///
+    /// <para>The framework's path has lost the distinction that matters here: Kestrel binds both <c>%2F</c>
+    /// and <c>%252F</c> to the route value <c>%2F</c>, so a route value cannot say whether an identifier held
+    /// a slash or a literal <c>%2F</c>, and restoring slashes from it made any identity with a percent
+    /// sign in its identifier unable to rotate or retire. The raw target keeps the distinction: each
+    /// segment is decoded once, left to right, by <see cref="DecodeOnce"/>, which refuses a percent sign
+    /// not followed by two hex digits and a result that is not UTF-8, and never repairs one (R6.12). The
+    /// segments are found by their position in the framework's normalised path (its <c>agents</c> segment,
+    /// matched as the router matches it, without regard to case), after the query, any scheme and
+    /// authority, and the path base are removed from the raw target; the raw target must have exactly as
+    /// many segments as that path, which a dot-segment target does not, and it is never required to spell
+    /// <c>agents</c> or <c>keys</c> as the router's literals do (<c>%61gents</c> routes). Each decoded
+    /// value is then compared with the value the framework bound, in the form Kestrel binds it
+    /// (<see cref="RouteForm"/>), so the routed URL, the <c>htu</c> built from the path and the identity
+    /// acted on agree; a disagreement is refused as the request path.</para>
+    ///
+    /// <para>A host that hands the pipeline no raw target (the in-memory test server) takes the one fallback
+    /// here: the framework's path with <c>%2F</c> restored once. It is the old, lossy reading, taken only
+    /// when there is nothing better, and a fact on the real host pins that production does not take it.
+    /// A proof's <c>htu</c> is still the path <see cref="AbsoluteUrl"/> builds, which cannot tell <c>%2F</c>
+    /// from <c>%252F</c>, so a proof replays across those two URLs; that replay is bounded because the two
+    /// URLs name two identities and the token's subject is compared with the identity decoded here, which
+    /// is now checked against the routed value.</para>
+    /// </summary>
+    private static (string? Id, string? Kid, IResult? Refusal) KeyRouteValues(
+        HttpRequest http, bool wantKid, string routedId, string? routedKid)
+    {
+        var rawTarget = http.HttpContext.Features.Get<IHttpRequestFeature>()?.RawTarget;
+        var fromRawTarget = !string.IsNullOrEmpty(rawTarget);
+
+        var pathSegments = (http.Path.Value ?? string.Empty).Split('/');
+        var agents = Array.FindIndex(pathSegments, p => string.Equals(p, "agents", StringComparison.OrdinalIgnoreCase));
+        var idIndex = agents + 1;
+        var kidIndex = idIndex + 2;
+        if (agents < 0
+            || idIndex + 1 >= pathSegments.Length
+            || (wantKid && kidIndex >= pathSegments.Length))
+            return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+
+        var segments = pathSegments;
+        if (fromRawTarget)
+        {
+            var path = rawTarget!;
+            var query = path.IndexOf('?', StringComparison.Ordinal);
+            if (query >= 0) path = path[..query];
+
+            if (!path.StartsWith('/'))
+            {
+                var scheme = path.IndexOf("://", StringComparison.Ordinal);
+                var slash = scheme < 0 ? -1 : path.IndexOf('/', scheme + 3);
+                if (slash < 0) return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+                path = path[slash..];
+            }
+
+            var pathBase = http.PathBase.Value;
+            if (!string.IsNullOrEmpty(pathBase) && path.StartsWith(pathBase, StringComparison.OrdinalIgnoreCase))
+                path = path[pathBase.Length..];
+
+            segments = path.Split('/');
+            if (segments.Length != pathSegments.Length)
+                return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+        }
+
+        var id = fromRawTarget ? DecodeOnce(segments[idIndex]) : RestoreSlashes(segments[idIndex]);
+        var kid = wantKid ? (fromRawTarget ? DecodeOnce(segments[kidIndex]) : RestoreSlashes(segments[kidIndex])) : string.Empty;
+        if (id is null || kid is null
+            || (fromRawTarget && !RouteFormAgrees(id, routedId))
+            || (fromRawTarget && wantKid && !RouteFormAgrees(kid, routedKid ?? string.Empty)))
+            return (null, null, Problem(StatusCodes.Status400BadRequest, MalformedPath));
+
+        return (id, wantKid ? kid : null, null);
+    }
+
+    /// <summary>
+    /// Whether a value decoded once from the raw target is the value the framework bound. Kestrel keeps
+    /// <c>%2F</c> encoded in a route value and decodes everything else, <c>%5C</c> to a backslash included
+    /// (seen by probe: a route value for <c>a%5Cb</c> is <c>a\b</c>), so the decoded value
+    /// is put into that form (<see cref="RouteForm"/>) and compared ordinally, after the hex digits of the
+    /// escapes are upper-cased on both sides: a letter's case is never folded, so <c>Alice</c> is not
+    /// <c>alice</c>.
+    /// </summary>
+    private static bool RouteFormAgrees(string decoded, string routed) =>
+        string.Equals(UpperEscapes(RouteForm(decoded)), UpperEscapes(routed), StringComparison.Ordinal);
+
+    private static string RouteForm(string value) =>
+        value.Replace("/", "%2F", StringComparison.Ordinal);
+
+    private static string UpperEscapes(string value)
+    {
+        var chars = value.ToCharArray();
+        for (var i = 0; i + 2 < chars.Length; i++)
+        {
+            if (chars[i] != '%' || !Uri.IsHexDigit(chars[i + 1]) || !Uri.IsHexDigit(chars[i + 2])) continue;
+            chars[i + 1] = char.ToUpperInvariant(chars[i + 1]);
+            chars[i + 2] = char.ToUpperInvariant(chars[i + 2]);
+            i += 2;
+        }
+
+        return new string(chars);
+    }
+
+    private static string RestoreSlashes(string pathSegment) =>
+        pathSegment.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// One segment of a raw target decoded once, left to right: every <c>%</c> must be followed by two hex
+    /// digits, and the bytes must be UTF-8. Anything else is null, never repaired. A decoded <c>%</c> is
+    /// not read again, so <c>%252F</c> is the three characters <c>%2F</c>.
+    /// </summary>
+    private static string? DecodeOnce(string segment)
+    {
+        var strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+        var bytes = new List<byte>(segment.Length);
+        try
+        {
+            for (var i = 0; i < segment.Length;)
+            {
+                if (segment[i] == '%')
+                {
+                    if (i + 2 >= segment.Length || !Uri.IsHexDigit(segment[i + 1]) || !Uri.IsHexDigit(segment[i + 2]))
+                        return null;
+
+                    bytes.Add(byte.Parse(segment.AsSpan(i + 1, 2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture));
+                    i += 3;
+                    continue;
+                }
+
+                var end = segment.IndexOf('%', i);
+                if (end < 0) end = segment.Length;
+                bytes.AddRange(strict.GetBytes(segment[i..end]));
+                i = end;
+            }
+
+            return strict.GetString(bytes.ToArray());
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The body limits of a key act (spec section 4.7): an object of at most three members, each a string,
+    /// the statement the longest. Read through the guarded reader (R11.34), never the framework's binder,
+    /// because the gate is the handler's first act and a binder reads the body before the handler runs.
+    /// </summary>
+    private static readonly AdmitLimits KeyActBodyLimits = new(
+        MaxBytes: 32_768, MaxDepth: 2, MaxMembersPerObject: 3, MaxStringBytes: StatementText.MaxUtf8Bytes);
+
+    private static readonly Error KeyActBodyUnreadable = new("curia/request/unreadable", "The request could not be read");
+
+    /// <summary>
+    /// POST /v1/agents/{id}/keys: R4.18 (rev.). The gate is the first statement (R4.38 (add.), GF1): before
+    /// authentication, any token or proof is consumed, the body is read, the store is written or the log
+    /// is read, a Forum that does not enable rotation answers 403 and nothing else happens. Then the token
+    /// (its subject must be the route's identity), the PDP's <c>key</c>/<c>rotate</c>, the body, and the
+    /// use case, whose refusals <see cref="StatusForKeyAct"/> maps.
+    /// </summary>
+    private static async Task<IResult> RotateKeyAsync(
+        string id,
+        HttpRequest http,
+        RotateKey rotate,
+        ILifecycleAppendGate gate,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (!gate.Enables(LifecycleKind.Rotation))
+            return Problem(StatusCodes.Status403Forbidden, KeyActErrors.RotationNotEnabled());
+
+        var (routeId, _, pathProblem) = KeyRouteValues(http, wantKid: false, id, null);
+        if (pathProblem is not null) return pathProblem;
+
+        var (agent, refused) = await AuthorizeKeyActAsync(
+            routeId!, ActionKind.Rotate, http, pdp, events, authn, nonces, clock, cancellationToken).ConfigureAwait(false);
+        if (refused is not null) return refused;
+
+        var (body, bodyProblem) = await ReadKeyActBodyAsync(http, ["statement", "authorization", "possession"], cancellationToken).ConfigureAwait(false);
+        if (bodyProblem is not null) return bodyProblem;
+
+        if (!StatementText.Parse(body!["statement"], "statement").TryGetValue(out var statement, out var statementError))
+            return Problem(StatusCodes.Status400BadRequest, statementError!);
+        if (!DetachedSignature.Parse(body["authorization"], "authorization").TryGetValue(out var authorization, out var authorizationError))
+            return Problem(StatusCodes.Status400BadRequest, authorizationError!);
+        if (!DetachedSignature.Parse(body["possession"], "possession").TryGetValue(out var possession, out var possessionError))
+            return Problem(StatusCodes.Status400BadRequest, possessionError!);
+
+        var rotated = await rotate
+            .RotateAsync(agent!, statement!, authorization!, possession!, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!rotated.TryGetValue(out var recorded, out var rotateError))
+            return Problem(StatusForKeyAct(rotateError!), rotateError!);
+
+        return Results.Created(
+            $"/v1/jwks?agent={Uri.EscapeDataString(recorded!.AgentId)}",
+            new
+            {
+                agent_id = recorded.AgentId,
+                kid = recorded.Kid,
+                log_index = recorded.LogIndex,
+                authorized_by = recorded.AuthorizedBy,
+            });
+    }
+
+    /// <summary>
+    /// POST /v1/agents/{id}/keys/{kid}/retire: R4.39. The gate first, as <see cref="RotateKeyAsync"/>'s is.
+    /// A retirement spends neither the posting budget nor R7.23's rotation budget.
+    /// </summary>
+    private static async Task<IResult> RetireKeyAsync(
+        string id,
+        string kid,
+        HttpRequest http,
+        RetireKey retire,
+        ILifecycleAppendGate gate,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (!gate.Enables(LifecycleKind.Retirement))
+            return Problem(StatusCodes.Status403Forbidden, KeyActErrors.RetirementNotEnabled());
+
+        var (routeId, routeKid, pathProblem) = KeyRouteValues(http, wantKid: true, id, kid);
+        if (pathProblem is not null) return pathProblem;
+
+        var (agent, refused) = await AuthorizeKeyActAsync(
+            routeId!, ActionKind.Retire, http, pdp, events, authn, nonces, clock, cancellationToken).ConfigureAwait(false);
+        if (refused is not null) return refused;
+
+        var (body, bodyProblem) = await ReadKeyActBodyAsync(http, ["statement", "authorization"], cancellationToken).ConfigureAwait(false);
+        if (bodyProblem is not null) return bodyProblem;
+
+        if (!Kid.Parse(routeKid, "kid").TryGetValue(out var parsedKid, out var kidError))
+            return Problem(StatusCodes.Status400BadRequest, kidError!);
+        if (!StatementText.Parse(body!["statement"], "statement").TryGetValue(out var statement, out var statementError))
+            return Problem(StatusCodes.Status400BadRequest, statementError!);
+        if (!DetachedSignature.Parse(body["authorization"], "authorization").TryGetValue(out var authorization, out var authorizationError))
+            return Problem(StatusCodes.Status400BadRequest, authorizationError!);
+
+        var retired = await retire
+            .RetireAsync(agent!, parsedKid!, statement!, authorization!, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!retired.TryGetValue(out var recorded, out var retireError))
+            return Problem(StatusForKeyAct(retireError!), retireError!);
+
+        return Results.Created(
+            $"/v1/jwks?agent={Uri.EscapeDataString(recorded!.AgentId)}",
+            new { agent_id = recorded.AgentId, kid = recorded.Kid, log_index = recorded.LogIndex });
+    }
+
+    /// <summary>
+    /// The authentication and authorization both key routes share. The token's subject must be the route's
+    /// identity ("own", Table 10, checked here before the PDP is asked), the tier is read from the log
+    /// (R7.7), and the PDP answers <c>key</c>/<paramref name="action"/>: a quarantined agent is refused
+    /// <c>rotate</c> and permitted <c>retire</c> (R4.39). Returns the agent, or the refusal to answer with.
+    /// </summary>
+    private static async Task<(AgentId? Agent, IResult? Refusal)> AuthorizeKeyActAsync(
+        string id,
+        ActionKind action,
+        HttpRequest http,
+        IPolicyDecisionPoint pdp,
+        IEventReader events,
+        AccessTokenValidationContext authn,
+        IDpopNonceStore nonces,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var principal = await AccessTokenValidator.ValidateRequestAsync(
+            new IncomingRequest(
+                http.Headers.Authorization.ToString(),
+                http.Headers["DPoP"].ToString(),
+                http.Method,
+                AbsoluteUrl(http),
+                RequireDpopNonce: true),
+            authn,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!principal.TryGetValue(out var authenticated, out var authError))
+            return (null, await NonceChallengeOrProblemAsync(authError!, nonces, cancellationToken).ConfigureAwait(false));
+
+        var subject = authenticated!.Claims.Sub;
+        if (!string.Equals(subject, id, StringComparison.Ordinal))
+            return (null, Problem(StatusCodes.Status403Forbidden, KeyActErrors.NotOwn()));
+
+        if (!PrincipalOf(subject).TryGetValue(out var agent, out var subjectError))
+            return (null, Problem(StatusCodes.Status403Forbidden, subjectError!));
+
+        var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
+        if (!PostureQuery.Of(log, agent!).TryGetValue(out var facts, out var postureError))
+            return (null, Problem(StatusCodes.Status500InternalServerError, postureError!));
+
+        var tier = TierPolicy.Evaluate(facts!, clock.GetUtcNow());
+        var decision = await pdp.EvaluateAsync(
+            new AuthorizationRequest(tier, facts!.CredentialState, ResourceKind.Key, action),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!decision.TryGetValue(out var d, out var decisionError))
+            return (null, Problem(StatusCodes.Status403Forbidden, decisionError!));
+
+        // The (own) qualifier is answered: the subject is the route's identity, established above.
+        d = d!.Discharge(true);
+        return d.IsAllowed
+            ? (agent, null)
+            : (null, Problem(
+                StatusCodes.Status403Forbidden,
+                new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}")));
+    }
+
+    /// <summary>
+    /// Reads a key act's body: at most <see cref="KeyActBodyLimits"/>, an object whose members are exactly
+    /// <paramref name="names"/> and every one a string, through the guarded reader. Anything else is the
+    /// unreadable request, with no detail, so nothing the caller sent is echoed.
+    /// </summary>
+    private static async Task<(Dictionary<string, string>? Members, IResult? Problem)> ReadKeyActBodyAsync(
+        HttpRequest http, string[] names, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[KeyActBodyLimits.MaxBytes + 1];
+        var length = 0;
+        while (length < buffer.Length)
+        {
+            var read = await http.Body.ReadAsync(buffer.AsMemory(length), cancellationToken).ConfigureAwait(false);
+            if (read == 0) break;
+            length += read;
+        }
+
+        if (length > KeyActBodyLimits.MaxBytes)
+            return (null, Problem(StatusCodes.Status413PayloadTooLarge, new Error("curia/request/too-large", "The request is larger than this route reads")));
+
+        if (!JsonReader.Parse(buffer.AsSpan(0, length), KeyActBodyLimits).TryGetValue(out var root, out _)
+            || root is not JsonValue.Object body
+            || body.Members.Length != names.Length)
+            return (null, Problem(StatusCodes.Status400BadRequest, KeyActBodyUnreadable));
+
+        var members = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            var member = body.Members.FirstOrDefault(m => string.Equals(m.Key, name, StringComparison.Ordinal));
+            if (member.Value is not JsonValue.String text)
+                return (null, Problem(StatusCodes.Status400BadRequest, KeyActBodyUnreadable));
+
+            members[name] = text.Value;
+        }
+
+        return (members, null);
+    }
+
+    /// <summary>
+    /// The status a key act's refusal reports (spec section 4.7). Matched on the condition's published
+    /// slug; a refusal the table does not list is the Forum's, 500, never a 4xx that tells an agent its
+    /// request was at fault.
+    /// </summary>
+    private static int StatusForKeyAct(Error error) => error.Type switch
+    {
+        KeyStatementErrors.UnreadableType
+            or KeyStatementErrors.NotCanonicalType
+            or KeyStatementErrors.MismatchType
+            or KeyStatementErrors.SignatureInvalidType
+            or KeyStatementErrors.JwkAlgMismatchType
+            or KeyStatementErrors.SelfAuthorizedType
+            or EnrollmentErrors.IdentifierControlCharacterType
+            or StorableText.AbsentType
+            or StorableText.BlankType
+            or StorableText.NulType
+            or StorableText.UnpairedSurrogateType
+            or StorableText.TooLongType => StatusCodes.Status400BadRequest,
+
+        KeyActErrors.AuthorizingKeyNotLiveType => StatusCodes.Status403Forbidden,
+        KeyActErrors.UnknownKeyType => StatusCodes.Status404NotFound,
+
+        AuthorKeyErrors.KidTakenType
+            or KeyActErrors.LifecycleMovedType
+            or KeyActErrors.TooManyLiveKeysType
+            or KeyActErrors.RotationCeilingReachedType
+            or KeyActErrors.NotLiveType
+            or KeyActErrors.LastLiveKeyType => StatusCodes.Status409Conflict,
+
+        KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
+        LogBoundKeys.LogUnreadableType => StatusCodes.Status503ServiceUnavailable,
+        _ => StatusCodes.Status500InternalServerError,
+    };
 
     /// <summary>
     /// R11.34 (errata G18): the token's subject as the <see cref="AgentId"/> a use case takes, parsed

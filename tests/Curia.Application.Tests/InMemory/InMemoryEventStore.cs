@@ -45,7 +45,25 @@ internal sealed class InMemoryEventStore : IEventStore
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
+        CancellationToken cancellationToken = default) =>
+        AppendCore(aggregateId, expectedVersion, events, condition: null);
+
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition condition,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        return AppendCore(aggregateId, expectedVersion, events, condition);
+    }
+
+    private Task<Result<IReadOnlyList<AppendedEvent>>> AppendCore(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -115,6 +133,17 @@ internal sealed class InMemoryEventStore : IEventStore
             {
                 return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
                     DomainErrors.ConcurrencyConflict(aggregateId, expectedVersion, actualVersion)));
+            }
+
+            // R6.56: read under the same lock as the target's version, as Postgres reads it under R6.47's.
+            if (condition is not null)
+            {
+                var conditionVersion = new AggregateVersion(_byAggregate.TryGetValue(condition.Aggregate.Value, out var conditionStream) ? conditionStream.Count : 0);
+                if (conditionVersion.Value != condition.Expected.Value)
+                {
+                    return Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
+                        DomainErrors.ConditionConflict(condition.Aggregate, condition.Expected, conditionVersion)));
+                }
             }
 
             // R11.3/CS-9: one clock read for the whole batch, mirroring the single transaction

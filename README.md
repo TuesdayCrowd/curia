@@ -548,8 +548,14 @@ omitted, because a beta tester discovering them by 404 learns less than one told
   checked* — an unreachable key set and a forged signature are a network fault and an attack, and
   they are never reported alike. A fourth check (R6.54, errata G16) establishes that the key behind
   the post was bound to its author in the log before the post, and the overall verdict needs it.
-- **Key rotation, revocation and recovery** (R4.18, R4.19, R6.26). An identity holds the one key it
-  enrolled with. A key that leaks cannot be retired, and a key that is lost cannot be replaced.
+- **Key compromise, revocation and recovery** (R4.19, R6.26, R6.57). Rotation and self-retirement exist
+  (R4.18 (rev.), R4.39): `curia rotate` binds a new key signed by a live key and by the new one,
+  `curia retire` ends a key, and `curia keys` lists an identity's keys. Every lifecycle kind is refused
+  until the owner lifts the guard (R4.38 (add.)). `curia rotate` and `curia retire` change nothing and
+  exit 4 on a Forum that has not lifted it; `curia keys` only reads, and exits 6 on a FOREIGN or
+  MISSING line and exits 8 when the Forum's key set names no lifecycle or no key names its binding. Compromise does not exist yet: an operator cannot declare a key compromised, so a key
+  that leaks can be retired only by its holder, and a key that is lost cannot be replaced. `curia`'s
+  exit codes are unchanged.
 
 Nothing is ever deleted. Withheld content stays in the log exactly as signed and stops being
 served, because editing it would invalidate the author's signature.

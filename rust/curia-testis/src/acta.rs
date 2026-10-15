@@ -111,6 +111,37 @@ pub enum ActaError {
     /// trees: no one head covers both, so they fail with no head as they
     /// fail with one.
     TreeMismatch { post: u64, key: u64 },
+    /// R6.54 (add.): the post's key was retired at a leaf before the post.
+    RetiredBeforePost {
+        kid: String,
+        retired: u64,
+        post: u64,
+    },
+    /// R6.54 (add.): a lifecycle entry names, as the entry before it, one that is not the entry
+    /// before it in the author's chain; or is a binding without a `prev` that is not the
+    /// enrolment's own first binding (R4.38); or is out of order.
+    BrokenLink {
+        entry: u64,
+        stated: Option<u64>,
+        actual: Option<u64>,
+    },
+    /// R6.54 (add.): a rotation or retirement is not signed by a key that was live there, in the role
+    /// it names (KF2): its signature does not verify, its header `kid` is not its role's member, or the
+    /// key it names was never bound or had been retired.
+    RotationUnauthorized { at: u64 },
+    /// R6.54 (add.): a statement or an entry disagrees with its set or with itself (KF4, KF5), or an
+    /// entry is not the author's, or names no author.
+    StatementMismatch { at: u64, what: &'static str },
+    /// R6.54 (add.): a lifecycle signature's header `typ` is not its kind's (KF1).
+    LifecycleTypMismatch { at: u64 },
+    /// R6.54 (add.), not established: an entry of a type none of the four, or a statement of a version
+    /// this verifier does not know (KF4). Never verified, never skipped.
+    LifecycleUnknownKind { what: String },
+    /// R6.54 (add.), not established: no lifecycle was supplied, so an offline verifier cannot say the
+    /// key was not retired.
+    LifecycleNotSupplied,
+    /// R6.54 (add.), not established: more than 1,024 lifecycle entries before the post.
+    LifecycleTooLong,
 }
 
 impl ActaError {
@@ -136,6 +167,14 @@ impl ActaError {
             ActaError::Author(err) => err.predicate(),
             ActaError::KeyNotCarried { .. } => "curia/acta/key-not-carried",
             ActaError::TreeMismatch { .. } => "curia/acta/tree-mismatch",
+            ActaError::RetiredBeforePost { .. } => "curia/acta/retired-before-post",
+            ActaError::BrokenLink { .. } => "curia/acta/broken-link",
+            ActaError::RotationUnauthorized { .. } => "curia/acta/rotation-unauthorized",
+            ActaError::StatementMismatch { .. } => "curia/acta/statement-mismatch",
+            ActaError::LifecycleTypMismatch { .. } => "curia/acta/lifecycle-typ-mismatch",
+            ActaError::LifecycleUnknownKind { .. } => "curia/acta/unknown-lifecycle-kind",
+            ActaError::LifecycleNotSupplied => "curia/acta/lifecycle-not-supplied",
+            ActaError::LifecycleTooLong => "curia/acta/lifecycle-too-long",
         }
     }
 
@@ -145,7 +184,11 @@ impl ActaError {
     pub fn not_established(&self) -> bool {
         matches!(
             self,
-            ActaError::KeyNotCarried { .. } | ActaError::BoundAfterPost { .. }
+            ActaError::KeyNotCarried { .. }
+                | ActaError::BoundAfterPost { .. }
+                | ActaError::LifecycleUnknownKind { .. }
+                | ActaError::LifecycleNotSupplied
+                | ActaError::LifecycleTooLong
         )
     }
 }
@@ -231,6 +274,58 @@ impl fmt::Display for ActaError {
             ActaError::TreeMismatch { post, key } => write!(
                 f,
                 "the post is proven in a tree of {post} leaves and the key's entry in a tree of {key}, or under another root: no one head covers both"
+            ),
+            ActaError::RetiredBeforePost {
+                kid,
+                retired,
+                post,
+            } => write!(
+                f,
+                "the author's key {} was retired at leaf {retired}, before the post at leaf {post}",
+                display::literal(kid)
+            ),
+            ActaError::BrokenLink {
+                entry,
+                stated,
+                actual,
+            } => match (stated, actual) {
+                (Some(stated), Some(actual)) => write!(
+                    f,
+                    "lifecycle entry {entry} names {stated} as the entry before it, and the entry before it is {actual}"
+                ),
+                (None, Some(actual)) => write!(
+                    f,
+                    "lifecycle entry {entry} is not after the entry before it, {actual}, or is a binding without a prev that is not the enrolment's first"
+                ),
+                _ => write!(
+                    f,
+                    "lifecycle entry {entry} has no entry before it to link from, or is a binding without a prev that is not the enrolment's first"
+                ),
+            },
+            ActaError::RotationUnauthorized { at } => write!(
+                f,
+                "the lifecycle entry at leaf {at} is not signed by a key that was live there, in the role its statement names"
+            ),
+            ActaError::StatementMismatch { at, what } => write!(
+                f,
+                "the lifecycle entry at leaf {at} disagrees with its statement or its set: {what}"
+            ),
+            ActaError::LifecycleTypMismatch { at } => write!(
+                f,
+                "the signature of the lifecycle entry at leaf {at} does not carry its kind's header typ"
+            ),
+            ActaError::LifecycleUnknownKind { what } => write!(
+                f,
+                "the lifecycle holds an entry or a statement of a kind this verifier does not know: {}",
+                display::literal(what)
+            ),
+            ActaError::LifecycleNotSupplied => write!(
+                f,
+                "no lifecycle was supplied for the author, so it cannot be said the key was not retired"
+            ),
+            ActaError::LifecycleTooLong => write!(
+                f,
+                "the author's lifecycle has more than 1,024 entries before the post"
             ),
         }
         .and_then(|()| write!(f, " [{}]", self.predicate()))
@@ -572,7 +667,10 @@ fn author_under(
 /// by the parser the signature check uses, which refuses a member named twice,
 /// so neither is read from a document with two answers. The signature itself
 /// is verified afterwards, over the same bytes.
-fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, String), ActaError> {
+pub(crate) fn post_author_and_kid(
+    canonical: &str,
+    signature: &str,
+) -> Result<(String, String), ActaError> {
     use base64::Engine;
     let malformed = |detail: String| ActaError::Malformed {
         what: "post entry",
@@ -604,7 +702,7 @@ fn post_author_and_kid(canonical: &str, signature: &str) -> Result<(String, Stri
 }
 
 /// The `entry` member of an entry document, parsed.
-fn entry_fields(entry_json: &[u8]) -> Result<Value, ActaError> {
+pub(crate) fn entry_fields(entry_json: &[u8]) -> Result<Value, ActaError> {
     let document: Value = serde_json::from_slice(entry_json).map_err(|e| ActaError::Malformed {
         what: "entry document",
         detail: json_error(&e),
@@ -619,7 +717,7 @@ fn entry_fields(entry_json: &[u8]) -> Result<Value, ActaError> {
 }
 
 /// The string at `path` inside `value`, or which member is missing.
-fn str_at<'a>(
+pub(crate) fn str_at<'a>(
     value: &'a Value,
     path: &[&'static str],
     what: &'static str,

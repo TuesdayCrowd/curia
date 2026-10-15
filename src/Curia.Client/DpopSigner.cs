@@ -72,6 +72,19 @@ internal sealed class DpopSigner
     {
         ArgumentNullException.ThrowIfNull(url);
 
+        return Proof(method, url.ToString(), now, accessToken, nonce);
+    }
+
+    /// <summary>
+    /// The same proof over a target written out, for a route whose target the host reads in a form other
+    /// than the URL it is sent to (the key routes, <see cref="KeyActUrls.ProofTarget"/>): a <see cref="Uri"/>
+    /// would write its own canonical form, not the one the host compares.
+    /// </summary>
+    internal string Proof(
+        string method, string htu, DateTimeOffset now, string? accessToken = null, string? nonce = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(htu);
+
         var header = new List<KeyValuePair<string, JsonValue>>
         {
             new("alg", "ES256".AsJson()),
@@ -82,7 +95,7 @@ internal sealed class DpopSigner
         var payload = new List<KeyValuePair<string, JsonValue>>
         {
             new("htm", new JsonValue.String(method)),
-            new("htu", new JsonValue.String(url.ToString())),
+            new("htu", new JsonValue.String(htu)),
             new("iat", new JsonValue.Number(now.ToUnixTimeSeconds())),
             new("jti", new JsonValue.String(Jti())),
         };

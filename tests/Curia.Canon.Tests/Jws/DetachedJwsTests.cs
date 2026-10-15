@@ -254,6 +254,51 @@ public sealed class DetachedJwsTests
             Jws().Verify(Canonical("""{"a":1}"""), forged, Pub).Match(_ => "ok", e => e.Type));
     }
 
+    /// <summary>
+    /// R4.18: each lifecycle <c>typ</c> goes through the <c>b64</c> and <c>crit</c> negatives exactly as a post's does
+    /// (spec section 4.6). The same forged headers, under the header <c>typ</c> of a rotation and of a retirement and
+    /// verified by a <see cref="DetachedJws"/> built for it: <c>b64</c> true or absent, and <c>crit</c> absent, empty
+    /// or extended, are each refused with the slug they have for a post, and the control, a header of that
+    /// <c>typ</c> with the profile intact, verifies. Red when the <c>b64</c> check or the <c>crit</c> check is dropped
+    /// (F1-71, F1-73).
+    /// </summary>
+    [Theory]
+    [InlineData("curia-key-rotation+jws")]
+    [InlineData("curia-key-retirement+jws")]
+    public void R4_18_EachLifecycleTypMeetsTheB64AndCritNegatives(string typ)
+    {
+        DetachedJws ForTyp() => new(
+            new Dictionary<string, IContentSigner> { ["EdDSA"] = Stub },
+            new Dictionary<string, IContentVerifier> { ["EdDSA"] = Stub },
+            typ);
+
+        string Verdict(string headerMembers) =>
+            ForTyp().Verify(Canonical("""{"a":1}"""), Forge($$"""{"alg":"EdDSA","kid":"k","typ":"{{typ}}"{{headerMembers}}}"""), Pub)
+                .Match(_ => "ok", e => e.Type);
+
+        // The control: signed and verified under this typ, the profile intact.
+        var signed = ForTyp().Sign(Canonical("""{"a":1}"""), Key).Match(s => s, e => throw new Xunit.Sdk.XunitException(e.Type));
+        Assert.True(ForTyp().Verify(Canonical("""{"a":1}"""), signed, Pub).IsOk);
+        Assert.Equal(typ, DetachedJws.ReadProtectedHeader(signed).Match(h => h.Typ, e => throw new Xunit.Sdk.XunitException(e.Type)));
+
+        Assert.Equal("curia/jws/b64-must-be-false", Verdict(""","b64":true,"crit":["b64"]"""));
+        Assert.Equal("curia/jws/b64-must-be-false", Verdict(""","crit":["b64"]"""));
+        Assert.Equal("curia/jws/crit-unsupported", Verdict(""","b64":false"""));
+        Assert.Equal("curia/jws/crit-unsupported", Verdict(""","b64":false,"crit":[]"""));
+        Assert.Equal("curia/jws/crit-unsupported", Verdict(""","b64":false,"crit":["b64","zip"]"""));
+
+        // And the typ of the other kind, or a post's, is refused before either: a signature is its kind's alone (KF1).
+        var other = typ == "curia-key-rotation+jws" ? "curia-key-retirement+jws" : "curia-key-rotation+jws";
+        foreach (var wrong in new[] { other, "curia-post+jws", "curia-head+jws" })
+        {
+            Assert.Equal("curia/jws/typ-mismatch",
+                ForTyp().Verify(
+                    Canonical("""{"a":1}"""),
+                    Forge($$"""{"alg":"EdDSA","kid":"k","typ":"{{wrong}}","b64":false,"crit":["b64"]}"""),
+                    Pub).Match(_ => "ok", e => e.Type));
+        }
+    }
+
     [Fact]
     public void RejectsTypThatDiffersOnlyByCase()
     {

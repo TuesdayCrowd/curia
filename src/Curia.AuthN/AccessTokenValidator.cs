@@ -1,5 +1,6 @@
 using Curia.AuthN.Dpop;
 using Curia.AuthN.Jwt;
+using Curia.AuthN.Ports;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 
@@ -150,6 +151,20 @@ public static class AccessTokenValidator
         var consumed = await DpopProofValidator.ConsumeAsync(validatedProof!, context.ReplayCache, now, cancellationToken).ConfigureAwait(false);
         if (!consumed.TryGetValue(out _, out var consumeError))
             return Result<ValidatedRequest>.Fail(consumeError!);
+
+        // R5.22: the token names the key its assertion was signed with, and every authenticated request
+        // reads, uncached, that the key is live. A read that fails refuses the request with its own error
+        // (it is never taken for Active), and a key the identity retired ends the token it issued.
+        if (!Kid.Parse(claims.AssertionKid, "curia_akid").TryGetValue(out var akid, out _))
+            return Result<ValidatedRequest>.Fail(AuthNErrors.TokenNamesNoKey());
+
+        // A subject that is no AgentId has no key that is live.
+        if (!AgentId.Parse(claims.Sub, "sub").TryGetValue(out var subject, out _))
+            return Result<ValidatedRequest>.Fail(AuthNErrors.TokenKeyNotLive());
+
+        var status = await context.KeyLiveness.StatusAsync(subject!, akid!, cancellationToken).ConfigureAwait(false);
+        if (!status.TryGetValue(out var keyStatus, out var statusError)) return Result<ValidatedRequest>.Fail(statusError!);
+        if (keyStatus != KeyStatus.Active) return Result<ValidatedRequest>.Fail(AuthNErrors.TokenKeyNotLive());
 
         // ---- Phases 5-6: live state and authorization --------------------------------------
         // Deliberately not implemented here -- see ValidatedRequest's remarks.

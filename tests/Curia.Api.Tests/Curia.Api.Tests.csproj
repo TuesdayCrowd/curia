@@ -48,6 +48,8 @@
       only against itself agrees with whatever its authors believed, which is trap 12.
     -->
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
+    <!-- GF9: the refusal documents a guarded Forum serves a lifecycle route; StubLog's guarded mode serves them, and Curia.Api.Tests holds them to the real Forum. -->
+    <Compile Include="../Shared/LifecycleRefusals.cs" Link="Shared/LifecycleRefusals.cs" />
     <!-- R11.20's external signer, a real process: tests/Shared/test-signer.py reached through a per-test symlink (D44). -->
     <Compile Include="../Shared/TestSigner.cs" Link="Shared/TestSigner.cs" />
     <!-- R4.15's rows, named once: the adapter suite asks the verifiers about the same materials. -->

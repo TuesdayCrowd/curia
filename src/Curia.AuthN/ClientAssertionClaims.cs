@@ -17,6 +17,9 @@ public sealed record ClientAssertionClaims(
     DateTimeOffset Exp,
     Jti Jti)
 {
+    /// <summary>The assertion header's <c>kid</c>, set by the validator once the key resolved (R5.22 puts it in the token).</summary>
+    public string Kid { get; init; } = "";
+
     internal static Result<ClientAssertionClaims> Parse(JsonElement root)
     {
         if (!NumericDate.ReadRequired(root, "iat").TryGetValue(out var iat, out var iatError))

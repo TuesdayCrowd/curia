@@ -62,7 +62,7 @@ internal sealed class StubLog : IDisposable
     private HttpClient? _http;
     private StubHandler? _handler;
 
-    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 0, string bodySuffix = "")
+    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 1, string bodySuffix = "", int? enrolledIndex = null)
     {
         _root = Directory.CreateTempSubdirectory("curia-stub-log-").FullName;
 
@@ -128,6 +128,17 @@ internal sealed class StubLog : IDisposable
             throw new ArgumentOutOfRangeException(nameof(keyIndex), "the key's binding needs a leaf of its own");
 
         KeyIndex = keyIndex;
+
+        // The identity's enrolment, the entry its lifecycle opens with (R4.38): the nearest leaf below the binding that is
+        // neither the post nor the answer, unless the test names one. A binding with nothing before it has no chain to link
+        // from, and R6.54 (add.)'s reader refuses it.
+        EnrolledIndex = enrolledIndex
+            ?? Enumerable.Range(0, keyIndex).Reverse().Cast<int?>().FirstOrDefault(i => i != postIndex && i != AnswerIndex)
+            ?? throw new ArgumentOutOfRangeException(nameof(keyIndex), "the key's binding needs a leaf before it for the enrolment");
+        if (EnrolledIndex == postIndex || EnrolledIndex == AnswerIndex || EnrolledIndex == keyIndex || EnrolledIndex < 0 || EnrolledIndex >= keyIndex)
+            throw new ArgumentOutOfRangeException(nameof(enrolledIndex), "the enrolment needs a leaf of its own, before the binding's");
+
+        EnrolledEntry = BuildEnrolledEntry();
         KeyEntry = BuildKeyEntry(PublicJwk.Of(new PublicKeyMaterial("ES256", AgentKid, PublicSubjectPublicKeyInfo()))
             .TryGetValue(out var jwk, out _)
             ? jwk!
@@ -145,7 +156,9 @@ internal sealed class StubLog : IDisposable
                     ? LeafOf(AnswerEntry)
                     : i == KeyIndex
                         ? LeafOf(KeyEntry)
-                        : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
+                        : i == EnrolledIndex
+                            ? LeafOf(EnrolledEntry)
+                            : MerkleTree.LeafHash(Encoding.UTF8.GetBytes($"filler-leaf-{i}")));
         }
 
         Leaves = leaves.MoveToImmutable();
@@ -186,6 +199,20 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>R6.46's six members for alice's <c>agent.key-bound</c>.</summary>
     internal JsonValue.Object KeyEntry { get; private set; }
+
+    /// <summary>The leaf of alice's <c>agent.enrolled</c>, which her lifecycle opens with and her binding follows.</summary>
+    internal int EnrolledIndex { get; }
+
+    /// <summary>R6.46's six members for alice's <c>agent.enrolled</c>.</summary>
+    internal JsonValue.Object EnrolledEntry { get; }
+
+    /// <summary>
+    /// The identity's lifecycle indices as the key set lists them: its enrolment and its binding, or, for an identity
+    /// enrolled before R4.34 (<see cref="EnrollBeforeKeyBinding"/>), the enrolment alone.
+    /// </summary>
+    internal IReadOnlyList<int> LifecycleIndices => _enrolledBeforeKeyBinding ? [KeyIndex] : [EnrolledIndex, KeyIndex];
+
+    private bool _enrolledBeforeKeyBinding;
 
     /// <summary>The size the served head covers. Set below the post's index to strand it (R6.48).</summary>
     internal int HeadTreeSize { get; set; }
@@ -332,6 +359,7 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal void EnrollBeforeKeyBinding()
     {
+        _enrolledBeforeKeyBinding = true;
         KeyEntry = new JsonValue.Object(
         [
             new(LogLeaf.ActorIdMember, new JsonValue.String(Author)),
@@ -535,6 +563,31 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>The DPoP proof claims of every write, in order, including the ones the stub refused.</summary>
     internal List<(string? Jti, string? Nonce, string? Htu)> WriteProofs { get; } = [];
+
+    /// <summary>
+    /// GF9's guarded mode (R4.38 (add.); spec sections 4.7 and 4.13), off by default: a POST to either lifecycle route
+    /// is answered at once, before its proof is looked at, with 403 and the refusal document its kind has
+    /// (<see cref="LifecycleRefusals"/>), as a Forum that enables neither kind answers. The request is recorded in
+    /// <see cref="Requests"/> all the same, so a test can count how many reached the route.
+    /// </summary>
+    internal bool GuardsLifecycle { get; set; }
+
+    /// <summary>
+    /// The log index a lifecycle route answers when it is not guarded and accepts an act, in its 201.
+    /// </summary>
+    internal long LifecycleLogIndex { get; set; } = 3;
+
+    /// <summary>
+    /// When set, the key set's <c>curia_lifecycle</c> holds this index beside the enrolment's: an entry in the
+    /// identity's lifecycle that the profile did not make (R4.39).
+    /// </summary>
+    internal long? ForeignLifecycleIndex { get; set; }
+
+    /// <summary>
+    /// When set, the key set's <c>curia_lifecycle</c> is exactly this list, whatever the log holds: a Forum that lists
+    /// more of the identity's lifecycle than a reader will fold (R6.54 (add.), spec section 4.8).
+    /// </summary>
+    internal IReadOnlyList<long>? ServedLifecycle { get; set; }
 
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
@@ -771,7 +824,8 @@ internal sealed class StubLog : IDisposable
         return $$"""
         {"keys":[{"kty":"EC","crv":"P-256","alg":"ES256","kid":"{{AgentKid}}",
         "x":"{{Base64Url.EncodeToString(p.Q.X!)}}","y":"{{Base64Url.EncodeToString(p.Q.Y!)}}",
-        "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}}}]}
+        "curia_not_before":"1970-01-01T00:00:00.0000000+00:00"{{logIndex}},"curia_status":"active"}],
+        "curia_lifecycle_kinds":{"approved":[],"enabled":[]},"curia_lifecycle":[{{(ServedLifecycle is { } served ? string.Join(",", served) : string.Join(",", LifecycleIndices))}}{{(ForeignLifecycleIndex is { } foreign ? "," + foreign.ToString(CultureInfo.InvariantCulture) : string.Empty)}}]}
         """.ReplaceLineEndings(string.Empty);
     }
 
@@ -825,7 +879,11 @@ internal sealed class StubLog : IDisposable
 
     internal string EntryJson(int index)
     {
-        var entry = index == PostIndex ? Entry : index == AnswerIndex ? AnswerEntry : index == KeyIndex ? KeyEntry : null;
+        var entry = index == PostIndex ? Entry
+            : index == AnswerIndex ? AnswerEntry
+            : index == KeyIndex ? KeyEntry
+            : index == EnrolledIndex ? EnrolledEntry
+            : null;
         var body = entry is null
             ? "{\"actor_id\":null,\"aggregate_id\":\"x\",\"event_id\":\"x\",\"event_type\":\"filler\",\"payload\":{},\"server_ts\":\"1970-01-01T00:00:00.000000Z\"}"
             : Render(entry);
@@ -865,7 +923,7 @@ internal sealed class StubLog : IDisposable
     internal string ProofFromAnotherTreeAt(int index, int treeSize)
     {
         var filler = Enumerable.Range(0, treeSize)
-            .Last(i => i != PostIndex && i != AnswerIndex && i != KeyIndex);
+            .Last(i => i != PostIndex && i != AnswerIndex && i != KeyIndex && i != EnrolledIndex);
         var other = Leaves[..treeSize].SetItem(filler, MerkleTree.LeafHash("a leaf this log never held"u8));
         var path = MerkleTree.InclusionPath(other, index);
 
@@ -948,6 +1006,22 @@ internal sealed class StubLog : IDisposable
             new("agent_id", new JsonValue.String(agent)),
             new("kid", new JsonValue.String(AgentKid)),
             new("jwk", jwk),
+        ])),
+        new(LogLeaf.ServerTimestampMember, new JsonValue.String("1970-01-01T00:00:00.000000Z")),
+    ]);
+
+    /// <summary>R6.46's six members, as an enrollment appends alice's <c>agent.enrolled</c> (R4.34).</summary>
+    private static JsonValue.Object BuildEnrolledEntry() => new(
+    [
+        new(LogLeaf.ActorIdMember, new JsonValue.String(Author)),
+        new(LogLeaf.AggregateIdMember, new JsonValue.String(Author)),
+        new(LogLeaf.EventIdMember, new JsonValue.String("01TESTENROLLMENT0000000000")),
+        new(LogLeaf.EventTypeMember, new JsonValue.String("agent.enrolled")),
+        new(LogLeaf.PayloadMember, new JsonValue.Object(
+        [
+            new("agent_id", new JsonValue.String(Author)),
+            new("kid", new JsonValue.String(AgentKid)),
+            new("reason", new JsonValue.String("Enrollment accepted: agent key registered with the Registrar")),
         ])),
         new(LogLeaf.ServerTimestampMember, new JsonValue.String("1970-01-01T00:00:00.000000Z")),
     ]);
@@ -1161,7 +1235,16 @@ internal sealed class StubLog : IDisposable
                 return (HttpStatusCode.OK, StubLog.TokenJson(), null);
             }
 
-            var routed = path == "/v1/posts"
+            // A lifecycle route (spec section 4.7). A guarded Forum answers before it looks at anything else.
+            var lifecycle = LifecycleRoute(path);
+            if (lifecycle is not null && log.GuardsLifecycle)
+            {
+                return (HttpStatusCode.Forbidden,
+                    lifecycle == "rotation" ? LifecycleRefusals.Rotation : LifecycleRefusals.Retirement, null);
+            }
+
+            var routed = lifecycle is not null
+                || path == "/v1/posts"
                 || (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
                     && (path.EndsWith("/flags", StringComparison.Ordinal) || path.EndsWith("/accept", StringComparison.Ordinal)));
 
@@ -1185,6 +1268,8 @@ internal sealed class StubLog : IDisposable
 
             if (jti is null || !log._burnedJtis.Add(jti))
                 return (HttpStatusCode.Unauthorized, Problem("curia/authn/replay", "This DPoP proof has already been used"), null);
+
+            if (lifecycle is not null) return (HttpStatusCode.Created, LifecycleReceipt(log, body), null);
 
             if (path == "/v1/posts")
             {
@@ -1214,6 +1299,33 @@ internal sealed class StubLog : IDisposable
             return path.EndsWith("/flags", StringComparison.Ordinal)
                 ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
                 : (HttpStatusCode.OK, StubLog.AcceptanceJson(), null);
+        }
+
+        /// <summary><c>rotation</c> or <c>retirement</c> for a lifecycle route's path, or null for any other.</summary>
+        private static string? LifecycleRoute(string path)
+        {
+            if (!path.StartsWith("/v1/agents/", StringComparison.Ordinal)) return null;
+            if (path.EndsWith("/retire", StringComparison.Ordinal) && path.Contains("/keys/", StringComparison.Ordinal)) return "retirement";
+            return path.EndsWith("/keys", StringComparison.Ordinal) ? "rotation" : null;
+        }
+
+        /// <summary>The 201 of an accepted act: the identity and the key its statement names, at <see cref="LifecycleLogIndex"/>.</summary>
+        private static string LifecycleReceipt(StubLog log, string requestBody)
+        {
+            using var request = System.Text.Json.JsonDocument.Parse(requestBody);
+            using var statement = System.Text.Json.JsonDocument.Parse(request.RootElement.GetProperty("statement").GetString()!);
+            var root = statement.RootElement;
+            var receipt = new Dictionary<string, object>
+            {
+                ["agent_id"] = root.GetProperty("agent_id").GetString()!,
+                ["kid"] = root.GetProperty("kid").GetString()!,
+                ["log_index"] = log.LifecycleLogIndex,
+            };
+
+            if (root.TryGetProperty("authorized_by", out var authorizedBy))
+                receipt["authorized_by"] = authorizedBy.GetString()!;
+
+            return System.Text.Json.JsonSerializer.Serialize(receipt);
         }
 
         private static string? Proof(HttpRequestMessage request) =>

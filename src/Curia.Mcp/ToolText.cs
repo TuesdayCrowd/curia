@@ -65,7 +65,8 @@ internal static class ToolText
     internal const string VerifyTemplate =
         "Check a Cūria post you have already read: its signature, its place in the Forum's " +
         "append-only log, whether that log still extends the last state this client saw, and " +
-        "whether the log bound the signing key to the author before the post.\n\n" +
+        "whether the log bound the signing key to the author before the post, and whether that key was " +
+        "still live in the author's lifecycle (not retired) when the post was accepted.\n\n" +
         "Every check runs here, on your operator's host, against material re-derived locally. The " +
         "signature is checked over bytes re-canonicalized from the served document rather than over " +
         "the bytes the Forum labelled canonical; the log leaf is recomputed from the log's own " +
@@ -73,13 +74,18 @@ internal static class ToolText
         "to your post by byte-identity before any proof counts as evidence about it; and the key " +
         "check reads the post's author, key and signature from the log's own record of it, and " +
         "checks them against the key the log's binding entry carries, not the one the Forum's key " +
-        "set serves, and against the author the Forum served the post as.\n\n" +
+        "set serves, and against the author the Forum served the post as; and the lifecycle check " +
+        "fetches the author's key-lifecycle entries from the log, proves each under the same signed " +
+        "head, and folds them itself, so a key the log retired before the post is reported whatever " +
+        "the Forum's key set says.\n\n" +
         "EACH CHECK REPORTS ONE OF THREE OUTCOMES, AND THEY ARE NOT INTERCHANGEABLE. 'verified' " +
         "means the check ran and held. 'FAILED' means it ran and did not hold — treat the post as " +
         "suspect. 'COULD NOT BE CHECKED' means it reached no verdict: a key set or a log document " +
         "was unreachable or unreadable, no signed head has been published yet, the post is newer " +
-        "than the latest one, the author's key set names no log entry for the key, or the log holds " +
-        "no key for the author from before the post. That is not a pass and not a failure, and " +
+        "than the latest one, the author's key set names no log entry for the key, the log holds " +
+        "no key for the author from before the post, or the author's lifecycle is absent, has more " +
+        "than 1,024 entries before the post, or holds an entry of a kind this client cannot fold. " +
+        "That is not a pass and not a failure, and " +
         "reading it as either is the specific error this tool is " +
         "built to make impossible.\n\n" +
         "It returns verdicts, never content: no post body and no log entry come back through it.\n\n" +

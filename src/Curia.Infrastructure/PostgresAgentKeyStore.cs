@@ -170,6 +170,62 @@ public sealed class PostgresAgentKeyStore : IAuthorKeyResolver, IAuthorKeyRegist
         return Result<RegisteredKey>.Ok(registered);
     }
 
+    /// <inheritdoc />
+    [SuppressMessage(
+        "Reliability",
+        "CA2007:Consider calling ConfigureAwait on the awaited task",
+        Justification = "See RegisterAsync's identical suppression.")]
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "See RegisterAsync's identical suppression: the only interpolated text is " +
+            "_table and the SelectColumns constant, both fixed before any call.")]
+    public async Task<Result<RegisteredKey>> AddAsync(
+        AgentId agentId,
+        PublicKeyMaterial key,
+        DateTimeOffset validFrom,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(key);
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (var insert = new NpgsqlCommand(
+            $"""
+             INSERT INTO {_table} (kid, agent_id, alg, public_key, valid_from, valid_until)
+             VALUES (@kid, @agent, @alg, @public, @from, NULL)
+             ON CONFLICT (kid) DO NOTHING
+             RETURNING {SelectColumns};
+             """,
+            connection))
+        {
+            insert.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = key.Kid });
+            insert.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId.Value });
+            insert.Parameters.Add(new NpgsqlParameter("alg", NpgsqlDbType.Text) { Value = key.Alg });
+            insert.Parameters.Add(new NpgsqlParameter("public", NpgsqlDbType.Bytea) { Value = key.Public.ToArray() });
+            insert.Parameters.Add(new NpgsqlParameter("from", NpgsqlDbType.TimestampTz) { Value = validFrom });
+
+            await using var reader = await insert.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                return Result<RegisteredKey>.Ok(MapRow(reader));
+        }
+
+        // The kid exists. A row this agent holds with the same material is the request's own, left by an
+        // earlier attempt: reused as it stands, window unmoved. Anything else is taken. A kid's owner and
+        // material never change (db/0005 grants no UPDATE on either), so the read cannot race into a
+        // different answer.
+        await using var select = new NpgsqlCommand(
+            $"SELECT {SelectColumns} FROM {_table} WHERE kid = @kid AND agent_id = @agent;", connection);
+        select.Parameters.Add(new NpgsqlParameter("kid", NpgsqlDbType.Text) { Value = key.Kid });
+        select.Parameters.Add(new NpgsqlParameter("agent", NpgsqlDbType.Text) { Value = agentId.Value });
+
+        var existing = await ReadOneAsync(select, cancellationToken).ConfigureAwait(false);
+        return existing is not null && KeyEnrollment.SameMaterial(existing.Key, key)
+            ? Result<RegisteredKey>.Ok(existing)
+            : Result<RegisteredKey>.Fail(AuthorKeyErrors.KidTaken(key.Kid));
+    }
+
     /// <summary>
     /// The key store's history primitive: records a key with a window, refusing a <c>kid</c> already
     /// registered to a different agent (<see cref="AuthorKeyErrors.KidRegisteredToAnotherAgent"/>) or

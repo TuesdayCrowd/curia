@@ -19,6 +19,14 @@ internal sealed class CountingEventStore(IEventStore inner) : IEventStore
         CancellationToken cancellationToken = default) =>
         inner.AppendAsync(aggregateId, expectedVersion, events, cancellationToken);
 
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition condition,
+        CancellationToken cancellationToken = default) =>
+        inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
+
     public Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(
         AggregateId aggregateId,
         CancellationToken cancellationToken = default)

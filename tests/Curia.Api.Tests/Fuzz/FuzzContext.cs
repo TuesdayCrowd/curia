@@ -22,7 +22,9 @@ internal sealed class FuzzAgent(ForumAgent agent) : IDisposable
 }
 
 /// <summary>What a consumed row's <c>Prepare</c> left for its next send.</summary>
-internal sealed record Prepared(string? PostId = null, string? Digest = null, string? Board = null, ForumAgent? Enrollee = null);
+internal sealed record Prepared(
+    string? PostId = null, string? Digest = null, string? Board = null, ForumAgent? Enrollee = null,
+    FuzzAgent? Actor = null, KeyActRequests.KeyPair? Key = null, long? Prev = null);
 
 /// <summary>
 /// One seeded Forum the fuzzer sends to: a T0 seed agent and its questions, the T1 fuzz agent and a
@@ -79,7 +81,7 @@ internal sealed class FuzzContext : IDisposable
     {
         ["iss"] = "https://forum.local", ["sub"] = "s", ["aud"] = "https://forum.local", ["client_id"] = "s",
         ["iat"] = 0, ["exp"] = 0, ["nbf"] = 0, ["jti"] = "j", ["scope"] = "s", ["cnf"] = new JsonObject { ["jkt"] = "t" },
-        ["owner"] = "s", ["tier"] = "T1",
+        ["owner"] = "s", ["tier"] = "T1", ["curia_akid"] = "kid",
     };
 
     /// <summary>The DPoP nonce last issued, and the clock instant it was asked for at.</summary>
@@ -188,6 +190,7 @@ internal sealed class FuzzContext : IDisposable
         if (claims.ContainsKey("nbf")) claims["nbf"] = now;
         if (claims.ContainsKey("exp")) claims["exp"] = now + 300;
         if (claims.ContainsKey("jti")) claims["jti"] = Guid.NewGuid().ToString("N");
+        if (claims.ContainsKey("curia_akid")) claims["curia_akid"] = agent.Agent.Kid;
         if (claims["cnf"] is JsonObject cnf) cnf["jkt"] = JwsBuilder.Thumbprint(agent.Dpop);
         return new JwsEntry(header, claims, IssuerKey);
     }

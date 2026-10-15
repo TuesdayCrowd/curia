@@ -6,6 +6,13 @@ Speaks the reference client's signer protocol (src/Curia.Client/AgentSigners.cs,
     <command> describe   -> one line of JSON: {"alg": ..., "kid": ..., "public_key": <base64 SPKI>}
     <command> sign       -> reads base64url signing input on stdin, writes a base64url
                             IEEE P1363 (r || s) ES256 signature on stdout
+    <command> sign-lifecycle
+                         -> the same, for a lifecycle statement (R4.39, R11.20)
+
+`sign` refuses a signing input whose protected header names a lifecycle `typ`, and `sign-lifecycle`
+accepts only those, so a process that may call the signer to post cannot thereby obtain a signature
+that adds or ends a key. The header is read from the signing input itself (the base64url text before
+its first dot), never from the caller's say-so.
 
 It is invoked as `<verb>` alone, because ExternalSigner runs a single command with the verb as its
 only argument, through a per-test symlink named `signer` that sits in the key directory. The key
@@ -26,6 +33,7 @@ The key directory holds:
 
 import base64
 import hashlib
+import json
 import os
 import secrets
 import sys
@@ -83,9 +91,27 @@ def unbase64url(text):
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
+LIFECYCLE_TYPS = {
+    "curia-key-rotation+jws",
+    "curia-key-retirement+jws",
+    "curia-key-compromise+jws",
+}
+
+
+def header_typ(signing_input):
+    """The protected header's typ, or None when the input has no readable header."""
+    head = signing_input.split(b".", 1)[0]
+    try:
+        header = json.loads(base64.urlsafe_b64decode(head + b"=" * (-len(head) % 4)))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    typ = header.get("typ") if isinstance(header, dict) else None
+    return typ if isinstance(typ, str) else None
+
+
 def main():
     if len(sys.argv) != 2:
-        print("usage: <key-directory>/signer describe|sign", file=sys.stderr)
+        print("usage: <key-directory>/signer describe|sign|sign-lifecycle", file=sys.stderr)
         return 2
 
     # abspath, not realpath: the symlink's directory is the key directory; realpath would resolve
@@ -97,17 +123,26 @@ def main():
             sys.stdout.write(described.read())
         return 0
 
-    if verb == "sign":
+    if verb in ("sign", "sign-lifecycle"):
         if os.path.exists(os.path.join(directory, "refuse")):
             print("this signer is configured to refuse", file=sys.stderr)
+            return 1
+
+        message = unbase64url(sys.stdin.read())
+        lifecycle = header_typ(message) in LIFECYCLE_TYPS
+        if verb == "sign" and lifecycle:
+            print("sign refuses a lifecycle statement; use sign-lifecycle", file=sys.stderr)
+            return 1
+        if verb == "sign-lifecycle" and not lifecycle:
+            print("sign-lifecycle signs only a lifecycle statement; use sign", file=sys.stderr)
             return 1
 
         with open(os.path.join(directory, "d"), encoding="ascii") as scalar:
             d = int(scalar.read().strip(), 16)
 
-        signature = sign(d, unbase64url(sys.stdin.read()))
+        signature = sign(d, message)
         with open(os.path.join(directory, "signed.log"), "a", encoding="ascii") as log:
-            log.write("signed\n")
+            log.write(verb + "\n")
 
         sys.stdout.write(base64.urlsafe_b64encode(signature).decode("ascii").rstrip("="))
         return 0

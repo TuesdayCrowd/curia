@@ -23,6 +23,7 @@ internal sealed class AccessTokenScenario
     public TestKeyPair DpopKey { get; }
     public InMemoryReplayCache ReplayCache { get; }
     public InMemoryDpopNonceStore NonceStore { get; }
+    public InMemoryAgentKeyLiveness KeyLiveness { get; }
     public AccessTokenValidationContext Context { get; }
     public DateTimeOffset Iat { get; }
     public DateTimeOffset Exp { get; }
@@ -34,6 +35,7 @@ internal sealed class AccessTokenScenario
         DpopKey = TestKeys.Ed25519("dpop-key-irrelevant"); // DPoP proofs resolve by embedded jwk, never kid.
         ReplayCache = new InMemoryReplayCache();
         NonceStore = new InMemoryDpopNonceStore(Clock);
+        KeyLiveness = new InMemoryAgentKeyLiveness();
         Iat = Clock.GetUtcNow();
         Exp = Iat + TimeSpan.FromSeconds(300);
 
@@ -44,6 +46,7 @@ internal sealed class AccessTokenScenario
             ReplayCache: ReplayCache,
             VerifiersByAlg: TestKeys.Verifiers(),
             Clock: Clock,
+            KeyLiveness: KeyLiveness,
             DpopNonceStore: NonceStore);
     }
 
@@ -67,6 +70,7 @@ internal sealed class AccessTokenScenario
         ["cnf"] = new Dictionary<string, object?> { ["jkt"] = DpopKey.Thumbprint },
         ["owner"] = "owner:tuesdaycrowd",
         ["tier"] = "T2",
+        ["curia_akid"] = "scriptor-key-1",
     };
 
     public string SignAccessToken(

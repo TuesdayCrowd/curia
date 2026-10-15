@@ -249,8 +249,10 @@ set; SP scores recorded even if not yet weighted.*
 > `key-rotation`) builds, behind the guard, rotation and self-retirement (R4.18 (rev.), R4.38, R4.39,
 > R4.35 (rev.), R4.31 (rev. 2), R5.22, R6.56, R6.54 (add.), R7.23) and Table 10's two `key` rows;
 > **PR 2** (branch `key-compromise`) builds, behind the guard, the operator's compromise declaration
-> (R6.26 (rev.), R6.57, R6.30 (rev.)). PR 1 and PR 2 are still to build, behind the guard. No requirement
-> of G21 is met until its PR merges; read this line
+> (R6.26 (rev.), R6.57, R6.30 (rev.)). PR 1 is built and merged-pending (2026-10-14): rotation and
+> self-retirement behind the guard, which no PR of this stage lifts. PR 2 is next and is still to
+> build, behind the guard. TUI PR B (`curia-browse`) stays held until PR 1 merges, and may re-scope.
+> No requirement of G21 is met until its PR merges; read this line
 > for what is scheduled, never for what is built.
 >
 > **What Phase 3 closed and what it opened.** Phase 3 is done, so R15.2's prohibition on the MCP
@@ -6051,10 +6053,19 @@ Task 1.3's fold lands (the fold folds on merits and is not affected). The implem
 FL-18) saw reference types only until the L.2 review round of 2026-10-12, whose
 `R4_38_TheImplementerScanSeesAValueTypeImplementer` (FL-28, FL-29) widened them to value types.
 
-**NEEDS (human only, open).** Branch protection on `main` requiring code-owner review, and a
-`CODEOWNERS` entry naming the owner for `src/Curia.Infrastructure/Lifecycle/lifecycle-approval.json`.
-It gates the lift, not the build. Until it is met, the only gate against a merged edit of the approval
-record is CP-B's diff check, and decision agents may merge green PRs.
+**PR 1 under the guard (2026-10-14).** The rotation stage's PR 1 builds rotation, self-retirement and
+their routes and verbs behind this guard, and they refuse under it: `POST` of a rotation or a
+retirement answers `curia/keys/lifecycle-not-enabled` (GF1), and `curia rotate` and `curia retire`
+exit 4 and leave the profile and its keys unchanged (GF9). The guard is still not lifted, by anyone,
+in any PR of this stage. NEEDS below is partly met and its remainder accepted by the owner. Known residual, accepted by the owner (the owner's answer, 2026-10-14, in the working session): the detector trusts the Forum's receipt (G21, 'What this costs', item 12). Owner question B for PR 1 is signed off (the owner's answer, 2026-10-14, in the working session); it freezes nothing, and the lift record's item (d) still covers all three kinds.
+
+**NEEDS (partly met; the remainder accepted by the owner).** The "protect-main" ruleset (id 25038871, recorded
+2026-10-14 by the main session from the GitHub API; unverified here) requires a pull request and the four
+CI jobs green on an up-to-date branch. Not met: code-owner review or any second-person control, and a
+`CODEOWNERS` entry. A pull request editing the approval record and GF6 together can pass its own tests.
+Held outside the repository: the owner's personal merge of the lift PR and the main session's merge-time
+path check. It gates the lift, not the build. Until a second identity exists, decision agents may merge
+green PRs that touch none of the paths that check names. The owner accepts the remainder (the owner's answer, 2026-10-14, in the working session); it stays a recorded weakening, not a mitigation.
 
 **Related register entry.** KF6's **D43** (compromise declarations are signed with the log key, which
 must not stay so once heads are signed unattended) is present above and open, by decision, not a defect
@@ -6134,7 +6145,7 @@ automated process, compromise declarations move off the log key to a separate op
   monitor looks. An identity learns of a binding it did not make only if it reads its own stream,
   and neither the reference client nor `curia-mcp` does. R6.54 lets a reader check one post; it
   does not tell an identity that someone else holds a key in its name.
-- **Only enrollment produces a binding.** R4.31 (revised) counts every binding an identity holds,
+- ~~**Only enrollment produces a binding.**~~ *Closed by the rotation stage's PR 1 (Task 1.4): `R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs` runs the fact through the real producer, `RotateKey`, beside the hand-appended one, and was seen red at F1-82.* R4.31 (revised) counts every binding an identity holds,
   and `EnrollIdentityTests.R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs` holds it, but
   the fact appends its second binding directly, because nothing in `src/` can: R4.18's rotation is
   the producer, and it is unbuilt. Trap 19's shape, recorded so the rotation stage runs that fact
@@ -6236,9 +6247,9 @@ automated process, compromise declarations move off the log key to a separate op
   and the Forum accepted the post signed in that identity's name. Opened and closed as D30 (errata
   G16, R6.55, R4.36).*
 - **An EdDSA key still needs a point check, or R4.11's proof of possession,** before an identity can
-  hold two keys (D27's other leftover). A key nobody can sign with is bound as readily as any other,
+  hold two keys (D27's other leftover). *Closed for a rotated key only, by the rotation stage's PR 1: a rotation is signed by the new key as well as the live one. The enrolment half stays open.* A key nobody can sign with is bound as readily as any other,
   which harms only the identity that registered it until rotation lets it hold a second.
-- **No conformance vector pins the P-256 binding.** `conformance/acta/key-bound-entry` binds an
+- ~~**No conformance vector pins the P-256 binding.**~~ *Closed (M6): `conformance/acta/key-bound-entry-es256` pins it.* `conformance/acta/key-bound-entry` binds an
   Ed25519 key. The ES256 rendering every reference-client enrollment writes, SPKI to fixed-width `x`
   and `y` (RFC 7518 §6.2.1.2) in Appendix D's member order, is pinned only by C# facts:
   `PublicJwkTests`' RFC 7515 example key and fixed leading-zero point, and
@@ -6249,6 +6260,28 @@ automated process, compromise declarations move off the log key to a separate op
   store rows byte for byte for R4.35's comparison. An `acta/key-bound-entry-es256` vector, with the
   SPKI beside the entry and a coordinate whose first byte is zero, run by both runners and counted in
   the corpus index, belongs with the next change to the acta corpus (the stage's final review, M6).
+- **The domain `AgentKeySet.Rotate` and `Revoke` are unused, and superseded by the log-position model.**
+  `src/Curia.Domain/Keys/AgentKeySet.cs` still offers them. The rotation stage's PR 1 folds an
+  identity's keys from the log by position (R4.18 (rev.), R4.35 (rev.)), and nothing in `src/` calls
+  either method. Deleting them is deferred, a decision for a later round and not an edit made while
+  closing PR 1.
+- **The client keeps retired private keys** (owner question 5). `curia rotate` and `curia retire` mark a
+  key retired in the profile's `retained_keys` and keep its file, so a retired key's private half stays
+  on the machine that held it. Whether the client should destroy it, or leave that to the operator of
+  the machine, is the owner's question.
+- **`IdentifierRules.ControlCharacter` is a hand copy of the enroll route's `ControlCharacter`** (carried
+  from Task 1.4's review round). `Curia.Application` has `IdentifierRules.ControlCharacter`
+  (`src/Curia.Application/Credentials/IdentifierRules.cs`), the copy rotation uses; `Curia.Api` has the
+  enroll route's own (`src/Curia.Api/ForumEndpoints.cs`). Only the copy in `IdentifierRules` is pinned by
+  a data-driven fact, `R4_37_ARotatedKidHoldingAControlCharacterIsRefused`, one case per arm. The two
+  can drift and nothing pairs them. Deferred by `curia-architect`'s ruling: a pairing test or one shared
+  rule is a decision for a later round, not an edit.
+- **Spec section 4.6's table lacks rows for seven prev-less refusal vectors** (a one-line documentation
+  gap, from Task 1.9's round-3 rulings): `prevless-binding-after-rotation`,
+  `prevless-binding-after-retirement`, `second-prevless-binding`, `prevless-binding-other-kid`,
+  `prevless-binding-before-enrolled`, `prevless-binding-missing-jwk` and
+  `retirement-without-agent-id`. They are in `conformance/lifecycle/` and run by both runners; the table
+  does not list them. A recorded gap, not fixed in Task 1.9 or Task 1.11.
 
 ### Observed during the enrollment stage, not acted on
 
@@ -7401,6 +7434,11 @@ not the credential (Table 6 is not entered), key status is read per request rath
 decision cache, R6.56's race, R5.22 in place of a check that two routes would fail, and the chain ruled
 in. **TUI PR B** (`curia-browse`) stays held until PR 1 merges, then re-scopes its header for key
 status, and adds the disputed row after PR 2. **D38**, **D39** and **D40** are not this stage's. **D41** (the Host-derived `htu` and `aud`) is its own PR, after PR 0 merges and outside PR 1. PR 1 does not depend on it.
+
+*Amended 2026-10-14 (the rotation stage's Task 1.11).* PR 1 (branch `key-rotation`) is built and
+merged-pending: rotation and self-retirement exist, behind the lifecycle guard, which nothing lifts.
+**PR 2** (`key-compromise`) is next: the operator's compromise declaration, which does not exist yet.
+TUI PR B (`curia-browse`) stays held until PR 1 merges and may re-scope its header for key status.
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding

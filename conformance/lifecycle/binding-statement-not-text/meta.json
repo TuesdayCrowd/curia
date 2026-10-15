@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.54 (add.)",
+  "note": "The agent.key-bound entry that directly follows agent.enrolled, under the enrolment's kid, carrying a numeric statement member: it is read as the enrolment's binding and fails that binding's closed member set {agent_id, jwk, kid}, never a crash (KF4). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

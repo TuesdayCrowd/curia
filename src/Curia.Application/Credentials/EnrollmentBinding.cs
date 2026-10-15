@@ -85,27 +85,51 @@ public sealed record EnrollmentBinding(DateTimeOffset EnrolledAt, ImmutableArray
         KeyBinding? legacy = null;
         var bound = ImmutableArray.CreateBuilder<KeyBinding>();
 
+        // R4.38: how many lifecycle entries of this identity's own aggregate precede the one being read.
+        // A statement-less key-bound binds by the same rule the fold applies to it (KeyLifecycle), and
+        // one that does not satisfy it binds nothing here, where the fold refuses the stream.
+        var lifecycleEntries = 0;
+
         foreach (var appended in history)
         {
             if (!string.Equals(appended.AggregateId.Value, agentId, StringComparison.Ordinal)) continue;
+
+            // This reader makes no never-skipped claim, so EnrollIdentity and EnrollAgent must not rely on
+            // it for one; but an entry of the aggregate that binds or ends a key and cannot be attributed
+            // is not something to bind around. The log then binds nothing (R4.35 rev., fail closed).
+            var type = appended.Event.Type.Value;
+            if (KeyLifecycle.IsLifecycleKind(type)
+                && (appended.Event.Payload is not JsonValue.Object attributed
+                    || !string.Equals(Text(attributed, AgentStandingProjector.AgentIdField), agentId, StringComparison.Ordinal)))
+                return null;
+
             if (appended.Event.Payload is not JsonValue.Object payload) continue;
             if (!string.Equals(Text(payload, AgentStandingProjector.AgentIdField), agentId, StringComparison.Ordinal)) continue;
 
-            var type = appended.Event.Type.Value;
             if (string.Equals(type, AgentStandingProjector.EnrolledType, StringComparison.Ordinal) && enrolledAt is null)
             {
+                lifecycleEntries++;
                 enrolledAt = appended.ServerTimestamp.Value;
                 if (Text(payload, AgentStandingProjector.KeyIdField) is { } kid)
                     legacy = new KeyBinding(kid, null, appended.ServerTimestamp.Value, appended.Event.Id.Value);
             }
-            else if (string.Equals(type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal)
-                && Text(payload, AgentStandingProjector.KeyIdField) is { } kid)
+            else if (string.Equals(type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal))
             {
+                var enrolmentOnly = lifecycleEntries == 1 && enrolledAt is not null;
+                lifecycleEntries++;
+
                 // An entry that names a kid binds it, whatever else it carries (R4.35): one with no
                 // object for a jwk binds the kid to no key, and the kid-only clause below does not
-                // stand for it either.
+                // stand for it either. A statement-less one binds only as the enrolment's own (R4.38).
+                if (Text(payload, AgentStandingProjector.KeyIdField) is not { } kid) continue;
+                if (Member(payload, "statement") is null && !KeyLifecycle.IsEnrolmentBinding(payload, enrolmentOnly, legacy?.Kid)) continue;
+
                 var jwk = Member(payload, AgentStandingProjector.JwkField) as JsonValue.Object ?? NoKey;
                 bound.Add(new KeyBinding(kid, jwk, appended.ServerTimestamp.Value, appended.Event.Id.Value));
+            }
+            else if (KeyLifecycle.IsLifecycleKind(type))
+            {
+                lifecycleEntries++;
             }
         }
 

@@ -203,6 +203,14 @@ public sealed class ForumClient
     public Task<ForumResult<ImmutableArray<ForumJwk>>> GetJwksAsync(string agentId, CancellationToken ct) =>
         GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadJwks, ct);
 
+    /// <summary>
+    /// The same key set with the lifecycle it publishes beside the keys (errata G21): each key's status, every
+    /// lifecycle index of the identity, and the kinds the Forum enables. Anonymous and public, like the route it
+    /// reads, so reading it leaks nothing about the caller.
+    /// </summary>
+    public Task<ForumResult<KeySetDocument>> GetKeySetAsync(string agentId, CancellationToken ct) =>
+        GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadKeySet, ct);
+
     public Task<ForumResult<ReaderContractDocument>> GetReaderContractAsync(CancellationToken ct) =>
         GetAsync(ReaderContract.WellKnownPath, ForumDocuments.ReadContract, ct);
 

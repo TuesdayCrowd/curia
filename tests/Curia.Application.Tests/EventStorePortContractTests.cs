@@ -1,8 +1,13 @@
+using System.Diagnostics.CodeAnalysis;
+using Curia.Application.Credentials;
 using Curia.Application.Ports;
+using Curia.Application.Tests.InMemory;
 using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Domain;
+using Curia.Canon.Jws;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using CsCheck;
 using Xunit;
 
@@ -17,6 +22,10 @@ namespace Curia.Application.Tests;
 /// point ("Put it where the test projects can use it and Stage 2's Postgres adapter can be
 /// checked against the *same* suite").
 /// </summary>
+[SuppressMessage(
+    "Naming",
+    "CA1707:Identifiers should not contain underscores",
+    Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public abstract class EventStorePortContractTests
 {
     /// <summary>A fresh, empty store. Called once per test (and, for the property test below,
@@ -58,6 +67,105 @@ public abstract class EventStorePortContractTests
         Assert.Single(read);
         Assert.Equal(appended[0].Seq, read[0].Seq);
         Assert.Equal(proposed.Id, read[0].Event.Id);
+    }
+
+    /// <summary>
+    /// R6.56: stream B is read at v, then moves; an append to A conditioned on B@v is refused as
+    /// <c>condition-conflict</c> and A is unchanged. Red when the overload drops its condition.
+    /// </summary>
+    [Fact]
+    public async Task R6_56_AnAppendWhoseConditionStreamMovedIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var a = Agg("agg-condition-target");
+        var b = Agg("agg-condition-stream");
+        Require(await store.AppendAsync(b, AggregateVersion.New, [NewEvent("cond-b-1")], ct));
+        var decidedOn = new StreamCondition(b, Require(AggregateVersion.From(1)));
+        Require(await store.AppendAsync(b, decidedOn.Expected, [NewEvent("cond-b-2")], ct));
+
+        var refused = await store.AppendAsync(a, AggregateVersion.New, [NewEvent("cond-a-1")], decidedOn, ct);
+
+        Assert.Equal(DomainErrors.ConditionConflictType, refused.Match(_ => string.Empty, e => e.Type));
+        Assert.Empty(Require(await store.ReadByAggregateAsync(a, ct)));
+    }
+
+    /// <summary>R6.56: while the condition stream is where the caller decided, the append lands.</summary>
+    [Fact]
+    public async Task R6_56_AnAppendWhoseConditionHoldsLands()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var a = Agg("agg-condition-holds-target");
+        var b = Agg("agg-condition-holds-stream");
+        Require(await store.AppendAsync(b, AggregateVersion.New, [NewEvent("hold-b-1")], ct));
+
+        var appended = Require(await store.AppendAsync(
+            a, AggregateVersion.New, [NewEvent("hold-a-1")], new StreamCondition(b, Require(AggregateVersion.From(1))), ct));
+
+        Assert.Single(appended);
+        Assert.Single(Require(await store.ReadByAggregateAsync(a, ct)));
+    }
+
+    /// <summary>
+    /// R6.56: the version a resolved key carries is the version of the read the decision was made on. A
+    /// reader double appends an <c>agent.key-retired</c> to the author's stream right after
+    /// <see cref="LogBoundKeys.ResolveLiveAsync"/>'s read, so a version taken from a second read would
+    /// already include it and the conditioned append would land; the version of the first read conflicts.
+    /// The retirement is lifecycle-shaped, so this fact needs a store built with a permissive gate:
+    /// <see cref="CreateStore"/> gives one in both subclasses (the other facts do not depend on it).
+    /// Red when <c>ResolveLiveAsync</c> takes <c>AuthorStream</c> from a second read (F1-26).
+    /// </summary>
+    [Fact]
+    public async Task R6_56_TheVersionComesFromTheReadTheDecisionWasMadeOn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = CreateStore();
+        var key = TestKeys.Es256("alice-1");
+        var agent = Typed.Agent("https://agents.example/alice");
+        Require(await new EnrollAgent(store, TimeProvider.System).RecordAsync(agent, key, ct));
+        var author = Agg(agent.Value);
+        var other = Agg("agg-condition-after-read-target");
+        var keys = new LogBoundKeys(new HeldKeyResolver(key), new InMemoryAuthorKeyRegistry(), new RetiringAfterFirstRead(store, author, agent.Value));
+
+        var live = Require(await keys.ResolveLiveAsync(agent, Typed.Kid("alice-1"), ServerTimestamp.At(DateTimeOffset.UtcNow.AddDays(1)), ct));
+        var refused = await store.AppendAsync(other, AggregateVersion.New, [NewEvent("after-read-1")], new StreamCondition(author, live.AuthorStream), ct);
+
+        Assert.Equal(
+            "2 entries read; conflict; target empty",
+            $"{live.AuthorStream.Value} entries read; "
+            + $"{refused.Match(_ => "landed", e => e.Type == DomainErrors.ConditionConflictType ? "conflict" : e.Type)}; "
+            + $"target {(Require(await store.ReadByAggregateAsync(other, ct)).Count == 0 ? "empty" : "written")}");
+    }
+
+    private sealed class HeldKeyResolver(PublicKeyMaterial key) : IAuthorKeyResolver
+    {
+        public Task<Result<PublicKeyMaterial>> ResolveAsync(
+            AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result<PublicKeyMaterial>.Ok(key));
+    }
+
+    /// <summary>Reads through to the store and, after the first read of the author's stream, appends a retirement to it.</summary>
+    private sealed class RetiringAfterFirstRead(IEventStore store, AggregateId author, string agent) : IEventReader
+    {
+        private bool _retired;
+
+        public async Task<Result<IReadOnlyList<AppendedEvent>>> ReadByAggregateAsync(AggregateId aggregateId, CancellationToken cancellationToken = default)
+        {
+            var read = await store.ReadByAggregateAsync(aggregateId, cancellationToken).ConfigureAwait(false);
+            if (_retired || aggregateId != author || !read.TryGetValue(out var history, out _)) return read;
+
+            _retired = true;
+            Require(await store.AppendAsync(
+                author,
+                Require(AggregateVersion.From(history!.Count)),
+                [new DomainEvent(Require(EventId.Create("retired-after-read")), Require(EventType.Create(LifecycleAppendGuard.KeyRetiredType)), Require(ActorId.Create(agent)), new JsonValue.Object([]))],
+                cancellationToken).ConfigureAwait(false));
+            return read;
+        }
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> ReadForwardAsync(EventSequence afterSeq, int? maxCount = null, CancellationToken cancellationToken = default) =>
+            store.ReadForwardAsync(afterSeq, maxCount, cancellationToken);
     }
 
     [Fact]

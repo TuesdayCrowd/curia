@@ -231,9 +231,34 @@ public sealed record ProvenancePost(
 /// key set names one: where a reader goes to check the key without trusting this key set. Null when
 /// absent, which the check reports as could-not-be-checked.
 /// </param>
+/// <param name="Status">
+/// What the Forum's key set says the log holds of the key now (<c>curia_status</c>, R4.35 rev.):
+/// <c>active</c>, <c>retired</c>, <c>compromised</c> or <c>unbound</c>. The Forum's word, not this client's.
+/// Null when the key set names none.
+/// </param>
+/// <param name="RetiredLogIndex">
+/// The log index of the entry that retired the key (<c>curia_retired_log_index</c>), where the key set names one.
+/// </param>
 public sealed record ForumJwk(
     string Kty, string? Crv, string Alg, string Kid, string X, string? Y,
-    string? NotBefore, string? NotAfter, long? LogIndex = null);
+    string? NotBefore, string? NotAfter, long? LogIndex = null,
+    string? Status = null, long? RetiredLogIndex = null);
+
+/// <summary>
+/// An identity's key set as <c>GET /v1/jwks?agent=…</c> serves it, with what the lifecycle adds to it (errata G21).
+/// </summary>
+/// <param name="Keys">Every key the log binds for the identity, retired ones included.</param>
+/// <param name="Lifecycle">
+/// Every lifecycle index of the identity, ascending (<c>curia_lifecycle</c>); <see langword="null"/> when the Forum
+/// left it out because its log would not fold. An absence is not an empty lifecycle.
+/// </param>
+/// <param name="ApprovedKinds">The lifecycle kinds the Forum's build approves, or null when the key set names none.</param>
+/// <param name="EnabledKinds">The lifecycle kinds the Forum enables (<c>curia_lifecycle_kinds</c>), or null when the key set names none.</param>
+public sealed record KeySetDocument(
+    ImmutableArray<ForumJwk> Keys,
+    ImmutableArray<long>? Lifecycle,
+    ImmutableArray<string>? ApprovedKinds,
+    ImmutableArray<string>? EnabledKinds);
 
 /// <summary>§10.7's contract as served, clause by clause.</summary>
 public sealed record ReaderContractClause(int Number, string Force, string Text, bool ClientMustImplement);
@@ -249,6 +274,13 @@ internal static class ForumDocuments
         && ClientJson.String(o, "enrolled_at") is { } at
             ? Result<EnrollmentReceipt>.Ok(new EnrollmentReceipt(agentId, kid, at, Bool(o, "owner_verified")))
             : Result<EnrollmentReceipt>.Fail(ClientErrors.ResponseMalformed("enrollment receipt"));
+
+    internal static Result<KeyActReceipt> ReadKeyActReceipt(JsonValue.Object o) =>
+        ClientJson.String(o, "agent_id") is { } agentId
+        && ClientJson.String(o, "kid") is { } kid
+        && ClientJson.WholeNumber(o, "log_index") is { } logIndex and >= 0
+            ? Result<KeyActReceipt>.Ok(new KeyActReceipt(agentId, kid, logIndex, ClientJson.String(o, "authorized_by")))
+            : Result<KeyActReceipt>.Fail(ClientErrors.ResponseMalformed("key act receipt"));
 
     internal static Result<PostReceipt> ReadReceipt(JsonValue.Object o) =>
         ClientJson.String(o, "post_id") is { } id
@@ -594,6 +626,47 @@ internal static class ForumDocuments
         return Result<ImmutableArray<ProvenancePost>>.Ok(posts.MoveToImmutable());
     }
 
+    /// <summary>
+    /// A key set with its lifecycle (errata G21). A lifecycle member that is not an array of whole, non-negative
+    /// numbers is a malformed response, never an empty lifecycle.
+    /// </summary>
+    internal static Result<KeySetDocument> ReadKeySet(JsonValue value)
+    {
+        var keys = ReadJwks(value);
+        if (!keys.TryGetValue(out var read, out var keysError)) return Result<KeySetDocument>.Fail(keysError!);
+
+        var o = (JsonValue.Object)value;
+
+        ImmutableArray<long>? lifecycle = null;
+        if (ClientJson.Member(o, "curia_lifecycle") is { } member)
+        {
+            if (member is not JsonValue.Array array)
+                return Result<KeySetDocument>.Fail(ClientErrors.ResponseMalformed("curia_lifecycle"));
+
+            var indices = ImmutableArray.CreateBuilder<long>(array.Items.Length);
+            foreach (var item in array.Items)
+            {
+                if (item is not JsonValue.Number { Value: var number }
+                    || !double.IsInteger(number) || number < 0 || number > long.MaxValue)
+                    return Result<KeySetDocument>.Fail(ClientErrors.ResponseMalformed("curia_lifecycle"));
+
+                indices.Add((long)number);
+            }
+
+            lifecycle = indices.ToImmutable();
+        }
+
+        ImmutableArray<string>? approved = null;
+        ImmutableArray<string>? enabled = null;
+        if (ClientJson.Object(o, "curia_lifecycle_kinds") is { } kinds)
+        {
+            approved = Strings(kinds, "approved");
+            enabled = Strings(kinds, "enabled");
+        }
+
+        return Result<KeySetDocument>.Ok(new KeySetDocument(read!, lifecycle, approved, enabled));
+    }
+
     internal static Result<ImmutableArray<ForumJwk>> ReadJwks(JsonValue value)
     {
         if (value is not JsonValue.Object o)
@@ -626,7 +699,8 @@ internal static class ForumDocuments
             ? new ForumJwk(
                 kty, ClientJson.String(k, "crv"), alg, kid, x, ClientJson.String(k, "y"),
                 ClientJson.String(k, "curia_not_before"), ClientJson.String(k, "curia_not_after"),
-                ClientJson.WholeNumber(k, "curia_log_index"))
+                ClientJson.WholeNumber(k, "curia_log_index"),
+                ClientJson.String(k, "curia_status"), ClientJson.WholeNumber(k, "curia_retired_log_index"))
             : null;
 
     internal static Result<ReaderContractDocument> ReadContract(JsonValue value)

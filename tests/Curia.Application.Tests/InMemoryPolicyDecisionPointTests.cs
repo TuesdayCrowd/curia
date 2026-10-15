@@ -161,9 +161,10 @@ public sealed class InMemoryPolicyDecisionPointTests
             compared++;
         }
 
-        // 18 pairs x 5 tiers x 2 states -- 16 pairs until errata G3 added `flag`/`list` and
-        // `moderation`/`list` to Table 10. Asserted so that a sweep which silently iterated nothing
-        // -- the failure this project keeps rediscovering -- cannot pass as agreement.
-        Assert.Equal(180, compared);
+        // 20 pairs x 5 tiers x 2 states -- 16 pairs until errata G3 added `flag`/`list` and
+        // `moderation`/`list` to Table 10, and 18 until errata G21 added `key`/`rotate` and `key`/`retire`.
+        // Asserted so that a sweep which silently iterated nothing -- the failure this project keeps
+        // rediscovering -- cannot pass as agreement.
+        Assert.Equal(200, compared);
     }
 }

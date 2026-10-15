@@ -47,6 +47,13 @@ internal enum VectorProfile
     /// literal a reader prints out (R10.64, errata G17).
     /// </summary>
     DisplayLiteral,
+
+    /// <summary>
+    /// <c>lifecycle-log</c> -- a small whole log, its signed head and key set, and the verdict a reader that folds the
+    /// author's lifecycle must reach (R6.54 (add.)): run by the client reader and by <c>curia-testis</c>, never by
+    /// <see cref="VectorLoader.Load"/>.
+    /// </summary>
+    LifecycleLog,
 }
 
 internal sealed record Vector(
@@ -90,6 +97,7 @@ internal static class VectorLoader
         "merkle-tree" => VectorProfile.MerkleTree,
         "acta-leaf" => VectorProfile.ActaLeaf,
         "display-literal" => VectorProfile.DisplayLiteral,
+        "lifecycle-log" => VectorProfile.LifecycleLog,
         _ => throw new InvalidOperationException(
             $"unrecognized conformance profile \"{value}\" -- R6.44 requires a runner to fail rather than skip"),
     };
@@ -105,6 +113,7 @@ internal static class VectorLoader
         VectorProfile.MerkleTree => "merkle-tree",
         VectorProfile.ActaLeaf => "acta-leaf",
         VectorProfile.DisplayLiteral => "display-literal",
+        VectorProfile.LifecycleLog => "lifecycle-log",
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "not a conformance profile"),
     };
 

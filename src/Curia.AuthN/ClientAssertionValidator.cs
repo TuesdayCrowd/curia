@@ -148,7 +148,7 @@ public static class ClientAssertionValidator
             return Result<ClientAssertionClaims>.Fail(insertError!);
 
         return inserted
-            ? Result<ClientAssertionClaims>.Ok(claims)
+            ? Result<ClientAssertionClaims>.Ok(claims with { Kid = kid!.Value })
             : Result<ClientAssertionClaims>.Fail(AuthNErrors.Replay());
     }
 }

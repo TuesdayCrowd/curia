@@ -141,6 +141,7 @@ the mistake this section exists to prevent.
 | `envelope` | `CanonicalizeEnvelope` + `Digests.Sha256` + `DetachedJws.Verify` | End-to-end: canonicalize a full Table 9 envelope, digest it, and verify its detached JWS. See "The `envelope/` family" below — its directory shape is different from every other family's. |
 | `merkle-tree` | `MerkleTree` (RFC 9162 §2.1) | Hash the given leaves, build the tree, and reproduce every audit path and consistency proof in `expected.json`; then verify each with the RFC's verification procedures. See "The `merkle/` family" below.
 | `display-literal` | `DisplayLiteral.Of` (C#), `display::literal` (Rust) | The input is a list of Unicode scalar values; the display literal a reader writes for the string they spell must be exactly `expected.display` (R10.64). See "The `display/` family" below.
+| `lifecycle-log` | `LifecycleCheck.Verify` (C#), `lifecycle::verify_lifecycle` (Rust) | A small whole log, a signed head over it and the log's key set: the verdict and predicate a reader that folds the post author's key lifecycle (R6.54 (add.)) must reach, in `expected.json`. See "The `lifecycle/` family" below.
 | `acta-leaf` | `Canonicalize` (pure RFC 8785), then `MerkleTree.LeafHash` | The input is a log entry document (R6.46); it must canonicalize to `expected.canonical` (digest `expected.digest`), and `SHA-256(0x00 ‖ canonical)` must equal `expected.leaf`. **Pure** canonicalization, never the NFC profile: hashing is not signing. See "The `acta/` family" below.
 
 The `rfc8785/` family carries the `rfc8785` profile implicitly — it is the RFC
@@ -183,6 +184,8 @@ get the count up will look like it is converging. It is not.
 - `display/` — the display literal (R10.64, errata G17): the one form in which a
   reader writes a value it did not compose into its own output. A string in, the
   exact bytes a reader prints for it out. See below.
+- `lifecycle/` — the post author's key lifecycle (keys that end, R6.54 (add.)): a
+  small whole log in, the verdict a reader must reach out. See below.
 
 `red-team/` is **not** a vector family — it is the detector corpus behind R10.11's
 measurement (Appendix L), and `index.json` records that with a reason. Neither is
@@ -372,6 +375,18 @@ unchanged, and its values were computed the same way as `flag-committed-entry`'s
 `Curia.Application.Tests`' `EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload`
 holds the Forum's writer to the vector's payload, so the vector pins a shape the Forum writes.
 
+`key-rotated-entry`, `key-retired-entry` and `key-bound-entry-es256` pin the key lifecycle's
+entries (keys that end, spec 4.5 and 4.6) and are **proposals**: they may be regenerated, with
+`dotnet run --project tools/GenerateEnvelopeFixtures -- --lifecycle`, until the owner's lift record
+pins their digests. The rotation and the retirement carry a statement (the exact output of
+`CanonicalizeWithNfc`) and detached signatures under their kind's header `typ`
+(`curia-key-rotation+jws`, `curia-key-retirement+jws`) with the role's member as the header `kid`;
+the implied log they sit in (0 enrolled, 1 the enrolment's binding, 2 the rotation, 3 the
+retirement) is recorded in their `meta.json`. `key-bound-entry-es256` binds a P-256 key whose `x`
+begins with the byte 0x00, its SPKI beside it in `meta.json` (milestone M6). Ed25519 is
+deterministic and the P-256 key is derived from a counter, so a rerun writes the same bytes. Their
+expected values were computed with python3's `json` and `hashlib`, outside both implementations.
+
 **Four runners consume this family, and the client's is why the pure/NFC vector earns its
 place twice over.** `Curia.Canon.Tests` pins the computation; `Curia.Domain.Tests`'
 `LogLeafTests` pins the domain's rendering of an event into the leaf input (`actor_id` as null,
@@ -415,3 +430,53 @@ profile name: the vectors pin the two readers' agreement, not a format kept acro
 runner also reads each expected literal back as its input (R10.66). That reader takes back only the
 literal the current rule writes, so after a change to R10.64 a literal printed before it is refused
 by name, never read as another value.
+
+## The `lifecycle/` family
+
+`acta/` pins the leaf. This family pins what a reader does with a log of them: given a post, its
+author's lifecycle -- the `agent.enrolled`, `agent.key-bound` and `agent.key-retired` entries of the
+author's stream -- and one signed head over the whole log, is the key that signed the post still the
+author's at the post's position? The two readers (`LifecycleCheck` in `Curia.Client`, and
+`curia-testis`' `lifecycle.rs`) run every case and must agree on the verdict and on the predicate
+that decided it. R14.6's differential comparison takes no lifecycle input in this stage; these two
+runners are the stage's cross-implementation check.
+
+Its shape is its own (`"shape": "lifecycle"` in `index.json`, profile `lifecycle-log`). A case is a
+directory holding
+
+- `entries/<index>.json` -- the body of `GET /v1/log/entries/<index>`, for the post and for each
+  lifecycle entry **the Forum lists**. A case may leave an entry of the log out: the omission is the
+  case (`link-after-post-skips`);
+- `proofs/<index>.json` -- the body of `GET /v1/log/proof/<index>`, against the tree the head covers;
+- `head.json` and `log-jwks.json` -- the bodies of `GET /v1/log/head` and `GET /v1/log/jwks`. The
+  head is signed by a fixed Ed25519 log key, which is deterministic, and a runner SHALL verify it
+  before it judges the case, so a head that does not verify is a broken vector and never a verdict;
+- `meta.json` -- `profile`, `requirement`, `note`, and `post_index`, the log index of the post;
+- `expected.json` -- `{"verdict": "verified" | "failed" | "could-not-check", "predicate": "…"}`.
+
+A runner folds the lifecycle for the post: every entry in `entries/` but the post's own, in index
+order, is the lifecycle the Forum lists. The **predicate** is the short slug (`curia/acta/`
+removed) of the check that decided it: `verified`, `retired-before-post`, `broken-link`,
+`rotation-unauthorized` (a signature that does not verify, a header `kid` that is not its role's
+member, or a key that was not live there), `statement-mismatch` (a statement or an entry that
+disagrees with its set or with itself, or an entry that is not the author's),
+`lifecycle-typ-mismatch` (a header `typ` that is not its kind's), `unknown-lifecycle-kind` (an
+entry type or a statement version the reader does not fold), `bound-after-post`, and
+`lifecycle-not-supplied`.
+
+Each case holds one defect, so that "failed" cannot come from another cause: the rest of its log is
+what a case that verifies would hold. The seven that refuse a binding without a `prev`
+(`prevless-binding-*`, `second-prevless-binding`, `retirement-without-agent-id`) pin R4.38 from both
+sides with `pre-g16-first-binding-after-post`: the carve-out for an identity's first binding must be
+tested for being too wide, not only for being present.
+
+`rotation-then-post` also holds `head-as-rotation.json` and `head-as-retirement.json`: the same
+head, by the same log key over the same bytes, signed under each lifecycle header `typ`. A head
+verifier refuses both, by exact `typ` (a regression guard on R6.49, green before this family
+existed), and the control is `head.json` itself.
+
+The cases are **proposals**, as `acta/`'s lifecycle entries are: `dotnet run --project
+tools/GenerateEnvelopeFixtures -- --lifecycle-cases` regenerates them, deterministically, until the
+owner's lift record pins their digests. The one exception is `rotation-es256-then-post`, whose P-256
+keys begin with the byte 0x00 and whose ES256 signatures are randomized: it was generated once, and
+a rerun keeps it.

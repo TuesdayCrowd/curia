@@ -29,9 +29,13 @@ internal sealed record Es256KeyPair(byte[] D32, byte[] X32, byte[] Y32, byte[] E
 /// </summary>
 internal static class Signing
 {
-    private static readonly DetachedJws Jws = new(
+    private static readonly DetachedJws Jws = JwsFor(DetachedJws.ExpectedTyp);
+
+    /// <summary>One instance per header <c>typ</c>: a lifecycle statement is never signed under a post's.</summary>
+    private static DetachedJws JwsFor(string typ) => new(
         new Dictionary<string, IContentSigner> { ["EdDSA"] = new Ed25519Adapter(), ["ES256"] = new Es256Adapter() },
-        new Dictionary<string, IContentVerifier> { ["EdDSA"] = new Ed25519Adapter(), ["ES256"] = new Es256Adapter() });
+        new Dictionary<string, IContentVerifier> { ["EdDSA"] = new Ed25519Adapter(), ["ES256"] = new Es256Adapter() },
+        typ);
 
     public static Ed25519KeyPair NewEd25519()
     {
@@ -58,6 +62,14 @@ internal static class Signing
     public static JwsSignature Sign(CanonicalBytes canonical, string alg, string kid, byte[] privateKeyBytes) =>
         Jws.Sign(canonical, new SigningKey(alg, kid, privateKeyBytes))
             .Match(s => s, e => throw new InvalidOperationException($"sign failed: {e.Type}"));
+
+    /// <summary>Signs under the header <c>typ</c> given (spec 4.5, KF1).</summary>
+    public static JwsSignature Sign(CanonicalBytes canonical, string alg, string kid, byte[] privateKeyBytes, string typ) =>
+        JwsFor(typ).Sign(canonical, new SigningKey(alg, kid, privateKeyBytes))
+            .Match(s => s, e => throw new InvalidOperationException($"sign failed: {e.Type}"));
+
+    public static Result<VerifiedContent> Verify(CanonicalBytes canonical, JwsSignature sig, string alg, string kid, byte[] publicKeyBytes, string typ) =>
+        JwsFor(typ).Verify(canonical, sig, new PublicKeyMaterial(alg, kid, publicKeyBytes));
 
     /// <summary>The independent read-back verification path Program's report drives.</summary>
     public static Result<VerifiedContent> Verify(CanonicalBytes canonical, JwsSignature sig, string alg, string kid, byte[] publicKeyBytes) =>

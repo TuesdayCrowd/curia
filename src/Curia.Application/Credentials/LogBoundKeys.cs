@@ -6,8 +6,18 @@ using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Application.Credentials;
 
-/// <summary>A key the store holds and the log binds, with the binding (R4.35).</summary>
-public sealed record BoundKey(RegisteredKey Key, KeyBinding Binding);
+/// <summary>
+/// A key the store holds and the log binds, with the binding (R4.35) and what the log says of it now
+/// (R4.35 rev.): <paramref name="Status"/>, and the entry that ended it when it is retired.
+/// </summary>
+public sealed record BoundKey(RegisteredKey Key, KeyBinding Binding, KeyStatus Status, string? EndedByEventId);
+
+/// <summary>
+/// A key resolved for use now, with the version of its author's stream the decision was made on
+/// (R6.56): an append conditioned on <paramref name="AuthorStream"/> lands only while no entry has
+/// joined the stream since.
+/// </summary>
+public sealed record LiveKey(PublicKeyMaterial Key, AggregateVersion AuthorStream);
 
 /// <summary>
 /// One identity's keys as the Forum publishes them (R4.35): the keys the store holds that the log
@@ -37,10 +47,10 @@ public sealed record AgentKeySet(int Stored, IReadOnlyList<BoundKey> Bound);
 ///
 /// <para><b>A log that cannot be read refuses nothing.</b> Whether it binds the key is then unknown,
 /// so the answer is <see cref="LogUnreadable"/>, a server fault, and never the reader's refusal
-/// handed on as if it were the key's: ingest answers it 503 and the token endpoint
+/// handed on as if it were the key's (a log that reads but will not fold is as unreadable, for the status read): ingest answers it 503 and the token endpoint
 /// <c>server_error</c>, where a 401 would tell an agent its key had been refused.</para>
 /// </summary>
-public sealed class LogBoundKeys : IAuthorKeyResolver
+public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
 {
     /// <summary>The slug of <see cref="LogUnreadable"/>, for callers that match on it.</summary>
     public const string LogUnreadableType = "curia/log/unreadable";
@@ -62,21 +72,62 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
 
     /// <inheritdoc/>
     public async Task<Result<PublicKeyMaterial>> ResolveAsync(
+        AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default) =>
+        (await ResolveLiveAsync(agentId, kid, at, cancellationToken).ConfigureAwait(false)).Map(live => live.Key);
+
+    /// <summary>
+    /// The key <paramref name="kid"/> of <paramref name="agentId"/> as it stands now, for an act decided
+    /// at <paramref name="at"/>: the store's refusals first, unchanged; then the log's binding (R4.35);
+    /// then the log's lifecycle (R4.35 rev.), so a key the identity retired fails with
+    /// <see cref="AuthorKeyErrors.Retired"/> after the refusals above and before nothing else. One read
+    /// of the author's stream yields both the fold and <see cref="LiveKey.AuthorStream"/>; a second read
+    /// for the version would be a different instant from the one the decision was made on (R6.56).
+    /// </summary>
+    public async Task<Result<LiveKey>> ResolveLiveAsync(
         AgentId agentId, Kid kid, ServerTimestamp at, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agentId);
         ArgumentNullException.ThrowIfNull(kid);
 
         var resolved = await _store.ResolveAsync(agentId, kid, at, cancellationToken).ConfigureAwait(false);
-        if (!resolved.TryGetValue(out var key, out _)) return resolved;
+        if (!resolved.TryGetValue(out var key, out var storeError)) return Result<LiveKey>.Fail(storeError!);
 
-        var binding = await BindingAsync(agentId, cancellationToken).ConfigureAwait(false);
-        if (!binding.TryGetValue(out var found, out var readError))
-            return Result<PublicKeyMaterial>.Fail(readError!);
+        var read = await ReadAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var stream, out var readError))
+            return Result<LiveKey>.Fail(readError!);
 
-        return found?.For(kid) is { } bound && bound.Holds(key!)
-            ? resolved
-            : Result<PublicKeyMaterial>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId.Value, kid.Value));
+        if (stream!.Binding?.For(kid) is not { } bound || !bound.Holds(key!))
+            return Result<LiveKey>.Fail(AuthorKeyErrors.NotBoundByTheLog(agentId.Value, kid.Value));
+
+        if (!KeyLifecycle.Of(stream.History, agentId).TryGetValue(out var lifecycle, out var foldError))
+            return Result<LiveKey>.Fail(foldError!);
+
+        return lifecycle!.StatusNow(kid.Value) == KeyStatus.Active
+            ? Result<LiveKey>.Ok(new LiveKey(key!, stream.Version))
+            : Result<LiveKey>.Fail(AuthorKeyErrors.Retired(agentId.Value, kid.Value));
+    }
+
+    /// <summary>
+    /// What the log says of <paramref name="kid"/> of <paramref name="agentId"/> now (R5.22): <see cref="KeyStatus.Unbound"/>
+    /// when no entry binds it to the identity, otherwise the lifecycle's answer. Read from the log on every
+    /// call; <see cref="LogUnreadable"/> when it cannot be read, which is never an answer about the key. A log
+    /// that reads but will not fold into a lifecycle is as unreadable as one that does not read, since no
+    /// answer about the key can be drawn from it.
+    /// </summary>
+    public async Task<Result<KeyStatus>> StatusAsync(AgentId agentId, Kid kid, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        var read = await ReadAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var stream, out var readError))
+            return Result<KeyStatus>.Fail(readError!);
+
+        if (stream!.Binding?.For(kid) is null) return Result<KeyStatus>.Ok(KeyStatus.Unbound);
+
+        return KeyLifecycle.Of(stream.History, agentId).TryGetValue(out var lifecycle, out var foldError)
+            ? Result<KeyStatus>.Ok(lifecycle!.StatusNow(kid.Value))
+            : Result<KeyStatus>.Fail(LogUnreadable(foldError!));
     }
 
     /// <summary>The keys the store holds for <paramref name="agentId"/> that the log binds to it, each with its binding.</summary>
@@ -87,15 +138,18 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
         var held = await _registry.KeysForAsync(agentId, cancellationToken).ConfigureAwait(false);
         if (held.Count == 0) return Result<AgentKeySet>.Ok(new AgentKeySet(0, []));
 
-        var binding = await BindingAsync(agentId, cancellationToken).ConfigureAwait(false);
-        if (!binding.TryGetValue(out var found, out var readError))
+        var read = await ReadAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (!read.TryGetValue(out var stream, out var readError))
             return Result<AgentKeySet>.Fail(readError!);
+
+        if (!KeyLifecycle.Of(stream!.History, agentId).TryGetValue(out var lifecycle, out var foldError))
+            return Result<AgentKeySet>.Fail(foldError!);
 
         var bound = new List<BoundKey>();
         foreach (var registered in held)
         {
-            if (found?.For(registered.Key) is { } keyBinding && keyBinding.Holds(registered.Key))
-                bound.Add(new BoundKey(registered, keyBinding));
+            if (stream.Binding?.For(registered.Key) is { } keyBinding && keyBinding.Holds(registered.Key))
+                bound.Add(new BoundKey(registered, keyBinding, lifecycle!.StatusNow(registered.Key.Kid), lifecycle.EndedBy(registered.Key.Kid)?.EventId));
         }
 
         return Result<AgentKeySet>.Ok(new AgentKeySet(held.Count, bound));
@@ -112,19 +166,25 @@ public sealed class LogBoundKeys : IAuthorKeyResolver
         return new Error(LogUnreadableType, "The event log could not be read", readError.Type);
     }
 
+    /// <summary>One read of an identity's stream: what it holds, what it binds, and the version a decision on it was made at.</summary>
+    private sealed record StreamRead(IReadOnlyList<AppendedEvent> History, EnrollmentBinding? Binding, AggregateVersion Version);
+
     /// <summary>
-    /// What the log binds to <paramref name="agentId"/>, or <see langword="null"/> when it records no
-    /// enrollment of it; <see cref="LogUnreadable"/> when the log cannot be read.
+    /// The identity's stream, read once, with what the log binds to <paramref name="agentId"/> (null when
+    /// it records no enrollment of it); <see cref="LogUnreadable"/> when the log cannot be read.
     /// </summary>
-    private async Task<Result<EnrollmentBinding?>> BindingAsync(AgentId agentId, CancellationToken cancellationToken)
+    private async Task<Result<StreamRead>> ReadAsync(AgentId agentId, CancellationToken cancellationToken)
     {
         if (!AggregateId.Create(agentId.Value).TryGetValue(out var aggregate, out _))
-            return Result<EnrollmentBinding?>.Ok(null);
+            return Result<StreamRead>.Ok(new StreamRead([], null, AggregateVersion.New));
 
         var read = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var history, out var readError))
-            return Result<EnrollmentBinding?>.Fail(LogUnreadable(readError!));
+            return Result<StreamRead>.Fail(LogUnreadable(readError!));
 
-        return Result<EnrollmentBinding?>.Ok(EnrollmentBinding.Find(history!, agentId));
+        if (!AggregateVersion.From(history!.Count).TryGetValue(out var version, out var versionError))
+            return Result<StreamRead>.Fail(LogUnreadable(versionError!));
+
+        return Result<StreamRead>.Ok(new StreamRead(history, EnrollmentBinding.Find(history, agentId), version!));
     }
 }

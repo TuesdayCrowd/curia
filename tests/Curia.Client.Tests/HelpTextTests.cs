@@ -95,6 +95,8 @@ public sealed class HelpTextTests
             [(ResourceKind.Answer, ActionKind.Create)] = ["answer"],
             [(ResourceKind.Vote, ActionKind.Cast)] = ["endorse"],
             [(ResourceKind.Verification, ActionKind.Submit)] = ["reproduce", "contradict"],
+            [(ResourceKind.Key, ActionKind.Rotate)] = ["rotate"],
+            [(ResourceKind.Key, ActionKind.Retire)] = ["retire"],
         };
 
         static bool Grants(Table10Cell cell) => cell is Table10Cell.Allowed or Table10Cell.RateLimited;
@@ -401,6 +403,7 @@ public sealed class HelpTextTests
         [
             "EnrolAsync", "WhoAmI", "PostAsync", "SignalAsync", "ReadAsync", "RecheckAsync", "ThreadAsync", "BoardAsync",
             "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync",
+            "KeysAsync", "RotateAsync", "RetireAsync",
         ];
         Assert.True(onlyAccepted.SetEquals(heldMethods), "methods checked under (iv): " + string.Join(", ", onlyAccepted));
         Assert.True(everyFlagNamed.SetEquals(heldMethods), "methods checked under (v): " + string.Join(", ", everyFlagNamed));
@@ -437,12 +440,12 @@ public sealed class HelpTextTests
         Assert.Contains("(all take --agent and --board; all but endorse take --body or --body-file)", Help.Usage, StringComparison.Ordinal);
 
         // (vii) the flags a method's verbs accept are the flags it reads, through itself and the helpers
-        // it calls among SendDraftAsync, ReadContext, ForumUri and Marking; Text("x") reads x and x-file.
+        // it calls among SendDraftAsync, SearchPageAsync, ReadContext, ForumUri and Marking; Text("x") reads x and x-file.
         // Per method, not per verb: SignalAsync reads --body for a report and not for a vote.
-        // Named exemptions, each asserted to be needed: search reads --agent only through ReadContext,
-        // after refusing it.
+        // Named exemptions, each asserted to be needed: none now. Search takes --agent (R4.39) so that
+        // search --titles compares the named identity's key set as board --titles does.
         var acceptedNotRead = new HashSet<string>(StringComparer.Ordinal);
-        var readNotAccepted = new HashSet<string>(StringComparer.Ordinal) { "SearchAsync --agent" };
+        var readNotAccepted = new HashSet<string>(StringComparer.Ordinal);
         var exemptionsUsed = new HashSet<string>(StringComparer.Ordinal);
         Assert.True(acceptedByMethod.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(heldMethods), "methods checked under (vii): " + string.Join(", ", acceptedByMethod.Keys));
         foreach (var (name, union) in acceptedByMethod)
@@ -592,7 +595,7 @@ public sealed class HelpTextTests
     /// <summary>
     /// The flag names <paramref name="method"/> reads through <c>args.Value</c>, <c>Has</c>, <c>List</c>
     /// and <c>Text</c> (which reads <c>x</c> and <c>x-file</c>), in its own source and in the helpers it
-    /// calls among SendDraftAsync, ReadContext, ForumUri and Marking, followed.
+    /// calls among SendDraftAsync, SearchPageAsync, ReadContext, ForumUri and Marking, followed.
     /// </summary>
     private static SortedSet<string> FlagsRead(string program, string method)
     {
@@ -613,7 +616,7 @@ public sealed class HelpTextTests
                     read.Add(m.Groups[2].Value + "-file");
             }
 
-            foreach (Match m in Regex.Matches(source, "\\b(SendDraftAsync|ReadContext|ForumUri|Marking)\\("))
+            foreach (Match m in Regex.Matches(source, "\\b(SendDraftAsync|SearchPageAsync|ReadContext|ForumUri|Marking)\\("))
                 pending.Push(m.Groups[1].Value);
         }
 

@@ -97,6 +97,10 @@ public sealed class EnrollIdentityTests
             if (Interlocked.Increment(ref _accountedFor) == racers) _all.SetResult();
         }
 
+        public Task<Result<RegisteredKey>> AddAsync(
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default) =>
+            inner.AddAsync(agentId, key, validFrom, cancellationToken);
+
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             inner.KeysForAsync(agentId, cancellationToken);
     }
@@ -127,6 +131,10 @@ public sealed class EnrollIdentityTests
                 existing ?? throw new InvalidOperationException($"this store never writes, and {agentId} holds no key in it")));
         }
 
+        public Task<Result<RegisteredKey>> AddAsync(
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("this store never writes");
+
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             Task.FromResult(HeldBy(agentId));
 
@@ -153,6 +161,10 @@ public sealed class EnrollIdentityTests
             return inner.EnrollAsync(agentId, key, notBefore, cancellationToken);
         }
 
+        public Task<Result<RegisteredKey>> AddAsync(
+            AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default) =>
+            inner.AddAsync(agentId, key, validFrom, cancellationToken);
+
         public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default) =>
             inner.KeysForAsync(agentId, cancellationToken);
     }
@@ -167,9 +179,9 @@ public sealed class EnrollIdentityTests
     private static List<string> Types(IReadOnlyList<AppendedEvent> stream) => [.. stream.Select(e => e.Event.Type.Value)];
 
     /// <summary>
-    /// An <c>agent.key-bound</c> entry for <paramref name="key"/>, appended to Alice's stream after
-    /// whatever it holds -- the entry R4.18's rotation will append, written here by hand because no
-    /// writer in this solution produces a second one yet.
+    /// A statement-less <c>agent.key-bound</c> entry for <paramref name="key"/>, appended to Alice's
+    /// stream after whatever it holds. R4.38 calls a second one a broken link, which is what its facts
+    /// use it for; a rotation's binding carries a statement (<see cref="BindRotatedKeyAsync"/>).
     /// </summary>
     private static async Task BindAnotherKeyAsync(InMemoryEventStore events, PublicKeyMaterial key, CancellationToken ct)
     {
@@ -187,6 +199,24 @@ public sealed class EnrollIdentityTests
                     new(AgentStandingProjector.KeyIdField, new JsonValue.String(key.Kid)),
                     new(AgentStandingProjector.JwkField, Require(PublicJwk.Of(key))),
                 ]))],
+            ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// A rotation's <c>agent.key-bound</c> entry for <paramref name="key"/>, authorized by <c>alice-1</c>,
+    /// appended to Alice's stream by hand, as no writer in this solution produces one yet.
+    /// </summary>
+    private static async Task BindRotatedKeyAsync(InMemoryEventStore events, PublicKeyMaterial key, CancellationToken ct)
+    {
+        var stream = await StreamAsync(events, Alice, ct).ConfigureAwait(false);
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Alice)),
+            Require(AggregateVersion.From(stream.Count)),
+            [new DomainEvent(
+                Require(EventId.Create("rotation-binding-" + key.Kid)),
+                Require(EventType.Create(AgentStandingProjector.KeyBoundType)),
+                Require(ActorId.Create(Alice)),
+                KeyLifecycleTests.RotationPayload(Alice, "alice-1", key, stream.Count - 1))],
             ct).ConfigureAwait(false));
     }
 
@@ -213,6 +243,13 @@ public sealed class EnrollIdentityTests
             AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, CancellationToken cancellationToken = default) =>
             Interlocked.Increment(ref _appends) == 1
                 ? inner.AppendAsync(aggregateId, expectedVersion, events, cancellationToken)
+                : Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
+                    new Error("test/append-failed", "This store takes one append", "a write failed after the first append")));
+
+        public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+            AggregateId aggregateId, AggregateVersion expectedVersion, IReadOnlyList<DomainEvent> events, StreamCondition condition, CancellationToken cancellationToken = default) =>
+            Interlocked.Increment(ref _appends) == 1
+                ? inner.AppendAsync(aggregateId, expectedVersion, events, condition, cancellationToken)
                 : Task.FromResult(Result<IReadOnlyList<AppendedEvent>>.Fail(
                     new Error("test/append-failed", "This store takes one append", "a write failed after the first append")));
 
@@ -760,13 +797,13 @@ public sealed class EnrollIdentityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var clock = new ManualTimeProvider(Start);
-        // Permissive: BindAnotherKeyAsync appends a lone key-bound after the pair (rotation-shaped), written by hand.
+        // Permissive: BindRotatedKeyAsync appends a rotation's key-bound after the pair, written by hand.
         var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
         var first = NewKey("alice-1");
         var second = NewKey("alice-2");
 
         Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), first, ct));
-        await BindAnotherKeyAsync(events, second, ct);
+        await BindRotatedKeyAsync(events, second, ct);
         var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
         var enroll = Enroll(events, keys, clock);
 
@@ -776,6 +813,90 @@ public sealed class EnrollIdentityTests
         Assert.Equal(
             [AgentStandingProjector.EnrolledType, AgentStandingProjector.KeyBoundType, AgentStandingProjector.KeyBoundType],
             Types(await StreamAsync(events, Alice, ct)));
+    }
+
+    /// <summary>
+    /// R4.31 rev. with the real producer: the key a rotation (R4.18 rev.) binds is re-announced as the first
+    /// is, and writes nothing. <c>RotateKey</c> binds <c>alice-2</c>; the same three assertions as
+    /// <see cref="R4_31_AKeyASecondBindingNamesIsReAnnouncedAsTheFirstIs"/>, whose hand-appended entry is the
+    /// one R4.31 (rev.) was written against, hold for it, and the stream is the three entries the producers write.
+    /// </summary>
+    [Fact]
+    public async Task R4_31_AKeyARotationBindsIsReAnnouncedAsTheFirstIs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var harness = new KeyActHarness();
+        var first = TestIdentity.New("alice-1");
+        var second = TestIdentity.New("alice-2");
+        await harness.EnrollAsync(Alice, first);
+        KeyActHarness.Require(await harness.RotateAsync(Alice, first, second));
+        var enroll = Enroll(harness.Events, harness.Registry, harness.Clock);
+
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Material.Alg, second.Kid, second.Material.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.True(Require(await enroll.EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(first.Material.Alg, first.Kid, first.Material.Public.ToArray()), ct)).WasAlreadyEnrolled);
+        Assert.Equal("curia/enroll/already-enrolled", Refusal(await enroll.EnrollAsync(Typed.Agent(Alice), NewKey("alice-3"), ct)).Type);
+        Assert.Equal(
+            [AgentStandingProjector.EnrolledType, AgentStandingProjector.KeyBoundType, AgentStandingProjector.KeyBoundType],
+            Types(await StreamAsync(harness.Events, Alice, ct)));
+    }
+
+    /// <summary>
+    /// R4.38: a second statement-less <c>agent.key-bound</c> is a broken link, so the log binds no key by
+    /// it. Re-presenting that key through either use case that reads the binding gets
+    /// <c>already-enrolled</c> and appends nothing, the safe direction; the fold refuses the stream.
+    /// </summary>
+    [Fact]
+    public async Task R4_38_ASecondStatementLessBindingBindsNoKeyForEnrolOrRecord()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
+        var first = NewKey("alice-1");
+        var second = NewKey("alice-2");
+        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        await BindAnotherKeyAsync(events, second, ct);
+        var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null), new RegisteredKey(second, Start, null)]);
+
+        var viaEnrol = Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
+        var viaRecord = Refusal(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), new PublicKeyMaterial(second.Alg, second.Kid, second.Public.ToArray()), ct)).Type;
+
+        Assert.Equal(
+            "enrol: curia/enroll/already-enrolled; record: curia/enroll/already-enrolled; entries: 3; bound: alice-1; first still enrols: True",
+            $"enrol: {viaEnrol}; record: {viaRecord}; entries: {(await StreamAsync(events, Alice, ct)).Count}; "
+            + $"bound: {string.Join(",", EnrollmentBinding.Find(await StreamAsync(events, Alice, ct), Typed.Agent(Alice))!.Keys.Select(k => k.Kid))}; "
+            + $"first still enrols: {Require(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(first.Alg, first.Kid, first.Public.ToArray()), ct)).WasAlreadyEnrolled}");
+    }
+
+    /// <summary>
+    /// R4.35 (rev.), fail closed: a lifecycle entry in the identity's own stream that names no agent
+    /// cannot be attributed, so the log binds nothing to the identity while it is there, and no
+    /// re-announcement binds a key by it. The refusal is the use case's own 409 and appends nothing.
+    /// </summary>
+    [Fact]
+    public async Task R4_35_AnUnattributableLifecycleEntryInTheStreamMakesTheLogBindNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var events = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
+        var first = NewKey("alice-1");
+        Require(await new EnrollAgent(events, clock).RecordAsync(Typed.Agent(Alice), first, ct));
+        var stream = await StreamAsync(events, Alice, ct);
+        Require(await events.AppendAsync(
+            Require(AggregateId.Create(Alice)),
+            Require(AggregateVersion.From(stream.Count)),
+            [new DomainEvent(
+                Require(EventId.Create("retirement-without-agent")),
+                Require(EventType.Create("agent.key-retired")),
+                Require(ActorId.Create(Alice)),
+                new JsonValue.Object([new("kid", new JsonValue.String("alice-1")), new("prev", new JsonValue.Number(1))]))],
+            ct));
+        var keys = new PreG14KeyStore(Alice, [new RegisteredKey(first, Start, null)]);
+
+        Assert.Equal(
+            "bound: none; enrol: curia/enroll/identifier-reserved; entries: 3",
+            $"bound: {(EnrollmentBinding.Find(await StreamAsync(events, Alice, ct), Typed.Agent(Alice)) is null ? "none" : "some")}; "
+            + $"enrol: {Refusal(await Enroll(events, keys, clock).EnrollAsync(Typed.Agent(Alice), new PublicKeyMaterial(first.Alg, first.Kid, first.Public.ToArray()), ct)).Type}; "
+            + $"entries: {(await StreamAsync(events, Alice, ct)).Count}");
     }
 
     /// <summary>

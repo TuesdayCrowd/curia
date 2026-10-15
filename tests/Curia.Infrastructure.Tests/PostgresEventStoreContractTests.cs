@@ -1,6 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.Application.Ports;
 using Curia.Application.Tests;
+using Curia.Canon.Json;
+using Curia.Domain;
+using Curia.Domain.Primitives;
+using Npgsql;
 using Xunit;
 
 namespace Curia.Infrastructure.Tests;
@@ -43,5 +47,77 @@ public sealed class PostgresEventStoreContractTests : EventStorePortContractTest
         // concurrent case execution.
         var schema = _fixture.CreateIsolatedSchemaAsync().GetAwaiter().GetResult();
         return new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate(), schema);
+    }
+
+    private static T Require<T>(Result<T> result) =>
+        result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+    private static DomainEvent NewEvent(string id) => new(
+        Require(EventId.Create(id)),
+        Require(EventType.Create("test.event")),
+        Actor: null,
+        Payload: new JsonValue.Object([]));
+
+    /// <summary>
+    /// R6.56: the condition is read after the append has the serialization lock, not before. A transaction
+    /// holds the lock and appends to B; the conditioned append (A on B@0) is started and observed waiting on
+    /// the advisory lock; the lock is released by commit. The append must then conflict -- a condition read
+    /// before the lock would have seen B at 0 and landed. Red when the read moves ahead of the lock.
+    /// </summary>
+    [SuppressMessage(
+        "Naming",
+        "CA1707:Identifiers should not contain underscores",
+        Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+    [SuppressMessage(
+        "Security",
+        "CA2100:Review SQL queries for security vulnerabilities",
+        Justification = "The only interpolated text is the schema name CreateIsolatedSchemaAsync generated " +
+            "from a literal prefix and a GUID's hex digits; every other value is bound as a parameter.")]
+    [Fact]
+    public async Task R6_56_TheConditionIsReadUnderTheSerializationLock()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var schema = await _fixture.CreateIsolatedSchemaAsync(ct);
+        var store = new PostgresEventStore(_fixture.AppRoleDataSource, TimeProvider.System, _fixture.PermissiveLifecycleGate(), schema);
+        var a = Require(AggregateId.Create("agg-lock-target"));
+        var b = Require(AggregateId.Create("agg-lock-stream"));
+
+        await using var holder = await _fixture.AdminDataSource.OpenConnectionAsync(ct);
+        await using var transaction = await holder.BeginTransactionAsync(ct);
+        await using (var take = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended(@key, 0));", holder, transaction))
+        {
+            take.Parameters.AddWithValue("key", PostgresEventStore.SerializationLockKey(schema));
+            await take.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var insert = new NpgsqlCommand(
+            $"INSERT INTO \"{schema}\".events (event_id, event_type, aggregate_id, payload) VALUES ('lock-b-1', 'test.event', @agg, '{{}}');",
+            holder, transaction))
+        {
+            insert.Parameters.AddWithValue("agg", b.Value);
+            await insert.ExecuteNonQueryAsync(ct);
+        }
+
+        var conditioned = store.AppendAsync(a, AggregateVersion.New, [NewEvent("lock-a-1")], new StreamCondition(b, AggregateVersion.New), ct);
+
+        var waiting = false;
+        for (var attempt = 0; attempt < 200 && !waiting; attempt++)
+        {
+            await using var probe = new NpgsqlCommand(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database());",
+                holder);
+            waiting = (long)(await probe.ExecuteScalarAsync(ct))! > 0;
+            if (!waiting)
+                await Task.Delay(25, ct);
+        }
+
+        Assert.True(waiting, "the conditioned append never waited on the serialization lock");
+        Assert.False(conditioned.IsCompleted, "the conditioned append finished while another transaction held the lock");
+
+        await transaction.CommitAsync(ct);
+        var result = await conditioned;
+
+        Assert.Equal(DomainErrors.ConditionConflictType, result.Match(_ => string.Empty, e => e.Type));
+        Assert.Empty(Require(await store.ReadByAggregateAsync(a, ct)));
     }
 }

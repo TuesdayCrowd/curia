@@ -84,7 +84,18 @@ public sealed class PostgresEventStore : IEventStore
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
         CancellationToken cancellationToken = default) =>
-        AppendCoreAsync(aggregateId, expectedVersion, events, cancellationToken);
+        AppendCoreAsync(aggregateId, expectedVersion, events, condition: null, cancellationToken);
+
+    public Task<Result<IReadOnlyList<AppendedEvent>>> AppendAsync(
+        AggregateId aggregateId,
+        AggregateVersion expectedVersion,
+        IReadOnlyList<DomainEvent> events,
+        StreamCondition condition,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        return AppendCoreAsync(aggregateId, expectedVersion, events, condition, cancellationToken);
+    }
 
     /// <summary>
     /// The one core every INSERT into <c>events</c> passes (R4.38 (add.)): the lifecycle gate is asked
@@ -122,6 +133,7 @@ public sealed class PostgresEventStore : IEventStore
         AggregateId aggregateId,
         AggregateVersion expectedVersion,
         IReadOnlyList<DomainEvent> events,
+        StreamCondition? condition,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -186,6 +198,28 @@ public sealed class PostgresEventStore : IEventStore
                 .Match(v => v, e => throw new InvalidOperationException($"Impossible negative version from count(*): {e.Title}"));
             return Result<IReadOnlyList<AppendedEvent>>.Fail(
                 DomainErrors.ConcurrencyConflict(aggregateId, expectedVersion, actualVersion));
+        }
+
+        // R6.56: the condition stream's version is read here, under the lock taken above and in the same
+        // transaction as the insert, so the decision the caller made on it and this append are one act.
+        if (condition is not null)
+        {
+            long conditionVersionValue;
+            await using (var conditionCommand = new NpgsqlCommand(
+                $"SELECT count(*) FROM {_qualifiedTable} WHERE aggregate_id = @agg;", connection, transaction))
+            {
+                conditionCommand.Parameters.Add(new NpgsqlParameter("agg", NpgsqlDbType.Text) { Value = condition.Aggregate.Value });
+                conditionVersionValue = (long)(await conditionCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+            }
+
+            if (conditionVersionValue != condition.Expected.Value)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                var conditionVersion = AggregateVersion.From(conditionVersionValue)
+                    .Match(v => v, e => throw new InvalidOperationException($"Impossible negative version from count(*): {e.Title}"));
+                return Result<IReadOnlyList<AppendedEvent>>.Fail(
+                    DomainErrors.ConditionConflict(condition.Aggregate, condition.Expected, conditionVersion));
+            }
         }
 
         var serverTimestamp = ServerTimestamp.At(_clock.GetUtcNow());

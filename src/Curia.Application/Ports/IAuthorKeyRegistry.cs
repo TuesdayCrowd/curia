@@ -88,6 +88,25 @@ public interface IAuthorKeyRegistry
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Registers <paramref name="key"/> for <paramref name="agentId"/>, valid from
+    /// <paramref name="validFrom"/>, for an identity that may already hold others: a rotation's write
+    /// (R4.18 rev.), and the restoration of a lost row for a key the log binds (R4.31 rev. 2). It proves
+    /// nothing itself; the caller has decided that the log binds, or is about to bind, this key.
+    ///
+    /// <para><b>An insert that never overwrites.</b> The row is written <c>ON CONFLICT (kid) DO
+    /// NOTHING</c>, and a conflict is then read back: Ok, with the row as it stands and its window
+    /// unmoved, when the row's agent, <c>alg</c> and public key equal the request's; otherwise
+    /// <see cref="AuthorKeyErrors.KidTaken"/>. A row left by an earlier attempt that failed after this
+    /// write is therefore reused on retry, and a <c>kid</c> held by another identity, or under other
+    /// bytes, is never touched (R4.32).</para>
+    /// </summary>
+    Task<Result<RegisteredKey>> AddAsync(
+        AgentId agentId,
+        PublicKeyMaterial key,
+        DateTimeOffset validFrom,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The keys registered to one agent, whatever their validity window.
     ///
     /// <para>Expired and revoked keys are included deliberately. R6.31 evaluates validity at a
@@ -186,6 +205,12 @@ public static class AuthorKeyErrors
     /// <summary>The slug of <see cref="MaterialImmutable"/>, for callers that match on it.</summary>
     public const string MaterialImmutableType = "curia/keys/material-immutable";
 
+    /// <summary>The slug of <see cref="Retired"/>, for callers that match on it.</summary>
+    public const string RetiredType = "curia/keys/retired";
+
+    /// <summary>The slug of <see cref="KidTaken"/>, for callers that match on it.</summary>
+    public const string KidTakenType = "curia/keys/kid-taken";
+
     /// <summary>The slug of <see cref="NotBoundByTheLog"/>, for callers that match on it.</summary>
     public const string NotBoundByTheLogType = "curia/keys/not-bound-by-the-log";
 
@@ -208,6 +233,25 @@ public static class AuthorKeyErrors
         NotBoundByTheLogType,
         "The event log binds no such key to that agent",
         $"agent={agentId} kid={kid}");
+
+    /// <summary>
+    /// R4.35 (rev.): the identity retired this key (R4.39), so the Forum honours it for nothing -- a post,
+    /// an assertion, a rotation's authorization. Raised after the store's own refusals and the log's
+    /// binding, so R5.20's property holds. Names the agent and the <c>kid</c>, never material.
+    /// </summary>
+    public static Error Retired(string agentId, string kid) => new(
+        RetiredType,
+        "The identity retired that key",
+        $"agent={agentId} kid={kid}");
+
+    /// <summary>
+    /// <see cref="IAuthorKeyRegistry.AddAsync"/> found the <c>kid</c> held by another identity, or held
+    /// under other bytes or another algorithm. Names the <c>kid</c> and nothing of whose it is.
+    /// </summary>
+    public static Error KidTaken(string kid) => new(
+        KidTakenType,
+        "That key identifier is already in use",
+        $"kid={kid}: nothing was registered.");
 
     public static Error NoLongerValid(string kid, ServerTimestamp at) => new(
         "curia/keys/no-longer-valid",

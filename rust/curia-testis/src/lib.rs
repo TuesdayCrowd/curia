@@ -32,6 +32,7 @@ pub mod envelope;
 pub mod json;
 pub mod jwk;
 pub mod jws;
+pub mod lifecycle;
 pub mod merkle;
 pub mod nfc;
 

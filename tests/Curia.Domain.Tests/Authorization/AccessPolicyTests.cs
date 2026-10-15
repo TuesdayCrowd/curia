@@ -64,6 +64,8 @@ public sealed class AccessPolicyTests
     [InlineData(ResourceKind.Vote, ActionKind.Cast, false)]
     [InlineData(ResourceKind.Moderation, ActionKind.Apply, false)]
     [InlineData(ResourceKind.Flag, ActionKind.Raise, false)]
+    [InlineData(ResourceKind.Key, ActionKind.Rotate, false)]
+    [InlineData(ResourceKind.Key, ActionKind.Retire, true)]
     public void Quarantine_leaves_reads_and_removes_everything_else(
         ResourceKind resource, ActionKind action, bool expectedAllow)
     {
@@ -100,6 +102,40 @@ public sealed class AccessPolicyTests
                         $"quarantine granted {PublishedTable10.Describe(pair, tier)} that the tier itself denies");
             }
         }
+    }
+
+    /// <summary>
+    /// R4.39: a quarantined agent may retire a key and may not rotate one. The quarantine intersection is the
+    /// reads plus <c>key</c>/<c>retire</c>, at every tier, so a thief that trips quarantine cannot stop the
+    /// owner retiring the stolen key, and rotation (a write) is refused as every write is.
+    /// </summary>
+    [Fact]
+    public void R4_39_QuarantineRefusesRotationAndPermitsRetirementAtEveryTier()
+    {
+        foreach (var tier in Enum.GetValues<PrincipalTier>().Where(t => t is not PrincipalTier.Anonymous))
+        {
+            var rotate = Decide(Request(tier, ResourceKind.Key, ActionKind.Rotate, CredentialState.Quarantined));
+            var retire = Decide(Request(tier, ResourceKind.Key, ActionKind.Retire, CredentialState.Quarantined));
+
+            Assert.Equal(DecisionEffect.Deny, rotate.Effect);
+            Assert.Equal(DecisionEffect.Allow, retire.Effect);
+        }
+    }
+
+    /// <summary>
+    /// R7.23: neither key act spends the posting budget. <see cref="AccessPolicy"/>'s <c>IsWrite</c> is the
+    /// complement of reads, so without the exclusion both would, and a thief that spent a T0 identity's three
+    /// daily posts would stop its owner retiring the stolen key.
+    /// </summary>
+    [Theory]
+    [InlineData(ActionKind.Rotate)]
+    [InlineData(ActionKind.Retire)]
+    public void R7_23_KeyActsSpendNoPostingBudget(ActionKind action)
+    {
+        var decision = Decide(Request(PrincipalTier.T0, ResourceKind.Key, action, postsToday: int.MaxValue));
+
+        Assert.Equal(DecisionEffect.Allow, decision.Effect);
+        Assert.Equal("table-10/permitted", decision.Reason);
     }
 
     /// <summary>

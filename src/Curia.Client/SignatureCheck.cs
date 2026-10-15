@@ -44,13 +44,20 @@ namespace Curia.Client;
 /// window against a post whose <c>server_ts</c> will not parse: R6.31 evaluates validity <i>at</i>
 /// that instant, so without one there is nothing to evaluate it at.</para>
 /// </param>
+/// <param name="KeyStatus">
+/// What the Forum's key set says the log holds of the signing key now (<c>curia_status</c>), as the Forum's word and
+/// not this client's; null when the key set names none or no key matched. R6.54 (add.)'s read-path marker.
+/// </param>
+/// <param name="KeyRetiredAt">The log index at which the key set says the signing key was retired, when it says one.</param>
 public sealed record SignatureVerdict(
     bool Verified,
     string? Kid,
     string Detail,
     string? Digest = null,
     string? PrefixedDigest = null,
-    bool CouldNotCheck = false)
+    bool CouldNotCheck = false,
+    string? KeyStatus = null,
+    long? KeyRetiredAt = null)
 {
     /// <summary>R6.52's three outcomes for this check.</summary>
     public CheckOutcome Outcome =>
@@ -148,6 +155,9 @@ public static class SignatureCheck
         var digest = envelopeDigest.ToHex();
         var prefixed = envelopeDigest.ToPrefixed();
 
+        // What the Forum's key set says of this key now (R6.54 (add.)): its word, kept as such.
+        var keySays = jwks.FirstOrDefault(k => string.Equals(k.Kid, header!.Kid, StringComparison.Ordinal));
+
         var key = SelectKey(jwks, header!.Kid, post.ServerTs);
         if (!key.TryGetValue(out var material, out var keyError))
         {
@@ -159,7 +169,9 @@ public static class SignatureCheck
                 Describe(keyError!),
                 digest,
                 prefixed,
-                CouldNotCheck: keyError!.Type == "curia/client/validity-not-evaluable");
+                CouldNotCheck: keyError!.Type == "curia/client/validity-not-evaluable",
+                KeyStatus: keySays?.Status,
+                KeyRetiredAt: keySays?.RetiredLogIndex);
         }
 
         var jws = new DetachedJws(
@@ -171,7 +183,25 @@ public static class SignatureCheck
             });
 
         if (!jws.Verify(canonical, signature, material!).TryGetValue(out _, out var verifyError))
-            return new SignatureVerdict(false, header.Kid, Describe(verifyError!), digest, prefixed);
+            return new SignatureVerdict(
+                false, header.Kid, Describe(verifyError!), digest, prefixed,
+                KeyStatus: keySays?.Status, KeyRetiredAt: keySays?.RetiredLogIndex);
+
+        // R6.54 (add.): a signature that holds, under a key the Forum's key set says was retired at or before this
+        // post's own leaf, is not a signature the key could have made as the author's. The Forum's word, said as such;
+        // the lifecycle fold (PostVerifier) is what proves it from the log.
+        if (string.Equals(keySays?.Status, "retired", StringComparison.Ordinal)
+            && keySays!.RetiredLogIndex is { } retiredAt
+            && post.LogIndex is { } postIndex
+            && postIndex >= retiredAt)
+            return new SignatureVerdict(
+                false,
+                header.Kid,
+                $"signed under a key the Forum's key set says was retired at log index {retiredAt.ToString(CultureInfo.InvariantCulture)}, before this post at {postIndex.ToString(CultureInfo.InvariantCulture)}",
+                digest,
+                prefixed,
+                KeyStatus: keySays.Status,
+                KeyRetiredAt: retiredAt);
 
         return new SignatureVerdict(
             true,
@@ -181,7 +211,9 @@ public static class SignatureCheck
                 : "WARNING: the served canonical form is not canonical; the signature verifies over "
                   + "the recanonicalized bytes, which is not what the Forum sent",
             digest,
-            prefixed);
+            prefixed,
+            KeyStatus: keySays?.Status,
+            KeyRetiredAt: keySays?.RetiredLogIndex);
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Canon.Jws;
 using Curia.Canon.Sodium;
+using Curia.Domain.Primitives;
 
 namespace Curia.Api;
 
@@ -41,10 +42,23 @@ public static class Jwks
     /// </summary>
     /// <param name="keys">The keys, each with the binding the log holds for it.</param>
     /// <param name="logIndexOf">The leaf index of an event, by its id; <see langword="null"/> when the log could not say.</param>
-    public static JsonObject ForAgent(IReadOnlyList<BoundKey> keys, Func<string, long?> logIndexOf)
+    /// <param name="lifecycle">
+    /// The identity's lifecycle indices, ascending (R4.35 rev.); <see langword="null"/> when the log would not
+    /// fold, when <c>curia_lifecycle</c> is left out rather than published empty.
+    /// </param>
+    /// <param name="lifecycleKinds">
+    /// The guard's state (R4.38 (add.)): <c>{"approved":[...],"enabled":[...]}</c>, the kinds the build approves
+    /// and the Forum enables, both empty until the lift.
+    /// </param>
+    public static JsonObject ForAgent(
+        IReadOnlyList<BoundKey> keys,
+        Func<string, long?> logIndexOf,
+        IReadOnlyList<long>? lifecycle,
+        JsonObject lifecycleKinds)
     {
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(logIndexOf);
+        ArgumentNullException.ThrowIfNull(lifecycleKinds);
 
         var array = new JsonArray();
         foreach (var bound in keys)
@@ -59,11 +73,68 @@ public static class Jwks
 
             var node = Annotate(ActaEndpoints.ToObject(jwk!), registered);
             if (logIndexOf(bound.Binding.EventId) is { } index) node["curia_log_index"] = index;
+
+            // R4.35 (rev.): what the log says of the key now, and where it says so.
+            node["curia_status"] = StatusName(bound.Status);
+            if (bound.Status is KeyStatus.Retired
+                && bound.EndedByEventId is { } endedBy
+                && logIndexOf(endedBy) is { } retiredAt)
+                node["curia_retired_log_index"] = retiredAt;
+
             array.Add(node);
         }
 
-        return new JsonObject { ["keys"] = array };
+        var document = new JsonObject { ["keys"] = array };
+        if (lifecycle is not null)
+        {
+            var indices = new JsonArray();
+            foreach (var index in lifecycle.Order()) indices.Add((JsonNode)index);
+            document["curia_lifecycle"] = indices;
+        }
+
+        document["curia_lifecycle_kinds"] = lifecycleKinds;
+        return document;
     }
+
+    /// <summary>The wire spelling of a key's status (R4.35 rev.).</summary>
+    private static string StatusName(KeyStatus status) => status switch
+    {
+        KeyStatus.Active => "active",
+        KeyStatus.Retired => "retired",
+        KeyStatus.Compromised => "compromised",
+        KeyStatus.Unbound => "unbound",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Not a key status"),
+    };
+
+    /// <summary>
+    /// R4.38 (add.): the guard's state as the key set publishes it, so a reader or an operator can see
+    /// which kinds the build approves and the Forum enables without asking the Forum to append one.
+    /// Both lists are in the kinds' declaration order.
+    /// </summary>
+    public static JsonObject LifecycleKinds(IEnumerable<LifecycleKind> approved, ILifecycleAppendGate gate)
+    {
+        ArgumentNullException.ThrowIfNull(approved);
+        ArgumentNullException.ThrowIfNull(gate);
+
+        var approvedSet = approved.ToHashSet();
+        var approvedNames = new JsonArray();
+        var enabledNames = new JsonArray();
+        foreach (var kind in Enum.GetValues<LifecycleKind>())
+        {
+            if (approvedSet.Contains(kind)) approvedNames.Add((JsonNode)KindName(kind));
+            if (gate.Enables(kind)) enabledNames.Add((JsonNode)KindName(kind));
+        }
+
+        return new JsonObject { ["approved"] = approvedNames, ["enabled"] = enabledNames };
+    }
+
+    private static string KindName(LifecycleKind kind) => kind switch
+    {
+        LifecycleKind.Rotation => "rotation",
+        LifecycleKind.Retirement => "retirement",
+        LifecycleKind.Compromise => "compromise",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not a lifecycle kind"),
+    };
 
     /// <summary>
     /// R4.15 and R4.28: whether <paramref name="material"/> is a key of <paramref name="alg"/> in the

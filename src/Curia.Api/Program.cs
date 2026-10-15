@@ -133,7 +133,9 @@ public sealed class Program
             sp.GetRequiredService<PostgresAgentKeyStore>(),
             sp.GetRequiredService<IEventReader>()));
         builder.Services.AddSingleton<IAuthorKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
+        builder.Services.AddSingleton<ILiveKeyResolver>(sp => sp.GetRequiredService<LogBoundKeys>());
         builder.Services.AddSingleton<IAgentKeyResolver>(sp => new LogBoundAgentKeyResolver(sp.GetRequiredService<LogBoundKeys>()));
+        builder.Services.AddSingleton<IAgentKeyLiveness>(sp => new LogKeyLiveness(sp.GetRequiredService<LogBoundKeys>()));
 
         builder.Services.AddSingleton(sp => sp.GetRequiredService<PostgresAdapters>().EventStore);
 
@@ -199,7 +201,7 @@ public sealed class Program
             sp.GetRequiredService<DuplicateThresholds>()));
 
         builder.Services.AddSingleton<IIngestPipeline>(sp => new IngestPipeline(
-            sp.GetRequiredService<IAuthorKeyResolver>(),
+            sp.GetRequiredService<ILiveKeyResolver>(),
             sp.GetRequiredService<IEventStore>(),
             sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
             sp.GetRequiredService<TimeProvider>()));
@@ -221,6 +223,20 @@ public sealed class Program
             sp.GetRequiredService<IEventReader>(),
             sp.GetRequiredService<IAuthorKeyRegistry>(),
             sp.GetRequiredService<EnrollAgent>(),
+            sp.GetRequiredService<TimeProvider>()));
+
+        // R4.18 (rev.), R4.39: the use cases behind the key routes. Each holds the event store, whose
+        // chokepoint asks the lifecycle gate again (R4.38 (add.)); the routes ask it first.
+        builder.Services.AddSingleton(sp => new RotateKey(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<IAuthorKeyRegistry>(),
+            sp.GetRequiredService<LogBoundKeys>(),
+            sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
+            sp.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(sp => new RetireKey(
+            sp.GetRequiredService<IEventStore>(),
+            sp.GetRequiredService<LogBoundKeys>(),
+            sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
             sp.GetRequiredService<TimeProvider>()));
 
         // R4.30's attestation path (errata G5), reached by no HTTP route: an operator endpoint would
@@ -302,6 +318,7 @@ public sealed class Program
                 ReplayCache: sp.GetRequiredService<IReplayCache>(),
                 VerifiersByAlg: sp.GetRequiredService<IReadOnlyDictionary<string, IContentVerifier>>(),
                 Clock: sp.GetRequiredService<TimeProvider>(),
+                KeyLiveness: sp.GetRequiredService<IAgentKeyLiveness>(),
                 DpopNonceStore: sp.GetRequiredService<IDpopNonceStore>());
         });
 

@@ -1,0 +1,6 @@
+{
+  "profile": "acta-leaf",
+  "requirement": "R4.34",
+  "note": "An agent.key-bound event as an enrolment appends it, for a P-256 key whose x coordinate begins with the byte 0x00 (milestone M6, owed since the key-binding stage): a coordinate that loses its leading zero is the encoding bug this vector exists to catch. The key is derived from a counter, so it is reproducible; its SubjectPublicKeyInfo is in meta.json.",
+  "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEANiDNA6+UqY7yv2Kvo9/V7BQIv0Aadkr3qblSPzrBH2TgOVz9fwZLf+vq4T/e1dXD6mH8EfBKiy88N8Dvs2BVw=="
+}

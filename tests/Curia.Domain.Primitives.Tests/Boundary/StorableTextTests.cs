@@ -100,6 +100,8 @@ public sealed class StorableTextTests
         AssertCap(DpopNonce.Parse, 4_096, "nonce", names: true);
         AssertCap(BoardName.Parse, 262_144, "board", names: false);
         AssertCap(ParentReference.Parse, 262_144, "parent", names: false);
+        AssertCap(StatementText.Parse, 8_192, "statement", names: true);
+        AssertCap(DetachedSignature.Parse, 4_096, "signature", names: true);
     }
 
     [Fact]
@@ -121,6 +123,8 @@ public sealed class StorableTextTests
         Assert.Equal("field=board", Refusal(BoardName.Parse(null)).Detail);
         Assert.Equal("field=parent", Refusal(ParentReference.Parse(null)).Detail);
         Assert.Equal("field=post_id", Refusal(PostId.Parse(null)).Detail);
+        Assert.Equal("field=statement", Refusal(StatementText.Parse(null)).Detail);
+        Assert.Equal("field=signature", Refusal(DetachedSignature.Parse(null)).Detail);
     }
 
     private const string ValidPostId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";

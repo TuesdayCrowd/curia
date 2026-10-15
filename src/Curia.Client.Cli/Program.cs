@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using Curia.Canon.Json;
+using Curia.Canon.Jws;
 using Curia.Client;
 using Curia.Domain.Content;
 using Curia.Domain.Verification;
@@ -73,6 +75,9 @@ internal static class Program
                 "inbox" => await InboxAsync(args, cts.Token).ConfigureAwait(false),
                 "flag" => await FlagAsync(args, cts.Token).ConfigureAwait(false),
                 "flags" => await FlagsAsync(args, cts.Token).ConfigureAwait(false),
+                "keys" => await KeysAsync(args, cts.Token).ConfigureAwait(false),
+                "rotate" => await RotateAsync(args, cts.Token).ConfigureAwait(false),
+                "retire" => await RetireAsync(args, cts.Token).ConfigureAwait(false),
                 _ => Output.Fail($"error: unknown command '{command}'. Run 'curia help'.", ExitCode.Usage),
             };
         }
@@ -209,6 +214,7 @@ internal static class Program
             Output.Line($"agent     {profile.Slug}");
             Output.Line($"agent_id  {profile.AgentId}");
             Output.Line($"kid       {profile.Kid}   alg {profile.Alg}");
+            Output.Line($"key       {profile.Kid}  (rotations recorded: {profile.Acts.Count(a => a.Kind == LifecycleAct.Rotation)})");
             Output.Line($"forum     {HeadStore.Origin(profile.Forum)}");
             Output.Line($"keys      {store.DirectoryFor(slug)}");
             Output.Line($"token     {session.TokenStatus()}");
@@ -404,7 +410,12 @@ internal static class Program
 
             var posted = await session.SubmitAsync(submission.Wire, ct).ConfigureAwait(false);
             if (!posted.TryGetValue(out var receipt, out var refusal))
-                return await RefusedAsync(client, refusal!, ct).ConfigureAwait(false);
+            {
+                // R10.71: the refusal goes whole through RefusedAsync, which verifies a duplicate refusal's answers;
+                // only then is the identity's lifecycle compared (R4.39).
+                var refused = await RefusedAsync(client, refusal!, ct).ConfigureAwait(false);
+                return await ForeignAfterAsync(client, agent.Profile, refusal!, refused, ct).ConfigureAwait(false);
+            }
 
             Output.Line($"posted    {receipt.PostId}");
             Output.Line($"kind      {PostKinds.Wire(kind)}   board {board}");
@@ -450,9 +461,10 @@ internal static class Program
                 "error: usage: curia read <post-id> [--marking datamark|delimiters|none] [--if-none-match <etag>]",
                 ExitCode.Usage);
 
-        var (forum, marking) = ReadContext(args);
+        var (forum, marking, profile) = ReadContext(args);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
+        var watch = profile is null ? null : new ForeignWatch(profile);
 
         // R9.11: "has this changed?" for a tag a previous read printed, at the cost of a round trip
         // and no body when it has not. The tag is opaque and goes back exactly as it was printed.
@@ -467,7 +479,7 @@ internal static class Program
                 return ExitCode.Ok;
             }
 
-            var rendered = await RenderAsync(client, [result.Post!], forum, ct).ConfigureAwait(false);
+            var rendered = await RenderAsync(client, [result.Post!], forum, watch, ct).ConfigureAwait(false);
             Output.Line($"etag       {result.EntityTag}   (changed since the tag you presented)");
             return rendered;
         }
@@ -475,7 +487,7 @@ internal static class Program
         var post = await client.GetPostAsync(args.Positional[0], marking, ct).ConfigureAwait(false);
         if (!post.TryGetValue(out var value, out var refusal)) return Output.Fail(refusal);
 
-        var code = await RenderAsync(client, [value], forum, ct).ConfigureAwait(false);
+        var code = await RenderAsync(client, [value], forum, watch, ct).ConfigureAwait(false);
         if (value.EntityTag is { Length: > 0 } tag)
             Output.Line($"etag       {tag}   {Hints.ReCheck(args.Positional[0], tag)}");
         return code;
@@ -503,7 +515,7 @@ internal static class Program
         if (args.Positional.Length == 0)
             return Output.Fail("error: usage: curia recheck <digest> [<digest> ...] [--forum <url>]", ExitCode.Usage);
 
-        var (forum, marking) = ReadContext(args);
+        var (forum, marking, _) = ReadContext(args);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
 
@@ -587,9 +599,10 @@ internal static class Program
 
         using (agent)
         {
-            var (forum, marking) = ReadContext(args);
+            var (forum, marking, _) = ReadContext(args);
             using var http = HttpFor(forum);
-            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
 
             var read = await session.InboxAsync(
                 new InboxRequest
@@ -602,7 +615,8 @@ internal static class Program
                 marking,
                 ct).ConfigureAwait(false);
 
-            if (!read.TryGetValue(out var inbox, out var refusal)) return Output.Fail(refusal);
+            if (!read.TryGetValue(out var inbox, out var refusal))
+                return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
             if (inbox!.Results.IsDefaultOrEmpty)
             {
@@ -664,10 +678,12 @@ internal static class Program
         {
             var forum = ForumUri(args, agent.Profile);
             using var http = HttpFor(forum);
-            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
 
             var accepted = await session.AcceptAsync(args.Positional[0], ct).ConfigureAwait(false);
-            if (!accepted.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
+            if (!accepted.TryGetValue(out var receipt, out var refusal))
+                return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
             Output.Line($"accepted  {receipt!.PostId}");
             Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
@@ -687,7 +703,7 @@ internal static class Program
     private static async Task<int> SearchAsync(Args args, CancellationToken ct)
     {
         if (args.Unknown([
-                "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles", "min-verification",
+                "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles", "min-verification", "agent",
             ]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
@@ -715,9 +731,19 @@ internal static class Program
             limit = parsed;
         }
 
-        var (forum, marking) = ReadContext(args);
+        var (forum, marking, profile) = ReadContext(args);
         using var http = HttpFor(forum);
-        var client = new ForumClient(http, forum);
+        return await SearchPageAsync(args, terms, limit, new ForumClient(http, forum), marking, profile, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The search once its Forum is chosen: <c>search --titles --agent</c> compares the named identity's key set as
+    /// <c>read</c>, <c>thread</c> and <c>board</c> do (R4.39), so it takes the profile and builds the watch here.
+    /// </summary>
+    internal static async Task<int> SearchPageAsync(
+        Args args, string terms, int? limit, ForumClient client, MarkingMode marking, AgentProfile? profile, CancellationToken ct)
+    {
+        var watch = profile is null ? null : new ForeignWatch(profile);
 
         var request = new SearchRequest(terms.Length == 0 ? null : terms)
         {
@@ -748,7 +774,7 @@ internal static class Program
         if (args.Has("titles"))
         {
             var (frame, exit) = await TitledAsync(
-                client, [.. page.Results.Select(hit => hit.Post)], marking, [.. page.Results.Select(hit => (SearchScore?)SearchScore.Of(hit))], ct).ConfigureAwait(false);
+                client, [.. page.Results.Select(hit => hit.Post)], marking, [.. page.Results.Select(hit => (SearchScore?)SearchScore.Of(hit))], ct, watch).ConfigureAwait(false);
             Output.Frame(frame);
 
             if (page.NextCursor is { Length: > 0 } nextTitled)
@@ -789,14 +815,14 @@ internal static class Program
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia thread <root-post-id> [--marking …]", ExitCode.Usage);
 
-        var (forum, marking) = ReadContext(args);
+        var (forum, marking, profile) = ReadContext(args);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
 
         var posts = await client.GetThreadAsync(args.Positional[0], marking, ct).ConfigureAwait(false);
         if (!posts.TryGetValue(out var value, out var refusal)) return Output.Fail(refusal);
 
-        return await RenderAsync(client, value, forum, ct).ConfigureAwait(false);
+        return await RenderAsync(client, value, forum, profile is null ? null : new ForeignWatch(profile), ct).ConfigureAwait(false);
     }
 
     private static async Task<int> BoardAsync(Args args, CancellationToken ct)
@@ -807,9 +833,10 @@ internal static class Program
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia board <board> [--marking …] [--titles]", ExitCode.Usage);
 
-        var (forum, marking) = ReadContext(args);
+        var (forum, marking, profile) = ReadContext(args);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
+        var watch = profile is null ? null : new ForeignWatch(profile);
 
         var posts = await client.GetBoardAsync(args.Positional[0], marking, ct).ConfigureAwait(false);
         if (!posts.TryGetValue(out var value, out var refusal)) return Output.Fail(refusal);
@@ -825,12 +852,12 @@ internal static class Program
 
         if (args.Has("titles"))
         {
-            var (frame, exit) = await TitledAsync(client, value, marking, [.. value.Select(_ => (SearchScore?)null)], ct).ConfigureAwait(false);
+            var (frame, exit) = await TitledAsync(client, value, marking, [.. value.Select(_ => (SearchScore?)null)], ct, watch).ConfigureAwait(false);
             Output.Frame(frame);
             return exit;
         }
 
-        return await RenderAsync(client, value, forum, ct).ConfigureAwait(false);
+        return await RenderAsync(client, value, forum, watch, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -840,14 +867,15 @@ internal static class Program
     /// <see cref="RenderAsync"/>'s: 6 if any passage failed, 8 if a key set was unreachable.
     /// </summary>
     internal static async Task<(FrameBuilder Frame, int Exit)> TitledAsync(
-        ForumClient client, ImmutableArray<ProvenancePost> posts, MarkingMode marking, IReadOnlyList<SearchScore?> scores, CancellationToken ct)
+        ForumClient client, ImmutableArray<ProvenancePost> posts, MarkingMode marking, IReadOnlyList<SearchScore?> scores, CancellationToken ct,
+        ForeignWatch? watch = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(scores);
         if (scores.Count != posts.Length)
             throw new ArgumentException("one score, or null, per post", nameof(scores));
 
-        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct).ConfigureAwait(false);
+        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct, watch).ConfigureAwait(false);
 
         var frame = new FrameBuilder();
         frame.Line($"{passages.Length} post(s). Each title below is content, from the post's verified canonical form; read a post with 'curia read <post-id>'.");
@@ -862,24 +890,40 @@ internal static class Program
         for (var i = 0; i < passages.Length; i++)
             TitledIndex.Write(frame, i + 1, passages[i], marking, scores[i]);
 
-        return (frame, ExitCode.ForOutcomes(outcomes));
+        return (frame, ForeignOr(watch, ExitCode.ForOutcomes(outcomes)));
     }
 
     /// <summary>
     /// Verifies every passage against the author's published keys, then renders them isolated.
     /// Verification happens before anything is printed: a passage this client could not
     /// authenticate is still shown, but it is shown saying so.
+    ///
+    /// <para>When a <paramref name="watch"/> is given (the read named <c>--agent</c>), the key set of that
+    /// identity is compared with the profile's recorded acts as it is read for the verification, and a foreign
+    /// entry in it is reported after the passages and ends the exit in 6 (R4.39).</para>
     /// </summary>
-    private static async Task<int> RenderAsync(
-        ForumClient client, ImmutableArray<ProvenancePost> posts, Uri forum, CancellationToken ct)
+    internal static async Task<int> RenderAsync(
+        ForumClient client, ImmutableArray<ProvenancePost> posts, Uri forum, ForeignWatch? watch, CancellationToken ct)
     {
-        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct).ConfigureAwait(false);
+        var (passages, outcomes) = await VerifyAllAsync(client, posts, ct, watch).ConfigureAwait(false);
 
         var contract = ReaderContractLocation.For(forum, posts.Length > 0 ? posts[0].Provenance.ReaderContract : null);
 
         Output.Passages(new Reading(passages, contract));
 
-        return ExitCode.ForOutcomes(outcomes);
+        return ForeignOr(watch, ExitCode.ForOutcomes(outcomes));
+    }
+
+    /// <summary>
+    /// What a read exits with once its watch has been consulted: 6 and the FOREIGN lines, on stderr, when the
+    /// identity's key set held an entry its profile did not make, and otherwise the read's own exit.
+    /// </summary>
+    private static int ForeignOr(ForeignWatch? watch, int exit)
+    {
+        if (watch is null || watch.Foreign.Count == 0) return exit;
+
+        Output.Error(ForeignLines(watch.Foreign));
+        return ExitCode.Unverified;
     }
 
     /// <summary>
@@ -888,7 +932,7 @@ internal static class Program
     /// its signature covers (R10.71), whatever the signature's verdict.
     /// </summary>
     internal static async Task<(ImmutableArray<Passage> Passages, CheckOutcome[] Outcomes)> VerifyAllAsync(
-        ForumClient client, ImmutableArray<ProvenancePost> posts, CancellationToken ct)
+        ForumClient client, ImmutableArray<ProvenancePost> posts, CancellationToken ct, ForeignWatch? watch = null)
     {
         ArgumentNullException.ThrowIfNull(client);
 
@@ -906,9 +950,26 @@ internal static class Program
             var author = post.Provenance.Author;
             if (!jwks.ContainsKey(author) && !unreachable.ContainsKey(author))
             {
-                var fetched = await client.GetJwksAsync(author, ct).ConfigureAwait(false);
-                if (fetched.TryGetValue(out var value, out var refusal)) jwks[author] = value;
-                else unreachable[author] = refusal!;
+                // The one key set this read is watching is read with its lifecycle (R4.39); every other is read as it was.
+                if (watch is not null && string.Equals(author, watch.Profile.AgentId, StringComparison.Ordinal))
+                {
+                    var watched = await client.GetKeySetAsync(author, ct).ConfigureAwait(false);
+                    if (watched.TryGetValue(out var keySet, out var watchedRefusal))
+                    {
+                        jwks[author] = keySet.Keys;
+                        watch.Observe(keySet);
+                    }
+                    else
+                    {
+                        unreachable[author] = watchedRefusal!;
+                    }
+                }
+                else
+                {
+                    var fetched = await client.GetJwksAsync(author, ct).ConfigureAwait(false);
+                    if (fetched.TryGetValue(out var value, out var refusal)) jwks[author] = value;
+                    else unreachable[author] = refusal!;
+                }
             }
 
             var verdict = unreachable.TryGetValue(author, out var fault)
@@ -1010,7 +1071,8 @@ internal static class Program
 
         // R6.52's other two checks: the leaf recomputed from the log's own entry, and the log's
         // growth since the head this client retains; and R6.54's, the signing key bound in the log
-        // before the post. Run against the post already read rather than
+        // before the post, and R6.54 (add.)'s, the key still the author's in its lifecycle when the post was
+        // accepted. Run against the post already read rather than
         // one fetched again, so the verdict is about the document above rather than about whatever
         // the Forum would serve on a second request.
         Output.Blank();
@@ -1020,6 +1082,7 @@ internal static class Program
         Output.Line($"inclusion   {new OwnText(acta.Inclusion.Describe)}");
         Output.Line($"consistency {new OwnText(acta.Consistency.Describe)}");
         Output.Line($"key         {new OwnText(acta.KeyBinding.Describe)}");
+        Output.Line($"lifecycle   {new OwnText(acta.Lifecycle.Describe)}");
 
         return ExitCode.ForOutcomes(local.Outcome, independent.Outcome, acta.Overall);
     }
@@ -1078,10 +1141,12 @@ internal static class Program
         {
             var forum = ForumUri(args, agent.Profile);
             using var http = HttpFor(forum);
-            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
 
             var raised = await session.FlagAsync(postId, kind, rationale, ct).ConfigureAwait(false);
-            if (!raised.TryGetValue(out var receipt, out var refusal)) return Output.Fail(refusal);
+            if (!raised.TryGetValue(out var receipt, out var refusal))
+                return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
             Output.Line($"flagged   {receipt!.PostId}");
             Output.Line($"kind      {receipt.Kind}   raised {receipt.RaisedAt}");
@@ -1121,10 +1186,12 @@ internal static class Program
         {
             var forum = ForumUri(args, agent.Profile);
             using var http = HttpFor(forum);
-            var session = new ForumSession(new ForumClient(http, forum), agent, store, TimeProvider.System);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
 
             var listed = await session.FlagsAsync(postId, ct).ConfigureAwait(false);
-            if (!listed.TryGetValue(out var flags, out var refusal)) return Output.Fail(refusal);
+            if (!listed.TryGetValue(out var flags, out var refusal))
+                return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
             if (flags.IsDefaultOrEmpty)
             {
@@ -1142,9 +1209,440 @@ internal static class Program
         }
     }
 
+    // ---- keys that end (errata G21, spec sections 4.9 and 4.12) --------------------------
+
+    /// <summary>
+    /// <c>curia keys --agent &lt;slug&gt;</c>: the keys the Forum binds to this identity and the lifecycle it
+    /// publishes, compared with the acts this profile recorded (R4.39). Reads the profile alone, not its keys:
+    /// the verb that tells an owner a thief has acted must run when the owner's own key no longer works.
+    /// </summary>
+    private static async Task<int> KeysAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        if (args.Positional.Length != 0)
+            return Output.Fail("error: usage: curia keys --agent <name> [--forum <url>]", ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.ReadProfile(slug).TryGetValue(out var profile, out var profileError))
+            return Output.Fail($"error: {profileError!.Title}{Detail(profileError.Detail)}", ExitCode.Local);
+
+        var forum = ForumUri(args, profile);
+        using var http = HttpFor(forum);
+        return await ShowKeysAsync(new ForumClient(http, forum), profile!, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The report <c>curia keys</c> prints (spec section 4.9): one line per key, the lifecycle's extent, a
+    /// <c>MISSING</c> line for each act this profile recorded that the Forum's lifecycle does not hold and a
+    /// <c>FOREIGN</c> line for each entry it holds that this profile did not make, and the kinds the Forum enables.
+    /// Exit 6 on any <c>MISSING</c> or <c>FOREIGN</c> line.
+    /// </summary>
+    internal static async Task<int> ShowKeysAsync(ForumClient client, AgentProfile profile, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(profile);
+
+        var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var keySet, out var refusal)) return Output.Fail(refusal);
+
+        var frame = new FrameBuilder();
+        foreach (var key in keySet.Keys.OrderBy(k => k.LogIndex ?? long.MaxValue).ThenBy(k => k.Kid, StringComparer.Ordinal))
+        {
+            // The status is the Forum's word: its own four are written as they are, and any other is quoted.
+            if (key.Status is "active" or "retired" or "compromised" or "unbound")
+                frame.Line($"key {key.Kid} {new OwnText(key.Status)}, bound at log index {key.LogIndex}{RetiredAt(key)}");
+            else
+                frame.Line($"key {key.Kid} {key.Status}, bound at log index {key.LogIndex}{RetiredAt(key)}");
+        }
+
+        long? last = keySet.Lifecycle is { IsEmpty: false } lifecycle ? lifecycle.Max() : null;
+        frame.Line($"lifecycle published through log index {last}; {profile.Acts.Length} acts of this profile recorded");
+
+        var findings = LifecycleWatch.Compare(profile, keySet);
+        foreach (var missing in findings.Where(f => !f.Foreign))
+            frame.Line($"MISSING: this profile's {new OwnText(missing.Kind)} at log index {missing.LogIndex} is not in the lifecycle the Forum publishes");
+
+        Output.Frame(frame);
+
+        var foreign = findings.Where(f => f.Foreign).ToList();
+        if (foreign.Count > 0) Output.Frame(ForeignLines(foreign));
+
+        if (keySet.EnabledKinds is { } enabled)
+            Output.Line($"lifecycle kinds this Forum enables: {(enabled.IsEmpty ? new OwnText("none") : Literals(enabled))}");
+        else
+            Output.Line("lifecycle kinds this Forum enables: its key set does not say");
+
+        if (!findings.IsEmpty) return ExitCode.Unverified;
+
+        // No finding is a clean comparison only if one could be made: a lifecycle to read and a key naming its binding.
+        if (last is null)
+            return Output.Fail("could not compare: the Forum's key set names no lifecycle", ExitCode.ForumFault);
+
+        if (!keySet.Keys.Any(k => k.LogIndex is not null))
+            return Output.Fail("could not compare: no key names its binding", ExitCode.ForumFault);
+
+        return ExitCode.Ok;
+    }
+
+    private static OwnText RetiredAt(ForumJwk key) =>
+        key.RetiredLogIndex is { } retired
+            ? new OwnText(", retired at " + retired.ToString(CultureInfo.InvariantCulture))
+            : new OwnText(string.Empty);
+
+    /// <summary>
+    /// The lines that report entries in an identity's lifecycle that its profile did not make: one each, and then
+    /// where to go (spec section 4.9; the operator runbook, R12.11, takes the first index as the latest a compromise
+    /// declaration may be made from).
+    /// </summary>
+    private static FrameBuilder ForeignLines(IReadOnlyList<LifecycleFinding> foreign)
+    {
+        var frame = new FrameBuilder();
+        foreach (var entry in foreign.OrderBy(f => f.LogIndex))
+            frame.Line($"FOREIGN: a {new OwnText(entry.Kind)} at log index {entry.LogIndex} that this profile did not make");
+
+        var first = foreign.Min(f => f.LogIndex);
+        frame.Line($"report it to the Forum's operator; a compromise declaration from no later than log index {first} ends the key it bound (R6.57)");
+        return frame;
+    }
+
+    /// <summary>The refusals after which a client reads the identity's key set to see whether a stranger has acted (spec section 4.9).</summary>
+    private static bool IsLifecycleTrigger(Refusal refusal) =>
+        refusal.Error.Type is "invalid_client" or "curia/authn/token-key-not-live" or "curia/keys/retired";
+
+    /// <summary>
+    /// A refusal as <see cref="RefusedAsync"/> writes it, and then, after <c>invalid_client</c>,
+    /// <c>curia/authn/token-key-not-live</c> or <c>curia/keys/retired</c>, the FOREIGN comparison (R4.39): the key
+    /// set is anonymous and public, so the read leaks nothing, and a key that has been retired or rotated by
+    /// someone else looks exactly like a key that has expired. Any FOREIGN line is written after the refusal
+    /// and the exit is 6; with none, the refusal's own exit stands.
+    /// </summary>
+    internal static async Task<int> RefusedAsAgentAsync(ForumClient client, AgentProfile profile, Refusal refusal, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+
+        var code = await RefusedAsync(client, refusal, ct).ConfigureAwait(false);
+        return await ForeignAfterAsync(client, profile, refusal, code, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<int> ForeignAfterAsync(
+        ForumClient client, AgentProfile profile, Refusal refusal, int code, CancellationToken ct)
+    {
+        if (!IsLifecycleTrigger(refusal)) return code;
+
+        var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var keySet, out _)) return code;
+
+        var foreign = LifecycleWatch.Compare(profile, keySet).Where(f => f.Foreign).ToList();
+        if (foreign.Count == 0) return code;
+
+        Output.Error(ForeignLines(foreign));
+        return ExitCode.Unverified;
+    }
+
+    /// <summary>
+    /// <c>curia rotate --agent &lt;slug&gt; [--signer &lt;command&gt;]</c> (R4.18 rev., spec section 4.12).
+    /// </summary>
+    private static async Task<int> RotateAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "signer", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        if (args.Positional.Length != 0)
+            return Output.Fail("error: usage: curia rotate --agent <name> [--signer <command>] [--forum <url>]", ExitCode.Usage);
+
+        var signerCommand = args.Value("signer");
+        if (signerCommand is { Length: 0 })
+            return Output.Fail("error: --signer needs the command of the signer that holds the new key.", ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+
+        using (agent)
+        {
+            var forum = ForumUri(args, agent.Profile);
+            using var http = HttpFor(forum);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
+
+            return await RotateKeyAsync(client, session, agent, store, signerCommand, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// <c>curia retire --agent &lt;slug&gt; --kid &lt;kid&gt;</c> (R4.39, spec section 4.12).
+    /// </summary>
+    private static async Task<int> RetireAsync(Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "kid", "forum"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        if (args.Positional.Length != 0 || args.Value("kid") is not { Length: > 0 } kid)
+            return Output.Fail("error: usage: curia retire --agent <name> --kid <kid> [--forum <url>]", ExitCode.Usage);
+
+        var store = ProfileStore.Default();
+        var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
+        if (slug is null)
+            return Output.Fail("error: --agent <name> is required (no agent is enrolled).", ExitCode.Usage);
+
+        if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+
+        using (agent)
+        {
+            var forum = ForumUri(args, agent.Profile);
+            using var http = HttpFor(forum);
+            var client = new ForumClient(http, forum);
+            var session = new ForumSession(client, agent, store, TimeProvider.System);
+
+            return await RetireKeyAsync(client, session, store, agent.Profile, kid, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The refusal a Forum that does not enable the kind answers first (spec section 4.7).</summary>
+    private const string LifecycleNotEnabled = "curia/keys/lifecycle-not-enabled";
+
+    /// <summary>The refusal of an act whose <c>prev</c> is not the identity's latest lifecycle entry (spec section 4.7).</summary>
+    private const string LifecycleMoved = "curia/keys/lifecycle-moved";
+
+    /// <summary>
+    /// A rotation, from reading the key set to the profile written (spec section 4.12), in this order: the key set is
+    /// read and compared with the profile before a key is generated or a signer is asked for anything, and a
+    /// foreign entry ends the verb there (R4.39); the new key is made and the statement signed with the lifecycle
+    /// operation of each signer; the act is sent; and only a 201 changes anything on disk. A refusal of any kind
+    /// leaves <c>identity.json</c>, <c>signing-key.pem</c> and <c>keys/</c> byte-identical and the new key
+    /// discarded. A <c>lifecycle-moved</c> is retried once, with the same new key, and only over acts this
+    /// profile made.
+    /// </summary>
+    internal static async Task<int> RotateKeyAsync(
+        ForumClient client, ForumSession session, EnrolledAgent agent, ProfileStore store, string? signerCommand, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(agent);
+        ArgumentNullException.ThrowIfNull(store);
+
+        var profile = agent.Profile;
+
+        var (stopped, prev) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
+        if (stopped is { } exit) return exit;
+
+        using var generated = signerCommand is null ? ECDsa.Create(ECCurve.NamedCurves.nistP256) : null;
+        InProcessSigner? local = null;
+        try
+        {
+            IAgentSigner next;
+            if (generated is not null)
+            {
+                local = new InProcessSigner(generated, $"{profile.Slug}-{Guid.NewGuid().ToString("N")[..8]}");
+                next = local;
+            }
+            else
+            {
+                if (!ExternalSigner.Describe(signerCommand!).TryGetValue(out var external, out var signerError))
+                    return Output.Fail($"error: {signerError!.Title}{Detail(signerError.Detail)}", ExitCode.Local);
+
+                // R11.20: a key an identity has already used is not a new key.
+                if (string.Equals(external!.Kid, profile.Kid, StringComparison.Ordinal)
+                    || profile.Retained.Any(k => string.Equals(k.Kid, external.Kid, StringComparison.Ordinal)))
+                    return Output.Fail($"error: the signer describes {external.Kid}, a key this profile has already used; a rotation needs a key it has not.", ExitCode.Usage);
+
+                next = external;
+            }
+
+            for (var attempt = 0; ; attempt++)
+            {
+                var built = KeyActs.BuildRotation(agent, next, prev);
+                if (!built.TryGetValue(out var request, out var buildError))
+                    return Output.Fail($"error: {buildError!.Title}{Detail(buildError.Detail)}", ExitCode.Local);
+
+                var sent = await session.RotateKeyAsync(profile.AgentId, request, ct).ConfigureAwait(false);
+                if (sent.TryGetValue(out var receipt, out var refusal))
+                    return CompleteRotation(store, profile, next, generated, receipt);
+
+                if (refusal!.Error.Type == LifecycleNotEnabled)
+                    return Output.Fail("refused   this Forum does not enable key rotation (curia/keys/lifecycle-not-enabled); nothing was changed", ExitCode.Denied);
+
+                if (refusal.Error.Type == LifecycleMoved && attempt == 0)
+                {
+                    (stopped, prev) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
+                    if (stopped is { } retryExit) return retryExit;
+                    continue;
+                }
+
+                return await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            local?.Dispose();
+        }
+    }
+
+    private static int CompleteRotation(
+        ProfileStore store, AgentProfile profile, IAgentSigner next, ECDsa? generated, KeyActReceipt receipt)
+    {
+        try
+        {
+            store.CompleteRotation(FreshProfile(store, profile), next, generated, receipt);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The Forum has bound the key and this profile could not keep it. Said plainly, because the
+            // alternative is an owner who rotated and cannot sign.
+            return Output.Fail(
+                $"error: the Forum bound key {receipt.Kid} at log index {receipt.LogIndex}, and this profile could not be updated: {ex.Message}",
+                ExitCode.Local);
+        }
+
+        Output.Line($"rotated   key {receipt.Kid} bound at log index {receipt.LogIndex}, authorized by {profile.Kid}");
+        Output.Line($"{profile.Kid} stays live until it is retired:");
+        Output.Line($"{Hints.Retire(profile.Slug, profile.Kid)}");
+        Output.Line("restart any curia-mcp serving this identity; it read its key at start.");
+        return ExitCode.Ok;
+    }
+
+    /// <summary>
+    /// A retirement of a key this profile rotated away from (spec section 4.12), in the order a rotation is made:
+    /// the current key is refused first, with nothing read or sent, then the key set is read and compared, then
+    /// the retained key signs, then the act is sent, and only a 201 changes the profile.
+    /// </summary>
+    internal static async Task<int> RetireKeyAsync(
+        ForumClient client, ForumSession session, ProfileStore store, AgentProfile profile, string kid, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(kid);
+
+        if (string.Equals(kid, profile.Kid, StringComparison.Ordinal))
+        {
+            var current = ClientErrors.RetireCurrentKey(kid);
+            return Output.Fail($"error: {current.Title}{Detail(current.Detail)}", ExitCode.Usage);
+        }
+
+        if (!profile.Retained.Any(k => string.Equals(k.Kid, kid, StringComparison.Ordinal) && !k.Retired))
+        {
+            var unknown = ClientErrors.NoRetainedKey(kid);
+            return Output.Fail($"error: {unknown.Title}{Detail(unknown.Detail)}\n       the keys this profile knows: {Hints.Keys(profile.Slug)}", ExitCode.Local);
+        }
+
+        var (stopped, prev) = await ReadLifecycleAsync(client, profile, after: null, ct).ConfigureAwait(false);
+        if (stopped is { } exit) return exit;
+
+        if (!store.LoadRetained(profile, kid).TryGetValue(out var retiring, out var loadError))
+            return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
+
+        try
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                var built = KeyActs.BuildRetirement(retiring!, profile.AgentId, prev);
+                if (!built.TryGetValue(out var request, out var buildError))
+                    return Output.Fail($"error: {buildError!.Title}{Detail(buildError.Detail)}", ExitCode.Local);
+
+                var sent = await session.RetireKeyAsync(profile.AgentId, kid, request, ct).ConfigureAwait(false);
+                if (sent.TryGetValue(out var receipt, out var refusal))
+                {
+                    try
+                    {
+                        store.CompleteRetirement(FreshProfile(store, profile), receipt);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        return Output.Fail(
+                            $"error: the Forum retired key {receipt.Kid} at log index {receipt.LogIndex}, and this profile could not be updated: {ex.Message}",
+                            ExitCode.Local);
+                    }
+
+                    Output.Line($"retired   key {receipt.Kid} at log index {receipt.LogIndex}; this profile signs with {profile.Kid}");
+                    return ExitCode.Ok;
+                }
+
+                if (refusal!.Error.Type == LifecycleNotEnabled)
+                    return Output.Fail("refused   this Forum does not enable key retirement (curia/keys/lifecycle-not-enabled); nothing was changed", ExitCode.Denied);
+
+                if (refusal.Error.Type == LifecycleMoved && attempt == 0)
+                {
+                    (stopped, prev) = await ReadLifecycleAsync(client, FreshProfile(store, profile), after: prev, ct).ConfigureAwait(false);
+                    if (stopped is { } retryExit) return retryExit;
+                    continue;
+                }
+
+                return await RefusedAsAgentAsync(client, profile, refusal, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            (retiring as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The profile as <c>identity.json</c> holds it now, when it can be read and still signs with the key
+    /// <paramref name="loaded"/> did, and <paramref name="loaded"/> otherwise: another run of this client may have
+    /// recorded an act since this one loaded the profile, and writing the stale copy back would forget it.
+    /// </summary>
+    private static AgentProfile FreshProfile(ProfileStore store, AgentProfile loaded) =>
+        store.ReadProfile(loaded.Slug).TryGetValue(out var fresh, out _)
+        && string.Equals(fresh.Kid, loaded.Kid, StringComparison.Ordinal)
+            ? fresh
+            : loaded;
+
+    /// <summary>
+    /// Reads the identity's key set and decides whether an act may be signed over it (spec sections 4.9 and 4.12): a
+    /// foreign entry (one this profile did not make) ends the verb, prints FOREIGN for each and exits 6,
+    /// signing nothing; a key set that names no lifecycle ends it too, since an absence is not an empty
+    /// lifecycle. Otherwise the act links from the latest entry. With <paramref name="after"/>, the read is a
+    /// retry's, and only entries after the <c>prev</c> the refused statement signed count: those before it were
+    /// compared when the verb began.
+    /// </summary>
+    private static async Task<(int? Stopped, long Prev)> ReadLifecycleAsync(
+        ForumClient client, AgentProfile profile, long? after, CancellationToken ct)
+    {
+        var read = await client.GetKeySetAsync(profile.AgentId, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var keySet, out var refusal)) return (Output.Fail(refusal), 0);
+
+        var foreign = LifecycleWatch.Compare(profile, keySet)
+            .Where(f => f.Foreign && (after is null || f.LogIndex > after))
+            .ToList();
+        if (foreign.Count > 0)
+        {
+            Output.Error(ForeignLines(foreign));
+            return (ExitCode.Unverified, 0);
+        }
+
+        if (keySet.Lifecycle is not { IsEmpty: false } lifecycle)
+        {
+            var absent = ClientErrors.KeySetNamesNoLifecycle();
+            return (Output.Fail($"error: {absent.Title}", ExitCode.ForumFault), 0);
+        }
+
+        // A lifecycle with no key naming its binding leaves the foreign scan nothing to compare against: no finding
+        // is then not a clean comparison, so no act is signed over it (cybersecurity F-A).
+        if (!keySet.Keys.Any(k => k.LogIndex is not null))
+        {
+            var unbound = ClientErrors.KeySetNamesNoBinding();
+            return (Output.Fail($"error: {unbound.Title}", ExitCode.ForumFault), 0);
+        }
+
+        return (null, lifecycle.Max());
+    }
+
     // ---- shared -------------------------------------------------------------------------
 
-    private static (Uri Forum, MarkingMode Marking) ReadContext(Args args)
+    private static (Uri Forum, MarkingMode Marking, AgentProfile? Profile) ReadContext(Args args)
     {
         var store = ProfileStore.Default();
         AgentProfile? profile = null;
@@ -1154,7 +1652,7 @@ internal static class Program
             using (agent) profile = agent.Profile;
         }
 
-        return (ForumUri(args, profile), Marking(args));
+        return (ForumUri(args, profile), Marking(args), profile);
     }
 
     /// <summary>

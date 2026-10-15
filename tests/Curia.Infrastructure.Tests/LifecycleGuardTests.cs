@@ -340,6 +340,33 @@ public sealed class EmbeddedGatePostgresLifecycleRefusalTests(PostgresDatabaseFi
     }
 }
 
+/// <summary>R6.56's conditioned overload against the in-memory store, under the production gate.</summary>
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "xUnit discovers concrete test classes only when public; the facts are inherited.")]
+public sealed class EmbeddedGateInMemoryConditionedAppendTests : InMemoryConditionedAppendChokepointContract
+{
+    protected override ILifecycleAppendGate RefusingGate() => ProductionGate.Build();
+}
+
+/// <summary>R6.56's conditioned overload against <see cref="PostgresEventStore"/>, under the production gate.</summary>
+[SuppressMessage(
+    "Design",
+    "CA1515:Consider making public types internal",
+    Justification = "xUnit discovers concrete test classes only when public; the facts are inherited.")]
+[Collection(PostgresCollectionDefinition.Name)]
+public sealed class EmbeddedGatePostgresConditionedAppendTests(PostgresDatabaseFixture fixture) : ConditionedAppendChokepointContract
+{
+    protected override ILifecycleAppendGate RefusingGate() => ProductionGate.Build();
+
+    protected override IEventStore CreateStore(ILifecycleAppendGate gate)
+    {
+        var schema = fixture.CreateIsolatedSchemaAsync().GetAwaiter().GetResult();
+        return new PostgresEventStore(fixture.AppRoleDataSource, TimeProvider.System, gate, schema);
+    }
+}
+
 /// <summary>The positive control against <see cref="PostgresEventStore"/>: the five appends land under the permissive gate.</summary>
 [SuppressMessage(
     "Design",

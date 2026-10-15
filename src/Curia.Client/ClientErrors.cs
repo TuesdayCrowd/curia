@@ -48,6 +48,45 @@ public static class ClientErrors
         "The envelope is not a valid Table 9 document",
         detail);
 
+    /// <summary>A rotation or retirement statement could not be built or signed (errata G21): nothing was sent.</summary>
+    public static Error KeyStatementInvalid(string detail) => new(
+        "curia/client/key-statement-invalid",
+        "The key statement could not be built or signed",
+        detail);
+
+    /// <summary>
+    /// <c>curia retire</c> was asked to retire the key this profile signs with (spec section 4.12). Retiring it
+    /// would leave the identity with no key to sign the next act with; rotate first.
+    /// </summary>
+    public static Error RetireCurrentKey(string kid) => new(
+        "curia/client/retire-current-key",
+        "This profile signs with that key; rotate first, then retire the key you rotated away from",
+        kid);
+
+    /// <summary>The profile holds no retained key by the kid <c>curia retire</c> was given, or that key is already retired.</summary>
+    public static Error NoRetainedKey(string kid) => new(
+        "curia/client/no-retained-key",
+        "This profile holds no live retained key by that kid",
+        kid);
+
+    /// <summary>
+    /// The identity's key set names no lifecycle, so there is no entry to link an act from (spec section 4.12).
+    /// The Forum leaves <c>curia_lifecycle</c> out when its log will not fold; an absence is not an empty lifecycle.
+    /// </summary>
+    public static Error KeySetNamesNoLifecycle() => new(
+        "curia/client/key-set-names-no-lifecycle",
+        "The Forum's key set for this identity names no lifecycle, so no act can be linked from it; nothing was changed",
+        null);
+
+    /// <summary>
+    /// The identity's key set names a lifecycle and no key's binding, so the foreign scan has nothing to compare
+    /// against and finds nothing: an absence of findings that is not a clean comparison (errata G21, cybersecurity F-A).
+    /// </summary>
+    public static Error KeySetNamesNoBinding() => new(
+        "curia/client/key-set-names-no-binding",
+        "The Forum's key set for this identity names no key's binding, so its lifecycle cannot be compared with this profile's acts; nothing was changed",
+        null);
+
     public static Error TokenRefused(string detail) => new(
         "curia/client/token-refused",
         "The Forum refused to issue an access token",

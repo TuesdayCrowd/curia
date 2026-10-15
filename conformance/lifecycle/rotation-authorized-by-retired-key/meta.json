@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.54",
+  "note": "Both signatures verify, and the authorizing key was retired at 2, before the rotation at 3. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 4,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

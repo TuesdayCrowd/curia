@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.54",
+  "note": "The Forum omits the rotation at 2, the entry immediately before the post, from the lifecycle it lists; the retirement after the post links from 2 and the entry before it in the list is 1. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

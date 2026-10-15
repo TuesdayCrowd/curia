@@ -41,6 +41,27 @@ internal sealed class InMemoryAuthorKeyRegistry : IAuthorKeyRegistry
         }
     }
 
+    public Task<Result<RegisteredKey>> AddAsync(
+        AgentId agentId, PublicKeyMaterial key, DateTimeOffset validFrom, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentId);
+        ArgumentNullException.ThrowIfNull(key);
+
+        lock (_gate)
+        {
+            if (_byKid.TryGetValue(key.Kid, out var row))
+            {
+                return Task.FromResult(string.Equals(row.AgentId, agentId.Value, StringComparison.Ordinal) && KeyEnrollment.SameMaterial(row.Key.Key, key)
+                    ? Result<RegisteredKey>.Ok(row.Key)
+                    : Result<RegisteredKey>.Fail(AuthorKeyErrors.KidTaken(key.Kid)));
+            }
+
+            var registered = new RegisteredKey(new PublicKeyMaterial(key.Alg, key.Kid, key.Public.ToArray()), validFrom, null);
+            _byKid.Add(key.Kid, (agentId.Value, registered));
+            return Task.FromResult(Result<RegisteredKey>.Ok(registered));
+        }
+    }
+
     public Task<IReadOnlyList<RegisteredKey>> KeysForAsync(AgentId agentId, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agentId);

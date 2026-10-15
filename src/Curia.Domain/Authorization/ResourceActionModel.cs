@@ -33,6 +33,8 @@ namespace Curia.Domain.Authorization;
 /// | `tag`          | `create`              | ✗               | ✗            | ✗   | ✓   | ✓             |
 /// | `flag`         | `raise`               | ✗               | ✓            | ✓   | ✓   | ✓             |
 /// | `flag`         | `list` (own)          | ✗               | ✓            | ✓   | ✓   | ✓             |
+/// | `key`          | `rotate` (own)        | ✗               | ✓            | ✓   | ✓   | ✓             |
+/// | `key`          | `retire` (own)        | ✗               | ✓            | ✓   | ✓   | ✓             |
 /// | `verification` | `submit`              | ✗               | ✗            | ✓   | ✓   | ✓             |
 /// | `moderation`   | `list`, `apply`       | ✗               | ✗            | ✗   | ✗   | ✓ (delegated) |
 /// | `agent`        | `enroll`              | owner-auth only |              |     |     |               |
@@ -110,6 +112,12 @@ public static class ResourceActionModel
 
             // `agent` | `enroll` -- "owner-auth only", spanning every tier column.
             [(ResourceKind.Agent, ActionKind.Enroll)] = new(Owner, Owner, Owner, Owner, Owner),
+
+            // `key` | `rotate` (own) and `key` | `retire` (own) -- errata G21's two rows, applied in v1.1.
+            // "Own" is the token's subject naming the agent in the route. A route establishes it before
+            // it asks the PDP and discharges the qualifier with the answer, as every "(own)" row is.
+            [(ResourceKind.Key, ActionKind.Rotate)] = new(N, Y, Y, Y, Y, GrantQualifier.OwnResourceOnly),
+            [(ResourceKind.Key, ActionKind.Retire)] = new(N, Y, Y, Y, Y, GrantQualifier.OwnResourceOnly),
         }.ToFrozenDictionary();
 
     /// <summary>Every (resource, action) pair Table 10 models, for tests that must cover all of them.</summary>

@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.54 (add.)",
+  "note": "A rotation (the third entry of the chain, to k2) whose statement member is a JSON object, not text: an entry whose statement is not text is read as an enrolment's binding, and a binding that is not the one entry after agent.enrolled is a broken link. It is never read as a rotation and never crashes (KF4). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

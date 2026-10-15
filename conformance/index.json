@@ -8,7 +8,7 @@
       "profiles": [
         "acta-leaf"
       ],
-      "count": 7
+      "count": 10
     },
     {
       "name": "admit-accept",
@@ -54,6 +54,15 @@
         "envelope"
       ],
       "count": 8
+    },
+    {
+      "name": "lifecycle",
+      "family": true,
+      "shape": "lifecycle",
+      "profiles": [
+        "lifecycle-log"
+      ],
+      "count": 37
     },
     {
       "name": "merkle",

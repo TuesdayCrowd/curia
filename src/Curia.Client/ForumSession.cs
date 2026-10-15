@@ -182,6 +182,47 @@ public sealed class ForumSession
     }
 
     /// <summary>
+    /// R4.18 (rev.): <c>POST /v1/agents/{id}/keys</c>, a rotation built by <see cref="KeyActs.BuildRotation"/>. The
+    /// identity is in the path as <see cref="KeyActUrls.Segment"/> writes it, so an identifier holding a literal
+    /// <c>%2F</c> goes as <c>%252F</c> and names that identity and no other, and the DPoP proof's <c>htu</c> is the
+    /// path form the host reads (<see cref="KeyActUrls.ProofTarget"/>), which is not the sent URL whenever
+    /// an escape is in it.
+    /// </summary>
+    public Task<ForumResult<KeyActReceipt>> RotateKeyAsync(string agentId, RotationRequest request, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var path = KeyActUrls.RotatePath(agentId);
+        return WriteAsync(
+            path,
+            System.Text.Encoding.UTF8.GetBytes(request.Body()),
+            ForumDocuments.ReadKeyActReceipt,
+            ct,
+            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)));
+    }
+
+    /// <summary>
+    /// R4.39: <c>POST /v1/agents/{id}/keys/{kid}/retire</c>, a retirement built by
+    /// <see cref="KeyActs.BuildRetirement"/>. Escaped and proved as <see cref="RotateKeyAsync"/> is.
+    /// </summary>
+    public Task<ForumResult<KeyActReceipt>> RetireKeyAsync(
+        string agentId, string kid, RetirementRequest request, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kid);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var path = KeyActUrls.RetirePath(agentId, kid);
+        return WriteAsync(
+            path,
+            System.Text.Encoding.UTF8.GetBytes(request.Body()),
+            ForumDocuments.ReadKeyActReceipt,
+            ct,
+            proofTarget: KeyActUrls.ProofTarget(_client.UrlFor(path)));
+    }
+
+    /// <summary>
     /// The board's <c>inbox</c>: open questions this agent could usefully answer.
     ///
     /// <para>The only authenticated <i>read</i> this client makes. Every other read is anonymous
@@ -202,6 +243,11 @@ public sealed class ForumSession
         if (ForumClient.UnfilterableTag(request.Tags) is { } unfilterable)
             return ForumResult<InboxPage>.Local(ClientErrors.TagNotFilterable(unfilterable));
 
+        return await WithRemintAsync(() => InboxOnceAsync(request, marking, ct)).ConfigureAwait(false);
+    }
+
+    private async Task<ForumResult<InboxPage>> InboxOnceAsync(InboxRequest request, MarkingMode marking, CancellationToken ct)
+    {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
             return ForumResult<InboxPage>.Refused(tokenRefusal);
@@ -247,7 +293,11 @@ public sealed class ForumSession
     /// never the agent that raised it — so a client cannot build the accuser graph even by
     /// collecting responses.</para>
     /// </summary>
-    public async Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsAsync(
+    public Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsAsync(
+        string? postId, CancellationToken ct) =>
+        WithRemintAsync(() => FlagsOnceAsync(postId, ct));
+
+    private async Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsOnceAsync(
         string? postId, CancellationToken ct)
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
@@ -273,18 +323,49 @@ public sealed class ForumSession
     /// part a client either gets right once or fails intermittently on forever, and two copies of
     /// it is two chances to get it right — which is one more than this is worth.</para>
     /// </summary>
-    private async Task<ForumResult<T>> WriteAsync<T>(
+    private Task<ForumResult<T>> WriteAsync<T>(
         string path,
         ReadOnlyMemory<byte> body,
         Func<JsonValue.Object, Result<T>> read,
         CancellationToken ct,
-        string query = "")
+        string query = "",
+        string? proofTarget = null) =>
+        WithRemintAsync(() => WriteOnceAsync(path, body, read, query, proofTarget, ct));
+
+    /// <summary>
+    /// R5.22: the Forum refuses a token with <c>401</c> and <c>curia/authn/token-key-not-live</c> or
+    /// <c>curia/authn/token-names-no-key</c> once the key it was issued on has ended, or when it names none.
+    /// Either way the cached token can never work again, so it is deleted and the request is made once more
+    /// with a token minted now. The retry is once: a second refusal is the answer, and a client that looped
+    /// would hammer a token endpoint that has just refused its key.
+    /// </summary>
+    private async Task<ForumResult<T>> WithRemintAsync<T>(Func<Task<ForumResult<T>>> attempt)
+    {
+        var first = await attempt().ConfigureAwait(false);
+        if (first.TryGetValue(out _, out var refusal)
+            || refusal!.Status != (int)HttpStatusCode.Unauthorized
+            || refusal.Error.Type is not ("curia/authn/token-key-not-live" or "curia/authn/token-names-no-key"))
+        {
+            return first;
+        }
+
+        _store.DeleteToken(_agent.Profile.Slug);
+        return await attempt().ConfigureAwait(false);
+    }
+
+    private async Task<ForumResult<T>> WriteOnceAsync<T>(
+        string path,
+        ReadOnlyMemory<byte> body,
+        Func<JsonValue.Object, Result<T>> read,
+        string query,
+        string? proofTarget,
+        CancellationToken ct)
     {
         var tokenResult = await AccessTokenAsync(ct).ConfigureAwait(false);
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
             return ForumResult<T>.Refused(tokenRefusal);
 
-        var url = _client.UrlFor(path);
+        var url = proofTarget ?? _client.UrlFor(path).ToString();
         var cached = _store.ReadToken(_agent.Profile.Slug);
 
         var target = path + query;
@@ -318,7 +399,7 @@ public sealed class ForumSession
         string path,
         ReadOnlyMemory<byte> wire,
         string token,
-        Uri url,
+        string url,
         string? nonce,
         Func<JsonValue.Object, Result<T>> read,
         CancellationToken ct)

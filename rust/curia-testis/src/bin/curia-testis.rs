@@ -36,6 +36,7 @@ use std::collections::HashMap;
 use curia_testis::acta::{self, ActaError, VerifiedHead};
 use curia_testis::display;
 use curia_testis::envelope::VerifyEnvelopeError;
+use curia_testis::lifecycle;
 
 const USAGE: &str = "\
 curia-testis - offline, independent verifier for signed Curia post envelopes
@@ -47,6 +48,7 @@ USAGE:
     curia-testis log consistency --proof <path> [--from-head <path>] [--to-head <path>] [--log-jwks <path>]
     curia-testis log author      --entry <path> --proof <path> --key-entry <path> --key-proof <path>
                                  [--head <path> --log-jwks <path>]
+                                 [--lifecycle-entry <path> --lifecycle-proof <path>]...
 
     The log verbs take the JSON bodies of GET /v1/log/head, /v1/log/entries/{i},
     /v1/log/proof/{i}, /v1/log/consistency and /v1/log/jwks, saved to files. The
@@ -56,6 +58,12 @@ USAGE:
     log author is R6.54: the post in --entry was signed by the key the
     agent.key-bound entry in --key-entry carries, bound earlier in the log,
     with both proofs under one signed head. No agent key set is read.
+
+    With a head, log author also folds the author's lifecycle (R6.54 (add.)):
+    each --lifecycle-entry/--lifecycle-proof pair, repeated and in log order,
+    is one lifecycle entry of the author and its proof, from the author's
+    agent.enrolled through the first entry at or after the post. The key is
+    verified only if it was bound before the post and not retired before it.
 
 EXIT CODES:
     0  verified: every check ran and held
@@ -70,8 +78,10 @@ EXIT CODES:
        (inclusion, author) or --from-head/--to-head (consistency). For log
        author, also: the log carries no key for the post's kid from before the
        post -- the author's enrollment, which names the kid and no key, or the
-       author's binding made after the post. This is not a pass and not a
-       failure.
+       author's binding made after the post; and no lifecycle was supplied, or
+       it holds an entry of a kind this verifier does not know, or it is too
+       long: an offline verifier given no lifecycle cannot say the key was not
+       retired. This is not a pass and not a failure.
 ";
 
 /// Deliberate, documented bound on `--jwks`, per the Task 6 brief's ruling
@@ -226,7 +236,8 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
             "missing log subcommand: head, inclusion, consistency or author".to_string(),
         )
     })?;
-    let flags = parse_path_flags(&args[1..])?;
+    let lifecycle_flags = take_lifecycle_flags(&args[1..])?;
+    let flags = parse_path_flags(&lifecycle_flags.rest)?;
 
     match verb {
         "head" => {
@@ -337,7 +348,12 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
                     println!("key_index: {}", verified.key_index);
                     println!("post_index: {}", verified.post_index);
                     print_head("head", &head);
-                    Ok(())
+                    author_lifecycle(
+                        &entry,
+                        &head,
+                        &lifecycle_flags.entries,
+                        &lifecycle_flags.proofs,
+                    )
                 }
                 Err(err) => Err(author_refusal(err)),
             }
@@ -347,6 +363,92 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
             display::literal(other)
         ))),
     }
+}
+
+/// R6.54 (add.): the author's lifecycle, folded, once the post's key is shown to have been bound before the post.
+/// With no lifecycle supplied the verifier cannot say the key was not retired, and says so (exit 3).
+fn author_lifecycle(
+    post_entry: &[u8],
+    head: &VerifiedHead,
+    entries: &[PathBuf],
+    proofs: &[PathBuf],
+) -> Result<(), CliError> {
+    if entries.is_empty() {
+        println!("lifecycle: could not be checked: no lifecycle supplied");
+        return Err(CliError::NotAnchored(format!(
+            "{}: an offline verifier given no lifecycle cannot say the key was not retired",
+            ActaError::LifecycleNotSupplied
+        )));
+    }
+
+    let mut chain = Vec::with_capacity(entries.len());
+    for (entry, proof) in entries.iter().zip(proofs) {
+        chain.push((
+            read_bounded(entry, CLI_MAX_JWKS_BYTES, "--lifecycle-entry")?,
+            read_bounded(proof, CLI_MAX_JWKS_BYTES, "--lifecycle-proof")?,
+        ));
+    }
+
+    match lifecycle::verify_lifecycle_under(post_entry, &chain, head) {
+        Ok(verified) => {
+            println!("lifecycle: verified through leaf {}", verified.last_index);
+            println!("lifecycle_entries: {}", verified.entries_checked);
+            Ok(())
+        }
+        Err(err) if err.not_established() => Err(CliError::NotAnchored(format!(
+            "{err}: whether the post's key was live in its author's lifecycle when the post was accepted is not established"
+        ))),
+        Err(err) => Err(CliError::Acta(err)),
+    }
+}
+
+/// What `log author` was given besides the flags that take one value each: the lifecycle, as the repeated
+/// `--lifecycle-entry` and `--lifecycle-proof` flags, in the order given.
+struct LifecycleFlags {
+    rest: Vec<String>,
+    entries: Vec<PathBuf>,
+    proofs: Vec<PathBuf>,
+}
+
+/// Takes the repeated `--lifecycle-entry` and `--lifecycle-proof` flags out of `args`, in the order given, and
+/// returns the rest. They pair by position, so one without the other is a usage error.
+fn take_lifecycle_flags(args: &[String]) -> Result<LifecycleFlags, CliError> {
+    let mut taken = LifecycleFlags {
+        rest: Vec::new(),
+        entries: Vec::new(),
+        proofs: Vec::new(),
+    };
+    let mut i = 0;
+    while i < args.len() {
+        let name = args[i].as_str();
+        let target = match name {
+            "--lifecycle-entry" => Some(&mut taken.entries),
+            "--lifecycle-proof" => Some(&mut taken.proofs),
+            _ => None,
+        };
+        match target {
+            Some(paths) => {
+                let value = args
+                    .get(i + 1)
+                    .ok_or_else(|| CliError::Usage(format!("{name} requires a value")))?;
+                paths.push(PathBuf::from(value));
+            }
+            None => {
+                taken.rest.push(args[i].clone());
+                if let Some(value) = args.get(i + 1) {
+                    taken.rest.push(value.clone());
+                }
+            }
+        }
+        i += 2;
+    }
+    if taken.entries.len() != taken.proofs.len() {
+        return Err(CliError::Usage(
+            "--lifecycle-entry and --lifecycle-proof pair by position: give one proof for each entry"
+                .to_string(),
+        ));
+    }
+    Ok(taken)
 }
 
 /// A `log author` refusal as the CLI reports it. R6.54's third outcome -- the
