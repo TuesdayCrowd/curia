@@ -1190,16 +1190,27 @@ Rows F1-27…F1-126 and F1-48b (F1-47 and F1-71…F1-75 excepted, whose literal 
 
 ### Task 2.2: Disputed content served (R6.57, R6.30 (rev.))
 
-- [ ] Provenance gains `key_status` (`active|retired|compromised`) and `disputed_by_log_index` (integer or absent) for posts with `t_c` ≤ index < declaration.
-- [ ] `HybridSearch` removes disputed posts from fused candidates and states `excluded_disputed: <n>` in the response's floor block.
-- [ ] `VerificationProjection` gives no weight to a `vote` or `verification` from a disputed post.
+- [x] Provenance gains `key_status` (`active|retired|compromised`) and `disputed_by_log_index` (integer or absent) for posts with `t_c` ≤ index < declaration.
+- [x] `HybridSearch` removes disputed posts from fused candidates and states `excluded_disputed: <n>` in the response's floor block.
+- [x] `VerificationProjection` gives no weight to a `vote` or `verification` from a disputed post.
 
-**Facts:**
+**As built (the block named outcomes, not code; these are the choices):**
+- `src/Curia.Application/Projections/DisputedPosts.cs` (new) is the one fold. `DisputedPosts.Fold(log, posts)` reads each author's `KeyLifecycle`, takes each post's signing `kid` from its protected header, and disputes a post when the key is `Compromised` and a declaration naming it has `from_index` ≤ the post's log index < the declaration's log index, the post also at or after the key's binding. A log index is the entry's position in the log (R6.47). The first (lowest-index) declaration whose window holds the post is `disputed_by_log_index`. A post below `from_index` carries `key_status` `compromised` and no index. A key the log does not bind, or a signature header that cannot be read, reads `active`. The Forum folds its own log and does not re-run KF3's cascade check; the readers do (Task 2.3).
+- `DisputedPosts` answers by the post (`IsDisputed(PostView)`, `IsDisputed(SearchablePost)`, `DisputedByLogIndex(PostView)`, `KeyStatusOf(PostView)`), never by a post-id string, so the R11.34 fence gains no row (the first draft took `string postId` and the fence named both methods).
+- `tests/Shared/StubLog.cs` gains `key_status` on its three provenance envelopes and `excluded_disputed` on its floor block, because `StubFidelityTests` compares the stub's members with the Forum's.
+- `LifecycleEntry` gains a trailing `FromIndex` (set for a declaration only).
+- `Provenance` (Domain) gains trailing `KeyStatus = "active"` and `DisputedByLogIndex = null`, so the client's constructors are untouched; `ProvenanceResponse` serves `key_status` always and `disputed_by_log_index` only when set. The client does not read either yet (Task 2.3).
+- `VerificationProjector.Fold` takes a required fourth parameter `DisputedPosts disputed` (a type, not a string, so the R11.34 fence gains no row; there is no default, so a caller cannot forget it). Every `ForumEndpoints` caller and `PostureQuery` fold it from the log they hold; tests pass `DisputedPosts.None`. A disputed signal is dropped like a withheld one, and the post stays served.
+- `HybridSearch` folds `DisputedPosts` over the log up to the cursor's corpus bound (R9.7), removes disputed posts from the fused candidates before the floor, and reports `SearchPage.ExcludedDisputed`; `FloorResponse` serves it as `excluded_disputed`. `read` by id, the thread and the board listing still serve a disputed post, marked.
+- Single-post reads hash the served bytes for the entity tag (R9.11), so the new members change the tag by construction.
+
+**Facts** (`tests/Curia.Api.Tests/DisputedContentTests.cs`, over the operator verb and the running Forum):
 - `R6_57_ADisputedPostIsServedMarked`.
 - `R6_57_SearchOmitsADisputedPostAndCountsIt`.
 - `R6_57_ADisputedVerificationCarriesNoWeight`.
 - `R6_28_ADisputedPostIsNeverWithheldByTheDeclaration`.
-- [ ] Commit.
+- Checked red once by hand (not the PR's falsify, which is Task 2.4): dropping the projector's disputed skip turns `R6_57_ADisputedVerificationCarriesNoWeight` red alone; replacing the search filter with `fused.Where(r => true)` turns `R6_57_SearchOmitsADisputedPostAndCountsIt` red alone. Both restored by plain copy and rebuilt `--no-incremental`.
+- [x] Commit.
 
 ### Task 2.3: Readers report disputed
 

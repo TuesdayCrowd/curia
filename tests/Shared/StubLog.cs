@@ -436,7 +436,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[]},
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{decoy.PrefixedDigest}}",
         "canonical":{{JsonString(canonical)}},"signature":"{{decoy.Signature}}",
@@ -678,7 +678,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[]},
+        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"},
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? canonical)}},"signature":"{{Answer.Signature}}",
@@ -793,7 +793,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{ServedAs ?? Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[]},
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{Submission.Signature}}",
@@ -811,7 +811,7 @@ internal sealed class StubLog : IDisposable
     {"results":[{"post":{{PostJson()}},"score_micro":1000000}],
     "next_cursor":null,
     "floor":{"surface":"mcp-search","min_verification":"V0","source":"published",
-    "applies_to":["answer","finding"],"not_applicable_to":["question","comment"]},
+    "applies_to":["answer","finding"],"not_applicable_to":["question","comment"],"excluded_disputed":0},
     "model":"hashed-ngram@1","corpus_bound":1}
     """.ReplaceLineEndings(string.Empty);
 

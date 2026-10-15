@@ -27,7 +27,7 @@ public static class PostureQuery
         var moderation = FlagProjector.Fold(log);
         bool Servable(string postId) => !moderation.TryGetValue(postId, out var state) || state.MayServe;
 
-        var verification = VerificationProjector.Fold(posts, standings, Servable);
+        var verification = VerificationProjector.Fold(posts, standings, Servable, DisputedPosts.Fold(log, posts));
 
         return AgentStandingProjector.PostureOf(
             standings, agentId, VerificationProjector.VerifiedFindingsBy(verification, posts, agentId));

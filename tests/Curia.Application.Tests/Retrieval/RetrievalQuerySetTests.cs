@@ -183,7 +183,7 @@ public sealed class RetrievalQuerySetTests
         }
 
         var log = await LogAsync(store, ct);
-        var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true);
+        var fold = VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
 
         var failures = new List<string>();
         foreach (var canary in Lines("canaries.jsonl"))

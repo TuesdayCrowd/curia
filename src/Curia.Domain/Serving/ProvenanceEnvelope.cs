@@ -43,6 +43,14 @@ public enum MarkingMode
 /// Categories only. The flags carry no content by construction (see
 /// <c>Curia.Domain.Screening.RiskFlag</c>), so this cannot leak what a detector found.
 /// </param>
+/// <param name="KeyStatus">
+/// What the log says of the key the post was signed under, as of the serving log: <c>active</c>,
+/// <c>retired</c> or <c>compromised</c> (R6.57). The Forum's word, not a verdict on the post.
+/// </param>
+/// <param name="DisputedByLogIndex">
+/// The log index of the declaration that disputes the post (R6.57), or null when none does. A post
+/// below the declaration's <c>from_index</c> carries a <c>compromised</c> key status and no index.
+/// </param>
 /// <param name="Marking">
 /// Which marking was applied, so a client can strip it after its model has consumed the marked form
 /// (R10.14). Reported even when <see cref="MarkingMode.None"/>: "no marking" is information too, and
@@ -63,7 +71,9 @@ public sealed record Provenance(
     string? MarkingCaveat,
     string? Owner,
     ImmutableArray<string> Reproductions,
-    ImmutableArray<string> Contradictions)
+    ImmutableArray<string> Contradictions,
+    string KeyStatus = "active",
+    long? DisputedByLogIndex = null)
 {
     /// <summary>
     /// R10.17's exact wording, and it is a constant rather than a template because the sentence is

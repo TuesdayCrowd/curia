@@ -22,6 +22,7 @@ namespace Curia.Application.Credentials;
 /// <param name="At">The instant the log recorded the entry.</param>
 /// <param name="Kids">The keys a declaration ends (R6.57), in its order; null for every other entry.</param>
 /// <param name="AuthorizedBy">The key that authorized a rotation; null for every other entry.</param>
+/// <param name="FromIndex">The log index a declaration states its compromise from (R6.57); null for every other entry.</param>
 public sealed record LifecycleEntry(
     string EventId,
     string Type,
@@ -29,7 +30,8 @@ public sealed record LifecycleEntry(
     long? Prev,
     DateTimeOffset At,
     IReadOnlyList<string>? Kids = null,
-    string? AuthorizedBy = null)
+    string? AuthorizedBy = null,
+    long? FromIndex = null)
 {
     /// <summary>A rotation: an <c>agent.key-bound</c> entry that links from a previous entry.</summary>
     public bool IsRotation => string.Equals(Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal) && Prev is not null;
@@ -244,7 +246,7 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
             || !kids.Items.Select(k => (k as JsonValue.String)?.Value).SequenceEqual(statement.Kids, StringComparer.Ordinal))
             return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("kids"));
 
-        return Result<LifecycleEntry>.Ok(new LifecycleEntry(id, LifecycleAppendGuard.KeyCompromisedType, null, statement.Prev, at, statement.Kids));
+        return Result<LifecycleEntry>.Ok(new LifecycleEntry(id, LifecycleAppendGuard.KeyCompromisedType, null, statement.Prev, at, statement.Kids, null, statement.FromIndex));
     }
 
     private static Result<LifecycleEntry> RetiredEntry(JsonValue.Object payload, string id, DateTimeOffset at)

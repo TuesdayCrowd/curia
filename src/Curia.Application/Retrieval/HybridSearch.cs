@@ -33,7 +33,8 @@ public sealed record SearchPage(
     long CorpusBound,
     int CandidateDepth,
     int K,
-    double MinimumCosine);
+    double MinimumCosine,
+    int ExcludedDisputed = 0);
 
 /// <summary>
 /// §9.2's pipeline: lexical and vector candidates fused by reciprocal rank fusion (R9.4), Table
@@ -87,7 +88,15 @@ public sealed class HybridSearch
         if (!vector.TryGetValue(out var vectorHits, out var vectorError))
             return Result<SearchPage>.Fail(vectorError!);
 
-        var ranked = HybridRanking.Rank(lexical, vectorHits, p => verification.LevelOf(p.Digest));
+        var fused = HybridRanking.Rank(lexical, vectorHits, p => verification.LevelOf(p.Digest));
+
+        // R6.57: a disputed post is omitted from the fused candidates and counted, so a reader is
+        // told that something was removed rather than left to wonder. It is judged over the corpus
+        // as of the cursor's bound (R9.7), like the corpus itself. `read` by id still serves it.
+        var visible = log.Where(e => e.Seq.Value <= bound).ToList();
+        var disputed = DisputedPosts.Fold(visible, PostProjector.Fold(visible));
+        var ranked = fused.Where(r => !disputed.IsDisputed(r.Post)).ToImmutableArray();
+        var excludedDisputed = fused.Length - ranked.Length;
 
         var (surfaceFloor, source) = _floors.Resolve(surface);
         var floor = query.RequestedFloor ?? surfaceFloor;
@@ -107,7 +116,8 @@ public sealed class HybridSearch
             bound,
             HybridRanking.CandidateDepth,
             RankFusion.DefaultK,
-            HybridRanking.MinimumCosine));
+            HybridRanking.MinimumCosine,
+            excludedDisputed));
     }
 
     /// <summary>
