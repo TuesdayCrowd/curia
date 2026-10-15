@@ -79,6 +79,23 @@ public sealed class DeclareCompromiseTests
         return (harness, identities, signer);
     }
 
+    /// <summary>
+    /// A fork: alice-1 (bound at index 1) rotates in alice-2 (index 2) and again alice-3 (index 3), both authorized by alice-1.
+    /// Also returns the log index each rotation took, so a test can pin the fixture's order.
+    /// </summary>
+    private static async Task<(KeyActHarness Harness, InMemoryLifecycleStatementSigner Signer, long Alice2At, long Alice3At)> ForkAsync()
+    {
+        var harness = new KeyActHarness();
+        var identities = Enumerable.Range(1, 3).Select(i => TestIdentity.New($"alice-{i}")).ToArray();
+        await harness.EnrollAsync(Alice, identities[0]).ConfigureAwait(false);
+        var second = Require(await harness.RotateAsync(Alice, identities[0], identities[1]).ConfigureAwait(false));
+        var third = Require(await harness.RotateAsync(Alice, identities[0], identities[2]).ConfigureAwait(false));
+
+        var signer = new InMemoryLifecycleStatementSigner();
+        await PublishAsync(harness, signer).ConfigureAwait(false);
+        return (harness, signer, second.LogIndex, third.LogIndex);
+    }
+
     [Fact]
     public async Task R6_26_TcBelowTheBindingIsRefused()
     {
@@ -170,7 +187,23 @@ public sealed class DeclareCompromiseTests
     [Fact]
     public async Task R6_57_ASiblingTheCompromisedKeyDidNotBindIsNotInTheCascade()
     {
-        // alice-1 rotates in alice-2; alice-2 rotates in alice-3; declaring alice-2 compromised from its binding leaves alice-1 and ends alice-3.
+        // alice-1 rotates in both alice-2 and alice-3; alice-3 is at an index after from_index but was not bound by the compromised key, so declaring alice-2 leaves it Active.
+        var (harness, signer, alice2At, alice3At) = await ForkAsync();
+        using var _ = signer;
+
+        var declared = Require(await DeclareAsync(harness, signer, "alice-2", fromIndex: 2));
+
+        // The fixture's order is pinned: alice-3 sits after from_index, so only the authorizer clause can leave it out.
+        Assert.True(alice2At == 2 && alice3At > 2, $"fork fixture order changed: alice-2 at {alice2At}, alice-3 at {alice3At}");
+        Assert.Equal(
+            "alice-2; alice-1 Active, alice-2 Compromised, alice-3 Active",
+            $"{string.Join(", ", declared.Kids)}; {Render(await StatusesAsync(harness, "alice-1", "alice-2", "alice-3"))}");
+    }
+
+    [Fact]
+    public async Task R6_57_TheKeyThatBoundTheCompromisedKeyIsNotEnded()
+    {
+        // the compromised key's authorizer is not in its own cascade: a regression guard for the root-first and from_index logic
         var (harness, _, signer) = await ChainAsync(3);
         using var _ = signer;
 
