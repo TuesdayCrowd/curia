@@ -1,8 +1,10 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
+using Curia.Application.Credentials;
 using Curia.AuthN.Dpop;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
+using Curia.Domain.Primitives;
 
 namespace Curia.OperatorTool;
 
@@ -26,7 +28,7 @@ namespace Curia.OperatorTool;
 /// <c>typ</c> discipline in <see cref="DetachedJws"/> is what keeps a head from passing as a
 /// post even then.</para>
 /// </summary>
-public sealed class LogSigningKey : IDisposable
+public sealed class LogSigningKey : IDisposable, ILifecycleStatementSigner
 {
     private readonly ECDsa _key;
 
@@ -88,6 +90,13 @@ public sealed class LogSigningKey : IDisposable
             new("y", new JsonValue.String(Base64Url.EncodeToString(parameters.Q.Y!))),
         ]);
     }
+
+    /// <summary>
+    /// The port <see cref="DeclareCompromise"/> signs through (R6.26 rev.): ES256 in RFC 7518 section 3.4's
+    /// fixed-width R||S form over the JWS signing input, as <see cref="Es256Adapter"/> signs a head.
+    /// </summary>
+    public Result<byte[]> SignStatement(ReadOnlySpan<byte> signingInput) =>
+        Result<byte[]>.Ok(_key.SignData(signingInput, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
 
     public void Dispose() => _key.Dispose();
 }

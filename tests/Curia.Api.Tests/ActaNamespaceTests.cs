@@ -72,8 +72,8 @@ public sealed class ActaNamespaceTests(ForumFixture forum) : IClassFixture<Forum
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var exit = await OperatorCommands.RunAsync(
-            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), stdout, stderr, ct,
-            logSigningKeyPem: LogSigningKey.GeneratePem());
+            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct,
+            readLogSigningKeyPem: () => LogSigningKey.GeneratePem());
         Assert.True(exit == ExitCode.Ok, $"sign-head exited {exit}: {stderr.ToString().Trim()}");
         Assert.Contains("signed head", stdout.ToString(), StringComparison.Ordinal);
 

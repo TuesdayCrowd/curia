@@ -102,9 +102,13 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         if (!KeyLifecycle.Of(stream.History, agentId).TryGetValue(out var lifecycle, out var foldError))
             return Result<LiveKey>.Fail(foldError!);
 
-        return lifecycle!.StatusNow(kid.Value) == KeyStatus.Active
-            ? Result<LiveKey>.Ok(new LiveKey(key!, stream.Version))
-            : Result<LiveKey>.Fail(AuthorKeyErrors.Retired(agentId.Value, kid.Value));
+        return lifecycle!.StatusNow(kid.Value) switch
+        {
+            KeyStatus.Active => Result<LiveKey>.Ok(new LiveKey(key!, stream.Version)),
+            KeyStatus.Compromised => Result<LiveKey>.Fail(AuthorKeyErrors.Compromised(agentId.Value, kid.Value)),
+            KeyStatus.Retired or KeyStatus.Unbound => Result<LiveKey>.Fail(AuthorKeyErrors.Retired(agentId.Value, kid.Value)),
+            _ => throw new InvalidOperationException("Not a key status"),
+        };
     }
 
     /// <summary>

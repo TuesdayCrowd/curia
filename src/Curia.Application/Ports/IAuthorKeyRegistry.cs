@@ -208,6 +208,9 @@ public static class AuthorKeyErrors
     /// <summary>The slug of <see cref="Retired"/>, for callers that match on it.</summary>
     public const string RetiredType = "curia/keys/retired";
 
+    /// <summary>The slug of <see cref="Compromised"/>, for callers that match on it.</summary>
+    public const string CompromisedType = "curia/keys/compromised";
+
     /// <summary>The slug of <see cref="KidTaken"/>, for callers that match on it.</summary>
     public const string KidTakenType = "curia/keys/kid-taken";
 
@@ -242,6 +245,16 @@ public static class AuthorKeyErrors
     public static Error Retired(string agentId, string kid) => new(
         RetiredType,
         "The identity retired that key",
+        $"agent={agentId} kid={kid}");
+
+    /// <summary>
+    /// R6.57: the operator declared this key compromised, so the Forum honours it for nothing -- a post, an
+    /// assertion, a rotation's authorization. Raised where <see cref="Retired"/> is. Names the agent and the
+    /// <c>kid</c>, never material.
+    /// </summary>
+    public static Error Compromised(string agentId, string kid) => new(
+        CompromisedType,
+        "That key was declared compromised",
         $"agent={agentId} kid={kid}");
 
     /// <summary>

@@ -35,6 +35,9 @@ public static class KeyActErrors
     public const string UnknownKeyType = "curia/keys/unknown-key";
     public const string NotOwnType = "curia/keys/not-own";
     public const string LifecycleNotEnabledType = "curia/keys/lifecycle-not-enabled";
+    public const string BeforeBindingType = "curia/keys/before-binding";
+    public const string FromIndexBeyondLogType = "curia/keys/from-index-beyond-log";
+    public const string LogKeyNotPublishedType = "curia/keys/log-key-not-published";
 
     /// <summary>The act's <c>prev</c> is not the identity's latest lifecycle index. The detail is that index, an integer.</summary>
     public static Error LifecycleMoved(long latest) => new(
@@ -74,6 +77,15 @@ public static class KeyActErrors
 
     /// <summary>Spec section 4.7: the token's subject is not the identity the route names. Names neither.</summary>
     public static Error NotOwn() => new(NotOwnType, "A key act is made by the identity that owns the key");
+
+    /// <summary>R6.26 (rev.): <c>t_c</c> (<c>from_index</c>) is below the log index of the key's binding.</summary>
+    public static Error BeforeBinding() => new(BeforeBindingType, "A declaration cannot begin before the key's binding", "field=from_index");
+
+    /// <summary>R6.57: <c>from_index</c> is not below the index the declaration would take.</summary>
+    public static Error FromIndexBeyondLog() => new(FromIndexBeyondLogType, "A declaration begins below its own index", "field=from_index");
+
+    /// <summary>R6.26 (rev.), KF2: the signing key's <c>log.key</c> entry is not in the log. Names neither the key nor its kid.</summary>
+    public static Error LogKeyNotPublished() => new(LogKeyNotPublishedType, "The log key has not been published", "run sign-head with this key first");
 
     /// <summary>R4.38 (add.): the Forum does not enable rotation. A fixed detail, naming the kind and nothing about the caller.</summary>
     public static Error RotationNotEnabled() => new(
@@ -226,6 +238,7 @@ internal static class KeyActs
     /// <summary>The refusal a key that does not resolve for an act becomes, or the resolver's own refusal when the log is the problem.</summary>
     internal static bool IsNotLive(Error error) =>
         error.Type is AuthorKeyErrors.RetiredType
+            or AuthorKeyErrors.CompromisedType
             or AuthorKeyErrors.NotBoundByTheLogType
             or "curia/keys/not-registered-to-agent"
             or "curia/keys/not-yet-valid"

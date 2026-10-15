@@ -693,7 +693,9 @@ public static class ForumEndpoints
                     ? StatusCodes.Status503ServiceUnavailable
                     : string.Equals(verifyError.Type, IngestErrors.UnstorableMemberType, StringComparison.Ordinal)
                         ? StatusCodes.Status422UnprocessableEntity
-                        : StatusCodes.Status401Unauthorized,
+                        : verifyError.Type is AuthorKeyErrors.RetiredType or AuthorKeyErrors.CompromisedType
+                            ? StatusCodes.Status403Forbidden
+                            : StatusCodes.Status401Unauthorized,
                 verifyError);
         }
 
@@ -2729,7 +2731,9 @@ public static class ForumEndpoints
             or StorableText.BlankType
             or StorableText.NulType
             or StorableText.UnpairedSurrogateType
-            or StorableText.TooLongType => StatusCodes.Status400BadRequest,
+            or StorableText.TooLongType
+            or KeyActErrors.BeforeBindingType
+            or KeyActErrors.FromIndexBeyondLogType => StatusCodes.Status400BadRequest,
 
         KeyActErrors.AuthorizingKeyNotLiveType => StatusCodes.Status403Forbidden,
         KeyActErrors.UnknownKeyType => StatusCodes.Status404NotFound,
@@ -2739,7 +2743,8 @@ public static class ForumEndpoints
             or KeyActErrors.TooManyLiveKeysType
             or KeyActErrors.RotationCeilingReachedType
             or KeyActErrors.NotLiveType
-            or KeyActErrors.LastLiveKeyType => StatusCodes.Status409Conflict,
+            or KeyActErrors.LastLiveKeyType
+            or KeyActErrors.LogKeyNotPublishedType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
         LogBoundKeys.LogUnreadableType => StatusCodes.Status503ServiceUnavailable,

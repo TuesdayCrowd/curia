@@ -12,6 +12,45 @@ public sealed record RotationStatement(string AgentId, string AuthorizedBy, Json
 /// <summary>A retirement statement (spec section 4.5): the members, read from canonical bytes.</summary>
 public sealed record RetirementStatement(string AgentId, string Kid, long Prev);
 
+/// <summary>
+/// The closed set of reasons a declaration gives (spec section 4.5, KF4): an unknown one is not a reason
+/// this reader can judge.
+/// </summary>
+public enum CompromiseReason
+{
+    /// <summary>The owner told the operator the key was lost or stolen.</summary>
+    OwnerReported,
+
+    /// <summary>The operator saw evidence the key was used by someone else.</summary>
+    OperatorObserved,
+}
+
+/// <summary>The wire spellings of <see cref="CompromiseReason"/>.</summary>
+public static class CompromiseReasons
+{
+    public const string OwnerReported = "owner-reported";
+    public const string OperatorObserved = "operator-observed";
+
+    /// <summary>The spelling a statement and an entry carry.</summary>
+    public static string Wire(CompromiseReason reason) => reason switch
+    {
+        CompromiseReason.OwnerReported => OwnerReported,
+        CompromiseReason.OperatorObserved => OperatorObserved,
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Not a compromise reason"),
+    };
+
+    /// <summary>The reason a spelling names; a refusal naming <c>reason</c> for any other text.</summary>
+    public static Result<CompromiseReason> Parse(string? text) => text switch
+    {
+        OwnerReported => Result<CompromiseReason>.Ok(CompromiseReason.OwnerReported),
+        OperatorObserved => Result<CompromiseReason>.Ok(CompromiseReason.OperatorObserved),
+        _ => Result<CompromiseReason>.Fail(KeyStatementErrors.Unreadable("reason")),
+    };
+}
+
+/// <summary>A compromise declaration's statement (spec section 4.5): the members, read from canonical bytes.</summary>
+public sealed record CompromiseStatement(string AgentId, long FromIndex, IReadOnlyList<string> Kids, long Prev, CompromiseReason Reason);
+
 /// <summary>The refusals of reading a key statement, by name (spec section 4.7). None names a key, a statement or a signature.</summary>
 public static class KeyStatementErrors
 {
@@ -54,11 +93,14 @@ public static class KeyStatements
     public const string RetirementStatementTyp = "curia.key-retirement/1";
     public const string RotationHeaderTyp = "curia-key-rotation+jws";
     public const string RetirementHeaderTyp = "curia-key-retirement+jws";
+    public const string CompromiseStatementTyp = "curia.key-compromise/1";
+    public const string CompromiseHeaderTyp = "curia-key-compromise+jws";
 
     private const double SafeMaxInteger = 9_007_199_254_740_991d;
 
     private static readonly string[] RotationMembers = ["agent_id", "authorized_by", "jwk", "kid", "prev", "typ"];
     private static readonly string[] RetirementMembers = ["agent_id", "kid", "prev", "typ"];
+    private static readonly string[] CompromiseMembers = ["agent_id", "from_index", "kids", "prev", "reason", "typ"];
 
     /// <summary>Reads a rotation statement from its exact bytes.</summary>
     public static Result<RotationStatement> ReadRotation(ReadOnlySpan<byte> statement)
@@ -90,6 +132,29 @@ public static class KeyStatements
         if (!Integer(Member(o!, "prev")).TryGetValue(out var prev, out var prevError)) return Result<RetirementStatement>.Fail(prevError!);
 
         return Result<RetirementStatement>.Ok(new RetirementStatement(agent.Value, kid.Value, prev));
+    }
+
+    /// <summary>Reads a compromise declaration's statement from its exact bytes (R6.26 rev., R6.57).</summary>
+    public static Result<CompromiseStatement> ReadCompromise(ReadOnlySpan<byte> statement)
+    {
+        var read = ReadObject(statement, CompromiseStatementTyp, CompromiseMembers);
+        if (!read.TryGetValue(out var o, out var error)) return Result<CompromiseStatement>.Fail(error!);
+
+        if (Member(o!, "agent_id") is not JsonValue.String agent) return Result<CompromiseStatement>.Fail(KeyStatementErrors.Unreadable("agent_id"));
+        if (!Integer(Member(o!, "from_index"), "from_index").TryGetValue(out var fromIndex, out var fromIndexError)) return Result<CompromiseStatement>.Fail(fromIndexError!);
+        if (!Integer(Member(o!, "prev"), "prev").TryGetValue(out var prev, out var prevError)) return Result<CompromiseStatement>.Fail(prevError!);
+        if (Member(o!, "kids") is not JsonValue.Array { Items.Length: > 0 } kidItems) return Result<CompromiseStatement>.Fail(KeyStatementErrors.Unreadable("kids"));
+        var kids = new List<string>(kidItems.Items.Length);
+        foreach (var item in kidItems.Items)
+        {
+            if (item is not JsonValue.String kid) return Result<CompromiseStatement>.Fail(KeyStatementErrors.Unreadable("kids"));
+            kids.Add(kid.Value);
+        }
+
+        if (Member(o!, "reason") is not JsonValue.String reasonText) return Result<CompromiseStatement>.Fail(KeyStatementErrors.Unreadable("reason"));
+        if (!CompromiseReasons.Parse(reasonText.Value).TryGetValue(out var reason, out var reasonError)) return Result<CompromiseStatement>.Fail(reasonError!);
+
+        return Result<CompromiseStatement>.Ok(new CompromiseStatement(agent.Value, fromIndex, kids, prev, reason));
     }
 
     /// <summary>
@@ -223,13 +288,13 @@ public static class KeyStatements
         o.Members.Length == members.Length
         && o.Members.Select(m => m.Key).Order(StringComparer.Ordinal).SequenceEqual(members, StringComparer.Ordinal);
 
-    private static Result<long> Integer(JsonValue? value)
+    private static Result<long> Integer(JsonValue? value, string field = "prev")
     {
         if (value is not JsonValue.Number number
             || number.Value < 0
             || number.Value > SafeMaxInteger
             || number.Value != Math.Floor(number.Value))
-            return Result<long>.Fail(KeyStatementErrors.Unreadable("prev"));
+            return Result<long>.Fail(KeyStatementErrors.Unreadable(field));
 
         return Result<long>.Ok((long)number.Value);
     }

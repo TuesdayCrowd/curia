@@ -20,7 +20,16 @@ namespace Curia.Application.Credentials;
 /// <param name="Kid">The key the entry binds or retires; null for a declaration (PR 2) and for an enrolment that names none.</param>
 /// <param name="Prev">The log index the statement links from; null for an enrolment and its binding.</param>
 /// <param name="At">The instant the log recorded the entry.</param>
-public sealed record LifecycleEntry(string EventId, string Type, string? Kid, long? Prev, DateTimeOffset At)
+/// <param name="Kids">The keys a declaration ends (R6.57), in its order; null for every other entry.</param>
+/// <param name="AuthorizedBy">The key that authorized a rotation; null for every other entry.</param>
+public sealed record LifecycleEntry(
+    string EventId,
+    string Type,
+    string? Kid,
+    long? Prev,
+    DateTimeOffset At,
+    IReadOnlyList<string>? Kids = null,
+    string? AuthorizedBy = null)
 {
     /// <summary>A rotation: an <c>agent.key-bound</c> entry that links from a previous entry.</summary>
     public bool IsRotation => string.Equals(Type, AgentStandingProjector.KeyBoundType, StringComparison.Ordinal) && Prev is not null;
@@ -43,6 +52,7 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
     private static readonly string[] BoundEnrolmentMembers = [AgentStandingProjector.AgentIdField, AgentStandingProjector.JwkField, AgentStandingProjector.KeyIdField];
     private static readonly string[] BoundRotationMembers = ["agent_id", "authorization", "authorized_by", "jwk", "kid", "possession", "prev", "statement"];
     private static readonly string[] RetiredMembers = ["agent_id", "authorization", "kid", "prev", "statement"];
+    private static readonly string[] CompromisedMembers = ["agent_id", "declaration", "from_index", "kids", "prev", "reason", "statement"];
 
     /// <summary>
     /// The lifecycle of <paramref name="agent"/> in <paramref name="stream"/>, which may be the identity's
@@ -98,8 +108,9 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
             }
             else if (string.Equals(type, LifecycleAppendGuard.KeyCompromisedType, StringComparison.Ordinal))
             {
-                // A declaration (PR 2) names kids; until the fold reads them it counts as an entry that ends no key.
-                entries.Add(new LifecycleEntry(id, type, null, null, at));
+                var declared = CompromisedEntry(payload, id, at);
+                if (!declared.TryGetValue(out var entry, out var error)) return Result<KeyLifecycle>.Fail(error!);
+                entries.Add(entry!);
             }
         }
 
@@ -107,15 +118,25 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
     }
 
     /// <summary>
-    /// The status of <paramref name="kid"/> now: unbound when no entry binds it; otherwise retired when a
-    /// retirement names it; otherwise active.
+    /// The status of <paramref name="kid"/> now: unbound when no entry binds it; otherwise compromised when
+    /// a declaration's <c>kids</c> name it (R6.57); otherwise retired when a retirement names it; otherwise
+    /// active.
     /// </summary>
     public KeyStatus StatusNow(string kid)
     {
         ArgumentNullException.ThrowIfNull(kid);
 
         if (!Entries.Any(e => IsBinding(e) && string.Equals(e.Kid, kid, StringComparison.Ordinal))) return KeyStatus.Unbound;
+        if (CompromisedBy(kid) is not null) return KeyStatus.Compromised;
         return EndedBy(kid) is null ? KeyStatus.Active : KeyStatus.Retired;
+    }
+
+    /// <summary>The first declaration whose <c>kids</c> name <paramref name="kid"/>, or null when none does.</summary>
+    public LifecycleEntry? CompromisedBy(string kid)
+    {
+        ArgumentNullException.ThrowIfNull(kid);
+
+        return Entries.FirstOrDefault(e => e.Kids is { } kids && kids.Contains(kid, StringComparer.Ordinal));
     }
 
     /// <summary>The retirement entry that ended <paramref name="kid"/>, or null when none did.</summary>
@@ -200,7 +221,30 @@ public sealed record KeyLifecycle(ImmutableArray<LifecycleEntry> Entries)
         if (Member(payload, "prev") is not JsonValue.Number { } prev || prev.Value != statement.Prev) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("prev"));
         if (Member(payload, "jwk") is not JsonValue.Object jwk || !PublicJwk.SameKey(jwk, statement.Jwk)) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("jwk"));
 
-        return Result<LifecycleEntry>.Ok(new LifecycleEntry(id, type, statement.Kid, statement.Prev, at));
+        return Result<LifecycleEntry>.Ok(new LifecycleEntry(id, type, statement.Kid, statement.Prev, at, null, statement.AuthorizedBy));
+    }
+
+    private static Result<LifecycleEntry> CompromisedEntry(JsonValue.Object payload, string id, DateTimeOffset at)
+    {
+        if (!MembersWithin(payload, CompromisedMembers) || payload.Members.Length != CompromisedMembers.Length)
+            return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("entry"));
+
+        if (Member(payload, "statement") is not JsonValue.String text) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Unreadable("statement"));
+        if (Member(payload, "declaration") is not JsonValue.String) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Unreadable("signature"));
+
+        if (!KeyStatements.ReadCompromise(Encoding.UTF8.GetBytes(text.Value)).TryGetValue(out var statement, out var error))
+            return Result<LifecycleEntry>.Fail(error!);
+
+        if (!string.Equals(Text(payload, "agent_id"), statement!.AgentId, StringComparison.Ordinal)) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("agent_id"));
+        if (Member(payload, "from_index") is not JsonValue.Number { } fromIndex || fromIndex.Value != statement.FromIndex) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("from_index"));
+        if (Member(payload, "prev") is not JsonValue.Number { } prev || prev.Value != statement.Prev) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("prev"));
+        if (!string.Equals(Text(payload, "reason"), CompromiseReasons.Wire(statement.Reason), StringComparison.Ordinal)) return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("reason"));
+        if (Member(payload, "kids") is not JsonValue.Array { } kids
+            || kids.Items.Length != statement.Kids.Count
+            || !kids.Items.Select(k => (k as JsonValue.String)?.Value).SequenceEqual(statement.Kids, StringComparer.Ordinal))
+            return Result<LifecycleEntry>.Fail(KeyStatementErrors.Mismatch("kids"));
+
+        return Result<LifecycleEntry>.Ok(new LifecycleEntry(id, LifecycleAppendGuard.KeyCompromisedType, null, statement.Prev, at, statement.Kids));
     }
 
     private static Result<LifecycleEntry> RetiredEntry(JsonValue.Object payload, string id, DateTimeOffset at)
