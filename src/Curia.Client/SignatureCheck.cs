@@ -49,6 +49,8 @@ namespace Curia.Client;
 /// not this client's; null when the key set names none or no key matched. R6.54 (add.)'s read-path marker.
 /// </param>
 /// <param name="KeyRetiredAt">The log index at which the key set says the signing key was retired, when it says one.</param>
+/// <param name="KeyCompromisedAt">The log index of the declaration the key set says names the signing key (R6.57), when it says one.</param>
+/// <param name="KeyDisputedFrom">The declaration's <c>from_index</c> as the key set states it (R6.57), when it says one.</param>
 public sealed record SignatureVerdict(
     bool Verified,
     string? Kid,
@@ -57,7 +59,9 @@ public sealed record SignatureVerdict(
     string? PrefixedDigest = null,
     bool CouldNotCheck = false,
     string? KeyStatus = null,
-    long? KeyRetiredAt = null)
+    long? KeyRetiredAt = null,
+    long? KeyCompromisedAt = null,
+    long? KeyDisputedFrom = null)
 {
     /// <summary>R6.52's three outcomes for this check.</summary>
     public CheckOutcome Outcome =>
@@ -74,6 +78,7 @@ public sealed record SignatureVerdict(
     {
         CheckOutcome.Verified => Said($"verified locally against kid={Kid} ({new OwnText(Detail)})"),
         CheckOutcome.CouldNotCheck => Said($"COULD NOT BE CHECKED: {new OwnText(Detail)}"),
+        CheckOutcome.Disputed => Said($"DISPUTED: {new OwnText(Detail)}"),
         CheckOutcome.Failed => Said($"NOT VERIFIED: {new OwnText(Detail)}"),
         _ => Said($"NOT VERIFIED: {new OwnText(Detail)}"),
     };
@@ -171,7 +176,7 @@ public static class SignatureCheck
                 prefixed,
                 CouldNotCheck: keyError!.Type == "curia/client/validity-not-evaluable",
                 KeyStatus: keySays?.Status,
-                KeyRetiredAt: keySays?.RetiredLogIndex);
+                KeyRetiredAt: keySays?.RetiredLogIndex, KeyCompromisedAt: keySays?.CompromisedLogIndex, KeyDisputedFrom: keySays?.DisputedFrom);
         }
 
         var jws = new DetachedJws(
@@ -185,7 +190,7 @@ public static class SignatureCheck
         if (!jws.Verify(canonical, signature, material!).TryGetValue(out _, out var verifyError))
             return new SignatureVerdict(
                 false, header.Kid, Describe(verifyError!), digest, prefixed,
-                KeyStatus: keySays?.Status, KeyRetiredAt: keySays?.RetiredLogIndex);
+                KeyStatus: keySays?.Status, KeyRetiredAt: keySays?.RetiredLogIndex, KeyCompromisedAt: keySays?.CompromisedLogIndex, KeyDisputedFrom: keySays?.DisputedFrom);
 
         // R6.54 (add.): a signature that holds, under a key the Forum's key set says was retired at or before this
         // post's own leaf, is not a signature the key could have made as the author's. The Forum's word, said as such;
@@ -213,7 +218,7 @@ public static class SignatureCheck
             digest,
             prefixed,
             KeyStatus: keySays?.Status,
-            KeyRetiredAt: keySays?.RetiredLogIndex);
+            KeyRetiredAt: keySays?.RetiredLogIndex, KeyCompromisedAt: keySays?.CompromisedLogIndex, KeyDisputedFrom: keySays?.DisputedFrom);
     }
 
     /// <summary>

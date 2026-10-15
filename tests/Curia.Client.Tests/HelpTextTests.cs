@@ -679,6 +679,18 @@ public sealed class HelpTextTests
     private static int Occurrences(string text, string value) =>
         Regex.Count(text, Regex.Escape(value), RegexOptions.IgnoreCase);
 
+    /// <summary>R6.57: EXIT CODES names 9, says what disputed means, and says it ranks below 6 and 8.</summary>
+    [Fact]
+    public void R6_57_ExitCodeNineIsDocumented()
+    {
+        var entry = ExitCodeEntry(ExitCode.Disputed);
+
+        Assert.StartsWith("9", entry.TrimStart(), StringComparison.Ordinal);
+        Assert.Contains("disputed", entry, StringComparison.Ordinal);
+        Assert.Contains("compromised", entry, StringComparison.Ordinal);
+        Assert.Contains("6 and 8", entry, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The EXIT CODES entry for <paramref name="code"/>: its first line, beginning with the number, and
     /// every continuation line indented beneath it, up to the next entry or section.

@@ -142,6 +142,36 @@ pub enum ActaError {
     LifecycleNotSupplied,
     /// R6.54 (add.), not established: more than 1,024 lifecycle entries before the post.
     LifecycleTooLong,
+    /// R6.57, not established: a declaration states a `reason` outside the closed set (KF4). Never verified, never skipped.
+    LifecycleUnknownReason { reason: String },
+    /// R6.57, not established: the log's key set gives the declaring key no usable `log_index` (absent, negative or not
+    /// an I-JSON integer), so it cannot be said the key was published before the declaration (KF2, KF4's rule).
+    LogKeyPositionUnknown { kid: String },
+    /// R6.57: the declaration's header `kid` is not a key the log's key set publishes, or was published at or after the
+    /// declaration (KF2).
+    DeclarationKeyUnpublished { at: u64, kid: String },
+    /// R6.57: the declaration does not verify under the log key its header names.
+    DeclarationSignatureInvalid { at: u64 },
+    /// R6.57, KF3 (1): a key the declaration names is bound to no entry of the author's stream as supplied.
+    KidNotBoundToAgent { at: u64, kid: String },
+    /// R6.57, KF3 (2) and (3): `from_index` is below the first key's binding or not below the declaration's index, or
+    /// `kids` are not, in order, the cascade this verifier recomputes from the lifecycle.
+    DeclarationMismatch { at: u64, what: &'static str },
+    /// R6.57: a declaration that follows the post's key's use at a leaf before the post: a compromised key is honoured for
+    /// nothing at or after the declaration, so the post could not have been accepted under it as the author's.
+    CompromisedBeforePost {
+        kid: String,
+        declaration: u64,
+        post: u64,
+    },
+    /// R6.57, disputed: the signature holds, and the post's key was declared compromised from a leaf at or below the post's
+    /// by a declaration that follows it. Neither verified nor failed; the exit is 4.
+    Disputed {
+        kid: String,
+        from_index: u64,
+        declaration: u64,
+        post: u64,
+    },
 }
 
 impl ActaError {
@@ -175,6 +205,16 @@ impl ActaError {
             ActaError::LifecycleUnknownKind { .. } => "curia/acta/unknown-lifecycle-kind",
             ActaError::LifecycleNotSupplied => "curia/acta/lifecycle-not-supplied",
             ActaError::LifecycleTooLong => "curia/acta/lifecycle-too-long",
+            ActaError::LifecycleUnknownReason { .. } => "curia/acta/unknown-reason",
+            ActaError::LogKeyPositionUnknown { .. } => "curia/acta/log-key-position-unknown",
+            ActaError::DeclarationKeyUnpublished { .. } => "curia/acta/declaration-key-unpublished",
+            ActaError::DeclarationSignatureInvalid { .. } => {
+                "curia/acta/declaration-signature-invalid"
+            }
+            ActaError::KidNotBoundToAgent { .. } => "curia/acta/kid-not-bound-to-agent",
+            ActaError::DeclarationMismatch { .. } => "curia/acta/declaration-mismatch",
+            ActaError::CompromisedBeforePost { .. } => "curia/acta/compromised-before-post",
+            ActaError::Disputed { .. } => "curia/acta/disputed",
         }
     }
 
@@ -189,7 +229,15 @@ impl ActaError {
                 | ActaError::LifecycleUnknownKind { .. }
                 | ActaError::LifecycleNotSupplied
                 | ActaError::LifecycleTooLong
+                | ActaError::LifecycleUnknownReason { .. }
+                | ActaError::LogKeyPositionUnknown { .. }
         )
+    }
+
+    /// R6.57's fourth outcome: the signature holds and who made it is in question. Distinct from not
+    /// established (exit 3) and from a failure (exit 1): `log author` exits 4.
+    pub fn disputed(&self) -> bool {
+        matches!(self, ActaError::Disputed { .. })
     }
 }
 
@@ -327,6 +375,53 @@ impl fmt::Display for ActaError {
                 f,
                 "the author's lifecycle has more than 1,024 entries before the post"
             ),
+            ActaError::LifecycleUnknownReason { reason } => write!(
+                f,
+                "the declaration states the reason {}, outside the closed set this verifier knows",
+                display::literal(reason)
+            ),
+            ActaError::LogKeyPositionUnknown { kid } => write!(
+                f,
+                "the log's key set gives kid {} no log index, so it cannot be said it was published before the declaration",
+                display::literal(kid)
+            ),
+            ActaError::DeclarationKeyUnpublished { at, kid } => write!(
+                f,
+                "the declaration at leaf {at} is signed under kid {}, which the log's key set does not publish before it",
+                display::literal(kid)
+            ),
+            ActaError::DeclarationSignatureInvalid { at } => write!(
+                f,
+                "the declaration at leaf {at} does not verify under the log key its header names"
+            ),
+            ActaError::KidNotBoundToAgent { at, kid } => write!(
+                f,
+                "the declaration at leaf {at} names kid {}, which no entry of the author's stream binds",
+                display::literal(kid)
+            ),
+            ActaError::DeclarationMismatch { at, what } => write!(
+                f,
+                "the declaration at leaf {at} disagrees with the lifecycle: {what}"
+            ),
+            ActaError::CompromisedBeforePost {
+                kid,
+                declaration,
+                post,
+            } => write!(
+                f,
+                "the author's key {} was declared compromised by the declaration at leaf {declaration}, before the post at leaf {post}",
+                display::literal(kid)
+            ),
+            ActaError::Disputed {
+                kid,
+                from_index,
+                declaration,
+                post,
+            } => write!(
+                f,
+                "the signature holds, and the author's key {} was declared compromised from leaf {from_index} by the declaration at leaf {declaration}, which follows the post at leaf {post}: do not cite it as the author's",
+                display::literal(kid)
+            ),
         }
         .and_then(|()| write!(f, " [{}]", self.predicate()))
     }
@@ -388,6 +483,86 @@ pub fn verify_head(head_json: &[u8], log_jwks: &[u8]) -> Result<VerifiedHead, Ac
         alg: verified.alg,
     })
 }
+
+/// One key of the log's key set (R6.50) with where the log published it: the `log_index` member of its
+/// `GET /v1/log/jwks` entry, which names the `log.key` entry that publishes it (KF2).
+#[derive(Debug, Clone)]
+pub struct LogKey {
+    pub kid: String,
+    pub key: crate::jwk::Jwk,
+    /// `None` when the member is absent, negative, or not an I-JSON integer: the position is not given, and a
+    /// declaration under this key cannot be said to follow its publication (KF2, KF4's rule).
+    pub log_index: Option<u64>,
+}
+
+/// The log's key set with each key's position, read from `GET /v1/log/jwks`'s body.
+///
+/// The key material is parsed by [`JwkSet::parse`], the one JWK parser, so a key set this reads is a key set
+/// [`verify_head`] reads, byte for byte; the position of each key is read beside it from the same document. A key
+/// without a `kid` carries no position a declaration could name and is left out.
+#[derive(Debug, Clone, Default)]
+pub struct LogKeys {
+    keys: Vec<LogKey>,
+}
+
+impl LogKeys {
+    /// Parses the key set document. The same errors as `JwkSet::parse`.
+    pub fn parse(log_jwks: &[u8]) -> Result<Self, ActaError> {
+        let set = JwkSet::parse(log_jwks).map_err(ActaError::Jwks)?;
+        // `JwkSet::parse` has admitted this document, so it parses here and `keys` is an array of as many entries.
+        let positions: Vec<Option<u64>> = crate::json::parse(log_jwks)
+            .ok()
+            .and_then(|root| match root {
+                crate::json::Value::Object(members) => members
+                    .into_iter()
+                    .find(|(name, _)| name == "keys")
+                    .map(|(_, value)| value),
+                _ => None,
+            })
+            .and_then(|keys| match keys {
+                crate::json::Value::Array(items) => Some(items),
+                _ => None,
+            })
+            .map(|items| items.iter().map(log_index_of).collect())
+            .unwrap_or_default();
+
+        let keys = set
+            .keys()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, jwk)| {
+                jwk.kid.clone().map(|kid| LogKey {
+                    kid,
+                    key: jwk.clone(),
+                    log_index: positions.get(i).copied().flatten(),
+                })
+            })
+            .collect();
+        Ok(LogKeys { keys })
+    }
+
+    /// The key published under `kid`: the last one, as the head's own lookup takes the key set's last match.
+    pub fn find(&self, kid: &str) -> Option<&LogKey> {
+        self.keys.iter().rev().find(|k| k.kid == kid)
+    }
+}
+
+/// A key entry's `log_index` as a non-negative I-JSON integer, else `None`.
+fn log_index_of(entry: &crate::json::Value) -> Option<u64> {
+    let crate::json::Value::Object(members) = entry else {
+        return None;
+    };
+    match members.iter().find(|(name, _)| name == "log_index") {
+        Some((_, crate::json::Value::Number(n)))
+            if n.fract() == 0.0 && *n >= 0.0 && *n <= MAX_SAFE_INTEGER_F64 =>
+        {
+            Some(*n as u64)
+        }
+        _ => None,
+    }
+}
+
+const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
 
 /// An audit path that verified, and what it verified against.
 #[derive(Debug, Clone)]

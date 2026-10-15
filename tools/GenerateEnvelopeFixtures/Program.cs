@@ -27,7 +27,7 @@ if (args.Contains("--log-key-fixture", StringComparer.Ordinal))
     return 0;
 }
 
-// `--compromise` writes acta/key-compromised-entry and the fifteen PR 2 lifecycle cases (keys that end, Tasks 2.0, 2.3).
+// `--compromise` writes acta/key-compromised-entry and the sixteen PR 2 lifecycle cases (keys that end, Tasks 2.0, 2.3).
 // Task 2.0 only builds this code; Task 2.3 is the first to run it, once both readers verify a declaration.
 if (args.Contains("--compromise", StringComparer.Ordinal))
     return LifecycleCases.RunCompromise(repoRoot);

@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.57",
+  "note": "The declaration for this identity names a key that another identity's binding at 2 holds. The binding is in another identity's stream and is not supplied, so kids[0] has no binding to agent_id in the stream the reader holds (KF3, check 1). The log keeps that binding at 2, which is why from_index is 2. Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

@@ -246,6 +246,166 @@ public sealed class LifecycleVerifierTests : IDisposable
         Assert.DoesNotContain("\nkey       ", active, StringComparison.Ordinal);
     }
 
+    // ---- R6.57: disputed ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// R6.57: the signature holds, the post is in the log, the key was bound before it, and the operator declared that key
+    /// compromised from a log index at or below the post's in a declaration that follows it. Every other line is verified
+    /// and the lifecycle line is DISPUTED: neither verified nor failed, and the summary is DISPUTED.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_APostWhoseKeyWasDeclaredCompromisedFromBeforeItIsDisputed()
+    {
+        var (result, _) = await VerifyCaseAsync("compromised-before-post");
+
+        Assert.Equal(CheckOutcome.Verified, result.Signature.Outcome);
+        Assert.Equal(CheckOutcome.Verified, result.Inclusion.Outcome);
+        Assert.Equal(CheckOutcome.Verified, result.KeyBinding.Outcome);
+        Assert.Equal(CheckOutcome.Disputed, result.Lifecycle.Outcome);
+        Assert.Equal(CheckOutcome.Disputed, result.Overall);
+        Assert.Contains("lifecycle   DISPUTED: ", result.Render(), StringComparison.Ordinal);
+        Assert.Contains("declared compromised from log index 1 by the declaration at log index 4", result.Lifecycle.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R6.57: disputed is never printed as verified, in the summary or on the lifecycle line, and nothing that reads
+    /// the rendering for the word VERIFIED finds it (F2-4: <c>Overall</c> mapping Disputed to Verified).
+    /// </summary>
+    [Fact]
+    public async Task R6_57_DisputedIsNeverPrintedAsVerified()
+    {
+        var (result, _) = await VerifyCaseAsync("compromised-before-post");
+        var rendered = result.Render();
+
+        Assert.NotEqual(CheckOutcome.Verified, result.Overall);
+        Assert.Contains("\nDISPUTED. ", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("VERIFIED.", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("lifecycle   verified", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R6.57: <c>curia verify</c> exits 9 on a disputed post, and only when nothing failed (6) and nothing could not be
+    /// checked (8): those outrank it. The code is its own, and the help names it.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_CuriaVerifyExitsNineOnADisputedPost()
+    {
+        var (result, _) = await VerifyCaseAsync("compromised-before-post");
+
+        Assert.Equal(9, Curia.Client.Cli.ExitCode.Disputed);
+        Assert.Equal(Curia.Client.Cli.ExitCode.Disputed, Curia.Client.Cli.ExitCode.ForOutcomes(result.Overall));
+        Assert.Equal(Curia.Client.Cli.ExitCode.Unverified, Curia.Client.Cli.ExitCode.ForOutcomes(CheckOutcome.Disputed, CheckOutcome.Failed));
+        Assert.Equal(Curia.Client.Cli.ExitCode.ForumFault, Curia.Client.Cli.ExitCode.ForOutcomes(CheckOutcome.Disputed, CheckOutcome.CouldNotCheck));
+        Assert.Equal(Curia.Client.Cli.ExitCode.Ok, Curia.Client.Cli.ExitCode.ForOutcomes(CheckOutcome.Verified));
+    }
+
+    /// <summary>
+    /// R6.57: <c>Overall</c> ranks failed, then could not be checked, then disputed, then verified. A disputed lifecycle
+    /// beside a consistency check that did not run is not established; beside a failure it is failed; beside five checks that
+    /// held it is disputed.
+    /// </summary>
+    [Fact]
+    public void R6_57_OverallRanksDisputedBelowAnAbsenceAndAFailure()
+    {
+        PostVerification With(Check consistency, Check lifecycle) => new(
+            "p", Check.Verified("s"), Check.Verified("i"), consistency, Check.Verified("k"), lifecycle, null, 1, 2);
+
+        var disputed = Check.Disputed("d");
+        Assert.Equal(CheckOutcome.Disputed, With(Check.Verified("c"), disputed).Overall);
+        Assert.Equal(CheckOutcome.CouldNotCheck, With(Check.CouldNotCheck("c"), disputed).Overall);
+        Assert.Equal(CheckOutcome.Failed, With(Check.Failed("c"), disputed).Overall);
+        Assert.Equal(CheckOutcome.Verified, With(Check.Verified("c"), Check.Verified("l")).Overall);
+    }
+
+    /// <summary>
+    /// R6.57: a declaration follows the post it disputes, so the reader fetches the lifecycle through it. Here a rotation
+    /// at 3 lies between the post (2) and the declaration (5); stopping at the first entry after the post would never reach
+    /// the declaration (F2-7). Through the verifier and a Forum, never the check alone: it is the fetching that decides.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_ADeclarationBeyondTheFirstEntryAfterThePostIsFetched()
+    {
+        var (result, forum) = await VerifyCaseAsync("compromised-after-intervening-rotation");
+
+        Assert.Equal(CheckOutcome.Disputed, result.Lifecycle.Outcome);
+        Assert.Equal(CheckOutcome.Disputed, result.Overall);
+        Assert.Contains("/v1/log/entries/3", forum.Requests);
+        Assert.Contains("/v1/log/entries/5", forum.Requests);
+    }
+
+    /// <summary>
+    /// R6.57: the key set names the declaration for every kid it lists, so a post under the cascaded key k2 reaches it
+    /// as a post under k1 does, and is disputed.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_APostUnderACascadedKeyIsDisputedThroughTheKeySet()
+    {
+        var (result, forum) = await VerifyCaseAsync("compromise-post-under-cascaded-key");
+
+        Assert.Equal(CheckOutcome.Disputed, result.Lifecycle.Outcome);
+        Assert.Equal(CheckOutcome.Disputed, result.Overall);
+        Assert.Contains("/v1/log/entries/5", forum.Requests);
+    }
+
+    /// <summary>R6.57: a declaration that fails KF3 never disputes: the lifecycle line is failed, and so is the summary.</summary>
+    [Theory]
+    [InlineData("compromise-kids-omits-cascade")]
+    [InlineData("compromise-kid-of-other-identity")]
+    [InlineData("compromise-from-index-at-declaration")]
+    public async Task R6_57_AFailedDeclarationFailsTheLifecycleAndDisputesNothing(string name)
+    {
+        var (result, _) = await VerifyCaseAsync(name);
+
+        Assert.Equal(CheckOutcome.Failed, result.Lifecycle.Outcome);
+        Assert.Equal(CheckOutcome.Failed, result.Overall);
+        Assert.Equal(Curia.Client.Cli.ExitCode.Unverified, Curia.Client.Cli.ExitCode.ForOutcomes(result.Overall));
+    }
+
+    /// <summary>
+    /// R6.57, the read path: the Forum's key set says a key was declared compromised, and a passage says so as the Forum's
+    /// word, with the declaration's index and the index the compromise is stated from. The signature line is unchanged: it
+    /// is <c>curia verify</c>, from the log, that disputes a post.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_ACompromisedKeysLineOnReadIsTheForumsWord()
+    {
+        using var log = new StubLog();
+        var client = log.Client();
+        var posted = await client.GetPostAsync(StubLog.PostId, MarkingMode.None, TestContext.Current.CancellationToken);
+        Assert.True(posted.TryGetValue(out var post, out var postRefusal), postRefusal?.Summary);
+        var served = await client.GetJwksAsync(StubLog.Author, TestContext.Current.CancellationToken);
+        Assert.True(served.TryGetValue(out var keys, out var keysRefusal), keysRefusal?.Summary);
+
+        var compromised = keys.Select(k => k with { Status = "compromised", CompromisedLogIndex = 4, DisputedFrom = 1 }).ToImmutableArray();
+        var rendered = new Passage(post!, SignatureCheck.Verify(post!, compromised)).Render();
+
+        Assert.Contains(
+            "key       \"alice-1\" compromised at log index 4, content disputed from log index 1 (as the Forum's key set says)",
+            rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("NOT VERIFIED", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R6.26 (revised), a regression guard (green before this stage): a head verifier refuses a valid log-key signature whose
+    /// header names a declaration's <c>typ</c>, <c>curia-key-compromise+jws</c>, by exact <c>typ</c>. The signature is
+    /// pinned beside <c>rotation-then-post</c> (<c>head-as-compromise.json</c>): the same head, by the same log key, over the
+    /// same bytes; the control is the head itself, which verifies (F2-33).
+    /// </summary>
+    [Fact]
+    public void R6_26_TheHeadVerifierRefusesACompromiseTyp()
+    {
+        var directory = CaseDirectory("rotation-then-post");
+        var keys = LifecycleConformanceTests.ReadLogKeys(Path.Combine(directory, "log-jwks.json"));
+
+        var control = ActaCheck.HeadSignature(LifecycleConformanceTests.ReadHead(Path.Combine(directory, "head.json")), keys);
+        Assert.Equal(CheckOutcome.Verified, control.Outcome);
+
+        var verdict = ActaCheck.HeadSignature(LifecycleConformanceTests.ReadHead(Path.Combine(directory, "head-as-compromise.json")), keys);
+
+        Assert.Equal(CheckOutcome.Failed, verdict.Outcome);
+        Assert.Contains("does not verify", verdict.Detail, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// R6.49 (a regression guard, green before this stage): a head verifier refuses a valid log-key signature whose
     /// header names a lifecycle <c>typ</c>. A head is the one statement the log key makes about itself, and a verifier

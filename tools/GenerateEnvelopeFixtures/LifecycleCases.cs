@@ -704,11 +704,13 @@ internal static partial class LifecycleCases
             $"{{\"head\":{Encoding.UTF8.GetString(headCanonical.Span)},\"kid\":\"{LogKid}\",\"signature\":\"{headSignature.Compact}\",\"log_index\":{size},\"signature_valid\":true,\"current_tree_size\":{size}}}\n");
 
         // The regression guard for R6.49 (spec 4.6, "Outside the lifecycle family"): the same head, signed by the same log
-        // key over the same bytes, under each lifecycle typ. A head verifier refuses both, by exact typ; the files sit in
-        // the one case so both runners hold the same pinned signatures and neither has to sign.
+        // key over the same bytes, under each lifecycle typ. A head verifier refuses each, by exact typ; the files sit in
+        // the one case so both runners hold the same pinned signatures and neither has to sign. The compromise typ joined
+        // the other two with PR 2 (R6.26 (revised)): the head key is Ed25519 here and a declaration's is the P-256 log key,
+        // but the refusal is by typ before any key is read.
         if (c.Name == "rotation-then-post")
         {
-            foreach (var (suffix, typ) in new[] { ("rotation", RotationHeaderTyp), ("retirement", RetirementHeaderTyp) })
+            foreach (var (suffix, typ) in new[] { ("rotation", RotationHeaderTyp), ("retirement", RetirementHeaderTyp), ("compromise", CompromiseHeaderTyp) })
             {
                 var asLifecycle = Signing.Sign(headCanonical, "EdDSA", LogKid, logSeed, typ);
                 File.WriteAllText(

@@ -284,6 +284,11 @@ internal static class Help
                  head's lock not taken, which exits 8 even before any head is retained; R6.53), or
                  a missing curia-testis. Nothing was refuted: this is never 6, because "I could not
                  check" and "this is forged" are a network fault and an attack (R6.52).
+              9  disputed (R6.57): the signature holds, and the key that made it was declared
+                 compromised by the operator from a log index at or below the post's, in a
+                 declaration that follows the post. The post is served and marked; do not cite it
+                 as the author's. Reported as of the signed head this client holds, and ranked below
+                 6 and 8: a check that failed or did not run decides the code first.
 
             ENVIRONMENT
               CURIA_CLIENT_HOME  where keys, tokens and the retained tree head live

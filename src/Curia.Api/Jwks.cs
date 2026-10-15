@@ -81,6 +81,17 @@ public static class Jwks
                 && logIndexOf(endedBy) is { } retiredAt)
                 node["curia_retired_log_index"] = retiredAt;
 
+            // R6.57: where the declaration that names the key sits, and the index it states the compromise from. The key set
+            // names it for every kid the declaration lists, a cascaded key as well as the first, so a reader can fetch it
+            // for a post under either. The Forum's word; a reader recomputes the declaration from the lifecycle.
+            if (bound.Status is KeyStatus.Compromised
+                && bound.CompromisedByEventId is { } declaredBy
+                && logIndexOf(declaredBy) is { } declaredAt)
+            {
+                node["curia_compromised_log_index"] = declaredAt;
+                if (bound.DisputedFrom is { } disputedFrom) node["curia_disputed_from"] = disputedFrom;
+            }
+
             array.Add(node);
         }
 

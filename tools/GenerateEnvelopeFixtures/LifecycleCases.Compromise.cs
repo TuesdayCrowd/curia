@@ -67,6 +67,7 @@ internal static partial class LifecycleCases
             CompromisedAfterInterveningRotation(root, k1, k2, "compromise-kids-reordered", reorderKids: true, omitCascade: false),
             PostUnderCascadedKey(root, k1, k2),
             KidsSiblingsReordered(root, k1, k2, k3),
+            SiblingDeclaredAlone(root, k1, k2, k3),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -169,6 +170,27 @@ internal static partial class LifecycleCases
         { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
     }
 
+    /// <summary>
+    /// 0 enrolled, 1 binding k1, 2 the rotation k1 to k2, 3 the rotation k1 to k3 (two rotations by k1, so two siblings), 4 the post,
+    /// signed by k2, 5 the log key, 6 the declaration naming [k2] alone from index 2. k2 is the compromised key and it bound nothing:
+    /// k3 was bound by k1, not by k2, so it is not in k2's cascade (R6.57: a key a compromised key bound by rotation), and the
+    /// cascade rooted at k2 is [k2]. A reader that cascades every rotation at or after from_index, whoever authorized it, recomputes
+    /// [k2, k3] and refuses the correct declaration. The post at 4 lies in [2, 6) under a key in kids, so it is disputed.
+    /// </summary>
+    private static Case SiblingDeclaredAlone(string root, Key k1, Key k2, Key k3)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1));
+        AddRotation(log, new Rot(k1, k3, Prev: 2));
+        var post = AddPost(log, k2, "53");
+        var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
+        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, [k2.Kid], FromIndex: 2, Prev: 3), root, "compromise-sibling-declared-alone");
+        return new Case("compromise-sibling-declared-alone", "R6.57",
+            "k1 rotated in k2 at 2 and k3 at 3. The declaration at 6 names k2 alone from index 2: k3 was bound by k1, not by the compromised key k2, so the cascade rooted at k2 is [k2] and the declaration holds. The post at 4 is signed by k2 and lies in [2, 6): it is disputed. A reader that drops the authorizer clause and cascades every rotation at or after from_index recomputes [k2, k3] and refuses it (KF3).",
+            log, post, [0, 1, 2, 3, 6], "disputed", "disputed")
+        { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
+    }
+
     private static Case DeclarationSignedAsHead(string root, Key k1)
     {
         var (log, post, logKeyIndex, decl) = PostThenDeclaration(k1, "42", d => d with { HeaderTyp = DetachedJws.HeadTyp });
@@ -201,8 +223,10 @@ internal static partial class LifecycleCases
 
     /// <summary>
     /// 0 enrolled, 1 binding k1, 2 the stranger's binding (another identity's stream), 3 the post, 4 the log key, 5 the declaration
-    /// naming the stranger's key, from_index 2: binding(kids[0]) = 2 &lt;= 2 &lt; 5, so the bound-to-agent_id check is the only one
-    /// that can refuse it. The recomputed cascade is [k1], so kids cannot equal it either; that is unavoidable, which is why the
+    /// naming the stranger's key, from_index 2. Entry 2 stays in the log but is not in the agent's stream, so it is not supplied
+    /// (supplied [0, 1, 5]): a reader is only ever served the agent's own stream, and a foreign entry in the supplied set is
+    /// foreign-identity-entry's case, not this one. The stranger's key has no binding in the stream, so check (1) fires and nothing
+    /// earlier does. The recomputed cascade is [k1], so kids cannot equal it either; that is unavoidable, which is why the
     /// predicate is the distinct <c>kid-not-bound-to-agent</c> and a reader checks it before the cascade.
     /// </summary>
     private static Case KidOfOtherIdentity(string root, Key k1, Key stranger)
@@ -214,8 +238,8 @@ internal static partial class LifecycleCases
         var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
         AddDeclaration(log, new Decl(ConformanceLogKeys.Log, [stranger.Kid], FromIndex: 2, Prev: 1), root, "compromise-kid-of-other-identity");
         return new Case("compromise-kid-of-other-identity", "R6.57",
-            "The declaration for this identity names a key that another identity's binding at 2 holds. from_index 2 satisfies the binding bound (binding 2 <= 2 < 5), and the only defect is that kids[0] is bound to another identity at 2, not to agent_id in its own stream (KF3).",
-            log, post, [0, 1, 2, 5], "failed", "kid-not-bound-to-agent")
+            "The declaration for this identity names a key that another identity's binding at 2 holds. The binding is in another identity's stream and is not supplied, so kids[0] has no binding to agent_id in the stream the reader holds (KF3, check 1). The log keeps that binding at 2, which is why from_index is 2.",
+            log, post, [0, 1, 5], "failed", "kid-not-bound-to-agent")
         { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
     }
 

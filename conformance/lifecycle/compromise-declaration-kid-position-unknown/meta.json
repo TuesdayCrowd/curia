@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.57",
+  "note": "The log key set lists the declaring key with no log_index: a reader cannot say it was published before the declaration (KF2, KF4's rule). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

@@ -62,8 +62,11 @@ USAGE:
     With a head, log author also folds the author's lifecycle (R6.54 (add.)):
     each --lifecycle-entry/--lifecycle-proof pair, repeated and in log order,
     is one lifecycle entry of the author and its proof, from the author's
-    agent.enrolled through the first entry at or after the post. The key is
-    verified only if it was bound before the post and not retired before it.
+    agent.enrolled through the first entry at or after the post, and through a
+    compromise declaration that names the post's key when the author's key set
+    names one (R6.57). The key is verified only if it was bound before the post
+    and not retired before it; a declaration is verified under the log's key set
+    (--log-jwks), whose published positions it is held to.
 
 EXIT CODES:
     0  verified: every check ran and held
@@ -82,6 +85,11 @@ EXIT CODES:
        it holds an entry of a kind this verifier does not know, or it is too
        long: an offline verifier given no lifecycle cannot say the key was not
        retired. This is not a pass and not a failure.
+    4  disputed (R6.57): the signature holds, and the post's key was declared
+       compromised from a log index at or below the post's, in a declaration that
+       follows the post and was supplied as the last --lifecycle-entry. Not a pass
+       and not a failure; do not cite the post as the author's. Exit 4 is
+       reported only where nothing failed and nothing could not be checked.
 ";
 
 /// Deliberate, documented bound on `--jwks`, per the Task 6 brief's ruling
@@ -151,6 +159,9 @@ enum CliError {
     /// and forbids collapsing the third into either of the others; a CLI whose
     /// third outcome exists only in prose has collapsed it into the first.
     NotAnchored(String),
+    /// R6.57's fourth outcome: the signature holds and who made it is in question. Neither a pass (0), a
+    /// failure (1) nor an absence (3): 4.
+    Disputed(String),
 }
 
 fn main() -> ExitCode {
@@ -185,6 +196,10 @@ fn main() -> ExitCode {
         Err(CliError::NotAnchored(message)) => {
             eprintln!("not checked: {message}");
             ExitCode::from(3)
+        }
+        Err(CliError::Disputed(message)) => {
+            eprintln!("disputed: {message}");
+            ExitCode::from(4)
         }
     }
 }
@@ -351,6 +366,7 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
                     author_lifecycle(
                         &entry,
                         &head,
+                        &flags,
                         &lifecycle_flags.entries,
                         &lifecycle_flags.proofs,
                     )
@@ -370,6 +386,7 @@ fn run_log(args: &[String]) -> Result<(), CliError> {
 fn author_lifecycle(
     post_entry: &[u8],
     head: &VerifiedHead,
+    flags: &HashMap<String, PathBuf>,
     entries: &[PathBuf],
     proofs: &[PathBuf],
 ) -> Result<(), CliError> {
@@ -389,11 +406,18 @@ fn author_lifecycle(
         ));
     }
 
-    match lifecycle::verify_lifecycle_under(post_entry, &chain, head) {
+    // The log's key set, read again for each key's position: a head was given, so `--log-jwks` was.
+    let log_keys =
+        acta::LogKeys::parse(&read_flag(flags, "--log-jwks")?).map_err(CliError::Acta)?;
+    match lifecycle::verify_lifecycle_under(post_entry, &chain, head, &log_keys) {
         Ok(verified) => {
             println!("lifecycle: verified through leaf {}", verified.last_index);
             println!("lifecycle_entries: {}", verified.entries_checked);
             Ok(())
+        }
+        Err(err) if err.disputed() => {
+            println!("lifecycle: disputed");
+            Err(CliError::Disputed(format!("{err}")))
         }
         Err(err) if err.not_established() => Err(CliError::NotAnchored(format!(
             "{err}: whether the post's key was live in its author's lifecycle when the post was accepted is not established"

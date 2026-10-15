@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
+using System.Text;
 using Curia.Application.Credentials;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
@@ -35,7 +37,7 @@ public sealed class DeclareCompromiseTests
     private static string Describe<T>(Result<T> result) => result.Match(_ => "ok", e => $"{e.Type} {e.Detail}");
 
     /// <summary>Publishes <paramref name="signer"/>'s key as the log does (<c>log.key</c>, R6.50), as the operator's sign-head does.</summary>
-    private static async Task PublishAsync(KeyActHarness harness, InMemoryLifecycleStatementSigner signer)
+    private static async Task PublishAsync(KeyActHarness harness, ILifecycleStatementSigner signer)
     {
         var acta = Require(ActaLog.Fold(Require(await harness.Events.ReadAllAsync(Ct).ConfigureAwait(false))));
         var payload = new JsonValue.Object(
@@ -52,7 +54,7 @@ public sealed class DeclareCompromiseTests
     }
 
     private static Task<Result<CompromiseRecorded>> DeclareAsync(
-        KeyActHarness harness, InMemoryLifecycleStatementSigner signer, string kid, long fromIndex, string agent = Alice) =>
+        KeyActHarness harness, ILifecycleStatementSigner signer, string kid, long fromIndex, string agent = Alice) =>
         new DeclareCompromise(harness.Events, harness.Clock)
             .DeclareAsync(Typed.Agent(agent), Typed.Kid(kid), fromIndex, CompromiseReason.OwnerReported, signer, Operator, Ct);
 
@@ -239,6 +241,112 @@ public sealed class DeclareCompromiseTests
         Assert.Equal(
             $"True; True; False; {LifecycleAppendGuard.KeyCompromisedType}; {Operator.Value}",
             $"{header.IsOk}; {verifies.IsOk}; {asHead.IsOk}; {entry.Event.Type.Value}; {entry.Event.Actor?.Value}");
+    }
+
+    /// <summary>
+    /// R6.57, the control for Task 2.3's readers: <c>DeclareCompromise</c>, behind the permissive gate, accepts exactly
+    /// <c>acta/key-compromised-entry</c>'s inputs, so the vector is reachable by the use case and not only by hand. The log
+    /// is the vector's implied one (0 enrolled, 1 the enrolment's binding, 2 the rotation binding <c>conformance-ed25519-second</c>,
+    /// 3 the retirement of the first key, 4 the conformance log key's <c>log.key</c> entry), the kid is
+    /// <c>conformance-ed25519-second</c>, <c>from_index</c> 2 and the reason <c>owner-reported</c>. Every member of the
+    /// appended entry's payload except <c>declaration</c> equals the vector's byte for byte: <c>agent_id</c>,
+    /// <c>from_index</c>, <c>kids</c>, <c>prev</c>, <c>reason</c> and <c>statement</c>. For <c>declaration</c>, its protected
+    /// header equals the vector's, its signing input's payload is the vector's <c>statement</c> bytes, and it verifies under the
+    /// pinned conformance log key with header <c>typ</c> <c>curia-key-compromise+jws</c>.
+    ///
+    /// <para>The declaration's signature bytes are not compared. ES256 signing is randomized (Task 2.0), so a fresh
+    /// declaration's signature never equals the vector's pinned one, and comparing them would make this control red on
+    /// every run. The agent keys here are ES256 stand-ins bearing the vector's kids: nothing in the declaration reads an agent
+    /// key's algorithm, and the statement is a function of the identity, the kids, <c>from_index</c>, <c>prev</c> and the
+    /// reason alone.</para>
+    /// </summary>
+    [Fact]
+    public async Task R6_57_DeclareCompromiseAcceptsTheVectorsInputs()
+    {
+        const string Scriptor = "agent://curia.example/tuesdaycrowd/scriptor";
+        var vector = (JsonValue.Object)Require(JsonReader.ParseUnrestricted(await File.ReadAllBytesAsync(RepoFile("conformance", "acta", "key-compromised-entry", "input.json"), Ct)));
+        var expected = (JsonValue.Object)vector.Members.Single(m => m.Key == "payload").Value;
+
+        var harness = new KeyActHarness();
+        var first = TestIdentity.New("conformance-ed25519-minimal");
+        var second = TestIdentity.New("conformance-ed25519-second");
+        await harness.EnrollAsync(Scriptor, first);
+        Require(await harness.RotateAsync(Scriptor, first, second));
+        Require(await harness.RetireAsync(Scriptor, first));
+        using var logKey = new ConformanceLogKeySigner();
+        await PublishAsync(harness, logKey);
+
+        var declared = Require(await DeclareAsync(harness, logKey, "conformance-ed25519-second", fromIndex: 2, agent: Scriptor));
+
+        var appended = (await harness.StreamAsync(Scriptor))[^1];
+        var actual = (JsonValue.Object)appended.Event.Payload;
+        string Member(JsonValue.Object o, string name) =>
+            Encoding.UTF8.GetString(Require(CanonicalJson.CanonicalizeWithNfc(new JsonValue.Object([new(name, o.Members.Single(m => m.Key == name).Value)]))).Span);
+
+        foreach (var name in VectorMembers)
+            Assert.Equal(Member(expected, name), Member(actual, name));
+
+        var statement = ((JsonValue.String)actual.Members.Single(m => m.Key == "statement").Value).Value;
+        var ours = ((JsonValue.String)actual.Members.Single(m => m.Key == "declaration").Value).Value;
+        var theirs = ((JsonValue.String)expected.Members.Single(m => m.Key == "declaration").Value).Value;
+        var vectorStatement = ((JsonValue.String)expected.Members.Single(m => m.Key == "statement").Value).Value;
+        Assert.Equal(vectorStatement, statement);
+        Assert.Equal(theirs.Split('.')[0], ours.Split('.')[0]);
+        Assert.Equal(string.Empty, ours.Split('.')[1]);
+
+        var canonical = Require(CanonicalJsonOf(vectorStatement));
+        Assert.True(new DetachedJws(new Dictionary<string, IContentSigner>(), harness.Verifiers, KeyStatements.CompromiseHeaderTyp)
+            .Verify(canonical, new JwsSignature(ours), logKey.Material).IsOk);
+        Assert.True(new DetachedJws(new Dictionary<string, IContentSigner>(), harness.Verifiers, KeyStatements.CompromiseHeaderTyp)
+            .Verify(canonical, new JwsSignature(theirs), logKey.Material).IsOk, "the vector's own pinned declaration verifies under the same key");
+        Assert.Equal(VectorKids, declared.Kids);
+    }
+
+    private static readonly string[] VectorKids = ["conformance-ed25519-second"];
+
+    private static readonly string[] VectorMembers = ["agent_id", "from_index", "kids", "prev", "reason", "statement"];
+
+    private static string RepoFile(params string[] parts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Curia.sln")))
+            directory = directory.Parent;
+        return Path.Combine([directory?.FullName ?? throw new InvalidOperationException("Curia.sln not found above the test"), .. parts]);
+    }
+
+    /// <summary>
+    /// The conformance log key (a fixed P-256 test key; its private scalar is published on purpose and signs nothing but
+    /// conformance vectors), from <c>tools/GenerateEnvelopeFixtures/ConformanceLogKeys.cs</c>: the key
+    /// <c>acta/key-compromised-entry</c>'s declaration is signed by, with the kid its RFC 7638 thumbprint.
+    /// </summary>
+    private sealed class ConformanceLogKeySigner : ILifecycleStatementSigner, IDisposable
+    {
+        private const string ScalarHex = "c82905a0459cc186f88844b01f7ceee5fb3cefa08602b006bd54ba9c80aef7b1";
+        private readonly ECDsa _key = ECDsa.Create(new ECParameters { Curve = ECCurve.NamedCurves.nistP256, D = Convert.FromHexString(ScalarHex) });
+
+        public string Kid => "qHPbhs_9o0jxVndzhwI7c3RLiGYoec5rTmfEtwT5j30";
+
+        internal PublicKeyMaterial Material => new("ES256", Kid, _key.ExportSubjectPublicKeyInfo());
+
+        public JsonValue.Object PublicJwk()
+        {
+            var parameters = _key.ExportParameters(includePrivateParameters: false);
+            return new JsonValue.Object(
+            [
+                new("alg", new JsonValue.String("ES256")),
+                new("crv", new JsonValue.String("P-256")),
+                new("kid", new JsonValue.String(Kid)),
+                new("kty", new JsonValue.String("EC")),
+                new("use", new JsonValue.String("sig")),
+                new("x", new JsonValue.String(System.Buffers.Text.Base64Url.EncodeToString(parameters.Q.X!))),
+                new("y", new JsonValue.String(System.Buffers.Text.Base64Url.EncodeToString(parameters.Q.Y!))),
+            ]);
+        }
+
+        public Result<byte[]> SignStatement(ReadOnlySpan<byte> signingInput) =>
+            Result<byte[]>.Ok(_key.SignData(signingInput, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+
+        public void Dispose() => _key.Dispose();
     }
 
     private static Result<CanonicalBytes> CanonicalJsonOf(string statement) =>

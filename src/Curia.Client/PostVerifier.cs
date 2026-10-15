@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using Curia.Domain.Serving;
@@ -41,6 +42,11 @@ public sealed record PostVerification(
     /// <summary>
     /// One word for the five, for a caller that wants a single answer.
     ///
+    /// <para><b>Disputed is a fourth word, and it ranks below an absence</b> (R6.57): failed, then could not be checked,
+    /// then disputed, then verified. The lifecycle line is the one that can say it, when the signature holds under a key a
+    /// declaration that follows the post names from a log index at or below the post's. It is reported as of the head this
+    /// client holds, and it is never printed as verified.</para>
+    ///
     /// <para><b>Any failure is a failure.</b> A post whose signature verifies and whose inclusion
     /// proof does not is not partly authentic.</para>
     ///
@@ -76,10 +82,10 @@ public sealed record PostVerification(
             : Signature.Outcome is CheckOutcome.Verified
               && Inclusion.Outcome is CheckOutcome.Verified
               && KeyBinding.Outcome is CheckOutcome.Verified
-              && Lifecycle.Outcome is CheckOutcome.Verified
+              && Lifecycle.Outcome is CheckOutcome.Verified or CheckOutcome.Disputed
               && (Consistency.Outcome is CheckOutcome.Verified
                   || Consistency is { Outcome: CheckOutcome.CouldNotCheck, NothingToCompare: true })
-                ? CheckOutcome.Verified
+                ? (Lifecycle.Outcome is CheckOutcome.Disputed ? CheckOutcome.Disputed : CheckOutcome.Verified)
                 : CheckOutcome.CouldNotCheck;
 
     /// <summary>
@@ -132,6 +138,9 @@ public sealed record PostVerification(
             CheckOutcome.CouldNotCheck =>
                 "NOT ESTABLISHED. Nothing failed, and something could not be checked. This is not a "
                 + "verification and must not be read as one; the line above says what was missing.\n",
+            CheckOutcome.Disputed =>
+                "DISPUTED. The signature holds and its key was declared compromised from before this post (R6.57); "
+                + "do not cite it as the author's. This is as of the signed head this client holds.\n",
             _ =>
                 "NOT ESTABLISHED. Nothing failed, and something could not be checked. This is not a "
                 + "verification and must not be read as one; the line above says what was missing.\n",
@@ -344,6 +353,13 @@ public sealed class PostVerifier
     /// next entry's (spec section 4.8). More than 1,024 before the post is could not be checked, and none of them is
     /// fetched. A key set that lists no lifecycle, or an entry or proof that will not arrive, is could not be checked:
     /// a fault reaching the material, not a statement about the key.</para>
+    ///
+    /// <para><b>Through the declaration (R6.57).</b> A declaration that disputes a post follows it, so when the key set
+    /// names one for the post's key (<c>curia_compromised_log_index</c>, which it does for every kid the declaration
+    /// lists) at an index after the post and under the head, every lifecycle index up to and including it is fetched as
+    /// well, and the declaration is held to the chain (its link, its cascade) and to the log's key set. Stopping at the
+    /// first entry after the post would never reach a declaration that comes after a later rotation. A declaration the
+    /// head does not cover is not fetched: the outcome is as of the head this client holds.</para>
     /// </summary>
     private async Task<Check> LifecycleAsync(ProvenancePost post, Anchor anchor, PostInclusion inclusion, CancellationToken ct)
     {
@@ -379,6 +395,22 @@ public sealed class PostVerifier
         var wanted = before.ToList();
         if (indices.FirstOrDefault(i => i >= postIndex, -1) is >= 0 and var stop) wanted.Add(stop);
 
+        // R6.57: the declaration the key set names for the post's key, after the post and under the head, and every entry
+        // the author's chain holds up to it.
+        var logged = ActaCheck.ReadLoggedPost(post, postEntry, postProof.LogIndex).Post;
+        var declaredAt = logged is null
+            ? null
+            : keySet.Keys.FirstOrDefault(k => string.Equals(k.Kid, logged.Kid, StringComparison.Ordinal))?.CompromisedLogIndex;
+        if (declaredAt is { } declaration && declaration > postIndex && declaration < head.TreeSize)
+        {
+            var through = indices.Where(i => i > postIndex && i <= declaration).ToList();
+            if (!through.Contains(declaration)) through.Add(declaration);
+            if (through.Count > LifecycleCheck.MaxEntriesBeforePost)
+                return Check.CouldNotCheck("the author's lifecycle has more than 1,024 entries between the post and the declaration that names its key");
+
+            wanted = [.. before, .. through.Order()];
+        }
+
         var chain = new List<(LogEntryDocument Entry, InclusionProofDocument Proof)>(wanted.Count);
         foreach (var index in wanted)
         {
@@ -397,7 +429,7 @@ public sealed class PostVerifier
             chain.Add((served!, proven!));
         }
 
-        return LifecycleCheck.Verify(post, postEntry, chain, head);
+        return LifecycleCheck.Verify(post, postEntry, chain, head, anchor.LogKeys);
     }
 
     /// <summary>
@@ -421,7 +453,7 @@ public sealed class PostVerifier
             return new Anchor(null, Check.CouldNotCheck($"the log's key set could not be fetched: {keysRefusal!.Summary}"));
 
         var verified = ActaCheck.HeadSignature(head!, published);
-        return new Anchor(verified.Outcome is CheckOutcome.Verified ? head : null, verified);
+        return new Anchor(verified.Outcome is CheckOutcome.Verified ? head : null, verified, published);
     }
 
     /// <summary>
@@ -587,7 +619,7 @@ public sealed class PostVerifier
     private static string Invariant(FormattableString text) => FormattableString.Invariant(text);
 
     /// <summary>The head a proof will be anchored to, and why there is none when there is none.</summary>
-    private readonly record struct Anchor(SignedHeadDocument? Head, Check Verdict);
+    private readonly record struct Anchor(SignedHeadDocument? Head, Check Verdict, ImmutableArray<LogJwk> LogKeys = default);
 
     /// <summary>R6.52's second check, and the post's own entry and proof it ran over, when it had both.</summary>
     private readonly record struct PostInclusion(

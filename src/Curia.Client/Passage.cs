@@ -97,6 +97,9 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         {
             if (string.Equals(status, "retired", StringComparison.Ordinal) && Verdict.KeyRetiredAt is { } retiredAt)
                 frame.Line($"key       {Verdict.Kid} {new OwnText("retired at log index")} {retiredAt} {new OwnText("(as the Forum's key set says)")}");
+            else if (string.Equals(status, "compromised", StringComparison.Ordinal)
+                && Verdict.KeyCompromisedAt is { } compromisedAt && Verdict.KeyDisputedFrom is { } disputedFrom)
+                frame.Line($"key       {Verdict.Kid} {new OwnText("compromised at log index")} {compromisedAt}{new OwnText(", content disputed from log index")} {disputedFrom} {new OwnText("(as the Forum's key set says)")}");
             else
                 frame.Line($"key       {Verdict.Kid} {new OwnText("is marked")} {status} {new OwnText("(as the Forum's key set says)")}");
         }

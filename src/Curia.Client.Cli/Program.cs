@@ -1083,6 +1083,11 @@ internal static class Program
         Output.Line($"consistency {new OwnText(acta.Consistency.Describe)}");
         Output.Line($"key         {new OwnText(acta.KeyBinding.Describe)}");
         Output.Line($"lifecycle   {new OwnText(acta.Lifecycle.Describe)}");
+        if (acta.Overall is CheckOutcome.Disputed)
+        {
+            Output.Blank();
+            Output.Line("DISPUTED. The signature holds and its key was declared compromised from before this post (R6.57); do not cite it as the author's.");
+        }
 
         return ExitCode.ForOutcomes(local.Outcome, independent.Outcome, acta.Overall);
     }

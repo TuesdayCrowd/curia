@@ -85,6 +85,21 @@ public sealed class ExitCodeTests
         Assert.Equal(expected, ExitCode.ForOutcomes(first, second));
 
     /// <summary>
+    /// R6.57: disputed is its own code, 9, and ranks below the two that mean a check failed (6) or did not run (8): a
+    /// disputed post whose log is unreachable is reported as the absence, and one beside a failure as the failure.
+    /// </summary>
+    [Theory]
+    [InlineData(CheckOutcome.Disputed, CheckOutcome.Verified, 9)]
+    [InlineData(CheckOutcome.Verified, CheckOutcome.Disputed, 9)]
+    [InlineData(CheckOutcome.Disputed, CheckOutcome.Disputed, 9)]
+    [InlineData(CheckOutcome.Disputed, CheckOutcome.CouldNotCheck, 8)]
+    [InlineData(CheckOutcome.CouldNotCheck, CheckOutcome.Disputed, 8)]
+    [InlineData(CheckOutcome.Disputed, CheckOutcome.Failed, 6)]
+    [InlineData(CheckOutcome.Failed, CheckOutcome.Disputed, 6)]
+    public void R6_57_DisputedIsNineAndRanksBelowFailedAndCouldNotBeChecked(CheckOutcome first, CheckOutcome second, int expected) =>
+        Assert.Equal(expected, ExitCode.ForOutcomes(first, second));
+
+    /// <summary>
     /// Every digest this CLI hands a user is in the form its own verbs accept.
     ///
     /// <para><b>The defect this pins.</b> <c>SignedSubmission</c> carries the digest twice — bare

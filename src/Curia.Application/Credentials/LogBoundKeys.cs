@@ -10,7 +10,18 @@ namespace Curia.Application.Credentials;
 /// A key the store holds and the log binds, with the binding (R4.35) and what the log says of it now
 /// (R4.35 rev.): <paramref name="Status"/>, and the entry that ended it when it is retired.
 /// </summary>
-public sealed record BoundKey(RegisteredKey Key, KeyBinding Binding, KeyStatus Status, string? EndedByEventId);
+/// <param name="CompromisedByEventId">
+/// The declaration whose <c>kids</c> name the key (R6.57), a cascaded key as well as the first; null when none does. A
+/// reader goes to it for a post the key signed, so the key set names it for every kid the declaration lists.
+/// </param>
+/// <param name="DisputedFrom">The declaration's <c>from_index</c>; null when no declaration names the key.</param>
+public sealed record BoundKey(
+    RegisteredKey Key,
+    KeyBinding Binding,
+    KeyStatus Status,
+    string? EndedByEventId,
+    string? CompromisedByEventId = null,
+    long? DisputedFrom = null);
 
 /// <summary>
 /// A key resolved for use now, with the version of its author's stream the decision was made on
@@ -153,7 +164,16 @@ public sealed class LogBoundKeys : IAuthorKeyResolver, ILiveKeyResolver
         foreach (var registered in held)
         {
             if (stream.Binding?.For(registered.Key) is { } keyBinding && keyBinding.Holds(registered.Key))
-                bound.Add(new BoundKey(registered, keyBinding, lifecycle!.StatusNow(registered.Key.Kid), lifecycle.EndedBy(registered.Key.Kid)?.EventId));
+            {
+                var declaration = lifecycle!.CompromisedBy(registered.Key.Kid);
+                bound.Add(new BoundKey(
+                    registered,
+                    keyBinding,
+                    lifecycle.StatusNow(registered.Key.Kid),
+                    lifecycle.EndedBy(registered.Key.Kid)?.EventId,
+                    declaration?.EventId,
+                    declaration?.FromIndex));
+            }
         }
 
         return Result<AgentKeySet>.Ok(new AgentKeySet(held.Count, bound));

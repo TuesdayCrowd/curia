@@ -813,66 +813,79 @@ mod tests {
     /// before either. Red when the `b64` check or the `crit` check is dropped (F1-72, F1-74).
     #[test]
     fn each_lifecycle_typ_meets_the_b64_and_crit_negatives() {
+        for typ in ["curia-key-rotation+jws", "curia-key-retirement+jws"] {
+            assert_typ_meets_the_negatives(typ);
+        }
+    }
+
+    /// R6.26 (revised): a declaration's `typ`, `curia-key-compromise+jws`, goes through the same `b64` and `crit`
+    /// negatives with the code a post's does, the Rust twin of `R6_26_TheCompromiseTypMeetsTheB64AndCritNegatives`.
+    /// The checks are shared across every `typ`, so dropping one is red here for the compromise `typ` and for the
+    /// others alike (F2-20 for `b64`; F2-35 for `crit`).
+    #[test]
+    fn compromise_typ_meets_the_b64_and_crit_negatives() {
+        assert_typ_meets_the_negatives("curia-key-compromise+jws");
+    }
+
+    fn assert_typ_meets_the_negatives(typ: &str) {
         let (kid, case) = base_header_fields();
         let jwks = JwkSet::parse(&load(&case, "jwks.json")).unwrap();
-        for typ in ["curia-key-rotation+jws", "curia-key-retirement+jws"] {
-            let verdict = |members: &str| {
-                let header = header_b64(&format!(
-                    r#"{{"alg":"EdDSA","kid":"{kid}","typ":"{typ}"{members}}}"#
-                ));
-                verify_typed(&format!("{header}.."), b"anything", &jwks, typ)
-                    .unwrap_err()
-                    .predicate()
-                    .to_string()
-            };
+        let verdict = |members: &str| {
+            let header = header_b64(&format!(
+                r#"{{"alg":"EdDSA","kid":"{kid}","typ":"{typ}"{members}}}"#
+            ));
+            verify_typed(&format!("{header}.."), b"anything", &jwks, typ)
+                .unwrap_err()
+                .predicate()
+                .to_string()
+        };
 
-            assert_eq!(
-                verdict(r#","b64":true,"crit":["b64"]"#),
-                "curia/jws/b64-not-false",
-                "{typ}"
-            );
-            assert_eq!(
-                verdict(r#","crit":["b64"]"#),
-                "curia/jws/b64-not-false",
-                "{typ}"
-            );
-            assert_eq!(
-                verdict(r#","b64":false"#),
-                "curia/jws/crit-invalid",
-                "{typ}"
-            );
-            assert_eq!(
-                verdict(r#","b64":false,"crit":[]"#),
-                "curia/jws/crit-invalid",
-                "{typ}"
-            );
-            assert_eq!(
-                verdict(r#","b64":false,"crit":["b64","zip"]"#),
-                "curia/jws/crit-invalid",
-                "{typ}"
-            );
+        assert_eq!(
+            verdict(r#","b64":true,"crit":["b64"]"#),
+            "curia/jws/b64-not-false",
+            "{typ}"
+        );
+        assert_eq!(
+            verdict(r#","crit":["b64"]"#),
+            "curia/jws/b64-not-false",
+            "{typ}"
+        );
+        assert_eq!(
+            verdict(r#","b64":false"#),
+            "curia/jws/crit-invalid",
+            "{typ}"
+        );
+        assert_eq!(
+            verdict(r#","b64":false,"crit":[]"#),
+            "curia/jws/crit-invalid",
+            "{typ}"
+        );
+        assert_eq!(
+            verdict(r#","b64":false,"crit":["b64","zip"]"#),
+            "curia/jws/crit-invalid",
+            "{typ}"
+        );
 
-            // A signature is its kind's alone (KF1).
-            for wrong in [
-                "curia-key-rotation+jws",
-                "curia-key-retirement+jws",
-                "curia-post+jws",
-                "curia-head+jws",
-            ] {
-                if wrong == typ {
-                    continue;
-                }
-                let header = header_b64(&format!(
-                    r#"{{"alg":"EdDSA","kid":"{kid}","typ":"{wrong}","b64":false,"crit":["b64"]}}"#
-                ));
-                let err =
-                    verify_typed(&format!("{header}.."), b"anything", &jwks, typ).unwrap_err();
-                assert_eq!(
-                    err.predicate(),
-                    "curia/jws/typ-invalid",
-                    "{typ} against {wrong}"
-                );
+        // A signature is its kind's alone (KF1).
+        for wrong in [
+            "curia-key-rotation+jws",
+            "curia-key-retirement+jws",
+            "curia-key-compromise+jws",
+            "curia-post+jws",
+            "curia-head+jws",
+        ] {
+            if wrong == typ {
+                continue;
             }
+            let header = header_b64(&format!(
+                r#"{{"alg":"EdDSA","kid":"{kid}","typ":"{wrong}","b64":false,"crit":["b64"]}}"#
+            ));
+            let err = verify_typed(&format!("{header}.."), b"anything", &jwks, typ).unwrap_err();
+            assert_eq!(
+                err.predicate(),
+                "curia/jws/typ-invalid",
+                "{typ} against {wrong}"
+            );
         }
     }
 

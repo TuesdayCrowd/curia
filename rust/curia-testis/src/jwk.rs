@@ -119,6 +119,12 @@ impl JwkSet {
     pub fn keys(&self) -> &[Jwk] {
         &self.keys
     }
+
+    /// A set holding exactly `keys`, for a caller that has already parsed them (the log's key set
+    /// reader, which keeps each key's position beside it).
+    pub(crate) fn from_keys(keys: Vec<Jwk>) -> Self {
+        JwkSet { keys }
+    }
 }
 
 fn parse_jwk(value: &Value) -> Result<Jwk, JwkError> {

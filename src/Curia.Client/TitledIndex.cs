@@ -57,6 +57,7 @@ public static class TitledIndex
         {
             CheckOutcome.Verified => "verified",
             CheckOutcome.CouldNotCheck => "COULD NOT BE CHECKED",
+            CheckOutcome.Disputed => "DISPUTED",
             CheckOutcome.Failed => "FAILED",
             _ => "FAILED",
         };

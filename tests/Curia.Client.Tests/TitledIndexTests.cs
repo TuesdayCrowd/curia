@@ -438,6 +438,7 @@ public sealed class TitledIndexTests : IDisposable
         CheckOutcome.Verified => SignatureCheck.Verify(post, _signer.Jwks()),
         CheckOutcome.CouldNotCheck => new SignatureVerdict(false, null, "d", CouldNotCheck: true),
         CheckOutcome.Failed => new SignatureVerdict(false, "k", "d"),
+        CheckOutcome.Disputed => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "a signature verdict is never disputed (R6.57 is the lifecycle's)"),
         _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "no such outcome"),
     };
 

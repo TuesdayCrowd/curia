@@ -1,9 +1,12 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Curia.Application.Credentials;
+using Curia.Client;
 using Curia.Application.Ports;
 using Curia.Domain.Primitives;
+using Curia.Domain.Serving;
 using Curia.Infrastructure.Lifecycle;
 using Curia.OperatorTool;
 using Npgsql;
@@ -158,6 +161,94 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
         var status = keySet.RootElement.GetProperty("keys").EnumerateArray().Single().GetProperty("curia_status").GetString();
 
         Assert.Equal($"{ExitCode.Ok}; compromised", $"{declared.Exit}; {status}");
+    }
+
+    /// <summary>
+    /// R6.57: the key set names the declaration for every kid it lists, a cascaded key as well as the first, so a reader can
+    /// fetch it for a post under either (<c>compromise-post-under-cascaded-key</c>'s shape: k1 compromised from its binding,
+    /// k2 rotated in under it). Both keys are served <c>compromised</c>, with the declaration's log index as
+    /// <c>curia_compromised_log_index</c> and the index the compromise is stated from as <c>curia_disputed_from</c>. Red when
+    /// the key set names the declaration for the declaration's first kid alone.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_ACascadedKeysKeySetEntryCarriesTheDeclarationIndex()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var first = ForumAgent.Create(Unique("cascade"), "first-" + Suffix());
+        var (firstDpop, firstToken) = await first.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var boundAt = await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct);
+
+        var second = ForumAgent.Create(first.AgentId, "second-" + Suffix());
+        using (var rotated = await firstDpop.PostAsync(
+            client, KeyActRequests.RotateUrl(first.AgentId), firstToken,
+            KeyActRequests.RotationBody(first, new KeyActRequests.KeyPair(second.Kid, second.AssertionKey), boundAt),
+            forum.Now, ct, contentType: "application/json"))
+        {
+            Assert.Equal(HttpStatusCode.Created, rotated.StatusCode);
+        }
+
+        var pem = LogSigningKey.GeneratePem();
+        await SignHeadAsync(pem, ct);
+        var declared = await CompromiseAsync(pem, first.AgentId, first.Kid, boundAt, ct);
+        var declarationAt = await KeyActRequests.LatestLifecycleAsync(client, first.AgentId, ct);
+
+        using var keySet = await KeyActRequests.KeySetAsync(client, first.AgentId, ct);
+        var keys = keySet.RootElement.GetProperty("keys").EnumerateArray().ToDictionary(k => k.GetProperty("kid").GetString()!, k => k, StringComparer.Ordinal);
+        string Of(string kid) =>
+            $"{keys[kid].GetProperty("curia_status").GetString()} at {keys[kid].GetProperty("curia_compromised_log_index").GetInt64()} from {keys[kid].GetProperty("curia_disputed_from").GetInt64()}";
+
+        Assert.Equal(
+            $"{ExitCode.Ok}; compromised at {declarationAt} from {boundAt}; compromised at {declarationAt} from {boundAt}",
+            $"{declared.Exit}; {Of(first.Kid)}; {Of(second.Kid)}");
+    }
+
+    /// <summary>
+    /// R6.57, against a real Forum: a post accepted before the operator declared its key compromised from the key's binding
+    /// is reported disputed by the reference reader, through the key set's <c>curia_compromised_log_index</c> and the
+    /// declaration fetched, held to the chain and verified under the log's key set. The signature, the inclusion and the key's
+    /// binding all hold; the lifecycle line is disputed; the summary is disputed and never verified.
+    /// </summary>
+    [Fact]
+    public async Task R6_57_APostAcceptedBeforeADeclarationIsReportedDisputedByTheReader()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var agent = ForumAgent.Create(Unique("disputed-post"), "only-" + Suffix());
+        var (dpop, token) = await agent.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var boundAt = await KeyActRequests.LatestLifecycleAsync(client, agent.AgentId, ct);
+
+        string postId;
+        using (var posted = await dpop.PostAsync(
+            client, "http://localhost/v1/posts", token, agent.SignQuestion("board-" + Suffix(), "Signed before the declaration?", "Yes", forum.Now), forum.Now, ct))
+        {
+            Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
+            postId = (await posted.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("post_id").GetString()!;
+        }
+
+        var pem = LogSigningKey.GeneratePem();
+        Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
+        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct)).Exit);
+
+        // A head that covers the declaration: the reader fetches it only under a head it holds.
+        Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
+
+        var home = Directory.CreateTempSubdirectory("curia-disputed-heads-").FullName;
+        try
+        {
+            var verifier = new PostVerifier(new ForumClient(client, client.BaseAddress!), new HeadStore(home));
+            var verified = await verifier.VerifyAsync(postId, MarkingMode.None, ct);
+            Assert.True(verified.TryGetValue(out var result, out var refusal), refusal?.Summary);
+
+            Assert.Equal(
+                $"{CheckOutcome.Verified}; {CheckOutcome.Verified}; {CheckOutcome.Verified}; {CheckOutcome.Disputed}; {CheckOutcome.Disputed}",
+                $"{result!.Signature.Outcome}; {result.Inclusion.Outcome}; {result.KeyBinding.Outcome}; {result.Lifecycle.Outcome}; {result.Overall}");
+            Assert.Contains("\nDISPUTED. ", result.Render(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
     }
 }
 

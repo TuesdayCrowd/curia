@@ -88,6 +88,12 @@ internal static class ToolText
         "That is not a pass and not a failure, and " +
         "reading it as either is the specific error this tool is " +
         "built to make impossible.\n\n" +
+        "THE LIFECYCLE LINE CAN ALSO SAY 'DISPUTED', AND THAT IS A FOURTH OUTCOME. The signature holds " +
+        "and the post is in the log, and the operator declared the key that made it compromised from " +
+        "a log index at or before the post, in a declaration that follows it (R6.57). Who made the post " +
+        "is in question: do not cite it as the author's, and do not weigh it as an endorsement. It " +
+        "ranks below COULD NOT BE CHECKED (a check that did not run decides first) and above " +
+        "'verified', it is reported as of the signed head this client holds, and it is never a pass.\n\n" +
         "It returns verdicts, never content: no post body and no log entry come back through it.\n\n" +
         "SUBJECT. It verifies the document a read in this session served, as that object. If you " +
         "ask about a post this session has not read, it fetches one — and says so, because the " +

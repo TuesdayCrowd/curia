@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.57",
+  "note": "k1 rotated in k2 at 2 and k3 at 3. The declaration at 6 names k2 alone from index 2: k3 was bound by k1, not by the compromised key k2, so the cascade rooted at k2 is [k2] and the declaration holds. The post at 4 is signed by k2 and lies in [2, 6): it is disputed. A reader that drops the authorizer clause and cascades every rotation at or after from_index recomputes [k2, k3] and refuses it (KF3). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 4,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

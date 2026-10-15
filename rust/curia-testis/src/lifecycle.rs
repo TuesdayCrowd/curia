@@ -18,6 +18,10 @@
 //! * a rotation or a retirement is a canonical statement of a closed member set (KF4, KF5), whose
 //!   signatures carry its kind's header `typ` (KF1) and name their roles' members as `kid` (KF2), and
 //!   verify under a key that was bound and not retired at that point;
+//! * a declaration (R6.57) is a statement the operator's log key signed (KF1, KF2) whose `kids`, bindings and
+//!   `from_index` this verifier recomputes from the lifecycle (KF3); one that holds, names the post's key from a
+//!   leaf at or below the post's, and follows the post, makes the post disputed. Check (1) of KF3 is evaluated over
+//!   the supplied stream only. A declaration that fails never disputes a post;
 //! * the post's key is verified when it was bound before the post and not retired before it.
 //!
 //! No approval is consulted: a reader folds on the merits (§4.8). Nothing here panics on malformed input.
@@ -28,7 +32,7 @@ use base64::Engine;
 use serde_json::{Map, Value};
 
 use crate::acta::{
-    self, entry_fields, head_covers, post_author_and_kid, str_at, ActaError, VerifiedHead,
+    self, entry_fields, head_covers, post_author_and_kid, str_at, ActaError, LogKeys, VerifiedHead,
     ENROLLED, KEY_BOUND, POST_ACCEPTED,
 };
 use crate::jwk::JwkSet;
@@ -36,6 +40,8 @@ use crate::jws;
 
 /// The entry type of a retirement.
 pub const KEY_RETIRED: &str = "agent.key-retired";
+/// The entry type of a compromise declaration (R6.57).
+pub const KEY_COMPROMISED: &str = "agent.key-compromised";
 
 /// A rotation statement's `typ`.
 pub const ROTATION_STATEMENT_TYP: &str = "curia.key-rotation/1";
@@ -45,11 +51,21 @@ pub const RETIREMENT_STATEMENT_TYP: &str = "curia.key-retirement/1";
 pub const ROTATION_HEADER_TYP: &str = "curia-key-rotation+jws";
 /// The header `typ` of a retirement's signature (KF1).
 pub const RETIREMENT_HEADER_TYP: &str = "curia-key-retirement+jws";
+/// A compromise statement's `typ`.
+pub const COMPROMISE_STATEMENT_TYP: &str = "curia.key-compromise/1";
+/// The header `typ` of a declaration's signature (KF1).
+pub const COMPROMISE_HEADER_TYP: &str = "curia-key-compromise+jws";
+/// The reasons a declaration may state (KF4): a reason outside it is not established.
+pub const COMPROMISE_REASONS: [&str; 2] = ["owner-reported", "operator-observed"];
 
 /// Every statement `typ` this verifier knows (KF4). A `typ` outside it is a version or a kind this
 /// verifier cannot fold; one inside it, in the other kind's entry, is a statement that is not this
 /// entry's.
-const KNOWN_STATEMENT_TYPS: [&str; 2] = [ROTATION_STATEMENT_TYP, RETIREMENT_STATEMENT_TYP];
+const KNOWN_STATEMENT_TYPS: [&str; 3] = [
+    ROTATION_STATEMENT_TYP,
+    RETIREMENT_STATEMENT_TYP,
+    COMPROMISE_STATEMENT_TYP,
+];
 
 /// How many lifecycle entries before a post a reader will fold (spec §4.8).
 pub const MAX_ENTRIES_BEFORE_POST: usize = 1024;
@@ -70,6 +86,17 @@ const RETIREMENT_ENTRY_MEMBERS: [&str; 5] =
 const ROTATION_STATEMENT_MEMBERS: [&str; 6] =
     ["agent_id", "authorized_by", "jwk", "kid", "prev", "typ"];
 const RETIREMENT_STATEMENT_MEMBERS: [&str; 4] = ["agent_id", "kid", "prev", "typ"];
+const COMPROMISE_ENTRY_MEMBERS: [&str; 7] = [
+    "agent_id",
+    "declaration",
+    "from_index",
+    "kids",
+    "prev",
+    "reason",
+    "statement",
+];
+const COMPROMISE_STATEMENT_MEMBERS: [&str; 6] =
+    ["agent_id", "from_index", "kids", "prev", "reason", "typ"];
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -88,7 +115,8 @@ pub struct VerifiedLifecycle {
 }
 
 /// [`verify_lifecycle_under`] with the head verified here, against `log_jwks` (R6.49), as the CLI holds
-/// them: the raw bodies of `GET /v1/log/head` and `GET /v1/log/jwks`.
+/// them: the raw bodies of `GET /v1/log/head` and `GET /v1/log/jwks`. The same key set is read for each
+/// key's position, which a declaration is held to (KF2).
 pub fn verify_lifecycle(
     post_entry: &[u8],
     chain: &[(Vec<u8>, Vec<u8>)],
@@ -96,16 +124,20 @@ pub fn verify_lifecycle(
     log_jwks: &[u8],
 ) -> Result<VerifiedLifecycle, ActaError> {
     let head = acta::verify_head(head, log_jwks)?;
-    verify_lifecycle_under(post_entry, chain, &head)
+    let log_keys = LogKeys::parse(log_jwks)?;
+    verify_lifecycle_under(post_entry, chain, &head, &log_keys)
 }
 
 /// The fold itself. `post_entry` is the body of `GET /v1/log/entries/{index}` for the post; `chain`
 /// holds, in log order, each lifecycle entry's body and the body of its proof against the tree
-/// `head` covers: every entry of the author up to the first at or after the post.
+/// `head` covers: every entry of the author up to the first at or after the post, and, when the key
+/// set names a declaration for the post's key after the post, every entry up to and including it
+/// (R6.57). `log_keys` is the log's key set, which a declaration is verified under (KF2).
 pub fn verify_lifecycle_under(
     post_entry: &[u8],
     chain: &[(Vec<u8>, Vec<u8>)],
     head: &VerifiedHead,
+    log_keys: &LogKeys,
 ) -> Result<VerifiedLifecycle, ActaError> {
     let post = read_post(post_entry)?;
 
@@ -124,12 +156,12 @@ pub fn verify_lifecycle_under(
         return Err(ActaError::LifecycleTooLong);
     }
 
+    // Every supplied entry is folded, in log order: the entries from the first at or after the post to a
+    // declaration that names the post's key are supplied so that the declaration's link and cascade are held to
+    // the chain (R6.57).
     let mut fold = Fold::new(post.author.clone());
     for (entry_json, proof_json) in chain {
-        let index = fold.fold_entry(entry_json, proof_json, head)?;
-        if index >= post.index {
-            break;
-        }
+        fold.fold_entry(entry_json, proof_json, head, log_keys)?;
     }
 
     // The post's key. Retired before the post is a failure whatever else holds.
@@ -142,14 +174,41 @@ pub fn verify_lifecycle_under(
             });
         }
     }
-    match fold.bound.get(&post.kid) {
-        Some((_, bound_at)) if *bound_at < post.index => Ok(VerifiedLifecycle {
+    // A declaration naming the post's key that precedes the post: a compromised key is honoured for nothing
+    // at or after the declaration's position (R6.57).
+    if let Some(declared) = fold
+        .declarations
+        .iter()
+        .find(|d| d.kids.contains(&post.kid) && d.index < post.index)
+    {
+        return Err(ActaError::CompromisedBeforePost {
             kid: post.kid,
-            bound_at: *bound_at,
-            post_index: post.index,
-            entries_checked: fold.count,
-            last_index: fold.prev_index.unwrap_or(0),
-        }),
+            declaration: declared.index,
+            post: post.index,
+        });
+    }
+    match fold.bound.get(&post.kid) {
+        Some((_, bound_at)) if *bound_at < post.index => {
+            // R6.57: disputed is by log position, [from_index, the declaration's index): the signature holds and
+            // who made it is in question.
+            if let Some(disputing) = fold.declarations.iter().find(|d| {
+                d.kids.contains(&post.kid) && d.from_index <= post.index && post.index < d.index
+            }) {
+                return Err(ActaError::Disputed {
+                    kid: post.kid,
+                    from_index: disputing.from_index,
+                    declaration: disputing.index,
+                    post: post.index,
+                });
+            }
+            Ok(VerifiedLifecycle {
+                kid: post.kid,
+                bound_at: *bound_at,
+                post_index: post.index,
+                entries_checked: fold.count,
+                last_index: fold.prev_index.unwrap_or(0),
+            })
+        }
         // Bound at or after the post, or by no entry the lifecycle holds: the log holds no key for the
         // post from before it, which is its silence and not a contradiction (R6.54).
         bound => Err(ActaError::BoundAfterPost {
@@ -207,6 +266,15 @@ enum Kind {
     Enrolled,
     Bound,
     Retired,
+    Compromised,
+}
+
+/// A declaration that held under KF1 to KF4 and KF3: where it sits, where it states the compromise from, and
+/// whom it names.
+struct Declared {
+    index: u64,
+    from_index: u64,
+    kids: Vec<String>,
 }
 
 struct Fold {
@@ -220,6 +288,10 @@ struct Fold {
     /// Each bound key's set, for verifying under it, and where it was bound.
     bound: HashMap<String, (JwkSet, u64)>,
     retired: HashMap<String, u64>,
+    /// Every rotation folded so far, in log order, as (index, authorized_by, kid): the material R6.57's cascade is
+    /// recomputed from.
+    rotations: Vec<(u64, String, String)>,
+    declarations: Vec<Declared>,
 }
 
 /// A rotation or a retirement, read from its statement: the exact bytes it was signed over, and the
@@ -239,6 +311,8 @@ impl Fold {
             enrolment_kid: None,
             bound: HashMap::new(),
             retired: HashMap::new(),
+            rotations: Vec::new(),
+            declarations: Vec::new(),
         }
     }
 
@@ -249,6 +323,7 @@ impl Fold {
         entry_json: &[u8],
         proof_json: &[u8],
         head: &VerifiedHead,
+        log_keys: &LogKeys,
     ) -> Result<u64, ActaError> {
         let fields = entry_fields(entry_json)?;
         let event_type = str_at(&fields, &["event_type"], "lifecycle entry")?.to_string();
@@ -256,6 +331,7 @@ impl Fold {
             ENROLLED => Kind::Enrolled,
             KEY_BOUND => Kind::Bound,
             KEY_RETIRED => Kind::Retired,
+            KEY_COMPROMISED => Kind::Compromised,
             _ => return Err(ActaError::LifecycleUnknownKind { what: event_type }),
         };
 
@@ -273,11 +349,13 @@ impl Fold {
         // The statement's `typ`, read from the still-unverified statement only to choose which rules
         // apply: another version of this kind is not one this verifier knows (KF4), and a `typ` of
         // another kind is a statement that is not this entry's.
-        if let (Some(text), Kind::Bound | Kind::Retired) = (statement_text, kind) {
-            let expected = if kind == Kind::Bound {
-                ROTATION_STATEMENT_TYP
-            } else {
-                RETIREMENT_STATEMENT_TYP
+        if let (Some(text), Kind::Bound | Kind::Retired | Kind::Compromised) =
+            (statement_text, kind)
+        {
+            let expected = match kind {
+                Kind::Bound => ROTATION_STATEMENT_TYP,
+                Kind::Retired => RETIREMENT_STATEMENT_TYP,
+                _ => COMPROMISE_STATEMENT_TYP,
             };
             // A statement that does not parse under the ADMIT profile (a repeated member, say) has no
             // readable `typ`: it is malformed, not a future version, and the checks after this one
@@ -293,6 +371,19 @@ impl Fold {
                     } else {
                         Err(ActaError::LifecycleUnknownKind { what: typ })
                     };
+                }
+            }
+        }
+
+        // KF4: a reason outside the closed set is a reason this verifier does not know, never verified and never
+        // skipped.
+        if let (Some(text), Kind::Compromised) = (statement_text, kind) {
+            if let Some(reason) = serde_json::from_str::<Value>(text)
+                .ok()
+                .and_then(|v| v.get("reason").and_then(Value::as_str).map(str::to_string))
+            {
+                if !COMPROMISE_REASONS.contains(&reason.as_str()) {
+                    return Err(ActaError::LifecycleUnknownReason { reason });
                 }
             }
         }
@@ -319,6 +410,7 @@ impl Fold {
             Kind::Bound if statement_text.is_none() => self.enrolment_binding(payload, index)?,
             Kind::Bound => self.rotation(payload, index)?,
             Kind::Retired => self.retirement(payload, index)?,
+            Kind::Compromised => self.declaration(payload, index, log_keys)?,
         }
         self.count += 1;
         self.prev_index = Some(index);
@@ -475,6 +567,8 @@ impl Fold {
             return Err(mismatch(index, "the kid is already bound"));
         }
         self.bound.insert(kid.to_string(), (new_key, index));
+        self.rotations
+            .push((index, authorized_by.to_string(), kid.to_string()));
         Ok(())
     }
 
@@ -524,6 +618,159 @@ impl Fold {
             .map_err(|_| ActaError::RotationUnauthorized { at: index })?;
 
         self.retired.insert(kid.to_string(), index);
+        Ok(())
+    }
+
+    /// A declaration (R6.57, spec §4.5, §4.6), in KF4's order after its type, statement `typ` and reason: the
+    /// closed member sets, the link, KF1 (header `typ`), KF2 (header `kid` in the log's key set, published
+    /// before the declaration), the signature, then KF3: (1) every kid is bound to the author in the supplied
+    /// stream, (2) the binding of `kids[0]` is at or below `from_index`, which is below the declaration's
+    /// index, (3) `kids` equal, in order, the cascade recomputed from the lifecycle. A declaration that fails
+    /// any of them never disputes a post.
+    fn declaration(
+        &mut self,
+        payload: &Map<String, Value>,
+        index: u64,
+        log_keys: &LogKeys,
+    ) -> Result<(), ActaError> {
+        if !has_exactly(payload, &COMPROMISE_ENTRY_MEMBERS) {
+            return Err(mismatch(
+                index,
+                "the entry's member set is not a declaration's",
+            ));
+        }
+        let statement = read_statement(
+            payload,
+            index,
+            &COMPROMISE_STATEMENT_MEMBERS,
+            COMPROMISE_STATEMENT_TYP,
+        )?;
+        let s = &statement.fields;
+
+        let from_index = match s.get("from_index").and_then(Value::as_u64) {
+            Some(n) if n <= MAX_SAFE_INTEGER => n,
+            _ => {
+                return Err(mismatch(
+                    index,
+                    "the statement's from_index is not an integer",
+                ))
+            }
+        };
+        let kids: Vec<String> = match s.get("kids").and_then(Value::as_array) {
+            Some(items) if !items.is_empty() => items
+                .iter()
+                .map(|k| k.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| mismatch(index, "the statement's kids are not text"))?,
+            _ => return Err(mismatch(index, "the statement's kids are not a list")),
+        };
+        if s.get("reason")
+            .and_then(Value::as_str)
+            .is_none_or(|r| !COMPROMISE_REASONS.contains(&r))
+        {
+            return Err(mismatch(index, "the statement's reason is not text"));
+        }
+
+        // Every member the entry states beside the statement equals the statement's own.
+        for member in ["agent_id", "from_index", "kids", "prev", "reason"] {
+            if payload.get(member) != s.get(member) {
+                return Err(mismatch(
+                    index,
+                    "an entry member differs from its statement's",
+                ));
+            }
+        }
+
+        self.link(s, index)?;
+
+        // KF1, then KF2: the declaration carries a declaration's header typ, and names a key the log
+        // published before it.
+        let declaration = signature(payload, "declaration", index)?;
+        let (header_typ, header_kid) = header_of(declaration);
+        if header_typ.as_deref() != Some(COMPROMISE_HEADER_TYP) {
+            return Err(ActaError::LifecycleTypMismatch { at: index });
+        }
+        let Some(header_kid) = header_kid else {
+            return Err(ActaError::DeclarationKeyUnpublished {
+                at: index,
+                kid: String::new(),
+            });
+        };
+        let Some(log_key) = log_keys.find(&header_kid) else {
+            return Err(ActaError::DeclarationKeyUnpublished {
+                at: index,
+                kid: header_kid,
+            });
+        };
+        let Some(published_at) = log_key.log_index else {
+            return Err(ActaError::LogKeyPositionUnknown { kid: header_kid });
+        };
+        if published_at >= index {
+            return Err(ActaError::DeclarationKeyUnpublished {
+                at: index,
+                kid: header_kid,
+            });
+        }
+        let signer = JwkSet::from_keys(vec![log_key.key.clone()]);
+        jws::verify_typed(
+            declaration,
+            &statement.bytes,
+            &signer,
+            COMPROMISE_HEADER_TYP,
+        )
+        .map_err(|_| ActaError::DeclarationSignatureInvalid { at: index })?;
+
+        // KF3 (1): every kid is bound to the author in the stream this verifier holds. A kid with no binding
+        // there, and a kid whose only binding is not supplied, are alike unbound.
+        if let Some(unbound) = kids.iter().find(|k| !self.bound.contains_key(*k)) {
+            return Err(ActaError::KidNotBoundToAgent {
+                at: index,
+                kid: unbound.clone(),
+            });
+        }
+
+        // KF3 (2): binding(kids[0]) <= from_index < the declaration's own index, strictly.
+        let first_bound = self.bound.get(&kids[0]).map_or(u64::MAX, |(_, at)| *at);
+        if first_bound > from_index {
+            return Err(ActaError::DeclarationMismatch {
+                at: index,
+                what: "from_index is below the binding of the first key",
+            });
+        }
+        if from_index >= index {
+            return Err(ActaError::DeclarationMismatch {
+                at: index,
+                what: "from_index is not below the declaration's own index",
+            });
+        }
+
+        // KF3 (3): kids equal, in order, the cascade this verifier recomputes. Its root is the earliest-bound
+        // key in kids (never the post's key, never kids[0] by position); each rotation at or after from_index
+        // authorized by a key already in it adds its key, in log order, and a rotation's authorizer was bound
+        // before it, so one pass is the closure.
+        let root = kids
+            .iter()
+            .min_by_key(|k| self.bound.get(*k).map_or(u64::MAX, |(_, at)| *at))
+            .cloned()
+            .unwrap_or_default();
+        let mut cascade = vec![root];
+        for (at, authorized_by, kid) in &self.rotations {
+            if *at >= from_index && cascade.contains(authorized_by) && !cascade.contains(kid) {
+                cascade.push(kid.clone());
+            }
+        }
+        if kids != cascade {
+            return Err(ActaError::DeclarationMismatch {
+                at: index,
+                what: "kids are not, in order, the cascade recomputed from the lifecycle",
+            });
+        }
+
+        self.declarations.push(Declared {
+            index,
+            from_index,
+            kids,
+        });
         Ok(())
     }
 

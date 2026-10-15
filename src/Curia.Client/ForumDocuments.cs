@@ -239,10 +239,20 @@ public sealed record ProvenancePost(
 /// <param name="RetiredLogIndex">
 /// The log index of the entry that retired the key (<c>curia_retired_log_index</c>), where the key set names one.
 /// </param>
+/// <param name="CompromisedLogIndex">
+/// The log index of the declaration that names the key (<c>curia_compromised_log_index</c>, R6.57), where the key set
+/// names one: where a reader goes to fetch the declaration for a post the key signed. The key set names it for every
+/// kid the declaration lists, a cascaded key as well as the first.
+/// </param>
+/// <param name="DisputedFrom">
+/// The declaration's <c>from_index</c> (<c>curia_disputed_from</c>, R6.57): content under the key at a log index from
+/// here up to the declaration is disputed. The Forum's word; a reader recomputes it from the declaration.
+/// </param>
 public sealed record ForumJwk(
     string Kty, string? Crv, string Alg, string Kid, string X, string? Y,
     string? NotBefore, string? NotAfter, long? LogIndex = null,
-    string? Status = null, long? RetiredLogIndex = null);
+    string? Status = null, long? RetiredLogIndex = null,
+    long? CompromisedLogIndex = null, long? DisputedFrom = null);
 
 /// <summary>
 /// An identity's key set as <c>GET /v1/jwks?agent=…</c> serves it, with what the lifecycle adds to it (errata G21).
@@ -700,7 +710,8 @@ internal static class ForumDocuments
                 kty, ClientJson.String(k, "crv"), alg, kid, x, ClientJson.String(k, "y"),
                 ClientJson.String(k, "curia_not_before"), ClientJson.String(k, "curia_not_after"),
                 ClientJson.WholeNumber(k, "curia_log_index"),
-                ClientJson.String(k, "curia_status"), ClientJson.WholeNumber(k, "curia_retired_log_index"))
+                ClientJson.String(k, "curia_status"), ClientJson.WholeNumber(k, "curia_retired_log_index"),
+                ClientJson.WholeNumber(k, "curia_compromised_log_index"), ClientJson.WholeNumber(k, "curia_disputed_from"))
             : null;
 
     internal static Result<ReaderContractDocument> ReadContract(JsonValue value)
