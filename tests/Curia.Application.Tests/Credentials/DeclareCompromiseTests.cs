@@ -203,7 +203,9 @@ public sealed class DeclareCompromiseTests
     [Fact]
     public async Task R6_57_TheKeyThatBoundTheCompromisedKeyIsNotEnded()
     {
-        // the compromised key's authorizer is not in its own cascade: a regression guard for the root-first and from_index logic
+        // the compromised key's authorizer is not in its own cascade. This pins the outcome and the root-first seeding of kids only;
+        // the from_index filter is carried by R6_57_AKeyItRotatedInBeforeTcStands and the authorizer clause by the fork fact (F2-44).
+        // Removing either leaves this fact green, so it is not a falsification target.
         var (harness, _, signer) = await ChainAsync(3);
         using var _ = signer;
 
