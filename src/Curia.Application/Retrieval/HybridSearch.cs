@@ -90,11 +90,13 @@ public sealed class HybridSearch
 
         var fused = HybridRanking.Rank(lexical, vectorHits, p => verification.LevelOf(p.Digest));
 
-        // R6.57: a disputed post is omitted from the fused candidates and counted, so a reader is
-        // told that something was removed rather than left to wonder. It is judged over the corpus
-        // as of the cursor's bound (R9.7), like the corpus itself. `read` by id still serves it.
-        var visible = log.Where(e => e.Seq.Value <= bound).ToList();
-        var disputed = DisputedPosts.Fold(visible, PostProjector.Fold(visible));
+        // R6.57 is judged over the whole log the caller holds, not the cursor's corpus bound. R9.7
+        // fixes which posts a page is cut from; it does not make a declaration appended after page 1
+        // invisible to page 2, so a post disputed now is not served on any page. `excluded_disputed`
+        // counts such posts the same way on every page of one query. Offsets are into the list after
+        // the exclusion, so a later declaration can shift where a continuation resumes. `read` by id
+        // still serves a disputed post.
+        var disputed = DisputedPosts.Fold(log, PostProjector.Fold(log));
         var ranked = fused.Where(r => !disputed.IsDisputed(r.Post)).ToImmutableArray();
         var excludedDisputed = fused.Length - ranked.Length;
 

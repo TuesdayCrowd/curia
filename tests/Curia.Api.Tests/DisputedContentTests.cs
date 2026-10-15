@@ -72,6 +72,18 @@ public sealed class DisputedContentTests(ForumFixture forum) : IClassFixture<For
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
     }
 
+    private async Task<JsonDocument> SearchPageAsync(string board, string term, int limit, string? cursor, CancellationToken ct)
+    {
+        var url = $"/v1/search?q={term}&board={board}&limit={Number(limit)}" +
+            (cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
+        using var response = await forum.Client.GetAsync(new Uri(url, UriKind.Relative), ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+    }
+
+    private static string? NextCursor(JsonDocument page) =>
+        page.RootElement.TryGetProperty("next_cursor", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+
     private static string[] Ids(JsonDocument search) =>
         [.. search.RootElement.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("post").GetProperty("post_id").GetString()!)];
 
@@ -138,6 +150,55 @@ public sealed class DisputedContentTests(ForumFixture forum) : IClassFixture<For
         Assert.Equal(
             $"{string.Join(",", new[] { disputed.PostId, kept.PostId }.Order(StringComparer.Ordinal))}; 0 | {kept.PostId}; 1",
             $"{string.Join(",", beforeIds.Order(StringComparer.Ordinal))}; {beforeExcluded} | {string.Join(",", Ids(after))}; {afterExcluded}");
+    }
+
+    [Fact]
+    public async Task R6_57_SearchOmitsADisputedPostOnACursorPageCutBeforeTheDeclaration()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var board = "board-" + Suffix();
+        var term = "zcurs" + Suffix();
+        var control = ForumAgent.Create($"https://agents.example/cursor-kept-{Suffix()}", "only-" + Suffix());
+        var (controlDpop, controlToken) = await control.AuthenticateAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var thief = ForumAgent.Create($"https://agents.example/cursor-thief-{Suffix()}", "only-" + Suffix());
+        var (thiefDpop, thiefToken) = await thief.AuthenticateAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var keptOne = await AskAsync(control, controlDpop, controlToken, board, $"Kept one {term}", $"the first kept post mentions {term}", ct);
+        var disputed = await AskAsync(thief, thiefDpop, thiefToken, board, $"Signed by the thief {term}", $"the thief's post mentions {term}", ct);
+        var keptTwo = await AskAsync(control, controlDpop, controlToken, board, $"Kept two {term}", $"the second kept post mentions {term}", ct);
+
+        // Page 1 is cut before any declaration, with a limit under the post count so a cursor exists.
+        string cursor;
+        using (var first = await SearchPageAsync(board, term, 1, cursor: null, ct))
+            cursor = NextCursor(first) ?? throw new Xunit.Sdk.XunitException("page 1 carries no next_cursor, so the fact would be vacuous");
+
+        // The precondition: before the declaration a fresh query serves the thief's post.
+        using (var fresh = await SearchPageAsync(board, term, 10, cursor: null, ct))
+            Assert.Contains(disputed.PostId, Ids(fresh));
+
+        await DeclareAsync(thief.AgentId, thief.Kid, disputed.LogIndex, ct);
+
+        // Follow the saved cursor to exhaustion: the declaration lies beyond its bound.
+        var served = new List<string>();
+        var excluded = new List<int>();
+        string? next = cursor;
+        for (var guard = 0; next is not null && guard < 10; guard++)
+        {
+            using var page = await SearchPageAsync(board, term, 1, next, ct);
+            served.AddRange(Ids(page));
+            excluded.Add(page.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32());
+            next = NextCursor(page);
+        }
+
+        using var afterFresh = await SearchPageAsync(board, term, 10, cursor: null, ct);
+
+        // The thief's post is on no page; the cursor pages count it once each; a fresh query omits it too.
+        Assert.Equal(
+            $"False | {string.Join(",", excluded.Select(c => Number(c)))} | False",
+            $"{served.Contains(disputed.PostId)} | {string.Join(",", excluded.Select(c => Number(c)))} | {Ids(afterFresh).Contains(disputed.PostId)}");
+        Assert.All(excluded, count => Assert.Equal(1, count));
+        Assert.True(served.Count > 0, "the walk served nothing");
+        Assert.Contains(keptOne.PostId, served.Concat(Ids(afterFresh)));
+        Assert.Contains(keptTwo.PostId, served.Concat(Ids(afterFresh)));
     }
 
     [Fact]
