@@ -47,6 +47,7 @@ internal static partial class LifecycleCases
         var firstJwk = firstDoc.RootElement.GetProperty("keys")[0];
         var k1 = Ed("conformance-ed25519-minimal", Jwk.Base64UrlDecode(firstJwk.GetProperty("d").GetString()!));
         var k2 = Ed("conformance-ed25519-second", Enumerable.Repeat((byte)0x02, 32).ToArray());
+        var k3 = Ed("conformance-ed25519-third", Enumerable.Repeat((byte)0x03, 32).ToArray());
         var stranger = Ed("conformance-ed25519-stranger", Enumerable.Repeat((byte)0x09, 32).ToArray());
 
         var cases = new List<Case>
@@ -64,6 +65,8 @@ internal static partial class LifecycleCases
             V2UnderUnknownSigner(root, k1),
             FromIndexBeforeBinding(root, k1),
             CompromisedAfterInterveningRotation(root, k1, k2, "compromise-kids-reordered", reorderKids: true, omitCascade: false),
+            PostUnderCascadedKey(root, k1, k2),
+            KidsSiblingsReordered(root, k1, k2, k3),
         };
 
         var logSeed = Enumerable.Repeat((byte)0x05, 32).ToArray();
@@ -123,6 +126,46 @@ internal static partial class LifecycleCases
                 "The post at 2, a rotation at 3 authorized by the post's key, and the declaration at 5 with from_index 2 at or below the post: the rotation lies between the post and the declaration, and the post is still disputed. The cascade holds two kids."),
         };
         return new Case(name, "R6.57", note, log, post, [0, 1, 3, 5], verdict, predicate)
+        { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
+    }
+
+    /// <summary>
+    /// 0 enrolled, 1 binding k1, 2 the rotation k1 to k2, 3 the post, signed by k2 (the cascaded key), 4 the log key, 5 the
+    /// declaration naming [k1, k2] from index 1. The cascade is rooted at the declaration's earliest-bound kid (k1, bound at 1), not
+    /// at the post's key: rooted at k2 the cascade would be [k2] and the correct declaration would fail <c>declaration-mismatch</c>.
+    /// The post at 3 lies in [1, 5) and its key is in kids, so it is disputed. The key set names this declaration for k2 as well as
+    /// for k1 (<c>curia_compromised_log_index</c>), which is what lets a reader fetch it for a post under k2.
+    /// </summary>
+    private static Case PostUnderCascadedKey(string root, Key k1, Key k2)
+    {
+        var log = EnrolledAndBound(k1);
+        AddRotation(log, new Rot(k1, k2, Prev: 1));
+        var post = AddPost(log, k2, "51");
+        var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
+        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, [k1.Kid, k2.Kid], FromIndex: 1, Prev: 2), root, "compromise-post-under-cascaded-key");
+        return new Case("compromise-post-under-cascaded-key", "R6.57",
+            "The declaration at 5 names [k1, k2], the cascade rooted at the compromised key k1 (bound at 1) from_index 1: k2 was rotated in by k1 at 2. The post at 3 is signed by k2, a key in kids, and lies in [1, 5): it is disputed. A reader that rooted the cascade at the post's key would recompute [k2] and refuse the correct declaration (KF3).",
+            log, post, [0, 1, 2, 5], "disputed", "disputed")
+        { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
+    }
+
+    /// <summary>
+    /// 0 enrolled, 1 binding k1, 2 the post, 3 the rotation k1 to k2, 4 the rotation k1 to k3 (two rotations by k1, so two siblings),
+    /// 5 the log key, 6 the declaration naming [k1, k3, k2] from index 2. kids[0] is the root and every other check holds
+    /// (binding(k1) 1 &lt;= 2 &lt; 6); the cascade in the log order of the bindings is [k1, k2, k3], so the only defect is the order
+    /// of the siblings. A reader that compares kids as a set accepts it (KF3).
+    /// </summary>
+    private static Case KidsSiblingsReordered(string root, Key k1, Key k2, Key k3)
+    {
+        var log = EnrolledAndBound(k1);
+        var post = AddPost(log, k1, "52");
+        AddRotation(log, new Rot(k1, k2, Prev: 1));
+        AddRotation(log, new Rot(k1, k3, Prev: 3));
+        var logKeyIndex = PublishLogKey(log, ConformanceLogKeys.Log);
+        AddDeclaration(log, new Decl(ConformanceLogKeys.Log, [k1.Kid, k3.Kid, k2.Kid], FromIndex: 2, Prev: 4), root, "compromise-kids-siblings-reordered");
+        return new Case("compromise-kids-siblings-reordered", "R6.57",
+            "k1 rotated in k2 at 3 and k3 at 4, so the cascade from index 2 is [k1, k2, k3] in the log order of the bindings. The declaration at 6 names [k1, k3, k2]: kids[0] is the root, from_index 2 holds the bound, and the only defect is the order of the two siblings (KF3).",
+            log, post, [0, 1, 3, 4, 6], "failed", "declaration-mismatch")
         { ExtraLogKeys = [new ExtraLogKey(ConformanceLogKeys.Log, LogKeyValidFrom, logKeyIndex)] };
     }
 
