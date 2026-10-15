@@ -22,7 +22,13 @@ public sealed record SearchQuery(
     RetrievalCursor? Cursor,
     int Limit);
 
-/// <summary>A page of hybrid retrieval, with everything the response states about how it was made.</summary>
+/// <summary>
+/// A page of hybrid retrieval, with everything the response states about how it was made.
+/// <c>ExcludedDisputed</c> (R6.57) counts the posts the current log disputes among the diversified
+/// list the cursor's offset indexes, so it is equal on every page of one query; a disputed post
+/// below the verification floor is not in that list and is not counted. A page may be shorter than
+/// its limit, or empty with a cursor, because disputed posts are dropped after the offset.
+/// </summary>
 public sealed record SearchPage(
     ImmutableArray<RankedPost> Results,
     RetrievalCursor? Next,
@@ -90,23 +96,29 @@ public sealed class HybridSearch
 
         var fused = HybridRanking.Rank(lexical, vectorHits, p => verification.LevelOf(p.Digest));
 
-        // R6.57 is judged over the whole log the caller holds, not the cursor's corpus bound. R9.7
-        // fixes which posts a page is cut from; it does not make a declaration appended after page 1
-        // invisible to page 2, so a post disputed now is not served on any page. `excluded_disputed`
-        // counts such posts the same way on every page of one query. Offsets are into the list after
-        // the exclusion, so a later declaration can shift where a continuation resumes. `read` by id
-        // still serves a disputed post.
+        // R6.57 is judged over the whole log the caller holds, not the cursor's corpus bound: R9.7
+        // fixes which posts a page is cut from, it does not make a declaration appended after page 1
+        // invisible to page 2. The offset indexes a list fixed by the cursor's CorpusBound, the query
+        // and the floor, so Admit and Diversify run over the unfiltered fused list, disputed posts
+        // included, and a post the current log disputes is dropped from the PAGE after the offset is
+        // applied (a current-log fact is applied to a page's content, never to the list an offset
+        // indexes, or a declaration between pages would silently skip a kept post). A page may
+        // therefore come back short, and a continuation empty with a cursor still present, on a fresh
+        // query as well as on a continuation; that is visible because `excluded_disputed` is stated.
+        // It counts the disputed posts in the diversified list (those that survive the floor and
+        // take a diversification slot), so it is equal on every page of one query and can be 0 while
+        // a disputed post below the floor exists. `read` by id still serves a disputed post.
         var disputed = DisputedPosts.Fold(log, PostProjector.Fold(log));
-        var ranked = fused.Where(r => !disputed.IsDisputed(r.Post)).ToImmutableArray();
-        var excludedDisputed = fused.Length - ranked.Length;
 
         var (surfaceFloor, source) = _floors.Resolve(surface);
         var floor = query.RequestedFloor ?? surfaceFloor;
-        var admitted = HybridRanking.Admit(ranked, floor);
+        var admitted = HybridRanking.Admit(fused, floor);
         var diversified = HybridRanking.Diversify(admitted, limit);
 
-        var page = diversified.Skip(offset).Take(limit).ToImmutableArray();
+        var window = diversified.Skip(offset).Take(limit);
+        var page = window.Where(r => !disputed.IsDisputed(r.Post)).ToImmutableArray();
         var next = offset + limit < diversified.Length ? new RetrievalCursor(bound, offset + limit) : null;
+        var excludedDisputed = diversified.Count(r => disputed.IsDisputed(r.Post));
 
         return Result<SearchPage>.Ok(new SearchPage(
             page,

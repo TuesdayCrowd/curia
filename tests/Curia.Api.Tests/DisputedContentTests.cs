@@ -152,53 +152,121 @@ public sealed class DisputedContentTests(ForumFixture forum) : IClassFixture<For
             $"{string.Join(",", beforeIds.Order(StringComparer.Ordinal))}; {beforeExcluded} | {string.Join(",", Ids(after))}; {afterExcluded}");
     }
 
+    // Distinct enough that the duplicate-question refusal (§8.5) admits all three on one board.
+    private static readonly string[] Titles = ["Kept one", "Signed by the thief", "Kept two"];
+    private static readonly string[] Bodies =
+    [
+        "the first kept post mentions",
+        "the thief's post mentions",
+        "the second kept post mentions",
+    ];
+
+    /// <summary>Three matching posts, each by its own agent, so a declaration disputes exactly one of them.</summary>
+    private async Task<(string Term, string Board, ForumAgent[] Agents, (string PostId, long LogIndex)[] Posts)> ThreeAuthorsAsync(string label, CancellationToken ct)
+    {
+        var board = "board-" + Suffix();
+        var term = "zcurs" + Suffix();
+        var agents = new ForumAgent[3];
+        var posts = new (string PostId, long LogIndex)[3];
+        for (var i = 0; i < 3; i++)
+        {
+            agents[i] = ForumAgent.Create($"https://agents.example/{label}-{Number(i)}-{Suffix()}", "only-" + Suffix());
+            var (dpop, token) = await agents[i].AuthenticateAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+            posts[i] = await AskAsync(agents[i], dpop, token, board, Titles[i] + " " + term, Bodies[i] + " " + term, ct);
+        }
+
+        return (term, board, agents, posts);
+    }
+
+    private static int ExcludedDisputed(JsonDocument page) =>
+        page.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32();
+
+    /// <summary>Follows <paramref name="start"/> to its end, one result per page: each page's ids, its excluded count and whether it carried a cursor.</summary>
+    private async Task<List<(string[] Ids, int Excluded, bool HasNext)>> WalkAsync(string board, string term, string? start, CancellationToken ct)
+    {
+        var pages = new List<(string[] Ids, int Excluded, bool HasNext)>();
+        var next = start;
+        for (var guard = 0; guard < 10; guard++)
+        {
+            using var page = await SearchPageAsync(board, term, 1, next, ct);
+            next = NextCursor(page);
+            pages.Add((Ids(page), ExcludedDisputed(page), next is not null));
+            if (next is null)
+                break;
+        }
+
+        return pages;
+    }
+
     [Fact]
     public async Task R6_57_SearchOmitsADisputedPostOnACursorPageCutBeforeTheDeclaration()
     {
         var ct = TestContext.Current.CancellationToken;
-        var board = "board-" + Suffix();
-        var term = "zcurs" + Suffix();
-        var control = ForumAgent.Create($"https://agents.example/cursor-kept-{Suffix()}", "only-" + Suffix());
-        var (controlDpop, controlToken) = await control.AuthenticateAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, ct);
-        var thief = ForumAgent.Create($"https://agents.example/cursor-thief-{Suffix()}", "only-" + Suffix());
-        var (thiefDpop, thiefToken) = await thief.AuthenticateAsync(forum.Client, KeyActRequests.TokenEndpoint, forum.Now, ct);
-        var keptOne = await AskAsync(control, controlDpop, controlToken, board, $"Kept one {term}", $"the first kept post mentions {term}", ct);
-        var disputed = await AskAsync(thief, thiefDpop, thiefToken, board, $"Signed by the thief {term}", $"the thief's post mentions {term}", ct);
-        var keptTwo = await AskAsync(control, controlDpop, controlToken, board, $"Kept two {term}", $"the second kept post mentions {term}", ct);
+        var (term, board, agents, posts) = await ThreeAuthorsAsync("cursor", ct);
 
-        // Page 1 is cut before any declaration, with a limit under the post count so a cursor exists.
+        // Page 1 is cut before any declaration, with a limit under the post count so a cursor exists;
+        // the post it serves, X, is the one whose author is then declared compromised.
         string cursor;
+        string x;
         using (var first = await SearchPageAsync(board, term, 1, cursor: null, ct))
-            cursor = NextCursor(first) ?? throw new Xunit.Sdk.XunitException("page 1 carries no next_cursor, so the fact would be vacuous");
-
-        // The precondition: before the declaration a fresh query serves the thief's post.
-        using (var fresh = await SearchPageAsync(board, term, 10, cursor: null, ct))
-            Assert.Contains(disputed.PostId, Ids(fresh));
-
-        await DeclareAsync(thief.AgentId, thief.Kid, disputed.LogIndex, ct);
-
-        // Follow the saved cursor to exhaustion: the declaration lies beyond its bound.
-        var served = new List<string>();
-        var excluded = new List<int>();
-        string? next = cursor;
-        for (var guard = 0; next is not null && guard < 10; guard++)
         {
-            using var page = await SearchPageAsync(board, term, 1, next, ct);
-            served.AddRange(Ids(page));
-            excluded.Add(page.RootElement.GetProperty("floor").GetProperty("excluded_disputed").GetInt32());
-            next = NextCursor(page);
+            cursor = NextCursor(first) ?? throw new Xunit.Sdk.XunitException("page 1 carries no next_cursor, so the fact would be vacuous");
+            x = Ids(first).Single();
         }
+
+        var xIndex = Array.FindIndex(posts, p => p.PostId == x);
+        Assert.True(xIndex >= 0, "page 1 served a post this fact did not create");
+
+        // The precondition: before the declaration a fresh query serves X.
+        using (var fresh = await SearchPageAsync(board, term, 10, cursor: null, ct))
+            Assert.Contains(x, Ids(fresh));
+
+        await DeclareAsync(agents[xIndex].AgentId, agents[xIndex].Kid, posts[xIndex].LogIndex, ct);
+
+        // The saved cursor alone, to its end: no fresh query supplies a post the walk dropped.
+        var walk = await WalkAsync(board, term, cursor, ct);
+        var continuation = walk.SelectMany(p => p.Ids).ToArray();
+        var others = posts.Select(p => p.PostId).Where(id => id != x).Order(StringComparer.Ordinal).ToArray();
 
         using var afterFresh = await SearchPageAsync(board, term, 10, cursor: null, ct);
 
-        // The thief's post is on no page; the cursor pages count it once each; a fresh query omits it too.
+        // The continuation is the other two posts exactly, every page counts X once, and a fresh query omits X too.
         Assert.Equal(
-            $"False | {string.Join(",", excluded.Select(c => Number(c)))} | False",
-            $"{served.Contains(disputed.PostId)} | {string.Join(",", excluded.Select(c => Number(c)))} | {Ids(afterFresh).Contains(disputed.PostId)}");
-        Assert.All(excluded, count => Assert.Equal(1, count));
-        Assert.True(served.Count > 0, "the walk served nothing");
-        Assert.Contains(keptOne.PostId, served.Concat(Ids(afterFresh)));
-        Assert.Contains(keptTwo.PostId, served.Concat(Ids(afterFresh)));
+            $"{string.Join(",", others)}; {Number(others.Length)}; {string.Join(",", walk.Select(_ => "1"))}; False",
+            $"{string.Join(",", continuation.Order(StringComparer.Ordinal))}; {Number(continuation.Length)}; {string.Join(",", walk.Select(p => Number(p.Excluded)))}; {Ids(afterFresh).Contains(x)}");
+    }
+
+    [Fact]
+    public async Task R6_57_ACursorWalkSurvivesADisputedPostAheadOfTheOffsetOnAnEmptyPage()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (term, board, agents, posts) = await ThreeAuthorsAsync("empty", ct);
+
+        // The rank order at limit 1, learned by a throwaway walk before any declaration: a limit-10
+        // query may diversify differently, so the order is read with the page size the fact walks at.
+        string[] order;
+        string cursor;
+        using (var first = await SearchPageAsync(board, term, 1, cursor: null, ct))
+        {
+            cursor = NextCursor(first) ?? throw new Xunit.Sdk.XunitException("page 1 carries no next_cursor, so the fact would be vacuous");
+            var throwaway = await WalkAsync(board, term, cursor, ct);
+            order = [.. Ids(first), .. throwaway.SelectMany(p => p.Ids)];
+        }
+
+        Assert.Equal(3, order.Distinct(StringComparer.Ordinal).Count());
+        var p1Index = Array.FindIndex(posts, p => p.PostId == order[1]);
+        Assert.True(p1Index >= 0, "the walk served a post this fact did not create");
+
+        // P1, the post at offset 1, is declared: the first continuation page is the one that comes back empty.
+        await DeclareAsync(agents[p1Index].AgentId, agents[p1Index].Kid, posts[p1Index].LogIndex, ct);
+        var walk = await WalkAsync(board, term, cursor, ct);
+
+        var emptyWithCursor = walk.Select((p, i) => (p, i)).Where(t => t.p.Ids.Length == 0 && t.p.HasNext).Select(t => t.i).ToArray();
+        var emptyBeforeLast = emptyWithCursor.Length > 0 && emptyWithCursor.All(i => i < walk.Count - 1);
+        Assert.Equal(
+            $"{order[2]}; 1; empty page with a cursor before the last: True; 1,1",
+            $"{string.Join(",", walk.SelectMany(p => p.Ids))}; {Number(walk.SelectMany(p => p.Ids).Count())}; " +
+            $"empty page with a cursor before the last: {emptyBeforeLast}; {string.Join(",", walk.Select(p => Number(p.Excluded)))}");
     }
 
     [Fact]
