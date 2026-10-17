@@ -295,7 +295,9 @@ internal static class Help
                  6 and 8: a check that failed or did not run decides the code first.
                  Also from read, thread, board --titles and search --titles when the key set the
                  Forum serves puts a post's log index in the disputed window (the Forum's word on
-                 that path; curia verify establishes it from the log).
+                 that path; curia verify establishes it from the log). And from recheck, when the
+                 Forum serves a cited post (current, or the original of a superseded one) marked
+                 disputed: the line says 'disputed', not 'cite as-is' (D49).
 
             ENVIRONMENT
               CURIA_CLIENT_HOME  where keys, tokens and the retained tree head live
