@@ -61,6 +61,8 @@ public sealed class ProgramOutputTests : IDisposable
     /// before it, then <c>&gt;</c>, and exits 1. <c>exited 1: </c> is <c>ExternalSigner</c>'s own
     /// message and the <c>&gt;</c> is the script's, so the decoded row is pinned at both ends: the
     /// <c>F0 9F 98</c> row shows exactly one U+FFFD, and nothing else satisfies the assertion.
+    /// Nothing executable is written at run time: the child is <c>tests/Shared/test-child.py</c> reached
+    /// through a symlink, with only its non-executable data file written (D47, after D44).
     /// </summary>
     [Theory]
     [MemberData(nameof(Rows))]
@@ -69,21 +71,42 @@ public sealed class ProgramOutputTests : IDisposable
         if (OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("the signer is a POSIX script run through python3");
 
-        var script = Path.Combine(_directory, "signer");
-        File.WriteAllText(
-            script,
-            "#!/usr/bin/env python3\n"
-            + "import sys\n"
-            + $"sys.stderr.buffer.write(bytes.fromhex('{hex}') + b'>')\n"
-            + "sys.stderr.buffer.flush()\n"
-            + "sys.exit(1)\n",
-            Encoding.ASCII);
-        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var script = Child("signer", stdoutHex: "", stderrHex: hex + "3E", exit: 1);
 
         var described = ExternalSigner.Describe(script);
 
         Assert.False(described.TryGetValue(out _, out var error), "the signer exited 1, and Describe accepted it");
         Assert.Contains("exited 1: " + expected + ">", error!.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A child process whose stdout, stderr and exit code the test dictates: <c>tests/Shared/test-child.py</c>
+    /// reached through a symlink named <paramref name="name"/> in the test's directory, beside a data file
+    /// the script reads. A symlink and a non-executable file, never an executable opened for writing, so
+    /// no other test's fork can hold a write descriptor on what is exec'd (ETXTBSY, D47 after D44).
+    /// </summary>
+    private string Child(string name, string stdoutHex, string stderrHex, int exit)
+    {
+        var link = Path.Combine(_directory, name);
+        File.WriteAllText(
+            link + ".json",
+            $$"""{"stdout":"{{stdoutHex}}","stderr":"{{stderrHex}}","exit":{{exit}}}""",
+            Encoding.ASCII);
+        File.CreateSymbolicLink(link, ChildScript());
+        return link;
+    }
+
+    /// <summary>The script, found from the repository root as <c>TestSigner</c> finds its own.</summary>
+    private static string ChildScript()
+    {
+        for (var at = new DirectoryInfo(AppContext.BaseDirectory); at is not null; at = at.Parent)
+        {
+            var candidate = Path.Combine(at.FullName, "tests", "Shared", "test-child.py");
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        throw new InvalidOperationException(
+            "tests/Shared/test-child.py was not found above " + AppContext.BaseDirectory);
     }
 
     /// <summary>Every row of <see cref="Rows"/>, once through each of <c>ProgramOutput</c>'s readers.</summary>
@@ -103,7 +126,7 @@ public sealed class ProgramOutputTests : IDisposable
     /// The same rule through both of <c>ProgramOutput</c>'s readers, on both streams: a child that writes
     /// the row to stdout then <c>&gt;</c>, and the row to stderr then <c>&lt;</c>, with nothing before
     /// either, and exits 0. Detection fires only at offset 0, so a reader that detected a mark on either
-    /// stream would show the row decoded another way.
+    /// stream would show the row decoded another way. As above, only a data file is written (D47).
     /// </summary>
     [Theory]
     [MemberData(nameof(Streams))]
@@ -113,19 +136,7 @@ public sealed class ProgramOutputTests : IDisposable
             throw new PlatformNotSupportedException("the child is a POSIX script run through python3");
 
         var ct = TestContext.Current.CancellationToken;
-        var script = Path.Combine(_directory, "child");
-        await File.WriteAllTextAsync(
-            script,
-            "#!/usr/bin/env python3\n"
-            + "import sys\n"
-            + $"sys.stdout.buffer.write(bytes.fromhex('{hex}') + b'>')\n"
-            + $"sys.stderr.buffer.write(bytes.fromhex('{hex}') + b'<')\n"
-            + "sys.stdout.buffer.flush()\n"
-            + "sys.stderr.buffer.flush()\n"
-            + "sys.exit(0)\n",
-            Encoding.ASCII,
-            ct);
-        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var script = Child("child", stdoutHex: hex + "3E", stderrHex: hex + "3C", exit: 0);
 
         using var process = Process.Start(new ProcessStartInfo(script)
         {
@@ -145,7 +156,8 @@ public sealed class ProgramOutputTests : IDisposable
     /// <summary>
     /// A signer whose <c>describe</c> output begins with <c>EF BB BF</c> and is otherwise a well-formed
     /// description is refused: the mark is kept as U+FEFF, and no JSON text begins with it. A decoder that
-    /// drops the mark would accept this signer; case 89 is its falsification.
+    /// drops the mark would accept this signer; case 89 is its falsification. As above, only a data
+    /// file is written, never an executable (D47).
     /// </summary>
     [Fact]
     public void R10_64_ASignerWhoseOutputBeginsWithAByteOrderMarkIsRefused()
@@ -153,16 +165,8 @@ public sealed class ProgramOutputTests : IDisposable
         if (OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("the signer is a POSIX script run through python3");
 
-        var script = Path.Combine(_directory, "signer");
-        File.WriteAllText(
-            script,
-            "#!/usr/bin/env python3\n"
-            + "import sys\n"
-            + "sys.stdout.buffer.write(b'\\xef\\xbb\\xbf{\"alg\":\"ES256\",\"kid\":\"k\",\"public_key\":\"AAAA\"}\\n')\n"
-            + "sys.stdout.buffer.flush()\n"
-            + "sys.exit(0)\n",
-            Encoding.ASCII);
-        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var description = Encoding.ASCII.GetBytes("{\"alg\":\"ES256\",\"kid\":\"k\",\"public_key\":\"AAAA\"}\n");
+        var script = Child("signer", stdoutHex: "EFBBBF" + Convert.ToHexString(description), stderrHex: "", exit: 0);
 
         var described = ExternalSigner.Describe(script);
 
