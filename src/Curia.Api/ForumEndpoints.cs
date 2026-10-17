@@ -88,7 +88,15 @@ public sealed record ProvenanceResponse(
     [property: JsonPropertyName("reproductions")] ImmutableArray<string> Reproductions,
 
     /// <summary>R8.15 / R8.59: digests of the countable reports that contradicted this post, surfaced on the post and not buried.</summary>
-    [property: JsonPropertyName("contradictions")] ImmutableArray<string> Contradictions);
+    [property: JsonPropertyName("contradictions")] ImmutableArray<string> Contradictions,
+
+    /// <summary>R6.57: what the log says of the key the post was signed under: <c>active</c>, <c>retired</c> or <c>compromised</c>. The Forum's word, not a verdict on the post.</summary>
+    [property: JsonPropertyName("key_status")] string KeyStatus,
+
+    /// <summary>R6.57: the log index of the declaration that disputes the post; absent unless the post lies between the declaration's <c>from_index</c> and the declaration.</summary>
+    [property: JsonPropertyName("disputed_by_log_index")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    long? DisputedByLogIndex);
 
 /// <summary>
 /// One post as served, wrapped in its provenance envelope (R10.17).
@@ -210,7 +218,10 @@ public sealed record FloorResponse(
     [property: JsonPropertyName("min_verification")] string MinVerification,
     [property: JsonPropertyName("source")] string Source,
     [property: JsonPropertyName("applies_to")] ImmutableArray<string> AppliesTo,
-    [property: JsonPropertyName("not_applicable_to")] ImmutableArray<string> NotApplicableTo);
+    [property: JsonPropertyName("not_applicable_to")] ImmutableArray<string> NotApplicableTo,
+
+    /// <summary>R6.57: how many disputed posts were removed from the fused candidates before the floor applied.</summary>
+    [property: JsonPropertyName("excluded_disputed")] int ExcludedDisputed);
 
 /// <summary>
 /// One search result: the post in its provenance envelope, plus why it ranked here.
@@ -693,7 +704,9 @@ public static class ForumEndpoints
                     ? StatusCodes.Status503ServiceUnavailable
                     : string.Equals(verifyError.Type, IngestErrors.UnstorableMemberType, StringComparison.Ordinal)
                         ? StatusCodes.Status422UnprocessableEntity
-                        : StatusCodes.Status401Unauthorized,
+                        : verifyError.Type is AuthorKeyErrors.RetiredType or AuthorKeyErrors.CompromisedType
+                            ? StatusCodes.Status403Forbidden
+                            : StatusCodes.Status401Unauthorized,
                 verifyError);
         }
 
@@ -1175,10 +1188,11 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, markingError!);
 
         var standings = AgentStandingProjector.Fold(log);
+        var disputed = DisputedPosts.Fold(log, posts);
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
                 post, standings, marking, ReaderContractUrl(http),
-                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable), ActaOf(log)),
+                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable, disputed), disputed, ActaOf(log)),
             json.Value.SerializerOptions);
 
         var entityTag = EntityTags.For(representation);
@@ -1260,7 +1274,8 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
 
-        var verification = VerificationProjector.Fold(posts, standings, servable);
+        var disputed = DisputedPosts.Fold(log, posts);
+        var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var acta = ActaOf(log);
         var items = ImmutableArray.CreateBuilder<BatchItemResponse>(request.Digests.Count);
         foreach (var requested in request.Digests)
@@ -1271,7 +1286,7 @@ public static class ForumEndpoints
                 CitationStatuses.Wire(state.Status),
                 state.Successors,
                 state.Forked,
-                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification, acta)));
+                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification, disputed, acta)));
         }
 
         return Results.Ok(new BatchResponse(items.MoveToImmutable()));
@@ -1300,7 +1315,8 @@ public static class ForumEndpoints
                 PostProjector.Thread(posts, root!).Where(p => servable(p.PostId) && Discussion(p)))
             : [];
         var standings = AgentStandingProjector.Fold(log);
-        var verification = VerificationProjector.Fold(posts, standings, servable);
+        var disputed = DisputedPosts.Fold(log, posts);
+        var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
 
@@ -1310,7 +1326,7 @@ public static class ForumEndpoints
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
             : Results.Ok(thread
-                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, acta))
+                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, acta))
                 .ToArray());
     }
 
@@ -1327,7 +1343,8 @@ public static class ForumEndpoints
         var servable = Servable(log);
         var accepted = AcceptanceProjector.Fold(log);
         var posts = PostProjector.Fold(log);
-        var verification = VerificationProjector.Fold(posts, standings, servable);
+        var disputed = DisputedPosts.Fold(log, posts);
+        var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var acta = ActaOf(log);
 
         // Discussion only: a vote is never served (R8.55) and a verification report is read on its
@@ -1337,7 +1354,7 @@ public static class ForumEndpoints
 
         return Results.Ok(posts
             .Where(p => p.Board == board && servable(p.PostId) && Discussion(p))
-            .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, acta))
+            .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, acta))
             .ToArray());
     }
 
@@ -1606,7 +1623,8 @@ public static class ForumEndpoints
         var views = PostProjector.Fold(log);
         var servable = Servable(log);
         var standings = AgentStandingProjector.Fold(log);
-        var verification = VerificationProjector.Fold(views, standings, servable);
+        var disputed = DisputedPosts.Fold(log, views);
+        var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var accepted = AcceptanceProjector.Fold(log);
         var acta = ActaOf(log);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
@@ -1617,7 +1635,7 @@ public static class ForumEndpoints
             .Where(p => string.Equals(p.Parent, canonical.PostId, StringComparison.Ordinal)
                 && string.Equals(p.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal)
                 && servable(p.PostId))
-            .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, acta))
+            .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, disputed, acta))
             .ToImmutableArray();
 
         var t = assessment.Thresholds;
@@ -1739,7 +1757,8 @@ public static class ForumEndpoints
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
-        var verification = VerificationProjector.Fold(views, standings, Servable(log));
+        var disputed = DisputedPosts.Fold(log, views);
+        var verification = VerificationProjector.Fold(views, standings, Servable(log), disputed);
         var acta = ActaOf(log);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
@@ -1772,7 +1791,7 @@ public static class ForumEndpoints
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
 
             results.Add(new SearchHitResponse(
-                ToResponse(view, standings, marking, contract, acceptedByThread, verification, acta),
+                ToResponse(view, standings, marking, contract, acceptedByThread, verification, disputed, acta),
                 Micro(hit.Score),
                 wantsWhy ? WhyRanked(hit, page.Model.Id, page.K) : null));
         }
@@ -1785,7 +1804,8 @@ public static class ForumEndpoints
                 VerificationLevels.Wire(page.Floor),
                 page.FloorSource,
                 [.. RetrievalFloorPolicy.GradableKinds.Select(PostKinds.Wire)],
-                [.. RetrievalFloorPolicy.UngradableKinds.Select(PostKinds.Wire)]),
+                [.. RetrievalFloorPolicy.UngradableKinds.Select(PostKinds.Wire)],
+                page.ExcludedDisputed),
             page.Model.Id,
             page.CorpusBound,
             page.K,
@@ -1914,7 +1934,8 @@ public static class ForumEndpoints
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
-        var verification = VerificationProjector.Fold(views, standings, Servable(log));
+        var disputed = DisputedPosts.Fold(log, views);
+        var verification = VerificationProjector.Fold(views, standings, Servable(log), disputed);
         var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
@@ -1925,7 +1946,7 @@ public static class ForumEndpoints
         foreach (var hit in hits)
         {
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
-            results.Add(ToResponse(view, standings, marking, contract, accepted, verification, acta));
+            results.Add(ToResponse(view, standings, marking, contract, accepted, verification, disputed, acta));
         }
 
         return Results.Ok(new InboxResponse(
@@ -2123,6 +2144,7 @@ public static class ForumEndpoints
         string readerContract,
         ImmutableDictionary<string, string>? acceptedByThread,
         VerificationFold verification,
+        DisputedPosts disputed,
         ActaLog? acta = null)
     {
         var standingKnown = standings.TryGetValue(p.Author, out var standing);
@@ -2181,7 +2203,12 @@ public static class ForumEndpoints
             // post; R8.30 wants the tally withheld, and a level is a floor on the endorsing count
             // that discloses no rate -- two of two and two of forty read the same V1.
             Reproductions: state.Reproductions,
-            Contradictions: state.Contradictions);
+            Contradictions: state.Contradictions,
+
+            // R6.57: the key's status and, for a post inside a declaration's window, the declaration's
+            // log index. Disputed is a mark on a served post (R6.28), never a withholding.
+            KeyStatus: disputed.KeyStatusOf(p),
+            DisputedByLogIndex: disputed.DisputedByLogIndex(p));
 
         return new PostResponse(
             provenance,
@@ -2729,7 +2756,9 @@ public static class ForumEndpoints
             or StorableText.BlankType
             or StorableText.NulType
             or StorableText.UnpairedSurrogateType
-            or StorableText.TooLongType => StatusCodes.Status400BadRequest,
+            or StorableText.TooLongType
+            or KeyActErrors.BeforeBindingType
+            or KeyActErrors.FromIndexBeyondLogType => StatusCodes.Status400BadRequest,
 
         KeyActErrors.AuthorizingKeyNotLiveType => StatusCodes.Status403Forbidden,
         KeyActErrors.UnknownKeyType => StatusCodes.Status404NotFound,
@@ -2739,7 +2768,8 @@ public static class ForumEndpoints
             or KeyActErrors.TooManyLiveKeysType
             or KeyActErrors.RotationCeilingReachedType
             or KeyActErrors.NotLiveType
-            or KeyActErrors.LastLiveKeyType => StatusCodes.Status409Conflict,
+            or KeyActErrors.LastLiveKeyType
+            or KeyActErrors.LogKeyNotPublishedType => StatusCodes.Status409Conflict,
 
         KeyActErrors.RotationBudgetExhaustedType => StatusCodes.Status429TooManyRequests,
         LogBoundKeys.LogUnreadableType => StatusCodes.Status503ServiceUnavailable,

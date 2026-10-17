@@ -265,7 +265,21 @@ public sealed class DetachedJwsTests
     [Theory]
     [InlineData("curia-key-rotation+jws")]
     [InlineData("curia-key-retirement+jws")]
-    public void R4_18_EachLifecycleTypMeetsTheB64AndCritNegatives(string typ)
+    public void R4_18_EachLifecycleTypMeetsTheB64AndCritNegatives(string typ) =>
+        AssertLifecycleTypMeetsTheNegatives(
+            typ, typ == "curia-key-rotation+jws" ? "curia-key-retirement+jws" : "curia-key-rotation+jws");
+
+    /// <summary>
+    /// R6.26 (revised): a declaration's <c>typ</c>, <c>curia-key-compromise+jws</c>, goes through the same <c>b64</c> and
+    /// <c>crit</c> negatives, with the code a post's does. The checks are shared across every <c>typ</c>, so dropping
+    /// one is red here for the compromise <c>typ</c> and for the others alike (F2-19, F2-20 for <c>b64</c>; F2-34 for
+    /// <c>crit</c>).
+    /// </summary>
+    [Fact]
+    public void R6_26_TheCompromiseTypMeetsTheB64AndCritNegatives() =>
+        AssertLifecycleTypMeetsTheNegatives("curia-key-compromise+jws", "curia-key-rotation+jws");
+
+    private static void AssertLifecycleTypMeetsTheNegatives(string typ, string other)
     {
         DetachedJws ForTyp() => new(
             new Dictionary<string, IContentSigner> { ["EdDSA"] = Stub },
@@ -288,7 +302,6 @@ public sealed class DetachedJwsTests
         Assert.Equal("curia/jws/crit-unsupported", Verdict(""","b64":false,"crit":["b64","zip"]"""));
 
         // And the typ of the other kind, or a post's, is refused before either: a signature is its kind's alone (KF1).
-        var other = typ == "curia-key-rotation+jws" ? "curia-key-retirement+jws" : "curia-key-rotation+jws";
         foreach (var wrong in new[] { other, "curia-post+jws", "curia-head+jws" })
         {
             Assert.Equal("curia/jws/typ-mismatch",

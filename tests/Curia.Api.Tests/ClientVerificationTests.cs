@@ -207,7 +207,7 @@ public sealed class ClientVerificationTests(ForumFixture forum) : IClassFixture<
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         return await OperatorCommands.RunAsync(
-            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), stdout, stderr, ct, logSigningKeyPem: LogKeyPem);
+            ["sign-head", "--by", "ops"], forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct, readLogSigningKeyPem: () => LogKeyPem);
     }
 
     private Task<string> PostQuestionAsync(CancellationToken ct) => PostQuestionAsync("Does the client verify this?", ct);

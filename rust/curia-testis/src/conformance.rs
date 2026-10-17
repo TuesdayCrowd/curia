@@ -255,7 +255,7 @@ pub struct LifecycleVector {
     pub dir: PathBuf,
     /// `meta.json`'s `post_index`: the log index of the post the lifecycle is folded for.
     pub post_index: u64,
-    /// `expected.json`'s `verdict`: `verified`, `failed` or `could-not-check`.
+    /// `expected.json`'s `verdict`: `verified`, `failed`, `could-not-check` or `disputed` (R6.57).
     pub verdict: String,
     /// `expected.json`'s `predicate`: the short slug (`curia/acta/` removed) of the check that decided it.
     pub predicate: String,
@@ -1035,10 +1035,11 @@ fn load_lifecycle_family(root: &Path) -> Result<Vec<LifecycleVector>, LoaderErro
                 })
         };
         let verdict = text("verdict")?;
-        if !["verified", "failed", "could-not-check"].contains(&verdict.as_str()) {
+        if !["verified", "failed", "could-not-check", "disputed"].contains(&verdict.as_str()) {
             return Err(LoaderError::MalformedLifecycleVector {
                 path: expected_path,
-                problem: "`verdict` is not verified, failed or could-not-check".to_string(),
+                problem: "`verdict` is not verified, failed, could-not-check or disputed"
+                    .to_string(),
             });
         }
 

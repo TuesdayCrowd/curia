@@ -58,6 +58,9 @@ public sealed record VerificationFold(
 /// same-owner signals before they are written, and the fold applies the same rule to whatever the
 /// log turns out to hold, so a stray event cannot mint a level on replay.</para>
 ///
+/// <para><b>A disputed signal does not count (R6.57).</b> A vote or report whose own post is disputed is
+/// dropped like a withheld one, and the level it held falls back; the post itself is still served, marked.</para>
+///
 /// <para><b>Levels attach to digests, never post ids.</b> R8.5 makes an edit a new signed revision
 /// with a new digest, so a revision begins at V0; a level attached to a post id would be a badge
 /// earned by one text and worn by another.</para>
@@ -69,10 +72,12 @@ public static class VerificationProjector
     public static VerificationFold Fold(
         ImmutableArray<PostView> postsInSeqOrder,
         IReadOnlyDictionary<string, AgentStanding> standings,
-        Func<string, bool> servable)
+        Func<string, bool> servable,
+        DisputedPosts disputed)
     {
         ArgumentNullException.ThrowIfNull(standings);
         ArgumentNullException.ThrowIfNull(servable);
+        ArgumentNullException.ThrowIfNull(disputed);
 
         var byDigest = new Dictionary<string, PostView>(StringComparer.Ordinal);
         foreach (var post in postsInSeqOrder)
@@ -96,6 +101,10 @@ public static class VerificationProjector
             if (envelope!.Target is not { } target) continue;
 
             if (!servable(post.PostId)) continue;
+
+            // R6.57: a signal signed under a key the owner declared compromised, from before the post,
+            // is the thief's as likely as the agent's. It stays served and marked (R6.28); it carries no weight.
+            if (disputed.IsDisputed(post)) continue;
 
             var owner = OwnerOf(post.Author);
             if (owner is null)

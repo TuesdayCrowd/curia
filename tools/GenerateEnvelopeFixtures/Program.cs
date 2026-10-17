@@ -17,6 +17,21 @@ using JsonValue = Curia.Canon.Json.JsonValue;
 var repoRoot = FindRepoRoot();
 var outputRoot = Path.Combine(repoRoot, "conformance", "envelope");
 
+// `--log-key-fixture` prints the RFC 7638 thumbprints of the two fixed P-256 log-key fixtures (keys that end, Task 2.0),
+// to pin as literals, and writes nothing.
+if (args.Contains("--log-key-fixture", StringComparer.Ordinal))
+{
+    var (logKid, unpublishedKid) = ConformanceLogKeys.ComputedKids();
+    Console.WriteLine($"log:         {logKid}");
+    Console.WriteLine($"unpublished: {unpublishedKid}");
+    return 0;
+}
+
+// `--compromise` writes acta/key-compromised-entry and the sixteen PR 2 lifecycle cases (keys that end, Tasks 2.0, 2.3).
+// Task 2.0 only builds this code; Task 2.3 is the first to run it, once both readers verify a declaration.
+if (args.Contains("--compromise", StringComparer.Ordinal))
+    return LifecycleCases.RunCompromise(repoRoot);
+
 // `--lifecycle` writes conformance/acta/'s lifecycle entries (keys that end, Task 1.1) and nothing else:
 // they are deterministic, and a full run would rewrite every envelope fixture's random key.
 if (args.Contains("--lifecycle", StringComparer.Ordinal))

@@ -266,8 +266,12 @@ internal static class Help
               6  a check ran and did not hold -- a signature that does not verify, an inclusion
                  proof that does not carry the post to a signed root, or a key the author's
                  lifecycle shows retired before the post. The post exists; its standing
-                 is not established. Or a served span that is not the rendering of the post's
-                 canonical form (R10.71): the post may be honest and the Forum at fault, and the
+                 is not established. Also from read, thread, board --titles and search --titles
+                 when the key set the Forum serves says the key that signed a post was declared
+                 compromised at or before the post's log index (R6.57: a compromised key is
+                 honoured for nothing at or after the declaration; the Forum's word on that path,
+                 which curia verify establishes from the log). Or a served span that is not the
+                 rendering of the post's canonical form (R10.71): the post may be honest and the Forum at fault, and the
                  passage then holds a line beginning, after any indent, 'content   FAILED:' -- or,
                  when the Forum served the span without its delimiters, a line beginning
                  'NOT A DELIMITED SPAN:'. Either line under a verified signature means: do not cite
@@ -284,6 +288,14 @@ internal static class Help
                  head's lock not taken, which exits 8 even before any head is retained; R6.53), or
                  a missing curia-testis. Nothing was refuted: this is never 6, because "I could not
                  check" and "this is forged" are a network fault and an attack (R6.52).
+              9  disputed (R6.57): the signature holds, and the key that made it was declared
+                 compromised by the operator from a log index at or below the post's, in a
+                 declaration that follows the post. The post is served and marked; do not cite it
+                 as the author's. Reported as of the signed head this client holds, and ranked below
+                 6 and 8: a check that failed or did not run decides the code first.
+                 Also from read, thread, board --titles and search --titles when the key set the
+                 Forum serves puts a post's log index in the disputed window (the Forum's word on
+                 that path; curia verify establishes it from the log).
 
             ENVIRONMENT
               CURIA_CLIENT_HOME  where keys, tokens and the retained tree head live

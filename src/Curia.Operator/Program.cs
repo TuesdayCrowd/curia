@@ -11,6 +11,7 @@ using Curia.Canon.Sodium;
 using Curia.Domain;
 using Curia.Domain.Acta;
 using Curia.Domain.Credentials;
+using Curia.Domain.Keys;
 using Curia.Domain.Moderation;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
@@ -33,7 +34,19 @@ public static class ExitCode
 
     /// <summary>No events database configured.</summary>
     public const int Environment = 3;
+
+    /// <summary>
+    /// R4.38 (add.): the lifecycle guard is on for this kind, so the verb stopped before it read a key or
+    /// signed anything. Nothing was written.
+    /// </summary>
+    public const int LifecycleNotEnabled = 4;
 }
+
+/// <summary>
+/// Loads the log key a verb signs with from its PEM. The delegate lives here and not in
+/// <c>Curia.Application</c> because it is the operator tool's seam: a test hands one that records or throws.
+/// </summary>
+public delegate Result<ILifecycleStatementSigner> LogSignerFactory(string pem);
 
 /// <summary>
 /// <c>curia-operator</c>: the Forum operator's out-of-band verbs. Four today: <c>attest-owner</c>,
@@ -81,10 +94,11 @@ public static class Program
                 connectionString,
                 TimeProvider.System,
                 lifecycleGate!,
+                OperatorCommands.LoadLogSigner,
                 Console.Out,
                 Console.Error,
                 CancellationToken.None,
-                logSigningKeyPem: System.Environment.GetEnvironmentVariable("CURIA_LOG_SIGNING_KEY_PEM"))
+                readLogSigningKeyPem: () => System.Environment.GetEnvironmentVariable("CURIA_LOG_SIGNING_KEY_PEM"))
             .ConfigureAwait(false);
     }
 }
@@ -105,6 +119,19 @@ public static class OperatorCommands
               Signs the Acta's current root with the log key (CURIA_LOG_SIGNING_KEY_PEM) and
               appends it to the log as a log.head entry, publishing the key (log.key) first
               if the log has not seen it. R6.24: run this on a schedule of at most 60 minutes.
+
+          curia-operator compromise --agent <agent-id> --kid <kid> --from-index <n>
+                                    --reason owner-reported|operator-observed --operator <role>
+
+              Declares <kid> of <agent-id> compromised from log index <n> (R6.26, R6.57), signed with
+              the log key (CURIA_LOG_SIGNING_KEY_PEM, which sign-head must have published first). The
+              declaration ends <kid> and every key it bound by a rotation at or after <n>, and marks
+              the agent's posts under them from <n> disputed. <role> is a role name, never a person's
+              name. Pass --from-index no later than the first index the owner's client reports as
+              FOREIGN (their lifecycle_acts are the evidence); a later --from-index leaves live any key
+              the compromised key bound before it (R6.57 cascades only at or after from_index).
+              Refused with exit 4, before the log key is read, while the lifecycle guard is on:
+              compromise must be enabled by Curia__Lifecycle__Enabled (R4.38 (add.)).
 
           curia-operator attest-owner --agent <agent-id> --owner <owner-id> --by <operator-name>
                                       [--method domain|email|attestation|manual] [--reason <text>]
@@ -136,13 +163,15 @@ public static class OperatorCommands
 
         ENVIRONMENT
           CURIA_EVENTS_POSTGRES      the Forum's events database (required)
-          CURIA_LOG_SIGNING_KEY_PEM  the Acta's ES256 signing key (sign-head only)
+          CURIA_LOG_SIGNING_KEY_PEM  the Acta's ES256 signing key (sign-head and compromise only)
+          Curia__Lifecycle__Enabled  none, or a comma list over rotation, retirement and compromise
 
         EXIT CODES
           0  recorded
           1  usage error -- nothing was written
           2  refused -- the reason's slug is on stderr; nothing was written
           3  CURIA_EVENTS_POSTGRES is not set
+          4  the lifecycle guard refuses this verb -- nothing was read, signed or written
         """;
 
     /// <summary>
@@ -160,24 +189,31 @@ public static class OperatorCommands
     /// R4.38 (add.): the gate every append this tool makes passes. Required, with no default;
     /// <see cref="Program.Main"/> builds it from <c>Curia__Lifecycle__Enabled</c>.
     /// </param>
-    /// <param name="logSigningKeyPem">
-    /// <c>CURIA_LOG_SIGNING_KEY_PEM</c>: the Acta's signing key, needed by <c>sign-head</c> alone.
-    /// A parameter rather than a read of the environment here so the end-to-end suite can hand
-    /// in a throwaway key; <see cref="Program.Main"/> is the one place that reads the variable.
+    /// <param name="logSigner">
+    /// Loads the log key a verb signs a declaration with from its PEM (R6.26 rev.). Required, with no
+    /// default; <see cref="Program.Main"/> passes <see cref="LoadLogSigner"/>.
+    /// </param>
+    /// <param name="readLogSigningKeyPem">
+    /// <c>CURIA_LOG_SIGNING_KEY_PEM</c>: the Acta's signing key, needed by <c>sign-head</c> and
+    /// <c>compromise</c>, and read only at the point a verb needs it. A reader rather than a value so a
+    /// verb the guard refuses never calls it, and so the end-to-end suite can hand in a throwaway key;
+    /// <see cref="Program.Main"/> is the one place that reads the variable.
     /// </param>
     public static async Task<int> RunAsync(
         IReadOnlyList<string> args,
         string connectionString,
         TimeProvider clock,
         ILifecycleAppendGate lifecycleGate,
+        LogSignerFactory logSigner,
         TextWriter stdout,
         TextWriter stderr,
         CancellationToken cancellationToken,
-        string? logSigningKeyPem = null)
+        Func<string?>? readLogSigningKeyPem = null)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(lifecycleGate);
+        ArgumentNullException.ThrowIfNull(logSigner);
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
 
@@ -188,7 +224,11 @@ public static class OperatorCommands
         }
 
         if (args[0] == "sign-head")
-            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, logSigningKeyPem, cancellationToken)
+            return await SignHeadAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, stdout, stderr, readLogSigningKeyPem, cancellationToken)
+                .ConfigureAwait(false);
+
+        if (args[0] == "compromise")
+            return await CompromiseAsync(args.Skip(1).ToArray(), connectionString, clock, lifecycleGate, logSigner, stdout, stderr, readLogSigningKeyPem, cancellationToken)
                 .ConfigureAwait(false);
 
         if (args[0] == "moderate")
@@ -265,7 +305,7 @@ public static class OperatorCommands
         ILifecycleAppendGate lifecycleGate,
         TextWriter stdout,
         TextWriter stderr,
-        string? logSigningKeyPem,
+        Func<string?>? readLogSigningKeyPem,
         CancellationToken cancellationToken)
     {
         string? byValue = null;
@@ -289,6 +329,7 @@ public static class OperatorCommands
             return ExitCode.Usage;
         }
 
+        var logSigningKeyPem = readLogSigningKeyPem?.Invoke();
         if (string.IsNullOrWhiteSpace(logSigningKeyPem))
         {
             await stderr.WriteLineAsync(
@@ -373,6 +414,123 @@ public static class OperatorCommands
                 return ExitCode.Ok;
             }
         }
+    }
+
+    /// <summary>The production <see cref="LogSignerFactory"/>: the PEM loaded as <see cref="LogSigningKey"/>.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The key is handed to the caller, which disposes it (CompromiseAsync's using).")]
+    public static Result<ILifecycleStatementSigner> LoadLogSigner(string pem)
+    {
+        var key = LoadKey(pem, out var problem);
+        return key is null
+            ? Result<ILifecycleStatementSigner>.Fail(new Error("curia/keys/log-key-unusable", "The log signing key is not a usable P-256 key", problem))
+            : Result<ILifecycleStatementSigner>.Ok(key);
+    }
+
+    /// <summary>
+    /// R6.26 (rev.), R6.57: the operator's compromise declaration. <b>The gate is the first act after the
+    /// arguments parse</b> (R4.38 add., GF2): a guarded build exits <see cref="ExitCode.LifecycleNotEnabled"/>
+    /// before the log key is read, the signer is built, or anything is signed or appended.
+    /// </summary>
+    private static async Task<int> CompromiseAsync(
+        string[] argv,
+        string connectionString,
+        TimeProvider clock,
+        ILifecycleAppendGate lifecycleGate,
+        LogSignerFactory logSigner,
+        TextWriter stdout,
+        TextWriter stderr,
+        Func<string?>? readLogSigningKeyPem,
+        CancellationToken cancellationToken)
+    {
+        if (argv.Any(a => a is "--help" or "-h"))
+        {
+            await stdout.WriteLineAsync(Usage).ConfigureAwait(false);
+            return ExitCode.Ok;
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var i = 0; i < argv.Length; i++)
+        {
+            var arg = argv[i];
+            if (!arg.StartsWith("--", StringComparison.Ordinal))
+                return await UsageErrorAsync(stderr, $"unexpected argument '{arg}'.").ConfigureAwait(false);
+
+            var name = arg[2..];
+            if (name is not ("agent" or "kid" or "from-index" or "reason" or "operator"))
+                return await UsageErrorAsync(stderr, $"unknown flag --{name}.").ConfigureAwait(false);
+
+            if (i + 1 >= argv.Length)
+                return await UsageErrorAsync(stderr, $"--{name} needs a value.").ConfigureAwait(false);
+
+            values[name] = argv[++i];
+        }
+
+        foreach (var required in (string[])["agent", "kid", "from-index", "reason", "operator"])
+            if (!values.TryGetValue(required, out var given) || string.IsNullOrWhiteSpace(given))
+                return await UsageErrorAsync(stderr, $"--{required} is required.").ConfigureAwait(false);
+
+        if (!long.TryParse(values["from-index"], NumberStyles.None, CultureInfo.InvariantCulture, out var fromIndex))
+            return await UsageErrorAsync(stderr, "--from-index is a log index: a non-negative integer.").ConfigureAwait(false);
+        if (!CompromiseReasons.Parse(values["reason"]).TryGetValue(out var reason, out _))
+            return await UsageErrorAsync(stderr, "--reason is owner-reported or operator-observed.").ConfigureAwait(false);
+        if (!AgentId.Parse(values["agent"], "agent").TryGetValue(out var agent, out var agentError))
+            return await UsageErrorAsync(stderr, agentError!.Detail ?? agentError.Title).ConfigureAwait(false);
+        if (!Kid.Parse(values["kid"], "kid").TryGetValue(out var kid, out var kidError))
+            return await UsageErrorAsync(stderr, kidError!.Detail ?? kidError.Title).ConfigureAwait(false);
+
+        // The operator namespace, applied once here as the other verbs apply it. A role name, never a person's.
+        var by = values["operator"];
+        var actorValue = by.StartsWith(ApplyModeration.OperatorPrefix, StringComparison.Ordinal) ? by : ApplyModeration.OperatorPrefix + by;
+        if (!ActorId.Create(actorValue).TryGetValue(out var actor, out _))
+            return await UsageErrorAsync(stderr, "--operator <role> is required.").ConfigureAwait(false);
+
+        // R4.38 (add.): the gate, before the log key is read or anything is signed.
+        if (!lifecycleGate.Enables(LifecycleKind.Compromise))
+        {
+            await stderr.WriteLineAsync(
+                $"error: {KeyActErrors.LifecycleNotEnabledType}: compromise declarations are not enabled. " +
+                "The lifecycle guard is on until the owner lifts it (R4.38 (add.)); to enable compromise, " +
+                "set Curia__Lifecycle__Enabled to include it, for this tool and for the Forum.")
+                .ConfigureAwait(false);
+            return ExitCode.LifecycleNotEnabled;
+        }
+
+        var pem = readLogSigningKeyPem?.Invoke();
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            await stderr.WriteLineAsync(
+                "error: CURIA_LOG_SIGNING_KEY_PEM is not set. Declarations are signed with the log key, which the " +
+                "Forum does not hold (R11.7); this tool needs it and does not sign without it.")
+                .ConfigureAwait(false);
+            return ExitCode.Environment;
+        }
+
+        if (!logSigner(pem).TryGetValue(out var signer, out var signerError))
+        {
+            await stderr.WriteLineAsync($"error: CURIA_LOG_SIGNING_KEY_PEM is not a usable P-256 key: {signerError!.Detail}").ConfigureAwait(false);
+            return ExitCode.Environment;
+        }
+
+        using var disposable = signer as IDisposable;
+        Result<CompromiseRecorded> result;
+        var adapters = new PostgresAdapters(connectionString, clock, lifecycleGate);
+        await using (adapters.ConfigureAwait(false))
+        {
+            result = await new DeclareCompromise(adapters.EventStore, clock)
+                .DeclareAsync(agent!, kid!, fromIndex, reason, signer!, actor, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!result.TryGetValue(out var recorded, out var error))
+            return await RefuseAsync(stderr, error!).ConfigureAwait(false);
+
+        await stdout.WriteLineAsync($"compromised  {TerminalText.Line(recorded!.AgentId)}").ConfigureAwait(false);
+        foreach (var ended in recorded.Kids)
+            await stdout.WriteLineAsync($"kid          {TerminalText.Line(ended)}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"from_index   {fromIndex.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"log_index    {recorded.LogIndex.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        await stdout.WriteLineAsync($"by           {TerminalText.Line(actor.Value)}").ConfigureAwait(false);
+        return ExitCode.Ok;
     }
 
     /// <summary>

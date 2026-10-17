@@ -29,7 +29,7 @@ namespace GenerateEnvelopeFixtures;
 /// <para>Each case holds one defect, so a verdict of failed cannot come from another cause: the rest of
 /// its log is what a case that verifies would hold.</para>
 /// </summary>
-internal static class LifecycleCases
+internal static partial class LifecycleCases
 {
     private const string Agent = "agent://curia.example/tuesdaycrowd/scriptor";
     private const string OtherAgent = "agent://curia.example/tuesdaycrowd/other";
@@ -61,7 +61,14 @@ internal static class LifecycleCases
     }
 
     private sealed record Case(
-        string Name, string Requirement, string Note, Log Log, int Post, int[] Supplied, string Verdict, string Predicate);
+        string Name, string Requirement, string Note, Log Log, int Post, int[] Supplied, string Verdict, string Predicate)
+    {
+        /// <summary>Log keys beside the head key, each with the log index of its <c>log.key</c> entry (PR 2's declarations).</summary>
+        public IReadOnlyList<ExtraLogKey> ExtraLogKeys { get; init; } = [];
+    }
+
+    /// <summary>A log key the case's key set lists beside the head key; a null <paramref name="LogIndex"/> gives no position (KF2).</summary>
+    private sealed record ExtraLogKey(P256LogKey Key, string ValidFrom, long? LogIndex);
 
     public static int Run(string repoRoot)
     {
@@ -697,11 +704,13 @@ internal static class LifecycleCases
             $"{{\"head\":{Encoding.UTF8.GetString(headCanonical.Span)},\"kid\":\"{LogKid}\",\"signature\":\"{headSignature.Compact}\",\"log_index\":{size},\"signature_valid\":true,\"current_tree_size\":{size}}}\n");
 
         // The regression guard for R6.49 (spec 4.6, "Outside the lifecycle family"): the same head, signed by the same log
-        // key over the same bytes, under each lifecycle typ. A head verifier refuses both, by exact typ; the files sit in
-        // the one case so both runners hold the same pinned signatures and neither has to sign.
+        // key over the same bytes, under each lifecycle typ. A head verifier refuses each, by exact typ; the files sit in
+        // the one case so both runners hold the same pinned signatures and neither has to sign. The compromise typ joined
+        // the other two with PR 2 (R6.26 (revised)): the head key is Ed25519 here and a declaration's is the P-256 log key,
+        // but the refusal is by typ before any key is read.
         if (c.Name == "rotation-then-post")
         {
-            foreach (var (suffix, typ) in new[] { ("rotation", RotationHeaderTyp), ("retirement", RetirementHeaderTyp) })
+            foreach (var (suffix, typ) in new[] { ("rotation", RotationHeaderTyp), ("retirement", RetirementHeaderTyp), ("compromise", CompromiseHeaderTyp) })
             {
                 var asLifecycle = Signing.Sign(headCanonical, "EdDSA", LogKid, logSeed, typ);
                 File.WriteAllText(
@@ -712,7 +721,7 @@ internal static class LifecycleCases
 
         File.WriteAllText(
             Path.Combine(dir, "log-jwks.json"),
-            $"{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"alg\":\"EdDSA\",\"kid\":\"{LogKid}\",\"x\":\"{Jwk.Base64UrlEncode(logPublic)}\",\"valid_from\":\"2026-09-01T00:00:00Z\",\"log_index\":0}}]}}\n");
+            $"{{\"keys\":[{{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"alg\":\"EdDSA\",\"kid\":\"{LogKid}\",\"x\":\"{Jwk.Base64UrlEncode(logPublic)}\",\"valid_from\":\"2026-09-01T00:00:00Z\",\"log_index\":0}}{ExtraLogKeysJson(c)}]}}\n");
         File.WriteAllText(
             Path.Combine(dir, "expected.json"),
             $"{{\"verdict\":\"{c.Verdict}\",\"predicate\":\"{c.Predicate}\"}}\n");

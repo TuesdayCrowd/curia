@@ -36,6 +36,14 @@ public enum CheckOutcome
     /// way, and never reported as one.
     /// </summary>
     CouldNotCheck,
+
+    /// <summary>
+    /// The signature holds and who made it is in question (R6.57): the key was declared compromised from a log
+    /// index at or below the post's, by a declaration that follows it. Neither verified nor failed, and reported
+    /// distinctly from both. In precedence it sits below a check that did not run: failed, then could not be
+    /// checked, then disputed, then verified.
+    /// </summary>
+    Disputed,
 }
 
 /// <summary>One of R6.52's checks, with the predicate that decided it.</summary>
@@ -51,6 +59,8 @@ public sealed record Check(CheckOutcome Outcome, string Detail)
     public static Check Failed(string detail) => new(CheckOutcome.Failed, detail);
 
     public static Check CouldNotCheck(string detail) => new(CheckOutcome.CouldNotCheck, detail);
+
+    public static Check Disputed(string detail) => new(CheckOutcome.Disputed, detail);
 
     /// <summary>
     /// True only for R6.52's consistency check on a first verification, where no earlier head was
@@ -81,6 +91,7 @@ public sealed record Check(CheckOutcome Outcome, string Detail)
         CheckOutcome.Verified => "verified: " + Detail,
         CheckOutcome.Failed => "FAILED: " + Detail,
         CheckOutcome.CouldNotCheck => "COULD NOT BE CHECKED: " + Detail,
+        CheckOutcome.Disputed => "DISPUTED: " + Detail,
         _ => "COULD NOT BE CHECKED: " + Detail,
     };
 

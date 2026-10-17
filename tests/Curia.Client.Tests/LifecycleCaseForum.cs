@@ -13,7 +13,8 @@ namespace Curia.Client.Tests;
 ///
 /// <para>The key set lists the case's supplied lifecycle indices as <c>curia_lifecycle</c> (the post's own leaf
 /// excluded) and a key for each binding the case holds, with the binding's leaf as <c>curia_log_index</c> and the status
-/// <c>active</c>: the Forum's word, which the lifecycle fold does not take.</para>
+/// <c>active</c>: the Forum's word, which the lifecycle fold does not take. A key a declaration of the case names is
+/// <c>compromised</c> and carries <c>curia_compromised_log_index</c> and <c>curia_disputed_from</c> (R6.57).</para>
 /// </summary>
 internal sealed class LifecycleCaseForum : HttpMessageHandler
 {
@@ -129,6 +130,24 @@ internal sealed class LifecycleCaseForum : HttpMessageHandler
             key["curia_log_index"] = entry["log_index"]!.GetValue<long>();
             key["curia_status"] = "active";
             keys.Add(key);
+        }
+
+        // R6.57: a key a declaration names is compromised, and the key set names the declaration (its log index and the index it
+        // states the compromise from) for every kid it lists, a cascaded key as well as the first.
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(_directory, "entries"), "*.json").Order(StringComparer.Ordinal))
+        {
+            var entry = JsonNode.Parse(await File.ReadAllTextAsync(file, ct).ConfigureAwait(false))!;
+            if (entry["entry"]!["event_type"]!.GetValue<string>() != "agent.key-compromised") continue;
+
+            var payload = entry["entry"]!["payload"]!;
+            foreach (var kid in payload["kids"]!.AsArray().Select(k => k!.GetValue<string>()))
+            {
+                if (keys.FirstOrDefault(k => k!["kid"]!.GetValue<string>() == kid) is not JsonObject named) continue;
+
+                named["curia_status"] = "compromised";
+                named["curia_compromised_log_index"] = entry["log_index"]!.GetValue<long>();
+                named["curia_disputed_from"] = payload["from_index"]!.GetValue<long>();
+            }
         }
 
         var lifecycle = new JsonArray();

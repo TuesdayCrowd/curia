@@ -77,7 +77,7 @@ public sealed class ModerationLoopTests(ForumFixture forum) : IClassFixture<Foru
     {
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), stdout, stderr, ct);
+        var exit = await OperatorCommands.RunAsync(args, forum.ConnectionString, forum.Clock, forum.PermissiveGate(), OperatorCommands.LoadLogSigner, stdout, stderr, ct);
         Assert.True(exit == ExitCode.Ok, $"curia-operator {string.Join(' ', args)} exited {exit}: {stderr}");
     }
 

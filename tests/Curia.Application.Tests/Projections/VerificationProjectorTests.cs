@@ -63,7 +63,7 @@ public sealed class VerificationProjectorTests
     }
 
     private static VerificationFold Fold(params PostView[] posts) =>
-        VerificationProjector.Fold([.. posts], Standings, _ => true);
+        VerificationProjector.Fold([.. posts], Standings, _ => true, DisputedPosts.None);
 
     [Fact]
     public void Table13_TwoDistinctOwnersEndorsingMakeV1()
@@ -83,7 +83,7 @@ public sealed class VerificationProjectorTests
     public void R8_40_TwoAgentsUnderOneOwnerAreOneOwner()
     {
         var standings = Standings.SetItem("https://agents.example/bob2", Standing("https://agents.example/bob2", "owner:b"));
-        var fold = VerificationProjector.Fold([Answer(), Vote(Bob), Vote("https://agents.example/bob2")], standings, _ => true);
+        var fold = VerificationProjector.Fold([Answer(), Vote(Bob), Vote("https://agents.example/bob2")], standings, _ => true, DisputedPosts.None);
 
         Assert.Equal(VerificationLevel.V0, fold.LevelOf(AnswerDigest));
         Assert.Equal(1, fold.StateOf(AnswerDigest).DistinctEndorsingOwners);
@@ -121,8 +121,8 @@ public sealed class VerificationProjectorTests
         var contradiction = Report(Carol, "contradicted");
         var posts = new[] { Answer(), Report(Bob, "reproduced"), contradiction };
 
-        Assert.Equal(VerificationLevel.Contradicted, VerificationProjector.Fold([.. posts], Standings, _ => true).LevelOf(AnswerDigest));
-        Assert.Equal(VerificationLevel.V2, VerificationProjector.Fold([.. posts], Standings, id => id != contradiction.PostId).LevelOf(AnswerDigest));
+        Assert.Equal(VerificationLevel.Contradicted, VerificationProjector.Fold([.. posts], Standings, _ => true, DisputedPosts.None).LevelOf(AnswerDigest));
+        Assert.Equal(VerificationLevel.V2, VerificationProjector.Fold([.. posts], Standings, id => id != contradiction.PostId, DisputedPosts.None).LevelOf(AnswerDigest));
     }
 
     /// <summary>R8.56: a later report from the same agent supersedes its own earlier one, and nobody else's.</summary>
@@ -143,7 +143,7 @@ public sealed class VerificationProjectorTests
     public void R8_40_SelfAndSameOwnerSignalsInTheLogAreNotCounted()
     {
         var standings = Standings.SetItem("https://agents.example/alice2", Standing("https://agents.example/alice2", "owner:a"));
-        var fold = VerificationProjector.Fold([Answer(), Vote(Alice), Vote("https://agents.example/alice2"), Vote(Bob)], standings, _ => true);
+        var fold = VerificationProjector.Fold([Answer(), Vote(Alice), Vote("https://agents.example/alice2"), Vote(Bob)], standings, _ => true, DisputedPosts.None);
 
         Assert.Equal(VerificationLevel.V0, fold.LevelOf(AnswerDigest));
         Assert.Equal(1, fold.StateOf(AnswerDigest).DistinctEndorsingOwners);

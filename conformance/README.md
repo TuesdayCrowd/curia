@@ -375,6 +375,15 @@ unchanged, and its values were computed the same way as `flag-committed-entry`'s
 `Curia.Application.Tests`' `EnrollIdentityTests.R4_34_AnEnrollmentWritesTheConformanceVectorsPayload`
 holds the Forum's writer to the vector's payload, so the vector pins a shape the Forum writes.
 
+`key-compromised-entry` pins the operator's declaration (R6.57, spec 4.6): the `agent.key-compromised` entry that
+declares `conformance-ed25519-second` compromised from log index 2. Its statement is the exact output of
+`CanonicalizeWithNfc`; its `declaration` is a detached ES256 signature by a fixed P-256 test log key (its private scalar is
+published on purpose; its `kid` is the key's RFC 7638 thumbprint) under header `typ` `curia-key-compromise+jws`. ES256 signing
+is randomized, so the signature bytes were generated once and are pinned, and the generator
+(`dotnet run --project tools/GenerateEnvelopeFixtures -- --compromise`) re-verifies and keeps them. It is a **proposal**, as
+the rest of this paragraph's are. `Curia.Application.Tests`' `R6_57_DeclareCompromiseAcceptsTheVectorsInputs` holds the
+declaration use case to its payload member for member (the signature bytes aside).
+
 `key-rotated-entry`, `key-retired-entry` and `key-bound-entry-es256` pin the key lifecycle's
 entries (keys that end, spec 4.5 and 4.6) and are **proposals**: they may be regenerated, with
 `dotnet run --project tools/GenerateEnvelopeFixtures -- --lifecycle`, until the owner's lift record
@@ -452,7 +461,7 @@ directory holding
   head is signed by a fixed Ed25519 log key, which is deterministic, and a runner SHALL verify it
   before it judges the case, so a head that does not verify is a broken vector and never a verdict;
 - `meta.json` -- `profile`, `requirement`, `note`, and `post_index`, the log index of the post;
-- `expected.json` -- `{"verdict": "verified" | "failed" | "could-not-check", "predicate": "…"}`.
+- `expected.json` -- `{"verdict": "verified" | "failed" | "could-not-check" | "disputed", "predicate": "…"}`.
 
 A runner folds the lifecycle for the post: every entry in `entries/` but the post's own, in index
 order, is the lifecycle the Forum lists. The **predicate** is the short slug (`curia/acta/`
@@ -462,7 +471,33 @@ member, or a key that was not live there), `statement-mismatch` (a statement or 
 disagrees with its set or with itself, or an entry that is not the author's),
 `lifecycle-typ-mismatch` (a header `typ` that is not its kind's), `unknown-lifecycle-kind` (an
 entry type or a statement version the reader does not fold), `bound-after-post`, and
-`lifecycle-not-supplied`.
+`lifecycle-not-supplied`; and, for the compromise declarations (R6.57, below), `disputed`,
+`declaration-mismatch`, `kid-not-bound-to-agent`, `declaration-key-unpublished`, `unknown-reason` and
+`log-key-position-unknown`. A reader also reaches `declaration-signature-invalid` and a failed
+`compromised-before-post` (a declaration that precedes the post); no case carries either, and the readers' own facts do.
+
+**The compromise cases.** Sixteen cases carry an operator's declaration (`agent.key-compromised`, spec 4.5 and 4.6) signed by
+the fixed P-256 test log key that `acta/key-compromised-entry` uses; their `log-jwks.json` carries it beside the head key,
+with the `log_index` of the `log.key` entry that publishes it. A declaration is held to KF1 to KF4 and to KF3, in this order, the
+first failure deciding the predicate: the entry type and the statement `typ` and `reason` are read first (an unknown one is
+could not be checked); the closed member sets and the link; the header `typ` (`curia-key-compromise+jws`); the header `kid` in
+the log's key set and published before the declaration; the signature; then (1) every `kid` in `kids` is bound to the agent
+in the stream the reader holds -- **the supplied stream only**, so a case whose log keeps another identity's binding out of
+the supplied entries (`compromise-kid-of-other-identity`) is `kid-not-bound-to-agent`; (2) the binding of `kids[0]` is at or
+below `from_index`, which is below the declaration's own index; (3) `kids` equal, in order, the cascade the reader recomputes,
+rooted at the earliest-bound key in `kids`. A declaration that holds and names the post's key from a log index at or below the
+post's, and follows the post, makes the post `disputed`. The supplied entries run through the declaration.
+
+Verdicts: `disputed` / `disputed`: `compromised-before-post`, `compromised-after-intervening-rotation`,
+`compromise-post-under-cascaded-key`, `compromise-sibling-declared-alone`. `failed`: `declaration-signed-as-head`
+(`lifecycle-typ-mismatch`), `compromise-kids-omits-cascade`, `compromise-kids-reordered`,
+`compromise-kids-siblings-reordered`, `compromise-from-index-after-declaration`, `compromise-from-index-at-declaration`,
+`compromise-from-index-before-binding` (`declaration-mismatch`), `compromise-kid-of-other-identity`
+(`kid-not-bound-to-agent`), `compromise-declaration-kid-not-valid-at-position` (`declaration-key-unpublished`).
+`could-not-check`: `compromise-unknown-reason` (`unknown-reason`), `compromise-declaration-kid-position-unknown`
+(`log-key-position-unknown`), `compromise-v2-under-unknown-signer` (`unknown-lifecycle-kind`). Each runner compares the
+predicate as well as the verdict. The ES256 declaration signatures are pinned: `dotnet run --project
+tools/GenerateEnvelopeFixtures -- --compromise` generates a case once and keeps it.
 
 Each case holds one defect, so that "failed" cannot come from another cause: the rest of its log is
 what a case that verifies would hold. The seven that refuse a binding without a `prev`
@@ -470,9 +505,9 @@ what a case that verifies would hold. The seven that refuse a binding without a 
 sides with `pre-g16-first-binding-after-post`: the carve-out for an identity's first binding must be
 tested for being too wide, not only for being present.
 
-`rotation-then-post` also holds `head-as-rotation.json` and `head-as-retirement.json`: the same
-head, by the same log key over the same bytes, signed under each lifecycle header `typ`. A head
-verifier refuses both, by exact `typ` (a regression guard on R6.49, green before this family
+`rotation-then-post` also holds `head-as-rotation.json`, `head-as-retirement.json` and `head-as-compromise.json`: the
+same head, by the same log key over the same bytes, signed under each lifecycle header `typ`. A head
+verifier refuses each, by exact `typ` (a regression guard on R6.49, green before this family
 existed), and the control is `head.json` itself.
 
 The cases are **proposals**, as `acta/`'s lifecycle entries are: `dotnet run --project

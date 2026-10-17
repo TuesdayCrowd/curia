@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.57",
+  "note": "k1 rotated in k2 at 3 and k3 at 4, so the cascade from index 2 is [k1, k2, k3] in the log order of the bindings. The declaration at 6 names [k1, k3, k2]: kids[0] is the root, from_index 2 holds the bound, and the only defect is the order of the two siblings (KF3). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 2,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

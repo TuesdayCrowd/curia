@@ -93,24 +93,8 @@ public sealed class RefusalOutputTests
         Assert.Equal(ExitCode.For(refusal), exit);
     }
 
-    private static async Task<(int Exit, string Stdout, string Stderr)> CaptureAsync(Func<Task<int>> action)
-    {
-        var (savedOut, savedError) = (Console.Out, Console.Error);
-        using var stdout = new StringWriter();
-        using var stderr = new StringWriter();
-        try
-        {
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-            var exit = await action();
-            return (exit, stdout.ToString(), stderr.ToString());
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-            Console.SetError(savedError);
-        }
-    }
+    private static Task<(int Exit, string Stdout, string Stderr)> CaptureAsync(Func<Task<int>> action) =>
+        ConsoleCapture.CaptureAsync(action);
 
     private static int Count(string text, string value)
     {

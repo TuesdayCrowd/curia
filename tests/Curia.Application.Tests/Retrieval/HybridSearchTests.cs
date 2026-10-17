@@ -34,7 +34,7 @@ public sealed class HybridSearchTests
     private static async Task<SearchPage> SearchAsync(Harness h, SearchQuery query, CancellationToken ct, VerificationFold? verification = null)
     {
         var log = await LogAsync(h.Store, ct).ConfigureAwait(false);
-        var fold = verification ?? VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true);
+        var fold = verification ?? VerificationProjector.Fold(PostProjector.Fold(log), AgentStandingProjector.Fold(log), _ => true, DisputedPosts.None);
         return Require(await h.Search.SearchAsync(log, RetrievalSurface.RestSearch, query, fold, ct).ConfigureAwait(false));
     }
 

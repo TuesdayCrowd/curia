@@ -1,0 +1,7 @@
+{
+  "profile": "lifecycle-log",
+  "requirement": "R6.57",
+  "note": "The declaration at 5 names [k1, k2], the cascade rooted at the compromised key k1 (bound at 1) from_index 1: k2 was rotated in by k1 at 2. The post at 3 is signed by k2, a key in kids, and lies in [1, 5): it is disputed. A reader that rooted the cascade at the post's key would recompute [k2] and refuse the correct declaration (KF3). Statements are the exact output of CanonicalizeWithNfc, each signature is detached under its kind's header typ with its role's member as the header kid (spec 4.5); the head is signed by a fixed Ed25519 log key. A proposal: it may be regenerated until the owner's lift record pins its digests.",
+  "post_index": 3,
+  "agent": "agent://curia.example/tuesdaycrowd/scriptor"
+}

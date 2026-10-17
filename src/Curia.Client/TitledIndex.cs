@@ -25,7 +25,7 @@ public static class TitledIndex
 {
     /// <summary>
     /// The title member of <see cref="Passage.Envelope"/>, or <see langword="null"/> when the post has
-    /// none, the envelope does not parse, the verdict is not Verified, or the served form is not
+    /// none, the envelope does not parse, the verdict's read outcome is not Verified (so a disputed title is never shown, R6.57), or the served form is not
     /// ordinal-equal to <see cref="SpanCheck.CoveredForm"/>. <see cref="Passage.Outcome"/> is not
     /// consulted: the title is not taken from the span.
     /// </summary>
@@ -33,7 +33,7 @@ public static class TitledIndex
     {
         ArgumentNullException.ThrowIfNull(passage);
 
-        if (passage.Verdict.Outcome != CheckOutcome.Verified) return null;
+        if (passage.Verdict.ReadOutcome != CheckOutcome.Verified) return null;
         if (!string.Equals(SpanCheck.CoveredForm(passage.Post), passage.Post.Canonical, StringComparison.Ordinal)) return null;
 
         return passage.Envelope?.Title;
@@ -53,10 +53,11 @@ public static class TitledIndex
         ArgumentNullException.ThrowIfNull(passage);
 
         var post = passage.Post;
-        var signature = passage.Verdict.Outcome switch
+        var signature = passage.Verdict.ReadOutcome switch
         {
             CheckOutcome.Verified => "verified",
             CheckOutcome.CouldNotCheck => "COULD NOT BE CHECKED",
+            CheckOutcome.Disputed => "DISPUTED",
             CheckOutcome.Failed => "FAILED",
             _ => "FAILED",
         };
@@ -87,9 +88,11 @@ public static class TitledIndex
             return;
         }
 
-        if (passage.Verdict.Outcome == CheckOutcome.CouldNotCheck)
+        if (passage.Verdict.ReadOutcome == CheckOutcome.CouldNotCheck)
             frame.Line("   (no title: the signature could not be checked, so nothing it covers is shown, R10.71)");
-        else if (passage.Verdict.Outcome != CheckOutcome.Verified)
+        else if (passage.Verdict.ReadOutcome == CheckOutcome.Disputed)
+            frame.Line("   (no title: the key that signed it was declared compromised from before this post, so it is disputed, R6.57; read it with curia read, verify it with curia verify)");
+        else if (passage.Verdict.ReadOutcome != CheckOutcome.Verified)
             frame.Line("   (no title: the signature did not verify, so nothing it covers is shown, R10.71)");
         else if (!string.Equals(SpanCheck.CoveredForm(post), post.Canonical, StringComparison.Ordinal))
             frame.Line("   (no title: the served form is not the bytes the signature covers, R10.71)");

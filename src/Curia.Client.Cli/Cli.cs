@@ -44,6 +44,13 @@ internal static class ExitCode
     internal const int ForumFault = 8;
 
     /// <summary>
+    /// A post whose signature holds, under a key a declaration that follows it names from a log index at or below the post's
+    /// (R6.57). Neither 0 nor 6: the signature is good and who made it is in question, so the post is not cited as the
+    /// author's. Below 6 and 8 in precedence: a check that failed or did not run outranks it.
+    /// </summary>
+    internal const int Disputed = 9;
+
+    /// <summary>
     /// R6.52 as an exit code, for the two verbs that report what this client established about a
     /// post rather than what the Forum answered.
     ///
@@ -63,7 +70,8 @@ internal static class ExitCode
         ArgumentNullException.ThrowIfNull(outcomes);
 
         if (Array.IndexOf(outcomes, CheckOutcome.Failed) >= 0) return Unverified;
-        return Array.IndexOf(outcomes, CheckOutcome.CouldNotCheck) >= 0 ? ForumFault : Ok;
+        if (Array.IndexOf(outcomes, CheckOutcome.CouldNotCheck) >= 0) return ForumFault;
+        return Array.IndexOf(outcomes, CheckOutcome.Disputed) >= 0 ? Disputed : Ok;
     }
 
     internal static int For(Refusal refusal) => refusal.Kind switch

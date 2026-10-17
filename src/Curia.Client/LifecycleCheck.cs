@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using Curia.Canon.Canonical;
@@ -40,7 +41,11 @@ internal sealed record LifecycleVerdict(Check Check, string Predicate);
 /// </list>
 ///
 /// <para>No approval is consulted: a reader folds on the merits (spec section 4.8). A declaration
-/// (<c>agent.key-compromised</c>) is a kind this stage cannot fold, and so is an entry of an unknown kind.</para>
+/// (<c>agent.key-compromised</c>) is a statement the operator's log key signed (KF1, KF2) whose <c>kids</c>, bindings and
+/// <c>from_index</c> the reader recomputes from the lifecycle (KF3); one that holds, and names the post's key from a log
+/// index at or below the post's, and follows the post, makes the post <i>disputed</i> (R6.57). Check (1) of KF3 is evaluated
+/// over the supplied stream only. A declaration that fails never disputes a post. An entry of an unknown kind is
+/// <i>could not be checked</i>.</para>
 /// </summary>
 public static class LifecycleCheck
 {
@@ -48,17 +53,19 @@ public static class LifecycleCheck
     public const int MaxEntriesBeforePost = 1024;
 
     private const string RetiredType = "agent.key-retired";
+    private const string CompromisedType = "agent.key-compromised";
 
     /// <summary>
     /// Every statement <c>typ</c> this reader knows (KF4). A <c>typ</c> outside it is a version or a kind this reader
     /// cannot fold; one inside it, in the other kind's entry, is a statement that is not this entry's.
     /// </summary>
     private static readonly string[] KnownStatementTyps =
-        [KeyStatements.RotationStatementTyp, KeyStatements.RetirementStatementTyp];
+        [KeyStatements.RotationStatementTyp, KeyStatements.RetirementStatementTyp, KeyStatements.CompromiseStatementTyp];
 
     private static readonly string[] EnrolmentBindingMembers = ["agent_id", "jwk", "kid"];
     private static readonly string[] RotationEntryMembers = ["agent_id", "authorization", "authorized_by", "jwk", "kid", "possession", "prev", "statement"];
     private static readonly string[] RetirementEntryMembers = ["agent_id", "authorization", "kid", "prev", "statement"];
+    private static readonly string[] CompromiseEntryMembers = ["agent_id", "declaration", "from_index", "kids", "prev", "reason", "statement"];
 
     private static readonly Dictionary<string, IContentSigner> NoSigners = new(StringComparer.Ordinal);
 
@@ -78,18 +85,24 @@ public static class LifecycleCheck
     /// the author's enrolment through the first entry at or after the post.
     /// </param>
     /// <param name="head">A signed head this reader has verified.</param>
+    /// <param name="logKeys">
+    /// The log's key set (R6.50), which a declaration is verified under (KF2): its <c>log_index</c> says where each key was
+    /// published, and a declaration is valid only under a key published before it.
+    /// </param>
     public static Check Verify(
         ProvenancePost post,
         LogEntryDocument postEntry,
         IReadOnlyList<(LogEntryDocument Entry, InclusionProofDocument Proof)> lifecycle,
-        SignedHeadDocument head) =>
-        Fold(post, postEntry, lifecycle, head).Check;
+        SignedHeadDocument head,
+        ImmutableArray<LogJwk> logKeys) =>
+        Fold(post, postEntry, lifecycle, head, logKeys).Check;
 
     internal static LifecycleVerdict Fold(
         ProvenancePost post,
         LogEntryDocument postEntry,
         IReadOnlyList<(LogEntryDocument Entry, InclusionProofDocument Proof)> lifecycle,
-        SignedHeadDocument head)
+        SignedHeadDocument head,
+        ImmutableArray<LogJwk> logKeys)
     {
         ArgumentNullException.ThrowIfNull(post);
         ArgumentNullException.ThrowIfNull(postEntry);
@@ -108,11 +121,12 @@ public static class LifecycleCheck
         if (lifecycle.Count(l => l.Entry.LogIndex < logged.Index) > MaxEntriesBeforePost)
             return CouldNotCheck("lifecycle-too-long", "the author's lifecycle has more than 1,024 entries before the post");
 
-        var fold = new Folder(logged.Author, head);
+        // Every supplied entry is folded, in log order: the entries from the first at or after the post to a declaration
+        // that names the post's key are supplied so that the declaration's link and cascade are held to the chain (R6.57).
+        var fold = new Folder(logged.Author, head, logKeys);
         foreach (var (entry, proof) in lifecycle)
         {
             if (fold.Apply(entry, proof) is { } refusal) return refusal;
-            if (entry.LogIndex >= logged.Index) break;
         }
 
         // The post's key. Retired before the post is a failure whatever else holds.
@@ -120,11 +134,27 @@ public static class LifecycleCheck
             return Failed("retired-before-post", Text(
                 $"the author's key {Check.Quote(logged.Kid)} was retired at log index {retiredAt}, before the post at {logged.Index}"));
 
+        // A declaration naming the post's key that precedes the post: a compromised key is honoured for nothing at or after
+        // the declaration's position (R6.57), so the post could not have been accepted under it as the author's.
+        if (fold.Declarations.FirstOrDefault(d => d.Kids.Contains(logged.Kid, StringComparer.Ordinal) && d.Index < logged.Index) is { } before)
+            return Failed("compromised-before-post", Text(
+                $"the author's key {Check.Quote(logged.Kid)} was declared compromised by the declaration at log index {before.Index}, before the post at {logged.Index}"));
+
         if (fold.Bound.TryGetValue(logged.Kid, out var bound) && bound.At < logged.Index)
+        {
+            // R6.57: disputed is by log position, [from_index, the declaration's index): the signature holds and who made it is in question.
+            if (fold.Declarations.FirstOrDefault(d =>
+                    d.Kids.Contains(logged.Kid, StringComparer.Ordinal) && d.FromIndex <= logged.Index && logged.Index < d.Index) is { } disputing)
+                return new LifecycleVerdict(
+                    Check.Disputed(Text(
+                        $"the signature holds, and the author's key {Check.Quote(logged.Kid)} was declared compromised from log index {disputing.FromIndex} by the declaration at log index {disputing.Index}, which follows this post at {logged.Index} (R6.57); do not cite it as the author's")),
+                    "disputed");
+
             return new LifecycleVerdict(
                 Check.Verified(Text(
                     $"the author's key {Check.Quote(logged.Kid)} was bound at log index {bound.At} and was live at the post's {logged.Index}; {fold.Count} lifecycle entries checked through log index {fold.PrevIndex}")),
                 "verified");
+        }
 
         // Bound at or after the post, or by no entry the lifecycle holds: the log holds no key for the post from
         // before it, which is its silence and not a contradiction (R6.54).
@@ -144,7 +174,12 @@ public static class LifecycleCheck
 
     private sealed record BoundKey(PublicKeyMaterial Material, long At);
 
-    private sealed class Folder(string author, SignedHeadDocument head)
+    private sealed record Rotated(long Index, string AuthorizedBy, string Kid);
+
+    /// <summary>A declaration that held under KF1 to KF4 and KF3: where it sits, where it states the compromise from, and whom it names.</summary>
+    private sealed record Declared(long Index, long FromIndex, IReadOnlyList<string> Kids);
+
+    private sealed class Folder(string author, SignedHeadDocument head, ImmutableArray<LogJwk> logKeys)
     {
         private bool _firstWasEnrolment;
         private string? _enrolmentKid;
@@ -152,6 +187,11 @@ public static class LifecycleCheck
         public Dictionary<string, BoundKey> Bound { get; } = new(StringComparer.Ordinal);
 
         public Dictionary<string, long> Retired { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Every rotation folded so far, in log order: the material R6.57's cascade is recomputed from.</summary>
+        private List<Rotated> Rotations { get; } = [];
+
+        public List<Declared> Declarations { get; } = [];
 
         public long? PrevIndex { get; private set; }
 
@@ -166,11 +206,12 @@ public static class LifecycleCheck
                 "agent.enrolled" => Kind.Enrolled,
                 "agent.key-bound" => Kind.Bound,
                 RetiredType => Kind.Retired,
+                CompromisedType => Kind.Compromised,
                 _ => (Kind?)null,
             };
             if (kind is null)
                 return CouldNotCheck("unknown-lifecycle-kind", Text(
-                    $"the lifecycle lists an entry at log index {entry.LogIndex} of type {Check.Quote(type)}, none of the four a reader can fold (KF4)"));
+                    $"the lifecycle lists an entry at log index {entry.LogIndex} of type {Check.Quote(type)}, none of the five a reader can fold (KF4)"));
 
             var payload = ClientJson.Object(entry.Entry, LogLeaf.PayloadMember);
             if (payload is null)
@@ -180,12 +221,9 @@ public static class LifecycleCheck
 
             // The statement's typ, read from the still-unverified statement only to choose which rules apply: another
             // version of this kind is not one this reader knows (KF4); a typ of another kind is not this entry's.
-            if (statementText is not null && kind is Kind.Bound or Kind.Retired
+            if (statementText is not null && ExpectedStatementTyp(kind.Value) is { } expected
                 && StatementTyp(statementText) is { } typ)
             {
-                var expected = kind is Kind.Bound
-                    ? KeyStatements.RotationStatementTyp
-                    : KeyStatements.RetirementStatementTyp;
                 if (!string.Equals(typ, expected, StringComparison.Ordinal))
                     return KnownStatementTyps.Contains(typ, StringComparer.Ordinal)
                         ? Mismatch(entry.LogIndex, "the statement is not this entry's kind")
@@ -196,6 +234,11 @@ public static class LifecycleCheck
             if (entry.LogIndex != proof.LogIndex)
                 return Failed("inclusion-invalid", Text(
                     $"the lifecycle entry is leaf {entry.LogIndex} and its proof is about leaf {proof.LogIndex}"));
+
+            // KF4: a reason outside the closed set is a reason this reader does not know, never verified and never skipped.
+            if (kind is Kind.Compromised && statementText is not null && UnknownReason(statementText) is { } reason)
+                return CouldNotCheck("unknown-reason", Text(
+                    $"the declaration at log index {entry.LogIndex} states the reason {Check.Quote(reason)}, outside the closed set this reader knows (KF4)"));
 
             var proven = ActaCheck.ProofHolds(entry, proof);
             if (proven.Outcome is not CheckOutcome.Verified) return new LifecycleVerdict(proven, "inclusion-invalid");
@@ -217,6 +260,7 @@ public static class LifecycleCheck
                 Kind.Bound when statementText is null => EnrolmentBinding(payload, entry.LogIndex),
                 Kind.Bound => Rotation(payload, entry.LogIndex),
                 Kind.Retired => Retirement(payload, entry.LogIndex),
+                Kind.Compromised => Declaration(payload, entry.LogIndex),
                 _ => Mismatch(entry.LogIndex, "the entry is of no kind a reader can fold"),
             };
             if (refusal is not null) return refusal;
@@ -307,6 +351,7 @@ public static class LifecycleCheck
                 return Mismatch(index, "the kid is already bound");
 
             Bound[statement.Kid] = new BoundKey(newKey!, index);
+            Rotations.Add(new Rotated(index, statement.AuthorizedBy, statement.Kid));
             return null;
         }
 
@@ -345,6 +390,91 @@ public static class LifecycleCheck
             return null;
         }
 
+        /// <summary>
+        /// A declaration (R6.57, spec 4.5, 4.6), in KF4's order after its type, statement <c>typ</c> and reason: the closed member
+        /// set, the statement, the link, KF1 (header <c>typ</c>), KF2 (header <c>kid</c> in the log's key set, published before the
+        /// declaration), the signature, then KF3: (1) every kid is bound to the author in the supplied stream, (2) binding of
+        /// <c>kids[0]</c> at or below <c>from_index</c>, which is below the declaration's index, (3) <c>kids</c> equal, in order, the
+        /// cascade recomputed from the lifecycle. A declaration that fails any of them never disputes a post.
+        /// </summary>
+        private LifecycleVerdict? Declaration(JsonValue.Object payload, long index)
+        {
+            if (!HasExactly(payload, CompromiseEntryMembers))
+                return Mismatch(index, "the entry's member set is not a declaration's");
+
+            var text = ClientJson.String(payload, "statement");
+            if (text is null) return Mismatch(index, "the entry carries no statement");
+            if (!KeyStatements.ReadCompromise(Encoding.UTF8.GetBytes(text)).TryGetValue(out var statement, out _))
+                return Mismatch(index, "the statement is not a compromise statement of the closed form (KF4)");
+
+            if (!string.Equals(ClientJson.String(payload, "agent_id"), statement!.AgentId, StringComparison.Ordinal)
+                || ClientJson.WholeNumber(payload, "from_index") != statement.FromIndex
+                || ClientJson.WholeNumber(payload, "prev") != statement.Prev
+                || !string.Equals(ClientJson.String(payload, "reason"), CompromiseReasons.Wire(statement.Reason), StringComparison.Ordinal)
+                || ClientJson.Member(payload, "kids") is not JsonValue.Array kidItems
+                || !kidItems.Items.Select(k => (k as JsonValue.String)?.Value).SequenceEqual(statement.Kids, StringComparer.Ordinal))
+                return Mismatch(index, "an entry member differs from its statement's");
+
+            if (LinkFailure(statement.Prev, index) is { } broken) return broken;
+
+            // KF1, then KF2: the declaration carries a declaration's header typ, and names a key the log published before it.
+            var declaration = new JwsSignature(ClientJson.String(payload, "declaration") ?? string.Empty);
+            if (!HasHeaderTyp(declaration, KeyStatements.CompromiseHeaderTyp))
+                return new LifecycleVerdict(Check.Failed(Text($"the signature of the declaration at log index {index} does not carry a declaration's header typ (KF1)")), "lifecycle-typ-mismatch");
+
+            if (!DetachedJws.ReadProtectedHeader(declaration).TryGetValue(out var header, out _) || header!.Kid is null)
+                return Failed("declaration-key-unpublished", Text($"the declaration at log index {index} names no signing key"));
+
+            var logKey = logKeys.IsDefault ? null : logKeys.LastOrDefault(k => string.Equals(k.Key.Kid, header.Kid, StringComparison.Ordinal));
+            if (logKey is null)
+                return Failed("declaration-key-unpublished", Text(
+                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, which the log's key set does not publish (KF2)"));
+            if (logKey.LogIndex < 0)
+                return CouldNotCheck("log-key-position-unknown", Text(
+                    $"the log's key set gives kid={Check.Quote(header.Kid)} no log index, so this reader cannot say it was published before the declaration at {index} (KF2)"));
+            if (logKey.LogIndex >= index)
+                return Failed("declaration-key-unpublished", Text(
+                    $"the declaration at log index {index} is signed under kid={Check.Quote(header.Kid)}, published at log index {logKey.LogIndex}, which is not before it (KF2)"));
+
+            if (!SignatureCheck.Material(logKey.Key).TryGetValue(out var logMaterial, out _)
+                || !CanonicalOf(text).TryGetValue(out var canonical, out _)
+                || !Signed(declaration, canonical, KeyStatements.CompromiseHeaderTyp, logMaterial!))
+                return Failed("declaration-signature-invalid", Text(
+                    $"the declaration at log index {index} does not verify under the log key kid={Check.Quote(header.Kid)}"));
+
+            // KF3 (1): every kid is bound to the author in the stream the reader holds. A kid with no binding there, and a kid
+            // whose only binding is not supplied, are alike unbound: the reader is served the author's stream and no other.
+            var kids = statement.Kids;
+            if (kids.FirstOrDefault(k => !Bound.ContainsKey(k)) is { } unbound)
+                return Failed("kid-not-bound-to-agent", Text(
+                    $"the declaration at log index {index} names kid={Check.Quote(unbound)}, which no entry of the author's stream binds (KF3)"));
+
+            // KF3 (2): binding(kids[0]) <= from_index < the declaration's own index, strictly.
+            if (Bound[kids[0]].At > statement.FromIndex)
+                return Failed("declaration-mismatch", Text(
+                    $"the declaration at log index {index} states from_index {statement.FromIndex}, below the binding of kid={Check.Quote(kids[0])} at {Bound[kids[0]].At} (KF3)"));
+            if (statement.FromIndex >= index)
+                return Failed("declaration-mismatch", Text(
+                    $"the declaration at log index {index} states from_index {statement.FromIndex}, which is not below its own index (KF3)"));
+
+            // KF3 (3): kids equal, in order, the cascade this reader recomputes. Its root is the earliest-bound key in kids (never
+            // the post's key, never kids[0] by position); each rotation at or after from_index authorized by a key already in it
+            // adds its key, in log order, and a rotation's authorizer was bound before it, so one pass is the closure.
+            var cascade = new List<string> { kids.MinBy(k => Bound[k].At)! };
+            foreach (var rotation in Rotations)
+            {
+                if (rotation.Index >= statement.FromIndex && cascade.Contains(rotation.AuthorizedBy, StringComparer.Ordinal) && !cascade.Contains(rotation.Kid, StringComparer.Ordinal))
+                    cascade.Add(rotation.Kid);
+            }
+
+            if (!kids.SequenceEqual(cascade, StringComparer.Ordinal))
+                return Failed("declaration-mismatch", Text(
+                    $"the declaration at log index {index} lists {kids.Count} key(s) and the cascade this reader recomputes from the lifecycle is {cascade.Count}, or the order differs (KF3)"));
+
+            Declarations.Add(new Declared(index, statement.FromIndex, kids));
+            return null;
+        }
+
         /// <summary>The statement's <c>prev</c> is the index of the entry before it in the author's chain.</summary>
         private LifecycleVerdict? LinkFailure(long stated, long index) =>
             PrevIndex is { } previous && previous == stated ? null : BrokenLink(index, stated);
@@ -361,7 +491,18 @@ public static class LifecycleCheck
         Enrolled,
         Bound,
         Retired,
+        Compromised,
     }
+
+    /// <summary>The statement <c>typ</c> an entry of this kind carries; null for the enrolment, which carries none.</summary>
+    private static string? ExpectedStatementTyp(Kind kind) => kind switch
+    {
+        Kind.Enrolled => null,
+        Kind.Bound => KeyStatements.RotationStatementTyp,
+        Kind.Retired => KeyStatements.RetirementStatementTyp,
+        Kind.Compromised => KeyStatements.CompromiseStatementTyp,
+        _ => null,
+    };
 
     private static LifecycleVerdict Mismatch(long index, string what) =>
         Failed("statement-mismatch", Text($"the lifecycle entry at log index {index} disagrees with its statement or its set: {what}"));
@@ -372,6 +513,15 @@ public static class LifecycleCheck
     private static bool HasExactly(JsonValue.Object payload, string[] names) =>
         payload.Members.Length == names.Length
         && payload.Members.Select(m => m.Key).Order(StringComparer.Ordinal).SequenceEqual(names.Order(StringComparer.Ordinal), StringComparer.Ordinal);
+
+    /// <summary>The statement's <c>reason</c> when it is a string outside the closed set, else null (KF4).</summary>
+    private static string? UnknownReason(string statement) =>
+        JsonReader.Parse(Encoding.UTF8.GetBytes(statement), AdmitLimits.Default).TryGetValue(out var root, out _)
+        && root is JsonValue.Object o
+        && ClientJson.String(o, "reason") is { } reason
+        && !CompromiseReasons.Parse(reason).IsOk
+            ? reason
+            : null;
 
     private static string? StatementTyp(string statement) =>
         JsonReader.Parse(Encoding.UTF8.GetBytes(statement), AdmitLimits.Default).TryGetValue(out var root, out _)

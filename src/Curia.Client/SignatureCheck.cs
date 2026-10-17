@@ -49,6 +49,18 @@ namespace Curia.Client;
 /// not this client's; null when the key set names none or no key matched. R6.54 (add.)'s read-path marker.
 /// </param>
 /// <param name="KeyRetiredAt">The log index at which the key set says the signing key was retired, when it says one.</param>
+/// <param name="KeyCompromisedAt">The log index of the declaration the key set says names the signing key (R6.57), when it says one.</param>
+/// <param name="KeyDisputedFrom">The declaration's <c>from_index</c> as the key set states it (R6.57), when it says one.</param>
+/// <param name="DisputedNote">
+/// The client's own sentence, set only when the key set's declaration index and <c>from_index</c> put this post's log
+/// index in the disputed window (R6.57). The Forum's word, labelled so; <see cref="ReadOutcome"/> reports it, and
+/// <see cref="Outcome"/> does not, so <c>curia verify</c> derives disputed from the log alone.
+/// </param>
+/// <param name="ReadFailedNote">
+/// The client's own sentence, set only when the key set's declaration index is at or before this post's log index
+/// (R6.57: a compromised key is honoured for nothing at or after the declaration). The Forum's word on the read path,
+/// reported by <see cref="ReadOutcome"/> as failed; <see cref="Outcome"/> stays as the signature established it.
+/// </param>
 public sealed record SignatureVerdict(
     bool Verified,
     string? Kid,
@@ -57,13 +69,37 @@ public sealed record SignatureVerdict(
     string? PrefixedDigest = null,
     bool CouldNotCheck = false,
     string? KeyStatus = null,
-    long? KeyRetiredAt = null)
+    long? KeyRetiredAt = null,
+    long? KeyCompromisedAt = null,
+    long? KeyDisputedFrom = null,
+    string? DisputedNote = null,
+    string? ReadFailedNote = null)
 {
     /// <summary>R6.52's three outcomes for this check.</summary>
     public CheckOutcome Outcome =>
         Verified ? CheckOutcome.Verified
         : CouldNotCheck ? CheckOutcome.CouldNotCheck
         : CheckOutcome.Failed;
+
+    /// <summary>
+    /// The outcome a reference reader reports for a passage (R6.57): <see cref="Outcome"/>, except that a signature that
+    /// holds under a key the Forum's key set says was declared compromised reads as failed from the declaration on and
+    /// disputed within the window. The Forum's word, which is why <see cref="Outcome"/> is not it: <c>PostVerifier</c> and
+    /// <c>curia verify</c> derive disputed and failed from the log.
+    /// </summary>
+    public CheckOutcome ReadOutcome =>
+        Outcome is not CheckOutcome.Verified ? Outcome
+        : ReadFailedNote is not null ? CheckOutcome.Failed
+        : DisputedNote is not null ? CheckOutcome.Disputed
+        : CheckOutcome.Verified;
+
+    /// <summary><see cref="Describe"/> for a reader of the read path: it says disputed, or not verified, when <see cref="ReadOutcome"/> does.</summary>
+    public string DescribeRead =>
+        ReadOutcome is CheckOutcome.Disputed
+            ? Said($"DISPUTED: the signature verifies locally against kid={Kid} ({new OwnText(Detail)}), but {new OwnText(DisputedNote!)}")
+        : ReadFailedNote is not null && Outcome is CheckOutcome.Verified
+            ? Said($"NOT VERIFIED: {new OwnText(ReadFailedNote)}")
+        : Describe;
 
     /// <summary>
     /// The verdict as a line of a frame. The <c>kid</c> is the signature's header's, which an agent
@@ -74,6 +110,7 @@ public sealed record SignatureVerdict(
     {
         CheckOutcome.Verified => Said($"verified locally against kid={Kid} ({new OwnText(Detail)})"),
         CheckOutcome.CouldNotCheck => Said($"COULD NOT BE CHECKED: {new OwnText(Detail)}"),
+        CheckOutcome.Disputed => Said($"DISPUTED: {new OwnText(Detail)}"),
         CheckOutcome.Failed => Said($"NOT VERIFIED: {new OwnText(Detail)}"),
         _ => Said($"NOT VERIFIED: {new OwnText(Detail)}"),
     };
@@ -171,7 +208,7 @@ public static class SignatureCheck
                 prefixed,
                 CouldNotCheck: keyError!.Type == "curia/client/validity-not-evaluable",
                 KeyStatus: keySays?.Status,
-                KeyRetiredAt: keySays?.RetiredLogIndex);
+                KeyRetiredAt: keySays?.RetiredLogIndex, KeyCompromisedAt: keySays?.CompromisedLogIndex, KeyDisputedFrom: keySays?.DisputedFrom);
         }
 
         var jws = new DetachedJws(
@@ -185,7 +222,7 @@ public static class SignatureCheck
         if (!jws.Verify(canonical, signature, material!).TryGetValue(out _, out var verifyError))
             return new SignatureVerdict(
                 false, header.Kid, Describe(verifyError!), digest, prefixed,
-                KeyStatus: keySays?.Status, KeyRetiredAt: keySays?.RetiredLogIndex);
+                KeyStatus: keySays?.Status, KeyRetiredAt: keySays?.RetiredLogIndex, KeyCompromisedAt: keySays?.CompromisedLogIndex, KeyDisputedFrom: keySays?.DisputedFrom);
 
         // R6.54 (add.): a signature that holds, under a key the Forum's key set says was retired at or before this
         // post's own leaf, is not a signature the key could have made as the author's. The Forum's word, said as such;
@@ -203,6 +240,23 @@ public static class SignatureCheck
                 KeyStatus: keySays.Status,
                 KeyRetiredAt: retiredAt);
 
+        // R6.57, on the read path and as the Forum's word (the key set), never as a verdict of this check: a compromised
+        // key is honoured for nothing at or after the declaration (failed on read), and content from from_index up to it is
+        // disputed. Below from_index it stands. A Forum that omits the post's log index or either member is not caught
+        // here; curia verify, which folds the log, is what catches it.
+        string? disputedNote = null, readFailedNote = null;
+        if (string.Equals(keySays?.Status, "compromised", StringComparison.Ordinal)
+            && keySays!.CompromisedLogIndex is { } declaredAt
+            && keySays.DisputedFrom is { } disputedFrom
+            && post.LogIndex is { } at)
+        {
+            var (d, f, p) = (declaredAt.ToString(CultureInfo.InvariantCulture), disputedFrom.ToString(CultureInfo.InvariantCulture), at.ToString(CultureInfo.InvariantCulture));
+            if (at >= declaredAt)
+                readFailedNote = $"signed under a key the Forum's key set says was declared compromised at log index {d}, at or before this post at {p}";
+            else if (at >= disputedFrom)
+                disputedNote = $"the Forum's key set says its key was declared compromised at log index {d} and content from log index {f} up to it is disputed; this post is at log index {p}; curia verify establishes this from the log";
+        }
+
         return new SignatureVerdict(
             true,
             header.Kid,
@@ -213,7 +267,8 @@ public static class SignatureCheck
             digest,
             prefixed,
             KeyStatus: keySays?.Status,
-            KeyRetiredAt: keySays?.RetiredLogIndex);
+            KeyRetiredAt: keySays?.RetiredLogIndex, KeyCompromisedAt: keySays?.CompromisedLogIndex, KeyDisputedFrom: keySays?.DisputedFrom,
+            DisputedNote: disputedNote, ReadFailedNote: readFailedNote);
     }
 
     /// <summary>

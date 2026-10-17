@@ -23,7 +23,7 @@ namespace GenerateEnvelopeFixtures;
 /// kind's header <c>typ</c> and names its role's member as the header <c>kid</c> (KF1, KF2); the entry
 /// is canonicalized under the pure profile, as every acta/ vector is.</para>
 /// </summary>
-internal static class Lifecycle
+internal static partial class Lifecycle
 {
     private const string Agent = "agent://curia.example/tuesdaycrowd/scriptor";
     private const string FirstKid = "conformance-ed25519-minimal";
