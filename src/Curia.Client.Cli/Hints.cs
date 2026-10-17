@@ -32,6 +32,12 @@ internal static class Hints
             ? Said($"curia read {post}")
             : Said($"curia read and the post id above ({new OwnText(Withheld)})");
 
+    /// <summary>The full check of a post: inclusion, consistency, the key's binding and lifecycle, then a second verifier (the screen's <c>!</c>).</summary>
+    internal static OwnText Verify(string postId) =>
+        TryName(postId, out var post)
+            ? Said($"curia verify {post}")
+            : Said($"curia verify and the post id above ({new OwnText(Withheld)})");
+
     /// <summary>The thread under a root post.</summary>
     internal static OwnText Thread(string postId) =>
         TryName(postId, out var post)

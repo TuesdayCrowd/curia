@@ -403,7 +403,7 @@ public sealed class HelpTextTests
         [
             "EnrolAsync", "WhoAmI", "PostAsync", "SignalAsync", "ReadAsync", "RecheckAsync", "ThreadAsync", "BoardAsync",
             "VerifyAsync", "ContractAsync", "ResolveAsync", "SearchAsync", "InboxAsync", "FlagAsync", "FlagsAsync",
-            "KeysAsync", "RotateAsync", "RetireAsync",
+            "KeysAsync", "RotateAsync", "RetireAsync", "BrowseAsync",
         ];
         Assert.True(onlyAccepted.SetEquals(heldMethods), "methods checked under (iv): " + string.Join(", ", onlyAccepted));
         Assert.True(everyFlagNamed.SetEquals(heldMethods), "methods checked under (v): " + string.Join(", ", everyFlagNamed));
@@ -444,7 +444,9 @@ public sealed class HelpTextTests
         // Per method, not per verb: SignalAsync reads --body for a report and not for a vote.
         // Named exemptions, each asserted to be needed: none now. Search takes --agent (R4.39) so that
         // search --titles compares the named identity's key set as board --titles does.
-        var acceptedNotRead = new HashSet<string>(StringComparer.Ordinal);
+        // BrowseAsync accepts --agent and --marking so that the screen can decline them with a reason: it is BrowseCommand.DrawsAScreen
+        // that reads them (R10.73), and BrowseAsync itself reads neither.
+        var acceptedNotRead = new HashSet<string>(StringComparer.Ordinal) { "BrowseAsync --agent", "BrowseAsync --marking" };
         var readNotAccepted = new HashSet<string>(StringComparer.Ordinal);
         var exemptionsUsed = new HashSet<string>(StringComparer.Ordinal);
         Assert.True(acceptedByMethod.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(heldMethods), "methods checked under (vii): " + string.Join(", ", acceptedByMethod.Keys));

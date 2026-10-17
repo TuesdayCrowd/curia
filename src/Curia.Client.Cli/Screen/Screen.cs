@@ -43,13 +43,14 @@ internal sealed class Screen
 
     internal const string WideOnScreen = "wide characters on screen: a row may be cut at the right edge";
 
-    private Screen(ImmutableArray<ScreenRow> rows, bool drawsContent, int offset, int documentRows, int minimumHeight)
+    private Screen(ImmutableArray<ScreenRow> rows, bool drawsContent, int offset, int documentRows, int minimumHeight, ImmutableArray<int> passageStarts)
     {
         Rows = rows;
         DrawsContent = drawsContent;
         Offset = offset;
         DocumentRows = documentRows;
         MinimumHeight = minimumHeight;
+        PassageStarts = passageStarts;
     }
 
     /// <summary>Every row, top to bottom: the title, the warning, the marking row, the window, the status row last.</summary>
@@ -66,6 +67,9 @@ internal sealed class Screen
 
     /// <summary>The fewest rows at which this document, at this width, is drawn with content.</summary>
     internal int MinimumHeight { get; }
+
+    /// <summary>The document row each passage (or index row) begins at, in order: where Tab goes, and what Enter opens.</summary>
+    internal ImmutableArray<int> PassageStarts { get; }
 
     /// <summary>The row drawn last.</summary>
     internal ScreenRow Status => Rows[^1];
@@ -139,6 +143,30 @@ internal sealed class Screen
     internal static int MinimumHeightFor(IReadOnlyList<Passage> passages, int width) =>
         ForPassages(passages, new ScreenSize(width, 1000), 0).MinimumHeight;
 
+    /// <summary>The keys, as this client's own rows under the screen's chrome. It loads nothing and shows no post.</summary>
+    internal static Screen ForHelp(IReadOnlyList<string> lines, ScreenSize size)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var header = ImmutableArray.CreateBuilder<ScreenRow>();
+        foreach (var line in lines)
+        {
+            foreach (var row in RowWrap.Frame(line, size.Width)) header.Add(new ScreenRow.Frame(row));
+        }
+
+        return Compose([new Block(header.ToImmutable(), [], false, null, null)], size, 0, 0, firstPostId: null);
+    }
+
+    /// <summary>
+    /// This screen with its status row replaced by <paramref name="note"/>, a sentence of this client's own: what a key
+    /// answered (the equivalent command; suspending is not supported). The position is back on the next draw.
+    /// </summary>
+    internal Screen WithNote(OwnText note, int width)
+    {
+        var status = new ScreenRow.Frame(Truncate(note.Text, width - 1));
+        return new Screen(Rows.SetItem(Rows.Length - 1, status), DrawsContent, Offset, DocumentRows, MinimumHeight, PassageStarts);
+    }
+
     private static ScreenRow.Frame[] Chrome(string text, int width) =>
         [.. RowWrap.Frame(text, width).Select(row => new ScreenRow.Frame(row))];
 
@@ -181,7 +209,7 @@ internal sealed class Screen
 
         var fits = size.Width >= MinimumWidth && size.Height >= minimum && blocks.Count > 0;
         if (!fits)
-            return new Screen(TooSmall(size, title, firstPostId, blocks.Count > 0), drawsContent: false, 0, document.Count, minimum);
+            return new Screen(TooSmall(size, title, firstPostId, blocks.Count > 0), drawsContent: false, 0, document.Count, minimum, [.. starts]);
 
         var top = Math.Clamp(offset, 0, Math.Max(0, document.Count - 1));
         var at = starts.FindLastIndex(start => start <= top);
@@ -212,7 +240,7 @@ internal sealed class Screen
         for (var i = top; i < last; i++) rows.Add(document[i]);
         rows.Add(StatusRow(document, top, last, size.Width));
 
-        return new Screen(rows.ToImmutable(), drawsContent: true, top, document.Count, minimum);
+        return new Screen(rows.ToImmutable(), drawsContent: true, top, document.Count, minimum, [.. starts]);
     }
 
     /// <summary>A range whose numbers are as wide as any this block can write, so its header is as tall as any it can have.</summary>

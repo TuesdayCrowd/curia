@@ -68,6 +68,7 @@ internal static class Program
                 "recheck" => await RecheckAsync(args, cts.Token).ConfigureAwait(false),
                 "thread" => await ThreadAsync(args, cts.Token).ConfigureAwait(false),
                 "board" => await BoardAsync(args, cts.Token).ConfigureAwait(false),
+                "browse" => await BrowseAsync(argv, args, cts.Token).ConfigureAwait(false),
                 "verify" => await VerifyAsync(args, cts.Token).ConfigureAwait(false),
                 "contract" => await ContractAsync(args, cts.Token).ConfigureAwait(false),
                 "resolve" => await ResolveAsync(args, cts.Token).ConfigureAwait(false),
@@ -913,14 +914,7 @@ internal static class Program
         var posts = await client.GetBoardAsync(args.Positional[0], marking, ct).ConfigureAwait(false);
         if (!posts.TryGetValue(out var value, out var refusal)) return Output.Fail(refusal);
 
-        if (value.IsEmpty)
-        {
-            Output.Line($"no posts on board {args.Positional[0]}.");
-            Output.Line(
-                "An unknown board and an empty board are the same answer here: the Forum returns "
-                + "an empty list for both, and there is no endpoint that enumerates boards.");
-            return ExitCode.Ok;
-        }
+        if (value.IsEmpty) return EmptyBoard(args.Positional[0]);
 
         if (args.Has("titles"))
         {
@@ -931,6 +925,41 @@ internal static class Program
 
         return await RenderAsync(client, value, forum, watch, ct).ConfigureAwait(false);
     }
+
+    /// <summary>What a board with no posts prints, for the line form and for the screen before it draws.</summary>
+    internal static int EmptyBoard(string board)
+    {
+        Output.Line($"no posts on board {board}.");
+        Output.Line(
+            "An unknown board and an empty board are the same answer here: the Forum returns "
+            + "an empty list for both, and there is no endpoint that enumerates boards.");
+        return ExitCode.Ok;
+    }
+
+    /// <summary>
+    /// <c>curia browse</c> (errata G22): a screen for a person at a terminal, and for every other caller the matching verb's
+    /// stdout and exit code with a sentence on stderr saying why. The decision and the screen are
+    /// <see cref="BrowseCommand"/> and <see cref="BrowseSession"/>; this is where the flags are refused and the line form's
+    /// handlers are named.
+    /// </summary>
+    private static async Task<int> BrowseAsync(string[] argv, Args args, CancellationToken ct)
+    {
+        if (args.Unknown(["agent", "marking", "forum", "plain", "screen"]) is { } bad)
+            return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        if (args.Has("plain") && args.Has("screen"))
+            return Output.Fail("error: --plain asks for the line form and --screen for the screen; give one", ExitCode.Usage);
+
+        return await BrowseCommand.RunAsync(argv, args, ForumUri(args, null), TerminalFacts.OfProcess(), LineFormAsync, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The verbs <c>browse</c> falls back to: the same handlers, so their bytes and exit codes are the verbs' own.</summary>
+    private static Task<int> LineFormAsync(string verb, Args args, CancellationToken ct) => verb switch
+    {
+        "board" => BoardAsync(args, ct),
+        "thread" => ThreadAsync(args, ct),
+        _ => ReadAsync(args, ct),
+    };
 
     /// <summary>
     /// R10.71's titled index, shared by <c>board --titles</c> and <c>search --titles</c>: each post
@@ -1780,7 +1809,7 @@ internal static class Program
             : throw new ArgumentException($"not an absolute URL: '{raw}'", nameof(args));
     }
 
-    private static HttpClient HttpFor(Uri forum) =>
+    internal static HttpClient HttpFor(Uri forum) =>
         new() { BaseAddress = forum, Timeout = TimeSpan.FromSeconds(30) };
 
     /// <summary>A local error's detail, as a display literal after a colon, or nothing.</summary>
