@@ -26,6 +26,12 @@ internal static class Hints
             ? Said($"(re-check cheaply: curia read {post} --if-none-match {tag})")
             : Said($"(re-check cheaply with curia read and --if-none-match and the tag above; {new OwnText(Withheld)})");
 
+    /// <summary>A post read in the line form, with the Forum's span under its own failing line (the screen's pointer, R10.71).</summary>
+    internal static OwnText Read(string postId) =>
+        TryName(postId, out var post)
+            ? Said($"curia read {post}")
+            : Said($"curia read and the post id above ({new OwnText(Withheld)})");
+
     /// <summary>The thread under a root post.</summary>
     internal static OwnText Thread(string postId) =>
         TryName(postId, out var post)
