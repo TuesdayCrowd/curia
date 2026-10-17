@@ -49,10 +49,33 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
     }
 
     /// <summary>
-    /// R6.52's outcome for this passage (R10.71, errata G19): failed when the span does not render
-    /// the canonical form the signature covers; otherwise the verdict's read outcome (<see cref="SignatureVerdict.ReadOutcome"/>: R6.57's disputed and failed, from the key set).
+    /// What the signature and the Forum's two words about the key establish, apart from the span (R6.57): the verdict's
+    /// read outcome (<see cref="SignatureVerdict.ReadOutcome"/>: disputed and failed, from the key set), and disputed
+    /// as well for a post the Forum marks disputed in its own provenance (<c>disputed_by_log_index</c>, D49) whose key
+    /// set says nothing of it. A failed or unrun check stays as it is: a mark is ranked below both (EXIT CODES 9).
     /// </summary>
-    public CheckOutcome Outcome => SpanCheck.RendersCanonical(Post) ? Verdict.ReadOutcome : CheckOutcome.Failed;
+    public CheckOutcome SignatureOutcome =>
+        Verdict.ReadOutcome is CheckOutcome.Verified && Post.Provenance.DisputedByLogIndex is not null
+            ? CheckOutcome.Disputed
+            : Verdict.ReadOutcome;
+
+    /// <summary>
+    /// R6.52's outcome for this passage (R10.71, errata G19): failed when the span does not render
+    /// the canonical form the signature covers; otherwise <see cref="SignatureOutcome"/>. The value every reader's word
+    /// and exit code is taken from.
+    /// </summary>
+    public CheckOutcome Outcome => SpanCheck.RendersCanonical(Post) ? SignatureOutcome : CheckOutcome.Failed;
+
+    /// <summary>
+    /// <see cref="SignatureVerdict.DescribeRead"/>, except for a post only the Forum's provenance marks disputed, which
+    /// says disputed, and says whose word it is (R6.57).
+    /// </summary>
+    public string DescribeRead =>
+        SignatureOutcome is CheckOutcome.Disputed && Verdict.ReadOutcome is not CheckOutcome.Disputed
+            ? new FrameBuilder()
+                .Append($"DISPUTED: the signature verifies locally against kid={Verdict.Kid} ({new OwnText(Verdict.Detail)}), but the Forum marks this post disputed by log index {Post.Provenance.DisputedByLogIndex}: its key was declared compromised from before it (the Forum's word, R6.57); curia verify establishes this from the log")
+                .ToString()
+            : Verdict.DescribeRead;
 
     /// <summary>
     /// The passage as this client frames it. Every value on the frame's lines that this client did
@@ -89,7 +112,7 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (Verdict.PrefixedDigest is { } computed
             && !string.Equals(Post.Digest, computed, StringComparison.Ordinal))
             frame.Line($"          the Forum reported a different value for digest: {Post.Digest}");
-        frame.Line($"signature {new OwnText(Verdict.DescribeRead)}");
+        frame.Line($"signature {new OwnText(DescribeRead)}");
         // R6.54 (add.): when the Forum's key set marks the signing key other than active, the marker is shown, as the
         // Forum's word and labelled so. A retired key prints where it ended; any other status prints as the status it
         // is. The kid is an agent's, so it is a display literal.
