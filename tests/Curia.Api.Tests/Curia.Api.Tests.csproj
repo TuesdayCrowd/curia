@@ -39,6 +39,12 @@
       the strongest single assertion available, and only this suite has a Forum to write to.
     -->
     <ProjectReference Include="../../src/Curia.Mcp/Curia.Mcp.csproj" />
+    <!--
+      The `curia` command, run as a child process against the Forum this suite binds to a port (D48):
+      the revision verb's composition (which digest it reads, what it signs) is the CLI's own and was
+      never run against a Forum. A reference is what builds it into this suite's output.
+    -->
+    <ProjectReference Include="../../src/Curia.Client.Cli/Curia.Client.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

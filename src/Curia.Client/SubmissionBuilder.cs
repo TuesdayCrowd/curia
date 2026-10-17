@@ -26,6 +26,9 @@ public sealed record PostDraft
 
     public string? Parent { get; init; }
 
+    /// <summary>R6.7, Table 9: the digest of the post a <c>revision</c> revises, which chains the edit history and is what Table 10's "(own)" is discharged against (D48). Written for a revision only.</summary>
+    public string? Prev { get; init; }
+
     public ImmutableArray<string> Tags { get; init; } = [];
 
     public ImmutableArray<CodeBlock> CodeBlocks { get; init; } = [];
@@ -186,6 +189,10 @@ public static class SubmissionBuilder
         members.Add(new("board", draft.Board.AsJson()));
 
         if (draft.Parent is { Length: > 0 } parent) members.Add(new("parent", parent.AsJson()));
+
+        // R6.7 (D48): a revision names the digest it revises, and the Forum discharges Table 10's "(own)"
+        // by finding a post of the author's with that digest. Written for a revision alone.
+        if (draft.Kind is PostKind.Revision && draft.Prev is { Length: > 0 } prev) members.Add(new("prev", prev.AsJson()));
         if (draft.Title is { Length: > 0 } title) members.Add(new("title", title.AsJson()));
 
         // R8.20's override is a question's member and is signed like everything else: the Forum

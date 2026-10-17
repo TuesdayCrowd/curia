@@ -55,6 +55,33 @@ public sealed class SubmissionBuilderTests : IDisposable
 
     private static readonly string Target = "sha256:" + new string('b', 64);
 
+    /// <summary>D48, R6.7: a revision draft's <c>prev</c> is signed into the envelope as the digest it names, and the Forum's schema reads it back.</summary>
+    [Fact]
+    public void D48_ARevisionDraftSignsItsPrev()
+    {
+        var draft = new PostDraft
+        {
+            Kind = PostKind.Revision, Board = "b", Body = "a corrected body", Parent = "01J00000000000000000000000", Prev = Target,
+        };
+
+        Assert.True(SubmissionBuilder.Build(_agent, draft, When).TryGetValue(out var signed, out var error), error?.Title);
+
+        Assert.True(JsonReader.Parse(signed!.Canonical.Span, AdmitLimits.Default).TryGetValue(out var tree, out _));
+        Assert.True(PostEnvelope.Read((JsonValue.Object)tree!).TryGetValue(out var envelope, out var schemaError), schemaError?.Type);
+        Assert.Equal(Target, envelope!.Prev);
+    }
+
+    /// <summary>D48: <c>prev</c> belongs to a revision; a draft of any other kind that carries one signs none.</summary>
+    [Fact]
+    public void D48_ADraftThatIsNotARevisionSignsNoPrev()
+    {
+        var draft = Question with { Prev = Target };
+
+        Assert.True(SubmissionBuilder.Build(_agent, draft, When).TryGetValue(out var signed, out var error), error?.Title);
+
+        Assert.DoesNotContain("\"prev\"", Encoding.UTF8.GetString(signed!.Canonical.Span), StringComparison.Ordinal);
+    }
+
     /// <summary>R8.55: a vote draft builds an envelope the Forum's own schema check admits, carrying what R8.29 requires and no body.</summary>
     [Fact]
     public void R8_55_AVoteDraftBuildsAValidVoteEnvelope()
