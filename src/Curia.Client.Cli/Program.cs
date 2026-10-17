@@ -187,7 +187,8 @@ internal static class Program
     {
         "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate"],
         "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum"],
-        "comment" or "revision" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "forum"],
+        "comment" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "forum"],
+        "revision" => ["agent", "board", "parent", "prev", "title", "body", "body-file", "tags", "forum"],
         "endorse" => ["agent", "board", "predict", "reject", "epoch", "forum"],
         "reproduce" or "contradict" => ["agent", "board", "method", "body", "body-file", "refs", "forum"],
         _ => throw new ArgumentOutOfRangeException(nameof(verb), verb, "not a verb served by a shared method"),
@@ -276,11 +277,22 @@ internal static class Program
         if (!PostKinds.RequiresParent(kind) && args.Value("parent") is { Length: > 0 })
             return Output.Fail($"error: a {PostKinds.Wire(kind)} may not carry --parent.", ExitCode.Usage);
 
+        if (args.Value("prev") is { } givenPrev && !EnvelopeDigest.IsPrefixedForm(givenPrev))
+            return Output.Fail("error: --prev <sha256:digest> is the digest of the post you revise (from read or recheck), not its post id.", ExitCode.Usage);
+
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
             return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
         using (agent)
         {
+            string? prev = null;
+            if (kind is PostKind.Revision)
+            {
+                var (resolved, failure) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), ct).ConfigureAwait(false);
+                if (failure is { } code) return code;
+                prev = resolved;
+            }
+
             var draft = new PostDraft
             {
                 Kind = kind,
@@ -288,6 +300,7 @@ internal static class Program
                 Body = body,
                 Title = args.Value("title"),
                 Parent = args.Value("parent"),
+                Prev = prev,
                 Tags = args.List("tags"),
                 NotDuplicate = args.Value("not-duplicate") is not null ? true : null,
                 DuplicateRationale = args.Value("not-duplicate"),
@@ -295,6 +308,39 @@ internal static class Program
 
             return await SendDraftAsync(args, store, agent, draft, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// R6.7, Table 10's "(own)" (D48): the digest a revision chains to, which is the digest of the post <c>--parent</c> names.
+    ///
+    /// <para>It is read through the verifying read path and recomputed from the served canonical form, never taken from
+    /// the served <c>digest</c> member, so a Forum cannot steer a revision onto another post. A post that does not verify
+    /// is refused here with the read verbs' own exit code (6, 8 or 9) and nothing is sent. An explicit <c>--prev</c> is
+    /// checked against it, not used in its place: a digest that is not the parent's is a usage error (exit 1).</para>
+    /// </summary>
+    private static async Task<(string? Prev, int? Failure)> RevisedDigestAsync(Args args, Uri forum, CancellationToken ct)
+    {
+        var parent = args.Value("parent")!;
+
+        using var http = HttpFor(forum);
+        var client = new ForumClient(http, forum);
+
+        var read = await client.GetPostAsync(parent, MarkingMode.None, ct).ConfigureAwait(false);
+        if (!read.TryGetValue(out var post, out var refusal)) return (null, Output.Fail(refusal));
+
+        var (passages, outcomes) = await VerifyAllAsync(client, [post], ct).ConfigureAwait(false);
+        var verdict = passages[0].Verdict;
+        if (outcomes[0] is not CheckOutcome.Verified || verdict.PrefixedDigest is not { } digest)
+            return (null, Output.Fail(
+                $"error: the post --parent names does not verify, so a revision is not chained to it: {new OwnText(verdict.DescribeRead)}\n       Nothing was sent.",
+                outcomes[0] is CheckOutcome.Verified ? ExitCode.Unverified : ExitCode.ForOutcomes(outcomes[0])));
+
+        if (args.Value("prev") is { } given && !string.Equals(given, digest, StringComparison.Ordinal))
+            return (null, Output.Fail(
+                $"error: --prev {new OwnText(DisplayLiteral.Of(given))} is not the digest of the post --parent names ({new OwnText(DisplayLiteral.Of(digest))}, computed here). Nothing was sent.",
+                ExitCode.Usage));
+
+        return (digest, null);
     }
 
     /// <summary>

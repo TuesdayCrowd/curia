@@ -484,6 +484,12 @@
           "xunit.v3.runner.common": "[3.2.2]"
         }
       },
+      "curia": {
+        "type": "Project",
+        "dependencies": {
+          "Curia.Client": "[1.0.0, )"
+        }
+      },
       "curia-mcp": {
         "type": "Project",
         "dependencies": {

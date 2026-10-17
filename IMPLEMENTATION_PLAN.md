@@ -44,9 +44,8 @@ set; SP scores recorded even if not yet weighted.*
 >
 > **Next, in this order:**
 > 1. **D49**: done on 2026-10-17 (`recheck` says disputed and exits 9; see the register).
-> 2. **D48's PR** (the client signs `prev`; a client-level fact runs `revision` end to end). It is not a lift
->    prerequisite, and it goes before the TUI because it is the only way an author corrects a post and the
->    cheapest fix on this list; it can share D49's session, not its PR.
+> 2. **D48**: items (1) and (2) done on 2026-10-17 (`curia revision` signs `prev`, run end to end); item (3),
+>    400 or 403 for a revision with no `prev`, is the owner's ruling and stays open.
 > 3. **D45**, then the owner's lift, in the owner's time (see "G21 PR 0.5").
 > 4. **TUI PR B** (`curia-browse`), with its disputed header row, after 1 and 2: its row is D49's property on a
 >    third surface, and it should take D49's fact as its model. It does not gate the lift.
@@ -469,7 +468,7 @@ one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
 while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12); D42 (opened by
 `curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
 round 2 of the rotation stage's documents, 2026-10-12); D45 and D46 (opened by the rotation stage's PR 2,
-2026-10-15); D48 (opened by the second five-agent exercise, 2026-10-17, with D49, which is closed),
+2026-10-15); D48 (opened by the second five-agent exercise, 2026-10-17, with D49, which is closed; its items (1) and (2) closed, item (3) the owner's),
 and D37, reopened in part by the same exercise.
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
@@ -6159,7 +6158,7 @@ No other test in `tests/` sets an execute bit on a file it wrote (searched for `
 **Reopen if** `ETXTBSY`, `Text file busy` or `An error occurred trying to start process` appears again
 in a test that launches a child process.
 
-### D48 — `curia revision` can never succeed: the client signs no `prev`, and the Forum answers the missing one as a tier denial *(found by the second five-agent exercise, 2026-10-17; confirmed at source at 72cab0e)*
+### D48 — `curia revision` can never succeed: the client signs no `prev`, and the Forum answers the missing one as a tier denial *(found by the second five-agent exercise, 2026-10-17; confirmed at source at 72cab0e; items (1) and (2) closed by their own change, 2026-10-17)*
 
 **Status: open.** Table 10 grants `revision`/`create` to T0 "(own)", and the client advertises it as "T0 and
 up" (`src/Curia.Client.Cli/Help.cs:102`, `:158`). The Forum discharges "(own)" by reading the envelope's
@@ -6198,6 +6197,25 @@ seam the PR A note asks for, or a Kestrel-bound host) and asserts a 201 and a po
 digest; it must be shown RED first by reverting (1). (3) Decide with the owner whether a revision without
 `prev` should be a 400 with its own type instead of a 403; that edits R6.7's test and is a ruling, not a fix-now.
 Not a prerequisite of the lift: no lifecycle kind is involved.
+
+**Items (1) and (2) closed (2026-10-17); item (3) stays open, the owner's ruling.** `PostDraft` has `Prev`, and
+`Compose` writes it for a revision only (`src/Curia.Client/SubmissionBuilder.cs`). The `revision` verb resolves it
+in `RevisedDigestAsync` (`src/Curia.Client.Cli/Program.cs`): it reads `--parent` through the read verbs' own
+verifying path (`GetPostAsync`, `VerifyAllAsync`) and takes the digest recomputed from the served canonical form
+(`SignatureVerdict.PrefixedDigest`), never the served `digest` member. A parent that does not verify is refused
+locally with the read verbs' exit code (6, 8 or 9) and nothing is sent; so is a **disputed** parent (exit 9), which
+is the conservative reading and leaves an author no way to chain a revision onto a post its compromised key signed.
+That is recorded, not decided: if it is wanted, it is a ruling. `--prev <sha256:…>` is a cross-check, not a
+replacement: a value that is not the computed digest is a usage error (exit 1), and the parent is read either way.
+The read path checks the signature against the key set, not a signed head, so a post can be revised before a head
+covers it. *Evidence.* `CliRevisionEndToEndTests` (`tests/Curia.Api.Tests`) runs the shipped `curia` binary as a
+child process against `KestrelForumFixture`, a real Forum on a real socket, so no production seam was added (the
+test project gains a `ProjectReference` to `Curia.Client.Cli`); it was red before the fix with the exercise's own
+refusal (`table-10/own-resource-only tier=T0`) and is green after, and its second fact holds that a wrong `--prev`
+exits 1 and posts nothing. `SubmissionBuilderTests`' `D48_ARevisionDraftSignsItsPrev` and its control
+(`D48_ADraftThatIsNotARevisionSignsNoPrev`). Falsified by removing the one line in `Compose` that writes `prev`:
+both D48 facts went red; restored by plain copy, rebuilt `--no-incremental`, green. The differential found 0
+divergences. Still open: item (3), and the tier-denial wording, which D37's 2026-10-17 addition carries.
 
 ### D49 — `curia recheck` calls a disputed post "current … cite as-is": the one citation check exit 9 does not cover *(found by the second five-agent exercise, sentry's suspicion, 2026-10-17; confirmed at source at 72cab0e; unreachable while the guard is on; closed by its own change, 2026-10-17)*
 
