@@ -32,23 +32,24 @@ set; SP scores recorded even if not yet weighted.*
 >
 > **In progress: PR 2, compromise** (branch `key-compromise`, not yet pushed).
 > - Tasks 2.0–2.5 are committed.
-> - The falsification count is `54 cases, 0 not RED`.
+> - Falsification: `54 cases, 0 not RED`, run 2026-10-16 (Task 2.4). Until then this line claimed
+>   that figure, but it was the table's row count and no run had been made.
 > - The register gained D45 (R12.11's runbook is only partly written) and D46 (a declaration is
 >   only as complete as its stated root).
 >
 > **Next:**
 > 1. Task 2.6: every gate and CP-B.
-> 2. The owner's sign-off on the compromise entry's member names (owner question B for PR 2).
-> 3. Draft PR, CI green, merge.
-> 4. After PR 2: the five-agent exercise (guard on) and TUI PR B.
+> 2. Draft PR, CI green, merge.
+> 3. After PR 2: the five-agent exercise (guard on) and TUI PR B.
 >
-> **Owner decisions of 2026-10-13 and 2026-10-14.**
+> **Owner decisions of 2026-10-13, 2026-10-14 and 2026-10-16.**
 > - Q1 (single-key takeover residual): yes.
 > - Q2 (freeze the lifecycle formats now): no.
 > - Branch protection: ruleset `protect-main` (a PR, and all four CI jobs green on an up-to-date
 >   branch). Its residual, which is no two-person control, is accepted as a weakening.
 > - The client's detector trusts the Forum's receipt (F-B): accepted.
 > - PR 1's member names: signed off.
+> - PR 2's member names and predicate vocabulary (owner question B): signed off, 2026-10-16.
 >
 > Recorded in errata G21, spec §4.13 and this register.
 >
@@ -6132,7 +6133,7 @@ FL-18) saw reference types only until the L.2 review round of 2026-10-12, whose
 their routes and verbs behind this guard, and they refuse under it: `POST` of a rotation or a
 retirement answers `curia/keys/lifecycle-not-enabled` (GF1), and `curia rotate` and `curia retire`
 exit 4 and leave the profile and its keys unchanged (GF9). The guard is still not lifted, by anyone,
-in any PR of this stage. NEEDS below is partly met and its remainder accepted by the owner. Known residual, accepted by the owner (the owner's answer, 2026-10-14, in the working session): the detector trusts the Forum's receipt (G21, 'What this costs', item 12). Owner question B for PR 1 is signed off (the owner's answer, 2026-10-14, in the working session); it freezes nothing, and the lift record's item (d) still covers all three kinds.
+in any PR of this stage. NEEDS below is partly met and its remainder accepted by the owner. Known residual, accepted by the owner (the owner's answer, 2026-10-14, in the working session): the detector trusts the Forum's receipt (G21, 'What this costs', item 12). Owner question B for PR 1 is signed off (the owner's answer, 2026-10-14, in the working session); it freezes nothing, and the lift record's item (d) still covers all three kinds. Owner question B for PR 2 (`agent.key-compromised`'s member names, its `typ`s and reason, the key set's two compromise members and the predicate vocabulary) is signed off too (the owner's answer, 2026-10-16, in the working session), and freezes nothing.
 
 **NEEDS (partly met; the remainder accepted by the owner).** The "protect-main" ruleset (id 25038871, recorded
 2026-10-14 by the main session from the GitHub API; unverified here) requires a pull request and the four
@@ -6185,8 +6186,8 @@ exercised only against databases a test run created.
   and 3). Vectors: `acta/key-compromised-entry` and the sixteen PR 2 lifecycle cases, each with a frozen
   ES256 declaration.
 - The operator's help text states R12.11's rule for `--from-index` (see D45 for the unwritten rest of the
-  runbook). The falsification table is Task 2.4 of the stage plan (F2-1 to F2-56); this entry records no
-  run result for it.
+  runbook). The falsification table is Task 2.4 of the stage plan (F2-1 to F2-56): `falsify: 54 cases, 0 not
+  RED` (2026-10-16), with F1-43 to F1-46 re-run on PR 2's tree, 4 cases, 0 not RED.
 
 **Dry run (Task 2.5), through the test composition.** `R6_57_BothReadersRenderAPostDisputedWithARotationBetweenItAndTheDeclaration`
 (`tests/Curia.Api.Tests/CompromiseDeclarationTests.cs`): a post by k1, a rotation binding k2, a signed head,
