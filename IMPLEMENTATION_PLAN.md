@@ -10,7 +10,7 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — keys that end (2026-10-15)
+> ## Current work — keys that end (2026-10-17)
 >
 > **Errata G21 ("keys that end") is three PRs, under a lifecycle guard.** The plan is
 > `docs/superpowers/plans/2026-10-11-keys-that-end.md` and the spec is
@@ -25,22 +25,24 @@ set; SP scores recorded even if not yet weighted.*
 > | #90 (PR 0.5) | The lifecycle guard (R4.38 (add.)) |
 > | #91 | D44, the ETXTBSY test-signer flake |
 > | #92 (PR 1) | Rotation and self-retirement: R4.18 (rev.), R4.39, R6.56, R5.22, R6.54 (add.) |
+> | #93 (PR 2) | The operator's compromise declaration and disputed content: R6.26 (rev.), R6.57, R6.30 (rev.) |
 >
 > **The guard is on.** The approval record is `{"version":1,"approved":[]}`, so production refuses
 > every lifecycle kind. Lifting it is the owner's act alone: lock 1 is the record, with items (a) to
 > (e), and lock 2 is `Curia:Lifecycle:Enabled`. Merging a PR freezes no format.
 >
-> **In progress: PR 2, compromise** (branch `key-compromise`, not yet pushed).
-> - Tasks 2.0–2.5 are committed.
-> - Falsification: `54 cases, 0 not RED`, run 2026-10-16 (Task 2.4). Until then this line claimed
->   that figure, but it was the table's row count and no run had been made.
-> - The register gained D45 (R12.11's runbook is only partly written) and D46 (a declaration is
->   only as complete as its stated root).
+> **G21 is fully built, and the guard is still on.** PR 2 merged on 2026-10-17 (`7921b4a`), after
+> `falsify: 54 cases, 0 not RED` (Task 2.4, run 2026-10-16), every gate (Task 2.6), CI green and the
+> owner's sign-off on question B. It added D45 (R12.11's runbook is only partly written) and D46 (a
+> declaration is only as complete as its stated root) to the register.
+>
+> **In progress: D47** (branch `d47-test-child`): PR 2's first CI run went red on a flaky Client test
+> that wrote an executable at run time, D44's shape in a second file. See the register.
 >
 > **Next:**
-> 1. Task 2.6: every gate and CP-B.
-> 2. Draft PR, CI green, merge.
-> 3. After PR 2: the five-agent exercise (guard on) and TUI PR B.
+> 1. D47's PR: CI green, merge.
+> 2. The five-agent exercise (guard on).
+> 3. TUI PR B (`curia-browse`), with its disputed header row.
 >
 > **Owner decisions of 2026-10-13, 2026-10-14 and 2026-10-16.**
 > - Q1 (single-key takeover residual): yes.
@@ -445,7 +447,8 @@ and D27 by the enrollment stage (2026-09-26), the last two in its final wave; D2
 stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27), D25 for the
 fifteen instances it names and not for their class, which is D33; D32 and D34 by the
 one-part-at-a-time stage's PR A (2026-10-09), and D33 by its PR B (2026-10-10); D29 by the rotation
-stage's PR 0 (2026-10-12, its merge pending). Their entries are
+stage's PR 0 (2026-10-12, its merge pending); D44 (2026-10-13, PR #91) and D47 (2026-10-17), two
+test-harness flakes, each by its own change. Their entries are
 kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
@@ -6087,6 +6090,36 @@ declaration is valid and fail-open for k1, so a post under k1 is not disputed. R
 key first' is satisfied. Recovery is to declare again with the right `--kid`. A stricter property needs an
 errata change and is the owner's decision, not a fix-now item.
 
+### D47 — `ProgramOutputTests` wrote an executable at run time, D44's shape in a second file *(closed by this change, 2026-10-17; test-harness defect, CI flake in PR #93's run 38999710713, attempt 1)*
+
+**A test-harness defect, not a product one.** No requirement changes. In CI (Linux),
+`Curia.Client.Tests.ProgramOutputTests.R10_64_ASignersStderrIsDecodedAsUtf8WhateverItBeginsWith(hex:
+"FFFE4100", …)` failed with `Assert.Contains() Failure: Sub-string not found` against
+`"/tmp/curia-program-output-mpR4TE/signer: An error "···`; the rerun of the failed job passed. xUnit cut
+the string there, so the cause is not in the record. `An error` is how .NET's `An error occurred trying
+to start process …` begins, the message D44 saw with `Text file busy`, and the test wrote its signer as
+D44's helper did: `File.WriteAllText` of a `#!/usr/bin/env python3` script, then `File.SetUnixFileMode`,
+then an exec. **ETXTBSY is the working hypothesis and was not shown.** D44's fix covered `TestSigner`
+only; three sites in `tests/Curia.Client.Tests/ProgramOutputTests.cs` still wrote an executable at run
+time.
+
+**The fix, D44's by construction.** Nothing executable is written at run time.
+`tests/Shared/test-child.py` is a tracked executable (git mode 100755) that writes the stdout and stderr
+bytes and exits with the code its data file names; the data file is `<name>.json` beside the path it was
+invoked as (`os.path.abspath(sys.argv[0])`, not `realpath`). Each test writes only that non-executable
+file and reaches the script through a per-test symlink (`File.CreateSymbolicLink`), so no fork can hold
+a write descriptor on what is exec'd. The bytes each test dictates are the ones it wrote before, and the
+child is still a separate process started by the unmodified `ExternalSigner` and `Process.Start`.
+
+**Evidence, and its limit.** As D44's: a race has no deterministic red fact, and a green rerun is not
+evidence, since the flake also passed on rerun. The suite was run locally (macOS) and in CI; neither
+reproduces a race on demand. This removes a candidate cause; it is not recorded as a confirmed cure.
+No other test in `tests/` sets an execute bit on a file it wrote (searched for `SetUnixFileMode`,
+`UserExecute` and `chmod`, 2026-10-17).
+
+**Reopen if** `ETXTBSY`, `Text file busy` or `An error occurred trying to start process` appears again
+in a test that launches a child process.
+
 ### G21 PR 0.5 — the lifecycle append guard *(opened and built by the rotation stage's PR 0.5, 2026-10-13; errata G21, R4.38 (add.); lifted: no)*
 
 **Status: built, merge pending; the guard is on and nothing lifts it in this stage.** Every INSERT into
@@ -6159,8 +6192,8 @@ the owner's.
 
 ### G21 PR 2 — the operator's compromise declaration and disputed content *(opened and built by the rotation stage's PR 2, 2026-10-15; errata G21, R6.26 (rev.), R6.57, R6.30 (rev.); lifted: no)*
 
-**Status: built, merge pending; behind the guard.** G21 is fully built with this PR, and no requirement
-of it is met until its PR merges. Nothing here appends a compromise to a retained log: the declaration is
+**Status: built and merged (PR #93, 2026-10-17); behind the guard, which nothing has lifted.** G21 is
+fully built with this PR. Nothing here appends a compromise to a retained log: the declaration is
 exercised only against databases a test run created.
 
 **What exists.**
