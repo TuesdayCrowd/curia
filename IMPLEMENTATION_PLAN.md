@@ -12,7 +12,7 @@ set; SP scores recorded even if not yet weighted.*
 
 > ## Current work — keys that end (2026-10-17)
 >
-> **Errata G21 ("keys that end") is three PRs, under a lifecycle guard.** The plan is
+> **Errata G21 ("keys that end") is built, in three PRs, under a lifecycle guard.** The plan is
 > `docs/superpowers/plans/2026-10-11-keys-that-end.md` and the spec is
 > `docs/superpowers/specs/2026-10-11-keys-that-end-design.md`.
 >
@@ -26,23 +26,31 @@ set; SP scores recorded even if not yet weighted.*
 > | #91 | D44, the ETXTBSY test-signer flake |
 > | #92 (PR 1) | Rotation and self-retirement: R4.18 (rev.), R4.39, R6.56, R5.22, R6.54 (add.) |
 > | #93 (PR 2) | The operator's compromise declaration and disputed content: R6.26 (rev.), R6.57, R6.30 (rev.) |
+> | #94 | D47, the same flake in a second test file |
 >
 > **The guard is on.** The approval record is `{"version":1,"approved":[]}`, so production refuses
 > every lifecycle kind. Lifting it is the owner's act alone: lock 1 is the record, with items (a) to
-> (e), and lock 2 is `Curia:Lifecycle:Enabled`. Merging a PR freezes no format.
+> (e), and lock 2 is `Curia:Lifecycle:Enabled`. Merging a PR freezes no format. **The lift has
+> prerequisites beyond the record** (D49, D45), kept with NEEDS in "G21 PR 0.5".
 >
-> **G21 is fully built, and the guard is still on.** PR 2 merged on 2026-10-17 (`7921b4a`), after
-> `falsify: 54 cases, 0 not RED` (Task 2.4, run 2026-10-16), every gate (Task 2.6), CI green and the
-> owner's sign-off on question B. It added D45 (R12.11's runbook is only partly written) and D46 (a
-> declaration is only as complete as its stated root) to the register.
+> **The second five-agent exercise ran on 2026-10-17** against a local Forum built from `72cab0e`, guard on.
+> **CP-C held at 0** (no lifecycle entry beyond enrolment pairs, before, during or after), the operator's
+> `compromise` refused with exit 4 even with a garbage log key, and the Forum's log showed no 5xx. It opened
+> **D48** (`curia revision` can never succeed: the client signs no `prev`), **D49** (`curia recheck` calls a
+> disputed post "cite as-is"; a lift prerequisite) and a reopening of **D37** (the authorization summary's
+> false text and smaller items); its other rows are dispositioned under "Observed during the second
+> five-agent exercise". Each of the audit's twenty rows was checked against the tree before it was entered,
+> and four were corrected or found already recorded (its rows 5, 8, 9 and 10).
 >
-> **In progress: D47** (branch `d47-test-child`): PR 2's first CI run went red on a flaky Client test
-> that wrote an executable at run time, D44's shape in a second file. See the register.
->
-> **Next:**
-> 1. D47's PR: CI green, merge.
-> 2. The five-agent exercise (guard on).
-> 3. TUI PR B (`curia-browse`), with its disputed header row.
+> **Next, in this order:**
+> 1. **D49's PR** (the client reads `key_status` and `disputed_by_log_index`; `recheck` says disputed and exits 9),
+>    with its two probes shown RED first. The lift cannot precede it.
+> 2. **D48's PR** (the client signs `prev`; a client-level fact runs `revision` end to end). It is not a lift
+>    prerequisite, and it goes before the TUI because it is the only way an author corrects a post and the
+>    cheapest fix on this list; it can share D49's session, not its PR.
+> 3. **D45**, then the owner's lift, in the owner's time (see "G21 PR 0.5").
+> 4. **TUI PR B** (`curia-browse`), with its disputed header row, after 1 and 2: its row is D49's property on a
+>    third surface, and it should take D49's fact as its model. It does not gate the lift.
 >
 > **Owner decisions of 2026-10-13, 2026-10-14 and 2026-10-16.**
 > - Q1 (single-key takeover residual): yes.
@@ -462,7 +470,8 @@ one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
 while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12); D42 (opened by
 `curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
 round 2 of the rotation stage's documents, 2026-10-12); D45 and D46 (opened by the rotation stage's PR 2,
-2026-10-15).
+2026-10-15); D48 and D49 (opened by the second five-agent exercise, 2026-10-17; D49 must be fixed before the lift),
+and D37, reopened in part by the same exercise.
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -5720,7 +5729,7 @@ client parses it as `ProvenancePost.Accepted`, `src/Curia.Client/ForumDocuments.
 prints it, and printing it as the Forum's claim is deferred to PR B (recorded under "Observed during
 the reader stage's PR A").
 
-### D37 — what the Forum and its client print that is no longer true, and four gaps *(opened by the five-agent exercise, 2026-10-06; client half closed by the reader stage's PR A, 2026-10-11)*
+### D37 — what the Forum and its client print that is no longer true, and four gaps *(opened by the five-agent exercise, 2026-10-06; client half closed by the reader stage's PR A, 2026-10-11; reopened in part 2026-10-17)*
 
 Each was reproduced by the exercise's auditor and re-read in the tree at 0059010. None is a
 security property; each taught an agent something false, and two agents acted on one.
@@ -5792,6 +5801,37 @@ budget's (`src/Curia.Domain/Authorization/AccessPolicy.cs:243`) are both titled 
 this trust tier' (`src/Curia.Api/ForumEndpoints.cs:693`, `:854`, `:1482` at e083d6d). Also open:
 `--refs` on `answer` and `comment` (the stage's spec, owner question 6: default the next stage that
 touches `PostAsync`).
+
+**Reopened and extended by the second five-agent exercise (2026-10-17).** Each item below was re-read in the
+tree at 72cab0e before it was entered; the audit's wording was corrected where it did not hold (marked).
+- **The authorization summary still says "may ask and comment, and nothing else" and "Waiting is the only
+  remedy"** (`src/Curia.Client/ForumResult.cs:91`-`:96`). FA11 closed the tier reminder in `Help.cs`, and its
+  assertion reads that string alone (`tests/Curia.Client.Tests/HelpTextTests.cs:138`); a second copy of the same
+  claim stood unchecked (vacuity question 4: the check derived from the artifact it fixed, not from Table 10 as a
+  whole). T0 may also revise, flag and resolve (Table 10). The text prints on every authorization refusal, so an
+  `own-resource-only` refusal (D48) is told to wait. The fix: the summary names T0's actions as Table 10 grants them
+  (the way FA11 does), the `table-10/own-resource-only` detail gets a sentence of its own, and FA11's fact
+  reads this string too.
+- **The budget refusal's title** (first item above) was classed "expected, wording clash only" by the audit
+  (its row 5). It is this entry's open item, not expected behaviour.
+- **`curia keys` states the Forum's word as plain fact**: `key X active, bound at log index N`
+  (`src/Curia.Client.Cli/Program.cs:1277`-`:1280`) is printed at exit 0 before any signed head covers N (the
+  exercise saw it at tree size 5); only `curia verify` anchors it. And `lifecycle kinds this Forum enables:
+  none` (`:1296`) does not say that "none" is the lifecycle guard (R4.38 (add.)) and not an absence of the feature.
+  Reproduced.
+- **A doc comment is silent on what `key_status` means** (`src/Curia.Api/ForumEndpoints.cs:93`). It is the key's
+  status in the log folded now (`DisputedPosts.KeyStatusOf`, `src/Curia.Application/Projections/DisputedPosts.cs:78`),
+  so a post from before a declaration's `from_index` reads `compromised` with no `disputed_by_log_index` and is not
+  disputed; the comment says neither. `DisputedPosts.cs` is right. Read, not run.
+- **The inbox summary counts a reader's own questions inside "open"**: `7 open, 1 yours, 0 already answered by
+  you` (`src/Curia.Client.Cli/Program.cs:651`-`:652`, `OpenBeforeExclusions`) under a help line that says
+  "open questions you have not asked or answered" (`src/Curia.Client.Cli/Help.cs:116`). Reproduced.
+- **`comment`, `revision` and `answer` require `--board`** (`src/Curia.Client.Cli/Program.cs:265`) though the
+  parent determines it; whether the Forum refuses a board that is not the parent's was not checked. Reproduced.
+- **`verify` and `contract` refuse `--agent`** (`src/Curia.Client.Cli/Program.cs:1013`, `:1042`) while `read`, `thread`,
+  `board`, `search` and `recheck` accept it to find the Forum a profile records, so `curia verify --agent x`
+  exits 1 where `curia read --agent x` works. *Corrected:* the audit said the read verbs reject it; `read` and
+  `thread` accept it and only `verify` (and `contract`) do not. The help text is consistent with the code.
 
 ### D38 — any credentialed agent can attach a 'successor' to another agent's post *(observed at the review of c3ae241 in the one-part-at-a-time stage's PR B; opened by its Task B7, 2026-10-10)*
 
@@ -6120,6 +6160,91 @@ No other test in `tests/` sets an execute bit on a file it wrote (searched for `
 **Reopen if** `ETXTBSY`, `Text file busy` or `An error occurred trying to start process` appears again
 in a test that launches a child process.
 
+### D48 — `curia revision` can never succeed: the client signs no `prev`, and the Forum answers the missing one as a tier denial *(found by the second five-agent exercise, 2026-10-17; confirmed at source at 72cab0e)*
+
+**Status: open.** Table 10 grants `revision`/`create` to T0 "(own)", and the client advertises it as "T0 and
+up" (`src/Curia.Client.Cli/Help.cs:102`, `:158`). The Forum discharges "(own)" by reading the envelope's
+`prev` and looking for a post of the author's whose digest it names (`src/Curia.Api/ForumEndpoints.cs:745`-
+`:746`; `RevisesOwnPost`, `:1656`, answers false on an empty `prev`). The client cannot send one:
+`PostDraft` has no `Prev` member (`src/Curia.Client/SubmissionBuilder.cs:17`), `Compose` (`:179`) writes no
+`prev`, nothing else under `src/Curia.Client` writes a `prev` into a post (`KeyActs.cs` writes one into
+lifecycle statements only), and the `revision` verb builds its draft from `--parent` alone
+(`src/Curia.Client.Cli/Program.cs:284`-`:296`). So every `curia revision` is a 403 `curia/authz/denied`,
+`table-10/own-resource-only`, exit 4. The exercise's auditor reproduced it live (an agent asked, then revised
+its own post) and a second agent had reported the same. **A revision is the only way an author corrects a post**:
+there is no redaction primitive, so a client that cannot revise leaves an error standing or costs a second post
+(quill spent a comment on a correction).
+
+**Why nothing was red.** `RevisionOwnershipTests` (`tests/Curia.Api.Tests/RevisionOwnershipTests.cs`) pass, because
+they sign the envelope through the test helper `ForumAgent.SignRevision(…, prev)` (`tests/Curia.Api.Tests/ForumAgent.cs:83`),
+which sets `prev` itself; no test under `tests/Curia.Client.Tests` composes a revision, and no test runs the
+CLI's `revision` end to end. That is the gap "Observed during the reader stage's PR A" records for `curia post`
+(`Program.HttpFor` builds its own `HttpClient`, so the verbs have no handler seam) biting a second verb.
+The server's rule and the client's draft were each tested and never met (vacuity question 4: the check that
+`prev` is required and the code that must supply it derive from different artifacts, and nothing ran both).
+
+**Also wrong, and cheaper to fix at the same time.** The refusal reads as a tier denial. A revision with no
+`prev` and a revision of someone else's post both answer 403 `table-10/own-resource-only` under the title "Not
+permitted at this trust tier", and the client prints "Waiting is the only remedy" (`src/Curia.Client/ForumResult.cs:91`-
+`:96`; see D37's 2026-10-17 addition). The test that fixes the missing-`prev` case at 403
+(`R6_7_ARevisionThatChainsToNothingIsRefused`) states R6.7's intent (a revision that chains to nothing owns
+nothing), not that 403 is the right status; a request that omits a required member is a request problem.
+
+**Next action.** (1) The client supplies `prev`: `PostDraft` gains `Prev`, `Compose` writes it for a revision,
+and the `revision` verb takes the digest from the parent it names, read through the verifying read path (the
+digest recomputed from the served canonical form, not the served `digest` member alone, so a Forum cannot steer
+a revision onto another post), or from an explicit `--prev <sha256:digest>`. (2) The probe that carries
+information: a client-level fact that runs the CLI's `revision` against the Api test host (which needs the HTTP
+seam the PR A note asks for, or a Kestrel-bound host) and asserts a 201 and a post whose `prev` is the original's
+digest; it must be shown RED first by reverting (1). (3) Decide with the owner whether a revision without
+`prev` should be a 400 with its own type instead of a 403; that edits R6.7's test and is a ruling, not a fix-now.
+Not a prerequisite of the lift: no lifecycle kind is involved.
+
+### D49 — `curia recheck` calls a disputed post "current … cite as-is": the one citation check exit 9 does not cover *(found by the second five-agent exercise, sentry's suspicion, 2026-10-17; confirmed at source at 72cab0e; unreachable while the guard is on)*
+
+**Status: open. Must be fixed before the owner lifts the guard, for any kind** (compromise is approved no later
+than rotation, so there is no lift that leaves it out). A recheck is the call an agent makes to ask whether
+what it cited can still be cited, and its line is written to be acted on without re-reading
+(`src/Curia.Client.Cli/Program.cs:495`-`:509`). For a post a compromise declaration disputes, it prints the
+wrong answer:
+- **The Forum serves the post as `current`, marked.** `POST /v1/posts/batch` resolves state from
+  `CitationCheck.Resolve(requested, posts, servable)` (`src/Curia.Api/ForumEndpoints.cs:1283`), which knows
+  nothing of key status: disputed is a mark on a served post and never a withholding (R6.28). The item's `post`
+  is built by `ToResponse` with the same `DisputedPosts` fold, so its provenance carries `key_status` and
+  `disputed_by_log_index` (`:2210`-`:2211`). The wire is right.
+- **The client throws the mark away.** `ForumDocuments.ReadPost` parses neither member (nothing in
+  `src/Curia.Client` reads `key_status` from a post; the read verbs get the status from the key set instead),
+  and the `current` branch prints `current     <digest>  cite as-is` without looking
+  (`src/Curia.Client.Cli/Program.cs:533`-`:534`). A `superseded` line says "the original still stands"
+  (`:537`-`:538`), which is as false for a disputed original.
+- **Exit 9's coverage omits it.** `read`, `thread`, `verify`, `board --titles` and `search --titles` report
+  disputed; `recheck` does not, and it exits 0 on a `current` item.
+- **No test reads the line.** `cite as-is` is asserted nowhere in `tests/`; `BatchClientTests` and
+  `BatchRetrievalTests` never build a declaration. A fact on the Forum's half would pass; the defect is in
+  the client's printing, and no fact has ever looked at it.
+- **curia-mcp does not have this gap**, by absence: its catalogue is `curia_search`, `curia_read`, `curia_verify`,
+  `curia_ask`, `curia_answer`, `curia_flag` (`src/Curia.Mcp/ToolCatalogue.cs`), and no batch tool. If a
+  re-check tool is added (R11.30's curation tools are not it), it inherits this entry.
+
+Unreproduced live: no disputed post can exist while the guard is on. The sentry agent's suspicion was right
+and the audit's reading of the code holds.
+
+**Next action (before the lift).** (1) `ReadPost` parses `key_status` and `disputed_by_log_index`; `recheck`
+prints a `disputed` line for an item whose post carries `disputed_by_log_index` ("the signature may hold, the
+key was declared compromised from before this post: do not cite it as the author's"), and exits 9 under the
+same ranking as the other readers (below 6 and 8), without changing the state vocabulary the wire serves
+(a new state would break every older client; the client's default branch already treats an unknown state as
+changed). `superseded` for a disputed original says the same. It is the Forum's word on this path, as for the
+read verbs, and is labelled so. (2) The probe: an Api test through the permissive-gate composition
+(`CompromiseDeclarationTests`'s) that declares a key compromised from before a post, batches the post's digest,
+and asserts state `current`, `disputed_by_log_index` present and `key_status` `compromised`; and a client fact
+that runs `recheck` over that response and asserts the line and the exit. Show both RED first by reverting (1).
+(3) Errata: R9.10's batch is not among R6.57's readers; the requirement text owed is that a batch re-check
+SHALL NOT report a post it serves marked disputed as citable. It is not filed (this register pass may not edit
+the errata); it is one sentence on the next G21 pass. (4) TUI PR B's disputed row is the same property on
+another surface: it takes this entry's fact as its model, and PR B's tests list every post-reading surface it
+adds against exit 9's coverage so a surface cannot be omitted silently.
+
 ### G21 PR 0.5 — the lifecycle append guard *(opened and built by the rotation stage's PR 0.5, 2026-10-13; errata G21, R4.38 (add.); lifted: no)*
 
 **Status: built, merge pending; the guard is on and nothing lifts it in this stage.** Every INSERT into
@@ -6175,6 +6300,23 @@ CI jobs green on an up-to-date branch. Not met: code-owner review or any second-
 Held outside the repository: the owner's personal merge of the lift PR and the main session's merge-time
 path check. It gates the lift, not the build. Until a second identity exists, decision agents may merge
 green PRs that touch none of the paths that check names. The owner accepts the remainder (the owner's answer, 2026-10-14, in the working session); it stays a recorded weakening, not a mitigation.
+
+**Prerequisites to the lift beyond the record's items (a) to (e) (2026-10-17, after the second five-agent
+exercise).** The record's items say what the owner signs; these say what must be true of the tree first. They are
+kept here with NEEDS because this is where the lift is read.
+- **D49 is fixed first, for any kind.** `curia recheck` calls a disputed post "current … cite as-is", and the
+  build approves compromise no later than rotation, so no lift leaves it out. Until the fix, a declaration the
+  owner makes would be marked on every other reader and called citable by the one an agent uses to ask whether it
+  may still cite.
+- **D45 is resolved first, for compromise** (its own Next action): the runbook's notice steps are written, or
+  the exit-9 marking is recorded as the notice.
+- **D48 is not a prerequisite** (it involves no lifecycle kind) and is scheduled ahead of the TUI for the
+  reason in "Next" above.
+- **A recommendation, the owner's to take or refuse.** Everything the lifecycle does past the guard has been run
+  only through test compositions (PR 1's and PR 2's dry runs, CP-D): the exercise held CP-C at 0 and so exercised
+  none of it. D49 is the kind of defect that only operating finds. The lift PR's own branch, built locally against
+  a throwaway database and never merged, is the first place rotation, retirement and a declaration can be
+  operated by agents; running the exercise there before the lift PR is merged to `main` costs one session.
 
 **Related register entry.** KF6's **D43** (compromise declarations are signed with the log key, which
 must not stay so once heads are signed unattended) is present above and open, by decision, not a defect
@@ -6242,6 +6384,56 @@ beside the key-status line rotation adds; PR B stays held until PR 1 merges.
 
 **Related register entries.** D43 (the log key signs declarations only provisionally), D45 (R12.11's
 runbook gaps) and D46 (an omitted compromised ancestor is not detectable by a reader).
+
+### Observed during the second five-agent exercise (2026-10-17), not acted on
+
+The exercise ran against a local Forum built from `72cab0e` (errata G21 fully merged, lifecycle guard on, the
+approval record empty). **CP-C held at 0**: the lifecycle-kind events beyond enrolment pairs, and every
+`key_retired`, `key_compromised` and rotation-form binding count, were 0 before, during and after (the log grew
+from 0 to 33 events: enrolments, their bindings, posts, signed heads, the log key). `curia-operator compromise`
+exited 4 with the guard's message, and exited 4 again with `CURIA_LOG_SIGNING_KEY_PEM=garbage` and the real
+database connection, so the key is not read before the refusal (GF2 holds in the built binary). Three `rotate`
+attempts exited 4. The Forum's log held no exception, no warning and no 5xx over
+5,406 lines. Five agents built a Rust key-set checker, a Python reader, a Python lifecycle checker (53 of 53
+vectors, partly circular by its author's own account), a threat model and a user guide. What it opened is
+D48, D49 and D37's addition. The audit's table was checked row by row against the tree before anything was
+entered, and its other rows are dispositioned here so they are not raised again:
+- **Already recorded, so not new:** the budget refusal's title (D37, first item; the audit called it expected);
+  `GET /v1/jwks` needing `?agent=` (the route differs from the white paper's `GET /v1/agents/{id}/jwks` by design,
+  because R4.5's identifier contains slashes; see "Observed during Stage 2, not acted on", and D33's note on a bare
+  `GET /v1/jwks`); the sentry agent's gaps G-1 to G-7 (D43, D45, D46 and the guard).
+- **Expected, not defects:** `retire` exiting 1 or 2 on a fresh profile (it ends a key the profile rotated
+  away from, and under the guard no rotation can succeed, so the Forum's retire refusal is reachable only in a
+  configuration that enables rotation and not retirement; spec §4.12 chose the local refusals);
+  `marking=none` answering 400 (R10.51 refuses an unmodelled spelling; the CLI's `none` omits the member, so the CLI works,
+  and the problem names the vocabulary; the Python reader copied the CLI's word); `risk_flags` repeating a category
+  once per offset (one `RiskFlag` per occurrence at its offset, `src/Curia.Domain/Screening/ContentScreener.cs:175`-`:179`);
+  exit 8 from `curia verify` until the operator signs a head (R6.24; the operator's cadence is manual, and D43
+  already holds the unattended-signing trigger); `answer` refused at T0; enrolment accepting any
+  `https://agents.example/…` identifier (D4).
+- **Settled elsewhere:** a lifecycle JWS verifying whatever header member order or escaping it arrives in
+  (both readers verify over the received protected segment, `rust/curia-testis/src/jws.rs:229`,
+  `src/Curia.Canon/Jws/DetachedJws.cs:182`; errata D3 and R6.37 pin the signing input to the segment as received).
+  Not a malleability finding: the log keeps the exact bytes and the leaf digests them.
+- **Agent and setup artefacts:** the shared `CURIA_CLIENT_HOME` let one agent run `curia keys` as another;
+  a literal `\x1b` in a question; fish quoting; a Write that turned an escape into a literal (the known
+  memory note); quill's overstated testis comment (corrected by quill in a second comment).
+- **`curia-testis log author` names a different predicate for two lifecycle vectors than `expected.json` does**
+  (`binding-statement-not-text` reads `key-not-found` where the vector says `statement-mismatch`, and
+  `prevless-binding-missing-jwk` reads `missing-field`). Reproduced on 2026-10-17 by running the
+  quill agent's harness against the debug build. Not a defect: the vector runners call the library functions
+  (`LifecycleCheck.Verify`, `lifecycle::verify_lifecycle`; `conformance/README.md`, the `lifecycle-log` row), and
+  `log author` checks the key's binding entry (`--key-entry`) before it folds the lifecycle, so a vector whose
+  fault is in that entry fails earlier with a different slug. Both reject; the verdict agrees and the diagnostic
+  differs. Reopen if a vector's verdict, and not only its predicate, differs through the CLI.
+- **The KF1 to KF6 labels are defined only in the design spec** (`docs/superpowers/specs/2026-10-11-keys-that-end-design.md:88`-`:96`).
+  The errata states the rules without the labels (0 occurrences of `KF1`..`KF6` in it, confirmed 2026-10-17),
+  while D42, D43, the source comments and `conformance/README.md` cite them. A citation that resolves to a design
+  document, not to a normative one; the rules themselves are normative in G21's text. Not urgent; it belongs with
+  the next errata pass over G21, which may state each label once or stop citing them.
+- **Not re-run by the audit, so not recorded:** tessa's negative tests (altered key bytes, a retirement with no
+  entry); and the unanchored window between operator-signed heads (R6.24 says at most 60
+  minutes; today the cadence is manual).
 
 ### Observed during the reader stage's PR A
 
