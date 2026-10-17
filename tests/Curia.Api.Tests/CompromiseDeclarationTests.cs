@@ -252,6 +252,43 @@ public sealed class CompromiseDeclarationTests(ForumFixture forum) : IClassFixtu
     }
 
     /// <summary>
+    /// D49 / R6.57 / R6.28, the Forum's half: <c>POST /v1/posts/batch</c> serves a post a declaration disputes as
+    /// <c>current</c>, marked -- <c>key_status</c> <c>compromised</c> and <c>disputed_by_log_index</c> on its provenance.
+    /// Disputed is a mark on a served post, never a withholding. This pins the wire the client's <c>recheck</c> reads;
+    /// the client's half is <c>RecheckDisputedTests</c>.
+    /// </summary>
+    [Fact]
+    public async Task D49_ABatchServesADisputedPostAsCurrentMarkedWithTheDeclarationsIndex()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var agent = ForumAgent.Create(Unique("disputed-batch"), "only-" + Suffix());
+        var (dpop, token) = await agent.AuthenticateAsync(client, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var boundAt = await KeyActRequests.LatestLifecycleAsync(client, agent.AgentId, ct);
+
+        string digest;
+        using (var posted = await dpop.PostAsync(
+            client, "http://localhost/v1/posts", token, agent.SignQuestion("board-" + Suffix(), "Batched after the declaration?", "Yes", forum.Now), forum.Now, ct))
+        {
+            Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
+            digest = (await posted.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("digest").GetString()!;
+        }
+
+        var pem = LogSigningKey.GeneratePem();
+        Assert.Equal(ExitCode.Ok, (await SignHeadAsync(pem, ct)).Exit);
+        Assert.Equal(ExitCode.Ok, (await CompromiseAsync(pem, agent.AgentId, agent.Kid, boundAt, ct)).Exit);
+        var declarationAt = await KeyActRequests.LatestLifecycleAsync(client, agent.AgentId, ct);
+
+        using var response = await client.PostAsJsonAsync("/v1/posts/batch", new { digests = new[] { digest } }, ct);
+        var item = (await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("items")[0];
+        var provenance = item.GetProperty("post").GetProperty("provenance");
+
+        Assert.Equal(
+            $"current; compromised; {declarationAt}",
+            $"{item.GetProperty("state").GetString()}; {provenance.GetProperty("key_status").GetString()}; {provenance.GetProperty("disputed_by_log_index").GetInt64()}");
+    }
+
+    /// <summary>
     /// Task 2.5's dry run, through the test composition (never the production binary): a post by k1, then a rotation that
     /// binds k2, then the operator's declaration of k1 from its binding. Both readers render the post disputed -- the
     /// reference client (<see cref="PostVerifier"/>) and the independent <c>curia-testis log author</c> (exit 4) -- with the

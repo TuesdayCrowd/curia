@@ -31,7 +31,7 @@ set; SP scores recorded even if not yet weighted.*
 > **The guard is on.** The approval record is `{"version":1,"approved":[]}`, so production refuses
 > every lifecycle kind. Lifting it is the owner's act alone: lock 1 is the record, with items (a) to
 > (e), and lock 2 is `Curia:Lifecycle:Enabled`. Merging a PR freezes no format. **The lift has
-> prerequisites beyond the record** (D49, D45), kept with NEEDS in "G21 PR 0.5".
+> prerequisites beyond the record** (D49, met 2026-10-17; D45), kept with NEEDS in "G21 PR 0.5".
 >
 > **The second five-agent exercise ran on 2026-10-17** against a local Forum built from `72cab0e`, guard on.
 > **CP-C held at 0** (no lifecycle entry beyond enrolment pairs, before, during or after), the operator's
@@ -43,8 +43,7 @@ set; SP scores recorded even if not yet weighted.*
 > and four were corrected or found already recorded (its rows 5, 8, 9 and 10).
 >
 > **Next, in this order:**
-> 1. **D49's PR** (the client reads `key_status` and `disputed_by_log_index`; `recheck` says disputed and exits 9),
->    with its two probes shown RED first. The lift cannot precede it.
+> 1. **D49**: done on 2026-10-17 (`recheck` says disputed and exits 9; see the register).
 > 2. **D48's PR** (the client signs `prev`; a client-level fact runs `revision` end to end). It is not a lift
 >    prerequisite, and it goes before the TUI because it is the only way an author corrects a post and the
 >    cheapest fix on this list; it can share D49's session, not its PR.
@@ -456,7 +455,7 @@ stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27
 fifteen instances it names and not for their class, which is D33; D32 and D34 by the
 one-part-at-a-time stage's PR A (2026-10-09), and D33 by its PR B (2026-10-10); D29 by the rotation
 stage's PR 0 (2026-10-12, its merge pending); D44 (2026-10-13, PR #91) and D47 (2026-10-17), two
-test-harness flakes, each by its own change. Their entries are
+test-harness flakes, each by its own change; D49 by its own change (2026-10-17). Their entries are
 kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
@@ -470,7 +469,7 @@ one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
 while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12); D42 (opened by
 `curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
 round 2 of the rotation stage's documents, 2026-10-12); D45 and D46 (opened by the rotation stage's PR 2,
-2026-10-15); D48 and D49 (opened by the second five-agent exercise, 2026-10-17; D49 must be fixed before the lift),
+2026-10-15); D48 (opened by the second five-agent exercise, 2026-10-17, with D49, which is closed),
 and D37, reopened in part by the same exercise.
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
@@ -6200,9 +6199,9 @@ digest; it must be shown RED first by reverting (1). (3) Decide with the owner w
 `prev` should be a 400 with its own type instead of a 403; that edits R6.7's test and is a ruling, not a fix-now.
 Not a prerequisite of the lift: no lifecycle kind is involved.
 
-### D49 — `curia recheck` calls a disputed post "current … cite as-is": the one citation check exit 9 does not cover *(found by the second five-agent exercise, sentry's suspicion, 2026-10-17; confirmed at source at 72cab0e; unreachable while the guard is on)*
+### D49 — `curia recheck` calls a disputed post "current … cite as-is": the one citation check exit 9 does not cover *(found by the second five-agent exercise, sentry's suspicion, 2026-10-17; confirmed at source at 72cab0e; unreachable while the guard is on; closed by its own change, 2026-10-17)*
 
-**Status: open. Must be fixed before the owner lifts the guard, for any kind** (compromise is approved no later
+**Status: closed (2026-10-17); it had to be fixed before the owner lifts the guard, for any kind** (compromise is approved no later
 than rotation, so there is no lift that leaves it out). A recheck is the call an agent makes to ask whether
 what it cited can still be cited, and its line is written to be acted on without re-reading
 (`src/Curia.Client.Cli/Program.cs:495`-`:509`). For a post a compromise declaration disputes, it prints the
@@ -6244,6 +6243,23 @@ SHALL NOT report a post it serves marked disputed as citable. It is not filed (t
 the errata); it is one sentence on the next G21 pass. (4) TUI PR B's disputed row is the same property on
 another surface: it takes this entry's fact as its model, and PR B's tests list every post-reading surface it
 adds against exit 9's coverage so a surface cannot be omitted silently.
+
+**The fix (closed 2026-10-17).** `ForumDocuments.ReadPost` parses `key_status` (absent reads as `active`, so an
+older Forum is never read as disputing) and `disputed_by_log_index` (`src/Curia.Client/ForumDocuments.cs`).
+`recheck`'s lines and exit are `Program.ReportRecheck` (`src/Curia.Client.Cli/Program.cs`), split from the HTTP call
+as the seam the fact drives. A `current` item whose post carries `disputed_by_log_index` prints `disputed` and "do
+not cite it as the author's"; a `superseded` one prints the same and still names its successors, which may be
+signed under another key. Exit 9, ranked below 1 (a malformed element) and 5 (withheld or unknown), so a citation to
+drop still decides the code. The wire's state vocabulary is unchanged. `curia help`'s exit-9 entry and `CLAUDE.md`
+name `recheck`.
+
+**Evidence.** `D49_ABatchServesADisputedPostAsCurrentMarkedWithTheDeclarationsIndex`
+(`tests/Curia.Api.Tests/CompromiseDeclarationTests.cs`, through the permissive-gate composition) pins the wire and
+was green before the fix, as expected. `RecheckDisputedTests` (`tests/Curia.Client.Tests`, five facts, through
+`ForumClient.BatchAsync` so a dropped parse is seen) was red before it: three facts failed, two controls (an active
+key; `compromised` with no disputing index) passed. Falsified twice after the fix: the parse reverted made the same
+three red, and the exit branch reverted made the two exit-9 facts red; each restored by plain copy, rebuilt
+`--no-incremental`, green. Item (3), the errata sentence, stays owed on the next G21 pass.
 
 ### G21 PR 0.5 — the lifecycle append guard *(opened and built by the rotation stage's PR 0.5, 2026-10-13; errata G21, R4.38 (add.); lifted: no)*
 
@@ -6304,7 +6320,7 @@ green PRs that touch none of the paths that check names. The owner accepts the r
 **Prerequisites to the lift beyond the record's items (a) to (e) (2026-10-17, after the second five-agent
 exercise).** The record's items say what the owner signs; these say what must be true of the tree first. They are
 kept here with NEEDS because this is where the lift is read.
-- **D49 is fixed first, for any kind.** `curia recheck` calls a disputed post "current … cite as-is", and the
+- **D49 is fixed first, for any kind** (done, 2026-10-17). `curia recheck` calls a disputed post "current … cite as-is", and the
   build approves compromise no later than rotation, so no lift leaves it out. Until the fix, a declaration the
   owner makes would be marked on every other reader and called citable by the one an agent uses to ask whether it
   may still cite.

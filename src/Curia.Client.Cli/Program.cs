@@ -506,6 +506,11 @@ internal static class Program
     /// <para>Exit 5 when any citation is withheld or unknown -- both mean "change what you cite" --
     /// and 1 when any element was not a digest, after every line has been printed. Superseded alone
     /// is not an error: the original still stands, and the line names what to read next.</para>
+    ///
+    /// <para>Exit 9 (D49, R6.57) when a post the Forum serves, <c>current</c> or the original of a <c>superseded</c> one,
+    /// carries <c>disputed_by_log_index</c>: its key was declared compromised from before it. The wire's state is
+    /// unchanged, since disputed is a mark and never a withholding (R6.28); the line says so, ranked below the
+    /// citations to drop.</para>
     /// </summary>
     private static async Task<int> RecheckAsync(Args args, CancellationToken ct)
     {
@@ -522,14 +527,35 @@ internal static class Program
         var result = await client.BatchAsync(args.Positional, marking, ct).ConfigureAwait(false);
         if (!result.TryGetValue(out var items, out var refusal)) return Output.Fail(refusal);
 
+        return ReportRecheck(items);
+    }
+
+    /// <summary>
+    /// The lines and the exit of <c>curia recheck</c>, over the items the Forum answered. Separate from the HTTP call so a
+    /// fact can drive it with a batch response of its own making.
+    /// </summary>
+    internal static int ReportRecheck(ImmutableArray<CitationDocument> items)
+    {
         var anyMalformed = false;
         var anyGone = false;
+        var anyDisputed = false;
 
         for (var i = 0; i < items.Length; i++)
         {
             var item = items[i];
             switch (item.State)
             {
+                case "current" when item.Post?.Provenance.DisputedByLogIndex is not null:
+                    anyDisputed = true;
+                    Output.Line($"disputed    {item.Digest}  the signature may hold, but the key was declared compromised from before this post (the Forum's word, R6.57): do not cite it as the author's");
+                    break;
+
+                // A successor may be signed under another key, so the line still names what to read next.
+                case "superseded" when item.Post?.Provenance.DisputedByLogIndex is not null:
+                    anyDisputed = true;
+                    Output.Line($"disputed    {item.Digest}  (superseded -> {Literals(item.Successors)}) the signature may hold, but the key was declared compromised from before this post (the Forum's word, R6.57): do not cite it as the author's; re-read the successor before citing it");
+                    break;
+
                 case "current":
                     Output.Line($"current     {item.Digest}  cite as-is");
                     break;
@@ -560,7 +586,7 @@ internal static class Program
             }
         }
 
-        return anyMalformed ? ExitCode.Usage : anyGone ? ExitCode.NotFound : ExitCode.Ok;
+        return anyMalformed ? ExitCode.Usage : anyGone ? ExitCode.NotFound : anyDisputed ? ExitCode.Disputed : ExitCode.Ok;
     }
 
     /// <summary>

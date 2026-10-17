@@ -548,7 +548,12 @@ internal static class ForumDocuments
             ClientJson.String(p, "marking_caveat"),
             ClientJson.String(p, "owner"),
             Strings(p, "reproductions"),
-            Strings(p, "contradictions"));
+            Strings(p, "contradictions"),
+
+            // R6.57 / D49: the Forum's mark on a post a declaration covers. Parsed so that `recheck`, whose batch serves such
+            // a post as `current`, can say so; absent from an older Forum, which reads as `active` and not disputed.
+            ClientJson.String(p, "key_status") ?? "active",
+            ClientJson.WholeNumber(p, "disputed_by_log_index"));
 
         if (ClientJson.String(o, "post_id") is not { } postId
             || ClientJson.String(o, "canonical") is not { } canonical
