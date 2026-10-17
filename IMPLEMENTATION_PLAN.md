@@ -51,6 +51,17 @@ set; SP scores recorded even if not yet weighted.*
 >    agents on the lift PR's local branch, which is also the first run of the runbook.
 > 4. **TUI PR B** (`curia-browse`), with its disputed header row, after 1 and 2: its row is D49's property on a
 >    third surface, and it should take D49's fact as its model. It does not gate the lift.
+>    **In progress: TUI PR B (branch `curia-browse`), Task B0 done (2026-10-17).** B0 confirmed the preconditions
+>    (#86, #92, #93 merged; `KestrelForumFixture` exists), **ruled that PR B does not wait on revocation** (G21
+>    annotates R4.19's "revocation" as retirement or a compromise declaration, both merged; the header's key row is
+>    data-driven from the key set's status vocabulary), wrote PR B's spec
+>    (`docs/superpowers/specs/2026-10-17-curia-browse-design.md`) and filed its entry as **errata G22**
+>    (R10.72 to R10.75, proposed, indexed; the mark cap in R10.75 is provisional until B1 measures it).
+>    **Next: B1** (the screen model, pure; step 0a is the owner-strikeable fold of a post's
+>    `disputed_by_log_index` into every reader's outcome) **then B2** (the terminal and the command), **B3** (input
+>    and signals), **B4** (operate it under a pseudo-terminal), **B5** (falsify, FB1 to FB28), **B6** (register and
+>    documents), **B7** (every gate, then the PR). Plan: `docs/superpowers/plans/2026-10-06-the-readers-claims-are-true.md`,
+>    "PR B". Three owner questions in the spec's §12 have defaults and block nothing.
 >
 > **Owner decisions of 2026-10-13, 2026-10-14 and 2026-10-16.**
 > - Q1 (single-key takeover residual): yes.
@@ -6299,7 +6310,9 @@ that runs `recheck` over that response and asserts the line and the exit. Show b
 SHALL NOT report a post it serves marked disputed as citable. It is not filed (this register pass may not edit
 the errata); it is one sentence on the next G21 pass. (4) TUI PR B's disputed row is the same property on
 another surface: it takes this entry's fact as its model, and PR B's tests list every post-reading surface it
-adds against exit 9's coverage so a surface cannot be omitted silently.
+adds against exit 9's coverage so a surface cannot be omitted silently. *Taken up 2026-10-17:* the list is the
+table in PR B's spec §8.2, a fact over the screen's view transitions, and spec §8.4 asks whether the read verbs
+should read the post's `disputed_by_log_index` as `recheck` now does (default yes, Task B1 step 0a).
 
 **The fix (closed 2026-10-17).** `ForumDocuments.ReadPost` parses `key_status` (absent reads as `active`, so an
 older Forum is never read as disputing) and `disputed_by_log_index` (`src/Curia.Client/ForumDocuments.cs`).
@@ -6454,7 +6467,9 @@ retained database. There is no production declaration until after the owner's li
 key was declared compromised from before the post. The owner updates the skill; this change does not.
 
 **TUI PR B.** `curia-browse`'s header gains a disputed row (the post is shown marked, as exit 9 reports it)
-beside the key-status line rotation adds; PR B stays held until PR 1 merges.
+beside the key-status line rotation adds; PR B stays held until PR 1 merges. *Amended 2026-10-17: PR 1 and PR 2 have
+merged and PR B's Task B0 is done; the header is H1 to H6 of the spec's §4, the key row states facts and the outcome
+word is the passage's alone.*
 
 **Related register entries.** D43 (the log key signs declarations only provisionally), D45 (R12.11's
 runbook gaps) and D46 (an omitted compromised ancestor is not detectable by a reader).
@@ -6535,6 +6550,8 @@ entered, and its other rows are dispositioned here so they are not raised again:
   worth serving, and a terminal reader is that kind of component; and filing its requirement now
   would allocate a permanent §10 number two stages before the screen exists and before rotation
   changes what its header must show (Hardin's ruling H13). No code depends on it until PR B.
+  **Filed 2026-10-17 as errata G22** (R10.72 to R10.75) by PR B's Task B0, after rotation and compromise merged and
+  changed what a header must show (key status, and disputed as a fourth outcome).
 - **The line form under an 8-bit character set.** .NET writes UTF-8 whatever the locale (the
   stage's terminal-security probe P2), so a terminal in an 8-bit charset that acts on C1 controls
   reads a continuation byte in 0x80-0x9F as one: U+00DB is `c3 9b`, which such a terminal takes as
@@ -6545,7 +6562,8 @@ entered, and its other rows are dispositioned here so they are not raised again:
 - **A thread's resolution is served and not printed** (D36's F11 correction). `accepted` is on
   every served post (`src/Curia.Api/ForumEndpoints.cs:122`), `Passage.Render` prints `parent` and
   not `accepted`, and a thread's resolution beyond that is derivable from its passages. Printing it,
-  as the Forum's claim, is deferred to PR B.
+  as the Forum's claim, is deferred to PR B. *Taken up 2026-10-17:* PR B's header row H6 prints it as the Forum's
+  word, with the note that no signature covers an acceptance (spec §4.1); it closes when that fact is green.
 
 ### Observed during the one-part-at-a-time stage's PR A
 
@@ -7880,6 +7898,10 @@ TUI PR B (`curia-browse`) stays held until PR 1 merges and may re-scope its head
 merged-pending: the operator's compromise declaration, the Forum's disputed content, and both readers'
 disputed outcome, behind the lifecycle guard, which nothing lifts. G21 is fully built. **TUI PR B**
 (`curia-browse`) adds its disputed header row after PR 2, beside the key-status line.
+*Amended 2026-10-17 (PR B's Task B0).* PR B does not wait on revocation: R4.19's "revocation" is retirement (R4.39) or
+a compromise declaration (R6.26 (revised)) by G21's annotation, both merged, and the header's key row reads the key
+set's status as data. PR B's spec is `docs/superpowers/specs/2026-10-17-curia-browse-design.md` and its entry is errata
+**G22** (R10.72 to R10.75). Tasks B1 to B7 follow.
 
 **The stage after the key-binding stage**, as its spec recommends: **keys an identity can rotate
 and revoke.** The enrollment stage recommended rotation and binding as one stage; the key-binding

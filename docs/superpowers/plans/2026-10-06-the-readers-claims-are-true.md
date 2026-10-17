@@ -455,26 +455,33 @@ FA26's, FA31's and FA32's fact reads `curia.dll` beside the Architecture test as
 
 ---
 
-## PR B — the screen (branch `curia-browse`) — SCOPED, NOT STARTED
+## PR B — the screen (branch `curia-browse`) — IN PROGRESS: B0 done 2026-10-17
 
-> Runs only after rotation and revocation merge. Every anchor, type name and the header's rows are
-> re-derived in B0; rotation adds a key-status row to every header. Honest size: 8 tasks, about 22 facts,
-> 23 falsification cases (FB1–FB22, FB18 split), two pty helpers, a test emulator. Design: the spec's §9.
+> *Amended 2026-10-17 (B0).* Runs after PR A (#86), rotation (#92) and the compromise declaration (#93), all merged
+> at 5e69df1. **It does not wait on revocation:** G21's annotation of R4.19 says "revocation" is retirement (R4.39) or a
+> compromise declaration (R6.26 (revised)), both merged, and the header's key row is data-driven from the key set's
+> status vocabulary (`active`, `retired`, `compromised`, `unbound`; any other word renders as the Forum's word, labelled).
+> Every anchor, type name and the header's rows are re-derived in B0 and now live in **PR B's own spec,
+> `docs/superpowers/specs/2026-10-17-curia-browse-design.md`** (errata **G22**, R10.72 to R10.75), which supersedes the
+> reader spec's §9 header rows. Honest size after the re-scope: 8 tasks, about 28 facts, 29 falsification cases (FB1–FB28,
+> FB18 split; 28 if the spec's owner question 1 is struck), two pty helpers, a test emulator.
 
 ### Task B0: Base, re-scope, file the held entry
 
 > B0's held entry needs authorship, not transcription: re-scoping its header for key status is a design act. The orchestrator dispatches `curia-architect` to file it **before** B0's implementer runs; if the errata has no such entry when B0 starts, the implementer stops.
 
-- [ ] Confirm PR A and rotation merged; `but branch new curia-browse`; none of A's commits on it.
-- [ ] Confirm `KestrelForumFixture` exists; otherwise stop.
-- [ ] Re-scope: read rotation's header changes; revise the held entry's header clause and §9's header rows for key status. Write PR B's own spec from §9.
-- [ ] Have `curia-architect` file the held entry with numbers derived then. Spec checks clean / falsify red.
+- [x] Confirm PR A and rotation merged; `but branch new curia-browse`; none of A's commits on it. *(2026-10-17: #86 at 52eea3a, #92, #93, and #94 to #98 on `origin/main` at 5e69df1; the branch exists and is empty. Revocation is not a precondition: see the amended block above.)*
+- [x] Confirm `KestrelForumFixture` exists; otherwise stop. *(2026-10-17: `tests/Curia.Api.Tests/Fuzz/RequestFuzzKestrelTests.cs:19`.)*
+- [x] Re-scope: read rotation's header changes; revise the held entry's header clause and §9's header rows for key status. Write PR B's own spec from §9. *(2026-10-17: the spec above; the header is now H1 to H6 with a key row of facts, an outcome tag, and the disputed outcome; §9's rows are superseded.)*
+- [x] Have `curia-architect` file the held entry with numbers derived then. Spec checks clean / falsify red. *(2026-10-17: errata **G22**, R10.72 to R10.75, indexed; `check-spec.py` clean, `falsify-spec-checks.py` all four checks red naming their cell.)*
 
 ### Task B1: The screen model (pure)
 
 **Step 0, measure the mark threshold** (scratch script): for every code point, the longest Mn run and, separately, the longest Me run in its NFD decomposition; over `conformance/red-team/benign.jsonl` and `known-false-positives.jsonl`, the longest run of each after one base. Threshold = `max(4, Mn findings)`; Me reported apart and **not** capped at zero (U+20E3). Record the Python and Unicode versions.
 
-Types: `ScreenRow` (closed `Frame`/`Content`, `Content` carrying `Continuation`), `Screen`, `CellWidth`, `ContentLayout` (TAB expansion to multiples of 8; Cc/Cf/Zl/Zp/Co/Cn and baseless marks escaped; mark cap; wrap never splitting a base from its marks), `PassageHeader` (rows per design §9, continued and pinned forms), `Viewport` (computed minimum: chrome + tallest header + 8).
+**Step 0a, the Forum's second word (spec §8.4; owner question 1, default yes).** A failing fact first: a served post whose provenance carries `disputed_by_log_index` while its key set says `active` (a hand-built `ProvenancePost`; the test Forum's honest fold cannot produce the disagreement). Then `Passage.Outcome` reads `Disputed` for it and `Passage.Render`, `TitledIndex.Write` take their word from `Passage.Outcome`. Own commit; falsified (FB25's sibling). Struck if the owner says no, and then the register records that the read verbs and `recheck` disagree.
+
+Types: `ScreenRow` (closed `Frame`/`Content`, `Content` carrying `Continuation`), `Screen`, `CellWidth`, `ContentLayout` (TAB expansion to multiples of 8; Cc/Cf/Zl/Zp/Co/Cn and baseless marks escaped; mark cap; wrap never splitting a base from its marks), `PassageHeader` (**rows H1 to H6 per spec §4.1**, with `OutcomeWord` taken from `Passage.Outcome` alone, `KeyRow` per spec §4.2 built from `SignatureVerdict.KeyStatus`/`KeyRetiredAt`/`KeyCompromisedAt`/`KeyDisputedFrom` and `Post.LogIndex`, H4 reusing `SignatureVerdict.DescribeRead`; continued and pinned forms), `IndexRow` (spec §4.4, reusing `TitledIndex.Title`), `Viewport` (computed minimum: chrome + tallest header + 8).
 
 **Facts:**
 
@@ -488,18 +495,23 @@ Types: `ScreenRow` (closed `Frame`/`Content`, `Content` carrying `Continuation`)
 | `…_TheWidthEstimateNeverUndercounts` | every non-surrogate scalar: ASCII printable 1, else 2 |
 | `…_TheScreenLaysOutTheCanonicalFormNotTheSpan` | mismatched `rendered`: its word absent; the canonical body's first line present |
 | `…_TheBoardIndexHoldsWhatPlainOutputHolds` | every id and title on the board screen appears in `TitledIndex`'s output for the same posts (agent-user F1 parity) |
+| `…_TheKeyRowIsAFactAndTheOutcomeWordIsThePassagesOutcome` | **(re-scope)** one compromised key over three posts (log index below `from_index`, inside the window, at or after the declaration): the key row differs only in the post's index, H4 and the tag are `verified`, `DISPUTED`, `NOT VERIFIED` and equal `Passage.Outcome`'s word, and a `retired` key before and after its retirement does the same |
+| `…_AKeySetThatStatesNoStatusIsNotShownAsActive` | **(re-scope)** `Status` null prints the "does not state a status" row; `active` prints `active`; the two rows differ; non-vacuity: both cases built |
+| `…_TheStatusTemplatesAndTheUnknownWord` | **(re-scope)** `retired`, `compromised` with both indices, a `compromised` missing an index, and an invented word (`revoked`) each render their template or `marked "<word>"`, the word a display literal |
+| `…_AFailedOrUnverifiableSignatureDrawsNoContent` | **(re-scope)** Failed and Could-not-be-checked passages draw a frame row naming `curia read` and no Content row; a Disputed one draws content under its header; the span-mismatch case writes H4b and draws the canonical form |
+| `…_AcceptedIsTheForumsWordAndOnlyInH6` | **(re-scope)** `Accepted = true` prints the labelled phrase in H6 and nowhere else; `false` prints nothing |
 
 ### Task B2: The terminal and the command
 
-`Vt` (constants incl. `Home`, `KeypadOn`/`KeypadOff`), `ScreenFrame`, `ScreenWriter.Serialize` (top-to-bottom, frame rows again, status last; each row `Address`, `Plain`, text, `EraseToEndOfRow`), `Enter()`, `Leave()` (Plain, Home, Clear, WrapOn, CursorShown, KeypadOff, AlternateScreenOff), `BrowseCommand.DrawsAScreen(args, env) → (bool, reason)` over redirections, codeset, `TERM` allowlist, `--screen`, `--plain`, `CURIA_BROWSE`, `isWindows`. Line form: dispatched **after** `Main`'s 2-minute token, handler reused, stderr reason line (none under `--plain`). `Output` members: `Draw`, `ReadKeyAvailable`/`ReadKey`, `Size`, `Redirected`, `TreatControlCAsInput`, `Note`.
+`Vt` (constants incl. `Home`, `KeypadOn`/`KeypadOff`), `ScreenFrame`, `ScreenWriter.Serialize` (top-to-bottom, frame rows again, status last; each row `Address`, `Plain`, text, `EraseToEndOfRow`), `Enter()`, `Leave()` (Plain, Home, Clear, WrapOn, CursorShown, KeypadOff, AlternateScreenOff), `BrowseCommand.DrawsAScreen(args, env) → (bool, reason)` over redirections, codeset, `TERM` allowlist, `--screen`, `--plain`, `CURIA_BROWSE`, `isWindows`, **and (re-scope, spec §6) `--agent` and `--marking`, which decline the screen with a stated reason; `--forum` and `CURIA_FORUM` are accepted**. The marking row's text is `content shown here is laid out from the signed bytes and is not datamarked: for a model, use curia read` (the seed's `run curia --plain` named a flag `curia` lacks). **Exit contract (spec §8):** the screen's exit is `ExitCode.ForOutcomes` over every passage displayed in the session, joined with a later refusal by the rank 6, 8, 4, 5, 9, 0; SIGTERM and SIGHUP exit `128 + n` after `Leave()`; the help's exit-9 entry gains `browse`. Line form: dispatched **after** `Main`'s 2-minute token, handler reused, stderr reason line (none under `--plain`). `Output` members: `Draw`, `ReadKeyAvailable`/`ReadKey`, `Size`, `Redirected`, `TreatControlCAsInput`, `Note`.
 
-**Facts:** vocabulary over encoded **bytes** (every ESC begins a `Vt` constant or `Address`; no byte sequence decoding to U+0080–U+009F outside a multi-byte character's continuation — i.e. the decoded stream has no C1 — and no Cc but ESC); stream order (title first; warning before first Content row's address; every Frame row in view addressed again after the last Content row; status row last); `TestTerminal` with tab stops, wrapping on/off, widths 1 and 3, a 1049-ignoring mode: no scroll, rows begin as drawn, a stale-cell TAB case (frame 1 row `#9 post SIGNATURE-VERIFIED`, frame 2 Content `\t\t\tx` → no `SIGNATURE`), nothing left after `Leave()` in the 1049-ignoring mode, no bold carried into content; `DrawsAScreen` truth table with a reason per row (redirections, `TERM` null/dumb/`linux`/allowlisted, codeset C/ISO-8859-1/UTF-8, Windows, `--plain`, `--screen`, `CURIA_BROWSE=plain`); process parity (`browse board|thread|read` vs `board --titles|thread|read`, identical stdout and exit code, stderr reason exact, a stalled-stub row with the same exit code as `curia`'s); fences (no identity, no process, `Vt` all `const`, `System.Console` members only from the list).
+**Facts:** **(re-scope) the surface table of spec §8.2 as a fact over the view hierarchy's transitions (a closed hierarchy with `Match`, CS-11), so a transition with no outcome row breaks the build;** vocabulary over encoded **bytes** (every ESC begins a `Vt` constant or `Address`; no byte sequence decoding to U+0080–U+009F outside a multi-byte character's continuation — i.e. the decoded stream has no C1 — and no Cc but ESC); stream order (title first; warning before first Content row's address; every Frame row in view addressed again after the last Content row; status row last); `TestTerminal` with tab stops, wrapping on/off, widths 1 and 3, a 1049-ignoring mode: no scroll, rows begin as drawn, a stale-cell TAB case (frame 1 row `#9 post SIGNATURE-VERIFIED`, frame 2 Content `\t\t\tx` → no `SIGNATURE`), nothing left after `Leave()` in the 1049-ignoring mode, no bold carried into content; `DrawsAScreen` truth table with a reason per row (redirections, `TERM` null/dumb/`linux`/allowlisted, codeset C/ISO-8859-1/UTF-8, Windows, `--plain`, `--screen`, `CURIA_BROWSE=plain`); process parity (`browse board|thread|read` vs `board --titles|thread|read`, identical stdout and exit code, stderr reason exact, a stalled-stub row with the same exit code as `curia`'s); fences (no identity, no process, `Vt` all `const`, `System.Console` members only from the list).
 
 ### Task B3: Input loop and signals
 
 Input thread → channel; SIGWINCH/SIGTERM/SIGHUP/SIGQUIT/SIGINT/SIGTSTP/SIGCONT → channel (registered only when drawing); only the loop writes; `Leave()` once in `finally`; `Output.Draw` throws after it; `TreatControlCAsInput = true`; Ctrl-C and Ctrl-\ quit; Ctrl-Z sentence; every exception caught and reported quoted after `Leave()`.
 
-**Pty facts** (`tests/Shared/pty-run.py`, with a `--signal NAME@ms` and `--resize C×R@ms` option): Ctrl-\ with no other key exits ≤ 2 s ending with `Leave()`; Ctrl-Z → still running and the sentence on the status row; SIGTERM with no key → exits ≤ 2 s ending with `Leave()`; SIGHUP after the master closes → exits ≤ 2 s; resize to the computed minimum with no key → within 500 ms a full frame satisfying B1's properties.
+**Pty facts** (`tests/Shared/pty-run.py`, with a `--signal NAME@ms` and `--resize C×R@ms` option): Ctrl-\ with no other key exits ≤ 2 s ending with `Leave()`; Ctrl-Z → still running and the sentence on the status row; SIGTERM with no key → exits ≤ 2 s ending with `Leave()`; SIGHUP after the master closes → exits ≤ 2 s; resize to the computed minimum with no key → within 500 ms a full frame satisfying B1's properties. **(Re-scope, spec §8.1)** a session that opens a disputed post (`CompromiseDeclarationTests`' permissive-gate composition) and quits with `q` exits 9, taking D49's `recheck` fact as its model; one that opens a failed post exits 6, even after Backspace; a reload does not remove an earlier outcome.
 
 ### Task B4: Operate it under a pseudo-terminal
 
@@ -532,10 +544,16 @@ The 80×24 pty fact over a 3,000-line hostile answer (the vocabulary tokenizer r
 | FB20 | wrap splits a base from its marks | wrap-marks fact |
 | FB21 | `Size()` reads `Console.CursorLeft` | `System.Console` member fence |
 | FB22 | no `Plain` after each row's address | SGR carry fact |
+| FB23 | H4 and the tag derived from the key row's status | key-row/outcome-word fact |
+| FB24 | an absent status rendered as `active` | unstated-status fact |
+| FB25 | the `Disputed` word dropped from the tag or H4 | key-row/outcome-word fact; pty exit-9 fact |
+| FB26 | session exit taken from the last view only | pty exit fact (disputed seen, then another view) |
+| FB27 | Enter on an index row skipping the outcome table | surface-table fact |
+| FB28 | content drawn for a Failed passage | no-content fact |
 
 ### Task B6: Register and documents (PR B)
 
-Close the screen observation; record the mark measurement, the independent emulator's result, the bidi look, and residuals; `CLAUDE.md`/`README.md` gain `curia browse`.
+Close the screen observation; record the mark measurement (and amend G22's R10.75 with the measured cap before merge), the independent emulator's result, the bidi look, and residuals; `CLAUDE.md`/`README.md` gain `curia browse`. **(Re-scope) Also record:** the line form's `Passage.Render` prints nothing for both an absent status and `active` (spec §4.2); the screen is stricter than `read` on a failed post (spec §5.4); `CLAUDE.md` still says "key revocation (R4.19) ... does not exist yet", which G21's annotation of R4.19 contradicts (the owner's file, not edited here); the `curia` skill gains exit 9 for `browse`. D36's `accepted` deferral closes when H6 prints it.
 
 ### Task B7: Every gate, then PR B
 

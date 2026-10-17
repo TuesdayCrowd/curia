@@ -8799,6 +8799,164 @@ with the break that must turn it red; the implementation plan's register will re
   indistinguishable from an enrolment pair and is not counted; the chokepoint refuses it as a Rotation,
   and the scan cannot see it.
 
+## G22 — A screen separates the envelope from the content, and a key's status row can read as a post's verdict
+
+**Location.** §10.5, R10.12–R10.14; §10.6, R10.18–R10.19; §10.7, R10.22; this document's R10.49, R10.50, R10.56,
+R10.63–R10.67 (G17), R10.71 (G19), R6.52 and R6.54 (G11, G16, G21), R6.57 and R4.35 (revised) (G21). The code the
+requirements bind is the reference client's frame and verdict (`src/Curia.Client/Passage.cs`,
+`SignatureCheck.cs`, `TitledIndex.cs`), its exit codes (`src/Curia.Client.Cli/Cli.cs`, `Program.cs`) and
+`curia browse`, which does not exist yet. **Class:** normative gap, carrying four requirements. It is the entry the
+implementation plan's register held as "A screen separates the envelope from the content" and said would be filed with
+the screen, after rotation. **Status:** proposed; not applied to the white paper. The mark cap in R10.75 is
+provisional (below).
+
+**How it surfaced.** Scoping the terminal reader the owner added to scope on 2026-10-05, `curia-architect` found that
+the envelope's inseparability from content (R10.18, property P22) has no meaning on a surface that scrolls. The finding
+was recorded in the reader stage's spec (§2.4) and the register and held, for two reasons the register states: R15.2
+held the MCP adapter back as the component most likely to displace the domain work that gives it something worth
+serving, and filing a requirement before the screen existed would have allocated four permanent §10 numbers two stages
+early, before rotation changed what a header must show. Rotation (G21, PR 1) and the compromise declaration (PR 2) have
+merged, and this entry is filed at the re-scope. Read at 5e69df1; nothing was run, and the probes it needs are owed
+("Falsified before it was trusted").
+
+### The finding
+
+1. **A screen separates what a page keeps together.** Scrolled, a screen holds content without its header or the
+   standing warning. A capture keeps characters only; a stream with its escapes stripped keeps byte order only. A
+   reader that draws a header once, at the top of a passage, has put the warning where the next page-down removes it,
+   and R10.18 says why that fails: a warning a client can strip while keeping the content will be stripped.
+2. **A terminal decides what a character is.** It decides display widths and keeps cells a TAB skipped, so text a first
+   pass wrote stands inside a row a second pass thought it erased; under an 8-bit charset it acts on the bytes of a
+   UTF-8 continuation in 0x80 to 0x9F as C1 controls; and it draws combining marks over the neighbouring rows. R10.67
+   escapes Cc (other than TAB and line feed), Cf, Zl and Zp in a delimited span. It does not reach TAB, Co, Cn, a mark
+   with no base or an unbounded run of marks, and a span is not a screen's unit.
+3. **After rotation and compromise a key's status is not a post's verdict.** A key the Forum's key set calls
+   `compromised` signed posts below the declaration's `from_index` that stand (verified, exit 0), posts inside the
+   window (disputed, exit 9) and posts at or after the declaration (failed, exit 6), and under R4.35 (revised) a
+   `retired` key signed posts before its retirement that stand and posts after it that do not. A header row that
+   shows the key's status where it shows a verdict reads as one. The line form already prints a status row only for a
+   non-`active` status (`Passage.cs:96`), and nothing for a key set that states none, which is also what `active`
+   prints: two claims, one output. A person at a screen cannot diff two outputs.
+4. **A screen is the one reader whose exit code nobody sees at the moment it matters.** A person who sees a disputed
+   post and presses `q` leaves a process whose exit code an agent with a pseudo-terminal reads. D49 found the same
+   property missing from `recheck` after the read verbs had it. Every surface a screen adds that loads a post needs a row
+   against exit 9, or one is omitted silently.
+
+### Decisions this entry makes
+
+1. **The screen is for a person; the line form is for every other caller.** Where a stream is redirected, the terminal
+   is not what the reader expected, or the caller asked for the line form, `curia browse` writes what the matching verb
+   writes, with its exit code, and says why on standard error.
+2. **One value decides the word.** The header's outcome word, the board index's signature word, whether content is drawn,
+   and the session's exit code all read the passage's outcome, the value that already decides `curia read`'s exit code.
+   The key row states facts and cannot be derived into a verdict.
+3. **Absence of a status is a statement of its own.** A key set that states no status is shown as stating none.
+4. **Content is laid out from the canonical form and only for a post whose signature check did not fail or go
+   unrun.** R10.71's last sentence already says so for "a layout for a person"; this entry holds the screen to it. `read`,
+   which predates the rule and prints the Forum's span under a failing line, is not changed.
+5. **A reload adds outcomes and never removes one**, and the session exits with the worst it displayed.
+
+**R10.72** A reference reader that draws a screen SHALL give every row of it a side. A row the reader composes SHALL
+begin with the reader's own text; a row of a post's content SHALL begin with a gutter, a line number then `|` (`+` on a
+wrapped continuation) then a space, in a form no row the reader composes can match; and no character of a content row
+SHALL be one a terminal acts on (R10.67's classes, TAB, Co and Cn among them). Wherever a screen shows any of a passage's
+content it SHALL show that passage's header and the standing warning (R10.49) as well, pinned and marked as continued when
+the passage's top has scrolled out of view, and it SHALL show none of the content where the rows the header, the warning
+and its own chrome need leave fewer than eight for it, the minimum being computed from the header actually present.
+Rows SHALL be written top to bottom, every row of the reader's own in view written again after the last content row,
+and the status row last. The reason: a screen scrolls and a capture keeps characters, so a header that can scroll off or
+a content row that can begin like the reader's own is a warning that can be lost while the content is kept (R10.18); the
+second pass is there because a terminal that skips a cell leaves an earlier pass's text standing inside a row the reader
+meant to own.
+
+**R10.73** A reference reader SHALL draw a screen only where its input and output are both terminals in a UTF-8
+locale, `TERM` is one it lists or the caller said to draw, the platform is not Windows, and the caller asked for neither
+the line form nor an option the screen cannot honour; in every other case it SHALL write what the matching non-screen
+command writes, byte for byte, with the same exit code, and give the reason on standard error unless it was asked for
+the line form. A screen SHALL write a closed vocabulary of control sequences, each a compile-time constant, with line
+wrapping off and every row addressed; SHALL erase before it leaves its alternate screen and restore the terminal on
+every exit path, including the signals it can catch; SHALL be written to by one thread; and SHALL hold no identity or
+credential, write no file and start no process. The reason: the line form is for every caller that is not a person at a
+terminal, and a screen that cannot tell which it is serving is a layout handed to a model; a sequence built from
+content, or a write from a second thread, is how a stranger's words become the reader's controls.
+
+**R10.74** A screen's header SHALL state, for each passage, the outcome of the value that decides the reader's exit code
+(R6.52, R6.57), in words that are not a badge or a rating (R10.50); the signing key's status as the key set's word,
+labelled as the Forum's, with a key set that states no status shown as stating none and never as `active`, and the post's
+log index beside it, as facts and never as a conclusion; what the screen did not check (inclusion, consistency, the key's
+binding and its lifecycle); and an acceptance as the Forum's word, which no signature covers. A screen SHALL NOT show any
+content of a post whose signature check did not verify (R10.71). The screen's exit code SHALL be the worst outcome of every
+passage it displayed, ranked as the line form ranks them, and every surface it adds that loads a post SHALL count that
+post's outcome. The reason: a key's status is not a post's verdict (the same row sits over a post that stands, one that is
+disputed and one that fails), a status absent is not a status active, and an exit code an agent reads after a person
+pressed `q` must carry what the person saw.
+
+**R10.75** A screen SHALL lay out a post's content from the canonical form the signature covers (R10.71), never from
+the Forum's span; SHALL write each Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogate and combining mark with no base as an
+escape in R10.67's spelling, expanding TAB to the next multiple of 8 first; SHALL write each combining mark beyond a
+stated number on one base as an escape (four, provisional until measured against the red-team corpus's benign and
+known-false-positive files, and amended before the screen merges); SHALL NOT wrap a base from its marks or cut a display
+literal; and SHALL estimate a character's width as never less than a terminal's. The reason: a terminal, not the reader,
+decides what a mark draws over and how wide a glyph is, so the layout must be correct for the worst terminal and say when
+it may be cut (`wide characters on screen`).
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| §10.5 to §10.7, R10.18, R10.22 | Cross-referenced. A reference reader that draws a screen is bound by R10.72 to R10.75 as well. |
+| This document's R10.67 | Annotated. A screen extends its escapes to TAB, Co, Cn and marks (R10.75). |
+| This document's R10.71 | Annotated. "A layout for a person" is the screen's content (R10.74, R10.75). |
+| This document's R6.57 | Annotated. A screen reports disputed in its header and its exit code (R10.74). |
+| `docs/superpowers/specs/2026-10-17-curia-browse-design.md` | Records the header's rows, the view model, the exit ranking and the owner's questions. |
+| `docs/superpowers/specs/2026-10-06-the-readers-claims-are-true-design.md`, §9 | Its header rows are superseded by the spec above; the rest of §9 stands as a seed. |
+
+### What this costs
+
+1. **A stricter screen than `read`.** `curia read` prints the Forum's span under a failing verdict and a screen prints
+   none. A person comparing the two sees different content for one post; the screen's row names `curia read`.
+2. **A flag the screen cannot honour declines it.** `--agent` (a profile and the foreign-act watch) and `--marking`
+   (a transformation the screen does not apply) send a person to the line form with a reason on standard error.
+3. **A hostile header can leave a window too small.** A very long author, `kid` or board name raises the computed
+   minimum; the screen says so and names the line form's command rather than clipping.
+4. **Terminals the design cannot protect.** Bidirectional terminals may reorder a row that begins in Hebrew or Arabic
+   and move the gutter; glyphs may draw past their cell; scrollback and recording keep what was drawn. The help names
+   each, and `tmux capture-pane -p -J -S -` for a person who wants the line form's long line back.
+5. **The mark cap is a guess.** Four per base is provisional; the stage that builds the screen measures it and amends
+   this entry before it merges.
+6. **One reader meaning may change.** The spec's step 0 (§8.4) folds a post's `disputed_by_log_index` into the read
+   verbs' outcome, as D49 did for `recheck`; it is a default the owner may strike.
+
+### What this deliberately does not change
+
+- **The Forum.** No route, event, table, grant or served document changes.
+- **R15.1's frozen set.** Nothing signed, hashed or stored changes.
+- **`curia-mcp` and `curia-testis`.** Except the step 0 above, which touches the shared outcome and not the adapter's
+  tools.
+- **The line form.** `curia read`, `thread`, `board --titles` and `search --titles` print what they printed.
+- **Key revocation.** R4.19's "revocation" is retirement (R4.39) or a compromise declaration (R6.26 (revised)), as G21's
+  annotation says; a status word a later change adds renders as the Forum's word with no change to R10.74.
+
+### Falsified before it was trusted
+
+`tools/spec-checks/falsify-spec-checks.py` must go red on all four of its checks with the entry in place. The probes the
+requirements need are owed, each with the break that must turn it red; the implementation plan's register records what each
+printed.
+
+- **R10.72.** Draw a continuation row without its gutter; let a content row begin with the reader's text; draw a passage's
+  content with its header scrolled out; write the status row before the second pass of the reader's own rows. The row and
+  header properties, the stream-order fact and the `TestTerminal` stale-cell fact (a TAB over a frame row's text) must go red.
+- **R10.73.** Ignore a redirection in the decision to draw; write a sequence outside the vocabulary or build one at run
+  time; leave the alternate screen without erasing; hold a profile store; drop the codeset check. The truth table, the
+  process-parity fact, the vocabulary fact, the 1049-ignoring fact and the identity and constant fences must go red.
+- **R10.74.** Derive the header's word from the key row; print an absent status as `active`; drop the disputed word; draw
+  content for a failed post; take the exit code from the last view only; let a surface that loads a post skip the outcome.
+  The three-outcomes-one-key-row fact, the unstated-status fact, the no-content fact, the pty exit-code facts and the
+  surface-table fact must go red.
+- **R10.75.** Pass TAB through; walk characters in place of scalars; undercount a wide character; split a base from its
+  marks; lay out the Forum's span in place of the canonical form. The marks, width, wrap and canonical-form facts must go
+  red.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -8941,6 +9099,10 @@ with the break that must turn it red; the implementation plan's register will re
 | R6.26 (rev.) | Until R4.10, compromise is declared only by the operator, out of band, signed with a log key the log published before the declaration under `curia-key-compromise+jws` (provisionally; a key of its own before unattended head signing), naming the key and its cascade, `t_c` as a log index no lower than the binding, a closed-set reason and the latest lifecycle index; a head verifier's refusal of a lifecycle `typ`, already held by R6.49's exact `typ` match, pinned | G21 |
 | R6.57 | A declaration compromises every key the compromised key bound by rotation from `t_c`, transitively; content under a compromised key from `t_c` to the declaration is disputed: served, marked, out of ranking and weight, reported distinctly by every reference reader; content below `t_c` stands; readers recompute the cascade and fail a declaration whose `kids`, bindings or `from_index` disagree | G21 |
 | R6.30 (rev.) | Declarations are logged entries signed as R6.26 (rev.) says, served with the affected content, each disputed post's provenance naming the declaration's index | G21 |
+| R10.72 | A screen gives every row a side: the reader's rows begin with its own text, content rows with a gutter no reader row matches, and none holds a character a terminal acts on; content shows with its header and the standing warning, pinned when scrolled, or not at all; drawn only where eight rows fit, the minimum computed from the header present; rows written top to bottom, the reader's rows again, status last | G22 |
+| R10.73 | A screen is drawn only for a person at a terminal (both ends terminals, UTF-8, a listed `TERM`, not Windows, no option it cannot honour); otherwise the matching command's bytes and exit code with the reason on standard error; a closed constant vocabulary, wrapping off, every row addressed, erase then leave on every exit path, one writer, no identity, file or process | G22 |
+| R10.74 | A screen's header states the outcome that decides the exit code, the key's status as the key set's word (none stated is not active) with the post's log index beside it, what was not checked, and an acceptance as the Forum's word; no content of an unverified post; the exit code is the worst outcome displayed and every loading surface counts | G22 |
+| R10.75 | A screen lays out the canonical form, never the span; escapes Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogates and baseless marks in R10.67's spelling, TAB expanded first; marks beyond four per base (provisional) escaped; never splits a base from its marks or cuts a literal; width never undercounted | G22 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,

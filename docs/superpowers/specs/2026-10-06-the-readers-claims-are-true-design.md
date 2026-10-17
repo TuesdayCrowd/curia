@@ -70,7 +70,7 @@ design); `search --titles` is accepted and ignored (`Program.cs:667`); `verify` 
 exits 0, nor (after R10.71) that 6 now covers a misrendered span; no verb answers `--help`; the help does
 not say which character the datamark is.
 
-### 2.4 A screen separates the envelope from the content (held)
+### 2.4 A screen separates the envelope from the content (held; filed 2026-10-17 as errata G22)
 
 The held entry's finding: scrolled, a screen holds content without its header or warning; a capture
 keeps only characters; a stripped-escape stream keeps only byte order; and a terminal decides widths,
@@ -299,9 +299,9 @@ Each has a default the plan follows; no task waits.
 10. **`TERM` allowlist for PR B** (terminal-security T7). Default: `xterm`, `xterm-*`, `screen`,
     `screen-*`, `tmux`, `tmux-*`, `alacritty`, `foot`, `wezterm`, `rxvt-unicode*`; `--screen` overrides.
 
-## 9. PR B — the screen (scoped, not started; re-scope after rotation)
+## 9. PR B — the screen (scoped; re-scoped 2026-10-17)
 
-Seed for PR B's own spec. Everything here is re-checked against post-rotation `main` in Task B0.
+**Superseded in part by `docs/superpowers/specs/2026-10-17-curia-browse-design.md` (errata G22), written in Task B0 after rotation and compromise merged.** The header rows below are the seed's and are replaced there (§4: key status as facts, the outcome tag, the disputed outcome, the `--agent` and `--marking` rows of `DrawsAScreen`, and the marking row's text, whose `curia --plain` named a flag that does not exist). The rest stands as a seed.
 
 **Who it is for.** A person at a terminal. It protects no agent; its duty to an agent is not to mislead
 one that ends up on it:
