@@ -8882,14 +8882,18 @@ content, or a write from a second thread, is how a stranger's words become the r
 
 **R10.74** A screen's header SHALL state, for each passage, the outcome of the value that decides the reader's exit code
 (R6.52, R6.57), in words that are not a badge or a rating (R10.50); the signing key's status as the key set's word,
-labelled as the Forum's, with a key set that states no status shown as stating none and never as `active`, and the post's
-log index beside it, as facts and never as a conclusion; what the screen did not check (inclusion, consistency, the key's
-binding and its lifecycle); and an acceptance as the Forum's word, which no signature covers. A screen SHALL NOT show any
-content of a post whose signature check did not verify (R10.71). The screen's exit code SHALL be the worst outcome of every
-passage it displayed, ranked as the line form ranks them, and every surface it adds that loads a post SHALL count that
-post's outcome. The reason: a key's status is not a post's verdict (the same row sits over a post that stands, one that is
-disputed and one that fails), a status absent is not a status active, and an exit code an agent reads after a person
-pressed `q` must carry what the person saw.
+labelled as the Forum's, with a key set that states no status shown as stating none and never as `active`, a key set that
+could not be read shown as not read and never as stating none, and the post's log index beside it, as facts and never as a
+conclusion; what the screen did not check (inclusion, consistency, the key's binding and its lifecycle); and an acceptance
+as the Forum's word, which no signature covers. A header MAY take a compact form where the window cannot hold the full one
+with eight rows of content, and every form SHALL state all of this. A screen SHALL NOT show any content of a post whose
+signature check did not verify (R10.71). The screen's exit code SHALL be the worst outcome of every passage it displayed,
+ranked as the line form ranks them, with a load refused after the screen was up ranking below a disputed outcome, and every
+surface it adds that loads a post SHALL count that post's outcome. The reason: a key's status is not a post's verdict (the
+same row sits over a post that stands, one that is disputed and one that fails), a status absent is not a status active
+and a key set never read is not one that said nothing, a window too small for the full header must not become a window with
+no header, and an exit code an agent reads after a person pressed `q` must carry what the person saw, which a later refusal
+did not change.
 
 **R10.75** A screen SHALL lay out a post's content from the canonical form the signature covers (R10.71), never from
 the Forum's span; SHALL write each Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogate and combining mark with no base as an
@@ -8949,9 +8953,11 @@ printed.
 - **R10.73.** Ignore a redirection in the decision to draw; write a sequence outside the vocabulary or build one at run
   time; leave the alternate screen without erasing; hold a profile store; drop the codeset check. The truth table, the
   process-parity fact, the vocabulary fact, the 1049-ignoring fact and the identity and constant fences must go red.
-- **R10.74.** Derive the header's word from the key row; print an absent status as `active`; drop the disputed word; draw
-  content for a failed post; take the exit code from the last view only; let a surface that loads a post skip the outcome.
-  The three-outcomes-one-key-row fact, the unstated-status fact, the no-content fact, the pty exit-code facts and the
+- **R10.74.** Derive the header's word from the key row; print an absent status as `active`; print an unreachable key set
+  as stating no status; drop the disputed word; drop the key row, the not-checked row or the acceptance from the compact
+  form; draw content for a failed post; take the exit code from the last view only; rank a later refusal above a disputed
+  outcome; let a surface that loads a post skip the outcome. The three-outcomes-one-key-row fact, the unstated-status fact,
+  the unread-key-set fact, the compact-form fact, the no-content fact, the pty exit-code facts, the ledger-rank fact and the
   surface-table fact must go red.
 - **R10.75.** Pass TAB through; walk characters in place of scalars; undercount a wide character; split a base from its
   marks; lay out the Forum's span in place of the canonical form. The marks, width, wrap and canonical-form facts must go
@@ -9101,7 +9107,7 @@ printed.
 | R6.30 (rev.) | Declarations are logged entries signed as R6.26 (rev.) says, served with the affected content, each disputed post's provenance naming the declaration's index | G21 |
 | R10.72 | A screen gives every row a side: the reader's rows begin with its own text, content rows with a gutter no reader row matches, and none holds a character a terminal acts on; content shows with its header and the standing warning, pinned when scrolled, or not at all; drawn only where eight rows fit, the minimum computed from the header present; rows written top to bottom, the reader's rows again, status last | G22 |
 | R10.73 | A screen is drawn only for a person at a terminal (both ends terminals, UTF-8, a listed `TERM`, not Windows, no option it cannot honour); otherwise the matching command's bytes and exit code with the reason on standard error; a closed constant vocabulary, wrapping off, every row addressed, erase then leave on every exit path, one writer, no identity, file or process | G22 |
-| R10.74 | A screen's header states the outcome that decides the exit code, the key's status as the key set's word (none stated is not active) with the post's log index beside it, what was not checked, and an acceptance as the Forum's word; no content of an unverified post; the exit code is the worst outcome displayed and every loading surface counts | G22 |
+| R10.74 | A screen's header states the outcome that decides the exit code, the key's status as the key set's word (none stated is not active; unread is not none stated) with the post's log index beside it, what was not checked, and an acceptance as the Forum's word, in every form the header takes (a compact one is permitted); no content of an unverified post; the exit code is the worst outcome displayed (a later refusal ranks below a disputed one) and every loading surface counts | G22 |
 | R10.75 | A screen lays out the canonical form, never the span; escapes Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogates and baseless marks in R10.67's spelling, TAB expanded first; marks beyond four per base (provisional) escaped; never splits a base from its marks or cuts a literal; width never undercounted | G22 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,

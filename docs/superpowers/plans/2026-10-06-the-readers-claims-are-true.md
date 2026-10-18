@@ -517,6 +517,27 @@ Input thread → channel; SIGWINCH/SIGTERM/SIGHUP/SIGQUIT/SIGINT/SIGTSTP/SIGCONT
 
 The 80×24 pty fact over a 3,000-line hostile answer (the vocabulary tokenizer runs over the **whole** byte stream, the runtime's `smkx` included as `KeypadOn`); RED with `DrawsAScreen` inverted, then GREEN. **Independent look:** `pyte` in a scratch venv or `tmux` capture, same properties; record which and its version. **Human look** in two terminal applications, plus VTE or Konsole with rows beginning in Hebrew and in Arabic (T8): record whether the gutter moves.
 
+### Task B4b: Rulings after B4 (spec section 14), before B5
+
+Implement, each with its fact written first and seen red (not code first; B1's order was the deviation):
+
+1. **80 by 24** (14.1): chrome 6 rows at 80 (title and marking one row each); H4's second row one row, `Not checked here: ...`;
+   the compact header form chosen per document by size; the too-small sentence names the rows and columns it needs;
+   `MinimumContentRows` applies only where a passage draws content. Facts: the five in 14.1. The disputed and failed pty cases
+   move to 80 by 30, and one verified pty case at 80 by 24 asserts content rows.
+2. **Status row** (14.2): priority order, `q quits` never dropped; fact over every document, size and offset.
+3. **End and the scroll clamp** (14.3).
+4. **Unread key set** (14.5 item 8): `NoKeySetSentence`, the fact, spec 4.2's row.
+5. **Exit rank** `6, 8, 9, 4, 5, other, 0` (14.6 item 13): `OutcomeLedger.Rank`, the help line, the fact.
+6. **A load can be quit** (14.6 item 6): events read during a load; quit-class events cancel it; `loading ... q cancels`; the pty fact
+   with a stub that never answers.
+7. **`PassageHeader.Tag` switches on `passage.Outcome`** (14.5 item 3); the relation fact.
+8. **Fence classification** (14.5 item 2): every type in `Curia.Client.Cli` is screen or named not-screen.
+9. Re-run B4's independent look (`pyte`, `wcwidth`) over the changed layout at 80 by 24 and 80 by 28 and record both runs.
+10. `pty-run.py`'s docstring: Ctrl-C and Ctrl-\ are bytes under a raw input mode, not line-discipline signals.
+
+Gate: every command in `CLAUDE.md`'s list for the assemblies touched, `Curia.Architecture.Tests` in Debug and Release.
+
 ### Task B5: Falsify PR B
 
 | # | Patch | Must go red |
@@ -537,21 +558,47 @@ The 80×24 pty fact over a 3,000-line hostile answer (the vocabulary tokenizer r
 | FB14 | continuation gutter `+` → `|` | row property (continuation case) |
 | FB15 | TAB passed through | stale-cell fact |
 | FB16 | codeset ignored | truth table |
-| FB17 | `TreatControlCAsInput` not set | Ctrl-\ pty fact |
+| FB17a | Interpret's `\u001c`, `ConsoleKey.D4` and `ConsoleKey.Oem5` branches removed | Ctrl-\ pty fact |
+| FB17b | `Output.TreatControlCAsInput(true)` removed | **expected survivor**: an equivalent mutant (SIGINT and SIGQUIT are registered, so the signal path quits). Record "survived, equivalent, defence in depth"; do not report as falsified |
+| FB17c | the SIGINT and SIGQUIT registrations and `TreatControlCAsInput(true)` removed together | Ctrl-C and Ctrl-\ pty facts (stream must end with `Leave()`) |
 | FB18a | input wake removed (blocking `ReadKey`) | SIGTERM pty fact |
 | FB18b | SIGWINCH not posted | resize pty fact |
 | FB19 | `Leave()` without the erase | 1049-ignoring fact |
 | FB20 | wrap splits a base from its marks | wrap-marks fact |
 | FB21 | `Size()` reads `Console.CursorLeft` | `System.Console` member fence |
-| FB22 | no `Plain` after each row's address | SGR carry fact |
+| FB22 | no `Plain` after each row's address, or after its text (row bytes: `Address, Plain, attribute, text, EraseToEndOfRow, Plain`) | SGR carry fact |
 | FB23 | H4 and the tag derived from the key row's status | key-row/outcome-word fact |
 | FB24 | an absent status rendered as `active` | unstated-status fact |
 | FB25 | the `Disputed` word dropped from the tag or H4 | key-row/outcome-word fact; pty exit-9 fact |
 | FB26 | session exit taken from the last view only | pty exit fact (disputed seen, then another view) |
 | FB27 | Enter on an index row skipping the outcome table | surface-table fact |
 | FB28 | content drawn for a Failed passage | no-content fact |
+| FB29 | the compact header omits the key row, or the not-checked row, or `accepted` | compact-states-R10.74 fact |
+| FB30 | the full header always used (compact never chosen) | 80 by 24 fact; the 80 by 24 pty case |
+| FB31 | `Title` or `MarkingRow` lengthened to wrap at 80 | chrome-is-six-rows fact |
+| FB32 | the status row drops `q quits` when a wide character is in view (the as-built behaviour) | every-status-row-states-how-to-leave fact |
+| FB33 | the scroll clamp restored to `DocumentRows - 1` | End-shows-the-last-page fact |
+| FB34 | an unread key set printed as `does not state a status` | unread-key-set fact |
+| FB35 | `OutcomeLedger.Rank` puts refusals above 9 | later-refusal-never-hides-disputed fact |
+| FB36 | quit-class events not cancelling an in-flight load | hung-load pty fact |
+| FB37 | the content rule reading `Outcome` in place of `SignatureOutcome` | span-mismatch-draws-canonical-form fact |
+| FB38 | a screen type added and not classified, reaching `ProfileStore` | fence-classification fact |
+
+*Amended 2026-10-17 after B4 (spec section 14).* Count: 29 cases as before, FB17 becomes three (net +2), plus FB29 to FB38: 41 cases, one of which (FB17b) is an expected
+survivor and is reported as such. Every case is applied to the final tree, the named fact seen red, the patch restored by a plain
+copy (never `git checkout --`), the file's mtime bumped, a rebuild with `--no-incremental`, and the suite run unpatched once.
 
 ### Task B6: Register and documents (PR B)
+
+*Amended 2026-10-17 after B4 (spec section 14).* Record, besides what the task lists:
+- the 80 by 24 numbers as measured by the new fact (this section's were simulated), and the residual that a disputed post under a
+  compromised key at exactly 80 by 24 is still "too small" and says it needs 26 rows;
+- `Output.Draw` after `Leave` is implemented and not discharged (14.6 item 9);
+- FB17b's result as an equivalent mutant;
+- the hostile fixture is in-process (14.4 item 6); the human look and VTE/Konsole look were not done (14.4 item 8);
+- the `pyte` and `wcwidth` versions and both post-ruling runs (14.4 item 7);
+- CI's first Linux result for the Ctrl-\ and Ctrl-C pty facts (14.6 item 1);
+- the exit rank as ruled, in the help and in `CLAUDE.md`'s statement of exit 9.
 
 Close the screen observation; record the mark measurement (and amend G22's R10.75 with the measured cap before merge), the independent emulator's result, the bidi look, and residuals; `CLAUDE.md`/`README.md` gain `curia browse`. **(Re-scope) Also record:** the line form's `Passage.Render` prints nothing for both an absent status and `active` (spec §4.2); the screen is stricter than `read` on a failed post (spec §5.4); `CLAUDE.md` still says "key revocation (R4.19) ... does not exist yet", which G21's annotation of R4.19 contradicts (the owner's file, not edited here); the `curia` skill gains exit 9 for `browse`. D36's `accepted` deferral closes when H6 prints it.
 

@@ -7,6 +7,7 @@
 > Plan: Tasks B0 to B7 in `docs/superpowers/plans/2026-10-06-the-readers-claims-are-true.md`.
 > Every file:line below was read at 5e69df1. Nothing here was built or run; the screen claims are reasoning until
 > Task B4 drives a terminal.
+> Amended 2026-10-17 after B4: section 14 supersedes any earlier section it contradicts (named in each ruling).
 
 ## 1. What this is, and who it is for
 
@@ -398,3 +399,221 @@ beyond EXIT CODES; whether `ForumJwk` for a key in a cascade carries the indices
 (`ForumDocuments.cs:242`-`:245` says it does; the server side was not read); no terminal, emulator or pty was driven;
 the Linux behaviour of every terminal claim; `tests/Curia.Client.Tests` (whether a fixture already builds a compromised
 key set the header facts can reuse).
+
+## 14. Rulings after B4 (2026-10-17)
+
+Made by `curia-architect` on the deviations and findings of B1, B2/B3 and B4 (commits 3f89aee to eee334e), read against
+`src/Curia.Client.Cli/Screen/` and `src/Curia.Client/Passage.cs`. Where this section contradicts an earlier one, this
+section governs, and the earlier section is named. Row counts below were computed with a Python port of `RowWrap.Frame`
+over the literals in B4's capture (a 26-character post id, a 36-character author URI, a `kid` of 12 characters); they are
+reasoning, not a run of the binary. The B1 facts below are the probe that settles each one.
+
+### 14.1 B4 finding 1: at 80 by 24 no post's content is shown
+
+**Ruling: fix it in this PR, before B5.** Three reasons. (a) B5 falsifies the final tree; a layout change after it voids
+FB1 to FB3, the header facts, and every pty fact, and they would be run twice. (b) The disputed and failed pty cases were
+moved to 120 by 50 (B2/B3 item 15) and the hostile case to 80 by 28 (B4) to get content on the screen: a fact whose size
+is chosen so that it passes is a fact about the size, and 80 by 24 is the size a person gets (vacuity question 2). (c) The
+fix needs no new requirement, only a compact form that R10.74 already binds.
+
+**Why 28.** At 80 columns the chrome is title 2, warning 3, marking 2 and status 1 = 8 rows, and a header is 11 to 12
+(H1 2 with a parent, H2 2, H3 2, H4 2, the checked row 2, H5 1 to 2, H6 1). 8 + 12 + 8 = 28.
+
+**The change, five parts.**
+
+1. **Chrome is 6 rows at 80 columns.** The warning stays 3 rows: it is the Forum's published text (`Provenance.StandardWarning`,
+   R10.49) and the screen does not shorten what the Forum is bound to say. The title and the marking row each become one
+   row at 80 columns (at most 80 cells; they wrap, computed, below that):
+   - `Screen.Title` = `curia browse: a screen for a person. A model or script: a curia verb or --plain` (79 cells).
+     It still says it is a screen and where the line form is; it no longer names `curia read` for a board.
+   - `Screen.MarkingRow` = `content is the signed bytes laid out, not datamarked: a model uses curia read` (77 cells).
+2. **H4's second row becomes a single row and states only what R10.74 requires, the unchecked list.** Replace `checked here:
+   the signature. Not checked here: inclusion, consistency, the key's binding and lifecycle (press ! for curia verify)` with
+   `Not checked here: inclusion, consistency, key binding, lifecycle (! for verify)` (79 cells). The signature row already
+   says `verified locally`; "checked here: the signature" restated it. This supersedes §4.1's H4.
+3. **A compact header form.** The screen has two header forms and uses **one of them for the whole document**, chosen from
+   the width and height alone (so scrolling never changes a header's form and a resize is the only thing that does):
+   the full form when `Height >= chrome + tallestFullHeader + 8`, otherwise the compact form. The compact form is the full
+   form without H3's `digest ... kid` row and without ` owner "<o>"` and ` server_ts <t>` on H2. Everything else stays,
+   in particular H1 with its outcome tag and `(continued ...)`, H2's `by "<author>"  (owner [NOT ] verified)`, the verdict
+   row (`DescribeRead`), the not-checked row, the key row (§4.2) with the post's log index, H6 in full (level, acceptance,
+   contradiction, reproduction, risk flags, disputed mark) and, when the Forum's digest differs from the one computed here,
+   the `the Forum reported a different value for digest:` row, which is a warning and is never behind a window size. The
+   pinned header is the same form with `(continued ...)`. The rows dropped are not in R10.74's list; the digest and
+   `server_ts` are on the full header and in `curia read` (and `server_ts` on the board index row), and the help says the
+   compact form exists (14.7).
+4. **The minimum is computed per form, and the too-small screen says what it needs.** `MinimumHeight` is
+   `chrome + tallestCompactHeader + 8`. The too-small sentence becomes `this window is too small to draw content under its
+   header: it needs at least <R> rows and <C> columns at this width. Make it larger, or use the line form: <command>`, with
+   `<R>` the computed minimum at the current width and `<C>` `MinimumWidth`. A person told only "too small" cannot act; a
+   person told the number can.
+5. **A document with no drawable content needs one row, not eight.** `MinimumContentRows` (8) applies when any passage in
+   the document draws content; a document whose passages are all Failed or Could-not-be-checked needs the chrome, the
+   tallest header and one row for the frame row that names `curia read`. (As built, such a document at 80 by 24 is reported
+   "too small to draw content" when there is no content to draw.)
+
+**Numbers (to be confirmed by the new fact, not trusted from here).** Verified post with a parent and an active key, at 80
+columns: chrome 6, full header 11 (minimum 25), compact header 8 (minimum 22). So at 80 by 24 the compact form is used and
+10 content rows show; at 80 by 25 the full form. A disputed post under a compromised key, with a parent: the verdict sentence
+is 5 rows at 80 and the key row 2, so the compact header is 12 and the minimum 26: **a disputed post at exactly 80 by 24 is
+still "too small", and says it needs 26.** That is accepted and recorded as a residual, not fixed: its lever is a shorter
+verdict row for a disputed post, which would be a second wording of R6.57's sentence (§4.1's "reuse, not reworded" exists
+to prevent that) and so a decision of its own. The disputed and failed pty cases run at 80 by 30.
+
+**New facts (B1, pure):**
+
+| Fact | Asserts |
+|---|---|
+| `…_AtEightyByTwentyFourAVerifiedPostWithAParentDrawsAtLeastEightContentRows` | a verified, parented, active-key passage at `ScreenSize(80, 24)` draws content, at least 8 Content rows, header and warning present; and at `ScreenSize(80, Minimum - 1)` draws none and says `needs at least <Minimum> rows`. Non-vacuity: the same passage at 80 by 25 uses the full form (the digest row is present) and at 80 by 24 does not |
+| `…_ChromeIsSixRowsAtEightyColumns` | title, warning, marking and status are 1 + 3 + 1 + 1 rows at width 80 |
+| `…_TheCompactHeaderStatesEverythingR10_74Requires` | for each of the four outcomes, an active, a retired, a compromised, an unstated and an unread key set, and an accepted passage: the compact form holds the outcome word equal to `Passage.Outcome`'s, the key row exactly as the full form's, the not-checked row, `accepted (the Forum's word ...)` when `Accepted`, and every risk flag; the compact and full forms differ only in H3 and H2's owner and `server_ts`. The expected strings are the published constants of R10.74's list, not the header's own output (vacuity question 4) |
+| `…_OneFormForTheWholeDocument` | at a given size every passage of a thread uses the same form, and scrolling does not change it |
+| `…_ADocumentWithNoDrawableContentNeedsOneRow` | all-Failed document at 80 by 24 draws header and the `curia read` frame row |
+
+### 14.2 B4 finding 2: the status row must always say how to leave
+
+**Ruling: change.** `Screen.cs:271` drops `q quits  ? help` when a wide character is in view, so the screen can be on a
+terminal with no stated way out, and `pty-run.py`'s `--ready "q quits"` never appears: a harness hang with no failing
+assertion. The status row is built from parts in a priority order and a part is dropped only whole, from the end:
+position, then `q quits`, then the wide-character notice, then `? help`. The notice's text is `wide characters on screen: a
+row may be cut` (R10.75 quotes `wide characters on screen`; this keeps those words and drops "at the right edge", which
+supersedes §5.5's wording). At 80 columns: `rows 1-25 of 25  q quits  wide characters on screen: a row may be cut  ? help` is 77
+cells and fits in the 79 the status row has. Below that width the notice shortens to `wide characters on screen`, then
+`? help` goes, then the notice goes; **`q quits` is never dropped** and the too-small screen carries it too (it does).
+
+Facts: `…_EveryStatusRowStatesHowToLeave` over every document, size and offset, with a wide character in view (non-vacuity: a
+case where the notice is present and a case where `? help` has been dropped); and the pty harness keeps `--ready "q quits"`,
+which this makes true of every first frame.
+
+### 14.3 B4 finding 3: End must show the last page
+
+**Ruling: change.** `ScrollBy` clamps to `DocumentRows - 1`, so `End` leaves a window of one row (`end of #1`) and no content,
+and so does `j` held down. A pager stops when its last row is at the bottom. The maximum offset is
+`max(0, DocumentRows - capacity)`, where `capacity` is the window's rows less the pinned header's rows at that offset (so
+the last page is a full one with its pinned header). `Home` and `Tab` are unchanged. Fact: at every size above the minimum,
+`End` shows the document's last row on the window's last row and at least `min(8, the last passage's content rows)` Content
+rows, or the whole last passage when it is shorter; B1's "eight rows fit" fact is extended to the End offset, which is the
+offset it did not cover.
+
+### 14.4 B4 findings 4 to 8
+
+- **4, a mark at the start of a body line attaches to the layout's indent. Accept; no change.** A mark on a space is a mark
+  on a base, bounded by the same cap as a mark on a letter. The gutter (`" 3| "`) is never modified: the row's text begins
+  after the gutter's own trailing space, and a mark that would be first in the text is escaped as baseless (R10.75). Recorded
+  in the help's residuals: a mark on a layout space draws as it would on any base.
+- **5, the header lists the Forum's risk flags with counts. Accept.** The set of categories is the detector's closed
+  vocabulary, so the row's length is bounded; the minimum is computed from the header present, so a long one yields the
+  too-small screen and not a clipped one. The compact form keeps the flags (they are the Forum's warning about this content).
+- **6, the hostile answer is posted in-process by a T1 agent with an attested owner. Accept.** A CLI `answer` cannot cross the
+  48-hour tenure (R7.17, provisional) in real time. B6 records that the fixture is in-process and why.
+- **7, `pyte` 0.8.2 and `wcwidth` 0.9.2 found nothing. Accept as the first independent observation, and re-run it.** It looked at
+  the layout this ruling changes. Before B6 records it, the replay (`replay.py`) is run again over the post-14.1 captures at 80
+  by 24 and 80 by 28, and B6 records the versions and both runs.
+- **8, the human look in two terminal applications and VTE or Konsole was not done. Accept as the owner's, and not a merge
+  blocker,** on the condition that B6 and the PR body say it was not done and the help's residuals name bidirectional
+  reordering (spec 6, risk 2). A claim that was not observed is stated as not observed.
+
+### 14.5 B1 deviations
+
+1. **Tests after code. Accept.** Nothing to change; B5 is where it is paid for. B5 runs on the final tree, which is why 14.1 to
+   14.3 come first, and "M02 first green until re-patched" is exactly the shape B5 exists to catch.
+2. **The model is in `Curia.Client.Cli`, internal. Accept, with one fact.** It shares an assembly with `ProfileStore` and the
+   signer, so R10.73's identity fence cannot be "the assembly's reachable types". `BrowseFenceTests.ScreenTypes` is a hand
+   list, and a screen type added and not listed is outside the fence silently (vacuity question 3). Add
+   `…_EveryTypeInTheNamespaceIsClassifiedAsScreenOrNot`: every type in `Curia.Client.Cli` is in `ScreenTypes` or in a named
+   `NotScreenTypes` list with a reason per entry, so an unclassified type fails the build.
+3. **`Passage.SignatureOutcome` beside `Outcome`. Accept; it is one derivation, not two.** `Outcome` is defined as
+   `SignatureOutcome` unless the span does not render the canonical form, so the two cannot disagree where it matters, and
+   `SignatureOutcome` is the component R10.71's content rule names (the signature the content is covered by). §4.3 is
+   restated: **every word and every exit reads `Passage.Outcome`; the content rule alone reads `Passage.SignatureOutcome`,**
+   so that a post whose signature held and whose span did not draws its canonical form under `[CONTENT FAILED]` and exit 6.
+   Two edits keep that true. `PassageHeader.Tag` switches on `passage.Outcome` once the span renders (it equals
+   `SignatureOutcome` there), so the tag cannot be patched apart from the word. And a fact pins the relation:
+   `Outcome` is `Failed` exactly when the span does not render or `SignatureOutcome` is `Failed`; content is drawn exactly
+   when `SignatureOutcome` is `Verified` or `Disputed` (FB37).
+4. **Eight content rows for the first passage in view, `min(8, its remaining rows)`. Accept.** §5.4's "at least 8" is read so.
+5. **`MinimumWidth` = 72. Accept.** §5.4 gains it; below it only the screen's own rows, `q quits` and the command.
+6. **The pinned range is zero-padded to the width of N. Accept.** It keeps the header's height still while a number changes.
+7. **Board view: minimum is chrome + tallest index row + 1. Accept.** An index row is its own header and its title its
+   content, so "eight rows of the first passage's content" is `min(8, 1 or 2)` for a board; this is 14.5 item 4's rule, not an
+   exception. §5.4 says so.
+8. **The key row for an unreachable key set. Change.** `Verdict.KeyStatus` is null both for a key set that was read and said
+   nothing and for one that was never read, and the row says `the Forum's key set does not state a status` for both. For an
+   unread key set that is a false statement of fact, not merely an imprecise one: the screen claims to have read a document
+   it never obtained. A row exists for the case: when `Verdict.CouldNotCheck` and `KeyStatus` is null, the row is `key
+   <kid>: this client has no key set to state a status: the check did not run (see the signature row)`
+   (`PassageHeader.NoKeySetSentence`, an `OwnText` constant; `kid` null is shown as a display literal as everywhere). When
+   `CouldNotCheck` and a status is present (an unparseable `server_ts` after the key set was read), the status row is written
+   as for any status. R10.74 carries the clause (errata G22, amended). §4.2's table gains this row. Fact:
+   `…_AnUnreadKeySetIsNotShownAsStatingNone` (non-vacuity: the unread, the absent-status and the `active` rows are three
+   different strings). FB34.
+9. **Viewport folded into `Screen`, `IndexRow` a formatter. Accept.** The plan's `Viewport` type is not required; its facts
+   are on `Screen`.
+10. **Spacing combining marks (Mc) are not counted toward the cap. Accept.** An Mc advances the cursor, so it takes a cell
+    and the width estimate already counts it as 2; only Mn and Me draw over a neighbour. Recorded in §5.2 with the step 0
+    measurement.
+
+### 14.6 B2 and B3 deviations
+
+1. **Ctrl-\ under .NET. Accept the key match; replace FB17's carrier.** With `TreatControlCAsInput` the runtime reads Ctrl-\
+   (0x1C) as `ConsoleKey.D4` with Control and no character, and the match covers `\u001c`, `D4` and `Oem5`. Because SIGINT
+   and SIGQUIT are registered, a screen without `TreatControlCAsInput` also quits on Ctrl-C and Ctrl-\ through the signal path,
+   so **the patch the plan called FB17 (the property not set) is an equivalent mutant: it changes nothing observable and no
+   fact can go red on it.** It stays in the code as defence in depth and is recorded as such, not as falsified. The real
+   carriers: FB17a removes Interpret's `\u001c`, `D4` and `Oem5` branches (Ctrl-\ pty fact red); FB17c removes the SIGINT and
+   SIGQUIT registrations and the property together (the Ctrl-C and Ctrl-\ pty facts, which assert the stream ends with
+   `Leave()`, red). Linux was not run: CI is the first Linux run of the pty facts, and its result for the Ctrl-\ fact is read
+   at B7, not assumed. `pty-run.py`'s docstring still says Ctrl-C and Ctrl-\ are signals the line discipline raises; with
+   input mode raw they are bytes, so the docstring is corrected in B5.
+2. **Row bytes `Address, Plain, attribute, text, EraseToEndOfRow, Plain`. Accept.** §5.5 and §6 are read so; the trailing
+   `Plain` keeps an attribute (Bold title, Reverse status, Dim `end of #k`) out of the next row; FB22 is worded for it.
+3. **The status row is addressed at the terminal's last row, rows between written blank. Accept.**
+4. **`--plain` with `--screen` is a usage error, exit 1. Accept.** §6's truth table gains the row.
+5. **An empty board writes the line form's "no posts" and exits 0, no draw. Accept.**
+6. **Loads time out per load (2 minutes), not by `Main`'s token. Accept the timeout; change what can interrupt a load.** Main's
+   token would end an interactive session after two minutes, which is wrong. But as built the loop `await`s the load, so while
+   a load is in flight only SIGTERM and SIGHUP are heard; `q`, Ctrl-C, Ctrl-\, SIGINT and SIGQUIT wait up to two minutes behind
+   a hung Forum, which is a screen that does not answer `q`. R10.73 asks that the terminal be restored on every exit path
+   including the signals it can catch; it does not say how long. **Change:** while a load is in flight the loop keeps reading
+   events; `q`, Ctrl-C, Ctrl-\, SIGINT and SIGQUIT cancel the load and leave with the ledger's code, and any other key is
+   discarded. The status row says `loading from the Forum: q cancels` while it is in flight. Pty fact: a stub that accepts
+   and never answers, `r` then `q`, exits within 2 s with `Leave()` last. FB36. The initial load (before the screen is up)
+   is left as it is: nothing is drawn, the platform's default for SIGINT and SIGTERM applies, and nothing needs restoring.
+7. **No true stalled-stub parity row. Accept.** The accept-and-hang-up row (both exit 8, identical stdout) stands in; §7's
+   "stalled-stub row" and the plan's B2 sentence are read so. A real stall costs about 30 s per run and tests the HTTP
+   client's timeout, which `curia`'s own tests already hold.
+8. **The failed-post pty fact serves another identity's key set from `BrowseForumFixture` middleware. Accept.** There is no
+   honest Forum path to a failed post; the screen's mapping from `Passage.Outcome` is held pure in B1.
+9. **`Output.Draw` after `Leave` is not unit-tested. Accept as undischarged, and say so.** The IL fence holds *who* may draw and
+   leave, not what happens after; the throw has no probe at all (implemented, not discharged). B6's register records it. The
+   cheap discharge, if wanted later, is an `internal` reset beside a serialized test collection; it is not required here.
+10. **The pty ready marker is the status row's `q quits`. Accept, on 14.2.**
+11. **The disputed fact reuses `CompromiseDeclarationTests`' composition and `OperatorCommands`. Accept.**
+12. **The runtime writes `ESC[?1h ESC=` before the first byte. Accept.** The vocabulary tokenizer reads `Vt.KeypadOn`; unchanged.
+13. **Exit rank `6, 8, 4, 5, other, 9, 0`. Change to `6, 8, 9, 4, 5, other, 0`.** Against the other readers it is consistent
+    where they speak: `ExitCode.ForOutcomes` ranks 6, 8, 9, 0 and says 9 is "below 6 and 8". They never rank a refusal
+    against 9, because on a line form a refused load displays nothing. A screen can: a person sees a disputed post, presses
+    `r`, and the reload is refused 404 or 403. R10.74's own reason is that the exit code "must carry what the person saw", and
+    a refused load changed nothing the person saw; ranking it above 9 makes the one word an agent reads, "do not cite that",
+    disappear behind a word about a request that failed. A check that failed (6) or did not run (8, which also carries a
+    transport refusal) still outranks a mark, as on the line form. Edits: `OutcomeLedger.Rank`; the help's EXIT CODES line
+    (`6 ..., 8 ..., 9 disputed, then 4 or 5 a load was refused`); §8.1's rank sentence; R10.74 (errata G22, amended). Fact:
+    `…_ALaterRefusalNeverHidesADisputedOutcome` (disputed then 404 is 9, disputed then 403 is 9, failed then 404 is 6, a
+    refusal alone is its own code, a transport timeout after disputed is 8); FB35.
+14. **`InternalsVisibleTo Curia.Api.Tests`, `HttpFor` internal, `HelpTextTests` exemptions for `--agent` and `--marking`. Accept.**
+    The exemptions are the two options §6 says the screen declines; each has its reason in the test.
+15. **Disputed and failed pty cases at 120 by 50. Superseded by 14.1:** they run at 80 by 30, and one verified case runs at 80
+    by 24.
+
+### 14.7 Consequences for the documents
+
+- §4.1 (H3, H4, the compact form), §4.3 (restated in 14.5 item 3), §5.4 (14.1, 14.5 items 4, 5, 7), §5.5 (status row, 14.2;
+  row bytes, 14.6 item 2), §6 (`--plain` with `--screen`), §8.1 (rank, 14.6 item 13) and §11 (the new cases) are read as
+  amended here.
+- Errata G22: R10.74 gains "a key set that could not be read shown as not read and never as stating none", "A header MAY take a
+  compact form ... every form SHALL state all of this" and "a load refused after the screen was up ranking below a disputed
+  outcome"; its index row and its falsification bullet follow. R10.72's "eight" is unchanged; R10.75's mark cap is still
+  to be amended with the measured number in B6, as the plan has it.
+- The help (`BrowseState.HelpLines`) gains: the compact header exists below a height and what it leaves out; the rank; and the
+  residuals of 14.4 item 4.
+- The `curia` skill and `CLAUDE.md` are the owner's files; B6 records that they gain `browse` and exit 9 for it.
