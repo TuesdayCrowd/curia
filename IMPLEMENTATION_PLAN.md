@@ -51,17 +51,19 @@ set; SP scores recorded even if not yet weighted.*
 >    agents on the lift PR's local branch, which is also the first run of the runbook.
 > 4. **TUI PR B** (`curia-browse`), with its disputed header row, after 1 and 2: its row is D49's property on a
 >    third surface, and it should take D49's fact as its model. It does not gate the lift.
->    **In progress: TUI PR B (branch `curia-browse`), Task B0 done (2026-10-17).** B0 confirmed the preconditions
->    (#86, #92, #93 merged; `KestrelForumFixture` exists), **ruled that PR B does not wait on revocation** (G21
->    annotates R4.19's "revocation" as retirement or a compromise declaration, both merged; the header's key row is
->    data-driven from the key set's status vocabulary), wrote PR B's spec
->    (`docs/superpowers/specs/2026-10-17-curia-browse-design.md`) and filed its entry as **errata G22**
->    (R10.72 to R10.75, proposed, indexed; the mark cap in R10.75 is provisional until B1 measures it).
->    **Next: B1** (the screen model, pure; step 0a is the owner-strikeable fold of a post's
->    `disputed_by_log_index` into every reader's outcome) **then B2** (the terminal and the command), **B3** (input
->    and signals), **B4** (operate it under a pseudo-terminal), **B5** (falsify, FB1 to FB28), **B6** (register and
->    documents), **B7** (every gate, then the PR). Plan: `docs/superpowers/plans/2026-10-06-the-readers-claims-are-true.md`,
->    "PR B". Three owner questions in the spec's §12 have defaults and block nothing.
+>    **TUI PR B is built (branch `curia-browse`), Tasks B0 to B6 done (2026-10-17); B7 (every gate, then the PR) is next.**
+>    `curia browse board|thread|read` is a screen for a person at a terminal and, anywhere else, the matching verb's
+>    line form byte for byte with its exit code (errata **G22**, R10.72 to R10.75, proposed, indexed). B0 ruled that PR B
+>    does not wait on revocation (G21 annotates R4.19's "revocation" as retirement or a compromise declaration, both merged).
+>    B1 step 0a took its default: the read verbs read a post's own `disputed_by_log_index`. B4 and B4b ruled and built the
+>    80 by 24 layout, the status row, End, the unread-key-set row, the exit rank `6, 8, 9, 4, 5, other, 0` and the quit-able
+>    load (spec §14). B5 falsified 43 cases and closed four coverage gaps (plan, "Falsification (run 2026-10-17)"). B6, this
+>    entry, closed the held screen observation, recorded the residuals under "Observed during TUI PR B" and amended G22.
+>    B6 found that `curia browse --help` printed the superseded rank (see "Observed during TUI PR B", item 1); fixed the
+>    same day, the same-words fact extended to read it and shown red first. **Owed to the owner, not attempted:** the human look in
+>    two terminal applications and in VTE or Konsole, and the external `curia` skill gaining `browse` and exit 9 for it.
+>    **Next: B7.** Plan: `docs/superpowers/plans/2026-10-06-the-readers-claims-are-true.md`, "PR B". Three owner
+>    questions in the spec's §12 have defaults and block nothing.
 >
 > **Owner decisions of 2026-10-13, 2026-10-14 and 2026-10-16.**
 > - Q1 (single-key takeover residual): yes.
@@ -5738,7 +5740,9 @@ critique agent-user, M5), and no route lists boards. It is a Forum route, and st
 *F11 corrected:* `accepted` is served on every post (`src/Curia.Api/ForumEndpoints.cs:122`; the
 client parses it as `ProvenancePost.Accepted`, `src/Curia.Client/ForumDocuments.cs:191`). No reader
 prints it, and printing it as the Forum's claim is deferred to PR B (recorded under "Observed during
-the reader stage's PR A").
+the reader stage's PR A"). **The `accepted` deferral is closed by PR B (2026-10-17):** the screen's header row H6 prints it
+as the Forum's word and says no signature covers it (`R10_74_AcceptedIsTheForumsWordAndOnlyInH6`; the line form's
+verbs still print `parent` and not `accepted`). The board listing's missing cursor, this entry's subject, is untouched.
 
 ### D37 — what the Forum and its client print that is no longer true, and four gaps *(opened by the five-agent exercise, 2026-10-06; client half closed by the reader stage's PR A, 2026-10-11; reopened in part 2026-10-17)*
 
@@ -6312,7 +6316,13 @@ the errata); it is one sentence on the next G21 pass. (4) TUI PR B's disputed ro
 another surface: it takes this entry's fact as its model, and PR B's tests list every post-reading surface it
 adds against exit 9's coverage so a surface cannot be omitted silently. *Taken up 2026-10-17:* the list is the
 table in PR B's spec §8.2, a fact over the screen's view transitions, and spec §8.4 asks whether the read verbs
-should read the post's `disputed_by_log_index` as `recheck` now does (default yes, Task B1 step 0a).
+should read the post's `disputed_by_log_index` as `recheck` now does (default yes, Task B1 step 0a). **Item (4) closed by
+PR B (2026-10-17):** the surface table exists and is a fact, `R10_74_EveryTransitionOfTheViewHierarchyHasARowInSpecSection82AndOnlyThose`
+(a closed `BrowseTransition` hierarchy with `Match`, so a transition without an outcome row breaks the build; FB27),
+beside `R10_74_ASessionThatOpensADisputedPostAndQuitsExitsNine` (a pty session through the shipped binary taking
+`CompromiseDeclarationTests`' permissive-gate composition, exit 9 after `q`; FB25) and
+`R10_74_TheExitIsTheWorstOutcomeDisplayedAndAReloadNeverRemovesOne` (FB26), and step 0a's fold is built, so the read
+verbs and `recheck` agree.
 
 **The fix (closed 2026-10-17).** `ForumDocuments.ReadPost` parses `key_status` (absent reads as `active`, so an
 older Forum is never read as disputing) and `disputed_by_log_index` (`src/Curia.Client/ForumDocuments.cs`).
@@ -6474,6 +6484,97 @@ word is the passage's alone.*
 **Related register entries.** D43 (the log key signs declarations only provisionally), D45 (R12.11's
 runbook gaps) and D46 (an omitted compromised ancestor is not detectable by a reader).
 
+### Observed during TUI PR B
+
+Read at `curia-browse` b8211e9 (Tasks B0 to B5), recorded by B6 on 2026-10-17. The G22 entry is amended where this section
+says so; the mark-cap measurement and the register's other numbers below are as run, not as simulated.
+
+**Closed the same day (2026-10-17).** `R10_74_TheExitCodeHelpAndTheScreensHelpRankTheCodesInTheSameWords` now also reads
+`Help.For("browse")`; red against the old sentence (`Failed … [21 ms]`), green with the ruled wording.
+1. **`curia browse --help` printed the rank this PR superseded.** `src/Curia.Client.Cli/Help.cs` (the `Browse` text, last
+   sentence before the restore advice) says `rank 6, 8, 4, 5, 9, 0`; `OutcomeLedger.Rank`, the screen's own help
+   (`BrowseState.HelpLines`) and the EXIT CODES entry all say `6, 8, 9, then 4 or 5` (spec 14.6 item 13, ruled and built in B4b). It
+   is the third of three texts that state the rank, and the fact that holds the other two together
+   (`R10_74_TheExitCodeHelpAndTheScreensHelpRankTheCodesInTheSameWords`) reads the screen's help and the EXIT CODES entry
+   only; `R10_74_TheHelpStatesTheRankAndTheCompactHeader` reads the screen's help alone. So a person or agent reading
+   `curia browse --help` is told that a refused load outranks a disputed post, the one claim the ruling reversed, and no
+   fact can see it (vacuity question 4: the check derived from two of the three artifacts it names). Next action: change
+   the sentence to the ruled wording, and have the same-words fact read `Help.For("browse")` as well; show it red first
+   against the current text. Spec 14.8's closing "must say it in the same words" is the requirement. Not edited here:
+   B6 writes no code.
+
+**Residuals.**
+2. **A disputed post under a compromised key at exactly 80 by 24 is still too small.** Measured, at 80 columns with a
+   36-character author, a 26-character parent and a 12-character `kid`: verified, parented, active key, needs 23 rows
+   compact and 26 full; disputed under a compromised key with a parent, 27 compact and 30 full; a failed parented one, 16 (no content);
+   a failed one under a compromised key, 17.
+   At 80 by 24 the verified post draws 9 content rows. A disputed post at 80 by 24 says it needs 27 rows and 72 columns and
+   names the line form's command. Spec 14.1's simulated 22, 25 and 26, and 14.8's first list, are superseded by these. The
+   lever is a shorter verdict sentence for a disputed post, which is a second wording of R6.57's and a decision of its own.
+3. **`Output.Draw` after `Leave` is implemented and not discharged.** The throw is not exercised: the flag is
+   process-global, and the IL fence holds who may draw and leave, not what happens after. Implemented, not discharged
+   (spec 14.6 item 9); no one has broken it. The cheap discharge is an `internal` reset beside a serialized test collection.
+4. **FB17b is an equivalent mutant, expected.** `TreatControlCAsInput(true)` removed changes nothing observable because
+   SIGINT and SIGQUIT are registered and the signal path quits; it stays as defence in depth and is not counted as falsified.
+   (Under .NET with that property, Ctrl-\ is not SIGQUIT but `ConsoleKey.D4` with Control and no character; FB17a removes the
+   branches that match it and the Ctrl-\ pty fact goes red, FB17c removes the registrations and the property together.)
+5. **FB18a and FB22 are equivalent as worded; their stronger forms are red.** FB18a (blocking `ReadKey`) leaves the SIGTERM
+   fact green because the key thread is a background thread; FB18a2 (blocking `ReadKey` and `IsBackground = false`) is red.
+   FB22 (a single `Plain` removed, or both) is equivalent as worded, triply redundant as B5 recorded it;
+   FB22d (both `Plain`s removed and `AttributeOf`'s default empty) is red. The plan's rows are reworded to
+   say so. The as-worded cases do not show the facts are weak; they show the patch is not an observable difference.
+6. **FB25's pty fact guards the word's presence only.** It goes red only when both sites lose `DISPUTED` (the tag and H4);
+   dropping one leaves a word still on the screen. The per-site guard is the key-row/outcome-word fact, not the pty session.
+7. **FB26's facts depend on board order, oldest first.** B5 found FB26 red at state level only, with no pty half; the
+   coverage fix is a session that sees a disputed post and then opens and reloads a verified one, and that fact relies on
+   the board listing oldest first. Nothing asserts the order, so a change of order would change what the session runs.
+8. **FB10 is read as the screen's own escape being bypassed, not `SpanText.Line`.** The screen never calls `SpanText.Line`
+   (it lays out from `ContentLayout`), so the plan's patch as worded has nothing to bypass; FB10b (`TitledIndex` calling
+   `SpanText.Line`) belongs to the reader stage's FA20.
+9. **The unread key set's sentence is true in both causes, and does not tell them apart.** `CouldNotCheck` with a null
+   status means the key set was never obtained, or was read, named no status, and `server_ts` would not parse. The row
+   reads `key <kid>: no key-set status is available to this client: the check did not run (see the signature row)`
+   (spec 14.8 item 4). Telling the causes apart needs a member on `SignatureVerdict`, a type `curia-mcp` shares.
+10. **The hostile fixture is in-process.** The three-thousand-line answer is posted by a T1 agent with an attested owner,
+    in-process, because the CLI's real-time DPoP flow cannot cross the 48 hour tenure (R7.17, provisional). The pty sessions
+    run the shipped binary over it. The failed-post pty fact serves another identity's key set from `BrowseForumFixture`
+    middleware, since there is no honest Forum path to a failed post; the screen's mapping from `Passage.Outcome` is held
+    pure in B1. The stalled-stub parity row is an accept-and-hang-up Forum (both exit 8, identical stdout), not a stalled one:
+    a true stall costs about 30 seconds a run and tests the HTTP client's timeout, which `curia`'s own tests hold.
+11. **The mark cap measured: Unicode 17.0.0 (Python 3.15.0), longest Mn run in any NFD form 3 (U+1F82), longest Me run
+    1 (U+0488); `benign.jsonl` and `known-false-positives.jsonl` hold no run of marks on one base.** The cap stays 4 and
+    R10.75 needs no amendment of the number; G22 is amended to say it was measured. Me is reported apart and not capped
+    at zero. Mc is not counted (it advances the cursor, spec 14.5 item 10). A later Unicode version could lengthen a run;
+    re-run the scratch measurement when the project moves its Unicode data.
+12. **The independent emulator found nothing.** `pyte` 0.8.2 with `wcwidth` 0.9.2 replayed the pseudo-terminal captures of
+    the three-thousand-line hostile answer, checking R10.72's row properties after every frame: B4b's runs, at 80 by 24 and
+    80 by 28, 51 frames each, 51 with content, 0 failures, were made on the working tree of B4b before f670490 was committed
+    and so before spec 14.8's changes (the wrapped no-content row, `Screen.Settle`, the reworded unread-key-set row) and before
+    B5's coverage fixes. B6 re-ran the same checker, unchanged, over the two captures kept from the end of B5 (their
+    modification times fall within a minute of b8211e9's commit time, which is all that says which tree produced them; they
+    differ byte-wise from B4b's): the same
+    counts, 0 failures at both sizes. The captures are in the build session's scratch directory under `final/`, not in
+    the repository. The checker's reader-prefix list was updated for the new rows, and its gutter pattern for a row of only
+    spaces, which `rstrip` had made a false failure. This is one emulator's reading of one hostile fixture; it is not a
+    terminal application.
+13. **The human look is not done, and it is the owner's.** Two terminal applications, and VTE or Konsole with rows beginning
+    in Hebrew and in Arabic (does the gutter move under bidirectional reordering?), were not looked at; the captures above
+    are what to replay. A claim that was not observed is stated as not observed: the help's residuals name bidirectional
+    reordering, and no document says the gutter is stable under it. Not a merge blocker (spec 14.4 item 8).
+14. **Linux was not run locally.** The pty facts (Ctrl-\, Ctrl-C, SIGTERM, SIGHUP, resize, the hung load) ran on macOS
+    only; CI is their first Linux run, and B7 reads its result for the Ctrl-\ fact rather than assuming it.
+15. **`CLAUDE.md` was stale on revocation.** It said "key revocation (R4.19) ... does not exist yet"; G21's annotation of
+    R4.19 says "revocation" is retirement (R4.39) or a compromise declaration (R6.26 (revised)), both merged. Corrected by
+    B6 in one clause (the owner's file; the correction is for review).
+16. **The line form and the screen differ, on purpose, in two places.** `Passage.Render` prints nothing for both an absent
+    key status and `active` (spec 4.2), which the screen does not (G22, decision 3); and the screen shows no content for a
+    failed post where `read` prints the Forum's span under its failing line (spec 5.4; G22, "What this costs", 1).
+17. **D37 is untouched by PR B** except as item 1 is its shape (a help text that says what is no longer true). D37's
+    datamark item stands for the line form; the screen writes U+E000 and every Co and Cn character as an escape (R10.75)
+    and so never draws it as nothing.
+18. **Owed to the owner, not attempted:** the external `curia` skill gains `browse` and exit 9 for it (it carries the verb list
+    and the exit codes in `references/cli.md`); the human look in item 13.
+
 ### Observed during the second five-agent exercise (2026-10-17), not acted on
 
 The exercise ran against a local Forum built from `72cab0e` (errata G21 fully merged, lifecycle guard on, the
@@ -6552,6 +6653,19 @@ entered, and its other rows are dispositioned here so they are not raised again:
   changes what its header must show (Hardin's ruling H13). No code depends on it until PR B.
   **Filed 2026-10-17 as errata G22** (R10.72 to R10.75) by PR B's Task B0, after rotation and compromise merged and
   changed what a header must show (key status, and disputed as a fourth outcome).
+  **Closed 2026-10-17, as built by G22 (TUI PR B; B6).** Each clause of the observation has a fact, and the
+  facts were falsified (plan, "Falsification (run 2026-10-17)"; 43 cases): *scrolled, a screen holds content without its
+  header or warning* is `R10_72_EveryScreenHoldingAPassagesContentHoldsItsHeaderAndTheWarning` (header pinned and
+  marked `continued`; FB1); *a capture keeps only characters* is `R10_72_EveryRowBeginsWithTheReadersTextAndEveryContentRowWithItsGutter`
+  (every row has a side that survives a character-only capture; FB2, FB14); *a stripped-escape stream keeps only byte
+  order* is `R10_72_TheStreamIsTopToBottomThenEveryFrameRowAgainThenTheStatusRowLast` and the 1049-ignoring and no-scroll
+  facts in `BrowseTerminalTests` (FB8, FB19); *TAB-skipped cells* is `R10_72_ATabCannotLeaveAnEarlierFramesTextStandingInARow`
+  (FB15, whose marker was widened across the row after B5 found it passed with the guard off); *UTF-8 continuation bytes
+  as C1* is the vocabulary fact over encoded bytes and `R10_73_*`'s truth table (FB16); *marks over neighbouring rows* is
+  `R10_75_TheFifthMarkOnABaseIsAnEscape` and the wrap-marks fact (FB4, FB5, FB20); and the three thousand hostile
+  lines are `R10_72_R10_73_R10_75_ThreeThousandHostileLines…` at 80 by 24 and 80 by 28, through the shipped binary under a
+  pseudo-terminal. What it did not establish is under "Observed during TUI PR B": the human look, the bidirectional
+  terminals, Linux, and `Output.Draw` after `Leave`.
 - **The line form under an 8-bit character set.** .NET writes UTF-8 whatever the locale (the
   stage's terminal-security probe P2), so a terminal in an 8-bit charset that acts on C1 controls
   reads a continuation byte in 0x80-0x9F as one: U+00DB is `c3 9b`, which such a terminal takes as
@@ -6564,6 +6678,10 @@ entered, and its other rows are dispositioned here so they are not raised again:
   not `accepted`, and a thread's resolution beyond that is derivable from its passages. Printing it,
   as the Forum's claim, is deferred to PR B. *Taken up 2026-10-17:* PR B's header row H6 prints it as the Forum's
   word, with the note that no signature covers an acceptance (spec §4.1); it closes when that fact is green.
+  **Closed 2026-10-17 by PR B:** `R10_74_AcceptedIsTheForumsWordAndOnlyInH6` is green (`Accepted = true` prints the
+  labelled phrase in H6 and nowhere else; `false` prints nothing) and the compact header keeps it
+  (`R10_74_TheCompactHeaderStatesEverythingR10_74Requires`; FB29). The line form's `Passage.Render` still does not print
+  `accepted`; the screen is the one reader that does, so D36's F11 is closed for the screen and open for the verbs.
 
 ### Observed during the one-part-at-a-time stage's PR A
 

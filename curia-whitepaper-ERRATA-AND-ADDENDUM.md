@@ -8805,10 +8805,10 @@ with the break that must turn it red; the implementation plan's register will re
 R10.63–R10.67 (G17), R10.71 (G19), R6.52 and R6.54 (G11, G16, G21), R6.57 and R4.35 (revised) (G21). The code the
 requirements bind is the reference client's frame and verdict (`src/Curia.Client/Passage.cs`,
 `SignatureCheck.cs`, `TitledIndex.cs`), its exit codes (`src/Curia.Client.Cli/Cli.cs`, `Program.cs`) and
-`curia browse`, which does not exist yet. **Class:** normative gap, carrying four requirements. It is the entry the
+`curia browse`, which TUI PR B built (2026-10-17). **Class:** normative gap, carrying four requirements. It is the entry the
 implementation plan's register held as "A screen separates the envelope from the content" and said would be filed with
-the screen, after rotation. **Status:** proposed; not applied to the white paper. The mark cap in R10.75 is
-provisional (below).
+the screen, after rotation. **Status:** proposed; not applied to the white paper. The mark cap in R10.75 was provisional
+and is measured (below; amended at PR B's Task B6).
 
 **How it surfaced.** Scoping the terminal reader the owner added to scope on 2026-10-05, `curia-architect` found that
 the envelope's inseparability from content (R10.18, property P22) has no meaning on a surface that scrolls. The finding
@@ -8898,8 +8898,8 @@ did not change.
 **R10.75** A screen SHALL lay out a post's content from the canonical form the signature covers (R10.71), never from
 the Forum's span; SHALL write each Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogate and combining mark with no base as an
 escape in R10.67's spelling, expanding TAB to the next multiple of 8 first; SHALL write each combining mark beyond a
-stated number on one base as an escape (four, provisional until measured against the red-team corpus's benign and
-known-false-positive files, and amended before the screen merges); SHALL NOT wrap a base from its marks or cut a display
+stated number on one base as an escape (four: the longest run of nonspacing or enclosing marks on one base in any
+Unicode 17.0.0 NFD form is three, and the red-team corpus's benign and known-false-positive files hold none); SHALL NOT wrap a base from its marks or cut a display
 literal; and SHALL estimate a character's width as never less than a terminal's. The reason: a terminal, not the reader,
 decides what a mark draws over and how wide a glyph is, so the layout must be correct for the worst terminal and say when
 it may be cut (`wide characters on screen`).
@@ -8926,8 +8926,10 @@ it may be cut (`wide characters on screen`).
 4. **Terminals the design cannot protect.** Bidirectional terminals may reorder a row that begins in Hebrew or Arabic
    and move the gutter; glyphs may draw past their cell; scrollback and recording keep what was drawn. The help names
    each, and `tmux capture-pane -p -J -S -` for a person who wants the line form's long line back.
-5. **The mark cap is a guess.** Four per base is provisional; the stage that builds the screen measures it and amends
-   this entry before it merges.
+5. **The mark cap is measured, and measured once.** Four per base sits above the longest run Unicode 17.0.0 produces in
+   any NFD form (three, U+1F82; an enclosing mark run is one, U+0488) and above every run in the red-team corpus's benign
+   and known-false-positive files (none). A later Unicode version could lengthen a run, so the measurement is re-run when
+   the project moves its Unicode data; spacing combining marks are not counted, because they take a cell.
 6. **One reader meaning may change.** The spec's step 0 (§8.4) folds a post's `disputed_by_log_index` into the read
    verbs' outcome, as D49 did for `recheck`; it is a default the owner may strike.
 
@@ -8944,8 +8946,11 @@ it may be cut (`wide characters on screen`).
 ### Falsified before it was trusted
 
 `tools/spec-checks/falsify-spec-checks.py` must go red on all four of its checks with the entry in place. The probes the
-requirements need are owed, each with the break that must turn it red; the implementation plan's register records what each
-printed.
+requirements need were owed when this entry was filed. They are built and were run (TUI PR B, Task B5: 43 cases on the
+final tree, each named fact seen red; four cases were equivalent or under-guarded as first worded and are red in corrected
+forms, and one, the redundant `TreatControlCAsInput`, is an equivalent mutant that no fact can see). The implementation plan's
+register ("Observed during TUI PR B") records what each printed and what is not discharged: `Output.Draw` after `Leave`,
+the bidirectional terminals, Linux, and the human look.
 
 - **R10.72.** Draw a continuation row without its gutter; let a content row begin with the reader's text; draw a passage's
   content with its header scrolled out; write the status row before the second pass of the reader's own rows. The row and
@@ -9108,7 +9113,7 @@ printed.
 | R10.72 | A screen gives every row a side: the reader's rows begin with its own text, content rows with a gutter no reader row matches, and none holds a character a terminal acts on; content shows with its header and the standing warning, pinned when scrolled, or not at all; drawn only where eight rows fit, the minimum computed from the header present; rows written top to bottom, the reader's rows again, status last | G22 |
 | R10.73 | A screen is drawn only for a person at a terminal (both ends terminals, UTF-8, a listed `TERM`, not Windows, no option it cannot honour); otherwise the matching command's bytes and exit code with the reason on standard error; a closed constant vocabulary, wrapping off, every row addressed, erase then leave on every exit path, one writer, no identity, file or process | G22 |
 | R10.74 | A screen's header states the outcome that decides the exit code, the key's status as the key set's word (none stated is not active; unread is not none stated) with the post's log index beside it, what was not checked, and an acceptance as the Forum's word, in every form the header takes (a compact one is permitted); no content of an unverified post; the exit code is the worst outcome displayed (a later refusal ranks below a disputed one) and every loading surface counts | G22 |
-| R10.75 | A screen lays out the canonical form, never the span; escapes Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogates and baseless marks in R10.67's spelling, TAB expanded first; marks beyond four per base (provisional) escaped; never splits a base from its marks or cuts a literal; width never undercounted | G22 |
+| R10.75 | A screen lays out the canonical form, never the span; escapes Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogates and baseless marks in R10.67's spelling, TAB expanded first; marks beyond four per base (measured) escaped; never splits a base from its marks or cuts a literal; width never undercounted | G22 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,

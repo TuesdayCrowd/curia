@@ -8,6 +8,7 @@
 > Every file:line below was read at 5e69df1. Nothing here was built or run; the screen claims are reasoning until
 > Task B4 drives a terminal.
 > Amended 2026-10-17 after B4: section 14 supersedes any earlier section it contradicts (named in each ruling).
+> Amended 2026-10-17 at B6: 14.9 records the mark-cap measurement; no ruling changed.
 
 ## 1. What this is, and who it is for
 
@@ -172,7 +173,7 @@ Content is laid out from `SpanCheck.CoveredForm(post)` (R10.71's last sentence),
 canonical order, string bodies split on line feeds, arrays as `- ` items, objects indented. Per row: TAB expands to the
 next multiple of 8; every Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogate and baseless mark is escaped the way R10.67 writes
 an escape (`\u` and four lowercase hex digits per UTF-16 unit); each Mn or Me after the Nth on one base is escaped
-(N is 4, provisional: Task B1 step 0 measures Mn and Me separately and does not cap Me at zero, since U+20E3 is honest);
+(N is 4, measured at B1 step 0 and recorded in 14.9: Mn and Me are measured separately and Me is not capped at zero, since U+20E3 is honest);
 a wrap never splits a base from its marks; the width estimate is 1 for printable ASCII and 2 for everything else, so it
 never undercounts. These are R10.75.
 
@@ -369,8 +370,8 @@ verdict (question 4, same-artifact derivation), nor an absent status like an `ac
    line form's command is on the row.
 4. **`--agent` declines the screen.** A person who habitually passes it gets the line form and a stderr reason. A flag
    the screen cannot honour cannot be quietly dropped. `curia keys` is how a person checks lifecycle acts.
-5. **The cap on marks (4) is a guess** until B1 step 0 measures it against `benign.jsonl` and `known-false-positives.jsonl`.
-   It is provisional in R10.75 and G22 is amended with the measured number before PR B merges.
+5. **The cap on marks (4) was a guess** until B1 step 0 measured it against `benign.jsonl` and `known-false-positives.jsonl`
+   (14.9: the longest run is 3, so 4 stands). G22 was amended at B6 to say it is measured.
 6. **Size.** Eight tasks, about 28 facts, 29 cases, two pty helpers and a test emulator: the plan's honest size plus six
    facts. Anything that grows it further (a search view, a home view) is a new stage.
 
@@ -612,8 +613,8 @@ offset it did not cover.
   amended here.
 - Errata G22: R10.74 gains "a key set that could not be read shown as not read and never as stating none", "A header MAY take a
   compact form ... every form SHALL state all of this" and "a load refused after the screen was up ranking below a disputed
-  outcome"; its index row and its falsification bullet follow. R10.72's "eight" is unchanged; R10.75's mark cap is still
-  to be amended with the measured number in B6, as the plan has it.
+  outcome"; its index row and its falsification bullet follow. R10.72's "eight" is unchanged; R10.75's mark cap was
+  amended at B6 to say it is measured (14.9); the number is unchanged.
 - The help (`BrowseState.HelpLines`) gains: the compact header exists below a height and what it leaves out; the rank; and the
   residuals of 14.4 item 4.
 - The `curia` skill and `CLAUDE.md` are the owner's files; B6 records that they gain `browse` and exit 9 for it.
@@ -672,3 +673,22 @@ that named no status when `server_ts` was unparseable, and the lever is a member
 **Addition beyond section 14: confirm.** `Help.cs`'s exit-9 entry gains the clause that a later refused load (4 or 5) ranks
 below 9, as 14.6 item 13 and R10.74 (amended) say. It must say it in the same words the screen's own help line uses, and
 `CLAUDE.md`'s statement of exit 9 gains it in B6.
+
+### 14.9 Recorded at B6 (2026-10-17)
+
+**The mark cap, measured (B1 step 0).** Python 3.15.0 with Unicode 17.0.0: the longest run of nonspacing marks (Mn) in any
+code point's NFD form is 3 (U+1F82), and of enclosing marks (Me) 1 (U+0488); `conformance/red-team/benign.jsonl` and
+`known-false-positives.jsonl` hold no run of marks on one base. The cap stays 4 and R10.75's number needs no amendment;
+G22's text says "measured" where it said "provisional". Spacing combining marks (Mc) are not counted (14.5 item 10). A later
+Unicode version could lengthen a run, so the measurement is re-run when the project moves its Unicode data.
+
+**The numbers 14.1 simulated, as 14.8 measured them** (14.8's list, plus the failed documents measured after 14.8 item 3
+made the no-content body a wrapped row): at 80 columns, a 36-character author, a 26-character parent, a 12-character `kid`:
+verified, parented, active compact 23 and full 26; disputed under a compromised key compact 27 and full 30; failed, parented,
+no content 16; failed under a compromised key 17. The residual 14.1 accepted stands: a disputed post at exactly 80 by 24 is
+too small and says it needs 27 rows.
+
+**What the implementation plan's register holds that this document does not:** `curia browse --help` stating the superseded
+exit rank (14.6 item 13 changed the code and two of the three texts), `Output.Draw` after `Leave` undischarged, the equivalent
+mutants and the corrected forms (FB17b, FB18a2, FB22d, FB9b, FB11b), the human look not done, Linux not run. See "Observed
+during TUI PR B".

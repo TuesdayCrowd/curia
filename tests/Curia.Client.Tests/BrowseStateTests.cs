@@ -256,8 +256,10 @@ public sealed class BrowseStateTests
         const string rank = "6 a check did not hold, 8 it could not be run, 9 disputed, then 4 or 5 a load was refused, 0 otherwise";
         var screen = string.Join(' ', state.Render(new ScreenSize(400, 60)).Rows.Select(r => r.Text));
         var entry = string.Join(' ', HelpTextTests.ExitCodeEntry(ExitCode.Disputed).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var usage = string.Join(' ', Help.For("browse")!.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         Assert.Contains(rank, screen, StringComparison.Ordinal);
         Assert.Contains(rank, entry, StringComparison.Ordinal);
+        Assert.Contains(rank, usage, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -139,7 +139,8 @@ internal static class Help
         + "    list; it never overrides a redirection.\n"
         + "    The exit code is the worst outcome of every post shown, as the line form gives it (EXIT CODES),\n"
         + "    whatever the person did after seeing it; a load refused once the screen is up joins it by the\n"
-        + "    rank 6, 8, 4, 5, 9, 0.\n"
+        + "    rank: 6 a check did not hold, 8 it could not be run, 9 disputed, then 4 or 5 a load was refused,\n"
+        + "    0 otherwise.\n"
         + "    A terminal left in a bad state (SIGKILL, a backgrounded browse) is restored by: reset, or\n"
         + "    tput rmcup; tput smam; tput cnorm.";
 

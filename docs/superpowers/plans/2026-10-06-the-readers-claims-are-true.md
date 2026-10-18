@@ -455,7 +455,7 @@ FA26's, FA31's and FA32's fact reads `curia.dll` beside the Architecture test as
 
 ---
 
-## PR B — the screen (branch `curia-browse`) — IN PROGRESS: B0 done 2026-10-17
+## PR B — the screen (branch `curia-browse`) — BUILT: B0 to B6 done 2026-10-17; B7 (gates, PR) next
 
 > *Amended 2026-10-17 (B0).* Runs after PR A (#86), rotation (#92) and the compromise declaration (#93), all merged
 > at 5e69df1. **It does not wait on revocation:** G21's annotation of R4.19 says "revocation" is retirement (R4.39) or a
@@ -561,12 +561,12 @@ Gate: every command in `CLAUDE.md`'s list for the assemblies touched, `Curia.Arc
 | FB17a | Interpret's `\u001c`, `ConsoleKey.D4` and `ConsoleKey.Oem5` branches removed | Ctrl-\ pty fact |
 | FB17b | `Output.TreatControlCAsInput(true)` removed | **expected survivor**: an equivalent mutant (SIGINT and SIGQUIT are registered, so the signal path quits). Record "survived, equivalent, defence in depth"; do not report as falsified |
 | FB17c | the SIGINT and SIGQUIT registrations and `TreatControlCAsInput(true)` removed together | Ctrl-C and Ctrl-\ pty facts (stream must end with `Leave()`) |
-| FB18a | input wake removed (blocking `ReadKey`) | SIGTERM pty fact |
+| FB18a | input wake removed (blocking `ReadKey`) | **equivalent as worded** (the key thread is a background thread, so the process still exits on SIGTERM); the stronger form **FB18a2**, blocking `ReadKey` and `IsBackground = false`, must go red on the SIGTERM pty fact |
 | FB18b | SIGWINCH not posted | resize pty fact |
 | FB19 | `Leave()` without the erase | 1049-ignoring fact |
 | FB20 | wrap splits a base from its marks | wrap-marks fact |
 | FB21 | `Size()` reads `Console.CursorLeft` | `System.Console` member fence |
-| FB22 | no `Plain` after each row's address, or after its text (row bytes: `Address, Plain, attribute, text, EraseToEndOfRow, Plain`) | SGR carry fact |
+| FB22 | no `Plain` after each row's address, or after its text (row bytes: `Address, Plain, attribute, text, EraseToEndOfRow, Plain`) | **equivalent as worded** for a single `Plain` or both (triply redundant); the stronger form **FB22d**, both `Plain`s removed and `AttributeOf`'s default empty, must go red on the SGR carry fact |
 | FB23 | H4 and the tag derived from the key row's status | key-row/outcome-word fact |
 | FB24 | an absent status rendered as `active` | unstated-status fact |
 | FB25 | the `Disputed` word dropped from the tag or H4 | key-row/outcome-word fact; pty exit-9 fact |
@@ -590,7 +590,32 @@ Gate: every command in `CLAUDE.md`'s list for the assemblies touched, `Curia.Arc
 survivor and is reported as such. Every case is applied to the final tree, the named fact seen red, the patch restored by a plain
 copy (never `git checkout --`), the file's mtime bumped, a rebuild with `--no-incremental`, and the suite run unpatched once.
 
+**Falsification (run 2026-10-17).** `falsify: 43 cases, 5 not RED as specified` (the table's 40 numbers, FB17 as three and
+FB18 as two), on `curia-browse` at 9f590b1, two crews (A: FB1 to FB16 and FB37 to FB40, 20 cases; B: FB17a to c, FB18a and b,
+FB19 to FB36, 23 cases), by the protocol in the paragraph above, and both crews' suites green and `git status --porcelain` empty on a final unpatched run.
+- **38 RED, 36 of them as first written.** FB13 and FB38 did not compile as written (CA1802, CA1822) and were rewritten, then
+  RED.
+- **4 not RED as specified, all four RED in a corrected form:** FB9 (an OSC title constant written in `Enter()`; the
+  vocabulary fact reflected over every `const` in `Vt`, so a new constant was admitted; FB9b, an OSC literal written inline
+  outside `Vt`, is RED), FB11 (a redirection ignored in `DrawsAScreen`; the redirected-streams parity fact had no timeout and hung
+  the suite; FB11b, only `InputRedirected` ignored, is RED), FB18a and FB22 (equivalent as worded; FB18a2 and FB22d, rows above,
+  RED).
+- **FB17b survived, as expected** (an equivalent mutant: SIGINT and SIGQUIT are registered, so the signal path quits). Recorded
+  as survived, equivalent, defence in depth; **not counted as falsified.**
+- **Two more were counted RED but exposed a gap in the fact meant to carry them:** FB15 (the stale-cell marker began at column 8,
+  which the content row overwrote, so a raw TAB's stale cells passed with the `Serialize` guard off) and FB26 (RED at state level
+  only; no pty fact loaded two views with different outcomes). FB25's pty fact is RED only when both sites lose `DISPUTED`; FB10
+  was read as the screen's own escape being bypassed (the screen never calls `SpanText.Line`; FB10b belongs to FA20); both are
+  recorded under "Observed during TUI PR B".
+- **Four coverage gaps closed, tests only,** in the B5 commit: `Vt`'s fifteen constants written out in the vocabulary fact (red with a new
+  `WindowTitle` constant), the parity fact's child killed after 30 s and failed (red with redirection ignored, which used to
+  hang), the stale-cell fact's earlier row marked STALE across all 100 columns (red with a raw TAB past the guard), and a pty
+  session that sees a disputed post then opens and reloads a verified one and exits 9 (red with the ledger cleared).
+Not run: the signal and pty facts on Linux (CI is the first Linux run).
+
 ### Task B6: Register and documents (PR B)
+
+- [x] Done 2026-10-17. The register (`IMPLEMENTATION_PLAN.md`): the held screen observation closed with evidence, D36's `accepted` deferral and D49's item (4) closed, D37 noted untouched, "Observed during TUI PR B" written (18 items, the first an open defect in `curia browse --help`'s rank), the current-work block updated. G22: R10.75's cap recorded as measured (number unchanged), "Falsified before it was trusted" and the spec's cap passages brought in line. `CLAUDE.md` and `README.md`: see the B6 report. Owed to the owner and not attempted: the external `curia` skill, the human look.
 
 *Amended 2026-10-17 after B4 (spec section 14).* Record, besides what the task lists:
 - the 80 by 24 numbers as measured by the new fact (this section's were simulated), and the residual that a disputed post under a
