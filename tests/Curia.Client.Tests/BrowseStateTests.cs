@@ -422,6 +422,45 @@ public sealed class BrowseStateTests
     }
 
     [Fact]
+    public async Task R10_72_ScrollingALargeDocumentMovesAWindowOverOneLayoutAndOnlyALoadOrAResizeLaysItOutAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var size = new ScreenSize(80, 24);
+        var state = new BrowseState(new CountingSource([Long(3000, 0)]));
+        await state.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Read, "p")), size, ct);
+        state.Render(size);
+        Assert.Equal(1, state.Layouts);
+
+        // Pages down past the end and back, rows, Tab, Home, End and the command note: each is a window moved, and each is drawn.
+        BrowseTransition[] moves =
+        [
+            .. Enumerable.Repeat(new BrowseTransition.Scroll(size.Height - 4, Relative: true), 30),
+            new BrowseTransition.Scroll(1, Relative: true), new BrowseTransition.Scroll(-1, Relative: true),
+            new BrowseTransition.NextPassage(), new BrowseTransition.Scroll(int.MaxValue / 2, Relative: false),
+            new BrowseTransition.Scroll(0, Relative: false), new BrowseTransition.ShowCommand(),
+        ];
+        foreach (var move in moves)
+        {
+            await state.ApplyAsync(move, size, ct);
+            state.Render(size);
+        }
+
+        Assert.Equal(1, state.Layouts);
+
+        // A resize can change the width and the header form, so it is laid out for the new size, once.
+        var wider = new ScreenSize(100, 30);
+        await state.ApplyAsync(new BrowseTransition.Scroll(1, Relative: true), wider, ct);
+        state.Render(wider);
+        state.Render(wider);
+        Assert.Equal(2, state.Layouts);
+
+        // A load replaces the posts, even with posts that look the same, so the layout is dropped.
+        await state.ApplyAsync(new BrowseTransition.Reload(), wider, ct);
+        state.Render(wider);
+        Assert.Equal(3, state.Layouts);
+    }
+
+    [Fact]
     public async Task R10_72_HomeAndTabAreAsTheyWereAfterTheClampChanged()
     {
         var ct = TestContext.Current.CancellationToken;

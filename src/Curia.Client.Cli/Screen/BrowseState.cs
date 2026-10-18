@@ -37,7 +37,12 @@ internal sealed class BrowseState(IBrowseSource source)
 {
     private readonly List<BrowseView> _views = [];
 
+    private (Type View, ImmutableArray<Passage> Posts, ScreenSize Size, Screen.Document Laid)? _laid;
+
     internal OutcomeLedger Ledger { get; } = new();
+
+    /// <summary>How many times a document has been laid out, whole: a scroll moves a window over a layout and adds none.</summary>
+    internal int Layouts { get; private set; }
 
     /// <summary>The view on show. Valid once the first <see cref="BrowseTransition.Open"/> has been applied.</summary>
     internal BrowseView Current => _views[^1];
@@ -95,17 +100,33 @@ internal sealed class BrowseState(IBrowseSource source)
         return Note is { } note ? screen.WithNote(note, size.Width) : screen;
     }
 
-    private static Screen Layout(BrowseView view, ScreenSize size) => view.Match(
-        board => Screen.ForBoard(board.Posts, size, board.Offset),
-        thread => Screen.ForPassages(thread.Posts, size, thread.Offset),
-        read => Screen.ForPassages(read.Posts, size, read.Offset),
-        _ => Screen.ForHelp(HelpLines, size));
+    private Screen Layout(BrowseView view, ScreenSize size) => Laid(view, size).At(view.Offset);
+
+    /// <summary>
+    /// The document of <paramref name="view"/> at <paramref name="size"/>, laid out when the view, its posts or the size is not
+    /// the one last laid out, and otherwise as it was. A scroll changes only the offset; a load replaces the posts and drops the
+    /// layout (<see cref="LoadAsync"/>); a resize changes the size, which can change the width and the header form.
+    /// </summary>
+    private Screen.Document Laid(BrowseView view, ScreenSize size)
+    {
+        if (_laid is { } kept && kept.View == view.GetType() && kept.Posts == view.Passages && kept.Size == size) return kept.Laid;
+
+        Layouts++;
+        var laid = view.Match(
+            board => Screen.LayoutBoard(board.Posts, size),
+            thread => Screen.LayoutPassages(thread.Posts, size),
+            read => Screen.LayoutPassages(read.Posts, size),
+            _ => Screen.LayoutHelp(HelpLines, size));
+        _laid = (view.GetType(), view.Passages, size, laid);
+        return laid;
+    }
 
     private async Task<LoadResult?> LoadAsync(ViewSource where, bool replace, CancellationToken ct)
     {
         var result = await source.LoadAsync(where, ct).ConfigureAwait(false);
         if (result.Refusal is not null) return result;
 
+        _laid = null;
         var view = where.Kind switch
         {
             ViewKind.Board => (BrowseView)new BrowseView.Board(where.Id, result.Passages),
@@ -180,7 +201,7 @@ internal sealed class BrowseState(IBrowseSource source)
     }
 
     /// <summary>The index of the passage (or index row) the window's first row is in.</summary>
-    private static int PassageAt(BrowseView view, ScreenSize size)
+    private int PassageAt(BrowseView view, ScreenSize size)
     {
         var screen = Layout(view, size);
         var starts = screen.PassageStarts;
