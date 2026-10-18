@@ -106,7 +106,14 @@ internal sealed class Screen
     internal ScreenRow Status => Rows[^1];
 
     /// <summary>A thread or a single post: each passage under its header.</summary>
-    internal static Screen ForPassages(IReadOnlyList<Passage> passages, ScreenSize size, int offset)
+    internal static Screen ForPassages(IReadOnlyList<Passage> passages, ScreenSize size, int offset) =>
+        LayoutPassages(passages, size).At(offset);
+
+    /// <summary>
+    /// The document of a thread or a single post at <paramref name="size"/>, laid out once: every offset is then a window onto
+    /// it (<see cref="Document.At"/>), so a scroll does not lay the document out again.
+    /// </summary>
+    internal static Document LayoutPassages(IReadOnlyList<Passage> passages, ScreenSize size)
     {
         ArgumentNullException.ThrowIfNull(passages);
 
@@ -143,11 +150,15 @@ internal sealed class Screen
 
         // Eight rows of content where any passage draws any; where none does, the tallest wrapped row that says why (spec 14.8 item 3).
         var contentRows = draws.Any(d => d) ? MinimumContentRows : Math.Max(1, bodies.Select(body => body.Length).DefaultIfEmpty(1).Max());
-        return Compose(Blocks(compact: false), Blocks(compact: true), size, offset, contentRows, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
+        return Prepare(Blocks(compact: false), Blocks(compact: true), size, contentRows, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
     }
 
     /// <summary>A board: one index row per post, then its title as content, or why there is none (spec 4.4).</summary>
-    internal static Screen ForBoard(IReadOnlyList<Passage> passages, ScreenSize size, int offset)
+    internal static Screen ForBoard(IReadOnlyList<Passage> passages, ScreenSize size, int offset) =>
+        LayoutBoard(passages, size).At(offset);
+
+    /// <summary>The document of a board at <paramref name="size"/>, laid out once.</summary>
+    internal static Document LayoutBoard(IReadOnlyList<Passage> passages, ScreenSize size)
     {
         ArgumentNullException.ThrowIfNull(passages);
 
@@ -180,7 +191,7 @@ internal sealed class Screen
             blocks.Add(new Block(header.ToImmutable(), body, title is not null, null, null));
         }
 
-        return Compose(blocks, blocks, size, offset, 1, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
+        return Prepare(blocks, blocks, size, 1, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
     }
 
     /// <summary>The fewest rows a screen of <paramref name="passages"/> is drawn with content at, at <paramref name="width"/> columns.</summary>
@@ -188,7 +199,11 @@ internal sealed class Screen
         ForPassages(passages, new ScreenSize(width, 1000), 0).MinimumHeight;
 
     /// <summary>The keys, as this client's own rows under the screen's chrome. It loads nothing and shows no post.</summary>
-    internal static Screen ForHelp(IReadOnlyList<string> lines, ScreenSize size)
+    internal static Screen ForHelp(IReadOnlyList<string> lines, ScreenSize size) =>
+        LayoutHelp(lines, size).At(0);
+
+    /// <summary>The document of the help at <paramref name="size"/>, laid out once.</summary>
+    internal static Document LayoutHelp(IReadOnlyList<string> lines, ScreenSize size)
     {
         ArgumentNullException.ThrowIfNull(lines);
 
@@ -199,7 +214,7 @@ internal sealed class Screen
         }
 
         List<Block> blocks = [new Block(header.ToImmutable(), [], false, null, null)];
-        return Compose(blocks, blocks, size, 0, 0, firstPostId: null);
+        return Prepare(blocks, blocks, size, 0, firstPostId: null);
     }
 
     /// <summary>
@@ -247,7 +262,102 @@ internal sealed class Screen
         return rows.ToImmutable();
     }
 
-    private static Screen Compose(List<Block> full, List<Block> compact, ScreenSize size, int offset, int contentRows, string? firstPostId)
+    /// <summary>
+    /// Everything about a document that depends on the size and not on the offset: the header form, the document's rows, where
+    /// each passage starts, the gaps, the last page's first row. Built once by <see cref="Prepare"/>; <see cref="At"/> then
+    /// draws a window onto it, which costs a window and one pinned header, not the document.
+    /// </summary>
+    internal sealed class Document
+    {
+        private readonly List<Block> _blocks;
+        private readonly List<ScreenRow> _rows;
+        private readonly List<int> _starts;
+        private readonly ImmutableArray<int> _passageStarts;
+        private readonly ImmutableArray<(int From, int To)> _gaps;
+        private readonly ScreenRow.Frame[] _title;
+        private readonly ScreenRow.Frame[] _warning;
+        private readonly ScreenRow.Frame[] _marking;
+        private readonly ImmutableArray<ScreenRow>? _tooSmall;
+        private readonly int?[] _shell;
+        private readonly int _minimum;
+        private readonly int _window;
+        private readonly int _width;
+        private readonly int _maxOffset;
+
+        internal Document(
+            List<Block> blocks, List<ScreenRow> rows, List<int> starts, ImmutableArray<(int From, int To)> gaps, (ScreenRow.Frame[] Title, ScreenRow.Frame[] Warning, ScreenRow.Frame[] Marking) chrome,
+            ImmutableArray<ScreenRow>? tooSmall, int minimum, int window, int width)
+        {
+            _blocks = blocks;
+            _rows = rows;
+            _starts = starts;
+            _passageStarts = [.. starts];
+            _gaps = gaps;
+            (_title, _warning, _marking) = chrome;
+            _tooSmall = tooSmall;
+            _minimum = minimum;
+            _window = window;
+            _shell = new int?[blocks.Count];
+            _width = width;
+            _maxOffset = _tooSmall is null ? MaxOffset() : 0;
+        }
+
+        /// <summary>Where a window that starts at row <paramref name="requested"/> really starts, and the header it pins above it.</summary>
+        internal (int Top, ImmutableArray<ScreenRow> Pinned) Resolve(int requested)
+        {
+            var at = _starts.FindLastIndex(start => start <= requested);
+            var owner = _blocks[at];
+            var bodyStart = _starts[at] + owner.Header.Length;
+            var bodyEnd = bodyStart + owner.Body.Length;
+            if (requested < bodyStart || (requested < bodyEnd && !owner.BodyIsContent)) return (_starts[at], []);
+
+            if (requested < bodyEnd && owner.Pinned is not null)
+            {
+                // The shell's height is the same for every range of a block (the numbers are padded to one width), so it is asked once.
+                _shell[at] ??= owner.Pinned(Widest(owner)).Length;
+                var shown = Math.Min(_window - _shell[at]!.Value, bodyEnd - requested);
+                return (requested, owner.Pinned(new ContinuedRange(requested - bodyStart + 1, requested - bodyStart + shown, owner.Body.Length)));
+            }
+
+            return (requested, []);
+        }
+
+        /// <summary>The first window that shows the document's last row (spec 14.3), not the last row alone.</summary>
+        private int MaxOffset()
+        {
+            for (var candidate = Math.Max(0, _rows.Count - _window); candidate < _rows.Count; candidate++)
+            {
+                var (resolved, pin) = Resolve(candidate);
+                if (resolved != candidate || candidate + _window - pin.Length < _rows.Count) continue;
+
+                return candidate;
+            }
+
+            return 0;
+        }
+
+        /// <summary>The screen whose window starts at <paramref name="offset"/> (snapped as <see cref="Resolve"/> says).</summary>
+        internal Screen At(int offset)
+        {
+            if (_tooSmall is { } small) return new Screen(small, drawsContent: false, 0, _rows.Count, _minimum, _passageStarts, 0, []);
+
+            var (top, pinned) = Resolve(Math.Clamp(offset, 0, Math.Max(0, _rows.Count - 1)));
+
+            var available = _window - pinned.Length;
+            var last = Math.Min(_rows.Count, top + available);
+            var rows = ImmutableArray.CreateBuilder<ScreenRow>();
+            rows.AddRange(_title);
+            rows.AddRange(_warning);
+            rows.AddRange(_marking);
+            rows.AddRange(pinned);
+            for (var i = top; i < last; i++) rows.Add(_rows[i]);
+            rows.Add(StatusRow(_rows, top, last, _width));
+
+            return new Screen(rows.ToImmutable(), drawsContent: true, top, _rows.Count, _minimum, _passageStarts, _maxOffset, _gaps);
+        }
+    }
+
+    private static Document Prepare(List<Block> full, List<Block> compact, ScreenSize size, int contentRows, string? firstPostId)
     {
         var title = Chrome(Title, size.Width);
         var warning = Chrome(Provenance.StandardWarning, size.Width);
@@ -270,7 +380,7 @@ internal sealed class Screen
 
         var fits = size.Width >= MinimumWidth && size.Height >= minimum && blocks.Count > 0;
         if (!fits)
-            return new Screen(TooSmall(size, title, firstPostId, blocks.Count > 0, minimum), drawsContent: false, 0, document.Count, minimum, [.. starts], 0, []);
+            return new Document(blocks, document, starts, [], (title, warning, marking), TooSmall(size, title, firstPostId, blocks.Count > 0, minimum), minimum, 0, size.Width);
 
         var window = size.Height - chrome;
 
@@ -284,49 +394,7 @@ internal sealed class Screen
             if (to > starts[i] + 1) gaps.Add((starts[i] + 1, to));
         }
 
-        // Where a window that starts at row `requested` really starts, and the header it pins above it.
-        (int Top, ImmutableArray<ScreenRow> Pinned) Resolve(int requested)
-        {
-            var at = starts.FindLastIndex(start => start <= requested);
-            var owner = blocks[at];
-            var bodyStart = starts[at] + owner.Header.Length;
-            var bodyEnd = bodyStart + owner.Body.Length;
-            if (requested < bodyStart || (requested < bodyEnd && !owner.BodyIsContent)) return (starts[at], []);
-
-            if (requested < bodyEnd && owner.Pinned is not null)
-            {
-                var shell = owner.Pinned(Widest(owner));
-                var shown = Math.Min(window - shell.Length, bodyEnd - requested);
-                return (requested, owner.Pinned(new ContinuedRange(requested - bodyStart + 1, requested - bodyStart + shown, owner.Body.Length)));
-            }
-
-            return (requested, []);
-        }
-
-        var (top, pinned) = Resolve(Math.Clamp(offset, 0, Math.Max(0, document.Count - 1)));
-
-        // The first window that shows the document's last row (spec 14.3), not the last row alone.
-        var maxOffset = 0;
-        for (var candidate = Math.Max(0, document.Count - window); candidate < document.Count; candidate++)
-        {
-            var (resolved, pin) = Resolve(candidate);
-            if (resolved != candidate || candidate + window - pin.Length < document.Count) continue;
-
-            maxOffset = candidate;
-            break;
-        }
-
-        var available = window - pinned.Length;
-        var last = Math.Min(document.Count, top + available);
-        var rows = ImmutableArray.CreateBuilder<ScreenRow>();
-        rows.AddRange(title);
-        rows.AddRange(warning);
-        rows.AddRange(marking);
-        rows.AddRange(pinned);
-        for (var i = top; i < last; i++) rows.Add(document[i]);
-        rows.Add(StatusRow(document, top, last, size.Width));
-
-        return new Screen(rows.ToImmutable(), drawsContent: true, top, document.Count, minimum, [.. starts], maxOffset, gaps.ToImmutable());
+        return new Document(blocks, document, starts, gaps.ToImmutable(), (title, warning, marking), null, minimum, window, size.Width);
     }
 
     /// <summary>The tallest header this document can put above a window: a passage's own, or the pinned form of it.</summary>
@@ -408,7 +476,7 @@ internal sealed class Screen
         return cut.ToString();
     }
 
-    private sealed record Block(
+    internal sealed record Block(
         ImmutableArray<ScreenRow> Header,
         ImmutableArray<ScreenRow> Body,
         bool BodyIsContent,
