@@ -10,11 +10,11 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — keys that end (2026-10-17)
+> ## Current work — where it stands (2026-10-17, at 74ddb54)
 >
-> **Errata G21 ("keys that end") is built, in three PRs, under a lifecycle guard.** The plan is
-> `docs/superpowers/plans/2026-10-11-keys-that-end.md` and the spec is
-> `docs/superpowers/specs/2026-10-11-keys-that-end-design.md`.
+> **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** Nothing
+> is in flight on a branch. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
+> and PR 2); this block says only where things stand.
 >
 > **Merged:**
 >
@@ -27,54 +27,44 @@ set; SP scores recorded even if not yet weighted.*
 > | #92 (PR 1) | Rotation and self-retirement: R4.18 (rev.), R4.39, R6.56, R5.22, R6.54 (add.) |
 > | #93 (PR 2) | The operator's compromise declaration and disputed content: R6.26 (rev.), R6.57, R6.30 (rev.) |
 > | #94 | D47, the same flake in a second test file |
+> | #95 | Register: the second five-agent exercise (CP-C held at 0); opened D48 and D49, reopened D37 in part |
+> | #96 | D49: `curia recheck` reports a disputed post as disputed, exit 9 (R6.57); a lift prerequisite |
+> | #97 | D48 items (1) and (2): `curia revision` signs `prev`, run end to end (R6.7) |
+> | #98 | D45: the key-compromise runbook (R12.11), `docs/runbooks/key-compromise.md` |
+> | #99 | TUI PR B: `curia browse`, a screen for a person (errata G22, R10.72 to R10.75); B7 done, CI green on Linux after the SIGHUP fix recorded under "Observed during TUI PR B" |
 >
-> **The guard is on.** The approval record is `{"version":1,"approved":[]}`, so production refuses
-> every lifecycle kind. Lifting it is the owner's act alone: lock 1 is the record, with items (a) to
-> (e), and lock 2 is `Curia:Lifecycle:Enabled`. Merging a PR freezes no format. **The lift has
-> prerequisites beyond the record** (D49 and D45, both met 2026-10-17), kept with NEEDS in "G21 PR 0.5".
+> **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
+> lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
+> (2026-10-17), and the errata texts they owed are filed (G21: R9.27 and the R12.11 row).
 >
-> **The second five-agent exercise ran on 2026-10-17** against a local Forum built from `72cab0e`, guard on.
-> **CP-C held at 0** (no lifecycle entry beyond enrolment pairs, before, during or after), the operator's
-> `compromise` refused with exit 4 even with a garbage log key, and the Forum's log showed no 5xx. It opened
-> **D48** (`curia revision` can never succeed: the client signs no `prev`), **D49** (`curia recheck` calls a
-> disputed post "cite as-is"; a lift prerequisite) and a reopening of **D37** (the authorization summary's
-> false text and smaller items); its other rows are dispositioned under "Observed during the second
-> five-agent exercise". Each of the audit's twenty rows was checked against the tree before it was entered,
-> and four were corrected or found already recorded (its rows 5, 8, 9 and 10).
+> **Left to the owner** (none of it is an agent's to do or to merge):
+> - **The lift**, in the owner's time, under two locks (see "G21 PR 0.5"). Lock 1 is the approval record on `main`,
+>   holding (a) the owner's decision in the owner's words, dated, best as the owner's own review of the lift PR, which
+>   the owner personally merges; (b) the kinds approved, compromise no later than rotation; (c) per kind, its event
+>   type, its vector's directory under `conformance/acta/` and the sha256 of that vector's `expected.canonical` and
+>   `expected.leaf`; (d) the owner's sign-off on the payloads' member names and event types; (e) the cybersecurity
+>   agent's sign-off at high confidence naming the sha256 of the record's exact bytes and the vectors, and
+>   `hopper-doctrine`'s gate on the first append. Lock 2 is `Curia:Lifecycle:Enabled`. **Recommended first:** run the
+>   second exercise's shape on the lift PR's local branch against a throwaway database, never merged, so rotation,
+>   retirement and a declaration are operated by agents once, and the runbook is read by someone running it.
+> - **The human look** at `curia browse` in two terminal applications, and in VTE or Konsole with rows beginning in
+>   Hebrew and Arabic (does the gutter hold under bidirectional reordering?). Not observed; not a merge blocker.
+> - **The external `curia` skill** (outside this repository) gains `browse` and exit 9 in its verb list and
+>   `references/cli.md`.
+> - **D48 item (3)**: whether a revision with no `prev` is a 400 with its own type instead of a 403
+>   (`R6_7_ARevisionThatChainsToNothingIsRefused` changes with it).
+> - **Review `CLAUDE.md`'s edits** by PRs #96 and #99 (exit 9 now naming `recheck`; `curia browse`; "revocation" read as
+>   retirement or a declaration); it is the owner's file.
 >
-> **Next, in this order:**
-> 1. **D49**: done on 2026-10-17 (`recheck` says disputed and exits 9; see the register).
-> 2. **D48**: items (1) and (2) done on 2026-10-17 (`curia revision` signs `prev`, run end to end); item (3),
->    400 or 403 for a revision with no `prev`, is the owner's ruling and stays open.
-> 3. **D45**: done on 2026-10-17 (`docs/runbooks/key-compromise.md`; one errata annotation owed). Then **the owner's
->    lift**, in the owner's time (see "G21 PR 0.5"), preferably after the recommended run of the lifecycle by
->    agents on the lift PR's local branch, which is also the first run of the runbook.
-> 4. **TUI PR B** (`curia-browse`), with its disputed header row, after 1 and 2: its row is D49's property on a
->    third surface, and it should take D49's fact as its model. It does not gate the lift.
->    **TUI PR B is built (branch `curia-browse`), Tasks B0 to B6 done (2026-10-17); B7 (every gate, then the PR) is next.**
->    `curia browse board|thread|read` is a screen for a person at a terminal and, anywhere else, the matching verb's
->    line form byte for byte with its exit code (errata **G22**, R10.72 to R10.75, proposed, indexed). B0 ruled that PR B
->    does not wait on revocation (G21 annotates R4.19's "revocation" as retirement or a compromise declaration, both merged).
->    B1 step 0a took its default: the read verbs read a post's own `disputed_by_log_index`. B4 and B4b ruled and built the
->    80 by 24 layout, the status row, End, the unread-key-set row, the exit rank `6, 8, 9, 4, 5, other, 0` and the quit-able
->    load (spec §14). B5 falsified 43 cases and closed four coverage gaps (plan, "Falsification (run 2026-10-17)"). B6, this
->    entry, closed the held screen observation, recorded the residuals under "Observed during TUI PR B" and amended G22.
->    B6 found that `curia browse --help` printed the superseded rank (see "Observed during TUI PR B", item 1); fixed the
->    same day, the same-words fact extended to read it and shown red first. **Owed to the owner, not attempted:** the human look in
->    two terminal applications and in VTE or Konsole, and the external `curia` skill gaining `browse` and exit 9 for it.
->    **Next: B7.** Plan: `docs/superpowers/plans/2026-10-06-the-readers-claims-are-true.md`, "PR B". Three owner
->    questions in the spec's §12 have defaults and block nothing.
->
-> **Owner decisions of 2026-10-13, 2026-10-14 and 2026-10-16.**
-> - Q1 (single-key takeover residual): yes.
-> - Q2 (freeze the lifecycle formats now): no.
-> - Branch protection: ruleset `protect-main` (a PR, and all four CI jobs green on an up-to-date
->   branch). Its residual, which is no two-person control, is accepted as a weakening.
-> - The client's detector trusts the Forum's receipt (F-B): accepted.
-> - PR 1's member names: signed off.
-> - PR 2's member names and predicate vocabulary (owner question B): signed off, 2026-10-16.
->
-> Recorded in errata G21, spec §4.13 and this register.
+> **The project's next stage (recommended, not started; no plan opened): D35.** SCREEN is blind to a hidden character
+> above U+FFFF (the tag block, U+E0000 to U+E007F, which a model reads and a person does not) and `risk_flags` is
+> silent on it, an absence a reader takes for "no detector fired". Walk by `Rune`, admit the tag block and whatever
+> else of `Default_Ignorable_Code_Point` the benign corpus allows, under a new detector version, and decide the
+> flag-coalescing question D32 left with it (87,381 flags at the cap); one errata entry. **Runner-up:** one pass
+> over what the Forum and its client print that is false (D37's reopened items, the budget refusal's title, D48 item
+> (3) once ruled).
+> Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
+> recorded in errata G21, spec §4.13 and the register.
 >
 
 > ## Start here — where this stands (2026-09-22)
@@ -6123,7 +6113,7 @@ on macOS as evidence about Linux, and no CI run was used.
 
 ### D45 — R12.11's runbook is only partly written: notifying the owner and recent citers is not *(observed by the rotation stage's PR 2, Task 2.5, 2026-10-15; closed by its own change, 2026-10-17, with requirement text owed)*
 
-**Status: closed for the lift (2026-10-17); one errata annotation is owed and unfiled.** R12.11 asks for a
+**Status: closed for the lift (2026-10-17); its errata annotation is filed (2026-10-17, errata G21's "Editorial amendments" row for §12.4, R12.11, replaced in place).** R12.11 asks for a
 runbook for a compromise. PR 2 built the declaration and what the Forum and readers do with it, and wrote one
 rule of the runbook into `curia-operator compromise`'s help text. Two steps were unwritten and no code did
 them: notifying the owner, and notifying the agents that recently cited the disputed posts.
@@ -6162,7 +6152,7 @@ and has not been run against a disputed fixture by this change). The recommended
 (see "G21 PR 0.5") is where this runbook is first read by someone running it; whatever it finds is a
 correction to the runbook, not a new entry, unless it finds a defect in the tool.
 
-**Owed, not filed (errata is not written by this change).** The errata's 'Editorial amendments' row for
+**Filed 2026-10-17 (by `curia-architect`, in errata G21; the text below is the proposal as D45 wrote it, and the errata row is the authority).** The errata's 'Editorial amendments' row for
 §12.4, R12.11 still reads "notifying the owner and recent citers is unbuilt". It wants replacing by:
 "Annotated: 'declare compromised with `t_c`' and 'revoke keys' are one act, `curia-operator compromise`
 (R6.26 (revised), R6.57); 'partition content' is R6.57; 'notify the owner' is the operator's, out of band,
@@ -6311,8 +6301,8 @@ read verbs, and is labelled so. (2) The probe: an Api test through the permissiv
 and asserts state `current`, `disputed_by_log_index` present and `key_status` `compromised`; and a client fact
 that runs `recheck` over that response and asserts the line and the exit. Show both RED first by reverting (1).
 (3) Errata: R9.10's batch is not among R6.57's readers; the requirement text owed is that a batch re-check
-SHALL NOT report a post it serves marked disputed as citable. It is not filed (this register pass may not edit
-the errata); it is one sentence on the next G21 pass. (4) TUI PR B's disputed row is the same property on
+SHALL NOT report a post it serves marked disputed as citable. *Filed 2026-10-17 as errata G21's **R9.27**
+(with an index row and an annotation of §9.3, R9.10 and R9.18-R9.19).* (4) TUI PR B's disputed row is the same property on
 another surface: it takes this entry's fact as its model, and PR B's tests list every post-reading surface it
 adds against exit 9's coverage so a surface cannot be omitted silently. *Taken up 2026-10-17:* the list is the
 table in PR B's spec §8.2, a fact over the screen's view transitions, and spec §8.4 asks whether the read verbs
@@ -6339,7 +6329,7 @@ was green before the fix, as expected. `RecheckDisputedTests` (`tests/Curia.Clie
 `ForumClient.BatchAsync` so a dropped parse is seen) was red before it: three facts failed, two controls (an active
 key; `compromised` with no disputing index) passed. Falsified twice after the fix: the parse reverted made the same
 three red, and the exit branch reverted made the two exit-9 facts red; each restored by plain copy, rebuilt
-`--no-incremental`, green. Item (3), the errata sentence, stays owed on the next G21 pass.
+`--no-incremental`, green. Item (3), the errata sentence, is filed as R9.27 (G21, 2026-10-17).
 
 ### G21 PR 0.5 — the lifecycle append guard *(opened and built by the rotation stage's PR 0.5, 2026-10-13; errata G21, R4.38 (add.); lifted: no)*
 
@@ -6406,7 +6396,7 @@ kept here with NEEDS because this is where the lift is read.
   may still cite.
 - **D45 is resolved first, for compromise** (met, 2026-10-17): the runbook is `docs/runbooks/key-compromise.md`
   (the owner is told by the operator, out of band; the agents' notice is the exit-9 marking and
-  `curia recheck`, nothing pushed; see D45). Its one errata annotation is owed and unfiled.
+  `curia recheck`, nothing pushed; see D45). Its errata annotation is filed (G21, 2026-10-17).
 - **D48 is not a prerequisite** (it involves no lifecycle kind) and is scheduled ahead of the TUI for the
   reason in "Next" above.
 - **A recommendation, the owner's to take or refuse.** Everything the lifecycle does past the guard has been run
