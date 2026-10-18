@@ -141,8 +141,8 @@ public static class ContentScreener
 
         // Conclude's keep-first rule for (category, offset), applied as each flag is found, so the
         // live set stays at its deduplicated size rather than one flag per hidden character per view
-        // (R10.69, D32): the hidden-text step yields offsets, and a flag is allocated only for an
-        // offset not already seen. Output-identical: Conclude still keeps the first of each key, and
+        // (R10.69, D32): the hidden-text step yields runs, and a flag is allocated only for a
+        // run's offset not already seen. Output-identical: Conclude still keeps the first of each key, and
         // a later member of a key's group is all this drops. A zero-length flag bypasses the set
         // because both offset maps send an empty span to (0, 0), wherever it was found.
         var seen = new HashSet<(RiskCategory, int)>();
@@ -172,9 +172,9 @@ public static class ContentScreener
             if (view.Name is "line-joined")
                 continue;
 
-            foreach (var i in InjectionDetector.HiddenTextOffsets(view.Text))
+            foreach (var (start, runLength) in InjectionDetector.HiddenTextRuns(view.Text))
             {
-                var (offset, length) = view.ToOriginal(i, 1);
+                var (offset, length) = view.ToOriginal(start, runLength);
                 if (seen.Add((RiskCategory.HiddenText, offset)))
                     found.Add(new RiskFlag(RiskCategory.HiddenText, offset, length, InjectionDetector.Version));
             }
@@ -183,16 +183,17 @@ public static class ContentScreener
         return found;
     }
 
+    /// <summary>R10.77's ceiling: flags of one annotating category stored per post, the last widened to cover the rest.</summary>
+    internal const int MaxFlagsPerCategory = 32;
+
     private static ScreeningResult Conclude(IEnumerable<RiskFlag> found)
     {
         // One finding per (category, position). The same attack surfaces in several views by design
         // -- a homoglyph override also appears in the unconfused view and possibly the despaced one --
         // and reporting it three times would inflate every count R10.24 publishes.
-        var flags = found
-            .DistinctBy(f => (f.Category, f.Offset))
-            .OrderBy(f => f.Offset)
-            .ThenBy(f => f.Category)
-            .ToArray();
+        // R10.77: a flag locates its category and does not count it. At most MaxFlagsPerCategory flags
+        // of an annotating category are stored; the last is widened to cover the rest.
+        var flags = Cap(found.DistinctBy(f => (f.Category, f.Offset)).OrderBy(f => f.Offset).ThenBy(f => f.Category).ToArray());
 
         var annotations = RiskAnnotations.Create(flags, DetectorVersions);
 
@@ -203,5 +204,37 @@ public static class ContentScreener
                 : ScreeningOutcome.Annotated;
 
         return new ScreeningResult(outcome, annotations);
+    }
+
+    private static RiskFlag[] Cap(RiskFlag[] sorted)
+    {
+        var kept = new List<RiskFlag>(sorted.Length);
+        var seen = new Dictionary<RiskCategory, int>();
+        var widest = new Dictionary<RiskCategory, int>();
+
+        foreach (var flag in sorted)
+        {
+            if (RiskCategories.Disposition(flag.Category) is RiskDisposition.Reject)
+            {
+                kept.Add(flag);
+                continue;
+            }
+
+            seen.TryGetValue(flag.Category, out var n);
+            seen[flag.Category] = n + 1;
+
+            if (n < MaxFlagsPerCategory)
+            {
+                kept.Add(flag);
+                if (n == MaxFlagsPerCategory - 1) widest[flag.Category] = kept.Count - 1;
+                continue;
+            }
+
+            var at = widest[flag.Category];
+            var end = Math.Max(kept[at].Offset + kept[at].Length, flag.Offset + flag.Length);
+            kept[at] = kept[at] with { Length = end - kept[at].Offset };
+        }
+
+        return [.. kept];
     }
 }

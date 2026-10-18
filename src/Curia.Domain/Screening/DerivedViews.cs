@@ -121,7 +121,7 @@ public static partial class DerivedViews
         // whose identifier contained "ask-" could not post at all (register D17). Accidents split a
         // credential at a line break; a split with words between the pieces on one line is deliberate,
         // and is recorded in known-evasions.jsonl rather than chased.
-        views.Add(WithRunsRemoved(Map(content, "line-joined", Visible), LineBreakWithGutter()));
+        views.Add(WithRunsRemoved(WithoutHidden(content, "line-joined"), LineBreakWithGutter()));
 
         views.AddRange(DecodedSegments(content));
 
@@ -170,8 +170,31 @@ public static partial class DerivedViews
     [GeneratedRegex(@"[ \t]*[\r\n\u000B\u000C\u0085\u2028\u2029]+[ \t]*(?:(?:[>│|#+*;]|/{2,}|--)[ \t]*)*", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex LineBreakWithGutter();
 
-    /// <summary>Drops the invisible characters <see cref="HiddenCharacters"/> names, for the line-joined view.</summary>
-    private static char Visible(char c) => HiddenCharacters.Contains(c) ? '\0' : c;
+    /// <summary>Drops the hidden characters <see cref="HiddenCharacters"/> names, a scalar value at a time, keeping the index map per code unit.</summary>
+    private static DerivedView WithoutHidden(string content, string name)
+    {
+        var text = new StringBuilder(content.Length);
+        var indexes = ImmutableArray.CreateBuilder<int>(content.Length);
+        var at = 0;
+
+        foreach (var rune in content.EnumerateRunes())
+        {
+            var width = rune.Utf16SequenceLength;
+
+            if (!HiddenCharacters.Contains(rune))
+            {
+                for (var unit = 0; unit < width; unit++)
+                {
+                    text.Append(content[at + unit]);
+                    indexes.Add(at + unit);
+                }
+            }
+
+            at += width;
+        }
+
+        return new DerivedView(name, text.ToString(), indexes.ToImmutable());
+    }
 
     /// <summary>
     /// Drops every run <paramref name="runs"/> matches in <paramref name="view"/>'s text, composing the

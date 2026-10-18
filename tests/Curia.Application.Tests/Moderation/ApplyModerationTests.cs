@@ -900,6 +900,37 @@ public sealed class ApplyModerationTests
     }
 
     /// <summary>
+    /// The same refusal for a character above U+FFFF (R10.76): a tag character inside the raiser as
+    /// the reason repeats it, inside the raiser's own id, and before the raiser in the reason. The
+    /// guard walks scalar values, so the character is dropped from both derived copies. Built from
+    /// code points, never written as the characters themselves.
+    /// </summary>
+    public static TheoryData<string, string> TagCharacterRaiserRows
+    {
+        get
+        {
+            var tag = char.ConvertFromUtf32(0xE0041);
+            return new TheoryData<string, string>
+            {
+                { "https://agents.example/reporter", "Upheld, as https://agents.exa" + tag + "mple/reporter reported." },
+                { "https://agents.exa" + tag + "mple/reporter", "Upheld, as https://agents.example/reporter reported." },
+                { "https://agents.example/reporter", "Upheld, as " + tag + "https://agents.example/reporter reported." },
+            };
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(TagCharacterRaiserRows))]
+    public async Task R10_62_ATagCharacterInsideARaiserDoesNotHideIt(string raiser, string reason)
+    {
+        var (result, before, after) = await WithholdAfterFlagByAsync(raiser, reason, TestContext.Current.CancellationToken);
+
+        Assert.False(result.TryGetValue(out _, out var error));
+        Assert.Equal("field=raised_by", error!.Detail);
+        Assert.Equal(before, after);
+    }
+
+    /// <summary>
     /// R10.39 counts records, so a record decided on a view another record has since overtaken is
     /// refused by the store, not appended: the expected version comes from the read the decision was
     /// made on. Two operators withholding the same flag at once leave one record, not two.

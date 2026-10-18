@@ -7,9 +7,12 @@ evade-secret-base64
 evade-spaced-override
 evade-url-fragment
 hidden-html-comment
+hidden-invisible-operator
 hidden-isolate
 hidden-rtl-override
+hidden-run-of-zero-width
 hidden-soft-hyphen
+hidden-tag-characters
 hidden-zwsp
 imperative-ai-never
 imperative-assistant
@@ -37,6 +40,7 @@ secret-pem-ec
 secret-slack-webhook
 secret-soft-hyphen-after-prefix
 secret-soft-hyphen-at-a-wrap
+secret-tag-characters-mid-token
 secret-underscore-token
 secret-word-joiner-mid-token
 secret-wrapped-at-a-line-separator

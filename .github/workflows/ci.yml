@@ -124,8 +124,8 @@ jobs:
           CURIA_SCREEN_SCALING: ${{ runner.temp }}/screen-scaling.tsv
         run: |
           dotnet test tests/Curia.Domain.Tests --no-build --configuration Release --filter "FullyQualifiedName~ScreeningCostTests"
-          test "$(wc -l < "$CURIA_SCREEN_TIMINGS")" -eq 20
-          test "$(wc -l < "$CURIA_SCREEN_SCALING")" -eq 20
+          test "$(wc -l < "$CURIA_SCREEN_TIMINGS")" -eq 24
+          test "$(wc -l < "$CURIA_SCREEN_SCALING")" -eq 24
 
       - name: Upload the fuzzer's timings
         if: always()
