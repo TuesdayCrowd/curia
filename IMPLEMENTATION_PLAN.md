@@ -13,7 +13,7 @@ set; SP scores recorded even if not yet weighted.*
 > ## Current work — where it stands (2026-10-18, at 7d82859)
 >
 > **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** One branch is
-> open, `hidden-beyond-bmp` (D35), with its spec, plan and errata entry written and no code. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
+> open, `hidden-beyond-bmp` (D35), implemented and gated locally; its PR is to be opened and is the owner's to merge. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
 > and PR 2); this block says only where things stand.
 >
 > **Merged:**
@@ -58,15 +58,15 @@ set; SP scores recorded even if not yet weighted.*
 > - **Review `CLAUDE.md`'s edits** by PRs #96 and #99 (exit 9 now naming `recheck`; `curia browse`; "revocation" read as
 >   retirement or a declaration); it is the owner's file.
 >
-> **In progress: D35 (branch `hidden-beyond-bmp`), spec and plan written.** SCREEN is blind to a hidden character
-> above U+FFFF (the tag block, U+E0000 to U+E007F, which a model reads and a person does not) and `risk_flags` is
-> silent on it, an absence a reader takes for "no detector fired". Walk by `Rune`, admit the tag block and whatever
-> else of `Default_Ignorable_Code_Point` a measurement admits (the benign corpus cannot make it: spec section 2.4),
-> under new detector versions, and decide the flag-coalescing question D32 left with it (87,381 flags at the cap;
-> ruled: a run is one flag, a post keeps at most 32 flags of a category). Spec
-> `docs/superpowers/specs/2026-10-18-hidden-beyond-bmp-design.md`, plan
-> `docs/superpowers/plans/2026-10-18-hidden-beyond-bmp.md` (Tasks 0 to 6, one PR), errata G23 (R10.76 to R10.78).
-> No code has been written or run. **Runner-up:** one pass
+> **In progress: D35 (branch `hidden-beyond-bmp`), implemented; PR to be opened.** SCREEN now decides a hidden
+> character by scalar value (R10.76: one `Rune` predicate, the tag block U+E0000 to U+E007F admitted with the rest of
+> the set, under `injection/2026-10-18` and `secrets/2026-10-18`), a run of adjacent hidden characters is one flag, and
+> a post stores at most 32 flags of an annotating category (R10.77). The fixes, facts, falsification cases,
+> differential and findings are in D35's "Closed by the hidden-beyond-bmp stage"; D32's amplification half is closed
+> there. Gates were run locally; the PR is not yet open. **It is the owner's to merge** because it edits
+> `.github/workflows/ci.yml` (the ScreeningCostTests line counts 20 to 24): the ruleset's merge-time path check applies.
+> Spec `docs/superpowers/specs/2026-10-18-hidden-beyond-bmp-design.md`, plan
+> `docs/superpowers/plans/2026-10-18-hidden-beyond-bmp.md`, errata G23 (R10.76 to R10.78). **Runner-up:** one pass
 > over what the Forum and its client print that is false (D37's reopened items, the budget refusal's title, D48 item
 > (3) once ruled).
 > Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
@@ -4827,6 +4827,10 @@ R10.69 bounds the screener's work, and the keep-first dedup its allocation; neit
 flags a run of hidden characters raises, stores and serves. That is the coalescing decision, with D35,
 for the next errata pass.
 
+**Closed, the amplification half, by the hidden-beyond-bmp stage** (D35's "Closed by" paragraph; errata G23,
+R10.77; PR pending). A run of adjacent hidden characters is one flag, and a post stores at most 32 flags of an
+annotating category, so 87,381 flags at the cap become at most 32 per category; a category that rejects is never capped.
+
 ### D33 — a string a caller chose reaches a parser or a store that throws on it *(opened by `curia-architect` on the strangers stage's final gate, 2026-10-06; gated by the one-part-at-a-time stage's PR A, R14.10; closed by its PR B, 2026-10-10; errata G18, R11.34)*
 
 **Found by not converging.** The strangers stage closed fifteen 500s under D25, and each round of its
@@ -5738,6 +5742,90 @@ specifying, and not in D35's or D32's text:
   not in this stage): a `post.accepted` payload member, a projection field and a provenance member.
 - **No annotation reaches an automated actor** (traced by reading: `ModeratorKind.Automated` is constructed by no code
   in `src/`; no fact holds the absence).
+
+**Closed by the hidden-beyond-bmp stage** (branch `hidden-beyond-bmp`, 2026-10-18; PR pending, owner merges: it
+edits `.github/workflows/ci.yml`; errata G23, R10.76 to R10.78). Not claimed merged. The owner took every default of spec
+section 7 on 2026-10-18. The branch's commits are the probes (red), the corpus, the predicate with the walk, the view,
+the guard and the versions, and the ceiling; the squash merge keeps them as one.
+
+*The facts.* T1 `DetectorTests.R10_76_ATagCharacterIsHiddenTextAndItsFlagCoversBothCodeUnits`; T2
+`R10_76_TheHiddenSetIsExactlyTheOneTheErrataPublishes` (the set parsed from R10.76 by `PublishedHiddenSet`); T3
+`R10_76_NoPredicateOverACodeUnitExists`; T4 `R10_77_AdjacentHiddenCharactersAreOneFlagWhateverTheirWidth`. T5
+`ContentScreenerTests.R10_26_ACredentialInterleavedWithATagCharacterIsRejected`; T6
+`R10_26_AVisibleSupplementaryCharacterKeepsBothUnitsInTheLineJoinedView`; T7
+`R10_77_AtMostThePublishedNumberOfFlagsOfAnAnnotatingCategoryIsStored`; T8 `R10_77_TheCeilingIsExactAtItsBoundary`; T9b
+`R10_77_AFlagNestedInTheWidenedOneDoesNotShrinkIt`; T10 `R10_77_AFlagThatRejectsIsNeverCapped`; T11
+`R10_77_TheCeilingIsPerPostNotPerString`; T12 `R10_77_AStringOfZeroWidthSpacesAtTheCapIsOneFlag`; T13
+`R10_77_TheCeilingIsThePublishedNumber` (the number parsed from R10.77, `PublishedCeiling`); T14
+`R10_10_TheVersionsTheErrataNamesAreTheBuiltOnes`. T7 to T14 are in `ContentScreenerTests`. T16
+`ApplyModerationTests.R10_62_ATagCharacterInsideARaiserDoesNotHideIt`, three rows: rows 1 and 2 discriminate, row 3 was
+green at base. The plan's T9 and T15 have no fact of their own: the containment property and the naive capped reference
+run inside the two existing `ScreenerReferenceTests` facts, `R10_69_TheScreenerMatchesTheReferenceOnTheRedTeamCorpus` and
+`R10_69_TheScreenerMatchesTheReferenceOnAGeneratedSet`.
+
+*Reds at Task 1 (the probes, on the 7d82859 build).* T1, T2, T3, T4, T5, T14, T16 rows 1 and 2. T2 had no
+`Contains(Rune)` to call and found the predicate by reflection so that the assembly compiled; Task 3 made it direct. T5 is
+the R10.26 bypass confirmed: a `ghp_` key split by U+E0041 was Accepted. `R10_24_NoDetectedPayloadRegresses` was red on
+`hidden-invisible-operator`, `hidden-tag-characters` and `secret-tag-characters-mid-token` (`hidden-run-of-zero-width`
+was already detected and only changed shape), and `R10_24_TheKnownFalsePositivesStillFire` on
+`fp-subdivision-flag-tag-sequence` and `fp-arabic-letter-mark-in-a-formatted-number`. T6 was green as a control.
+
+*The measurement (CP-A).* On the 7d82859 `benign.jsonl` and `known-false-positives.jsonl`: no candidate range and 9
+non-ASCII characters; the prose (the project's Markdown) counts `{'U+FE00-U+FE0F': 9}`, its character total having grown
+only because the stage's own Markdown was added. Against the Unicode data: the existing 17 code points plus the candidates
+equal Unicode 18.0.0's `Default_Ignorable_Code_Point` exactly (`DerivedCoreProperties-18.0.0.txt`, 4,174 code points).
+
+*The differential* (a scratch console over every corpus entry, three shapes per entry). diff-1, the 7d82859 build, 121
+entries, 363 rows, run twice, identical. diff-2 (corpus additions only, same build) differs from diff-1 by additions
+alone. diff-3 (after Task 3) differs from diff-2 in exactly the plan's seven rows; diff-4 (after the ceiling) equals
+diff-3. No benign entry gained a category (CP-B).
+
+| Entry | Before | After (offset+length) |
+|---|---|---|
+| `structural-tag-characters-carry-unseen-text` | no HiddenText | HiddenText @20+52 |
+| `hidden-tag-characters` | none over the tag characters | HiddenText @17+10 |
+| `hidden-run-of-zero-width` | three flags | one flag @3+3 |
+| `hidden-invisible-operator` | none | HiddenText @1+1 |
+| `secret-tag-characters-mid-token` | Accepted | Rejected: ApiKey @7+42, HiddenText @19+2 |
+| `fp-subdivision-flag-tag-sequence` | none | HiddenText @2+12 |
+| `fp-arabic-letter-mark-in-a-formatted-number` | none | HiddenText @0+1 |
+
+`RESULTS.md` regenerated: detection 100.0 % (61/61), false positives 0/39, detector line `secrets/2026-10-18`,
+`injection/2026-10-18`.
+
+*The cost readings* (`ScreeningCostTests`). At base: 20 rows, slowest 51 ms, largest wall ratio 8.51, allocation ratio
+8.39. After Task 3: 24 rows, slowest 72 ms (the alternating-hidden `ScreenEnvelope` row), wall 8.98, allocation 8.22.
+After Task 4: slowest 81 ms, wall 8.81, allocation 8.20. The plan predicted the zero-width-space row's allocation would
+fall at Task 4; it did not, because Task 3's run walk had already made 87,381 zero-width spaces one flag.
+
+*The falsification record: 28 cases (FH1 to FH28).* Every anchor was found once, every case built, 27 went RED as
+predicted and one (FH15) differently, below. Single-fact cases: FH2 (T2 only), FH17 (T10 only), FH20 (T6 only), FH21 (T16
+only), FH24 (T3 only), FH26 (T2 only), FH28 (T14 only). FH25 (a quadratic dedupe) cut the alternating-hidden cost rows
+off at 10 s in both cost facts. FH16 (shrinking the widened end) went red on T9b and on the generated-set reference fact,
+where the plan predicted T9b alone. FH10's "structural entry's flag in the differential" was not measured (the console
+was not run per case); its corpus facts went red. FH6, FH10, FH12, FH13, FH14, FH18 and FH27 went red on more facts than
+predicted, side effects of the same patch.
+
+*Findings.*
+1. **The benign corpus could not make D35's measurement** (9 non-ASCII characters; a zero over it admits everything).
+   Trap 32. The stage added an ordinary-use sample for each candidate, to `benign.jsonl` where the character stays out
+   and to `known-false-positives.jsonl` where it comes in (R10.78), and three known evasions for the declined ranges.
+2. **The predicate had a third caller, and it was a bypass.** The `line-joined` view deleted the set before a wrapped key
+   was rejoined, so a credential interleaved with a tag character was admitted (T5, R10.26). Closed by the view's walk by
+   scalar value, which keeps both units of a visible supplementary character (T6); the moderation guard's caller,
+   `FlagDisclosure.Normalize`, no longer guards its call with `rune.IsBmp` (T16).
+3. **Detector versions are not persisted or served** (spec section 2.2). An old unflagged post and a new one look alike
+   on the wire, and an old post keeps its old flags: nothing re-runs the detectors over the archive. Unfiled as its own
+   entry; the owner deferred it past this stage (spec section 7, question 2).
+4. **The plan's FH15 over-prediction.** FH15 (`kept[at] = kept[at];`, no widening) went red on T8 and the generated-set
+   reference fact but not on T9b. The plan was wrong, not the fact: in T9b the 32nd HiddenText flag is the HTML comment's
+   own, which already reaches the comment's end, and the nested zero-width-space run is the 33rd, so widening is a no-op
+   there. Only FH16 breaks T9b.
+5. **The Unicode list was drafted from memory** and then confirmed against Unicode 18.0.0 (above).
+
+*Proposed for `CLAUDE.md`'s "What works today" (the owner's file, not edited here):* "hidden text is decided by scalar
+value, so the tag block and the rest of R10.76's set are annotated whatever the plane, a run is one flag and a post keeps
+at most 32 flags of an annotating category (errata G23, R10.76 and R10.77)."
 
 ### D36 — the board listing answers a board whole *(opened by the five-agent exercise, 2026-10-06)*
 
@@ -8129,7 +8217,7 @@ Read this before adding any check. Each cost real time. The first eight are in
 trap 12's full story is the register's D15, and the rest are in that plan's Stage 3 record; 16 is
 its Stage 4; 17 and 18 are the screener stage's; 19 and 20 are the moderation stage's; 21 is the
 enrollment stage's; 22 is the key-binding stage's; 23 to 26 are the strangers stage's; 27 and 28 are
-the one-part-at-a-time stage's; 29 to 31 are the reader stage's PR A.
+the one-part-at-a-time stage's; 29 to 31 are the reader stage's PR A; 32 is the hidden-beyond-bmp stage's.
 
 1. **A probe that tests a shape production never produces.** The cache test whose fixture pinned
    `UnixEpoch` — the one instant that made the key stable — passed for months over a 0 % hit rate.
@@ -8368,6 +8456,14 @@ the one-part-at-a-time stage's; 29 to 31 are the reader stage's PR A.
     inside Curia.Client or Curia.Client.Tests, like any assembly that assembles a verdict itself, is
     held by review, not by a fence. **Exempt the case, by a marker only that case's code path
     can set.**
+
+32. **A zero over a corpus that holds none of the thing measured admits everything.** D35 asked what the
+    benign corpus admits of `Default_Ignorable_Code_Point`. `benign.jsonl` holds 9 non-ASCII characters and no
+    candidate, so the measurement returns zero for every range, the variation selectors included, and the published 0.0 %
+    false-positive rate was a statement about a set that excludes U+200C, U+200D, U+200E, U+200F and U+00AD. This is
+    trap 11 and 19's shape: a figure that cannot come out any other way. The stage wrote an ordinary-use sample for each
+    candidate before it counted (R10.78) and a zero is read only against a corpus that holds the use. **Before
+    trusting a count of nothing, find what the corpus would have to hold to make it nonzero, and check it holds it.**
 
 The shape they share: **an absence that reads as a satisfied answer.** When you add a check, ask
 what it prints when the thing it watches is missing entirely.
