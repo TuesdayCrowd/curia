@@ -128,14 +128,15 @@ public sealed class BrowseStateTests
     }
 
     [Fact]
-    public async Task R10_74_ALoadThatIsRefusedAfterTheScreenIsUpJoinsTheExitByTheRank6845AndLeavesTheViewStanding()
+    public async Task R10_74_ALoadThatIsRefusedAfterTheScreenIsUpJoinsTheExitByTheRank68945AndLeavesTheViewStanding()
     {
         var ct = TestContext.Current.CancellationToken;
 
         (Outcome First, RefusalKind Refused, int Expected)[] cases =
         [
             (Outcome.Verified, RefusalKind.NotFound, ExitCode.NotFound),
-            (Outcome.Disputed, RefusalKind.NotFound, ExitCode.NotFound),
+            (Outcome.Disputed, RefusalKind.NotFound, ExitCode.Disputed),
+            (Outcome.Disputed, RefusalKind.Authorization, ExitCode.Disputed),
             (Outcome.Failed, RefusalKind.NotFound, ExitCode.Unverified),
             (Outcome.CouldNotCheck, RefusalKind.Authorization, ExitCode.ForumFault),
             (Outcome.Verified, RefusalKind.Authorization, ExitCode.Denied),
@@ -158,7 +159,7 @@ public sealed class BrowseStateTests
     }
 
     [Fact]
-    public void R10_74_TheRankOfTheCodesIs6Then8Then4Then5ThenAnyOtherThen9Then0()
+    public void R10_74_TheRankOfTheCodesIs6Then8Then9Then4Then5ThenAnyOtherThen0()
     {
         int Join(params int[] codes)
         {
@@ -169,13 +170,39 @@ public sealed class BrowseStateTests
 
         Assert.Equal(6, Join(9, 5, 4, 8, 6));
         Assert.Equal(8, Join(9, 5, 4, 8));
-        Assert.Equal(4, Join(9, 5, 4));
-        Assert.Equal(5, Join(9, 5));
-        Assert.Equal(3, Join(9, 3));
+        Assert.Equal(9, Join(9, 5, 4));
+        Assert.Equal(9, Join(4, 9));
+        Assert.Equal(9, Join(5, 9));
+        Assert.Equal(9, Join(9, 3));
+        Assert.Equal(4, Join(5, 4));
         Assert.Equal(5, Join(3, 5));
+        Assert.Equal(3, Join(3, 0));
         Assert.Equal(9, Join(9, 0));
         Assert.Equal(0, Join());
         Assert.Equal(0, Join(0));
+    }
+
+    [Fact]
+    public async Task R10_74_ALaterRefusalNeverHidesADisputedOutcome()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        async Task<int> Exit(Outcome first, RefusalKind refused, int status)
+        {
+            var source = new CountingSource(Passages(first));
+            var state = new BrowseState(source);
+            await state.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Read, "p")), Size, ct);
+            source.Refusal = new Refusal(refused, status, new Error("t", "t", "t"));
+            Assert.NotNull(await state.ApplyAsync(new BrowseTransition.Reload(), Size, ct));
+            return state.Ledger.Exit;
+        }
+
+        Assert.Equal(ExitCode.Disputed, await Exit(Outcome.Disputed, RefusalKind.NotFound, 404));
+        Assert.Equal(ExitCode.Disputed, await Exit(Outcome.Disputed, RefusalKind.Authorization, 403));
+        Assert.Equal(ExitCode.Unverified, await Exit(Outcome.Failed, RefusalKind.NotFound, 404));
+        Assert.Equal(ExitCode.NotFound, await Exit(Outcome.Verified, RefusalKind.NotFound, 404));
+        Assert.Equal(ExitCode.Denied, await Exit(Outcome.Verified, RefusalKind.Authorization, 403));
+        Assert.Equal(ExitCode.ForumFault, await Exit(Outcome.Disputed, RefusalKind.Transport, 0));
     }
 
     [Fact]
@@ -235,6 +262,117 @@ public sealed class BrowseStateTests
         Assert.Equal(starts[0], state.Render(Size).Offset);
     }
 
+    [Fact]
+    public async Task R10_72_EndShowsTheLastPageAndAHeldJStopsThere()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sources = new[] { 60, 5, 25 };
+        var passages = sources.Select((n, i) => Long(n, i)).ToImmutableArray();
+        var minimum = Screen.MinimumHeightFor(passages, 80);
+        var shown = 0;
+        var eight = 0;
+
+        for (var height = minimum; height < minimum + 30; height++)
+        {
+            var size = new ScreenSize(80, height);
+            var end = new BrowseState(new CountingSource(passages));
+            await end.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Thread, "root")), size, ct);
+            await end.ApplyAsync(new BrowseTransition.Scroll(int.MaxValue / 2, Relative: false), size, ct);
+            var screen = end.Render(size);
+
+            // The document's last row is the last row of the window, and so is the status row's range.
+            Assert.Equal("end of #3", screen.Rows[^2].Text);
+            Assert.Matches($@"^rows [0-9]+-{screen.DocumentRows} of {screen.DocumentRows}", screen.Status.Text);
+
+            // Eight rows of the last passage, or the whole of it when it is shorter. The eighth of those at the very smallest
+            // window is the passage's own `end of #3` row, which is the document's last: seven content rows and that one.
+            var content = screen.Rows.Count(r => r is ScreenRow.Content);
+            var lastWhole = screen.Rows.Any(r => r.Text.StartsWith("#3 post ", StringComparison.Ordinal) && !r.Text.Contains("(continued", StringComparison.Ordinal));
+            Assert.True(content + 1 >= Math.Min(8, sources[^1]) || lastWhole, $"height {height}: {content} content rows at End");
+            if (content >= 8) eight++;
+            if (screen.Rows.Length == height) shown++;
+
+            // A held j stops where End stops, and End is where it was after more of them.
+            var held = new BrowseState(new CountingSource(passages));
+            await held.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Thread, "root")), size, ct);
+            for (var i = 0; i < screen.DocumentRows + 20; i++)
+                await held.ApplyAsync(new BrowseTransition.Scroll(1, Relative: true), size, ct);
+            Assert.Equal(screen.Offset, held.Render(size).Offset);
+            Assert.Equal("end of #3", held.Render(size).Rows[^2].Text);
+        }
+
+        Assert.True(shown > 10 && eight > 10, $"only {shown} sizes drew a full last page, {eight} with eight content rows: the property is vacuous");
+    }
+
+    [Fact]
+    public async Task R10_72_AHeldJAndAHeldKCrossEveryHeaderInTheDocument()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ImmutableArray<Passage> passages = [Long(30, 0), Passage(Outcome.Failed, 1), Long(12, 2)];
+        var size = new ScreenSize(80, 30);
+        var state = new BrowseState(new CountingSource(passages));
+        await state.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Thread, "root")), size, ct);
+        var last = state.Render(size).MaxOffset;
+        Assert.True(last > 30, $"the last page starts at {last}: the document is too short for the property");
+
+        var seen = new List<int> { state.Render(size).Offset };
+        for (var i = 0; i < 400 && seen[^1] < last; i++)
+        {
+            await state.ApplyAsync(new BrowseTransition.Scroll(1, Relative: true), size, ct);
+            seen.Add(state.Render(size).Offset);
+        }
+
+        Assert.Equal(last, seen[^1]);
+        Assert.Equal(seen.Order().ToList(), seen);
+        Assert.Equal(seen.Count, seen.Distinct().Count());
+
+        // And back: a held k leaves every header's rows behind and reaches the top.
+        var back = new List<int> { seen[^1] };
+        for (var i = 0; i < 400 && back[^1] > 0; i++)
+        {
+            await state.ApplyAsync(new BrowseTransition.Scroll(-1, Relative: true), size, ct);
+            back.Add(state.Render(size).Offset);
+        }
+
+        Assert.Equal(0, back[^1]);
+        Assert.Equal(back.Count, back.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task R10_72_HomeAndTabAreAsTheyWereAfterTheClampChanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var passages = Enumerable.Range(0, 3).Select(i => Long(40, i)).ToImmutableArray();
+        var size = new ScreenSize(80, 30);
+        var state = new BrowseState(new CountingSource(passages));
+        await state.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Thread, "root")), size, ct);
+        var starts = state.Render(size).PassageStarts;
+
+        await state.ApplyAsync(new BrowseTransition.Scroll(int.MaxValue / 2, Relative: false), size, ct);
+        await state.ApplyAsync(new BrowseTransition.Scroll(0, Relative: false), size, ct);
+        Assert.Equal(0, state.Render(size).Offset);
+        await state.ApplyAsync(new BrowseTransition.NextPassage(), size, ct);
+        Assert.Equal(starts[1], state.Render(size).Offset);
+        await state.ApplyAsync(new BrowseTransition.NextPassage(), size, ct);
+        await state.ApplyAsync(new BrowseTransition.NextPassage(), size, ct);
+        Assert.Equal(starts[0], state.Render(size).Offset);
+    }
+
+    [Fact]
+    public async Task R10_74_TheHelpStatesTheRankAndTheCompactHeader()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var state = new BrowseState(new CountingSource(Passages(Outcome.Verified)));
+        await state.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Read, "p")), Size, ct);
+        await state.ApplyAsync(new BrowseTransition.ShowHelp(), Size, ct);
+
+        var text = string.Join(" ", state.Render(new ScreenSize(200, 60)).Rows.Select(r => r.Text));
+        Assert.Contains("6 a check did not hold, 8 it could not be run, 9 disputed, then 4 or 5 a load was refused", text, StringComparison.Ordinal);
+        Assert.Contains("compact", text, StringComparison.Ordinal);
+        Assert.Contains("digest", text, StringComparison.Ordinal);
+        Assert.Contains("a combining mark on a layout space draws as it would on any base", text, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ---- helpers ---------------------------------------------------------------------------
 
     internal enum Outcome
@@ -244,6 +382,21 @@ public sealed class BrowseStateTests
         Failed,
         CouldNotCheck,
         SpanMismatch,
+    }
+
+    /// <summary>A verified passage of <paramref name="lines"/> lines of content, with a parent.</summary>
+    private static Passage Long(int lines, int index)
+    {
+        var canonical = SpanCheckTests.Envelope(string.Join("\n", Enumerable.Range(0, lines).Select(i => "line " + i.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+        var post = SpanCheckTests.Post(canonical, Datamarking.Render(canonical, MarkingMode.None), MarkingMode.None);
+        post = post with
+        {
+            PostId = "01LONG" + index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Parent = "01PARENT",
+            Provenance = post.Provenance with { Author = "https://agents.example/alice" },
+            LogIndex = 7,
+        };
+        return new Passage(post, new SignatureVerdict(true, "alice-1", "recanonicalized bytes are byte-identical to the served canonical form", "ab", "sha256:ab", KeyStatus: "active"));
     }
 
     private sealed class CountingSource(ImmutableArray<Passage> first) : IBrowseSource

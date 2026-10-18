@@ -21,11 +21,14 @@ internal sealed class ScreenSigner : IDisposable
 
     private readonly string _root = Directory.CreateTempSubdirectory("curia-screen-").FullName;
     private readonly EnrolledAgent _agent;
+    private readonly string _kid;
 
-    internal ScreenSigner()
+    /// <param name="kid">The signing key's id; a fact about the header's height may need one as long as an agent's usually is.</param>
+    internal ScreenSigner(string kid = Kid)
     {
+        _kid = kid;
         Assert.True(new ProfileStore(_root)
-            .Create("alice", AgentId, Kid, new Uri("http://forum.test"))
+            .Create("alice", AgentId, kid, new Uri("http://forum.test"))
             .TryGetValue(out var agent, out _));
         _agent = agent!;
     }
@@ -55,7 +58,7 @@ internal sealed class ScreenSigner : IDisposable
         return
         [
             new ForumJwk(
-                "EC", "P-256", "ES256", Kid, Base64Url.EncodeToString(p.Q.X!), Base64Url.EncodeToString(p.Q.Y!), null, null,
+                "EC", "P-256", "ES256", _kid, Base64Url.EncodeToString(p.Q.X!), Base64Url.EncodeToString(p.Q.Y!), null, null,
                 Status: status, RetiredLogIndex: retiredAt, CompromisedLogIndex: compromisedAt, DisputedFrom: disputedFrom),
         ];
     }

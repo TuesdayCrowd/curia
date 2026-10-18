@@ -8,8 +8,9 @@ namespace Curia.Client.Cli;
 /// adds to the ledger and nothing removes from it: a person who saw a disputed post and scrolled away still leaves with 9,
 /// because an exit code an agent reads after the person pressed <c>q</c> must carry what the person saw.
 ///
-/// <para>The rank of the codes is 6, 8, 4, 5, any other refusal, 9, 0: a check that failed or did not run outranks a
-/// refusal, which outranks a mark. Provisional, and stated in the help.</para>
+/// <para>The rank of the codes is 6, 8, 9, 4, 5, any other refusal, 0 (spec 14.6 item 13): a check that failed or did not
+/// run outranks a mark, as on the line form, and a mark outranks a refusal, because a refused load changed nothing the
+/// person saw and must not hide the one word an agent reads, "do not cite that". Provisional, and stated in the help.</para>
 /// </summary>
 internal sealed class OutcomeLedger
 {
@@ -32,10 +33,10 @@ internal sealed class OutcomeLedger
     {
         ExitCode.Unverified => 0,
         ExitCode.ForumFault => 1,
-        ExitCode.Denied => 2,
-        ExitCode.NotFound => 3,
+        ExitCode.Disputed => 2,
+        ExitCode.Denied => 3,
+        ExitCode.NotFound => 4,
         ExitCode.Ok => 6,
-        ExitCode.Disputed => 5,
-        _ => 4,
+        _ => 5,
     };
 }

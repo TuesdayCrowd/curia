@@ -19,6 +19,9 @@ namespace Curia.Client.Cli;
 /// (R10.74); a fault is reported quoted, after the terminal is given back, and joins the ledger as a local error.</item>
 /// </list>
 /// The loop never waits on the terminal: it waits on the channel, so a signal is answered whether or not a key is pending.
+/// It keeps waiting on it while a load is in flight (spec 14.6 item 6): <c>q</c>, Ctrl-C, Ctrl-\\, SIGINT and SIGQUIT cancel the
+/// load and leave with the ledger's code, SIGTERM and SIGHUP end it as ever, and any other key is discarded, so a hung Forum
+/// cannot make a screen that does not answer <c>q</c>.
 /// </summary>
 internal sealed class BrowseSession(IBrowseSource source)
 {
@@ -37,6 +40,8 @@ internal sealed class BrowseSession(IBrowseSource source)
         Interrupt,
         Quit,
     }
+
+    internal const string LoadingSentence = "loading from the Forum: q cancels";
 
     internal const string SuspendSentence = "suspending is not supported here: the terminal would be left as the screen left it. q quits";
 
@@ -93,7 +98,7 @@ internal sealed class BrowseSession(IBrowseSource source)
 
             entered = true;
             Output.Draw(ScreenWriter.Enter());
-            code = await LoopAsync(state, events.Reader, terminating.Token).ConfigureAwait(false);
+            code = await LoopAsync(state, new EventQueue(events.Reader), terminating.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -124,16 +129,16 @@ internal sealed class BrowseSession(IBrowseSource source)
         return state.Ledger.Exit;
     }
 
-    private static async Task<int> LoopAsync(BrowseState state, ChannelReader<SessionEvent> events, CancellationToken terminating)
+    private static async Task<int> LoopAsync(BrowseState state, EventQueue events, CancellationToken terminating)
     {
         while (true)
         {
             var size = CurrentSize();
             Output.Draw(ScreenWriter.Serialize(state.Render(size), size));
 
-            var next = await events.ReadAsync(CancellationToken.None).ConfigureAwait(false);
+            var next = await events.NextAsync().ConfigureAwait(false);
             var done = await next.Match(
-                key => HandleKeyAsync(state, key.Info, size, terminating),
+                key => HandleKeyAsync(state, key.Info, size, events, terminating),
                 signal => Task.FromResult(HandleSignal(state, signal.Kind))).ConfigureAwait(false);
             if (done is { } exit) return exit;
         }
@@ -156,7 +161,7 @@ internal sealed class BrowseSession(IBrowseSource source)
         return null;
     }
 
-    private static async Task<int?> HandleKeyAsync(BrowseState state, ConsoleKeyInfo key, ScreenSize size, CancellationToken terminating)
+    private static async Task<int?> HandleKeyAsync(BrowseState state, ConsoleKeyInfo key, ScreenSize size, EventQueue events, CancellationToken terminating)
     {
         var meaning = Interpret(key, size);
         if (meaning.Quit) return state.Ledger.Exit;
@@ -169,7 +174,29 @@ internal sealed class BrowseSession(IBrowseSource source)
         load.CancelAfter(LoadTimeout);
         try
         {
-            if (await state.ApplyAsync(transition, size, load.Token).ConfigureAwait(false) is { } refusal)
+            // The status row says a load is in flight before it starts, so that nothing reads the state while it is changing.
+            if (transition.Rule is OutcomeRule.Counted)
+            {
+                state.Say(new OwnText(LoadingSentence));
+                Output.Draw(ScreenWriter.Serialize(state.Render(size), size));
+            }
+
+            var applying = state.ApplyAsync(transition, size, load.Token);
+            while (!applying.IsCompleted)
+            {
+                var heard = events.Peek();
+                if (await Task.WhenAny(applying, heard).ConfigureAwait(false) == applying) break;
+
+                events.Take();
+                if (LeaveDuringLoad(state, await heard.ConfigureAwait(false), size) is { } exit)
+                {
+                    await load.CancelAsync().ConfigureAwait(false);
+                    _ = applying.ContinueWith(static (task, _) => task.Exception, null, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                    return exit;
+                }
+            }
+
+            if (await applying.ConfigureAwait(false) is { } refusal)
                 state.Say(new OwnText("the Forum refused the load: " + refusal.Summary));
         }
         catch (OperationCanceledException) when (!terminating.IsCancellationRequested)
@@ -184,6 +211,18 @@ internal sealed class BrowseSession(IBrowseSource source)
 
         return null;
     }
+
+    /// <summary>What an event during a load asks of the session: leave with a code, or nothing (a key is discarded, a window change waits).</summary>
+    private static int? LeaveDuringLoad(BrowseState state, SessionEvent heard, ScreenSize size) => heard.Match<int?>(
+        key => Interpret(key.Info, size).Quit ? state.Ledger.Exit : null,
+        signal => signal.Kind switch
+        {
+            SignalKind.Terminate => 128 + 15,
+            SignalKind.Hangup => 128 + 1,
+            SignalKind.Interrupt or SignalKind.Quit => state.Ledger.Exit,
+            SignalKind.Resize or SignalKind.Continue or SignalKind.Stop => null,
+            _ => throw new InvalidOperationException("a signal the screen registered no meaning for"),
+        });
 
     private readonly record struct Meaning(bool Quit, bool Suspend, BrowseTransition? Transition);
 
@@ -255,6 +294,26 @@ internal sealed class BrowseSession(IBrowseSource source)
         }
         catch (IOException)
         {
+        }
+    }
+
+    /// <summary>
+    /// The channel the loop reads, with one read outstanding at most: an event looked at while a load was in flight and not
+    /// taken is the next the loop reads, and none is lost.
+    /// </summary>
+    private sealed class EventQueue(ChannelReader<SessionEvent> reader)
+    {
+        private Task<SessionEvent>? _pending;
+
+        internal Task<SessionEvent> Peek() => _pending ??= reader.ReadAsync().AsTask();
+
+        internal void Take() => _pending = null;
+
+        internal async Task<SessionEvent> NextAsync()
+        {
+            var next = await Peek().ConfigureAwait(false);
+            Take();
+            return next;
         }
     }
 

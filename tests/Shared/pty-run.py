@@ -5,8 +5,10 @@
 
 For the screen's facts (R10.72, R10.73): a screen is only a screen on a terminal, and what it must do when a
 key, a signal, a resize or a hang-up arrives is only observable from the other side of one. The command is run as
-the session leader of a new pseudo-terminal, so Ctrl-C, Ctrl-\\ and Ctrl-Z are signals the line discipline
-raises, and closing the master hangs the session up, as a terminal window closing does.
+the session leader of a new pseudo-terminal, and closing the master hangs the session up, as a terminal window closing
+does. Ctrl-C, Ctrl-\\ and Ctrl-Z are signals the line discipline raises only while the terminal's input mode is cooked;
+a screen that puts it in a raw mode (curia browse does) receives them as the bytes 03, 1c and 1a, which is how these
+tests send them (--send 03@0), and handles them itself.
 
 Options (times are milliseconds after the screen is up, that is after --ready text first appears in the output):
 

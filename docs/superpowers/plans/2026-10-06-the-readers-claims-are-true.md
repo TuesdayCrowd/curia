@@ -521,20 +521,20 @@ The 80×24 pty fact over a 3,000-line hostile answer (the vocabulary tokenizer r
 
 Implement, each with its fact written first and seen red (not code first; B1's order was the deviation):
 
-1. **80 by 24** (14.1): chrome 6 rows at 80 (title and marking one row each); H4's second row one row, `Not checked here: ...`;
+- [x] 1. **80 by 24** (14.1): chrome 6 rows at 80 (title and marking one row each); H4's second row one row, `Not checked here: ...`;
    the compact header form chosen per document by size; the too-small sentence names the rows and columns it needs;
    `MinimumContentRows` applies only where a passage draws content. Facts: the five in 14.1. The disputed and failed pty cases
-   move to 80 by 30, and one verified pty case at 80 by 24 asserts content rows.
-2. **Status row** (14.2): priority order, `q quits` never dropped; fact over every document, size and offset.
-3. **End and the scroll clamp** (14.3).
-4. **Unread key set** (14.5 item 8): `NoKeySetSentence`, the fact, spec 4.2's row.
-5. **Exit rank** `6, 8, 9, 4, 5, other, 0` (14.6 item 13): `OutcomeLedger.Rank`, the help line, the fact.
-6. **A load can be quit** (14.6 item 6): events read during a load; quit-class events cancel it; `loading ... q cancels`; the pty fact
-   with a stub that never answers.
-7. **`PassageHeader.Tag` switches on `passage.Outcome`** (14.5 item 3); the relation fact.
-8. **Fence classification** (14.5 item 2): every type in `Curia.Client.Cli` is screen or named not-screen.
-9. Re-run B4's independent look (`pyte`, `wcwidth`) over the changed layout at 80 by 24 and 80 by 28 and record both runs.
-10. `pty-run.py`'s docstring: Ctrl-C and Ctrl-\ are bytes under a raw input mode, not line-discipline signals.
+   move to 80 by 30, and one verified pty case at 80 by 24 asserts content rows. *(2026-10-17: facts first, seen red (`the compact minimum is 29 rows at 80 columns`; `all-Failed document at 80 by 24 is reported too small; it needs 27`), then green. Measured at 80 columns, a 36-character author, a 26-character parent and a 12-character `kid`: verified, parented, active compact 23 / full 26 (14.1 simulated 22 / 25); disputed under a compromised key compact 27 / full 30 (simulated 26); failed compact 15 / full 18. At 80 by 24 the verified post draws 9 content rows; the disputed one is still too small and says it needs 27 rows and 72 columns.)*
+- [x] 2. **Status row** (14.2): priority order, `q quits` never dropped; fact over every document, size and offset. *(2026-10-17: `…_EveryStatusRowStatesHowToLeave` red (`rows 1-22 of 68  wide characters: a row may be cut` lacked `q quits`), green; `Screen.StatusText` is the priority order.)*
+- [x] 3. **End and the scroll clamp** (14.3). *(2026-10-17: `…_EndShowsTheLastPageAndAHeldJStopsThere` red (`height 29: 0 content rows at End`), green; `Screen.MaxOffset` is the first window that shows the last row. At the smallest window End shows seven content rows and `end of #k`, the eighth row (a finding, not a failure of the fact as worded here). A held `j` was stuck at the first header (`Expected: 118 Actual: 0`), so `Screen.Settle` hops a scroll over the gap a window cannot start in; `…_AHeldJAndAHeldKCrossEveryHeaderInTheDocument`.)*
+- [x] 4. **Unread key set** (14.5 item 8): `NoKeySetSentence`, the fact, spec 4.2's row. *(2026-10-17: `…_AnUnreadKeySetIsNotShownAsStatingNone` red (`Expected: "key \"alice-1\": this client has no key set to state…" Actual: "key \"alice-1\": the Forum's key set does not state…"`), green; `PassageHeader.NoKeySetSentence`.)*
+- [x] 5. **Exit rank** `6, 8, 9, 4, 5, other, 0` (14.6 item 13): `OutcomeLedger.Rank`, the help line, the fact. *(2026-10-17: `…_TheRankOfTheCodesIs6Then8Then9Then4Then5ThenAnyOtherThen0` red (`Expected: 9 Actual: 4`) and `…_ALaterRefusalNeverHidesADisputedOutcome` red (`Expected: 9 Actual: 5`), green; the help's EXIT CODES line and `curia --help`'s exit-9 entry say it.)*
+- [x] 6. **A load can be quit** (14.6 item 6): events read during a load; quit-class events cancel it; `loading ... q cancels`; the pty fact
+   with a stub that never answers. *(2026-10-17: `…_AReloadThatTheForumNeverAnswersIsCancelledByQWithinTwoSecondsAndSaysSo` red against the old tree (`Expected: 0 Actual: 8` after 30 s, q unheard), green; the fixture's `Stalls` is the Forum that accepts and never answers.)*
+- [x] 7. **`PassageHeader.Tag` switches on `passage.Outcome`** (14.5 item 3); the relation fact. *(2026-10-17: `PassageHeader.Tag` switches on `passage.Outcome`; `…_OutcomeIsFailedExactlyWhenTheSpanDoesNotRenderOrTheSignatureFailedAndContentIsDrawnExactlyWhenTheSignatureOutcomeIsVerifiedOrDisputed` was green before the edit: the old branches already agreed, so the edit ties them structurally and the fact is guarded by FB37 and the tag mutation of B5 and not by a red here.)*
+- [x] 8. **Fence classification** (14.5 item 2): every type in `Curia.Client.Cli` is screen or named not-screen. *(2026-10-17: `…_EveryTypeInTheNamespaceIsClassifiedAsScreenOrNot` red (`neither a screen type nor a named not-screen type: ContinuedRange, IBrowseSource, OutcomeRule, ScreenWrite, ViewKind`), green with the five added to `ScreenTypes` and `NotScreenTypes` holding nine reasoned rows.)*
+- [x] 9. Re-run B4's independent look (`pyte`, `wcwidth`) over the changed layout at 80 by 24 and 80 by 28 and record both runs. *(2026-10-17: pyte 0.8.2, wcwidth 0.9.2 over fresh captures: 80 by 24, 51 frames, 51 with content, 0 failures; 80 by 28, 51 frames, 51 with content, 0 failures (the checker's reader-prefix list was updated for the new rows, and its gutter pattern for a row of only spaces, which `rstrip` had turned into a false failure).)*
+- [x] 10. `pty-run.py`'s docstring: Ctrl-C and Ctrl-\ are bytes under a raw input mode, not line-discipline signals. *(2026-10-17: the docstring says Ctrl-C, Ctrl-\\ and Ctrl-Z are signals only in a cooked input mode and bytes (03, 1c, 1a) under a raw one.)*
 
 Gate: every command in `CLAUDE.md`'s list for the assemblies touched, `Curia.Architecture.Tests` in Debug and Release.
 

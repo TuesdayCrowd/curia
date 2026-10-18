@@ -24,8 +24,26 @@ public sealed class BrowseFenceTests
         "Screen", "ScreenRow", "ScreenSize", "CellWidth", "ContentLayout", "PassageHeader", "RowWrap", "IndexRow",
         "Vt", "ScreenWriter", "ScreenFrame", "ScreenBytes", "ScreenDecision", "TerminalFacts",
         "BrowseCommand", "BrowseState", "BrowseView", "BrowseTransition", "BrowseSession", "OutcomeLedger", "LoadResult",
-        "ViewSource", "ForumBrowseSource",
+        "ViewSource", "ForumBrowseSource", "ScreenWrite", "OutcomeRule", "ViewKind", "ContinuedRange", "IBrowseSource",
     ];
+
+    /// <summary>
+    /// The types of <c>Curia.Client.Cli</c> that are not the screen's, each with the reason it is not (spec 14.5 item 2). The
+    /// screen shares an assembly with the profile store and the signer, so a type that is in neither list is a type the fence
+    /// does not read, silently; the classification fact below fails the build on it.
+    /// </summary>
+    private static readonly Dictionary<string, string> NotScreenTypes = new(StringComparer.Ordinal)
+    {
+        ["ExitCode"] = "the exit codes every verb shares; the screen reads them and defines none",
+        ["Args"] = "the command line's parser, shared by every verb",
+        ["Output"] = "the line form's writer and the one reader and drawer of the terminal; the fence names who may call it",
+        ["Program"] = "the verbs' composition root; it chooses the screen or the line form and holds the profile store",
+        ["Hints"] = "the equivalent-command sentences, constants and quoting the screen and the line form share",
+        ["Help"] = "the command line's help text",
+        ["Testis"] = "the verifier handoff of the verbs; the screen starts no process",
+        ["TestisResult"] = "the result of that handoff",
+        ["ForeignWatch"] = "the lifecycle watch of an enrolled agent's own profile; an identity the screen must not reach",
+    };
 
     /// <summary>Spec 6: the members of <c>System.Console</c> the screen's one writer and reader may reach.</summary>
     private static readonly string[] ConsoleMembers =
@@ -38,8 +56,34 @@ public sealed class BrowseFenceTests
 
     private static Assembly Cli => Assembly.Load(new AssemblyName("curia"));
 
+    private static bool IsClassified(string name) =>
+        ScreenTypes.Contains(name, StringComparer.Ordinal) || NotScreenTypes.ContainsKey(name);
+
     private static bool IsScreenCaller(string callerType) =>
         ScreenTypes.Any(name => callerType == Namespace + name || callerType.StartsWith(Namespace + name + "+", StringComparison.Ordinal));
+
+    [Fact]
+    public void R10_73_EveryTypeInTheNamespaceIsClassifiedAsScreenOrNot()
+    {
+        var types = Cli.GetTypes()
+            .Where(t => t.Namespace == Namespace.TrimEnd('.') && !t.IsNested)
+            .Select(t => t.Name)
+            .ToList();
+
+        // Non-vacuity: the lists name the types the assembly has, and the assembly has a good many of both kinds.
+        Assert.True(types.Count > 30, $"only {types.Count} types were read from the namespace");
+        Assert.Contains("BrowseSession", types);
+        Assert.Contains("Program", types);
+        var stale = ScreenTypes.Concat(NotScreenTypes.Keys).Where(name => !types.Contains(name, StringComparer.Ordinal)).ToList();
+        Assert.True(stale.Count == 0, "listed but not in the namespace: " + string.Join(", ", stale));
+
+        var unclassified = types.Where(name => !IsClassified(name)).Order(StringComparer.Ordinal).ToList();
+        Assert.True(unclassified.Count == 0, "types in Curia.Client.Cli that are neither a screen type nor a named not-screen type: " + string.Join(", ", unclassified));
+
+        var both = ScreenTypes.Where(NotScreenTypes.ContainsKey).ToList();
+        Assert.True(both.Count == 0, "classified as both: " + string.Join(", ", both));
+        Assert.All(NotScreenTypes, row => Assert.False(string.IsNullOrWhiteSpace(row.Value), row.Key + " has no reason"));
+    }
 
     [Fact]
     public void R10_73_TheScreenHoldsNoIdentityOrCredential()

@@ -26,8 +26,13 @@ internal readonly record struct ScreenSize(int Width, int Height);
 ///
 /// <para><b>The minimum is computed.</b> Content is drawn only when the width is at least <see cref="MinimumWidth"/> and the
 /// window has the screen's chrome, the tallest header actually present (a 300-character author wraps and raises it) and
-/// <see cref="MinimumContentRows"/> rows besides. Otherwise only this client's rows are drawn, saying so, with the line
-/// form's command.</para>
+/// <see cref="MinimumContentRows"/> rows besides (one row, where no passage draws content). Otherwise only this client's
+/// rows are drawn, saying how many rows and columns the window needs, with the line form's command.</para>
+///
+/// <para><b>Two header forms, one per document (spec 14.1).</b> The full form is used where the window holds the chrome, the
+/// tallest full header and the content rows; otherwise the compact form (<see cref="PassageHeader"/>), which leaves out only
+/// what R10.74 does not list. The choice is made from the size alone, so scrolling never changes a header's form.
+/// <see cref="MinimumHeight"/> is the compact form's.</para>
 /// </summary>
 internal sealed class Screen
 {
@@ -37,20 +42,24 @@ internal sealed class Screen
     /// <summary>R10.72's eight rows of content a window must leave after the chrome and the tallest header.</summary>
     internal const int MinimumContentRows = 8;
 
-    internal const string Title = "curia browse: a screen for a person at a terminal. The line form, for a script or a model, is the matching curia verb or --plain";
+    internal const string Title = "curia browse: a screen for a person. A model or script: a curia verb or --plain";
 
-    internal const string MarkingRow = "content shown here is laid out from the signed bytes and is not datamarked: for a model, use curia read";
+    internal const string MarkingRow = "content is the signed bytes laid out, not datamarked: a model uses curia read";
 
-    internal const string WideOnScreen = "wide characters on screen: a row may be cut at the right edge";
+    internal const string WideOnScreen = "wide characters on screen: a row may be cut";
 
-    private Screen(ImmutableArray<ScreenRow> rows, bool drawsContent, int offset, int documentRows, int minimumHeight, ImmutableArray<int> passageStarts)
+    private const string WideShort = "wide characters on screen";
+
+    private Screen(ImmutableArray<ScreenRow> rows, bool drawsContent, int offset, int documentRows, int minimumHeight, ImmutableArray<int> passageStarts, int maxOffset, ImmutableArray<(int From, int To)> gaps)
     {
+        _gaps = gaps;
         Rows = rows;
         DrawsContent = drawsContent;
         Offset = offset;
         DocumentRows = documentRows;
         MinimumHeight = minimumHeight;
         PassageStarts = passageStarts;
+        MaxOffset = maxOffset;
     }
 
     /// <summary>Every row, top to bottom: the title, the warning, the marking row, the window, the status row last.</summary>
@@ -65,11 +74,33 @@ internal sealed class Screen
     /// <summary>How many rows the whole document has.</summary>
     internal int DocumentRows { get; }
 
-    /// <summary>The fewest rows at which this document, at this width, is drawn with content.</summary>
+    private readonly ImmutableArray<(int From, int To)> _gaps;
+
+    /// <summary>The fewest rows at which this document, at this width, is drawn with content: the compact form's (spec 14.1).</summary>
     internal int MinimumHeight { get; }
+
+    /// <summary>
+    /// The last page's first row (spec 14.3): the first offset at which the document's last row is in the window, so that a
+    /// scroll stops with the last row at the bottom and not with one row on show.
+    /// </summary>
+    internal int MaxOffset { get; }
 
     /// <summary>The document row each passage (or index row) begins at, in order: where Tab goes, and what Enter opens.</summary>
     internal ImmutableArray<int> PassageStarts { get; }
+
+    /// <summary>
+    /// The nearest row a window can start at to <paramref name="target"/>: itself, or the end of the gap it falls in when
+    /// scrolling <paramref name="towardsEnd"/>, or the start of the passage the gap belongs to when scrolling back.
+    /// </summary>
+    internal int Settle(int target, bool towardsEnd)
+    {
+        foreach (var (from, to) in _gaps)
+        {
+            if (target >= from && target < to) return towardsEnd ? to : from - 1;
+        }
+
+        return target;
+    }
 
     /// <summary>The row drawn last.</summary>
     internal ScreenRow Status => Rows[^1];
@@ -79,27 +110,40 @@ internal sealed class Screen
     {
         ArgumentNullException.ThrowIfNull(passages);
 
-        var blocks = new List<Block>(passages.Count);
+        var draws = new bool[passages.Count];
+        var bodies = new ImmutableArray<ScreenRow>[passages.Count];
         for (var i = 0; i < passages.Count; i++)
         {
             var passage = passages[i];
-            var number = i + 1;
-            var draws = passage.SignatureOutcome is CheckOutcome.Verified or CheckOutcome.Disputed
+            draws[i] = passage.SignatureOutcome is CheckOutcome.Verified or CheckOutcome.Disputed
                 && SpanCheck.CoveredForm(passage.Post) is not null;
 
-            ImmutableArray<ScreenRow> body = draws
+            bodies[i] = draws[i]
                 ? ContentLayout.Rows(SpanCheck.CoveredForm(passage.Post)!, size.Width)
                 : [new ScreenRow.Frame(NoContent(passage, size.Width))];
-
-            blocks.Add(new Block(
-                PassageHeader.Rows(passage, number, size.Width),
-                body,
-                draws,
-                new ScreenRow.Frame($"end of #{number.ToString(CultureInfo.InvariantCulture)}"),
-                draws ? range => PassageHeader.Rows(passage, number, size.Width, range) : null));
         }
 
-        return Compose(blocks, size, offset, MinimumContentRows, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
+        List<Block> Blocks(bool compact)
+        {
+            var blocks = new List<Block>(passages.Count);
+            for (var i = 0; i < passages.Count; i++)
+            {
+                var passage = passages[i];
+                var number = i + 1;
+                blocks.Add(new Block(
+                    PassageHeader.Rows(passage, number, size.Width, null, compact),
+                    bodies[i],
+                    draws[i],
+                    new ScreenRow.Frame($"end of #{number.ToString(CultureInfo.InvariantCulture)}"),
+                    draws[i] ? range => PassageHeader.Rows(passage, number, size.Width, range, compact) : null));
+            }
+
+            return blocks;
+        }
+
+        // Eight rows of content where any passage draws any; where none does, the one row that says why.
+        var contentRows = draws.Any(d => d) ? MinimumContentRows : 1;
+        return Compose(Blocks(compact: false), Blocks(compact: true), size, offset, contentRows, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
     }
 
     /// <summary>A board: one index row per post, then its title as content, or why there is none (spec 4.4).</summary>
@@ -136,7 +180,7 @@ internal sealed class Screen
             blocks.Add(new Block(header.ToImmutable(), body, title is not null, null, null));
         }
 
-        return Compose(blocks, size, offset, 1, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
+        return Compose(blocks, blocks, size, offset, 1, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
     }
 
     /// <summary>The fewest rows a screen of <paramref name="passages"/> is drawn with content at, at <paramref name="width"/> columns.</summary>
@@ -154,7 +198,8 @@ internal sealed class Screen
             foreach (var row in RowWrap.Frame(line, size.Width)) header.Add(new ScreenRow.Frame(row));
         }
 
-        return Compose([new Block(header.ToImmutable(), [], false, null, null)], size, 0, 0, firstPostId: null);
+        List<Block> blocks = [new Block(header.ToImmutable(), [], false, null, null)];
+        return Compose(blocks, blocks, size, 0, 0, firstPostId: null);
     }
 
     /// <summary>
@@ -164,7 +209,7 @@ internal sealed class Screen
     internal Screen WithNote(OwnText note, int width)
     {
         var status = new ScreenRow.Frame(Truncate(note.Text, width - 1));
-        return new Screen(Rows.SetItem(Rows.Length - 1, status), DrawsContent, Offset, DocumentRows, MinimumHeight, PassageStarts);
+        return new Screen(Rows.SetItem(Rows.Length - 1, status), DrawsContent, Offset, DocumentRows, MinimumHeight, PassageStarts, MaxOffset, _gaps);
     }
 
     private static ScreenRow.Frame[] Chrome(string text, int width) =>
@@ -181,22 +226,17 @@ internal sealed class Screen
             .ToString();
     }
 
-    private static Screen Compose(List<Block> blocks, ScreenSize size, int offset, int contentRows, string? firstPostId)
+    private static Screen Compose(List<Block> full, List<Block> compact, ScreenSize size, int offset, int contentRows, string? firstPostId)
     {
         var title = Chrome(Title, size.Width);
         var warning = Chrome(Provenance.StandardWarning, size.Width);
         var marking = Chrome(MarkingRow, size.Width);
         var chrome = title.Length + warning.Length + marking.Length + 1;
 
-        // The tallest header this document can put above a window: its own, or the pinned form of it.
-        var tallest = 0;
-        foreach (var block in blocks)
-        {
-            tallest = Math.Max(tallest, block.Header.Length);
-            if (block.Pinned is not null) tallest = Math.Max(tallest, block.Pinned(Widest(block)).Length);
-        }
+        // The minimum is the compact form's; the full form is used where the window holds it with the content rows (spec 14.1).
+        var minimum = chrome + Tallest(compact) + contentRows;
+        var blocks = size.Height >= chrome + Tallest(full) + contentRows ? full : compact;
 
-        var minimum = chrome + tallest + contentRows;
         var document = new List<ScreenRow>();
         var starts = new List<int>();
         foreach (var block in blocks)
@@ -209,28 +249,53 @@ internal sealed class Screen
 
         var fits = size.Width >= MinimumWidth && size.Height >= minimum && blocks.Count > 0;
         if (!fits)
-            return new Screen(TooSmall(size, title, firstPostId, blocks.Count > 0), drawsContent: false, 0, document.Count, minimum, [.. starts]);
+            return new Screen(TooSmall(size, title, firstPostId, blocks.Count > 0, minimum), drawsContent: false, 0, document.Count, minimum, [.. starts], 0, []);
 
-        var top = Math.Clamp(offset, 0, Math.Max(0, document.Count - 1));
-        var at = starts.FindLastIndex(start => start <= top);
-        var owner = blocks[at];
-        var bodyStart = starts[at] + owner.Header.Length;
-        var bodyEnd = bodyStart + owner.Body.Length;
+        var window = size.Height - chrome;
 
-        ImmutableArray<ScreenRow> pinned = [];
-        if (top < bodyStart || (top < bodyEnd && !owner.BodyIsContent))
+        // The offsets no window starts at: inside a header, or inside a body that is not content. A window asked to start
+        // there starts at the passage's first row, so a scroll by rows must hop over the gap or it would never leave it.
+        var gaps = ImmutableArray.CreateBuilder<(int From, int To)>();
+        for (var i = 0; i < blocks.Count; i++)
         {
-            top = starts[at];
-        }
-        else if (top < bodyEnd && owner.Pinned is not null)
-        {
-            var window = size.Height - chrome;
-            var shell = owner.Pinned(Widest(owner));
-            var shown = Math.Min(window - shell.Length, bodyEnd - top);
-            pinned = owner.Pinned(new ContinuedRange(top - bodyStart + 1, top - bodyStart + shown, owner.Body.Length));
+            var bodyStart = starts[i] + blocks[i].Header.Length;
+            var to = blocks[i].BodyIsContent ? bodyStart : bodyStart + blocks[i].Body.Length;
+            if (to > starts[i] + 1) gaps.Add((starts[i] + 1, to));
         }
 
-        var available = size.Height - chrome - pinned.Length;
+        // Where a window that starts at row `requested` really starts, and the header it pins above it.
+        (int Top, ImmutableArray<ScreenRow> Pinned) Resolve(int requested)
+        {
+            var at = starts.FindLastIndex(start => start <= requested);
+            var owner = blocks[at];
+            var bodyStart = starts[at] + owner.Header.Length;
+            var bodyEnd = bodyStart + owner.Body.Length;
+            if (requested < bodyStart || (requested < bodyEnd && !owner.BodyIsContent)) return (starts[at], []);
+
+            if (requested < bodyEnd && owner.Pinned is not null)
+            {
+                var shell = owner.Pinned(Widest(owner));
+                var shown = Math.Min(window - shell.Length, bodyEnd - requested);
+                return (requested, owner.Pinned(new ContinuedRange(requested - bodyStart + 1, requested - bodyStart + shown, owner.Body.Length)));
+            }
+
+            return (requested, []);
+        }
+
+        var (top, pinned) = Resolve(Math.Clamp(offset, 0, Math.Max(0, document.Count - 1)));
+
+        // The first window that shows the document's last row (spec 14.3), not the last row alone.
+        var maxOffset = 0;
+        for (var candidate = Math.Max(0, document.Count - window); candidate < document.Count; candidate++)
+        {
+            var (resolved, pin) = Resolve(candidate);
+            if (resolved != candidate || candidate + window - pin.Length < document.Count) continue;
+
+            maxOffset = candidate;
+            break;
+        }
+
+        var available = window - pinned.Length;
         var last = Math.Min(document.Count, top + available);
         var rows = ImmutableArray.CreateBuilder<ScreenRow>();
         rows.AddRange(title);
@@ -240,19 +305,32 @@ internal sealed class Screen
         for (var i = top; i < last; i++) rows.Add(document[i]);
         rows.Add(StatusRow(document, top, last, size.Width));
 
-        return new Screen(rows.ToImmutable(), drawsContent: true, top, document.Count, minimum, [.. starts]);
+        return new Screen(rows.ToImmutable(), drawsContent: true, top, document.Count, minimum, [.. starts], maxOffset, gaps.ToImmutable());
+    }
+
+    /// <summary>The tallest header this document can put above a window: a passage's own, or the pinned form of it.</summary>
+    private static int Tallest(List<Block> blocks)
+    {
+        var tallest = 0;
+        foreach (var block in blocks)
+        {
+            tallest = Math.Max(tallest, block.Header.Length);
+            if (block.Pinned is not null) tallest = Math.Max(tallest, block.Pinned(Widest(block)).Length);
+        }
+
+        return tallest;
     }
 
     /// <summary>A range whose numbers are as wide as any this block can write, so its header is as tall as any it can have.</summary>
     private static ContinuedRange Widest(Block block) => new(block.Body.Length, block.Body.Length, block.Body.Length);
 
-    private static ImmutableArray<ScreenRow> TooSmall(ScreenSize size, ScreenRow.Frame[] title, string? firstPostId, bool any)
+    private static ImmutableArray<ScreenRow> TooSmall(ScreenSize size, ScreenRow.Frame[] title, string? firstPostId, bool any, int minimum)
     {
         var rows = ImmutableArray.CreateBuilder<ScreenRow>();
         rows.AddRange(title);
         var command = firstPostId is null ? new OwnText("curia read") : Hints.Read(firstPostId);
         var sentence = any
-            ? new FrameBuilder().Append($"this window is too small to draw content under its header: make it larger, or use the line form: {command}").ToString()
+            ? new FrameBuilder().Append($"this window is too small to draw content under its header: it needs at least {minimum} rows and {MinimumWidth} columns at this width. Make it larger, or use the line form: {command}").ToString()
             : "there is nothing to show";
         foreach (var row in RowWrap.Frame(sentence, Math.Max(1, size.Width))) rows.Add(new ScreenRow.Frame(row));
         rows.Add(new ScreenRow.Frame(Truncate("q quits", size.Width - 1)));
@@ -267,9 +345,29 @@ internal sealed class Screen
         var position = last > top
             ? string.Create(CultureInfo.InvariantCulture, $"rows {top + 1}-{last} of {document.Count}")
             : string.Create(CultureInfo.InvariantCulture, $"row {Math.Min(top + 1, Math.Max(1, document.Count))} of {document.Count}");
-        var text = wide ? position + "  " + WideOnScreen : position + "  q quits  ? help";
-        if (CellWidth.Of(text) > width - 1) text = wide ? position + "  wide characters: a row may be cut" : position;
-        return new ScreenRow.Frame(Truncate(text, width - 1));
+        return new ScreenRow.Frame(StatusText(position, wide, width));
+    }
+
+    /// <summary>
+    /// The status row's text at <paramref name="width"/> columns (spec 14.2): the position, <c>q quits</c>, the notice that wide
+    /// characters are in view, and <c>? help</c>. Parts are given up whole, the notice shortening first and then
+    /// <c>? help</c> and the notice going; <c>q quits</c> is the one part that is never given up.
+    /// </summary>
+    internal static string StatusText(string position, bool wide, int width)
+    {
+        string[] candidates = wide
+            ? [
+                $"{position}  q quits  {WideOnScreen}  ? help", $"{position}  q quits  {WideShort}  ? help", $"{position}  q quits  {WideShort}",
+                $"{position}  q quits", "q quits",
+            ]
+            : [$"{position}  q quits  ? help", $"{position}  q quits", "q quits"];
+
+        foreach (var candidate in candidates)
+        {
+            if (CellWidth.Of(candidate) <= width - 1) return candidate;
+        }
+
+        return Truncate("q quits", width - 1);
     }
 
     private static string Truncate(string text, int width)

@@ -14,7 +14,7 @@ using CliProgram = Curia.Client.Cli.Program;
 namespace Curia.Api.Tests;
 
 /// <summary>
-/// Task B4's pseudo-terminal fact (errata G22, R10.72 to R10.75): the shipped <c>curia browse</c>, on an 80 by 24 terminal, over
+/// Task B4's pseudo-terminal fact (errata G22, R10.72 to R10.75): the shipped <c>curia browse</c>, on an 80 column terminal of 24 and of 28 rows, over
 /// a verified answer whose body is 3,000 lines of everything a stranger could write to a terminal. The oracle is the bytes
 /// the terminal received, read here as a terminal reads them and not as the writer meant them: every escape is one of a
 /// vocabulary spelled out below (and not read from <c>Vt</c>, so a constant added there does not widen it), the rest of the
@@ -336,36 +336,11 @@ public sealed partial class BrowseHostileAnswerTests(BrowseForumFixture forum) :
     }
 
     /// <summary>
-    /// At 80 by 24 the standing warning, the marking row, the status row and an answer's header leave fewer than eight rows
-    /// for content (errata G22, R10.72), so the screen draws none of it: only its own rows, and the line form's command. Not a
-    /// byte of the 3,000 lines reaches the terminal.
+    /// The shipped command over the hostile answer on an 80 column terminal of <paramref name="rows"/> rows, through every key a
+    /// person has. Returns the frames, so a caller can say which header form the size drew.
     /// </summary>
-    [Fact]
-    public async Task R10_72_R10_73_AnAnswerWhoseHeaderLeavesFewerThanEightRowsOnEightyByTwentyFourDrawsNoneOfItsContent()
+    private async Task<(IReadOnlyList<Frame> Frames, int Minimum)> HostileAtAsync(int rows, CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
-        var postId = await HostileAnswerAsync(3000, ct);
-
-        var run = await BrowseReadAsync(postId, 24, ct);
-
-        var remainder = AssertStreamIsTheClosedVocabulary(run);
-        Assert.DoesNotContain("HZ", remainder, StringComparison.Ordinal);
-        var frames = Frames(run.Output, 24);
-        Assert.True(frames.Count >= 5, $"{frames.Count} frames");
-        for (var i = 0; i < frames.Count; i++)
-            Assert.Equal(0, AssertFrame(frames[i], 24, i));
-        Assert.All(frames, f => Assert.Contains(f.Rows.Values, t => t.StartsWith("this window is too small", StringComparison.Ordinal)));
-        Assert.All(frames, f => Assert.Contains(f.Rows.Values, t => t.Contains("curia read '" + postId + "'", StringComparison.Ordinal)));
-    }
-
-    /// <summary>
-    /// The same answer on the terminal 80 columns wide and as short as the screen lets this post's header be: 3,000 hostile
-    /// lines reach it as escaped text in the gutter column and nothing else, through every key a person has.
-    /// </summary>
-    [Fact]
-    public async Task R10_72_R10_73_R10_75_ThreeThousandHostileLinesAtEightyColumnsAndTheComputedMinimumReachTheTerminalOnlyAsEscapedTextInTheGutterColumn()
-    {
-        var ct = TestContext.Current.CancellationToken;
         var postId = await HostileAnswerAsync(3000, ct);
 
         using var http = new HttpClient { BaseAddress = new Uri(Origin) };
@@ -373,10 +348,10 @@ public sealed partial class BrowseHostileAnswerTests(BrowseForumFixture forum) :
         var served = await client.GetPostAsync(postId, MarkingMode.Datamark, ct);
         Assert.True(served.TryGetValue(out var post, out var refusal), refusal?.Summary);
         var (passages, _) = await CliProgram.VerifyAllAsync(client, [post], ct);
-        var height = Screen.MinimumHeightFor(passages, 80);
-        Assert.True(height > 24, $"the minimum is {height}: this fact is the one about a header that does not fit 24 rows");
+        var minimum = Screen.MinimumHeightFor(passages, 80);
+        Assert.True(rows >= minimum, $"the computed minimum is {minimum} rows at 80 columns: {rows} is too few for this fact");
 
-        var run = await BrowseReadAsync(postId, height, ct);
+        var run = await BrowseReadAsync(postId, rows, ct);
 
         var remainder = AssertStreamIsTheClosedVocabulary(run);
 
@@ -384,24 +359,53 @@ public sealed partial class BrowseHostileAnswerTests(BrowseForumFixture forum) :
         foreach (var drawn in new[] { "\\u001b]52", "\\u001b]8;;", "\\u202e", "\\u2028", "\\u009b", "\\u0301\\u0301", "\\udb40\\udc41", "\\ue000", "\\u0378" })
             Assert.Contains(drawn, remainder, StringComparison.Ordinal);
 
-        var frames = Frames(run.Output, height);
+        var frames = Frames(run.Output, rows);
         Assert.True(frames.Count >= 5, $"{frames.Count} frames");
         var withContent = 0;
         for (var i = 0; i < frames.Count; i++)
         {
-            var content = AssertFrame(frames[i], height, i);
+            var content = AssertFrame(frames[i], rows, i);
             if (content > 0) withContent++;
 
-            // Eight content rows, except where the passage ends: the last window holds what is left of it, which may be nothing.
-            var position = StatusPosition().Match(frames[i].Rows[height]);
-            Assert.True(position.Success, $"frame {i}: the status row holds no position: {Escaped(frames[i].Rows[height])}");
+            // The status row always says how to leave (spec 14.2), and is the reader's.
+            Assert.Contains("q quits", frames[i].Rows[rows], StringComparison.Ordinal);
+
+            // Eight rows of the passage, except where it ends: the last window holds what is left of it, and its `end of` row is the eighth.
+            var position = StatusPosition().Match(frames[i].Rows[rows]);
+            Assert.True(position.Success, $"frame {i}: the status row holds no position: {Escaped(frames[i].Rows[rows])}");
             var atTheEnd = position.Groups["to"].Value == position.Groups["of"].Value;
-            Assert.True(content >= 8 || atTheEnd, $"frame {i}: {content} content rows, fewer than eight, short of the end ({Escaped(frames[i].Rows[height])})");
+            Assert.True(content >= 8 || (atTheEnd && content >= 7), $"frame {i}: {content} content rows, fewer than eight, short of the end ({Escaped(frames[i].Rows[rows])})");
         }
 
         Assert.True(withContent >= 10, $"only {withContent} frames drew content");
         Assert.Contains(frames, f => f.Rows.Values.Any(t => t.Contains("continued", StringComparison.Ordinal)));
-        Assert.Contains(frames, f => f.Rows[height].Contains("q quits", StringComparison.Ordinal));
-        Assert.Contains(frames, f => f.Rows[height].Contains("wide characters", StringComparison.Ordinal));
+        Assert.Contains(frames, f => f.Rows[rows].Contains("wide characters", StringComparison.Ordinal));
+        return (frames, minimum);
+    }
+
+    private static bool HasDigestRow(Frame frame) => frame.Rows.Values.Any(t => t.StartsWith("digest ", StringComparison.Ordinal));
+
+    /// <summary>
+    /// The terminal a person gets, 80 by 24: the compact header leaves eight rows and more, so the answer's content is drawn,
+    /// and 3,000 hostile lines reach the terminal as escaped text in the gutter column and nothing else, through every key
+    /// (errata G22, R10.72 to R10.75; spec 14.1).
+    /// </summary>
+    [Fact]
+    public async Task R10_72_R10_73_R10_75_ThreeThousandHostileLinesOnEightyByTwentyFourReachTheTerminalOnlyAsEscapedTextInTheGutterColumn()
+    {
+        var (frames, minimum) = await HostileAtAsync(24, TestContext.Current.CancellationToken);
+
+        Assert.True(minimum <= 24, $"the computed minimum is {minimum}");
+        Assert.DoesNotContain(frames, HasDigestRow);
+        Assert.DoesNotContain(frames, f => f.Rows.Values.Any(t => t.StartsWith("this window is too small", StringComparison.Ordinal)));
+    }
+
+    /// <summary>The same answer on a terminal tall enough for the full header, so the keys cross both forms' headers.</summary>
+    [Fact]
+    public async Task R10_72_R10_73_R10_75_ThreeThousandHostileLinesOnEightyByTwentyEightReachTheTerminalOnlyAsEscapedTextInTheGutterColumn()
+    {
+        var (frames, _) = await HostileAtAsync(28, TestContext.Current.CancellationToken);
+
+        Assert.Contains(frames, HasDigestRow);
     }
 }

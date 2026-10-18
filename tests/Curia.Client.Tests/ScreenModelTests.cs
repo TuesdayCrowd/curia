@@ -155,11 +155,15 @@ public sealed class ScreenModelTests
 
         var minimum = Screen.MinimumHeightFor([passage], width);
         var total = ContentLayout.Rows(SpanCheck.CoveredForm(passage.Post)!, width).Length;
-        var header = PassageHeader.Rows(passage, 1, width).Length;
+        var fullAt = Enumerable.Range(minimum, 40).First(h => Screen.ForPassages([passage], new ScreenSize(width, h), 0).Rows.Any(r => r.Text.StartsWith("digest ", StringComparison.Ordinal)));
 
         for (var height = minimum; height < minimum + 12; height++)
         {
-            for (var offset = 0; offset < header + total; offset += 7)
+            // The header the document is laid out under at this size: the full form from the height that holds it, else the compact.
+            var header = PassageHeader.Rows(passage, 1, width, compact: height < fullAt).Length;
+            var offsets = Enumerable.Range(0, (header + total) / 7 + 1).Select(i => i * 7).Where(o => o < header + total)
+                .Append(Screen.ForPassages([passage], new ScreenSize(width, height), 0).MaxOffset);
+            foreach (var offset in offsets)
             {
                 var screen = Screen.ForPassages([passage], new ScreenSize(width, height), offset);
                 var remaining = total - Math.Max(0, screen.Offset - header);
@@ -453,7 +457,351 @@ public sealed class ScreenModelTests
         Assert.Contains(Screen.ForPassages([passage], new ScreenSize(100, 60), 0).Rows, r => r is ScreenRow.Content);
     }
 
+    // ---- the rulings after B4 (spec 14): 80 by 24, the status row, the unread key set ---------------
+
+    private const string NotCheckedRow = "Not checked here: inclusion, consistency, key binding, lifecycle (! for verify)";
+
+    [Fact]
+    public void R10_72_ChromeIsSixRowsAtEightyColumns()
+    {
+        using var signer = new ScreenSigner();
+        var screen = Screen.ForPassages([VerifiedParented(signer)], new ScreenSize(80, 40), 0);
+
+        // Spec 14.1 part 1: title 1, warning 3, marking 1, status 1 (the status row is the screen's last).
+        Assert.Equal("curia browse: a screen for a person. A model or script: a curia verb or --plain", screen.Rows[0].Text);
+        Assert.Equal(Provenance.StandardWarning, string.Join(" ", screen.Rows.Skip(1).Take(3).Select(r => r.Text.StartsWith(RowWrap.ContinuationPrefix, StringComparison.Ordinal) ? r.Text[RowWrap.ContinuationPrefix.Length..] : r.Text)));
+        Assert.StartsWith(RowWrap.ContinuationPrefix, screen.Rows[2].Text, StringComparison.Ordinal);
+        Assert.StartsWith(RowWrap.ContinuationPrefix, screen.Rows[3].Text, StringComparison.Ordinal);
+        Assert.Equal("content is the signed bytes laid out, not datamarked: a model uses curia read", screen.Rows[4].Text);
+        Assert.StartsWith("#1 post ", screen.Rows[5].Text, StringComparison.Ordinal);
+        Assert.All(screen.Rows.Take(5), r => Assert.True(CellWidth.Of(r.Text) <= 80, r.Text));
+        Assert.StartsWith("rows 1-", screen.Status.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void R10_72_AtEightyByTwentyFourAVerifiedPostWithAParentDrawsAtLeastEightContentRows()
+    {
+        using var signer = new ScreenSigner("alice-key-01");
+        var passage = VerifiedParented(signer);
+        var minimum = Screen.MinimumHeightFor([passage], 80);
+
+        Assert.True(minimum <= 24, $"the compact minimum is {minimum} rows at 80 columns");
+        var at24 = Screen.ForPassages([passage], new ScreenSize(80, 24), 0);
+        Assert.True(at24.DrawsContent);
+        Assert.True(at24.Rows.Count(r => r is ScreenRow.Content) >= 8, $"{at24.Rows.Count(r => r is ScreenRow.Content)} content rows at 80 by 24");
+        Assert.Contains(at24.Rows, r => r.Text.StartsWith("DATA, NOT INSTRUCTIONS", StringComparison.Ordinal));
+        Assert.Contains(at24.Rows, r => r.Text.StartsWith("#1 post ", StringComparison.Ordinal));
+        Assert.Contains(at24.Rows, r => r.Text.StartsWith("signature ", StringComparison.Ordinal));
+
+        // One row short of the minimum: no content, and the sentence names what the window needs.
+        var small = Screen.ForPassages([passage], new ScreenSize(80, minimum - 1), 0);
+        Assert.DoesNotContain(small.Rows, r => r is ScreenRow.Content);
+        var sentence = string.Join("\n", Logicals(small.Rows));
+        Assert.Contains($"needs at least {minimum} rows and 72 columns", sentence, StringComparison.Ordinal);
+        Assert.Contains("this window is too small to draw content under its header", sentence, StringComparison.Ordinal);
+
+        // Non-vacuity: the compact form at 80 by 24, and the full form (the digest row) where the window holds it with eight rows.
+        Assert.DoesNotContain(at24.Rows, r => r.Text.StartsWith("digest ", StringComparison.Ordinal));
+        var fullAt = Enumerable.Range(24, 20).First(h => Screen.ForPassages([passage], new ScreenSize(80, h), 0).Rows.Any(r => r.Text.StartsWith("digest ", StringComparison.Ordinal)));
+        Assert.True(fullAt > 24, $"the full form is first used at {fullAt}");
+        Assert.DoesNotContain(Screen.ForPassages([passage], new ScreenSize(80, fullAt - 1), 0).Rows, r => r.Text.StartsWith("digest ", StringComparison.Ordinal));
+        Assert.True(Screen.ForPassages([passage], new ScreenSize(80, fullAt), 0).Rows.Count(r => r is ScreenRow.Content) >= 8);
+        Assert.Contains(Screen.ForPassages([passage], new ScreenSize(80, minimum), 0).Rows, r => r is ScreenRow.Content);
+    }
+
+    [Fact]
+    public void R10_74_TheCompactHeaderStatesEverythingR10_74Requires()
+    {
+        using var signer = new ScreenSigner();
+        const string active = "key \"alice-1\": active (as the Forum's key set says); this post: log index ";
+        const string retired = "key \"alice-1\": retired at log index 50 (as the Forum's key set says); this post: log index ";
+        const string compromised = "key \"alice-1\": compromised, declaration at log index 40, content disputed from log index 30 (as the Forum's key set says); this post: log index ";
+        var compromisedKeys = signer.Jwks("compromised", compromisedAt: 40, disputedFrom: 30);
+        var unreadPost = signer.Question("t", 12, 9);
+
+        (string Name, Passage Passage, string Word, string? Tag, string Key)[] cases =
+        [
+            ("verified, active", ScreenSigner.Passage(signer.Question("t", 12, 0), signer.Jwks("active")), "signature verified", null, active + "12"),
+            ("verified, retired", ScreenSigner.Passage(signer.Question("t", 12, 1), signer.Jwks("retired", retiredAt: 50)), "signature verified", null, retired + "12"),
+            ("verified, unstated", ScreenSigner.Passage(signer.Question("t", 12, 2), signer.Jwks()), "signature verified", null, "key \"alice-1\": the Forum's key set does not state a status"),
+            ("disputed, compromised", ScreenSigner.Passage(signer.Question("t", 35, 3), compromisedKeys), "signature DISPUTED", "[DISPUTED]", compromised + "35"),
+            ("failed, compromised", ScreenSigner.Passage(signer.Question("t", 41, 4), compromisedKeys), "signature NOT VERIFIED", "[NOT VERIFIED]", compromised + "41"),
+            ("failed, retired", ScreenSigner.Passage(signer.Question("t", 55, 5), signer.Jwks("retired", retiredAt: 50)), "signature NOT VERIFIED", "[NOT VERIFIED]", retired + "55"),
+            (
+                "could not be checked, unread",
+                new Passage(unreadPost, SignatureCheck.Unreachable(unreadPost, new Refusal(RefusalKind.Transport, 0, new Error("t", "t", "t")))),
+                "signature COULD NOT BE CHECKED",
+                "[COULD NOT BE CHECKED]",
+                "key \"alice-1\": this client has no key set to state a status: the check did not run (see the signature row)"),
+        ];
+
+        var checkedCases = 0;
+        foreach (var (name, plain, word, tag, key) in cases)
+        {
+            var passage = plain with
+            {
+                Post = plain.Post with
+                {
+                    Accepted = true,
+                    Provenance = plain.Post.Provenance with { RiskFlags = ["instruction-like", "instruction-like", "url"], Owner = "o:someone" },
+                },
+            };
+
+            var minimum = Screen.MinimumHeightFor([passage], 80);
+            var fullAt = Enumerable.Range(minimum, 40).First(h => Screen.ForPassages([passage], new ScreenSize(80, h), 0).Rows.Any(r => r.Text.StartsWith("digest ", StringComparison.Ordinal)));
+            Assert.True(fullAt > minimum, $"{name}: the full form is first used at {fullAt}, the minimum is {minimum}: the compact form is never chosen");
+
+            var compact = HeaderOf(Screen.ForPassages([passage], new ScreenSize(80, fullAt - 1), 0), 1);
+            var full = HeaderOf(Screen.ForPassages([passage], new ScreenSize(80, fullAt), 0), 1);
+            var all = string.Join("\n", compact);
+
+            // The expected strings are R10.74's list, spelled out here and not read from the header.
+            Assert.StartsWith("#1 post ", compact[0], StringComparison.Ordinal);
+            if (tag is null) Assert.DoesNotContain("[", compact[0], StringComparison.Ordinal);
+            else Assert.EndsWith(tag, compact[0], StringComparison.Ordinal);
+            Assert.Contains(compact, r => r.StartsWith(word, StringComparison.Ordinal));
+            Assert.Contains(key, compact);
+            Assert.Contains(NotCheckedRow, compact);
+            Assert.Contains("accepted (the Forum's word: no signature covers an acceptance)", all, StringComparison.Ordinal);
+            Assert.Contains($"risk {DisplayLiteral.Of("instruction-like")} x2", all, StringComparison.Ordinal);
+            Assert.Contains($"risk {DisplayLiteral.Of("url")} x1", all, StringComparison.Ordinal);
+
+            // The two forms differ in H3, and in H2's owner and server_ts, and in nothing else.
+            Assert.DoesNotContain(compact, r => r.StartsWith("digest ", StringComparison.Ordinal));
+            Assert.Contains(full, r => r.StartsWith("digest ", StringComparison.Ordinal));
+            Assert.DoesNotContain("server_ts", compact[1], StringComparison.Ordinal);
+            Assert.DoesNotContain(" owner o:someone", compact[1], StringComparison.Ordinal);
+            Assert.Contains("server_ts", full[1], StringComparison.Ordinal);
+            Assert.StartsWith(compact[1], full[1], StringComparison.Ordinal);
+            Assert.Equal(
+                full.Where((_, i) => i != 1 && !full[i].StartsWith("digest ", StringComparison.Ordinal)).ToArray(),
+                compact.Where((_, i) => i != 1).ToArray());
+            checkedCases++;
+        }
+
+        Assert.Equal(cases.Length, checkedCases);
+    }
+
+    [Fact]
+    public void R10_74_ACompactHeaderStillSaysWhenTheForumReportedAnotherDigest()
+    {
+        using var signer = new ScreenSigner();
+        var honest = ScreenSigner.Passage(signer.Question("t", 12, 0), signer.Jwks("active"));
+        var lying = honest with { Post = honest.Post with { Digest = "sha256:" + new string('0', 64) } };
+
+        var minimum = Screen.MinimumHeightFor([lying], 80);
+        var compact = HeaderOf(Screen.ForPassages([lying], new ScreenSize(80, minimum), 0), 1);
+
+        Assert.DoesNotContain(compact, r => r.StartsWith("digest ", StringComparison.Ordinal));
+        Assert.Contains(compact, r => r.StartsWith("the Forum reported a different value for digest: ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void R10_72_OneFormForTheWholeDocument()
+    {
+        var lines = Enumerable.Range(0, 30).Select(i => "line " + i.ToString(CultureInfo.InvariantCulture)).ToArray();
+        var passages = new[] { Hand(lines), Hand(lines), Hand(lines) };
+        var minimum = Screen.MinimumHeightFor(passages, 80);
+        var total = Screen.ForPassages(passages, new ScreenSize(80, 200), 0).DocumentRows;
+
+        var forms = new HashSet<bool>();
+        var pinned = 0;
+        for (var height = minimum; height <= minimum + 12; height++)
+        {
+            var seen = new HashSet<bool>();
+            for (var offset = 0; offset <= total; offset += 3)
+            {
+                var screen = Screen.ForPassages(passages, new ScreenSize(80, height), offset);
+                var firstContent = screen.Rows.ToList().FindIndex(r => r is ScreenRow.Content);
+                if (firstContent < 0) continue;
+
+                // The header above the first content row is whole (pinned, or the passage's own), so its form can be read.
+                seen.Add(screen.Rows.Take(firstContent).Any(r => r.Text.StartsWith("digest ", StringComparison.Ordinal)));
+                if (screen.Rows.Take(firstContent).Any(r => r.Text.Contains("(continued:", StringComparison.Ordinal))) pinned++;
+            }
+
+            Assert.True(seen.Count == 1, $"height {height}: both forms were used at one size");
+            forms.UnionWith(seen);
+        }
+
+        Assert.True(forms.Count == 2, "only one form was used across the sizes: the property is vacuous");
+        Assert.True(pinned > 0, "no pinned header was read");
+    }
+
+    [Fact]
+    public void R10_72_ADocumentWithNoDrawableContentNeedsOneRow()
+    {
+        using var signer = new ScreenSigner("alice-key-01");
+        var donor = signer.Question("another", 5, 1);
+        var forged = ScreenSigner.Passage(signer.Question("t", 5, 0) with { Signature = donor.Signature, Parent = new string('P', 26) }, signer.Jwks("active"));
+        var verified = VerifiedParented(signer);
+        Assert.Equal(CheckOutcome.Failed, forged.Outcome);
+
+        var screen = Screen.ForPassages([forged], new ScreenSize(80, 24), 0);
+        Assert.True(screen.DrawsContent, $"all-Failed document at 80 by 24 is reported too small; it needs {screen.MinimumHeight}");
+        Assert.Contains(screen.Rows, r => r.Text.StartsWith("#1 post ", StringComparison.Ordinal));
+        Assert.Contains(screen.Rows, r => r.Text.Contains("curia read", StringComparison.Ordinal) && r.Text.Contains("no content", StringComparison.Ordinal));
+        Assert.DoesNotContain(screen.Rows, r => r is ScreenRow.Content);
+
+        // The minimum is the chrome (6 rows), the tallest header and one row, not eight.
+        var noContent = Screen.MinimumHeightFor([forged], 80);
+        var rows = Screen.ForPassages([forged], new ScreenSize(80, noContent), 0).Rows.ToList();
+        var headerRows = rows.FindIndex(r => r.Text.StartsWith("no content is shown", StringComparison.Ordinal)) - rows.FindIndex(r => r.Text.StartsWith("#1 post ", StringComparison.Ordinal));
+        Assert.Equal(6 + headerRows + 1, noContent);
+        Assert.True(Screen.ForPassages([forged], new ScreenSize(80, noContent), 0).DrawsContent);
+        Assert.False(Screen.ForPassages([forged], new ScreenSize(80, noContent - 1), 0).DrawsContent);
+
+        // Where any passage draws content, eight rows are still needed.
+        Assert.False(Screen.ForPassages([forged, verified], new ScreenSize(80, noContent), 0).DrawsContent);
+        Assert.True(Screen.MinimumHeightFor([forged, verified], 80) >= noContent + Screen.MinimumContentRows - 1);
+    }
+
+    [Fact]
+    public void R10_72_EveryStatusRowStatesHowToLeave()
+    {
+        var wideNotice = 0;
+        var screens = 0;
+        foreach (var width in new[] { 72, 75, 80, 100, 130 })
+        {
+            var passages = new[] { Hand(HostileLines), Hand(HostileLines.Reverse().ToArray()) };
+            var minimum = Screen.MinimumHeightFor(passages, width);
+            var total = Screen.ForPassages(passages, new ScreenSize(width, 100), 0).DocumentRows;
+            for (var height = minimum; height < minimum + 4; height++)
+            {
+                for (var offset = 0; offset < total; offset += 5)
+                {
+                    var screen = Screen.ForPassages(passages, new ScreenSize(width, height), offset);
+                    screens++;
+                    Assert.Contains("q quits", screen.Status.Text, StringComparison.Ordinal);
+                    Assert.True(CellWidth.Of(screen.Status.Text) <= width - 1, screen.Status.Text);
+                    if (screen.Status.Text.Contains("wide characters on screen", StringComparison.Ordinal)) wideNotice++;
+                }
+            }
+        }
+
+        Assert.True(screens > 100 && wideNotice > 0, $"{screens} screens, {wideNotice} with the notice: the property is vacuous");
+
+        // The too-small screen carries it too.
+        Assert.Contains("q quits", Screen.ForPassages([Hand(HostileLines)], new ScreenSize(80, 8), 0).Status.Text, StringComparison.Ordinal);
+        Assert.Contains("q quits", Screen.ForPassages([Hand(HostileLines)], new ScreenSize(60, 40), 0).Status.Text, StringComparison.Ordinal);
+
+        // The order a part is given up in, at every width: position, q quits, the notice, ? help; the notice shortens first.
+        const string position = "rows 1-25 of 25";
+        Assert.Equal("rows 1-25 of 25  q quits  wide characters on screen: a row may be cut  ? help", Screen.StatusText(position, wide: true, 80));
+        Assert.Equal(77, CellWidth.Of(Screen.StatusText(position, wide: true, 80)));
+        Assert.Equal("rows 1-25 of 25  q quits  wide characters on screen  ? help", Screen.StatusText(position, wide: true, 60));
+        Assert.Equal("rows 1-25 of 25  q quits  wide characters on screen", Screen.StatusText(position, wide: true, 58));
+        Assert.Equal("rows 1-25 of 25  q quits", Screen.StatusText(position, wide: true, 50));
+        Assert.Equal("rows 1-25 of 25  q quits  ? help", Screen.StatusText(position, wide: false, 80));
+        Assert.Equal("rows 1-25 of 25  q quits", Screen.StatusText(position, wide: false, 30));
+        for (var width = 10; width <= 130; width++)
+        {
+            foreach (var wide in new[] { true, false })
+                Assert.Contains("q quits", Screen.StatusText(position, wide, width), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void R10_74_AnUnreadKeySetIsNotShownAsStatingNone()
+    {
+        using var signer = new ScreenSigner();
+        var post = signer.Question("t", 5);
+        var unread = PassageHeader.KeyRow(new Passage(post, SignatureCheck.Unreachable(post, new Refusal(RefusalKind.Transport, 0, new Error("t", "t", "t")))));
+        var unstated = PassageHeader.KeyRow(ScreenSigner.Passage(post, signer.Jwks()));
+        var active = PassageHeader.KeyRow(ScreenSigner.Passage(post, signer.Jwks("active")));
+
+        Assert.Equal("key \"alice-1\": this client has no key set to state a status: the check did not run (see the signature row)", unread);
+        Assert.DoesNotContain("does not state a status", unread, StringComparison.Ordinal);
+        Assert.Equal(3, new[] { unread, unstated, active }.Distinct().Count());
+
+        // A status present with the check not run (an unparseable server_ts after the key set was read) is written as any status.
+        var read = ScreenSigner.Passage(post, signer.Jwks("active")) with { Verdict = SignatureCheck.Verify(post, signer.Jwks("active")) with { Verified = false, CouldNotCheck = true } };
+        Assert.Contains("active (as the Forum's key set says)", PassageHeader.KeyRow(read), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void R10_74_OutcomeIsFailedExactlyWhenTheSpanDoesNotRenderOrTheSignatureFailedAndContentIsDrawnExactlyWhenTheSignatureOutcomeIsVerifiedOrDisputed()
+    {
+        var canonical = SpanCheckTests.Envelope("The signed body.");
+        var other = SpanCheckTests.Envelope("Another body.");
+        var honest = SpanCheckTests.Post(canonical, Datamarking.Render(canonical, MarkingMode.None), MarkingMode.None);
+        var lying = SpanCheckTests.Post(canonical, Datamarking.Render(other, MarkingMode.None), MarkingMode.None);
+        var held = new SignatureVerdict(true, "k", "d", "ab", "sha256:ab");
+        var failed = new SignatureVerdict(false, "k", "d", "ab", "sha256:ab");
+        var unrun = new SignatureVerdict(false, "k", "d", "ab", "sha256:ab", CouldNotCheck: true);
+        var disputed = new SignatureVerdict(true, "k", "d", "ab", "sha256:ab", DisputedNote: "its key was declared compromised");
+
+        var table = new List<(Passage Passage, CheckOutcome Outcome, string? Tag)>();
+        foreach (var (post, renders) in new[] { (honest, true), (lying, false) })
+        {
+            foreach (var verdict in new[] { held, failed, unrun, disputed })
+            {
+                var passage = new Passage(post, verdict);
+                var expected = !renders ? CheckOutcome.Failed : verdict.ReadOutcome;
+                var tag = !renders ? "[CONTENT FAILED]" : verdict.ReadOutcome switch
+                {
+                    CheckOutcome.Verified => null,
+                    CheckOutcome.Disputed => "[DISPUTED]",
+                    CheckOutcome.CouldNotCheck => "[COULD NOT BE CHECKED]",
+                    CheckOutcome.Failed => "[NOT VERIFIED]",
+                    _ => "[NOT VERIFIED]",
+                };
+                table.Add((passage, expected, tag));
+            }
+        }
+
+        var drawn = 0;
+        foreach (var (passage, outcome, tag) in table)
+        {
+            Assert.Equal(outcome, passage.Outcome);
+            Assert.Equal(!SpanCheck.RendersCanonical(passage.Post) || passage.SignatureOutcome is CheckOutcome.Failed, passage.Outcome is CheckOutcome.Failed);
+            Assert.Equal(tag, PassageHeader.Tag(passage));
+
+            var screen = Screen.ForPassages([passage], new ScreenSize(100, 60), 0);
+            var draws = screen.Rows.Any(r => r is ScreenRow.Content);
+            Assert.Equal(passage.SignatureOutcome is CheckOutcome.Verified or CheckOutcome.Disputed, draws);
+            if (draws) drawn++;
+        }
+
+        Assert.True(drawn is > 0 and < 8, $"{drawn} of 8 drew content: the property is vacuous");
+        Assert.Contains(table, t => t.Passage.SignatureOutcome is CheckOutcome.Verified && t.Outcome is CheckOutcome.Failed);
+    }
+
     // ---- helpers ---------------------------------------------------------------------------
+
+    /// <summary>A signed question given a parent and an author as long as an agent's usually is, served under a key set that says <paramref name="status"/>.</summary>
+    private static Passage VerifiedParented(ScreenSigner signer, string status = "active", long logIndex = 12)
+    {
+        var post = signer.Question("A title", logIndex);
+        post = post with { Parent = new string('P', 26), Provenance = post.Provenance with { Author = "https://agents.example/" + new string('a', 13) } };
+        return ScreenSigner.Passage(post, signer.Jwks(status));
+    }
+
+    /// <summary>The frame rows as sentences: a wrapped row's continuation joined to the row it continues. Content rows are left out.</summary>
+    private static List<string> Logicals(IEnumerable<ScreenRow> rows)
+    {
+        var logical = new List<string>();
+        foreach (var row in rows)
+        {
+            if (row is not ScreenRow.Frame frame) continue;
+            if (frame.Row.StartsWith(RowWrap.ContinuationPrefix, StringComparison.Ordinal) && logical.Count > 0)
+                logical[^1] += " " + frame.Row[RowWrap.ContinuationPrefix.Length..];
+            else
+                logical.Add(frame.Row);
+        }
+
+        return logical;
+    }
+
+    /// <summary>Passage <paramref name="number"/>'s header as sentences: from its first row to the row before its content, its frame row or its end.</summary>
+    private static List<string> HeaderOf(Screen screen, int number)
+    {
+        var rows = screen.Rows.ToList();
+        var start = rows.FindIndex(r => r is ScreenRow.Frame && r.Text.StartsWith($"#{number} post ", StringComparison.Ordinal));
+        Assert.True(start >= 0, "the header was not drawn");
+        var end = rows.FindIndex(start, r => r is ScreenRow.Content || r.Text.StartsWith("no content is shown", StringComparison.Ordinal) || r.Text.StartsWith("end of #", StringComparison.Ordinal));
+        return Logicals(rows.Skip(start).Take(end - start));
+    }
 
     private static void AssertWordAndTag(Passage passage, string word, string? tag)
     {

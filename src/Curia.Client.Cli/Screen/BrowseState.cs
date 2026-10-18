@@ -139,8 +139,12 @@ internal sealed class BrowseState(IBrowseSource source)
     {
         var screen = Layout(Current, size);
         var target = scroll.Relative ? screen.Offset + scroll.Amount : scroll.Amount;
-        var last = Math.Max(0, screen.DocumentRows - 1);
-        _views[^1] = Current.WithOffset(Math.Clamp(target, 0, last));
+        if (scroll.Relative) target = screen.Settle(target, towardsEnd: scroll.Amount > 0);
+
+        // A pager stops with its last row at the bottom (spec 14.3), not with one row on show. A window already past that, by a
+        // Tab to a short last passage, is not moved up by a key that scrolls down.
+        var ceiling = scroll.Relative ? Math.Max(screen.MaxOffset, screen.Offset) : screen.MaxOffset;
+        _views[^1] = Current.WithOffset(Math.Clamp(target, 0, ceiling));
         return null;
     }
 
@@ -193,7 +197,8 @@ internal sealed class BrowseState(IBrowseSource source)
         "  tab              next post             enter   open the post an index row names          backspace   back",
         "  r                fetch the posts again           !   the equivalent curia command          ?   this help          q   quit",
         "  ctrl-c, ctrl-\\   quit                  ctrl-z   not supported here: suspending would leave the terminal as the screen left it",
-        "The exit code is the worst outcome of every post shown, as curia read, thread and board --titles give it: 6 a check did not hold, 8 it could not be run, 4 or 5 a load was refused, 9 disputed, 0 otherwise.",
+        "The exit code is the worst outcome of every post shown, as curia read, thread and board --titles give it: 6 a check did not hold, 8 it could not be run, 9 disputed, then 4 or 5 a load was refused, 0 otherwise.",
+        "A window too short for the full header gets a compact one, which leaves out the digest and kid row and the owner and server_ts of the post (curia read shows them); it still states everything R10.74 lists. Residual: a combining mark on a layout space draws as it would on any base.",
         "A post's content is laid out from the bytes its signature covers, and is shown only where the signature held. curia verify checks more: inclusion, consistency, the key's binding and lifecycle.",
         "If the terminal is left in a bad state, run: reset    (or: tput rmcup; tput smam; tput cnorm)",
         "press backspace or ? to leave this help",

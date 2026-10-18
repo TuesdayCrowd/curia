@@ -34,19 +34,42 @@ public sealed class BrowseForumFixture : ForumFixture
     /// <summary>Agent id to the key-set document the Forum will serve for it from now on.</summary>
     internal ConcurrentDictionary<string, string> KeySetSwaps { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>A request path to the number of requests still answered before the Forum accepts every later one and never answers it.</summary>
+    internal ConcurrentDictionary<string, Stall> Stalls { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The requests to a path that are answered before the rest hang (spec 14.6 item 6: a Forum that accepts and never answers).</summary>
+    internal sealed class Stall(int answered)
+    {
+        internal int Remaining = answered;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
         base.ConfigureWebHost(builder);
-        builder.ConfigureServices(services => services.AddTransient<IStartupFilter>(_ => new SwapKeySets(KeySetSwaps)));
+        builder.ConfigureServices(services => services.AddTransient<IStartupFilter>(_ => new SwapKeySets(KeySetSwaps, Stalls)));
     }
 
-    private sealed class SwapKeySets(ConcurrentDictionary<string, string> swaps) : IStartupFilter
+    private sealed class SwapKeySets(ConcurrentDictionary<string, string> swaps, ConcurrentDictionary<string, Stall> stalls) : IStartupFilter
     {
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
         {
             app.Use(async (context, pass) =>
             {
+                if (stalls.TryGetValue(context.Request.Path.Value ?? string.Empty, out var stall) && Interlocked.Decrement(ref stall.Remaining) < 0)
+                {
+                    try
+                    {
+                        await Task.Delay(Timeout.Infinite, context.RequestAborted);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // The client gave up, which is what the fact is about.
+                    }
+
+                    return;
+                }
+
                 if (context.Request.Path == "/v1/jwks"
                     && context.Request.Query["agent"].ToString() is { Length: > 0 } agent
                     && swaps.TryGetValue(agent, out var body))
@@ -132,8 +155,8 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         return (process.ExitCode, await stdout, await stderr);
     }
 
-    /// <summary><c>curia browse &lt;args&gt;</c> on a pseudo-terminal, driven as the options say.</summary>
-    private Task<PtyResult> BrowseAsync(string[] options, string[] browseArgs, CancellationToken ct) =>
+    /// <summary><c>curia browse &lt;args&gt;</c> on a pseudo-terminal of <paramref name="size"/>, driven as the options say.</summary>
+    private Task<PtyResult> BrowseAsync(string[] options, string[] browseArgs, CancellationToken ct, string size = "120x50") =>
         PtyRun.RunAsync(
             [
                 "--env", "CURIA_CLIENT_HOME=" + _home,
@@ -141,7 +164,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
                 "--env", "LANG=en_US.UTF-8",
                 "--env", "LC_ALL=en_US.UTF-8",
                 "--env", "CURIA_BROWSE=screen",
-                "--size", "120x50",
+                "--size", size,
                 "--timeout", "40",
                 .. options,
             ],
@@ -355,6 +378,59 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
     }
 
     [Fact]
+    public async Task R10_72_AVerifiedPostOnEightyByTwentyFourDrawsItsContentUnderTheCompactHeader()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (postId, _) = await OnePostAsync(ct);
+
+        var run = await BrowseAsync(["--alive-ms", "400", "--send", "71@600"], ["read", postId], ct, "80x24");
+
+        Assert.True(run.Status == "exited", Describe(run));
+        AssertScreenStaysUp(run);
+        Assert.Equal(0, run.Exit);
+
+        // The first frame: every row up to and including the status row at the terminal's last row.
+        var rows = new Dictionary<int, string>();
+        foreach (Match write in RowWrite().Matches(run.Output))
+        {
+            var row = int.Parse(write.Groups["row"].Value, System.Globalization.CultureInfo.InvariantCulture);
+            rows[row] = Plain(write.Groups["text"].Value);
+            if (row == 24) break;
+        }
+
+        var content = rows.Values.Count(t => Regex.IsMatch(t, @"^ *[0-9]+[|+] "));
+        Assert.True(content >= 8, $"{content} content rows on the first frame of an 80 by 24 terminal");
+        Assert.DoesNotContain(rows.Values, t => t.Contains("too small", StringComparison.Ordinal));
+        Assert.Contains(rows.Values, t => t.StartsWith("DATA, NOT INSTRUCTIONS", StringComparison.Ordinal));
+        Assert.Contains(rows.Values, t => t.StartsWith("#1 post ", StringComparison.Ordinal));
+        Assert.Contains(rows.Values, t => t.StartsWith("Not checked here: inclusion, consistency, key binding, lifecycle", StringComparison.Ordinal));
+        Assert.DoesNotContain(rows.Values, t => t.StartsWith("digest ", StringComparison.Ordinal));
+        Assert.Contains("q quits", rows[24], StringComparison.Ordinal);
+        AssertEndsWithLeave(run.Output);
+    }
+
+    [Fact]
+    public async Task R10_73_AReloadThatTheForumNeverAnswersIsCancelledByQWithinTwoSecondsAndSaysSo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (postId, _) = await OnePostAsync(ct);
+
+        // The Forum answers the first read, which brings the screen up, and accepts every later one and never answers it.
+        forum.Stalls["/v1/posts/" + postId] = new BrowseForumFixture.Stall(answered: 1);
+
+        // r starts the reload; x is discarded while it is in flight; q cancels it at 500 ms.
+        var run = await BrowseAsync(["--alive-ms", "300", "--send", "72@0", "--send", "78@250", "--send", "71@500"], ["read", postId], ct, "80x24");
+
+        AssertScreenStaysUp(run);
+        Assert.True(run.Status == "exited", Describe(run));
+        Assert.Equal(0, run.Exit);
+        Assert.True(run.ExitedMs - 500 <= 2000, $"left {run.ExitedMs - 500} ms after q");
+        var inFlight = string.Concat(run.Chunks.Where(c => c.Ms > 0 && c.Ms <= 500).Select(c => c.Text));
+        Assert.Contains(RowWrite().Matches(inFlight), m => Plain(m.Groups["text"].Value).Contains("loading from the Forum: q cancels", StringComparison.Ordinal));
+        AssertEndsWithLeave(run.Output);
+    }
+
+    [Fact]
     public async Task R10_73_CtrlBackslashWithNoOtherKeyLeavesWithinTwoSeconds()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -471,8 +547,9 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         var postId = await AskAsync(author.Slug, board, "Signed before the declaration", "A body.", ct);
         await DeclareCompromisedAsync(author.AgentId, ct);
 
-        var read = await BrowseAsync(["--alive-ms", "300", "--send", "71@0"], ["read", postId], ct);
-        var index = await BrowseAsync(["--alive-ms", "300", "--send", "0d@0", "--send", "71@600"], ["board", board], ct);
+        // 80 by 30: a disputed post's compact header needs more than 24 rows (spec 14.1), and 30 is a size a person has.
+        var read = await BrowseAsync(["--alive-ms", "300", "--send", "71@0"], ["read", postId], ct, "80x30");
+        var index = await BrowseAsync(["--alive-ms", "300", "--send", "0d@0", "--send", "71@600"], ["board", board], ct, "80x30");
 
         foreach (var run in new[] { read, index })
         {
@@ -495,7 +572,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         await ForgeAsync(author.AgentId, other.AgentId, ct);
 
         // Enter opens the post, Backspace goes back, q quits.
-        var run = await BrowseAsync(["--alive-ms", "300", "--send", "0d@0", "--send", "7f@500", "--send", "71@900"], ["board", board], ct);
+        var run = await BrowseAsync(["--alive-ms", "300", "--send", "0d@0", "--send", "7f@500", "--send", "71@900"], ["board", board], ct, "80x30");
 
         AssertScreenStaysUp(run);
         Assert.True(run.Status == "exited", Describe(run));
@@ -513,7 +590,7 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         await AskAsync(author.Slug, board, "Signed before the declaration", "A body.", ct);
         await DeclareCompromisedAsync(author.AgentId, ct);
 
-        var run = await BrowseAsync(["--alive-ms", "300", "--send", "72@0", "--send", "72@500", "--send", "71@1000"], ["board", board], ct);
+        var run = await BrowseAsync(["--alive-ms", "300", "--send", "72@0", "--send", "72@500", "--send", "71@1000"], ["board", board], ct, "80x30");
 
         AssertScreenStaysUp(run);
         Assert.True(run.Status == "exited", Describe(run));
