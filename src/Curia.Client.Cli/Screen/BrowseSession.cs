@@ -78,6 +78,7 @@ internal sealed class BrowseSession(IBrowseSource source)
         using var stopReading = new CancellationTokenSource();
         var registrations = new List<PosixSignalRegistration>();
         var entered = false;
+        var hungUp = 0;
         var code = 0;
         Exception? fault = null;
 
@@ -88,6 +89,7 @@ internal sealed class BrowseSession(IBrowseSource source)
                 registrations.Add(PosixSignalRegistration.Create(signal, context =>
                 {
                     context.Cancel = true;
+                    if (kind is SignalKind.Hangup) Volatile.Write(ref hungUp, 1);
                     if (kind is SignalKind.Terminate or SignalKind.Hangup) terminating.Cancel();
                     events.Writer.TryWrite(new SessionEvent.Signalled(kind));
                 }));
@@ -124,8 +126,20 @@ internal sealed class BrowseSession(IBrowseSource source)
 
         if (fault is null) return code;
 
-        Output.Error(new FrameBuilder().Line($"error: the screen stopped: {fault.GetType().Name}: {fault.Message}"));
+        // A hung-up terminal fails the next write, and the kernel's SIGCONT can wake the loop to redraw before SIGHUP is
+        // read: that write's fault is the hangup, not a fault of the screen's.
+        if (fault is IOException && Volatile.Read(ref hungUp) == 1) return 128 + 1;
+
         state.Ledger.AddRefusal(ExitCode.Local);
+        try
+        {
+            Output.Error(new FrameBuilder().Line($"error: the screen stopped: {fault.GetType().Name}: {fault.Message}"));
+        }
+        catch (IOException)
+        {
+            // Standard error was the terminal, and it is gone: the exit code is all that is left to say it with.
+        }
+
         return state.Ledger.Exit;
     }
 

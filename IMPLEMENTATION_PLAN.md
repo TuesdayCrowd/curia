@@ -6489,6 +6489,18 @@ runbook gaps) and D46 (an omitted compromised ancestor is not detectable by a re
 Read at `curia-browse` b8211e9 (Tasks B0 to B5), recorded by B6 on 2026-10-17. The G22 entry is amended where this section
 says so; the mark-cap measurement and the register's other numbers below are as run, not as simulated.
 
+**A hangup could abort the process (found by PR #99's first CI run, 2026-10-17; fixed the same day; Linux).**
+`BrowseEndToEndTests.R10_73_SighupAfterTheMasterClosesExitsWithinTwoSeconds` failed on Linux in CI run 39090025760 with
+`signaled, exit , signal 6`; one unnamed `Curia.Api.Tests` failure in the full local gate run the same evening is most likely
+the same fact (a named rerun and a TRX rerun were green, so it was not identified). The working reading, from the code and not
+reproduced on Linux here (no Docker): a hung-up terminal gets SIGHUP and SIGCONT; when the loop wakes on SIGCONT first it
+redraws, the write fails with an `IOException`, the loop records it as a fault and the SIGHUP exit path is skipped; after the
+terminal is given back the fault is reported on standard error, which was the same terminal, and that second `IOException`
+was outside every `catch`, so the runtime aborted (SIGABRT). The fix (`BrowseSession.RunAsync`): the SIGHUP handler records
+the hangup when it arrives, an `IOException` fault after a hangup exits `128 + 1`, and the fault report is guarded, the exit code
+being all a gone terminal can be told. Evidence: 20 of 20 local runs of the fact (it mostly passed locally before), and CI's
+Linux run is the test of the reading. **Reopen if** the fact fails again on Linux, or a `browse` process ends by signal 6.
+
 **Closed the same day (2026-10-17).** `R10_74_TheExitCodeHelpAndTheScreensHelpRankTheCodesInTheSameWords` now also reads
 `Help.For("browse")`; red against the old sentence (`Failed … [21 ms]`), green with the ruled wording.
 1. **`curia browse --help` printed the rank this PR superseded.** `src/Curia.Client.Cli/Help.cs` (the `Browse` text, last
