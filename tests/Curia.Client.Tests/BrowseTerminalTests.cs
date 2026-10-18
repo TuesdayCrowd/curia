@@ -50,6 +50,11 @@ public sealed partial class BrowseTerminalTests
     [Fact]
     public void R10_73_EveryEscapeTheScreenWritesBeginsAVocabularyConstantOrAnAddress()
     {
+        // The member list is pinned here: a constant added to, removed from or changed in Vt fails this fact.
+        Assert.Equal(
+            ClosedVocabulary.OrderBy(v => v.Name, StringComparer.Ordinal).Select(v => $"{v.Name}={DisplayLiteral.Of(v.Value)}"),
+            VtConstants().Select(v => $"{v.Name}={DisplayLiteral.Of(v.Value)}"));
+
         var vocabulary = Vocabulary();
         var stream = new StringBuilder(ScreenWriter.Enter().Text);
         foreach (var (screen, size) in Screens())
@@ -201,17 +206,19 @@ public sealed partial class BrowseTerminalTests
 
         // Frame one is a row of this client's at that very row, as the board's index writes one.
         var earlier = Enumerable.Range(0, content.Rows.Length)
-            .Select(i => (ScreenRow)new ScreenRow.Frame(i == contentRow ? "#9 post SIGNATURE-VERIFIED" : string.Empty))
+            .Select(i => (ScreenRow)new ScreenRow.Frame(i == contentRow ? string.Concat(Enumerable.Repeat("STALE", width / 5)) : string.Empty))
             .ToImmutableArray();
 
         var terminal = new TestTerminal(width, size.Height);
         terminal.Feed(ScreenWriter.Enter().Text);
         terminal.Feed(ScreenWriter.Serialize(ScreenFrame.Of(earlier, size.Height)).Text);
-        Assert.Contains("SIGNATURE-VERIFIED", terminal.RowText(contentRow), StringComparison.Ordinal);
+        Assert.StartsWith("STALESTALE", terminal.RowText(contentRow), StringComparison.Ordinal);
 
         terminal.Feed(ScreenWriter.Serialize(content, size).Text);
 
-        Assert.DoesNotContain("SIGNATURE", terminal.RowText(contentRow), StringComparison.Ordinal);
+        // The earlier row filled every column from 0; no cell of it may survive anywhere the new row wrote.
+        var now = terminal.RowText(contentRow);
+        Assert.True(now.IndexOfAny(['S', 'T', 'A', 'L', 'E']) < 0, $"a cell of the earlier frame survives: {DisplayLiteral.Of(now)}");
         Assert.EndsWith("x", terminal.RowText(contentRow), StringComparison.Ordinal);
     }
 
@@ -269,11 +276,34 @@ public sealed partial class BrowseTerminalTests
 
     // ---- helpers ---------------------------------------------------------------------------
 
-    private static string[] Vocabulary() =>
+    /// <summary>R10.73's closed vocabulary, spelled out here and not read from the type that holds it.</summary>
+    private static readonly (string Name, string Value)[] ClosedVocabulary =
+    [
+        ("AlternateScreenOn", "\u001b[?1049h"),
+        ("AlternateScreenOff", "\u001b[?1049l"),
+        ("WrapOff", "\u001b[?7l"),
+        ("WrapOn", "\u001b[?7h"),
+        ("CursorHidden", "\u001b[?25l"),
+        ("CursorShown", "\u001b[?25h"),
+        ("Clear", "\u001b[2J"),
+        ("Home", "\u001b[H"),
+        ("EraseToEndOfRow", "\u001b[K"),
+        ("Plain", "\u001b[0m"),
+        ("Bold", "\u001b[1m"),
+        ("Dim", "\u001b[2m"),
+        ("Reverse", "\u001b[7m"),
+        ("KeypadOn", "\u001b[?1h\u001b="),
+        ("KeypadOff", "\u001b[?1l\u001b>"),
+    ];
+
+    private static string[] Vocabulary() => [.. ClosedVocabulary.Select(v => v.Value)];
+
+    private static (string Name, string Value)[] VtConstants() =>
     [
         .. typeof(Vt).GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
             .Where(f => f.IsLiteral && f.FieldType == typeof(string))
-            .Select(f => (string)f.GetRawConstantValue()!),
+            .Select(f => (f.Name, (string)f.GetRawConstantValue()!))
+            .OrderBy(v => v.Name, StringComparer.Ordinal),
     ];
 
     private static string Strip(string text)

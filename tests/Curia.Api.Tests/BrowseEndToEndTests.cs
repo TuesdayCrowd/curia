@@ -104,6 +104,8 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
     /// </summary>
     private const string Leave = "\u001b[0m\u001b[H\u001b[2J\u001b[?7h\u001b[?25h\u001b[?1l\u001b>\u001b[?1049l";
 
+    private static readonly TimeSpan ChildTimeout = TimeSpan.FromSeconds(30);
+
     private readonly string _home = Directory.CreateTempSubdirectory("curia-browse-").FullName;
 
     private string Address => forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
@@ -149,9 +151,22 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
 
         using var process = Process.Start(start)!;
         process.StandardInput.Close();
-        var stdout = process.StandardOutput.ReadToEndAsync(ct);
-        var stderr = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
+        var stdout = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
+
+        // A child that draws a screen with no terminal waits for a key that never comes: it fails the fact, it does not hang the suite.
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(ChildTimeout);
+        try
+        {
+            await process.WaitForExitAsync(limit.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            process.Kill(entireProcessTree: true);
+            Assert.Fail($"curia {string.Join(' ', args)} did not exit within {ChildTimeout.TotalSeconds:0} s with every stream redirected: it is waiting on a terminal it was not given");
+        }
+
         return (process.ExitCode, await stdout, await stderr);
     }
 
@@ -578,6 +593,29 @@ public sealed partial class BrowseEndToEndTests(BrowseForumFixture forum) : ICla
         Assert.True(run.Status == "exited", Describe(run));
         Assert.Equal(CliExit.Unverified, run.Exit);
         Assert.Contains("no content is shown", run.Output, StringComparison.Ordinal);
+        AssertEndsWithLeave(run.Output);
+    }
+
+    [Fact]
+    public async Task R10_74_AViewWhoseOutcomeIsBetterDoesNotReplaceTheDisputedOutcomeAnEarlierViewShowed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var disputedAuthor = await EnrolAsync(ct);
+        var honestAuthor = await EnrolAsync(ct);
+        var board = "board-" + Suffix();
+        await AskAsync(disputedAuthor.Slug, board, "Signed before the declaration", "A body.", ct);
+        var verifiedId = await AskAsync(honestAuthor.Slug, board, "Signed by an honest key", "Another body.", ct);
+        await DeclareCompromisedAsync(disputedAuthor.AgentId, ct);
+
+        // The index loads both posts and counts the disputed one. Tab moves to the verified post and Enter opens it; its reload is a load of that
+        // post alone and counts only a verified outcome; q quits. The exit is still 9: it carries what the person saw.
+        var run = await BrowseAsync(["--alive-ms", "300", "--send", "09@0", "--send", "0d@400", "--send", "72@900", "--send", "71@1700"], ["board", board], ct, "80x30");
+
+        AssertScreenStaysUp(run);
+        Assert.True(run.Status == "exited", Describe(run));
+        Assert.Contains("DISPUTED", run.Output, StringComparison.Ordinal);
+        Assert.Contains(verifiedId, Plain(run.Output), StringComparison.Ordinal);
+        Assert.Equal(CliExit.Disputed, run.Exit);
         AssertEndsWithLeave(run.Output);
     }
 
