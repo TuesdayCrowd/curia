@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using System.Text;
 using Curia.Domain.Screening;
 using Xunit;
 
@@ -245,5 +247,105 @@ public sealed class DetectorTests
     {
         Assert.Empty(Secrets(string.Empty));
         Assert.Empty(Injections(string.Empty));
+    }
+
+    // ---- R10.76, R10.77: hidden is decided by scalar value, and a run is one flag --------------
+
+    private static string Tag(char ascii) => char.ConvertFromUtf32(0xE0000 + ascii);
+
+    private static string ZeroWidthSpace => ((char)0x200B).ToString();
+
+    private static string ZeroWidthNonJoiner => ((char)0x200C).ToString();
+
+    private static RiskFlag[] HiddenFlags(string content)
+    {
+        Assert.True(ContentScreener.ScreenText(Encoding.UTF8.GetBytes(content)).TryGetValue(out var result, out var error), error?.Type);
+        return [.. result!.Annotations.Flags.Where(f => f.Category == RiskCategory.HiddenText)];
+    }
+
+    /// <summary>
+    /// "a" + a tag character + "b": the tag block maps each code point to an ASCII character and
+    /// renders as nothing (the Standard's definition of the block). The flag covers both code units
+    /// of the character, bare and enveloped, the envelope's offset being the character's own place
+    /// in the canonical text.
+    /// </summary>
+    [Fact]
+    public void R10_76_ATagCharacterIsHiddenTextAndItsFlagCoversBothCodeUnits()
+    {
+        var tag = Tag('A');
+        var content = "a" + tag + "b";
+
+        var bare = Assert.Single(HiddenFlags(content));
+        Assert.Equal(1, bare.Offset);
+        Assert.Equal(2, bare.Length);
+
+        var canonical = ContentScreenerTests.CanonicalEnvelope(content);
+        var enveloped = Assert.Single(
+            ContentScreenerTests.ScreenEnvelope(canonical).Annotations.Flags,
+            f => f.Category == RiskCategory.HiddenText);
+        Assert.Equal(canonical.IndexOf(tag, StringComparison.Ordinal), enveloped.Offset);
+        Assert.Equal(2, enveloped.Length);
+    }
+
+    /// <summary>
+    /// The set is the one R10.76 publishes, read out of the errata and compared over every scalar
+    /// value, in both directions: a value in the code and not in the errata fails, and so does the
+    /// reverse. The predicate is found by reflection so the fact compiles whatever overloads exist
+    /// and names the missing one when the <c>Rune</c> overload is not there.
+    /// </summary>
+    [Fact]
+    public void R10_76_TheHiddenSetIsExactlyTheOneTheErrataPublishes()
+    {
+        var published = PublishedHiddenSet.Ranges();
+
+        var overload = typeof(HiddenCharacters).GetMethod("Contains", BindingFlags.Public | BindingFlags.Static, [typeof(Rune)]);
+        Assert.True(overload is not null, "HiddenCharacters has no public static Contains(Rune), the predicate R10.76 requires");
+        var contains = overload!.CreateDelegate<Func<Rune, bool>>();
+
+        var disagreements = new List<string>();
+        for (var value = 0; value <= 0x10FFFF; value++)
+        {
+            if (value is >= 0xD800 and <= 0xDFFF) continue;
+
+            var expected = PublishedHiddenSet.Contains(published, value);
+            if (contains(new Rune(value)) != expected && disagreements.Count < 5)
+                disagreements.Add($"U+{value:X4} is {(expected ? "published as hidden and is not" : "not published as hidden and is")}");
+        }
+
+        Assert.True(disagreements.Count == 0, "the predicate and the errata disagree, first at: " + string.Join("; ", disagreements));
+    }
+
+    /// <summary>
+    /// No public member of <c>HiddenCharacters</c> takes a <c>char</c>: a caller holding a code unit
+    /// cannot ask the question (R11.34's rule applied to a predicate).
+    /// </summary>
+    [Fact]
+    public void R10_76_NoPredicateOverACodeUnitExists()
+    {
+        var methods = typeof(HiddenCharacters).GetMethods(
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+
+        Assert.NotEmpty(methods);
+        var overCodeUnits = methods
+            .Where(m => m.GetParameters().Any(p => p.ParameterType == typeof(char)))
+            .Select(m => m.ToString())
+            .ToArray();
+        Assert.True(overCodeUnits.Length == 0, "HiddenCharacters has a member over a code unit: " + string.Join(", ", overCodeUnits));
+    }
+
+    /// <summary>
+    /// A run of adjacent hidden characters is one flag whatever each one's width, and a visible
+    /// character between two hidden ones makes two flags.
+    /// </summary>
+    [Fact]
+    public void R10_77_AdjacentHiddenCharactersAreOneFlagWhateverTheirWidth()
+    {
+        var same = Assert.Single(HiddenFlags("a" + ZeroWidthSpace + ZeroWidthSpace + ZeroWidthSpace + "b"));
+        Assert.Equal((1, 3), (same.Offset, same.Length));
+
+        var mixed = Assert.Single(HiddenFlags("a" + ZeroWidthSpace + Tag('A') + ZeroWidthNonJoiner + "b"));
+        Assert.Equal((1, 4), (mixed.Offset, mixed.Length));
+
+        Assert.Equal(2, HiddenFlags("a" + ZeroWidthSpace + "x" + ZeroWidthSpace + "b").Length);
     }
 }
