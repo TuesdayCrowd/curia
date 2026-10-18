@@ -124,7 +124,7 @@ internal sealed class Args
     // as why's value and pushed `b` into the search terms. Both are the shape R9.25 is about: a
     // flag the caller supplied and the program did not honour, with nothing said.
     private static readonly ImmutableArray<string> Switches =
-        ["titles", "json", "why"];
+        ["titles", "json", "why", "plain", "screen"];
 
     /// <summary>
     /// Flags whose value names something on the Forum, and so may be given as the display literal
@@ -321,6 +321,37 @@ internal static class Output
     }
 
     internal static void Blank() => Console.Out.WriteLine();
+
+    /// <summary>One line on standard error that is not a refusal: why <c>browse</c> wrote the line form.</summary>
+    internal static void Note(FrameText text) => Console.Error.WriteLine(text.ToString());
+
+    /// <summary>Whether standard input and standard output are redirected: a screen is for a person at a terminal.</summary>
+    internal static (bool Input, bool Output) Redirected() => (Console.IsInputRedirected, Console.IsOutputRedirected);
+
+    /// <summary>The terminal's size now. A screen reads it before every draw.</summary>
+    internal static ScreenSize Size() => new(Console.WindowWidth, Console.WindowHeight);
+
+    private static bool _left;
+
+    /// <summary>
+    /// The screen's one write (R10.73). The bytes were built by <see cref="ScreenWriter"/> and by nothing else; after the
+    /// write that leaves, the terminal is the person's again and another draw is a defect that throws.
+    /// </summary>
+    internal static void Draw(ScreenBytes bytes)
+    {
+        if (_left) throw new InvalidOperationException("the screen drew after it left the terminal");
+
+        Console.Out.Write(bytes.Text);
+        Console.Out.Flush();
+        if (bytes.Leaves) _left = true;
+    }
+
+    internal static bool ReadKeyAvailable() => Console.KeyAvailable;
+
+    internal static ConsoleKeyInfo ReadKey() => Console.ReadKey(intercept: true);
+
+    /// <summary>Ctrl-C is a key while the screen is up: the screen leaves the terminal restored, which a signal's default cannot.</summary>
+    internal static void TreatControlCAsInput(bool value) => Console.TreatControlCAsInput = value;
 
     internal static int Fail([ConstantExpected] string text, int code)
     {

@@ -28,6 +28,8 @@
   <ItemGroup>
     <!-- The argument parser is worth a test and is not worth a public API. -->
     <InternalsVisibleTo Include="Curia.Client.Tests" />
+    <!-- The pty facts compute the screen's minimum height with the type that computes it (R10.72), against a real Forum. -->
+    <InternalsVisibleTo Include="Curia.Api.Tests" />
   </ItemGroup>
 
 </Project>
