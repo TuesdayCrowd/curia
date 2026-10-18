@@ -10,10 +10,10 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — where it stands (2026-10-18, at 7d82859)
+> ## Current work — where it stands (2026-10-18, at cd75462)
 >
-> **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** One branch is
-> open, `hidden-beyond-bmp` (D35), implemented and gated locally; its PR is to be opened and is the owner's to merge. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
+> **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** D35 (`hidden-beyond-bmp`) is
+> merged; no branch is open. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
 > and PR 2); this block says only where things stand.
 >
 > **Merged:**
@@ -34,6 +34,8 @@ set; SP scores recorded even if not yet weighted.*
 > | #99 | TUI PR B: `curia browse`, a screen for a person (errata G22, R10.72 to R10.75); B7 done, CI green on Linux after the SIGHUP fix recorded under "Observed during TUI PR B" |
 > | #100 | Plan: where it stands at 74ddb54; R9.27 and the R12.11 row filed in G21; D35 recommended next |
 > | #101 | `curia browse` lays a document out once per load and size, not on every key (78a58d3; found by a Linux CI timeout, run 39095722362); recorded under "Observed during TUI PR B", item 19 |
+> | #102 | `BrowseHostileAnswerTests`: the hostile marker is `HZ~`, which no id can hold |
+> | #103 | D35: SCREEN decides hidden by scalar value; one flag per run, at most 32 per category (errata G23, R10.76 to R10.78); D32's amplification half closed |
 >
 > **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
 > lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
@@ -53,22 +55,17 @@ set; SP scores recorded even if not yet weighted.*
 >   Hebrew and Arabic (does the gutter hold under bidirectional reordering?). Not observed; not a merge blocker.
 > - **The external `curia` skill** (outside this repository) gains `browse` and exit 9 in its verb list and
 >   `references/cli.md`.
-> - **D48 item (3)**: whether a revision with no `prev` is a 400 with its own type instead of a 403
->   (`R6_7_ARevisionThatChainsToNothingIsRefused` changes with it).
 > - **Review `CLAUDE.md`'s edits** by PRs #96 and #99 (exit 9 now naming `recheck`; `curia browse`; "revocation" read as
 >   retirement or a declaration); it is the owner's file.
 >
-> **In progress: D35 (branch `hidden-beyond-bmp`), implemented; PR to be opened.** SCREEN now decides a hidden
-> character by scalar value (R10.76: one `Rune` predicate, the tag block U+E0000 to U+E007F admitted with the rest of
-> the set, under `injection/2026-10-18` and `secrets/2026-10-18`), a run of adjacent hidden characters is one flag, and
-> a post stores at most 32 flags of an annotating category (R10.77). The fixes, facts, falsification cases,
-> differential and findings are in D35's "Closed by the hidden-beyond-bmp stage"; D32's amplification half is closed
-> there. Gates were run locally; the PR is not yet open. **It is the owner's to merge** because it edits
-> `.github/workflows/ci.yml` (the ScreeningCostTests line counts 20 to 24): the ruleset's merge-time path check applies.
-> Spec `docs/superpowers/specs/2026-10-18-hidden-beyond-bmp-design.md`, plan
-> `docs/superpowers/plans/2026-10-18-hidden-beyond-bmp.md`, errata G23 (R10.76 to R10.78). **Runner-up:** one pass
-> over what the Forum and its client print that is false (D37's reopened items, the budget refusal's title, D48 item
-> (3) once ruled).
+> **Next: the refusals stage (errata G24, R6.58, R7.24, R8.64, R9.28), not started.** D48 item (3) was not the owner's: Table 12
+> already requires `prev` of a revision, so a revision without it is a 400 `curia/content/prev-required` (G24, decision 1). The
+> stage closes it with D38 (`prev` only on a revision, and `successors` only from the original's author), the status of a VERIFY
+> schema refusal (401 today, 400 after: found while ruling D48 item (3), read and not run), the budget, ownership and quarantine
+> refusals' titles, and D37's reopened client text (the authorization summary, `curia keys`, the inbox count). It edits no
+> workflow file, so it is not path-gated. Spec `docs/superpowers/specs/2026-10-18-refusals-tell-the-truth-design.md`, plan
+> `docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`, both to be written. D39, D40, D41 to D43, D46, `--board` on
+> replies and `--refs` stay open as the register has them.
 > Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
 > recorded in errata G21, spec §4.13 and the register.
 >
@@ -6380,7 +6377,7 @@ refusal (`table-10/own-resource-only tier=T0`) and is green after, and its secon
 exits 1 and posts nothing. `SubmissionBuilderTests`' `D48_ARevisionDraftSignsItsPrev` and its control
 (`D48_ADraftThatIsNotARevisionSignsNoPrev`). Falsified by removing the one line in `Compose` that writes `prev`:
 both D48 facts went red; restored by plain copy, rebuilt `--no-incremental`, green. The differential found 0
-divergences. Still open: item (3), and the tier-denial wording, which D37's 2026-10-17 addition carries.
+divergences. Still open: item (3), and the tier-denial wording, which D37's 2026-10-17 addition carries. *Item (3) ruled 2026-10-18 (errata G24, decision 1): not the owner's, a 400 `curia/content/prev-required`; built by the refusals stage.*
 
 ### D49 — `curia recheck` calls a disputed post "current … cite as-is": the one citation check exit 9 does not cover *(found by the second five-agent exercise, sentry's suspicion, 2026-10-17; confirmed at source at 72cab0e; unreachable while the guard is on; closed by its own change, 2026-10-17)*
 
