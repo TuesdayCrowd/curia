@@ -28,7 +28,11 @@ public sealed record RiskAnnotations
         DetectorVersions = detectorVersions;
     }
 
-    /// <summary>Every finding, in the order the detectors ran and then by position.</summary>
+    /// <summary>
+    /// Every finding, in the order the detectors ran and then by position. A flag locates its
+    /// category and does not count it: at most 32 flags of an annotating category are stored, the
+    /// last widened to cover the rest (R10.77).
+    /// </summary>
     public ImmutableArray<RiskFlag> Flags { get; }
 
     /// <summary>
