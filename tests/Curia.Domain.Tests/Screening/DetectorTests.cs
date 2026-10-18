@@ -298,17 +298,13 @@ public sealed class DetectorTests
     {
         var published = PublishedHiddenSet.Ranges();
 
-        var overload = typeof(HiddenCharacters).GetMethod("Contains", BindingFlags.Public | BindingFlags.Static, [typeof(Rune)]);
-        Assert.True(overload is not null, "HiddenCharacters has no public static Contains(Rune), the predicate R10.76 requires");
-        var contains = overload!.CreateDelegate<Func<Rune, bool>>();
-
         var disagreements = new List<string>();
         for (var value = 0; value <= 0x10FFFF; value++)
         {
             if (value is >= 0xD800 and <= 0xDFFF) continue;
 
             var expected = PublishedHiddenSet.Contains(published, value);
-            if (contains(new Rune(value)) != expected && disagreements.Count < 5)
+            if (HiddenCharacters.Contains(new Rune(value)) != expected && disagreements.Count < 5)
                 disagreements.Add($"U+{value:X4} is {(expected ? "published as hidden and is not" : "not published as hidden and is")}");
         }
 

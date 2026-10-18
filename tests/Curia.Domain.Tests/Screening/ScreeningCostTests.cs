@@ -24,6 +24,12 @@ namespace Curia.Domain.Tests.Screening;
 /// documented linear-time guarantee for <see cref="RegexOptions.NonBacktracking"/>, a different
 /// artifact from the patterns it checks. The timing theory has a row against each rule once found
 /// quadratic (spec §2.1).</para>
+///
+/// <para>Two rows exist for the hidden-text walk (D35, R10.76): <c>tag-characters</c> is a string of
+/// supplementary-plane hidden characters, two code units each, so the walk by scalar value and the view
+/// that deletes them are exercised on surrogate pairs at the cap; <c>alternating-hidden</c> separates
+/// every hidden character from the next by a visible one, the input that makes one flag per hidden
+/// character, the shape a run walk does not shorten.</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -138,6 +144,8 @@ public sealed class ScreeningCostTests
     [InlineData("token-assignment")]
     [InlineData("ignore-all")]
     [InlineData("zero-width-space")]
+    [InlineData("tag-characters")]
+    [InlineData("alternating-hidden")]
     public async Task R10_69_ScreeningAtTheStringCapStaysWithinItsBudget(string row)
     {
         await WarmUp.Value.ConfigureAwait(true);
@@ -186,6 +194,8 @@ public sealed class ScreeningCostTests
     [InlineData("token-assignment")]
     [InlineData("ignore-all")]
     [InlineData("zero-width-space")]
+    [InlineData("tag-characters")]
+    [InlineData("alternating-hidden")]
     public async Task R10_69_ScreeningCostScalesLinearlyToTheStringCap(string row)
     {
         await WarmUp.Value.ConfigureAwait(true);
@@ -417,6 +427,8 @@ public sealed class ScreeningCostTests
         "token-assignment" => Repeat("token = ", bytes),
         "ignore-all" => Repeat("ignore all ", bytes),
         "zero-width-space" => new string((char)0x200B, bytes / 3),
+        "tag-characters" => RepeatTimes(char.ConvertFromUtf32(0xE0041), bytes / 4),
+        "alternating-hidden" => RepeatTimes("a" + (char)0x200B, bytes / 4),
         _ => throw new ArgumentOutOfRangeException(nameof(row), row, "no such row"),
     };
 
@@ -427,5 +439,14 @@ public sealed class ScreeningCostTests
         while (builder.Length < bytes)
             builder.Append(unit);
         return builder.ToString(0, bytes);
+    }
+
+    /// <summary>A unit repeated a number of times, unlike <see cref="Repeat(string, int)"/>, which cuts to a length.</summary>
+    private static string RepeatTimes(string unit, int times)
+    {
+        var builder = new StringBuilder(unit.Length * times);
+        for (var i = 0; i < times; i++)
+            builder.Append(unit);
+        return builder.ToString();
     }
 }

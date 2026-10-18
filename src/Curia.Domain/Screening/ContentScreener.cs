@@ -141,8 +141,8 @@ public static class ContentScreener
 
         // Conclude's keep-first rule for (category, offset), applied as each flag is found, so the
         // live set stays at its deduplicated size rather than one flag per hidden character per view
-        // (R10.69, D32): the hidden-text step yields offsets, and a flag is allocated only for an
-        // offset not already seen. Output-identical: Conclude still keeps the first of each key, and
+        // (R10.69, D32): the hidden-text step yields runs, and a flag is allocated only for a
+        // run's offset not already seen. Output-identical: Conclude still keeps the first of each key, and
         // a later member of a key's group is all this drops. A zero-length flag bypasses the set
         // because both offset maps send an empty span to (0, 0), wherever it was found.
         var seen = new HashSet<(RiskCategory, int)>();
@@ -172,9 +172,9 @@ public static class ContentScreener
             if (view.Name is "line-joined")
                 continue;
 
-            foreach (var i in InjectionDetector.HiddenTextOffsets(view.Text))
+            foreach (var (start, runLength) in InjectionDetector.HiddenTextRuns(view.Text))
             {
-                var (offset, length) = view.ToOriginal(i, 1);
+                var (offset, length) = view.ToOriginal(start, runLength);
                 if (seen.Add((RiskCategory.HiddenText, offset)))
                     found.Add(new RiskFlag(RiskCategory.HiddenText, offset, length, InjectionDetector.Version));
             }

@@ -39,8 +39,9 @@ public static partial class SecretScanner
     /// 2026-10-06: every rule runs on the non-backtracking engine (R10.69, errata G18); the
     /// high-entropy rule's keyword boundary is consumed rather than looked behind. Verdicts on the
     /// red-team corpus are unchanged; on other input they may not be.
+    /// 2026-10-18: no pattern changed; the line-joined view deletes the characters HiddenCharacters now names, tag characters and U+2061 to U+206F among them (register D35, errata G23, R10.76), so a credential interleaved with one is found.
     /// </summary>
-    public const string Version = "secrets/2026-10-06";
+    public const string Version = "secrets/2026-10-18";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [

@@ -2,11 +2,11 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (57/57) | **0.0 %** (0/34) |
-| enveloped | **100.0 %** (57/57) | **0.0 %** (0/34) |
-| enveloped after a line | **100.0 %** (57/57) | **0.0 %** (0/34) |
+| bare | **100.0 %** (61/61) | **0.0 %** (0/39) |
+| enveloped | **100.0 %** (61/61) | **0.0 %** (0/39) |
+| enveloped after a line | **100.0 %** (61/61) | **0.0 %** (0/39) |
 
-- Detector versions: secrets/2026-10-06, injection/2026-10-06
+- Detector versions: secrets/2026-10-18, injection/2026-10-18
 - Excluded from the detection rate: **18** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
 
 ## The shapes (register D19)
@@ -32,7 +32,7 @@ credential hit a hard rejection, so a false positive costs an author their submi
 
 ## Known evasions
 
-**9 payloads in `known-evasions.jsonl` defeat these detectors today**, each
+**12 payloads in `known-evasions.jsonl` defeat these detectors today**, each
 with the reason recorded. The detection rate above is computed over `payloads.jsonl`
 only, so it does *not* include them -- which is precisely why they are listed here
 rather than folded into the denominator, where they would depress a number nobody
@@ -49,18 +49,27 @@ Each one, with the reason recorded in the corpus:
 - **`evade-split-by-concatenation-operator`** -- would be ApiKey. The same authored split with an operator between the literals, recorded beside the adjacent-literal case so that a view rejoining one language's syntax is not read as covering the family (register D17).
 - **`evade-split-by-shell-continuation`** -- would be ApiKey. A backslash continuation inside a key is typed, not wrapped: tools that wrap a long command break it between arguments, where the key stays whole. Policy D rejoins wraps (register D17).
 - **`evade-connection-string-wrapped-in-userinfo`** -- would be ConnectionStringPassword. A connection string wrapped inside its user or password is rejoined only by the line-joined view, which the URI rule no longer reads: its open classes made a host:port ending one line and a decorator, annotation or @-mention starting the next read as user:pass@. Unlike WebhookUrl's join, that false positive is ordinary code and the wrap it bought is rare, since a connection string is short (register D17).
+- **`evade-variation-selector-run`** -- would be HiddenText. R10.78 declines U+E0100 to U+E01EF: ordinary use is open (ideographic variation sequences in names). A run of selectors after one character carries one value each while ordinary text carries at most one; a run rule is a different kind of rule, so this evades and is recorded.
+- **`evade-combining-grapheme-joiner`** -- would be HiddenText, InstructionOverride. R10.78 declines U+034F: the combining grapheme joiner orders marks in Hebrew and Arabic, so its use is open. It splits the phrase for the pattern, and it evades.
+- **`evade-hangul-filler-padding`** -- would be HiddenText, InstructionOverride. R10.78 declines U+3164 and the other Hangul fillers: conjoining jamo for archaic syllables, and U+3164 pads blank names, so the use is open. It stands in for a space and evades.
 
 A recorded evasion that starts being detected fails the build, so this list cannot
 silently go stale.
 
 ## Known false positives
 
-**3 entries in `known-false-positives.jsonl` are refused although they are benign**,
+**9 entries in `known-false-positives.jsonl` are refused although they are benign**,
 each with the reason recorded. The false-positive rate above is computed over `benign.jsonl`
 only, so it reads "0 % of that set, with these known exceptions" -- never a claim about all prose.
 
 - **`fp-prefixed-identifier-at-a-wrapped-line-end`** -- fires ApiKey. The line-joined view rejoins a hard-wrapped line, so a prefixed identifier ending one line reads as one token with the next line's first word: npm_ plus sixteen letters. Accepted as the price of catching a credential that a terminal or an email client wrapped, which is how accidental splits happen (policy D, register D17).
 - **`fp-webhook-placeholder-at-a-line-end`** -- fires ApiKey. The webhook rule's open path class reads across a line break on the line-joined view, so a placeholder too short to fire alone borrows the next line's first identifier to reach twenty characters. Accepted because that view is the only one that catches a real webhook wrapped before its twentieth path character; a quoted URL does not fire (policy D, register D17).
 - **`fp-uppercase-list-joined-into-a-key-id`** -- fires CloudCredential. The line-joined view deletes every line break in a list, so one-word uppercase lines accumulate into one run, and a run starting ASIA or AKIA with exactly sixteen more characters reads as an AWS key ID. Rare because the length must be exact; new with policy D (register D17).
+- **`fp-subdivision-flag-tag-sequence`** -- fires HiddenText. England, Scotland and Wales are written as a black flag, tag letters naming the subdivision and a cancel tag, three sequences in all and the tag block's one ordinary use. Admitted with the block (R10.78: a closed list may join) and recorded here instead of carved out; the annotation is true, the characters are invisible.
+- **`fp-arabic-letter-mark-in-a-formatted-number`** -- fires HiddenText. Arabic-locale number formatting places U+061C beside a sign. Admitted because it completes Unicode's Bidi_Control set with the eight direction marks already listed (R10.78), and recorded with U+200E and U+200F, whose ordinary use is open in the same way.
+- **`fp-soft-hyphen-from-a-word-processor`** -- fires HiddenText. U+00AD was in the set before this entry and its ordinary use (a word processor's hyphenation point) is open (R10.78). The annotation is true, the character is invisible; recorded instead of carved out.
+- **`fp-zero-width-non-joiner-in-persian`** -- fires HiddenText. U+200C was in the set before this entry and its ordinary use (Persian orthography) is open (R10.78). Recorded instead of carved out.
+- **`fp-zero-width-joiner-in-an-emoji-sequence`** -- fires HiddenText. U+200D was in the set before this entry and its ordinary use (emoji sequences) is open (R10.78). Recorded instead of carved out.
+- **`fp-right-to-left-mark-in-hebrew-text`** -- fires HiddenText. U+200F was in the set before this entry and its ordinary use (right-to-left text beside neutral characters) is open (R10.78). Recorded instead of carved out.
 
 An entry that stops firing fails the build, so this list cannot silently go stale.

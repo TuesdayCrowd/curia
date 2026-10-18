@@ -311,7 +311,7 @@ public static class ModerationRecordErrors
 ///
 /// <para><b>Compared on derived copies, which are discarded.</b> The reason is refused, never
 /// repaired (R10.26); nothing here is written anywhere. Each text is normalized the same way before
-/// comparing: every hidden character (<see cref="HiddenCharacters"/>) dropped, every character NFKC
+/// comparing: every hidden character (<see cref="HiddenCharacters"/>, the set R10.76 publishes) dropped, every character NFKC
 /// cannot take made U+FFFD, then NFKC, lower-cased invariantly, each run of white space collapsed to
 /// one space. So a change of case, of spacing or of compatibility form, or a character
 /// <see cref="HiddenCharacters"/> lists inside a raiser, does not get a repeat through. Other
@@ -389,7 +389,7 @@ internal static class FlagDisclosure
         var total = new StringBuilder(text.Length);
         foreach (var rune in text.EnumerateRunes())
         {
-            if (rune.IsBmp && HiddenCharacters.Contains((char)rune.Value)) continue;
+            if (HiddenCharacters.Contains(rune)) continue;
             total.Append(IsNoncharacter(rune.Value) ? Rune.ReplacementChar.ToString() : rune.ToString());
         }
 

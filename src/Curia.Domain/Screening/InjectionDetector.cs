@@ -33,8 +33,9 @@ public static partial class InjectionDetector
     /// <see cref="HiddenCharacters"/>, shared with the line-joined view (register D17).
     /// 2026-10-06: every rule runs on the non-backtracking engine (R10.69, errata G18). Verdicts on
     /// the red-team corpus are unchanged; on other input they may not be.
+    /// 2026-10-18: hidden text is decided by scalar value and its set widens to the tag block, U+061C and U+2060 to U+206F (register D35, errata G23, R10.76); adjacent hidden characters are one flag and a post keeps at most 32 flags of a category (R10.77).
     /// </summary>
-    public const string Version = "injection/2026-10-06";
+    public const string Version = "injection/2026-10-18";
 
     private static readonly (Regex Pattern, RiskCategory Category)[] Rules =
     [
@@ -67,8 +68,8 @@ public static partial class InjectionDetector
         foreach (var flag in ScanPatterns(derivedCopy))
             yield return flag;
 
-        foreach (var i in HiddenTextOffsets(derivedCopy))
-            yield return new RiskFlag(RiskCategory.HiddenText, i, 1, Version);
+        foreach (var (start, length) in HiddenTextRuns(derivedCopy))
+            yield return new RiskFlag(RiskCategory.HiddenText, start, length, Version);
     }
 
     /// <summary>
@@ -84,7 +85,7 @@ public static partial class InjectionDetector
     }
 
     /// <summary>
-    /// R10.8's "zero-width characters ... unusual Unicode direction marks". Character-by-character
+    /// R10.8's "zero-width characters ... unusual Unicode direction marks". Scalar value by scalar value, one flag per run of adjacent hidden characters (R10.77),
     /// rather than by regex, because these are code points rather than a lexical shape; the set is
     /// <see cref="HiddenCharacters"/>, which the line-joined view deletes by the same predicate.
     ///
@@ -95,11 +96,27 @@ public static partial class InjectionDetector
     /// unimplemented clause rather than approximated, so nobody reads a clean scan as evidence
     /// there is no homoglyph.</para>
     /// </summary>
-    internal static IEnumerable<int> HiddenTextOffsets(string text)
+    internal static IEnumerable<(int Start, int Length)> HiddenTextRuns(string text)
     {
-        for (var i = 0; i < text.Length; i++)
-            if (HiddenCharacters.Contains(text[i]))
-                yield return i;
+        var runStart = -1;
+        var at = 0;
+
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (HiddenCharacters.Contains(rune))
+            {
+                if (runStart < 0) runStart = at;
+            }
+            else if (runStart >= 0)
+            {
+                yield return (runStart, at - runStart);
+                runStart = -1;
+            }
+
+            at += rune.Utf16SequenceLength;
+        }
+
+        if (runStart >= 0) yield return (runStart, at - runStart);
     }
 
     [GeneratedRegex(
