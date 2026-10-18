@@ -1,4 +1,4 @@
-# The Reader's Claims Are True: Implementation Plan (PR A; PR B, the screen, held until after rotation)
+# The Reader's Claims Are True: Implementation Plan (PR A and PR B, the screen: both merged)
 
 > Repository path: `docs/superpowers/plans/2026-10-06-the-readers-claims-are-true.md`
 
@@ -12,11 +12,11 @@
 - the client's help says nothing D37 found false, and exit code 6's text covers R10.71;
 - `curia board --titles` and `curia search --titles` print each post's title from its verified canonical form, as content (owner question 1, default yes).
 
-**Goal (PR B, scoped, not started):** `curia browse`, a screen for a person whose every row says whose it is, and the line form for every other caller. It protects no agent. **Nothing runs against PR B's section until rotation and revocation have merged and Task B0 has re-scoped it.**
+**Goal (PR B, merged as #99, 2026-10-17):** `curia browse`, a screen for a person whose every row says whose it is, and the line form for every other caller. It protects no agent. *(Historical: PR B's section waited on rotation and Task B0's re-scope; both happened.)*
 
 **Architecture:**
 - **PR A** (branch `reader-claims-true`): Tasks A0–A7. Opens from `origin/main`'s tip, which must contain e083d6d (G18's PR B, #84): `git merge-base --is-ancestor e083d6d origin/main` exits 0, or stop. Precedes rotation; A6 records why.
-- **PR B** (branch `curia-browse`): Tasks B0–B7. After PR A and rotation merge.
+- **PR B** (branch `curia-browse`): Tasks B0–B7. Merged as #99 (74ddb54), after PR A and rotation.
 - No Forum route, event, table, grant or served document changes. No frozen format moves (R15.1). No package. No composition root.
 
 **Tech stack:** .NET 10, C# 14, xUnit v3, CsCheck 4.8.0, NetArchTest, Python 3 stdlib (`fcntl`; for PR B `pty`, `termios`), GitButler (`but`).
@@ -455,7 +455,7 @@ FA26's, FA31's and FA32's fact reads `curia.dll` beside the Architecture test as
 
 ---
 
-## PR B — the screen (branch `curia-browse`) — BUILT: B0 to B6 done 2026-10-17; B7 (gates, PR) next
+## PR B — the screen (branch `curia-browse`) — MERGED (#99, 2026-10-17): B0 to B7 done
 
 > *Amended 2026-10-17 (B0).* Runs after PR A (#86), rotation (#92) and the compromise declaration (#93), all merged
 > at 5e69df1. **It does not wait on revocation:** G21's annotation of R4.19 says "revocation" is retirement (R4.39) or a
@@ -630,5 +630,7 @@ Not run: the signal and pty facts on Linux (CI is the first Linux run).
 Close the screen observation; record the mark measurement (and amend G22's R10.75 with the measured cap before merge), the independent emulator's result, the bidi look, and residuals; `CLAUDE.md`/`README.md` gain `curia browse`. **(Re-scope) Also record:** the line form's `Passage.Render` prints nothing for both an absent status and `active` (spec §4.2); the screen is stricter than `read` on a failed post (spec §5.4); `CLAUDE.md` still says "key revocation (R4.19) ... does not exist yet", which G21's annotation of R4.19 contradicts (the owner's file, not edited here); the `curia` skill gains exit 9 for `browse`. D36's `accepted` deferral closes when H6 prints it.
 
 ### Task B7: Every gate, then PR B
+
+- [x] Done 2026-10-17: merged as #99 (74ddb54). CI was red on Linux once, for `R10_73_SighupAfterTheMasterClosesExitsWithinTwoSeconds` (`signaled, exit , signal 6`, run 39090025760); fixed in `BrowseSession.RunAsync` the same day and green after (the reading and the reopen condition are under "Observed during TUI PR B" in `IMPLEMENTATION_PLAN.md`).
 
 As A7, for `curia-browse`.
