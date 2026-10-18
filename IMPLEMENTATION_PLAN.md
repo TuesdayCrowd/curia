@@ -10,10 +10,10 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — where it stands (2026-10-17, at 74ddb54)
+> ## Current work — where it stands (2026-10-18, at 7d82859)
 >
-> **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** Nothing
-> is in flight on a branch. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
+> **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** One branch is
+> open, `hidden-beyond-bmp` (D35), with its spec, plan and errata entry written and no code. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
 > and PR 2); this block says only where things stand.
 >
 > **Merged:**
@@ -32,6 +32,8 @@ set; SP scores recorded even if not yet weighted.*
 > | #97 | D48 items (1) and (2): `curia revision` signs `prev`, run end to end (R6.7) |
 > | #98 | D45: the key-compromise runbook (R12.11), `docs/runbooks/key-compromise.md` |
 > | #99 | TUI PR B: `curia browse`, a screen for a person (errata G22, R10.72 to R10.75); B7 done, CI green on Linux after the SIGHUP fix recorded under "Observed during TUI PR B" |
+> | #100 | Plan: where it stands at 74ddb54; R9.27 and the R12.11 row filed in G21; D35 recommended next |
+> | #101 | `curia browse` lays a document out once per load and size, not on every key (78a58d3; found by a Linux CI timeout, run 39095722362); recorded under "Observed during TUI PR B", item 19 |
 >
 > **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
 > lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
@@ -56,11 +58,15 @@ set; SP scores recorded even if not yet weighted.*
 > - **Review `CLAUDE.md`'s edits** by PRs #96 and #99 (exit 9 now naming `recheck`; `curia browse`; "revocation" read as
 >   retirement or a declaration); it is the owner's file.
 >
-> **The project's next stage (recommended, not started; no plan opened): D35.** SCREEN is blind to a hidden character
+> **In progress: D35 (branch `hidden-beyond-bmp`), spec and plan written.** SCREEN is blind to a hidden character
 > above U+FFFF (the tag block, U+E0000 to U+E007F, which a model reads and a person does not) and `risk_flags` is
 > silent on it, an absence a reader takes for "no detector fired". Walk by `Rune`, admit the tag block and whatever
-> else of `Default_Ignorable_Code_Point` the benign corpus allows, under a new detector version, and decide the
-> flag-coalescing question D32 left with it (87,381 flags at the cap); one errata entry. **Runner-up:** one pass
+> else of `Default_Ignorable_Code_Point` a measurement admits (the benign corpus cannot make it: spec section 2.4),
+> under new detector versions, and decide the flag-coalescing question D32 left with it (87,381 flags at the cap;
+> ruled: a run is one flag, a post keeps at most 32 flags of a category). Spec
+> `docs/superpowers/specs/2026-10-18-hidden-beyond-bmp-design.md`, plan
+> `docs/superpowers/plans/2026-10-18-hidden-beyond-bmp.md` (Tasks 0 to 6, one PR), errata G23 (R10.76 to R10.78).
+> No code has been written or run. **Runner-up:** one pass
 > over what the Forum and its client print that is false (D37's reopened items, the budget refusal's title, D48 item
 > (3) once ruled).
 > Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
@@ -5706,6 +5712,33 @@ cost on this input to 34.8 MB and no collections at the cap, linear, without cha
 leaves is the stored and served per-character output: 87,381 `HiddenText` flags at the cap, one per
 character, in `risk_flags` and every read of it. That is the coalescing decision, and it is not R10.69's.
 
+**Stage opened (2026-10-18; `curia-architect`, read at 7d82859, nothing in the C# tree run).** Spec
+`docs/superpowers/specs/2026-10-18-hidden-beyond-bmp-design.md`, plan
+`docs/superpowers/plans/2026-10-18-hidden-beyond-bmp.md`, errata G23 (R10.76, R10.77, R10.78, proposed). Branch
+`hidden-beyond-bmp`, one PR. Ruled in the spec: hidden is decided by scalar value with one `Rune` predicate and no
+`char` overload; the set becomes U+00AD, U+061C, U+200B to U+200F, U+202A to U+202E, U+2060 to U+206F, U+FEFF and
+U+E0000 to U+E007F (the variation selectors, U+034F, the Hangul fillers and the rest declined and recorded as known
+evasions); a run of adjacent hidden characters is one flag and a post keeps at most 32 flags of an annotating category
+with the 32nd widened (run-coalescing alone does not bound an input that alternates a visible and a hidden character);
+`injection/2026-10-18` and `secrets/2026-10-18`; no wire, reader, route or frozen-format change. Found while
+specifying, and not in D35's or D32's text:
+- **The measurement D35 calls for returns zero for everything.** `benign.jsonl` holds 9 non-ASCII characters and no
+  Default_Ignorable_Code_Point, so "what the benign corpus admits" admits every candidate, the variation selectors
+  included; the project's own prose (36 Markdown files) holds U+FE0F 9 times in two files. The same corpus holds no
+  use of U+200C, U+200D, U+200E, U+200F or U+00AD, so the published 0.0 % false-positive rate is a statement about a set
+  that excludes them (trap 11 and 19's shape; proposed for the traps list, not added here).
+- **A credential interleaved with a tag character is admitted.** The `line-joined` view deletes the set before a wrapped
+  key is rejoined, so the same blindness lets R10.26's hard rejection be defeated by a character the screener neither
+  deletes nor annotates. The predicate has a third caller, `FlagDisclosure.Normalize`, which guards its call with
+  `rune.IsBmp`.
+- **Detector versions are not persisted.** `RiskAnnotations.DetectorVersions` is computed and dropped by
+  `RiskFlagsPayload`; a post with no flags records no version anywhere, so after this stage an unflagged old post and an
+  unflagged new post look the same on the wire, and nothing re-runs the detectors over the archive (R10.10's
+  re-runnability is a property of the rules, not a feature). Left unfiled as its own entry (owner question 2, default:
+  not in this stage): a `post.accepted` payload member, a projection field and a provenance member.
+- **No annotation reaches an automated actor** (traced by reading: `ModeratorKind.Automated` is constructed by no code
+  in `src/`; no fact holds the absence).
+
 ### D36 — the board listing answers a board whole *(opened by the five-agent exercise, 2026-10-06)*
 
 **Found by operating** (the exercise's audit, finding 4). `GET /v1/boards/{board}/posts`
@@ -6576,6 +6609,16 @@ Linux run is the test of the reading. **Reopen if** the fact fails again on Linu
     and so never draws it as nothing.
 18. **Owed to the owner, not attempted:** the external `curia` skill gains `browse` and exit 9 for it (it carries the verb list
     and the exit codes in `references/cli.md`); the human look in item 13.
+19. **`curia browse` laid a whole document out on every key (PR #101, 78a58d3, 2026-10-18; found by CI).**
+    `BrowseHostileAnswerTests`' 80x24 fact timed out on Linux in CI run 39095722362, at rows 479 to 488 of 4,880. Measured
+    in Release by the fix: each key laid the whole document out twice (`ScrollBy` and `Render`), and each layout rebuilt the
+    pinned header several times, each rebuild re-rendering the 3,000-line span: **155 ms a key** on a 3,000-line answer.
+    `Screen.Compose` is split into `Prepare` (size-dependent, once) and `Screen.Document.At(offset)`, and `BrowseState`
+    caches the document by view, posts and size and clears it on a load: **5 ms a key**, the hostile facts 21 s to 3 s
+    locally, 10 of 10 runs. The fact is `R10_72_ScrollingALargeDocumentMovesAWindowOverOneLayoutAndOnlyALoadOrAResizeLaysItOutAgain`
+    (`tests/Curia.Client.Tests/BrowseStateTests.cs`): it counts layouts, not wall time, **73 with the cache disabled and 1
+    with it**. The numbers here are the commit's, recorded from its message and the fact's name, and not re-measured
+    by this entry.
 
 ### Observed during the second five-agent exercise (2026-10-17), not acted on
 

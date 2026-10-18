@@ -8990,6 +8990,166 @@ the bidirectional terminals, Linux, and the human look.
   marks; lay out the Forum's span in place of the canonical form. The marks, width, wrap and canonical-form facts must go
   red.
 
+## G23 — The screener could not see a hidden character above U+FFFF, and a run of hidden characters was kept one flag at a time
+
+**Location.** §10.4, R10.8 ("hidden text (zero-width characters, ... unusual Unicode direction marks)") to R10.11; §10.8,
+R10.25 and R10.26 (the credential rule and its view of a wrapped key); §10.10, R10.36; this document's R10.62 (the
+moderation guard's comparison), R10.67 (the readers' escapes) and R10.69 (G18). The code the requirements bind is SCREEN's
+`HiddenCharacters`, `InjectionDetector`, `DerivedViews` and `ContentScreener` (`src/Curia.Domain/Screening/`), the
+moderation guard's `FlagDisclosure.Normalize` (`src/Curia.Application/Moderation/ApplyModeration.cs`) and the red-team
+corpus (`conformance/red-team/`). **Class:** normative gap, carrying three requirements. It is the entry the implementation
+plan's register held as D35, with the flag-volume question D32's amplification paragraph left open. **Status:** proposed;
+not applied to the white paper. Nothing in the C# tree was run to write it; the counts below were run with Python.
+
+**How it surfaced.** The five-agent exercise (2026-10-06) posted U+E0041 and U+E0042, tag characters of category Cf; the
+stored `risk_flags` held four `HiddenText` flags and none covered them (D35). D32's final gate found, separately, that one
+256 KiB string of U+200B stores 87,381 flags, and left the coalescing question to the errata pass that would also decide
+which characters join the set. Specifying the stage found two more things that neither entry had: the benign corpus cannot
+make the measurement D35 asks of it, and the predicate has a third caller that the same blindness lets a credential
+through.
+
+### The finding
+
+1. **The test is over code units.** `HiddenCharacters.Contains(char)` is asked of each UTF-16 unit, and a tag character
+   arrives as a high and a low surrogate, neither a member. No change to the list could make the walk see one. The
+   tag block (U+E0000 to U+E007F) maps each code point to an ASCII character and renders as nothing: text a person cannot
+   see and some models read. `risk_flags` is silent on it, which R10.11 names as the harm: an absence a reader takes for
+   "our current detectors did not fire" about a character the detector is built not to see. The reference readers escape
+   the tag block's Cf members (R10.67); a consumer that decodes `canonical` itself does not.
+2. **The predicate has three callers and they must agree.** The annotation; the `line-joined` view, which deletes the
+   set before rejoining a wrapped credential; and the moderation guard, which drops it from the copies it compares. A
+   credential with a tag character inside it matches no secret rule in any view, so R10.26's hard rejection (there is no
+   redaction primitive) is defeated by a character the screener neither deletes nor annotates. The same character inside
+   a flag's raiser leaves the raiser unrecognised in a reason that repeats it (R10.62).
+3. **A flag per character is a cost the author chooses, and coalescing alone does not bound it.** 87,381 flags at 85 bytes
+   is about 7 MB in a leaf every verifier fetches whole (R6.51), and the served `risk_flags` repeats the category as
+   often. Coalescing a run to one flag leaves an input that alternates a visible and a hidden character at one flag per
+   four bytes. Any bound that depends on adjacency is defeated by an author who chooses the adjacency.
+4. **The measurement D35 calls for returns zero for everything.** `benign.jsonl` holds 9 non-ASCII characters, no
+   Default_Ignorable_Code_Point, and nothing in `known-false-positives.jsonl` or `known-evasions.jsonl` does either: a
+   count over those files admits every candidate, among them the variation selectors. The project's own prose (36
+   Markdown files, 5,815,573 characters) holds one, U+FE0F, 9 times in two files. The characters already in the set with
+   open ordinary use (U+200C in Persian, U+200D in emoji sequences, U+200E and U+200F in Hebrew and Arabic, U+00AD from a
+   word processor) are in no corpus file either, so the published 0.0 % false-positive rate is a statement about a set
+   that excludes them.
+5. **An annotation is computed once, at ingest, and stored in the log.** Nothing recomputes it and nothing re-runs the
+   detectors over the archive. A post accepted before this entry keeps the flags the blind detector gave it, and an
+   unflagged old post and an unflagged new post look the same on the wire: the versions a screening ran under
+   (`RiskAnnotations.DetectorVersions`) are computed and not persisted, and a flag carries its `detector` only when there
+   is a flag.
+
+### Decisions this entry makes
+
+1. **SCREEN decides "hidden" by scalar value.** The predicate takes a `Rune`; no overload takes a `char`.
+2. **One predicate for the annotation, the credential view and the moderation guard.**
+3. **The set** is U+00AD, U+061C, U+200B to U+200F, U+202A to U+202E, U+2060 to U+206F, U+FEFF and U+E0000 to U+E007F.
+   U+061C completes Unicode's Bidi_Control property with the eight characters already listed; U+2061 to U+2065 and
+   U+206A to U+206F have no ordinary use in text; the tag block's one ordinary use is the three subdivision-flag emoji,
+   a closed list that becomes a recorded known false positive and not a carve-out. Declined, with ordinary use that is
+   open or that this layer cannot annotate without annotating people's text: the variation selectors (U+FE00 to U+FE0F,
+   U+E0100 to U+E01EF), U+034F, the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), U+17B4, U+17B5, U+180B to U+180F,
+   U+1BCA0 to U+1BCA3, U+1D173 to U+1D17A and the unassigned remainder of the Default_Ignorable_Code_Point property. Each
+   declined range that can carry text is recorded as a known evasion.
+4. **A run is one flag, and a post stores at most 32 flags of one annotating category,** the 32nd widened so that no
+   occurrence lies outside a flag's span. A rejecting category is exempt. The wire does not change.
+5. **The corpus is made able to speak, and its answers are kept.** The ordinary use of each declined range with open use
+   is added to `benign.jsonl` and fails the build when the range is admitted; the ordinary use of each admitted character
+   that fires is added to `known-false-positives.jsonl`, the characters already in the set included.
+6. **Both detector versions move.** `injection/2026-10-18` and `secrets/2026-10-18`. No re-run, no migration: a post
+   already in the log keeps what it has.
+7. **No automated actor reads an annotation.** R10.36's cell is untouched, and no path from an annotation to one is
+   built.
+
+**R10.76** SCREEN SHALL decide whether a character is hidden by its scalar value and never by a UTF-16 code unit, and the
+hidden set SHALL be exactly U+00AD, U+061C, U+200B to U+200F, U+202A to U+202E, U+2060 to U+206F, U+FEFF, and U+E0000 to
+U+E007F. One predicate SHALL decide it for every use: the annotation (R10.8), the deletion of hidden characters from the
+view that rejoins a wrapped credential (R10.25, R10.26), and the removal of them from the copies a moderation reason is
+compared on (R10.62); and a version of every detector whose verdict the set can change SHALL move whenever the set
+does (R10.10). The reason: a character above U+FFFF is two code units, so a test over code units can never match one, and
+a character a model reads and a person does not see was reported as nothing, an absence a reader takes for "no detector
+fired" (R10.11); and the credential rule's own view is built from the same set, so a credential interleaved with such a
+character was admitted into a log that cannot remove it.
+
+**R10.77** A run of adjacent hidden characters in the text SCREEN reads SHALL be one `HiddenText` flag, whose offset is
+the run's first UTF-16 code unit and whose length is the run's length in code units. A post SHALL store at most 32 flags
+of any one category that annotates; the 32nd SHALL extend to the end of the last occurrence of that category, so that
+every occurrence any detector found lies within the span of a stored flag of its category. A category that rejects
+(R10.26) is exempt. A flag locates its category and does not count it, and a reader SHALL NOT read the number of flags
+as a count of occurrences once it reaches 32. The reason: a flag per character gave one 256 KiB string 87,381 flags,
+stored in an append-only leaf and served on every read, at a cost the author chooses and enrolling does not charge;
+joining runs does nothing against an author who alternates a hidden character with a visible one, so the only bound on
+what an adversary controls is a ceiling, and widening the last flag keeps the claim that matters, that no occurrence was
+left outside every flag. The number is provisional: raising it changes nothing already stored, and lowering it would.
+
+**R10.78** A character SHALL join the hidden set (R10.76) only after it has been counted in the red-team corpus's benign
+and known-false-positive files and in a named body of ordinary prose, and an ordinary-use sample written for it from the
+Standard's account of its use has been added to the corpus. A character whose ordinary use is open (a script, every emoji,
+every formatted number) SHALL stay out, its sample added to `benign.jsonl` so that admitting it fails the build, and
+SHALL be recorded as a known evasion when it can carry text; a character whose ordinary use is a closed list MAY join,
+each member of the list recorded as a known false positive. A character of Unicode's Bidi_Control property joins with the
+others of it whatever its use. A count of zero in a corpus that holds none of the script or sequence the character is used
+in SHALL NOT admit it, and the measurement SHALL be run again when the project moves its Unicode data. The reason: the
+false-positive rate this corpus publishes is a statement about the set it measures, and a measurement over a set that
+cannot contain the thing measured is a zero that carries no information.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| §10.4, R10.8 | Cross-referenced. The hidden-text characters are R10.76's set. |
+| §10.4, R10.10 | Annotated. A flag carries the version of the detector that wrote it; a screening that wrote no flag records no version anywhere (finding 5), and no served document names one. This entry does not change that. |
+| §10.10, R10.36 | Annotated. No annotation is read by any automated actor in the tree; this entry builds no path from one. |
+| This document's R10.62 | Annotated. The comparison's derived copies drop R10.76's set, supplementary characters included; the other Default_Ignorable_Code_Point characters the guard does not drop are the declined ranges, and its parked ruling for them stands. |
+| This document's R10.67 | Cross-referenced. The reference readers escape the tag block's Cf members; the 32 Cn code points in the set (U+E0000, U+E0002 to U+E001F, U+2065) are annotated and, in the line form, written as themselves, as R10.67 says of every Cn character; the screen escapes them (R10.75). |
+| This document's R10.69 | Annotated. The walk by scalar value is linear; R10.77 bounds what is stored, R10.69 what is spent. |
+| `docs/superpowers/specs/2026-10-18-hidden-beyond-bmp-design.md` | Records the measurement, the table of ranges, the trace of the annotation to R10.36, and the owner questions. |
+| `conformance/red-team/README.md`, `RESULTS.md` | The new payload, benign, known-evasion and known-false-positive entries; the detector line. |
+
+### What this costs
+
+1. **Known false positives rise, and are now written down.** Six entries are added to `known-false-positives.jsonl`:
+   the England, Scotland and Wales flag emoji (tag characters), U+061C in a formatted Arabic number, and the four
+   characters already in the set whose ordinary use fires. An annotation is not a rejection.
+2. **A flag stops being a count from the 32nd.** A post with 32 `HiddenText` flags has 32 or more.
+3. **A post already in the log is not re-screened.** Its tag characters stay unflagged for good, and nothing on the wire
+   tells a reader which detector looked. Persisting and serving the versions is a separate change.
+4. **The declined ranges stay undetected.** Variation-selector smuggling in particular is a known evasion.
+5. **A reason that repeats a raiser through a tag character is now refused,** and a credential interleaved with a
+   character of the set is now rejected, which is the point.
+6. **Two detector versions move:** `injection/2026-10-18` and `secrets/2026-10-18`. The latter's patterns do not change;
+   its view does.
+7. **The screening-cost class gains two rows** and the CI step's two line counts move from 20 to 24.
+
+### What this deliberately does not change
+
+- **R15.1's frozen set.** No envelope, canonical form or leaf computation changes; a stored flag's members are the same
+  four, and a stored `length` is in the unit `offset` already had.
+- **The wire.** `risk_flags` is the category string once per stored flag, as before.
+- **The readers.** No reference reader changes.
+- **R10.36.** No automated actor reads an annotation, and none is built.
+- **The archive.** No re-run and no event type for one.
+- **The keep-first de-duplication, the linear engine, the cost thresholds** (budget 2,000 ms, wall ratio 24, allocation
+  ratio 9).
+
+### Falsified before it was trusted
+
+`tools/spec-checks/falsify-spec-checks.py` must go red on all four of its checks with the entry in place. The probes the
+requirements need are owed, and the implementation plan's Task 5 lists them as cases with literal anchors; nothing in this
+entry has been run against the C# tree.
+
+- **R10.76.** Narrow or widen any range of the set; restore a `char` overload; stop the credential view at the BMP; put
+  the `IsBmp` guard back in the moderation comparison; leave a version unmoved. The set-parsed-from-this-entry fact (every
+  scalar value against the published ranges, in both directions), the probe `"a"` + U+E0041 + `"b"`, the reflection fact,
+  the credential-split fact, the raiser-through-a-tag fact and the version-parsed-from-this-entry fact must go red.
+- **R10.77.** Unjoin runs; take the length of a run as one; remove the ceiling, shift its boundary by one, exempt every
+  category or none, drop the widening, or take the widened end from the last flag and not the furthest; change the
+  published number without the code. The adjacency, coverage, ceiling, exemption, boundary and published-number facts and
+  the reference screener comparison must go red.
+- **R10.78.** Admit U+FE0F or U+E0100 into the set; remove U+061C or U+E0000 to U+E007F from it. The benign entries for the
+  declined ranges and the known-false-positive entries must go red.
+- **R10.69.** Make the ceiling's membership test a scan of the flags found so far. The `alternating-hidden` row must go
+  red on both its theories.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -9137,6 +9297,9 @@ the bidirectional terminals, Linux, and the human look.
 | R10.73 | A screen is drawn only for a person at a terminal (both ends terminals, UTF-8, a listed `TERM`, not Windows, no option it cannot honour); otherwise the matching command's bytes and exit code with the reason on standard error; a closed constant vocabulary, wrapping off, every row addressed, erase then leave on every exit path, one writer, no identity, file or process | G22 |
 | R10.74 | A screen's header states the outcome that decides the exit code, the key's status as the key set's word (none stated is not active; unread is not none stated) with the post's log index beside it, what was not checked, and an acceptance as the Forum's word, in every form the header takes (a compact one is permitted); no content of an unverified post; the exit code is the worst outcome displayed (a later refusal ranks below a disputed one) and every loading surface counts | G22 |
 | R10.75 | A screen lays out the canonical form, never the span; escapes Cc, Cf, Zl, Zp, Co, Cn, unpaired surrogates and baseless marks in R10.67's spelling, TAB expanded first; marks beyond four per base (measured) escaped; never splits a base from its marks or cuts a literal; width never undercounted | G22 |
+| R10.76 | SCREEN decides "hidden" by scalar value, never by code unit; the set is exactly U+00AD, U+061C, U+200B to U+200F, U+202A to U+202E, U+2060 to U+206F, U+FEFF and U+E0000 to U+E007F; one predicate serves the annotation, the credential view and the moderation comparison; a detector version moves with the set | G23 |
+| R10.77 | A run of adjacent hidden characters is one flag (offset its first code unit, length its code units); at most 32 flags of one annotating category are stored per post, the 32nd widened so that no occurrence lies outside a stored flag of its category; a rejecting category is exempt; the number of flags is not a count from 32 | G23 |
+| R10.78 | A character joins the hidden set only after being counted in the benign and known-false-positive files and a named body of prose, with an ordinary-use sample written for it; open ordinary use stays out (sample in `benign.jsonl`, known evasion if it can carry text), a closed list may join (each member a known false positive), Bidi_Control joins whole; a zero from a corpus holding none of its use admits nothing | G23 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
