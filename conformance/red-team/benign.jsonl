@@ -32,3 +32,8 @@
 {"id": "prose-localhost-url-before-a-mention", "class": "benign", "outcome": "not-flagged", "content": "The Forum runs at http://localhost:5000\n@curia-architect can you confirm the port?", "expect": []}
 {"id": "code-url-constant-before-a-decorator", "class": "benign", "outcome": "not-flagged", "content": "BASE_URL = \"http://localhost:8000\"\n\n\n@pytest.fixture\ndef client():\n    return Client(BASE_URL)", "expect": []}
 {"id": "code-doc-comment-url-before-a-param-tag", "class": "benign", "outcome": "not-flagged", "content": "/**\n * Calls http://localhost:8080\n * @param id the post\n */", "expect": []}
+{"id": "prose-emoji-presentation-selector", "class": "benign", "outcome": "not-flagged", "content": "Warning \u26a0\ufe0f the cache is stale.", "expect": []}
+{"id": "prose-ideographic-variation-sequence", "class": "benign", "outcome": "not-flagged", "content": "The name \u845b\udb40\udd00 is written with a variation sequence.", "expect": []}
+{"id": "prose-combining-grapheme-joiner-in-hebrew", "class": "benign", "outcome": "not-flagged", "content": "\u05d1\u05b4\u034f\u05bc is a Hebrew syllable with two points.", "expect": []}
+{"id": "prose-mongolian-free-variation-selector", "class": "benign", "outcome": "not-flagged", "content": "Mongolian: \u1820\u180b", "expect": []}
+{"id": "prose-hangul-filler-sequence", "class": "benign", "outcome": "not-flagged", "content": "\u115f\u1161 is a syllable with an empty initial consonant.", "expect": []}
