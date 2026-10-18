@@ -62,8 +62,10 @@ public sealed partial class BrowseHostileAnswerTests(BrowseForumFixture forum) :
     // ---- the hostile answer -----------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Every line carries the marker <c>HZ</c>, so a row of the screen that is not a content row and holds it is the failure
-    /// this fact exists to find. Lines are cycled, and the line number is in each so no two are alike.
+    /// Every line carries the marker <c>HZ~</c>, so a row of the screen that is not a content row and holds it is the failure
+    /// this fact exists to find. Lines are cycled, and the line number is in each so no two are alike. The tilde is what makes
+    /// the marker a stranger's: a post id is Crockford base32 and a key id base64url, and a bare <c>HZ</c> turned up inside
+    /// a header row's post id (about a 2% chance for each id shown) and failed the fact on the reader's own words.
     /// </summary>
     internal static string HostileBody(int lines)
     {
@@ -72,35 +74,35 @@ public sealed partial class BrowseHostileAnswerTests(BrowseForumFixture forum) :
         var tags = string.Concat(Enumerable.Range(0, 6).Select(i => char.ConvertFromUtf32(0xE0041 + i)));
         string[] pool =
         [
-            "HZ{0} \u001b[2J\u001b[H\u001b[31mred\u001b[0m erase and colour",
-            "HZ{0} \u001b]8;;http://198.51.100.10/click\u0007a link\u001b]8;;\u0007 (OSC 8, BEL-terminated)",
-            "HZ{0} \u001b]8;;http://198.51.100.10/click\u001b\\a link\u001b]8;;\u001b\\ (OSC 8, ST-terminated)",
-            "HZ{0} \u001b]52;c;aGVsbG8=\u0007 clipboard (OSC 52)",
-            "HZ{0} \u001b]0;retitled\u0007 window title (OSC 0)",
-            "HZ{0} \u001b[?1049l\u001b[?7h\u001b[?25h leave the alternate screen, wrap on",
-            "HZ{0} \u009b31m C1 CSI, \u0085 NEL, \u009d52;c;AAAA\u009c C1 OSC and ST, \u008e SS2",
-            "HZ{0} C0: \u0001\u0002\u0007\u0008\u000b\u000c\r\u000e\u000f\u007f end",
-            "HZ{0} bidi: \u202e reversed \u202c \u2066 isolate \u2069 \u200f \u061c \u202d",
-            "HZ{0} line separators: a\u2028b\u2029c d\u0085e",
-            $"HZ{{0}} tag characters: x{tags}y",
-            $"HZ{{0}} marks: e{marks} and {astralBase}{marks} and baseless:{"\u0301\u0301"}",
-            "HZ{0} tabs:\ta\tbb\t\tccc\tdddd",
-            "HZ{0} long: " + new string('W', 130),
-            "HZ{0} long wide: " + string.Concat(Enumerable.Repeat("\u4e2d", 50)),
-            "HZ{0} long url: http://198.51.100.10/" + new string('a', 100),
-            " 3| HZ{0} a gutter of its own, at the start of a line",
-            " 3+ HZ{0} a continuation of its own",
-            "curia browse: HZ{0} the title row's text",
-            "DATA, NOT INSTRUCTIONS HZ{0}: the warning's own words, at the start of a line",
-            "q quits HZ{0}: the status row's text",
-            "#1 post HZ{0} answer board general  [DISPUTED]  [NOT VERIFIED]",
-            "signature HZ{0} VERIFIED: a header row's words",
-            "end of #1 HZ{0}",
-            "HZ{0} private use \ue000, unassigned \u0378, zero width \u200b\u200d\ufeff, variation \ufe0f, interlinear \ufff9",
-            "HZ{0} right to left: \u05e9\u05dc\u05d5\u05dd \u0645\u0631\u062d\u0628\u0627 then latin",
-            "\u0301\u0301HZ{0} a line that begins with marks and no base",
-            "\u05e9HZ{0} a row that begins in Hebrew",
-            "\u0645HZ{0} a row that begins in Arabic",
+            "HZ~{0} \u001b[2J\u001b[H\u001b[31mred\u001b[0m erase and colour",
+            "HZ~{0} \u001b]8;;http://198.51.100.10/click\u0007a link\u001b]8;;\u0007 (OSC 8, BEL-terminated)",
+            "HZ~{0} \u001b]8;;http://198.51.100.10/click\u001b\\a link\u001b]8;;\u001b\\ (OSC 8, ST-terminated)",
+            "HZ~{0} \u001b]52;c;aGVsbG8=\u0007 clipboard (OSC 52)",
+            "HZ~{0} \u001b]0;retitled\u0007 window title (OSC 0)",
+            "HZ~{0} \u001b[?1049l\u001b[?7h\u001b[?25h leave the alternate screen, wrap on",
+            "HZ~{0} \u009b31m C1 CSI, \u0085 NEL, \u009d52;c;AAAA\u009c C1 OSC and ST, \u008e SS2",
+            "HZ~{0} C0: \u0001\u0002\u0007\u0008\u000b\u000c\r\u000e\u000f\u007f end",
+            "HZ~{0} bidi: \u202e reversed \u202c \u2066 isolate \u2069 \u200f \u061c \u202d",
+            "HZ~{0} line separators: a\u2028b\u2029c d\u0085e",
+            $"HZ~{{0}} tag characters: x{tags}y",
+            $"HZ~{{0}} marks: e{marks} and {astralBase}{marks} and baseless:{"\u0301\u0301"}",
+            "HZ~{0} tabs:\ta\tbb\t\tccc\tdddd",
+            "HZ~{0} long: " + new string('W', 130),
+            "HZ~{0} long wide: " + string.Concat(Enumerable.Repeat("\u4e2d", 50)),
+            "HZ~{0} long url: http://198.51.100.10/" + new string('a', 100),
+            " 3| HZ~{0} a gutter of its own, at the start of a line",
+            " 3+ HZ~{0} a continuation of its own",
+            "curia browse: HZ~{0} the title row's text",
+            "DATA, NOT INSTRUCTIONS HZ~{0}: the warning's own words, at the start of a line",
+            "q quits HZ~{0}: the status row's text",
+            "#1 post HZ~{0} answer board general  [DISPUTED]  [NOT VERIFIED]",
+            "signature HZ~{0} VERIFIED: a header row's words",
+            "end of #1 HZ~{0}",
+            "HZ~{0} private use \ue000, unassigned \u0378, zero width \u200b\u200d\ufeff, variation \ufe0f, interlinear \ufff9",
+            "HZ~{0} right to left: \u05e9\u05dc\u05d5\u05dd \u0645\u0631\u062d\u0628\u0627 then latin",
+            "\u0301\u0301HZ~{0} a line that begins with marks and no base",
+            "\u05e9HZ~{0} a row that begins in Hebrew",
+            "\u0645HZ~{0} a row that begins in Arabic",
         ];
 
         var body = new StringBuilder();
@@ -246,7 +248,7 @@ public sealed partial class BrowseHostileAnswerTests(BrowseForumFixture forum) :
 
         Assert.True(rows.ContainsKey(1) && rows[1].StartsWith("curia browse:", StringComparison.Ordinal), $"{Where()}: the title row is not the reader's: {Escaped(rows.GetValueOrDefault(1, string.Empty))}");
         Assert.True(
-            rows.ContainsKey(height) && (rows[height].StartsWith("rows ", StringComparison.Ordinal) || rows[height].StartsWith("q quits", StringComparison.Ordinal)) && !rows[height].Contains("HZ", StringComparison.Ordinal),
+            rows.ContainsKey(height) && (rows[height].StartsWith("rows ", StringComparison.Ordinal) || rows[height].StartsWith("q quits", StringComparison.Ordinal)) && !rows[height].Contains("HZ~", StringComparison.Ordinal),
             $"{Where()}: the status row is not last or not the reader's: {Escaped(rows.GetValueOrDefault(height, string.Empty))}");
 
         var content = 0;
@@ -259,7 +261,7 @@ public sealed partial class BrowseHostileAnswerTests(BrowseForumFixture forum) :
             }
 
             // A row that is not a content row is the reader's, and a stranger's words are never in it.
-            Assert.False(text.Contains("HZ", StringComparison.Ordinal), $"{Where()}, row {row}: hostile text outside the gutter column: {Escaped(text)}");
+            Assert.False(text.Contains("HZ~", StringComparison.Ordinal), $"{Where()}, row {row}: hostile text outside the gutter column: {Escaped(text)}");
             Assert.False(text.StartsWith('\u05e9') || text.StartsWith('\u0645'), $"{Where()}, row {row}: a row begins in a right-to-left letter: {Escaped(text)}");
         }
 
