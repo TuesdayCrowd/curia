@@ -439,6 +439,8 @@ from a different artifact than the code:
 
 ## 7. Owner questions, with defaults
 
+**Answered 2026-10-18: the owner took every default below.**
+
 1. **Admit U+061C although its ordinary use (Arabic number formatting) is open?** Default: **yes**, with a known-
    false-positive entry, because it completes Unicode's Bidi_Control set and R10.8 names direction marks. The alternative
    is to leave it out and record it beside U+200E and U+200F as inconsistent.
@@ -478,7 +480,8 @@ corpus' non-ASCII and Default_Ignorable_Code_Point counts, the 36 Markdown files
 ranges, and the run lengths in the existing corpus.
 
 **Not run:** any C# test, build or console; the HTTP path; a Postgres read of a stored `post.accepted`; the corpus
-differential (it is Task 0). **Not checked:** `DerivedCoreProperties.txt` (no copy on the machine; the candidate list is
-the Standard's, typed from memory of it and cross-checked only against `unicodedata` categories), the Unicode text on how
+differential (it is Task 0). **Checked after drafting (2026-10-18):** the existing 17 and the candidate list together equal Unicode 18.0.0's
+`Default_Ignorable_Code_Point` exactly (`DerivedCoreProperties-18.0.0.txt`, dated 2026-08-07: 4,174 code points, none
+missing and none extra), and its Cn members in the admitted ranges are the 32 section 4 names. **Not checked:** the Unicode text on how
 CLDR formats Arabic numbers (the claim that locale data places U+061C in them is from knowledge, not from a file read), and
 whether any model reads tag characters (the premise is the exercise's and the literature's, not this stage's).
