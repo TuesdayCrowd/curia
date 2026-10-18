@@ -26,7 +26,7 @@ internal readonly record struct ScreenSize(int Width, int Height);
 ///
 /// <para><b>The minimum is computed.</b> Content is drawn only when the width is at least <see cref="MinimumWidth"/> and the
 /// window has the screen's chrome, the tallest header actually present (a 300-character author wraps and raises it) and
-/// <see cref="MinimumContentRows"/> rows besides (one row, where no passage draws content). Otherwise only this client's
+/// <see cref="MinimumContentRows"/> rows besides (the tallest wrapped no-content row, where no passage draws content). Otherwise only this client's
 /// rows are drawn, saying how many rows and columns the window needs, with the line form's command.</para>
 ///
 /// <para><b>Two header forms, one per document (spec 14.1).</b> The full form is used where the window holds the chrome, the
@@ -120,7 +120,7 @@ internal sealed class Screen
 
             bodies[i] = draws[i]
                 ? ContentLayout.Rows(SpanCheck.CoveredForm(passage.Post)!, size.Width)
-                : [new ScreenRow.Frame(NoContent(passage, size.Width))];
+                : [.. NoContentRows(passage, size.Width).Select(row => (ScreenRow)new ScreenRow.Frame(row))];
         }
 
         List<Block> Blocks(bool compact)
@@ -141,8 +141,8 @@ internal sealed class Screen
             return blocks;
         }
 
-        // Eight rows of content where any passage draws any; where none does, the one row that says why.
-        var contentRows = draws.Any(d => d) ? MinimumContentRows : 1;
+        // Eight rows of content where any passage draws any; where none does, the tallest wrapped row that says why (spec 14.8 item 3).
+        var contentRows = draws.Any(d => d) ? MinimumContentRows : Math.Max(1, bodies.Select(body => body.Length).DefaultIfEmpty(1).Max());
         return Compose(Blocks(compact: false), Blocks(compact: true), size, offset, contentRows, firstPostId: passages.Count > 0 ? passages[0].Post.PostId : null);
     }
 
@@ -215,15 +215,36 @@ internal sealed class Screen
     private static ScreenRow.Frame[] Chrome(string text, int width) =>
         [.. RowWrap.Frame(text, width).Select(row => new ScreenRow.Frame(row))];
 
-    private static string NoContent(Passage passage, int width)
+    /// <summary>
+    /// The frame row that says why a passage has no content (spec 14.8 item 3), as the reader's own rows: wrapped between
+    /// tokens with <see cref="RowWrap.Frame"/>, and its last words, the command, kept whole on one row whenever one row can
+    /// hold it. A command wider than a whole row is the only thing that is cut, across rows with all of it kept, in order.
+    /// </summary>
+    private static ImmutableArray<string> NoContentRows(Passage passage, int width)
     {
-        _ = width;
         var outcome = passage.SignatureOutcome is CheckOutcome.CouldNotCheck
             ? "the signature could not be checked"
             : "the signature did not verify";
-        return new FrameBuilder()
-            .Append($"no content is shown: {new OwnText(outcome)}, so nothing it would cover is shown (R10.71). The Forum's span, under its own failing line, is in: {Hints.Read(passage.Post.PostId)}")
+        var sentence = new FrameBuilder()
+            .Append($"no content is shown: {new OwnText(outcome)}, so nothing it would cover is shown (R10.71). The Forum's span, under its own failing line, is in:")
             .ToString();
+        var command = Hints.Read(passage.Post.PostId).Text;
+
+        var rows = RowWrap.Frame(sentence, width).ToBuilder();
+        if (CellWidth.Of(rows[^1]) + 1 + CellWidth.Of(command) <= width)
+        {
+            rows[^1] = rows[^1] + " " + command;
+        }
+        else if (CellWidth.Of(RowWrap.ContinuationPrefix) + CellWidth.Of(command) <= width)
+        {
+            rows.Add(RowWrap.ContinuationPrefix + command);
+        }
+        else
+        {
+            rows.AddRange(RowWrap.Frame(RowWrap.ContinuationPrefix + command, width));
+        }
+
+        return rows.ToImmutable();
     }
 
     private static Screen Compose(List<Block> full, List<Block> compact, ScreenSize size, int offset, int contentRows, string? firstPostId)

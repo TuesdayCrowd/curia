@@ -411,7 +411,7 @@ public sealed class ScreenModelTests
         {
             var screen = Screen.ForPassages([passage], size, 0);
             Assert.DoesNotContain(screen.Rows, r => r is ScreenRow.Content);
-            Assert.Contains(screen.Rows, r => r.Text.Contains("curia read", StringComparison.Ordinal) && r.Text.Contains("no content", StringComparison.Ordinal));
+            Assert.Contains(Logicals(screen.Rows), r => r.Contains("curia read", StringComparison.Ordinal) && r.Contains("no content", StringComparison.Ordinal));
         }
 
         var disputed = ScreenSigner.Passage(signer.Question("t", 35, 3), signer.Jwks("compromised", compromisedAt: 40, disputedFrom: 30));
@@ -532,7 +532,7 @@ public sealed class ScreenModelTests
                 new Passage(unreadPost, SignatureCheck.Unreachable(unreadPost, new Refusal(RefusalKind.Transport, 0, new Error("t", "t", "t")))),
                 "signature COULD NOT BE CHECKED",
                 "[COULD NOT BE CHECKED]",
-                "key \"alice-1\": this client has no key set to state a status: the check did not run (see the signature row)"),
+                "key \"alice-1\": no key-set status is available to this client: the check did not run (see the signature row)"),
         ];
 
         var checkedCases = 0;
@@ -640,20 +640,75 @@ public sealed class ScreenModelTests
         var screen = Screen.ForPassages([forged], new ScreenSize(80, 24), 0);
         Assert.True(screen.DrawsContent, $"all-Failed document at 80 by 24 is reported too small; it needs {screen.MinimumHeight}");
         Assert.Contains(screen.Rows, r => r.Text.StartsWith("#1 post ", StringComparison.Ordinal));
-        Assert.Contains(screen.Rows, r => r.Text.Contains("curia read", StringComparison.Ordinal) && r.Text.Contains("no content", StringComparison.Ordinal));
+        Assert.Contains(Logicals(screen.Rows), r => r.Contains("curia read", StringComparison.Ordinal) && r.Contains("no content", StringComparison.Ordinal));
         Assert.DoesNotContain(screen.Rows, r => r is ScreenRow.Content);
 
-        // The minimum is the chrome (6 rows), the tallest header and one row, not eight.
+        // The minimum is the chrome (6 rows), the tallest header and the wrapped no-content body (spec 14.8 item 3), not eight.
         var noContent = Screen.MinimumHeightFor([forged], 80);
         var rows = Screen.ForPassages([forged], new ScreenSize(80, noContent), 0).Rows.ToList();
-        var headerRows = rows.FindIndex(r => r.Text.StartsWith("no content is shown", StringComparison.Ordinal)) - rows.FindIndex(r => r.Text.StartsWith("#1 post ", StringComparison.Ordinal));
-        Assert.Equal(6 + headerRows + 1, noContent);
+        var bodyStart = rows.FindIndex(r => r.Text.StartsWith("no content is shown", StringComparison.Ordinal));
+        var headerRows = bodyStart - rows.FindIndex(r => r.Text.StartsWith("#1 post ", StringComparison.Ordinal));
+        var bodyRows = rows.Count - 1 - bodyStart; // the window ends at the minimum with the body, then the status row
+        Assert.True(bodyRows > 1, "the body did not wrap at 80 columns: the property is vacuous");
+        Assert.Equal(6 + headerRows + bodyRows, noContent);
         Assert.True(Screen.ForPassages([forged], new ScreenSize(80, noContent), 0).DrawsContent);
         Assert.False(Screen.ForPassages([forged], new ScreenSize(80, noContent - 1), 0).DrawsContent);
 
         // Where any passage draws content, eight rows are still needed.
         Assert.False(Screen.ForPassages([forged, verified], new ScreenSize(80, noContent), 0).DrawsContent);
         Assert.True(Screen.MinimumHeightFor([forged, verified], 80) >= noContent + Screen.MinimumContentRows - 1);
+    }
+
+    [Fact]
+    public void R10_75_TheNoContentRowIsWholeAtEveryWidth()
+    {
+        using var signer = new ScreenSigner("alice-key-01");
+        var donor = signer.Question("another", 5, 1);
+        var failed = ScreenSigner.Passage(signer.Question("t", 5, 0) with { Signature = donor.Signature, Parent = new string('P', 26) }, signer.Jwks("active"));
+        var unreachable = new Passage(
+            signer.Question("t", 5, 2),
+            SignatureCheck.Unreachable(signer.Question("t", 5, 2), new Refusal(RefusalKind.Transport, 0, new Error("t", "t", "t"))));
+        Assert.Equal(CheckOutcome.Failed, failed.Outcome);
+        Assert.Equal(CheckOutcome.CouldNotCheck, unreachable.Outcome);
+
+        var wrapped = 0;
+        var whole = 0;
+        foreach (var passage in new[] { failed, unreachable })
+        {
+            var id = passage.Post.PostId;
+            var command = Hints.Read(id).Text;
+            for (var width = Screen.MinimumWidth; width <= 200; width++)
+            {
+                var minimum = Screen.MinimumHeightFor([passage], width);
+                var screen = Screen.ForPassages([passage], new ScreenSize(width, minimum), 0);
+                Assert.True(screen.DrawsContent, $"width {width}: the reported minimum {minimum} did not draw");
+
+                var rows = screen.Rows.ToList();
+                var from = rows.FindIndex(r => r.Text.StartsWith("no content is shown", StringComparison.Ordinal));
+                Assert.True(from >= 0, $"width {width}: the no-content row was not drawn at its minimum");
+                var until = rows.FindIndex(from, r => r.Text.StartsWith("end of #", StringComparison.Ordinal) || r.Text.StartsWith("q quits", StringComparison.Ordinal) || r.Text.Contains("  q quits", StringComparison.Ordinal));
+                var body = rows.Skip(from).Take(until - from).Select(r => r.Text).ToList();
+
+                foreach (var row in screen.Rows) Assert.True(CellWidth.Of(row.Text) <= width, $"width {width}: a row of {CellWidth.Of(row.Text)} cells: {row.Text}");
+                if (body.Count > 1) wrapped++; else whole++;
+
+                // In full: the logical row, its continuations joined, is the sentence, and the command is in it.
+                var joined = body[0] + string.Concat(body.Skip(1).Select(r => " " + r[RowWrap.ContinuationPrefix.Length..]));
+                Assert.EndsWith(command, joined, StringComparison.Ordinal);
+
+                // The command on one row whenever one row can hold it; otherwise its characters in order across rows.
+                var commandRow = body.FirstOrDefault(r => r.EndsWith(command, StringComparison.Ordinal) && CellWidth.Of(r) <= width);
+                if (CellWidth.Of(command) + RowWrap.ContinuationPrefix.Length <= width)
+                    Assert.True(commandRow is not null, $"width {width}: the command is cut across rows: {string.Join(" / ", body)}");
+                else
+                    Assert.Equal(command.Replace(" ", string.Empty, StringComparison.Ordinal), string.Concat(body).Replace(RowWrap.ContinuationPrefix, string.Empty, StringComparison.Ordinal).Replace(" ", string.Empty, StringComparison.Ordinal)[^command.Replace(" ", string.Empty, StringComparison.Ordinal).Length..]);
+
+                // One row less is too small.
+                Assert.False(Screen.ForPassages([passage], new ScreenSize(width, minimum - 1), 0).DrawsContent, $"width {width}: {minimum - 1} rows drew");
+            }
+        }
+
+        Assert.True(wrapped > 0 && whole > 0, $"{wrapped} widths wrapped the body and {whole} did not: the property is vacuous");
     }
 
     [Fact]
@@ -710,8 +765,9 @@ public sealed class ScreenModelTests
         var unstated = PassageHeader.KeyRow(ScreenSigner.Passage(post, signer.Jwks()));
         var active = PassageHeader.KeyRow(ScreenSigner.Passage(post, signer.Jwks("active")));
 
-        Assert.Equal("key \"alice-1\": this client has no key set to state a status: the check did not run (see the signature row)", unread);
+        Assert.Equal("key \"alice-1\": no key-set status is available to this client: the check did not run (see the signature row)", unread);
         Assert.DoesNotContain("does not state a status", unread, StringComparison.Ordinal);
+        Assert.DoesNotContain("has no key set", unread, StringComparison.Ordinal);
         Assert.Equal(3, new[] { unread, unstated, active }.Distinct().Count());
 
         // A status present with the check not run (an unparseable server_ts after the key set was read) is written as any status.

@@ -617,3 +617,58 @@ offset it did not cover.
 - The help (`BrowseState.HelpLines`) gains: the compact header exists below a height and what it leaves out; the rank; and the
   residuals of 14.4 item 4.
 - The `curia` skill and `CLAUDE.md` are the owner's files; B6 records that they gain `browse` and exit 9 for it.
+
+### 14.8 Addendum after B4b (2026-10-17)
+
+B4b was implemented and measured: at 80 columns (36-character author, 26-character parent, 12-character kid) a verified,
+parented, active-key passage needs 23 rows compact and 26 full, a disputed one under a compromised key 27 and 30, a failed one
+15 and 18, a failed one under a compromised key 16 and 19; a verified post draws 9 content rows at 80 by 24. These supersede
+14.1's simulated 22, 25 and 26 (each simulation was one row short; the measurement governs, and a disputed post at exactly 80
+by 24 is still too small and says it needs 27).
+
+**1. `Screen.Settle` and the stuck `j`. Accept.** Offset 1 at a passage's first row snapped back to 0, so `j` never left the
+first header; that is a defect found by 14.3's fact, which is the fact doing its job. A row-scroll that hops the gap a window
+cannot start in (down to the body start, up to the passage start) is the right shape. Two conditions, because a hop is where
+a row can be skipped unseen: (a) a fact that a sequence of `j` alone from offset 0 reaches the last page with every Content
+row of every passage appearing in some window on the way (non-vacuity: a passage with a multi-row header), and a sequence of
+`k` alone returns to 0; (b) FB: `Settle` removed, so `j` sticks, red on (a).
+
+**2. `end of #k` at the End offset. Accept; MinimumContentRows stays 8.** R10.72 counts rows the header, warning and chrome
+leave "for" content, and that is the window's capacity, which stays at least 8 at every size above the minimum. At the last
+page one of those rows is the frame row that says the passage ended, which is the reader's own row and is meant to be seen.
+14.3's fact is restated: at the End offset the window holds **content rows plus the `end of #k` row** of at least
+`min(8, the last passage's content rows + 1)`. A content count of 8 at the minimum height would cost every minimum one row
+(and 80 by 24 verified would sit one row from failing) to guard a row that is not content.
+
+**3. The failed or unverifiable frame row. Require the change, in this PR.** One unwrapped row of about 160 characters is cut
+at 80 columns and the command it exists to give can be the part that is cut. A screen whose one instruction is unreadable at the
+default width is the defect R10.75's last sentence names for width, and it is the line form's only pointer for that post.
+Make it the reader's own rows: `RowWrap.Frame(text, width)`, so that a quoted literal is a single token (the post id inside
+`curia read '<id>'` is never cut across rows and the command is whole on one row unless it alone exceeds the width, in which
+case `RowWrap` keeps all of it across rows). Wording, one logical row, replacing the as-built sentence:
+
+`no content is shown: the signature did not verify (or: could not be checked), so nothing it would cover is shown (R10.71). The
+Forum's span, under its own failing line, is in: curia read '<id>'`
+
+(the two parenthesised alternatives are the as-built `outcome` choice; the id is written through `Hints.Read`). The minimum
+for a document with no drawable content becomes `chrome + tallestHeader + the tallest such wrapped body`, computed and not
+the constant 1 that 14.1 part 5 said (14.1 part 5 is amended to match); at 80 columns that is two or three rows. Facts:
+`…_TheNoContentRowIsWholeAtEveryWidth`: for widths 72 to 200, every row of the no-content body is at most the width, the
+command `curia read '<id>'` appears whole on one row whenever the width allows it (and its characters appear in order across
+rows otherwise), and the document at its reported minimum draws the body in full; non-vacuity: a width where it wraps and one
+where it does not. FB39: the body written as one unwrapped row, red on the fact.
+
+**4. The unread key set row. Accept as a recorded residual, and make the sentence true in both cases instead of adding a
+signal.** `CouldNotCheck` with a null status has two causes: the key set was never obtained (`SignatureCheck.Unreachable`), or
+it was read, named no status, and `server_ts` would not parse. Telling them apart needs a new member on `SignatureVerdict`
+(a type `curia-mcp` shares) for a case that needs the Forum to serve an unparseable `server_ts`; that is not this PR's.
+But the row must not claim what only one cause establishes. Change its wording to a statement true under both:
+`key <kid>: no key-set status is available to this client: the check did not run (see the signature row)`
+(`PassageHeader.NoKeySetSentence`). It says neither "has no key set" nor "does not state"; the signature row says why the
+check did not run. R10.74's clause stays "shown as not read and never as stating none"; the row shows a status that is not
+available, which is not "stating none". B6 records the residual: the row does not tell an unreachable key set from a read one
+that named no status when `server_ts` was unparseable, and the lever is a member on the verdict.
+
+**Addition beyond section 14: confirm.** `Help.cs`'s exit-9 entry gains the clause that a later refused load (4 or 5) ranks
+below 9, as 14.6 item 13 and R10.74 (amended) say. It must say it in the same words the screen's own help line uses, and
+`CLAUDE.md`'s statement of exit 9 gains it in B6.

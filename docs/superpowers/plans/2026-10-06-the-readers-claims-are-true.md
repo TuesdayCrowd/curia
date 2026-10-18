@@ -583,6 +583,8 @@ Gate: every command in `CLAUDE.md`'s list for the assemblies touched, `Curia.Arc
 | FB36 | quit-class events not cancelling an in-flight load | hung-load pty fact |
 | FB37 | the content rule reading `Outcome` in place of `SignatureOutcome` | span-mismatch-draws-canonical-form fact |
 | FB38 | a screen type added and not classified, reaching `ProfileStore` | fence-classification fact |
+| FB39 | the no-content body written as one unwrapped row (spec 14.8 item 3) | no-content-row-is-whole-at-every-width fact |
+| FB40 | `Screen.Settle` removed, so `j` sticks at a passage's first row (spec 14.8 item 1) | j-alone-reaches-the-last-page fact |
 
 *Amended 2026-10-17 after B4 (spec section 14).* Count: 29 cases as before, FB17 becomes three (net +2), plus FB29 to FB38: 41 cases, one of which (FB17b) is an expected
 survivor and is reported as such. Every case is applied to the final tree, the named fact seen red, the patch restored by a plain

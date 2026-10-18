@@ -327,8 +327,8 @@ internal static class Help
                  disputed: the line says 'disputed', not 'cite as-is' (D49). And from browse, which
                  exits with the worst outcome of every post it showed, ranked as the line form ranks
                  them, whatever the person did after seeing it (R10.74): 9 for a disputed post seen
-                 and then scrolled away from, and 6 or 8 above it; a load refused after
-                 the screen was up (4 or 5) ranks below it.
+                 and then scrolled away from, and 6 or 8 above it. The rank:
+                 6 a check did not hold, 8 it could not be run, 9 disputed, then 4 or 5 a load was refused, 0 otherwise.
 
             ENVIRONMENT
               CURIA_CLIENT_HOME  where keys, tokens and the retained tree head live

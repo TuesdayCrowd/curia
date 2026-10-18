@@ -246,6 +246,21 @@ public sealed class BrowseStateTests
     }
 
     [Fact]
+    public async Task R10_74_TheExitCodeHelpAndTheScreensHelpRankTheCodesInTheSameWords()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var state = new BrowseState(new CountingSource(Passages(Outcome.Verified)));
+        await state.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Thread, "root")), Size, ct);
+        await state.ApplyAsync(new BrowseTransition.ShowHelp(), Size, ct);
+
+        const string rank = "6 a check did not hold, 8 it could not be run, 9 disputed, then 4 or 5 a load was refused, 0 otherwise";
+        var screen = string.Join(' ', state.Render(new ScreenSize(400, 60)).Rows.Select(r => r.Text));
+        var entry = string.Join(' ', HelpTextTests.ExitCodeEntry(ExitCode.Disputed).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains(rank, screen, StringComparison.Ordinal);
+        Assert.Contains(rank, entry, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task R10_72_TabMovesToTheNextPassageAndWrapsToTheFirst()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -284,11 +299,10 @@ public sealed class BrowseStateTests
             Assert.Equal("end of #3", screen.Rows[^2].Text);
             Assert.Matches($@"^rows [0-9]+-{screen.DocumentRows} of {screen.DocumentRows}", screen.Status.Text);
 
-            // Eight rows of the last passage, or the whole of it when it is shorter. The eighth of those at the very smallest
-            // window is the passage's own `end of #3` row, which is the document's last: seven content rows and that one.
+            // Spec 14.8 item 2: the content rows plus the `end of #3` row reach min(8, the last passage's content rows + 1). The
+            // eighth row at the very smallest window is the passage's own end row, which is the reader's row and is meant to be seen.
             var content = screen.Rows.Count(r => r is ScreenRow.Content);
-            var lastWhole = screen.Rows.Any(r => r.Text.StartsWith("#3 post ", StringComparison.Ordinal) && !r.Text.Contains("(continued", StringComparison.Ordinal));
-            Assert.True(content + 1 >= Math.Min(8, sources[^1]) || lastWhole, $"height {height}: {content} content rows at End");
+            Assert.True(content + 1 >= Math.Min(8, sources[^1] + 1), $"height {height}: {content} content rows and the end row at End, {sources[^1]} in the last passage");
             if (content >= 8) eight++;
             if (screen.Rows.Length == height) shown++;
 
@@ -336,6 +350,73 @@ public sealed class BrowseStateTests
 
         Assert.Equal(0, back[^1]);
         Assert.Equal(back.Count, back.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task R10_72_AJAloneFromTheTopSeesEveryContentRowOnTheWayToTheLastPageAndAKAloneReturns()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        ImmutableArray<Passage> passages = [Tagged(30, 0), Passage(Outcome.Failed, 1), Tagged(12, 2), Tagged(1, 3)];
+        var multiRowHeaders = 0;
+        foreach (var size in new[] { new ScreenSize(80, 28), new ScreenSize(80, 30), new ScreenSize(100, 40) })
+        {
+            // Every content row of the document, by the passage it belongs to, from a window tall enough to show all of it.
+            var everything = Screen.ForPassages(passages, new ScreenSize(size.Width, 1000), 0);
+            var expected = Keyed(everything).ToHashSet(StringComparer.Ordinal);
+            Assert.True(expected.Count > 40, $"{expected.Count} content rows: the document is too short for the property");
+            multiRowHeaders += PassageHeaderRows(everything) > 1 ? 1 : 0;
+
+            var state = new BrowseState(new CountingSource(passages));
+            await state.ApplyAsync(new BrowseTransition.Open(new ViewSource(ViewKind.Thread, "root")), size, ct);
+            var last = state.Render(size).MaxOffset;
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var offsets = new List<int> { state.Render(size).Offset };
+            var hops = 0;
+            Collect(state.Render(size), seen);
+            for (var i = 0; i < 1000 && offsets[^1] < last; i++)
+            {
+                await state.ApplyAsync(new BrowseTransition.Scroll(1, Relative: true), size, ct);
+                var screen = state.Render(size);
+                if (screen.Offset - offsets[^1] > 1) hops++;
+                offsets.Add(screen.Offset);
+                Collect(screen, seen);
+            }
+
+            Assert.Equal(last, offsets[^1]);
+            Assert.True(hops > 0, "no j hopped a gap: the property is vacuous");
+            Assert.Empty(expected.Except(seen));
+
+            var back = new List<int> { offsets[^1] };
+            for (var i = 0; i < 1000 && back[^1] > 0; i++)
+            {
+                await state.ApplyAsync(new BrowseTransition.Scroll(-1, Relative: true), size, ct);
+                back.Add(state.Render(size).Offset);
+            }
+
+            Assert.Equal(0, back[^1]);
+        }
+
+        Assert.True(multiRowHeaders == 3, "a header was one row: the property is vacuous");
+
+        static void Collect(Screen screen, HashSet<string> seen)
+        {
+            foreach (var key in Keyed(screen)) seen.Add(key);
+        }
+
+        // A content row told apart by the passage it belongs to: the number in the last header row (pinned or not) above it.
+        static IEnumerable<string> Keyed(Screen screen)
+        {
+            var passage = "?";
+            foreach (var row in screen.Rows)
+            {
+                if (row is ScreenRow.Content c) yield return passage + ":" + c.Text;
+                else if (System.Text.RegularExpressions.Regex.Match(row.Text, @"^#([0-9]+) post ") is { Success: true } m) passage = m.Groups[1].Value;
+            }
+        }
+
+        static int PassageHeaderRows(Screen screen) =>
+            screen.Rows.ToList().FindIndex(r => r is ScreenRow.Content) - screen.Rows.ToList().FindIndex(r => r.Text.StartsWith("#1 post ", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -392,6 +473,21 @@ public sealed class BrowseStateTests
         post = post with
         {
             PostId = "01LONG" + index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Parent = "01PARENT",
+            Provenance = post.Provenance with { Author = "https://agents.example/alice" },
+            LogIndex = 7,
+        };
+        return new Passage(post, new SignatureVerdict(true, "alice-1", "recanonicalized bytes are byte-identical to the served canonical form", "ab", "sha256:ab", KeyStatus: "active"));
+    }
+
+    /// <summary>A parented, verified passage whose every content row begins with a tag no other passage's does.</summary>
+    private static Passage Tagged(int lines, int index)
+    {
+        var canonical = SpanCheckTests.Envelope(string.Join("\n", Enumerable.Range(0, lines).Select(i => "p" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) + "L" + i.ToString(System.Globalization.CultureInfo.InvariantCulture) + "x")));
+        var post = SpanCheckTests.Post(canonical, Datamarking.Render(canonical, MarkingMode.None), MarkingMode.None);
+        post = post with
+        {
+            PostId = "01TAGGED" + index.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Parent = "01PARENT",
             Provenance = post.Provenance with { Author = "https://agents.example/alice" },
             LogIndex = 7,

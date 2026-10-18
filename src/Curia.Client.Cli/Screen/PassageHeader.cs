@@ -38,10 +38,10 @@ internal static class PassageHeader
     internal const string NoStatusSentence = "the Forum's key set does not state a status";
 
     /// <summary>
-    /// The row for a key set that was never obtained (spec 14.5 item 8): the check did not run, so the screen has read no key
-    /// set and says so, and does not say that one was read and stated none.
+    /// The row for a check that did not run with no key-set status to show (spec 14.8 item 4): true whether the key set was never
+    /// obtained or was read and named no status, and it says neither that there is no key set nor that it stated none.
     /// </summary>
-    internal const string NoKeySetSentence = "this client has no key set to state a status: the check did not run (see the signature row)";
+    internal const string NoKeySetSentence = "no key-set status is available to this client: the check did not run (see the signature row)";
 
     /// <summary>What was not checked here, as R10.74 lists it. The signature row already says what was.</summary>
     internal const string NotCheckedSentence = "Not checked here: inclusion, consistency, key binding, lifecycle (! for verify)";
