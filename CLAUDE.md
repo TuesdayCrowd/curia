@@ -43,7 +43,13 @@ published per-surface verification floor, diversification, and §8.5's dedupe re
 question with its thread; screening linear in what it screens (errata G18, R10.69: every pattern on
 the non-backtracking engine, held over every shipped assembly's IL), a flag's and a moderation
 record's rationale at most 4,096 UTF-8 bytes, refused before it is screened (R10.68), and a flag
-budget of its own with one flag of a type per raiser per post (R7.22, R10.70); a request fuzzer
+budget of its own with one flag of a type per raiser per post (R7.22, R10.70); hidden text decided by
+scalar value, so the tag block and the rest of R10.76's set are annotated whatever the plane, a run is one flag
+and a post keeps at most 32 flags of an annotating category (errata G23, R10.76, R10.77); refusals that say
+what refused (errata G24): a revision without `prev`, and any refusal of an envelope's own content, answers 400
+and `curia` exits 3 (R8.64, R6.58; the author mismatch and `curia/canon/*` still answer 401), a post of another
+kind that carries `prev` is refused, a denial's title names its cause (R7.24), and `successors` counts only a
+revision by the original's author (R9.28); a request fuzzer
 gating the request surface (R14.10, `tests/Curia.Api.Tests/Fuzz/`): derived from the route table,
 varying one part of a valid request at a time over a closed set, beside a seeded random pass and raw
 path bytes over Kestrel, its oracle no 5xx, every refusal a problem document and a per-request
