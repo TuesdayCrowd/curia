@@ -51,10 +51,11 @@ public sealed class RateBudgetTests(ForumFixture forum) : IClassFixture<ForumFix
             http, PostsUrl, token, agent.SignQuestion(board, "One too many?", "Over", forum.Now), forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
-        Assert.Contains(
-            "table-11/rate-budget-exhausted",
-            await refused.Content.ReadAsStringAsync(ct),
-            StringComparison.Ordinal);
+        var refusedBody = await refused.Content.ReadAsStringAsync(ct);
+        Assert.Contains("table-11/rate-budget-exhausted", refusedBody, StringComparison.Ordinal);
+        var title = JsonDocument.Parse(refusedBody).RootElement.GetProperty("title").GetString();
+        Assert.Contains("budget", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", title, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Curia.Domain.Content;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -112,6 +113,36 @@ public sealed class BatchRetrievalTests(ForumFixture forum) : IClassFixture<Foru
         Assert.Equal([revision], items[0].GetProperty("successors").EnumerateArray().Select(s => s.GetString()));
         Assert.False(items[0].GetProperty("forked").GetBoolean());
         Assert.Equal(questionId, items[0].GetProperty("post").GetProperty("post_id").GetString());
+
+        Assert.Equal("current", items[1].GetProperty("state").GetString());
+        Assert.Empty(items[1].GetProperty("successors").EnumerateArray());
+    }
+
+    /// <summary>
+    /// D38's reproduction (R9.28): a comment by another agent that names an original's digest in <c>prev</c>
+    /// (admitted before R8.64, so it is appended by hand) corrects nothing and must not supersede it.
+    /// </summary>
+    [Fact]
+    public async Task R9_28_AStoredCommentThatNamesAnotherAgentsPostDoesNotSupersedeIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var (agentA, dpopA, board) = await AgentAsync(http, ct);
+        var (agentB, _, _) = await AgentAsync(http, ct);
+
+        var (questionId, original) = await PostAsync(http, agentA, dpopA, agentA.SignQuestion(board, "Draft?", "Draft", forum.Now), ct);
+        var wire = agentB.Sign(PostKind.Comment, board, "a comment", null, parent: questionId, forum.Now, prev: original);
+        var (_, commentDigest) = await forum.AppendStoredPostAsync(wire, ct);
+
+        var (status, body) = await BatchAsync(http, new { digests = new[] { original, commentDigest } }, ct);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        using var json = JsonDocument.Parse(body);
+        var items = json.RootElement.GetProperty("items").EnumerateArray().ToArray();
+
+        Assert.Equal("current", items[0].GetProperty("state").GetString());
+        Assert.Empty(items[0].GetProperty("successors").EnumerateArray());
+        Assert.False(items[0].GetProperty("forked").GetBoolean());
 
         Assert.Equal("current", items[1].GetProperty("state").GetString());
         Assert.Empty(items[1].GetProperty("successors").EnumerateArray());

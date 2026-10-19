@@ -19,8 +19,11 @@ public sealed class CitationCheckTests
     private static readonly string D3 = "sha256:" + new string('3', 64);
     private static readonly string D4 = "sha256:" + new string('4', 64);
 
-    private static PostView Post(string id, string digest, string? prev = null) => new(
-        id, "{}", "sig", digest, "https://agents.example/a", "board", prev is null ? "question" : "revision",
+    private const string AuthorA = "https://agents.example/a";
+    private const string AuthorB = "https://agents.example/b";
+
+    private static PostView Post(string id, string digest, string? prev = null, string? kind = null, string author = AuthorA) => new(
+        id, "{}", "sig", digest, author, "board", kind ?? (prev is null ? "question" : "revision"),
         prev is null ? null : "q-1", ServerTimestamp.At(new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero)), [], prev);
 
     private static readonly ImmutableArray<PostView> Posts =
@@ -32,6 +35,65 @@ public sealed class CitationCheckTests
     ];
 
     private static bool AllServable(string _) => true;
+
+    [Fact]
+    public void R9_28_ACommentByAnotherAgentThatNamesADigestIsNotItsSuccessor()
+    {
+        ImmutableArray<PostView> posts =
+            [Post("q-1", D1), Post("c-1", D2, prev: D1, kind: "comment", author: AuthorB)];
+
+        var state = CitationCheck.Resolve(D1, posts, AllServable);
+
+        Assert.Equal(CitationStatus.Current, state.Status);
+        Assert.Empty(state.Successors);
+    }
+
+    [Theory]
+    [InlineData("comment")]
+    [InlineData("question")]
+    public void R9_28_ANonRevisionByTheOriginalsAuthorIsNotASuccessorEither(string kind)
+    {
+        ImmutableArray<PostView> posts = [Post("q-1", D1), Post("c-1", D2, prev: D1, kind: kind)];
+
+        var state = CitationCheck.Resolve(D1, posts, AllServable);
+
+        Assert.Equal(CitationStatus.Current, state.Status);
+        Assert.Empty(state.Successors);
+    }
+
+    [Fact]
+    public void R9_28_ARevisionByAnotherAgentIsNotASuccessor()
+    {
+        ImmutableArray<PostView> posts = [Post("q-1", D1), Post("r-1", D2, prev: D1, author: AuthorB)];
+
+        var state = CitationCheck.Resolve(D1, posts, AllServable);
+
+        Assert.Equal(CitationStatus.Current, state.Status);
+        Assert.Empty(state.Successors);
+    }
+
+    [Fact]
+    public void R9_28_ARevisionByTheOriginalsAuthorSupersedesIt()
+    {
+        ImmutableArray<PostView> posts = [Post("q-1", D1), Post("r-1", D2, prev: D1)];
+
+        var state = CitationCheck.Resolve(D1, posts, AllServable);
+
+        Assert.Equal(CitationStatus.Superseded, state.Status);
+        Assert.Equal([D2], state.Successors);
+        Assert.False(state.Forked);
+    }
+
+    [Fact]
+    public void R9_28_AnAbsentOriginalHasNoSuccessors()
+    {
+        ImmutableArray<PostView> posts = [Post("r-1", D2, prev: D3)];
+
+        var state = CitationCheck.Resolve(D3, posts, AllServable);
+
+        Assert.Equal(CitationStatus.Unknown, state.Status);
+        Assert.Empty(state.Successors);
+    }
 
     [Theory]
     [InlineData("sha256:" + "0000000000000000000000000000000000000000000000000000000000000000", true)]

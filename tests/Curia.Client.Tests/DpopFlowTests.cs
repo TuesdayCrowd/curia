@@ -581,6 +581,28 @@ public sealed class DpopFlowTests : IDisposable
     }
 
     /// <summary>
+    /// D37: the inbox summary said "3 open, 1 yours, 1 already answered" and so read as if 3 were what was left;
+    /// the three counts are the open set before exclusions, and the summary now says so and how many are listed.
+    /// </summary>
+    [Fact]
+    public async Task D37_TheInboxSummaryCountsOpenBeforeExclusionsAndSaysHowManyAreListed()
+    {
+        using var handler = new ScriptedHandler();
+        using var http = new HttpClient(handler) { BaseAddress = Forum };
+        var session = new ForumSession(new ForumClient(http, Forum), _agent, _store, TimeProvider.System);
+        var read = await session.InboxAsync(new InboxRequest { Board = "canon" }, MarkingMode.None, CancellationToken.None);
+        Assert.True(read.TryGetValue(out var inbox, out var refusal), refusal?.Error.Type);
+
+        var summary = Curia.Client.Cli.Program.Summary(inbox!).ToString();
+
+        Assert.Contains("3 open before exclusions", summary, StringComparison.Ordinal);
+        Assert.Contains("1 yours", summary, StringComparison.Ordinal);
+        Assert.Contains("1 already answered by you", summary, StringComparison.Ordinal);
+        Assert.Contains("1 listed", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("3 open,", summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// R10.66 meets R9.26: the Forum's <c>tags</c> filter is comma-separated and trimmed, so a tag
     /// holding a comma, or beginning or ending with white space, or empty, would be read as other
     /// tags. The client refuses such a search before sending anything, rather than be shown results

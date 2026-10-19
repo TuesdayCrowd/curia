@@ -720,9 +720,9 @@ internal static class Program
         }
     }
 
-    /// <summary>What the inbox left out, in the agent's own terms: three counts, and nothing served.</summary>
-    private static FrameText Summary(InboxPage inbox) =>
-        $"{inbox.OpenBeforeExclusions} open, {inbox.ExcludedAsOwn} yours, {inbox.ExcludedAsAlreadyAnswered} already answered by you.";
+    /// <summary>What the inbox left out, in the agent's own terms: the open set before exclusions, two counts of it, and how many are listed.</summary>
+    internal static FrameText Summary(InboxPage inbox) =>
+        $"{inbox.OpenBeforeExclusions} open before exclusions, of which {inbox.ExcludedAsOwn} yours and {inbox.ExcludedAsAlreadyAnswered} already answered by you; {inbox.Results.Length} listed.";
 
     /// <summary>
     /// Table 10's <c>answer</c>/<c>accept</c>: <c>curia resolve &lt;answer-id&gt;</c>.
@@ -1372,6 +1372,7 @@ internal static class Program
         if (!read.TryGetValue(out var keySet, out var refusal)) return Output.Fail(refusal);
 
         var frame = new FrameBuilder();
+        frame.Line("these lines are the Forum's word: its key set as served; only a signed head, checked by curia verify, anchors a key's binding");
         foreach (var key in keySet.Keys.OrderBy(k => k.LogIndex ?? long.MaxValue).ThenBy(k => k.Kid, StringComparer.Ordinal))
         {
             // The status is the Forum's word: its own four are written as they are, and any other is quoted.
@@ -1394,7 +1395,7 @@ internal static class Program
         if (foreign.Count > 0) Output.Frame(ForeignLines(foreign));
 
         if (keySet.EnabledKinds is { } enabled)
-            Output.Line($"lifecycle kinds this Forum enables: {(enabled.IsEmpty ? new OwnText("none") : Literals(enabled))}");
+            Output.Line($"lifecycle kinds this Forum enables: {(enabled.IsEmpty ? new OwnText("none (every lifecycle kind is guarded until the owner lifts the guard, R4.38)") : Literals(enabled))}");
         else
             Output.Line("lifecycle kinds this Forum enables: its key set does not say");
 

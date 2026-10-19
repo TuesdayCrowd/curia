@@ -740,7 +740,7 @@ public static class ForumEndpoints
         if (!d.IsAllowed)
             return Problem(
                 StatusCodes.Status403Forbidden,
-                new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
+                Denial(d, $"{d.Reason} tier={tier.Tier}"));
 
         // R8.58 / R8.4 (errata G8): a vote or verification names a target, and the pair (submitter,
         // target) is decided in the domain before anything is written. Here rather than in VERIFY
@@ -907,7 +907,7 @@ public static class ForumEndpoints
             if (!d!.IsAllowed)
                 return Problem(
                     StatusCodes.Status403Forbidden,
-                    new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
+                    Denial(d, $"{d.Reason} tier={tier.Tier}"));
 
             // R11.34 (errata G18): the post id and the rationale reach RaiseFlag as the types it takes,
             // parsed at their first use, after authorization. Each parse outcome is passed rather than
@@ -993,8 +993,7 @@ public static class ForumEndpoints
         var decision = ok.Decision.Discharge(satisfied: true);
 
         if (!decision.IsAllowed)
-            return Problem(StatusCodes.Status403Forbidden, new Error(
-                "curia/authz/denied", "Not permitted at this trust tier", decision.Reason));
+            return Problem(StatusCodes.Status403Forbidden, Denial(decision, decision.Reason));
 
         return Results.Ok(new FlagListResponse(Summarise(mine)));
     }
@@ -1036,10 +1035,7 @@ public static class ForumEndpoints
             string.Equals(post.Author, ok.Subject, StringComparison.Ordinal));
 
         if (!decision.IsAllowed)
-            return Problem(StatusCodes.Status403Forbidden, new Error(
-                "curia/authz/denied",
-                "Not permitted at this trust tier",
-                $"{decision.Reason} post={postId}"));
+            return Problem(StatusCodes.Status403Forbidden, Denial(decision, $"{decision.Reason} post={postId}"));
 
         var (all, detailProblem) = await FlagsAsync(ok.Log, details, cancellationToken).ConfigureAwait(false);
         if (detailProblem is not null) return detailProblem;
@@ -1107,8 +1103,7 @@ public static class ForumEndpoints
             return (null, Problem(StatusCodes.Status403Forbidden, decisionError!));
 
         if (!d!.IsPermitted)
-            return (null, Problem(StatusCodes.Status403Forbidden, new Error(
-                "curia/authz/denied", "Not permitted at this trust tier", d.Reason)));
+            return (null, Problem(StatusCodes.Status403Forbidden, Denial(d, d.Reason)));
 
         return (new FlagListContext(subject, log, d), null);
     }
@@ -1559,7 +1554,7 @@ public static class ForumEndpoints
         if (!d.IsAllowed)
             return Problem(
                 StatusCodes.Status403Forbidden,
-                new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}"));
+                Denial(d, $"{d.Reason} tier={tier.Tier}"));
 
         // The thread root is a post the log holds, whose id the Forum minted as a PostId; the type has
         // no other constructor, so it is rebuilt through Parse, and one that no longer parsed would be
@@ -1901,8 +1896,7 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status403Forbidden, decisionError!);
 
         if (!d!.IsAllowed)
-            return Problem(StatusCodes.Status403Forbidden, new Error(
-                "curia/authz/denied", "Not permitted at this trust tier", d.Reason));
+            return Problem(StatusCodes.Status403Forbidden, Denial(d, d.Reason));
 
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
@@ -2372,6 +2366,10 @@ public static class ForumEndpoints
             ? new ServerFault(status, error)
             : Results.Json(new Problem(error.Type, error.Title, error.Detail), statusCode: status);
 
+    /// <summary>R7.24 (errata G24): a denial whose title is chosen from the decision's reason, never written at the site.</summary>
+    private static Error Denial(AuthorizationDecision decision, string detail) =>
+        new("curia/authz/denied", decision.Title, detail);
+
     private static readonly Error MalformedPath = new("curia/request/malformed-path", "The request path is malformed");
 
     /// <summary>
@@ -2689,7 +2687,7 @@ public static class ForumEndpoints
             ? (agent, null)
             : (null, Problem(
                 StatusCodes.Status403Forbidden,
-                new Error("curia/authz/denied", "Not permitted at this trust tier", $"{d.Reason} tier={tier.Tier}")));
+                Denial(d, $"{d.Reason} tier={tier.Tier}")));
     }
 
     /// <summary>
@@ -2777,5 +2775,5 @@ public static class ForumEndpoints
     private static Result<AgentId> PrincipalOf(string subject) =>
         AgentId.Parse(subject, "sub").Match(
             Result<AgentId>.Ok,
-            _ => Result<AgentId>.Fail(new Error("curia/authz/denied", "Not permitted at this trust tier", "the token's subject names no agent")));
+            _ => Result<AgentId>.Fail(new Error("curia/authz/denied", AccessPolicy.TitleFor(null), "the token's subject names no agent")));
 }

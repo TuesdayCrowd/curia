@@ -96,10 +96,11 @@ public sealed class RevisionOwnershipTests(ForumFixture forum) : IClassFixture<F
             stranger.SignRevision(board, "a hostile body", postId, digest, forum.Now), forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Contains(
-            "own-resource-only",
-            await response.Content.ReadAsStringAsync(ct),
-            StringComparison.OrdinalIgnoreCase);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        Assert.Contains("own-resource-only", body, StringComparison.OrdinalIgnoreCase);
+        var title = JsonDocument.Parse(body).RootElement.GetProperty("title").GetString();
+        Assert.Contains("does not exist", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", title, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -147,6 +148,10 @@ public sealed class RevisionOwnershipTests(ForumFixture forum) : IClassFixture<F
             forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Contains("own-resource-only", await response.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        Assert.Contains("own-resource-only", body, StringComparison.Ordinal);
+        var title = JsonDocument.Parse(body).RootElement.GetProperty("title").GetString();
+        Assert.Contains("does not exist", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", title, StringComparison.Ordinal);
     }
 }

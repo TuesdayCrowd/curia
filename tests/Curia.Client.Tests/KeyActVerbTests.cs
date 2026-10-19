@@ -73,6 +73,34 @@ public sealed class KeyActVerbTests
     }
 
     [Fact]
+    public async Task D37_KeysSaysWhoseWordItPrintsAndWhatAnchorsIt()
+    {
+        using var rig = KeyActRig.Create();
+        await RotatedAsync(rig);
+
+        var (_, stdout, _) = await KeyActRig.CaptureAsync(() => Program.ShowKeysAsync(rig.Client, rig.Profile(), Ct));
+
+        var lines = stdout.Split('\n');
+        var word = Array.FindIndex(lines, l => l.Contains("the Forum's word", StringComparison.Ordinal));
+        Assert.True(word >= 0, "no line says the key set is the Forum's word");
+        Assert.Contains("curia verify", lines[word], StringComparison.Ordinal);
+        Assert.True(word < Array.FindIndex(lines, l => l.StartsWith("key ", StringComparison.Ordinal)), "the line comes after the first key line");
+    }
+
+    [Fact]
+    public async Task D37_NoneEnabledKindsNamesTheLifecycleGuard()
+    {
+        using var rig = KeyActRig.Create();
+        rig.Double.KeySet = KeyActDouble.KeySetJson([Key("a-0000abcd", 1)], [0, 1], enabled: []);
+
+        var (_, stdout, _) = await KeyActRig.CaptureAsync(() => Program.ShowKeysAsync(rig.Client, rig.Profile(), Ct));
+
+        Assert.Contains(
+            "lifecycle kinds this Forum enables: none (every lifecycle kind is guarded until the owner lifts the guard, R4.38)",
+            stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task R4_39_KeysReportsAForeignRotation()
     {
         using var rig = KeyActRig.Create();

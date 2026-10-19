@@ -3,6 +3,8 @@ using Curia.Application.Credentials;
 using Curia.Application.Moderation;
 using Curia.Application.Ports;
 using Curia.Application.Projections;
+using Curia.Canon;
+using Curia.Canon.Canonical;
 using Curia.Canon.Json;
 using Curia.Canon.Jws;
 using Curia.Domain;
@@ -128,6 +130,56 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
             Rationale.Parse("withheld by the test fixture"),
             Require(ActorId.Create("operator:fixture")),
             ct));
+    }
+
+    /// <summary>
+    /// Appends a <c>post.accepted</c> for <paramref name="wire"/> directly to the host's event store, with
+    /// the members <c>IngestPipeline.PersistAsync</c> writes, and not through the pipeline: the shape of a
+    /// post accepted before R8.64, the one way to put a <c>prev</c> on a comment in the log now.
+    /// </summary>
+    internal async Task<(string PostId, string Digest)> AppendStoredPostAsync(byte[] wire, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        var submission = (JsonValue.Object)Require(JsonReader.ParseUnrestricted(wire));
+        JsonValue Member(JsonValue.Object o, string name) => o.Members.First(m => m.Key == name).Value;
+        var envelope = (JsonValue.Object)Member(submission, "envelope");
+        var signature = ((JsonValue.String)Member(submission, "signature")).Value;
+        string Text(string name) => ((JsonValue.String)Member(envelope, name)).Value;
+
+        var canonicalBytes = Require(CanonicalJson.CanonicalizeWithNfc(envelope));
+        var canonical = canonicalBytes.ToArray();
+        var digest = Digests.Sha256(canonicalBytes).ToPrefixed();
+        var postId = Require(new UlidGenerator(Clock).Next()).ToString();
+        var author = Text("author");
+
+        var payload = new JsonValue.Object(
+        [
+            new("post_id", new JsonValue.String(postId)),
+            new("canonical", new JsonValue.String(System.Text.Encoding.UTF8.GetString(canonical))),
+            new("signature", new JsonValue.String(signature)),
+            new("digest", new JsonValue.String(digest)),
+            new("author", new JsonValue.String(author)),
+            new("board", new JsonValue.String(Text("board"))),
+            new("kind", new JsonValue.String(Text("kind"))),
+            new("parent", envelope.Members.Any(m => m.Key == "parent") ? Member(envelope, "parent") : new JsonValue.Null()),
+            new("server_ts", new JsonValue.String(Now.ToUniversalTime().ToString("o", System.Globalization.CultureInfo.InvariantCulture))),
+            new("risk_flags", new JsonValue.Array([])),
+        ]);
+
+        using var scope = Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IEventStore>();
+        Require(await store.AppendAsync(
+            Require(AggregateId.Create(postId)),
+            AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create(postId)),
+                Require(EventType.Create("post.accepted")),
+                Require(ActorId.Create(author)),
+                payload)],
+            ct));
+        return (postId, digest);
     }
 
     /// <summary>

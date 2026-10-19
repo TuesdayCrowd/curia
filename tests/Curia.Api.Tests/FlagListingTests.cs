@@ -208,6 +208,9 @@ public sealed class FlagListingTests(ForumFixture forum) : IClassFixture<ForumFi
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Contains("table-10/own-resource-only", body, StringComparison.Ordinal);
+        var title = JsonDocument.Parse(body).RootElement.GetProperty("title").GetString();
+        Assert.Contains("does not exist", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", title, StringComparison.Ordinal);
     }
 
     /// <summary>A post that does not exist is a 404, decided before the ownership question.</summary>

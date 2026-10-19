@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.RegularExpressions;
 using Curia.Domain.Authorization;
 using Curia.Domain.Credentials;
 using Xunit;
@@ -30,6 +31,107 @@ public sealed class AccessPolicyTests
     {
         Assert.True(AccessPolicy.Decide(request).TryGetValue(out var decision, out var error), error?.Type);
         return decision!;
+    }
+
+    private const string TierTitle = "Not permitted at this trust tier";
+
+    /// <summary>
+    /// Every denial reason the PDP can give, observed by driving it rather than read from a list: every
+    /// modelled pair, tier and credential state, the budgets at their edges, and each qualifier left
+    /// undischarged.
+    /// </summary>
+    private static HashSet<string> ObservedDenialReasons()
+    {
+        var reasons = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (resource, action) in ResourceActionModel.ModelledPairs)
+        foreach (var tier in Enum.GetValues<PrincipalTier>())
+        foreach (var state in Enum.GetValues<CredentialState>())
+        {
+            var posts = new[] { 0, TierPolicy.PostsPerDay(tier), int.MaxValue };
+            var flags = new int?[] { 0, TierPolicy.FlagsPerDay(tier) };
+            foreach (var postsToday in posts)
+            foreach (var flagsToday in flags)
+            {
+                if (!AccessPolicy.Decide(Request(tier, resource, action, state, postsToday, flagsToday))
+                        .TryGetValue(out var decision, out _))
+                    continue;
+
+                if (decision!.Effect is DecisionEffect.Deny)
+                    reasons.Add(decision.Reason);
+                else if (decision.Qualifier is not GrantQualifier.None)
+                    reasons.Add(decision.Discharge(false).Reason);
+            }
+        }
+
+        return reasons;
+    }
+
+    [Fact]
+    public void R7_24_EveryDeniedReasonAPdpCanGiveHasItsOwnTitle()
+    {
+        var reasons = ObservedDenialReasons();
+
+        Assert.NotEmpty(reasons);
+        var titles = reasons.Select(AccessPolicy.TitleFor).ToArray();
+        Assert.DoesNotContain(AccessPolicy.NeutralDenialTitle, titles);
+        Assert.Equal(titles.Length, titles.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void R7_24_OnlyTheTierDenialIsTitledAsTheTier()
+    {
+        foreach (var reason in ObservedDenialReasons().Where(r => r != "table-10/denied"))
+            Assert.DoesNotContain("trust tier", AccessPolicy.TitleFor(reason), StringComparison.Ordinal);
+
+        Assert.Contains("trust tier", AccessPolicy.TitleFor("table-10/denied"), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("table-99/unheard-of")]
+    public void R7_24_AnUnknownOrAbsentReasonTakesTheNeutralTitle(string? reason)
+    {
+        Assert.Equal(AccessPolicy.NeutralDenialTitle, AccessPolicy.TitleFor(reason));
+        Assert.DoesNotContain("trust tier", AccessPolicy.NeutralDenialTitle, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void R7_24_TheCausesTheErrataListsAreTheReasonsThePdpGives()
+    {
+        var errata = File.ReadAllText(FindAbove("curia-whitepaper-ERRATA-AND-ADDENDUM.md"));
+        var start = errata.IndexOf("**R7.24**", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the errata no longer define R7.24");
+        var paragraph = errata[start..].Split("\n\n")[0].Replace('\n', ' ');
+        var marker = "SHALL name its cause:";
+        var at = paragraph.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(at >= 0, "R7.24 no longer reads 'SHALL name its cause:'");
+        var list = paragraph[(at + marker.Length)..];
+        list = list[..list.IndexOf(". ", StringComparison.Ordinal)];
+        list = Regex.Replace(list, @"\s*\(R7\.22\)", "");
+        var causes = list.Split([", ", " or "], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        Assert.Equal(7, causes.Length);
+        Assert.Equal(causes.Length, ObservedDenialReasons().Count);
+    }
+
+    [Fact]
+    public void R7_24_NoApiSiteWritesTheTierTitleAsALiteral()
+    {
+        var endpoints = File.ReadAllText(FindAbove(Path.Combine("src", "Curia.Api", "ForumEndpoints.cs")));
+
+        Assert.DoesNotContain(TierTitle, endpoints, StringComparison.Ordinal);
+    }
+
+    private static string FindAbove(string relative)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, relative)))
+            dir = dir.Parent;
+        return dir is null
+            ? throw new InvalidOperationException($"{relative} not found above {AppContext.BaseDirectory}")
+            : Path.Combine(dir.FullName, relative);
     }
 
     /// <summary>
