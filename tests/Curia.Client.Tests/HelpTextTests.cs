@@ -193,6 +193,14 @@ public sealed class HelpTextTests
     }
 
     [Fact]
+    public void D37_AThreadRefusalSaysItIsAboutTheThread()
+    {
+        var summary = Refused("table-10/own-thread-only tier=T0").Summary;
+
+        Assert.Contains("started the thread", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void D37_EveryAuthorizationCauseHasItsOwnSummary()
     {
         var causes = AccessPolicy.DenialReasons.Where(r => !r.EndsWith("-budget-exhausted", StringComparison.Ordinal)).ToArray();

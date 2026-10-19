@@ -13,8 +13,9 @@ set; SP scores recorded even if not yet weighted.*
 > ## Current work — where it stands (2026-10-18, at cd75462)
 >
 > **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** D35 (`hidden-beyond-bmp`) is
-> merged; no branch is open. The register keeps the history (its "Observed during" sections, D45 to D49, G21 PR 0.5
-> and PR 2); this block says only where things stand.
+> merged. **The refusals stage (errata G24) is built and is this PR**, opened from `refusals-tell-the-truth`; no other branch
+> is open. The register keeps the history (its "Observed during" sections, D45 to D51, G21 PR 0.5 and PR 2); this block says
+> only where things stand.
 >
 > **Merged:**
 >
@@ -36,6 +37,7 @@ set; SP scores recorded even if not yet weighted.*
 > | #101 | `curia browse` lays a document out once per load and size, not on every key (78a58d3; found by a Linux CI timeout, run 39095722362); recorded under "Observed during TUI PR B", item 19 |
 > | #102 | `BrowseHostileAnswerTests`: the hostile marker is `HZ~`, which no id can hold |
 > | #103 | D35: SCREEN decides hidden by scalar value; one flag per run, at most 32 per category (errata G23, R10.76 to R10.78); D32's amplification half closed |
+> | this PR | Refusals tell the truth (errata G24): a revision needs `prev` and no other kind carries one, and a refusal of an envelope's own content is a 400 (R8.64, R6.58; D48 item (3), D38's ingest half); a successor is a revision by the original's author (R9.28; D38's projection half); a denial's title names its cause (R7.24); the client's refusal, keys and inbox text are true (D37's reopened items). Opens D50 and D51 |
 >
 > **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
 > lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
@@ -57,15 +59,17 @@ set; SP scores recorded even if not yet weighted.*
 >   `references/cli.md`.
 > - **Review `CLAUDE.md`'s edits** by PRs #96 and #99 (exit 9 now naming `recheck`; `curia browse`; "revocation" read as
 >   retirement or a declaration); it is the owner's file.
+> - **`CLAUDE.md`'s "What works today"** gains one sentence from this PR, the owner's to add: a revision without `prev`, and
+>   any refusal of an envelope's own content, answer 400 (`curia` exits 3); a post of another kind that carries `prev` is
+>   refused; a denial's title names its cause; `successors` counts only a revision by the original's author.
 >
-> **Next: the refusals stage (errata G24, R6.58, R7.24, R8.64, R9.28), not started.** D48 item (3) was not the owner's: Table 12
-> already requires `prev` of a revision, so a revision without it is a 400 `curia/content/prev-required` (G24, decision 1). The
-> stage closes it with D38 (`prev` only on a revision, and `successors` only from the original's author), the status of a VERIFY
-> schema refusal (401 today, 400 after: found while ruling D48 item (3), read and not run), the budget, ownership and quarantine
-> refusals' titles, and D37's reopened client text (the authorization summary, `curia keys`, the inbox count). It edits no
-> workflow file, so it is not path-gated. Spec `docs/superpowers/specs/2026-10-18-refusals-tell-the-truth-design.md`, plan
-> `docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`, both to be written. D39, D40, D41 to D43, D46, `--board` on
-> replies and `--refs` stay open as the register has them.
+> **Next stage: to be chosen by `curia-architect`.** The refusals stage's spec is
+> `docs/superpowers/specs/2026-10-18-refusals-tell-the-truth-design.md` and its plan
+> `docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`; its falsification record (27 cases, none left green) is
+> under "Observed during the refusals stage". Opened by it: **D50** (its main item closed; the `curia/canon/*` 401s and the
+> author mismatch's 401 left open) and **D51** (`curia-mcp` prints every authorization refusal as a tier refusal). Still open as
+> the register has them: D39, D40, D41 to D43, D46, `--refs` on `answer` and `comment`, `--board` on replies, and `--agent` on
+> `verify` and `contract`.
 > Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
 > recorded in errata G21, spec §4.13 and the register.
 >
@@ -462,22 +466,23 @@ stage, and D30 in its final wave; D25 and D31 by the strangers stage (2026-09-27
 fifteen instances it names and not for their class, which is D33; D32 and D34 by the
 one-part-at-a-time stage's PR A (2026-10-09), and D33 by its PR B (2026-10-10); D29 by the rotation
 stage's PR 0 (2026-10-12, its merge pending); D44 (2026-10-13, PR #91) and D47 (2026-10-17), two
-test-harness flakes, each by its own change; D49 and D45 by their own changes (2026-10-17; D45's one errata annotation is owed). Their entries are
+test-harness flakes, each by its own change; D49 and D45 by their own changes (2026-10-17; D45's one errata annotation is owed); D38 and
+D48 (its item (3), the last open one), and D37's reopened items, by the refusals stage (2026-10-18; D37 keeps `--refs`). Their entries are
 kept as the record
 of what was wrong; their file:line citations point at the pre-fix files and mostly no longer resolve
 (D1's `:40`, D2's `:261`, D3's `:262`, D5's `:29-31` all land elsewhere today). **Read those as
 history, not as pointers.**
 **Open:** D4 and D6 (specification work for the next errata pass); D7 (the Registrar increment); D8
 (opened by Stage 4); D10, D11 and D12 (opened by Stage 5); D13 and D14 (opened by the MCP plan's
-Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D35, D36
-and D37 (opened by the five-agent exercise, 2026-10-06; D37's client half closed by the reader
-stage's PR A, 2026-10-11); D38 and D39 (opened by the
-one-part-at-a-time stage's PR B, 2026-10-10); D40 (opened by `curia-architect`
+Stages 1 and 2); D18 (opened by the MCP plan's Stage 4); D36
+and D37 (opened by the five-agent exercise, 2026-10-06, with D35, which #103 closed on 2026-10-18; D37's client half closed by the reader
+stage's PR A, 2026-10-11; its 2026-10-17 reopened items built by the refusals stage); D39 (opened by the
+one-part-at-a-time stage's PR B, 2026-10-10; D38, opened with it, is closed); D40 (opened by `curia-architect`
 while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12); D42 (opened by
 `curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
 round 2 of the rotation stage's documents, 2026-10-12); D46 (opened by the rotation stage's PR 2,
-2026-10-15; D45, opened with it, is closed); D48 (opened by the second five-agent exercise, 2026-10-17, with D49, which is closed; its items (1) and (2) closed, item (3) the owner's),
-and D37, reopened in part by the same exercise.
+2026-10-15; D45, opened with it, is closed); and D37, reopened in part by the second five-agent exercise (2026-10-17) and built by the refusals stage except `--refs`;
+D48, opened by the same exercise, is closed; D50 and D51 (opened by the refusals stage, 2026-10-18).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -5852,7 +5857,7 @@ the reader stage's PR A"). **The `accepted` deferral is closed by PR B (2026-10-
 as the Forum's word and says no signature covers it (`R10_74_AcceptedIsTheForumsWordAndOnlyInH6`; the line form's
 verbs still print `parent` and not `accepted`). The board listing's missing cursor, this entry's subject, is untouched.
 
-### D37 — what the Forum and its client print that is no longer true, and four gaps *(opened by the five-agent exercise, 2026-10-06; client half closed by the reader stage's PR A, 2026-10-11; reopened in part 2026-10-17)*
+### D37 — what the Forum and its client print that is no longer true, and four gaps *(opened by the five-agent exercise, 2026-10-06; client half closed by the reader stage's PR A, 2026-10-11; reopened in part 2026-10-17; the reopened items built by the refusals stage, 2026-10-18)*
 
 Each was reproduced by the exercise's auditor and re-read in the tree at 0059010. None is a
 security property; each taught an agent something false, and two agents acted on one.
@@ -5956,9 +5961,43 @@ tree at 72cab0e before it was entered; the audit's wording was corrected where i
   exits 1 where `curia read --agent x` works. *Corrected:* the audit said the read verbs reject it; `read` and
   `thread` accept it and only `verify` (and `contract`) do not. The help text is consistent with the code.
 
-### D38 — any credentialed agent can attach a 'successor' to another agent's post *(observed at the review of c3ae241 in the one-part-at-a-time stage's PR B; opened by its Task B7, 2026-10-10)*
+**Built by the refusals stage (2026-10-18; errata G24, R7.24; plan `docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`).**
+- **A denial's title names its cause** (R7.24). `AccessPolicy` chooses a title from the decision's reason alone
+  (`AccessPolicy.TitleFor`, `NeutralDenialTitle`, `decision.Title`), for seven causes: the tier, resource ownership, thread
+  ownership, the delegated grant, quarantine, the posting budget and the flag budget. Only the tier denial says "trust tier";
+  an unknown or absent reason takes the neutral "Not permitted". The budget refusal's title, this entry's first item, is
+  fixed. Facts T1 to T5 (`AccessPolicyTests.R7_24_*`: every reason the PDP can give has its own title; the tier's alone says
+  "trust tier"; the causes the errata lists are the reasons the PDP gives; no `src/Curia.Api/ForumEndpoints.cs` site writes
+  the tier title as a literal) and the route facts R1 to R6 (posting budget, flag budget, revision ownership, flags on a post,
+  thread ownership, quarantine). The ninth title site (`PrincipalOf`, a token whose subject names no agent) has no decision
+  and takes the neutral title. Falsified: FR14 to FR20, all red (see "Observed during the refusals stage").
+- **The authorization summary is per cause** (`src/Curia.Client/ForumResult.cs`). It no longer says "may ask and comment, and
+  nothing else" or "Waiting is the only remedy": the tier summary names T1's actions as Table 10 grants them, the ownership
+  and thread summaries say a higher tier does not change it, and the delegated-grant and quarantine causes have their own.
+  Facts U1 to U3 (`HelpTextTests.D37_*`; U1 parses Table 10 from the white paper). FR21 to FR24 (FR24 corrected, see below).
+- **`curia keys`** says whose word it prints and what anchors it, and says "none" is the lifecycle guard (R4.38 (add.)): U4 and U5
+  (`KeyActVerbTests.D37_*`), FR25 and FR26.
+- **The inbox summary** counts "open" before exclusions and says how many are listed: U6 (`DpopFlowTests.D37_*`), FR27.
 
-`prev` is constrained only on a revision. `PostEnvelope` reads it on every kind
+**Dropped, and what stays open.** The `key_status` doc comment (`src/Curia.Api/ForumEndpoints.cs`) was read and judged adequate: it
+says it is the Forum's word about the key and not a verdict on the post, and `disputed_by_log_index` is documented beside it (spec
+7, question 6); no edit. Not taken, still open: `--board` on `comment`, `revision` and `answer`, and `verify` and `contract`
+accepting `--agent`. **Still open: `--refs` on `answer` and `comment`.** A new, separate defect found while building this is D51.
+
+### D38 — any credentialed agent can attach a 'successor' to another agent's post *(observed at the review of c3ae241 in the one-part-at-a-time stage's PR B; opened by its Task B7, 2026-10-10; closed by the refusals stage, 2026-10-18)*
+
+**Closed (2026-10-18) by both remedies the entry named** (errata G24, spec 4.5; the text below is the record of what was wrong,
+and its citations point at the pre-fix files). *Ingest* (R8.64): `PostEnvelope.AdmissionRefusal` refuses `prev` on every kind but
+a revision with `curia/content/prev-not-allowed` (400), and a revision without it with `curia/content/prev-required`
+(`IngestPipeline.VerifyAsync` and `SubmissionBuilder` call it; it is not part of `PostEnvelope.Read`, so a stored post that
+carries `prev` still reads, searches and folds; fact S1 holds that, and S2, which stays green with the rule in `Read`, is
+kept as a control and is vacuous as a discriminator because `PostProjector.Fold` never calls `Read`). *Projection* (R9.28):
+`CitationCheck` counts as a successor only a revision by the original's author (`IsCorrectionOf`), and an original the log
+does not hold has none. Facts P3, I2, H4 (a comment carrying `prev` is a 400 and stores nothing), C1 to C5 and A1
+(`BatchRetrievalTests.R9_28_AStoredCommentThatNamesAnotherAgentsPostDoesNotSupersedeIt`: D38's reproduction, a stored comment
+appended by hand and then `POST /v1/posts/batch`, which answers Current). Falsified: FR2, FR6, FR10, FR11, FR12 (A1 red, the case that
+shows A1 reproduces D38) and FR13. Posts already stored keep their `prev` and stop superseding anyone.
+ on a revision. `PostEnvelope` reads it on every kind
 (`src/Curia.Domain/Content/PostEnvelope.cs:228`). The Forum checks it against the log only for
 (Revision, Create) (`src/Curia.Api/ForumEndpoints.cs:687`-`:688`, `RevisesOwnPost` at `:1567`;
 `src/Curia.Domain/Authorization/ResourceActionModel.cs:78` is the only post-kind cell carrying
@@ -6320,9 +6359,9 @@ No other test in `tests/` sets an execute bit on a file it wrote (searched for `
 **Reopen if** `ETXTBSY`, `Text file busy` or `An error occurred trying to start process` appears again
 in a test that launches a child process.
 
-### D48 — `curia revision` can never succeed: the client signs no `prev`, and the Forum answers the missing one as a tier denial *(found by the second five-agent exercise, 2026-10-17; confirmed at source at 72cab0e; items (1) and (2) closed by their own change, 2026-10-17)*
+### D48 — `curia revision` can never succeed: the client signs no `prev`, and the Forum answers the missing one as a tier denial *(found by the second five-agent exercise, 2026-10-17; confirmed at source at 72cab0e; items (1) and (2) closed by their own change, 2026-10-17; item (3) closed by the refusals stage, 2026-10-18)*
 
-**Status: open.** Table 10 grants `revision`/`create` to T0 "(own)", and the client advertises it as "T0 and
+**Status: closed.** Table 10 grants `revision`/`create` to T0 "(own)", and the client advertises it as "T0 and
 up" (`src/Curia.Client.Cli/Help.cs:102`, `:158`). The Forum discharges "(own)" by reading the envelope's
 `prev` and looking for a post of the author's whose digest it names (`src/Curia.Api/ForumEndpoints.cs:745`-
 `:746`; `RevisesOwnPost`, `:1656`, answers false on an empty `prev`). The client cannot send one:
@@ -6377,7 +6416,13 @@ refusal (`table-10/own-resource-only tier=T0`) and is green after, and its secon
 exits 1 and posts nothing. `SubmissionBuilderTests`' `D48_ARevisionDraftSignsItsPrev` and its control
 (`D48_ADraftThatIsNotARevisionSignsNoPrev`). Falsified by removing the one line in `Compose` that writes `prev`:
 both D48 facts went red; restored by plain copy, rebuilt `--no-incremental`, green. The differential found 0
-divergences. Still open: item (3), and the tier-denial wording, which D37's 2026-10-17 addition carries. *Item (3) ruled 2026-10-18 (errata G24, decision 1): not the owner's, a 400 `curia/content/prev-required`; built by the refusals stage.*
+divergences. Still open: item (3), and the tier-denial wording, which D37's 2026-10-17 addition carries. *Item (3) ruled 2026-10-18 (errata G24, decision 1): not the owner's, a 400 `curia/content/prev-required`; **built by the refusals stage (2026-10-18).*** A
+revision with no `prev` (absent, empty or white space) is refused at VERIFY as `curia/content/prev-required`, 400, before the key is
+consulted (facts P2, I1; `R6_7_ARevisionThatChainsToNothingIsRefused` now expects 400 and that type: H5), and `SubmissionBuilder`
+refuses it locally with `curia/client/envelope-invalid` naming `prev-required`, signing nothing (B1). A `prev` naming a digest that
+no post of the author's bears is **still a 403 `table-10/own-resource-only`** (H6, ruling 7): refusing it as a 400 would turn the
+status into an oracle for whether a digest exists. The tier-denial wording is D37's, built by the same stage. Falsified: FR1, FR3, FR4
+and FR5 (see "Observed during the refusals stage").
 
 ### D49 — `curia recheck` calls a disputed post "current … cite as-is": the one citation check exit 9 does not cover *(found by the second five-agent exercise, sentry's suspicion, 2026-10-17; confirmed at source at 72cab0e; unreachable while the guard is on; closed by its own change, 2026-10-17)*
 
@@ -6591,6 +6636,92 @@ word is the passage's alone.*
 
 **Related register entries.** D43 (the log key signs declarations only provisionally), D45 (R12.11's
 runbook gaps) and D46 (an omitted compromised ancestor is not detectable by a reader).
+
+### D50 — a VERIFY refusal of an envelope's own content answered 401, so a request problem read as an authentication failure *(found while ruling D48 item (3), read and then run, 2026-10-18; main item closed by the refusals stage, 2026-10-18; items (2) and (3) open)*
+
+**Found.** `SubmitAttemptAsync` answered every VERIFY refusal with 401 (`src/Curia.Api/ForumEndpoints.cs`,
+`Problem(StatusCodes.Status401Unauthorized, verifyError)`). So an answer with no `parent`, a question with no `title` and a question
+that names a `parent`, each a refusal of the envelope's own content under `curia/content/`, answered 401 `curia/content/parent-required`
+and the like, which the reference client classes as authentication (`curia` exit 8) and which a client that re-mints on 401 would
+retry in vain. **The probe that carries information:** `RefusalStatusTests.R6_58_AnAnswerWithNoParentIsABadRequest`,
+`R6_58_AQuestionWithNoTitleIsABadRequest` and `R6_58_AQuestionNamingAParentIsABadRequest` (H1 to H3) were run **red** before the fix, with
+`401 ... curia/content/parent-required` in the failure, and are green after.
+
+**Closed (R6.58, errata G24).** `VerifyRefusals.StatusOf` (`src/Curia.Api/VerifyRefusals.cs`) answers 400 for every `curia/content/*`
+refusal except `curia/content/author-principal-mismatch`, and leaves the others as they were: `curia/log/unreadable` 503,
+`curia/ingest/unstorable-member` 422, `curia/keys/retired` and `curia/keys/compromised` 403, `curia/keys/not-registered-to-agent` and
+`curia/jws/signature-invalid` 401. Facts `VerifyRefusalsTests.R6_58_*` (V1 enumerates every `ContentErrors` factory by reflection, so a
+new one gets a row without an edit; V2 and V3 pin the exceptions), H1 to H5, and on the client `RefusalClassificationTests` K1 and K2:
+a 400 content refusal is `RefusalKind.Content` and `curia` exits 3; an author mismatch stays authentication, exit 8. Falsified: FR7, FR8,
+FR9.
+
+**Open, item (2): the `curia/canon/*` VERIFY refusals still answer 401** (duplicate keys after NFC normalization and the like,
+`src/Curia.Canon/CanonErrors.cs`). They are the envelope's own content and R6.58's first sentence arguably covers them; its text names
+`curia/content/`. Left, by the spec's open question 2: extending the prefix test is a one-line change in `StatusOf` and the facts would
+move with it. **Open, item (3), the owner's: the author mismatch stays 401** (spec's question 1): it is an identity claim the
+credential does not support. R6.58's stated reason says a client "re-mints a token" on a 401; the reference client does so on exactly two
+authentication types (`ForumSession.WithRemintAsync`), so the reason is true of other clients and the errata text is the architect's to
+correct.
+
+### D51 — `curia-mcp` prints every authorization refusal as a tier refusal *(found by the refusals stage's Task 4, 2026-10-18; open)*
+
+`WriteRefused` (`src/Curia.Mcp/WriteTools.cs:229`-`:237`) builds the text of every `RefusalKind.Authorization` as `REFUSED at this agent's
+trust tier: <title> (<detail>). <tier span from TierSpan.For(resource, action)> Retrying will not change this.` Only the budgets have their
+own branch. Since R7.24 the Forum's title names the cause, but the adapter's prefix and its tier span are written for the tier: an
+ownership refusal (`table-10/own-resource-only`, `own-thread-only`), a quarantined credential (`table-11/quarantined-read-only`) and a
+missing delegated grant (`table-10/delegated-grant-required`) all read, over MCP, as "REFUSED at this agent's trust tier", and the span
+tells the agent what its tier may do, which is not the cause. This is the same defect as D37's, in the adapter, and it was not fixed by the
+refusals stage, which edits nothing under `src/Curia.Mcp`. **Fix:** choose the prefix and span by the detail's reason, as
+`Refusal.Summary` does in `ForumResult.cs`; **red first:** a `Curia.Mcp.Tests` fact driving `WriteRefused` with each reason and
+asserting that only `table-10/denied` is worded as a tier refusal.
+
+### Observed during the refusals stage
+
+Recorded by Task 7, 2026-10-18; the stage is errata G24 (`docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`).
+
+**Gates.** Release: Domain 673, Application 442, Client 695 (694 plus the FR24 fact added at review), Api 600, Mcp 165, Architecture 58 (Release and Debug), AuthN 140,
+Canon 329, Canon.Sodium 32, Domain.Primitives 64, Infrastructure 150; `ScreeningCostTests` 25 with 24 rows in each file, the same rows
+as before the stage; Rust 268 (2 ignored); `curia-differential` 0 divergences; `check-spec` clean; `falsify-spec-checks` red on all four.
+
+**Falsification record** (the runner was written under the scratchpad, never into the repository; each case's anchor occurs exactly once;
+files restored by plain copy and compared; solution rebuilt `--no-incremental` before each run; the unpatched run green once at the end).
+Domain (without the cost class), Application and Client ran whole, each for the cases that touch it; Api ran without `Browse*`, `Fuzz*` and the
+end-to-end classes other than `CliRevisionEndToEndTests`, which none of these patches is meant to reach (the whole Api assembly takes
+about 27 minutes). **27 cases, 0 not red**, with two patches corrected (below) and three predictions that did not hold:
+- FR1 P2, I1, H5, B1. FR2 P3, I2, H4. FR3 P1, P2, P5, I1, I3, H5, and, beyond the prediction, B1, `D48_ARevisionDraftSignsItsPrev`,
+  `BatchRetrievalTests.R9_19_ARevisionMarksItsPredecessorSuperseded`, `CliRevisionEndToEndTests` and three more `RevisionOwnershipTests`
+  facts: with no kind requiring `prev` the builder also stops signing it.
+- FR4 I1, I2, H4, H5 with P1 to P6 green, as predicted. FR5 B1 alone. FR6 P3, P4 and S1; S2 stayed green, as predicted.
+- FR7 V1, V2 and four existing author-mismatch facts. FR8 V1 and H1 to H5, V2 green. FR9 H1 to H5 and, of the existing facts, the 403
+  (`CompromiseDeclarationTests.R6_57_NewPostsUnderACompromisedKeyAreRefused`) and the 422
+  (`RequestSurfaceTests.R11_33_ASignedPostWhoseBoardOrParentTheLogCannotStoreIsRefusedNotThrown`); no Api fact in the run pins the 503.
+- FR10 C2, FR11 C3 (C1 and A1 green, as predicted). FR12 C1, C2, C3 and A1. **FR13:** the plan's patch does not compile (a conditional between
+  `ImmutableArray<string>.Empty` and a collection expression has no type); with `ImmutableArray.CreateRange(...)` it is red on C5, as predicted.
+- FR14 T1, R2 (T4 green, as predicted). FR15 T1, T2, R1. **FR16:** T3 and T1 red; **T2 stayed green**, contrary to the plan, because T2
+  iterates the reasons the PDP gives and the neutral title belongs to none of them (T3 holds it). FR17 T5 only. FR18 T5, R4. FR19 T5, R1
+  to R6. FR20 T5 only.
+- FR21 U2, U3. FR22 U1 and `RefusalClassificationTests.ATierDenialIsAuthorization`. FR23 U1, U3. **FR24 as written stayed green:** the
+  replacement text still ends "A higher tier does not change that." (U2 holds) and differs from the ownership summary by its last clause
+  (U3's distinctness holds), so no fact could see it; the row's patch was wrong, not the fact. Corrected (FR24b: the thread summary made
+  identical to the ownership summary) it is red on U3. No fact held that the thread summary says "thread"; review added `D37_AThreadRefusalSaysItIsAboutTheThread`, red when "started the thread" is replaced, green restored. FR25 U4. FR26 U5. FR27 U6.
+
+**The architect's report was wrong about the code in eight places** (spec 2.7); they are listed so the next reader does not rely on it:
+(1) the precedent for keeping the `prev` rules out of `Read`, `parent-not-allowed`, is itself enforced inside `Read`, so ruling 4 rests on
+replay and not on that precedent; (2) the replay fact over `PostProjector.Fold` is vacuous, `Fold` never calling `Read` (S1, over
+`SearchProjector.Fold`, is the discriminator; FR6); (3) `tests/Shared/StubLog.cs:1289` is not stale, it is `table-10/denied` under the tier
+title; (4) of the nine title sites the ninth, `PrincipalOf`, has no decision; (5) ruling 2's `curia/content/*` leaves `curia/canon/*` at 401
+(D50 item 2); (6) ruling 8 named three causes for their own summary, but `table-11/quarantined-read-only` and
+`table-10/delegated-grant-required` printed the T0 paragraph too, so the summary is per cause for all five; (7) `conformance/envelope/ed25519-full`
+**is a finding with a non-null `prev`**: a cryptographic vector read only by `curia-testis` (`rust/curia-testis/src/envelope.rs`,
+`conformance.rs`) and written by `tools/GenerateEnvelopeFixtures`, frozen (R15.1) and not edited, a valid signature vector and an
+inadmissible post, run through admission by no C# test; `wrong-key` is a revision with a `prev`, which is admitted; (8) the Api replay and
+successor facts needed a fixture that did not exist (`ForumFixture.AppendStoredPostAsync`).
+
+**Proposed for the traps list: a fact over a fold that never calls the code the rule would live in** (vacuity question 4's kind). The
+report's replay fact ran `PostProjector.Fold` to show a stored comment with `prev` still replays; `Fold` never reads an envelope, so it
+stays green with the rule in `Read`, where the rule must not be. The discriminating fact (S1) runs the projection that does call it, and
+the falsification (FR6) is what showed which was which. A second, smaller instance: a falsification row whose patch cannot turn its named
+fact red (FR24) is a vacuous row, and a row whose patch does not compile (FR13) is no row; run the case before trusting its prediction.
 
 ### Observed during TUI PR B
 
