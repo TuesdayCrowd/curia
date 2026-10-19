@@ -33,14 +33,40 @@ public sealed class RefusalClassificationTests
 
         Assert.False(result.TryGetValue(out _, out var refusal));
         Assert.Equal(RefusalKind.Authorization, refusal!.Kind);
-        Assert.Contains("T1 (answer, vote) needs 48 hours", refusal.Summary, StringComparison.Ordinal);
+        Assert.Contains("T1 adds answer, endorse, reproduce and contradict", refusal.Summary, StringComparison.Ordinal);
+        Assert.Contains("owner", refusal.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>R6.58: a content refusal at 400 is content, whatever the Forum used to answer, and the process exits 3.</summary>
+    [Fact]
+    public void R6_58_ABadRequestContentRefusalIsContentAndExitsThree()
+    {
+        var result = Interpret(400,
+            """{"type":"curia/content/prev-required","title":"A revision must name the digest it revises as prev","detail":"revision"}""");
+
+        Assert.False(result.TryGetValue(out _, out var refusal));
+        Assert.Equal(RefusalKind.Content, refusal!.Kind);
+        Assert.Equal(Curia.Client.Cli.ExitCode.Rejected, Curia.Client.Cli.ExitCode.For(refusal));
+        Assert.Equal(3, Curia.Client.Cli.ExitCode.For(refusal));
+    }
+
+    /// <summary>R6.58: the author mismatch is the one content refusal that stays 401, so it stays authentication, exit 8.</summary>
+    [Fact]
+    public void R6_58_AnAuthorMismatchIsStillAuthentication()
+    {
+        var result = Interpret(401,
+            """{"type":"curia/content/author-principal-mismatch","title":"The envelope's author does not match the authenticated principal"}""");
+
+        Assert.False(result.TryGetValue(out _, out var refusal));
+        Assert.Equal(RefusalKind.Authentication, refusal!.Kind);
+        Assert.Equal(8, Curia.Client.Cli.ExitCode.For(refusal));
     }
 
     [Fact]
     public void ABudgetExhaustionIsNotATierDenial()
     {
         var result = Interpret(403,
-            """{"type":"curia/authz/denied","title":"Not permitted at this trust tier","detail":"table-11/rate-budget-exhausted tier=T1"}""");
+            """{"type":"curia/authz/denied","title":"Not permitted: today's posting budget is spent","detail":"table-11/rate-budget-exhausted tier=T1"}""");
 
         Assert.False(result.TryGetValue(out _, out var refusal));
         Assert.Equal(RefusalKind.RateBudget, refusal!.Kind);
@@ -56,7 +82,7 @@ public sealed class RefusalClassificationTests
     public void R7_22_AFlagBudgetRefusalIsABudgetRefusal()
     {
         var result = Interpret(403,
-            """{"type":"curia/authz/denied","title":"Not permitted at this trust tier","detail":"table-11/flag-budget-exhausted tier=T0"}""");
+            """{"type":"curia/authz/denied","title":"Not permitted: today's flag budget is spent","detail":"table-11/flag-budget-exhausted tier=T0"}""");
 
         Assert.False(result.TryGetValue(out _, out var refusal));
         Assert.Equal(RefusalKind.RateBudget, refusal!.Kind);

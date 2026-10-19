@@ -75,6 +75,21 @@ public sealed class HelpTextTests
         }
     }
 
+    private static readonly Dictionary<(ResourceKind, ActionKind), string[]> Verbs = new()
+    {
+        [(ResourceKind.Question, ActionKind.Create)] = ["ask"],
+        [(ResourceKind.Comment, ActionKind.Create)] = ["comment"],
+        [(ResourceKind.Revision, ActionKind.Create)] = ["revision"],
+        [(ResourceKind.Answer, ActionKind.Accept)] = ["resolve"],
+        [(ResourceKind.Flag, ActionKind.Raise)] = ["flag"],
+        [(ResourceKind.Flag, ActionKind.List)] = ["flags"],
+        [(ResourceKind.Answer, ActionKind.Create)] = ["answer"],
+        [(ResourceKind.Vote, ActionKind.Cast)] = ["endorse"],
+        [(ResourceKind.Verification, ActionKind.Submit)] = ["reproduce", "contradict"],
+        [(ResourceKind.Key, ActionKind.Rotate)] = ["rotate"],
+        [(ResourceKind.Key, ActionKind.Retire)] = ["retire"],
+    };
+
     /// <summary>
     /// D37: the tier reminder names, as T0's, exactly the verbs for what Table 10 grants T0 beyond what it
     /// grants an anonymous reader, and none for what it grants only from T1. The table is parsed from the
@@ -84,20 +99,6 @@ public sealed class HelpTextTests
     [Fact]
     public void D37_TheTierReminderListsWhatTable10GrantsT0()
     {
-        var verbs = new Dictionary<(ResourceKind, ActionKind), string[]>
-        {
-            [(ResourceKind.Question, ActionKind.Create)] = ["ask"],
-            [(ResourceKind.Comment, ActionKind.Create)] = ["comment"],
-            [(ResourceKind.Revision, ActionKind.Create)] = ["revision"],
-            [(ResourceKind.Answer, ActionKind.Accept)] = ["resolve"],
-            [(ResourceKind.Flag, ActionKind.Raise)] = ["flag"],
-            [(ResourceKind.Flag, ActionKind.List)] = ["flags"],
-            [(ResourceKind.Answer, ActionKind.Create)] = ["answer"],
-            [(ResourceKind.Vote, ActionKind.Cast)] = ["endorse"],
-            [(ResourceKind.Verification, ActionKind.Submit)] = ["reproduce", "contradict"],
-            [(ResourceKind.Key, ActionKind.Rotate)] = ["rotate"],
-            [(ResourceKind.Key, ActionKind.Retire)] = ["retire"],
-        };
 
         static bool Grants(Table10Cell cell) => cell is Table10Cell.Allowed or Table10Cell.RateLimited;
 
@@ -115,7 +116,7 @@ public sealed class HelpTextTests
         Assert.NotEmpty(t0);
         Assert.NotEmpty(t1Only);
         foreach (var grant in t0.Concat(t1Only))
-            Assert.True(verbs.ContainsKey(grant), "no verb mapped for Table 10's " + PublishedTable10.Describe(grant, PrincipalTier.T0));
+            Assert.True(Verbs.ContainsKey(grant), "no verb mapped for Table 10's " + PublishedTable10.Describe(grant, PrincipalTier.T0));
 
         var reminder = Help.TierReminder;
         var may = reminder.IndexOf("may:", StringComparison.Ordinal);
@@ -129,13 +130,96 @@ public sealed class HelpTextTests
             .ToHashSet(StringComparer.Ordinal);
 
         foreach (var grant in t0)
-            foreach (var verb in verbs[grant])
+            foreach (var verb in Verbs[grant])
                 Assert.True(t0Words.Contains(verb), $"the reminder does not name '{verb}' among T0's actions");
         foreach (var grant in t1Only)
-            foreach (var verb in verbs[grant])
+            foreach (var verb in Verbs[grant])
                 Assert.False(t0Words.Contains(verb), $"the reminder names '{verb}', which needs T1, among T0's actions");
 
         Assert.DoesNotContain("nothing else", reminder, StringComparison.Ordinal);
+    }
+
+    private static Refusal Refused(string detail, string title = "Not permitted")
+    {
+        var result = ForumClientTestAccess.Interpret(
+            403, $$"""{"type":"curia/authz/denied","title":"{{title}}","detail":"{{detail}}"}""", "application/json");
+        Assert.False(result.TryGetValue(out _, out var refusal), "a 403 is a refusal");
+        return refusal!;
+    }
+
+    private static bool HasWord(string text, string word) =>
+        Regex.IsMatch(text, @"\b" + Regex.Escape(word) + @"\b");
+
+    /// <summary>
+    /// D37: the summary for a tier denial is held to Table 10 and Table 11 as published: every verb the table
+    /// opens only at T1 is named, the numbers are the policy's, and T0's whole standing is not summed up as
+    /// "nothing else". Time alone does not make T1, since an owner must be verified.
+    /// </summary>
+    [Fact]
+    public void D37_TheAuthorizationSummaryIsHeldToTable10()
+    {
+        static bool Grants(Table10Cell cell) => cell is Table10Cell.Allowed or Table10Cell.RateLimited;
+        var t1Only = PublishedTable10.Rows
+            .Where(r => Grants(r.Value[PrincipalTier.T1]) && !Grants(r.Value[PrincipalTier.T0]))
+            .Select(r => r.Key)
+            .ToList();
+        Assert.NotEmpty(t1Only);
+
+        var summary = Refused("table-10/denied tier=T0", "Not permitted at this trust tier").Summary;
+
+        foreach (var grant in t1Only)
+            foreach (var verb in Verbs[grant])
+                Assert.True(HasWord(summary, verb), $"the summary does not name '{verb}', which Table 10 opens at T1");
+
+        foreach (var number in new[] { TierPolicy.T1MinimumHours, TierPolicy.T1MinimumCleanQuestions, TierPolicy.T2MinimumDaysAtT1 })
+            Assert.Contains(number.ToString(CultureInfo.InvariantCulture), summary, StringComparison.Ordinal);
+
+        Assert.Contains("owner", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("nothing else", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("may ask and comment", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("Waiting is the only remedy", summary, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("table-10/own-resource-only tier=T0")]
+    [InlineData("table-10/own-thread-only tier=T0")]
+    public void D37_AnOwnershipRefusalIsNotToldToWait(string detail)
+    {
+        var summary = Refused(detail).Summary;
+
+        Assert.DoesNotContain("Waiting", summary, StringComparison.Ordinal);
+        Assert.Contains("higher tier", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("48 hours", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void D37_AThreadRefusalSaysItIsAboutTheThread()
+    {
+        var summary = Refused("table-10/own-thread-only tier=T0").Summary;
+
+        Assert.Contains("started the thread", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void D37_EveryAuthorizationCauseHasItsOwnSummary()
+    {
+        var causes = AccessPolicy.DenialReasons.Where(r => !r.EndsWith("-budget-exhausted", StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(causes);
+
+        var bodies = new List<string>();
+        foreach (var reason in causes)
+        {
+            var detail = reason + " tier=T0";
+            var refusal = Refused(detail);
+            Assert.Equal(RefusalKind.Authorization, refusal.Kind);
+
+            var summary = refusal.Summary;
+            Assert.DoesNotContain("nothing else", summary, StringComparison.Ordinal);
+            Assert.DoesNotContain("only remedy", summary, StringComparison.Ordinal);
+            bodies.Add(summary[(summary.IndexOf(detail, StringComparison.Ordinal) + detail.Length)..]);
+        }
+
+        Assert.Equal(bodies.Count, bodies.Distinct(StringComparer.Ordinal).Count());
     }
 
     /// <summary>

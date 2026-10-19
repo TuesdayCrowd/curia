@@ -415,9 +415,12 @@ public sealed class KeyRotationEndpointTests(ForumFixture forum) : IClassFixture
             KeyActRequests.RotationBody(agent, next, await KeyActRequests.LatestLifecycleAsync(client, agent.AgentId, ct)), forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        var (type, detail, _) = await KeyActRequests.ProblemOfAsync(response, ct);
+        var (type, detail, body) = await KeyActRequests.ProblemOfAsync(response, ct);
         Assert.Equal("curia/authz/denied", type);
         Assert.Contains("table-11/quarantined-read-only", detail, StringComparison.Ordinal);
+        var title = JsonDocument.Parse(body).RootElement.GetProperty("title").GetString();
+        Assert.Contains("quarantine", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", title, StringComparison.Ordinal);
     }
 
     /// <summary>R4.39 over HTTP: red when quarantine's intersection drops <c>retire</c> (F1-37).</summary>

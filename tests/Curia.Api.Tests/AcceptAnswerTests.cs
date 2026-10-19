@@ -145,10 +145,11 @@ public sealed class AcceptAnswerTests(ForumFixture forum) : IClassFixture<ForumF
         using var response = await AcceptAsync(client, strangerDpop, strangerToken, answer, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Contains(
-            "own-thread-only",
-            await response.Content.ReadAsStringAsync(ct),
-            StringComparison.OrdinalIgnoreCase);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        Assert.Contains("own-thread-only", body, StringComparison.OrdinalIgnoreCase);
+        var title = JsonDocument.Parse(body).RootElement.GetProperty("title").GetString();
+        Assert.Contains("thread", title, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", title, StringComparison.Ordinal);
     }
 
     /// <summary>Table 10's Anonymous column is ✗, and PEP-1 refuses before the PDP is consulted.</summary>

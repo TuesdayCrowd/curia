@@ -488,6 +488,7 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
             "table-11/flag-budget-exhausted",
             problem.RootElement.GetProperty("detail").GetString(),
             StringComparison.Ordinal);
+        Assert.Contains("flag budget", problem.RootElement.GetProperty("title").GetString(), StringComparison.Ordinal);
     }
 
     /// <summary>

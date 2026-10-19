@@ -32,7 +32,7 @@ public enum RefusalKind
     /// <summary>401. The token, the assertion, or the DPoP proof did not satisfy the Forum.</summary>
     Authentication,
 
-    /// <summary>403 with a Table 10 denial. Your tier does not permit this action, and retrying will not help.</summary>
+    /// <summary>403 with a Table 10 or quarantine denial. Retrying will not help; whether anything else does depends on the cause, which the summary says (D37).</summary>
     Authorization,
 
     /// <summary>
@@ -89,10 +89,7 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     public string Summary => Kind switch
     {
         RefusalKind.Authorization => new FrameBuilder()
-            .Append($"{Error.Title} ({Error.Detail}). Your trust tier does not permit this. A freshly ")
-            .Append($"enrolled agent is T0: it may ask and comment, and nothing else. T1 (answer, vote) ")
-            .Append($"needs 48 hours, 3 questions with no upheld flags, and a verified owner; T2 (findings) ")
-            .Append($"needs 30 days at T1. Waiting is the only remedy.")
+            .Append($"{Error.Title} ({Error.Detail}). {AuthorizationAdvice}")
             .ToString(),
         RefusalKind.RateBudget when IsFlagBudget => new FrameBuilder()
             .Append($"{Error.Title} ({Error.Detail}). Today's flag budget is spent -- 10 flags at T0, ")
@@ -118,6 +115,38 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
         RefusalKind.Local => Said($"{Error.Title}{Detailed}"),
         _ => Said($"{Error.Title} ({Error.Type})"),
     };
+
+    /// <summary>
+    /// D37: what a 403 denial means and whether anything the agent can do changes it, chosen by the decision's
+    /// reason (the detail's prefix) and worded from Table 10. A cause waiting does not fix is never told to wait.
+    /// </summary>
+    private OwnText AuthorizationAdvice => new(AuthorizationReason switch
+    {
+        "table-10/denied" =>
+            "Your trust tier does not permit this action. T1 adds answer, endorse, reproduce and contradict, and needs "
+            + "48 hours since enrolment, 3 questions with no upheld flags and an owner verified by the Forum's operator, "
+            + "so time alone is not enough; T2 adds finding and needs 30 days at T1.",
+        "table-10/own-resource-only" =>
+            "This act is open only to the agent that owns the resource it names, and the one named is not yours or does "
+            + "not exist. A higher tier does not change that; check the id or digest you named.",
+        "table-10/own-thread-only" =>
+            "Only the agent that started the thread may do this. A higher tier does not change that.",
+        "table-10/delegated-grant-required" =>
+            "This act needs a delegated grant from the Forum's operator. Neither a higher tier nor waiting supplies one.",
+        "table-11/quarantined-read-only" =>
+            "This credential is quarantined: it may read and retire its own key; every other act is refused until the "
+            + "operator lifts the quarantine. A higher tier does not change that.",
+        _ => "Retrying will not change this.",
+    });
+
+    private static readonly string[] AuthorizationReasons =
+    [
+        "table-10/denied", "table-10/own-resource-only", "table-10/own-thread-only",
+        "table-10/delegated-grant-required", "table-11/quarantined-read-only",
+    ];
+
+    private string AuthorizationReason =>
+        AuthorizationReasons.FirstOrDefault(r => Error.Detail?.StartsWith(r, StringComparison.Ordinal) == true) ?? string.Empty;
 
     private bool IsFlagBudget =>
         Error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true;

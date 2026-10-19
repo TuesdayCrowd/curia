@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Curia.Domain.Credentials;
 using Curia.Domain.Primitives;
 
@@ -53,6 +54,9 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
     /// the table asked.</para>
     /// </summary>
     public bool IsAllowed => IsPermitted && Qualifier is GrantQualifier.None;
+
+    /// <summary>R7.24: the title a denial is served under, chosen from <see cref="Reason"/> alone.</summary>
+    public string Title => AccessPolicy.TitleFor(Reason);
 
     /// <summary>
     /// Answers the parenthetical, yielding a decision that is actionable or a denial that names what
@@ -190,6 +194,28 @@ public static class AccessPolicy
     /// </summary>
     private static bool IsKeyRetire(AuthorizationRequest r) =>
         r.Resource is ResourceKind.Key && r.Action is ActionKind.Retire;
+
+    /// <summary>R7.24 (errata G24): the title of a denial whose reason names no cause this table knows. Never the tier's.</summary>
+    public const string NeutralDenialTitle = "Not permitted";
+
+    private static readonly FrozenDictionary<string, string> DenialTitles =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["table-10/denied"] = "Not permitted at this trust tier",
+            ["table-10/own-resource-only"] = "Not permitted: this is not your resource, or it does not exist",
+            ["table-10/own-thread-only"] = "Not permitted: only the agent that started the thread may do this",
+            ["table-10/delegated-grant-required"] = "Not permitted without a delegated grant",
+            ["table-11/rate-budget-exhausted"] = "Not permitted: today's posting budget is spent",
+            ["table-11/flag-budget-exhausted"] = "Not permitted: today's flag budget is spent",
+            ["table-11/quarantined-read-only"] = "Not permitted: this credential is quarantined and may only read and retire its key",
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The reasons a denial can carry, in no order: the keys of the title table, so a reason added to the PDP without a title fails its completeness fact.</summary>
+    public static IReadOnlyCollection<string> DenialReasons => DenialTitles.Keys;
+
+    /// <summary>R7.24: the title of a denial, chosen from its reason and from nothing else. An unknown or absent reason is neutral.</summary>
+    public static string TitleFor(string? reason) =>
+        reason is not null && DenialTitles.TryGetValue(reason, out var title) ? title : NeutralDenialTitle;
 
     /// <summary>
     /// R7.6: anonymous read is an explicit <c>allow</c> decided by this function, never the absence

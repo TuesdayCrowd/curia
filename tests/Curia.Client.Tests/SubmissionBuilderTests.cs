@@ -71,6 +71,22 @@ public sealed class SubmissionBuilderTests : IDisposable
         Assert.Equal(Target, envelope!.Prev);
     }
 
+    /// <summary>R8.64: the client's pre-check is the Forum's admission rule, so a revision draft with no prev is refused before anything is signed.</summary>
+    [Fact]
+    public void R8_64_ARevisionDraftWithoutPrevFailsLocally()
+    {
+        var draft = new PostDraft
+        {
+            Kind = PostKind.Revision, Board = "b", Body = "a corrected body", Parent = "01J00000000000000000000000",
+        };
+
+        Assert.False(SubmissionBuilder.Build(_agent, draft, When).TryGetValue(out var signed, out var error));
+
+        Assert.Null(signed);
+        Assert.Equal("curia/client/envelope-invalid", error!.Type);
+        Assert.Contains("prev-required", error.Detail, StringComparison.Ordinal);
+    }
+
     /// <summary>D48: <c>prev</c> belongs to a revision; a draft of any other kind that carries one signs none.</summary>
     [Fact]
     public void D48_ADraftThatIsNotARevisionSignsNoPrev()

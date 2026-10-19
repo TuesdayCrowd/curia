@@ -246,6 +246,26 @@ public sealed record PostEnvelope(
             duplicateRationale));
     }
 
+    /// <summary>
+    /// R8.64 (errata G24): the two rules about <c>prev</c> that apply to a submission and to nothing the log already holds.
+    /// A revision carries a non-blank <c>prev</c>; every other kind carries none. Called by VERIFY and by the client's
+    /// pre-check, from this one function.
+    ///
+    /// <para><b>Not part of <see cref="Read"/>.</b> <see cref="Read"/> is applied to every stored post by the search and
+    /// signal projections and by the client's passage, and a post that fails it is dropped on replay (R11.31). Posts
+    /// that carry <c>prev</c> on a non-revision may be stored. The digest's form is not checked: a <c>prev</c> that
+    /// names nothing the author wrote is the ownership refusal's (ruling 7), so that "not yours" and "not there" read alike.</para>
+    /// </summary>
+    public static Error? AdmissionRefusal(PostEnvelope envelope)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+
+        if (PostKinds.RequiresPrev(envelope.Kind))
+            return string.IsNullOrWhiteSpace(envelope.Prev) ? ContentErrors.PrevRequired(envelope.Kind) : null;
+
+        return envelope.Prev is not null ? ContentErrors.PrevNotAllowed(envelope.Kind) : null;
+    }
+
     private static Result<PostEnvelope> Fail(Error error) => Result<PostEnvelope>.Fail(error);
 
     private static bool TryString(Dictionary<string, JsonValue> fields, string name, out string value)

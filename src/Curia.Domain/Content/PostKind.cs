@@ -164,6 +164,13 @@ public static class PostKinds
         Match(kind, () => false, () => false, () => false, () => false, () => false, () => true, () => true);
 
     /// <summary>
+    /// R8.64 (errata G24): Table 12 lists <c>prev</c> as a required member of a <c>revision</c>, and Table 9
+    /// defines it as the digest of the previous revision. No other kind carries it.
+    /// </summary>
+    public static bool RequiresPrev(PostKind kind) =>
+        Match(kind, () => false, () => false, () => false, () => false, () => true, () => false, () => false);
+
+    /// <summary>
     /// The kinds that are discussion -- listed on boards, assembled into threads, searched,
     /// offered by the inbox. A vote and a verification are signals about a result, not the
     /// conversation, and appear on the result's envelope instead (R8.59).

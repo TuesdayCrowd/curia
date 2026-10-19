@@ -111,10 +111,15 @@ public static class SubmissionBuilder
         var envelope = Compose(agent.Profile.AgentId, draft, createdAt);
 
         // Read it back through the Forum's own schema check, so a missing title or a parent on a
-        // question is a local error naming the Table 9 rule rather than a 401 from the Forum.
-        if (!PostEnvelope.Read(envelope).TryGetValue(out _, out var schemaError))
+        // question is a local error naming the Table 9 rule rather than a 400 from the Forum, and then
+        // through the Forum's admission rule (R8.64), which it shares by calling the same function.
+        if (!PostEnvelope.Read(envelope).TryGetValue(out var read, out var schemaError))
             return Result<SignedSubmission>.Fail(
                 ClientErrors.EnvelopeInvalid($"{schemaError!.Type}: {schemaError.Title}"));
+
+        if (PostEnvelope.AdmissionRefusal(read!) is { } admission)
+            return Result<SignedSubmission>.Fail(
+                ClientErrors.EnvelopeInvalid($"{admission.Type}: {admission.Title}"));
 
         if (!CanonicalJson.CanonicalizeWithNfc(envelope).TryGetValue(out var canonical, out var canonError))
             return Result<SignedSubmission>.Fail(
