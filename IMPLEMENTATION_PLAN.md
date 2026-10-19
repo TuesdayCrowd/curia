@@ -10,10 +10,10 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — where it stands (2026-10-18, at cd75462)
+> ## Current work — where it stands (2026-10-19, at 6f4e196)
 >
 > **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** D35 (`hidden-beyond-bmp`) is
-> merged. **The refusals stage (errata G24) is built and is this PR**, opened from `refusals-tell-the-truth`; no other branch
+> merged. **The refusals stage (errata G24) is merged as #104**; no stage branch
 > is open. The register keeps the history (its "Observed during" sections, D45 to D51, G21 PR 0.5 and PR 2); this block says
 > only where things stand.
 >
@@ -37,7 +37,7 @@ set; SP scores recorded even if not yet weighted.*
 > | #101 | `curia browse` lays a document out once per load and size, not on every key (78a58d3; found by a Linux CI timeout, run 39095722362); recorded under "Observed during TUI PR B", item 19 |
 > | #102 | `BrowseHostileAnswerTests`: the hostile marker is `HZ~`, which no id can hold |
 > | #103 | D35: SCREEN decides hidden by scalar value; one flag per run, at most 32 per category (errata G23, R10.76 to R10.78); D32's amplification half closed |
-> | this PR | Refusals tell the truth (errata G24): a revision needs `prev` and no other kind carries one, and a refusal of an envelope's own content is a 400 (R8.64, R6.58; D48 item (3), D38's ingest half); a successor is a revision by the original's author (R9.28; D38's projection half); a denial's title names its cause (R7.24); the client's refusal, keys and inbox text are true (D37's reopened items). Opens D50 and D51 |
+> | #104 | Refusals tell the truth (errata G24): a revision needs `prev` and no other kind carries one, and a refusal of an envelope's own content is a 400 (R8.64, R6.58; D48 item (3), D38's ingest half); a successor is a revision by the original's author (R9.28; D38's projection half); a denial's title names its cause (R7.24); the client's refusal, keys and inbox text are true (D37's reopened items). Opens D50 and D51 |
 >
 > **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
 > lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
@@ -57,11 +57,6 @@ set; SP scores recorded even if not yet weighted.*
 >   Hebrew and Arabic (does the gutter hold under bidirectional reordering?). Not observed; not a merge blocker.
 > - **The external `curia` skill** (outside this repository) gains `browse` and exit 9 in its verb list and
 >   `references/cli.md`.
-> - **Review `CLAUDE.md`'s edits** by PRs #96 and #99 (exit 9 now naming `recheck`; `curia browse`; "revocation" read as
->   retirement or a declaration); it is the owner's file.
-> - **`CLAUDE.md`'s "What works today"** gains one sentence from this PR, the owner's to add: a revision without `prev`, and
->   any refusal of an envelope's own content, answer 400 (`curia` exits 3); a post of another kind that carries `prev` is
->   refused; a denial's title names its cause; `successors` counts only a revision by the original's author.
 >
 > **Next stage: to be chosen by `curia-architect`.** The refusals stage's spec is
 > `docs/superpowers/specs/2026-10-18-refusals-tell-the-truth-design.md` and its plan
@@ -5825,7 +5820,7 @@ predicted, side effects of the same patch.
    there. Only FH16 breaks T9b.
 5. **The Unicode list was drafted from memory** and then confirmed against Unicode 18.0.0 (above).
 
-*Proposed for `CLAUDE.md`'s "What works today" (the owner's file, not edited here):* "hidden text is decided by scalar
+*Added to `CLAUDE.md`'s "What works today" on 2026-10-19, once the owner opened `CLAUDE.md` to agent edits:* "hidden text is decided by scalar
 value, so the tag block and the rest of R10.76's set are annotated whatever the plane, a run is one flag and a post keeps
 at most 32 flags of an annotating category (errata G23, R10.76 and R10.77)."
 
