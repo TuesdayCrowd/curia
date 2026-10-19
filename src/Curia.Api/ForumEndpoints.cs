@@ -654,9 +654,9 @@ public static class ForumEndpoints
         // VERIFY against the authenticated subject. Table 9's "author must equal the authenticated
         // principal" is now a comparison against a token the client proved possession of, rather
         // than against the envelope's own claim about itself -- which is the difference PEP-1 makes.
-        // A log that could not be read decides nothing about the key (R4.35), so it is a 503, never
-        // the 401 that tells an agent its key was refused. A member the log cannot store is a 422: the
-        // request was well formed and signed, and was refused on its content (R11.33), never a 401.
+        // The status of a VERIFY refusal is VerifyRefusals.StatusOf's (R6.58): a log that could not be
+        // read is a 503 (R4.35), a member the log cannot store a 422 (R11.33), a refusal of the envelope's
+        // own content a 400, and only a credential or key that fails a 401.
         if (!PrincipalOf(subject).TryGetValue(out var author, out var subjectError))
             return Problem(StatusCodes.Status403Forbidden, subjectError!);
 
@@ -699,15 +699,7 @@ public static class ForumEndpoints
         var verified = await pipeline.VerifyAsync(a, author, cancellationToken).ConfigureAwait(false);
         if (!verified.TryGetValue(out var v, out var verifyError))
         {
-            return Problem(
-                string.Equals(verifyError!.Type, LogBoundKeys.LogUnreadableType, StringComparison.Ordinal)
-                    ? StatusCodes.Status503ServiceUnavailable
-                    : string.Equals(verifyError.Type, IngestErrors.UnstorableMemberType, StringComparison.Ordinal)
-                        ? StatusCodes.Status422UnprocessableEntity
-                        : verifyError.Type is AuthorKeyErrors.RetiredType or AuthorKeyErrors.CompromisedType
-                            ? StatusCodes.Status403Forbidden
-                            : StatusCodes.Status401Unauthorized,
-                verifyError);
+            return Problem(VerifyRefusals.StatusOf(verifyError!), verifyError!);
         }
 
         // AUTHORIZE. R7.7: tier from live state, never from a claim -- and "live state" now means

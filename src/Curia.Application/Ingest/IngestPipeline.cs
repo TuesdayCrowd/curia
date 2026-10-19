@@ -93,6 +93,10 @@ public sealed class IngestPipeline : IIngestPipeline
         if (!read.TryGetValue(out var envelope, out var schemaError))
             return Result<VerifiedSubmission>.Fail(schemaError!);
 
+        // R8.64 (errata G24): the rules about `prev` that apply to a submission and not to a stored post, so not PostEnvelope.Read's.
+        if (PostEnvelope.AdmissionRefusal(envelope!) is { } admissionRefusal)
+            return Result<VerifiedSubmission>.Fail(admissionRefusal);
+
         // An implementation limit of the log, not a ruling on R8.63's value space: PersistAsync writes
         // `board` and `parent` into the post.accepted payload outside the canonical text, and jsonb
         // cannot store U+0000 (22P05), so such a post answered 500 to any T0 agent (R11.33). Refused,

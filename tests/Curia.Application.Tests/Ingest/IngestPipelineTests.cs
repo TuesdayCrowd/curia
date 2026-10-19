@@ -90,6 +90,7 @@ public sealed class IngestPipelineTests
         Harness harness,
         PostKind kind = PostKind.Question,
         string? parent = null,
+        string? prev = null,
         string body = "How does JCS order object members?",
         string? title = "Member ordering in JCS",
         string author = Agent,
@@ -101,6 +102,7 @@ public sealed class IngestPipelineTests
         members.Add(new("author", new JsonValue.String(author)));
         members.Add(new("board", new JsonValue.String("canonicalization")));
         if (parent is not null) members.Add(new("parent", new JsonValue.String(parent)));
+        if (prev is not null) members.Add(new("prev", new JsonValue.String(prev)));
         if (title is not null) members.Add(new("title", new JsonValue.String(title)));
         members.Add(new("body", new JsonValue.String(body)));
         members.Add(new("code_blocks", new JsonValue.Array([])));
@@ -508,6 +510,53 @@ public sealed class IngestPipelineTests
 
         Assert.False(verified.TryGetValue(out _, out var error));
         Assert.Equal("curia/content/parent-required", error!.Type);
+    }
+
+    private const string RevisedPost = "01J0000000000000000000000A";
+    private static readonly string RevisedDigest = "sha256:" + new string('b', 64);
+
+    /// <summary>R8.64 (errata G24): a revision that names no <c>prev</c> is refused at VERIFY, before the key is consulted.</summary>
+    [Fact]
+    public async Task R8_64_AVerifyRefusesARevisionThatNamesNoPrev()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+
+        var wire = Wire(harness, PostKind.Revision, parent: RevisedPost, title: null);
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
+
+        Assert.False(verified.TryGetValue(out _, out var error));
+        Assert.Equal("curia/content/prev-required", error!.Type);
+    }
+
+    /// <summary>R8.64: <c>prev</c> on any other kind is refused rather than stored as a claim nothing honours.</summary>
+    [Fact]
+    public async Task R8_64_AVerifyRefusesACommentThatCarriesAPrev()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+
+        var wire = Wire(harness, PostKind.Comment, parent: RevisedPost, prev: RevisedDigest, title: null);
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
+
+        Assert.False(verified.TryGetValue(out _, out var error));
+        Assert.Equal("curia/content/prev-not-allowed", error!.Type);
+    }
+
+    /// <summary>R8.64, the control: the same revision with its <c>prev</c> verifies.</summary>
+    [Fact]
+    public async Task R8_64_AVerifyAdmitsARevisionThatNamesItsPrev()
+    {
+        var harness = Build();
+        var ct = TestContext.Current.CancellationToken;
+
+        var wire = Wire(harness, PostKind.Revision, parent: RevisedPost, prev: RevisedDigest, title: null);
+        Assert.True(harness.Pipeline.Admit(wire).TryGetValue(out var admitted, out _));
+        var verified = await harness.Pipeline.VerifyAsync(admitted!, Typed.Agent(Agent), ct).ConfigureAwait(true);
+
+        Assert.True(verified.TryGetValue(out _, out var error), error?.Type);
     }
 
     /// <summary>A question that names a parent is rejected rather than silently detached.</summary>

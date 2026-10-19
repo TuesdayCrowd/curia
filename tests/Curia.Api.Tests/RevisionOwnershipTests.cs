@@ -103,9 +103,9 @@ public sealed class RevisionOwnershipTests(ForumFixture forum) : IClassFixture<F
     }
 
     /// <summary>
-    /// A revision that chains to nothing cannot establish ownership of anything, so it is refused.
-    /// R6.7 makes <c>prev</c> the link that "commits to its predecessor's digest"; without it there
-    /// is no predecessor to own, and permitting the write would be permitting an unowned revision.
+    /// A revision that chains to nothing cannot establish ownership of anything, so it is refused. Since R8.64
+    /// (errata G24) the refusal is the schema's, not ownership's: Table 12 requires <c>prev</c> of a revision, so
+    /// VERIFY answers 400 <c>curia/content/prev-required</c> and no authorization decision is reached.
     /// </summary>
     [Fact]
     public async Task R6_7_ARevisionThatChainsToNothingIsRefused()
@@ -121,10 +121,16 @@ public sealed class RevisionOwnershipTests(ForumFixture forum) : IClassFixture<F
             client, PostsUrl, token,
             author.SignRevision(board, "a body", postId, prev: null, forum.Now), forum.Now, ct);
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("curia/content/prev-required", await response.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
     }
 
-    /// <summary>A <c>prev</c> naming a digest the log has never seen is refused, not treated as unowned-but-fine.</summary>
+    /// <summary>
+    /// A <c>prev</c> naming a digest the log has never seen is refused, not treated as unowned-but-fine. Still 403
+    /// <c>own-resource-only</c> (R8.64, ruling 7): the digest's form is not validated at admission, so that "not
+    /// yours" and "not there" read alike and the Forum is no oracle for which digests exist. This fact signs a
+    /// malformed digest on purpose.
+    /// </summary>
     [Fact]
     public async Task ARevisionChainingToAnUnknownDigestIsRefused()
     {
@@ -141,5 +147,6 @@ public sealed class RevisionOwnershipTests(ForumFixture forum) : IClassFixture<F
             forum.Now, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains("own-resource-only", await response.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
     }
 }

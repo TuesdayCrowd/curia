@@ -15,6 +15,24 @@ namespace Curia.Domain.Content;
 /// </summary>
 public static class ContentErrors
 {
+    /// <summary>R6.58: every refusal of an envelope's own content has a type that starts here.</summary>
+    public const string TypePrefix = "curia/content/";
+
+    /// <summary>R6.58: the one content refusal that answers 401, an identity claim the credential does not support.</summary>
+    public const string AuthorMismatchType = "curia/content/author-principal-mismatch";
+
+    /// <summary>R8.64: Table 12 requires <c>prev</c> of a revision.</summary>
+    public static Error PrevRequired(PostKind kind) => new(
+        "curia/content/prev-required",
+        "A revision must name the digest it revises as prev",
+        PostKinds.Wire(kind));
+
+    /// <summary>R8.64: <c>prev</c> chains a revision; on any other kind it is a claim the stored post cannot honour.</summary>
+    public static Error PrevNotAllowed(PostKind kind) => new(
+        "curia/content/prev-not-allowed",
+        "Only a revision carries prev",
+        PostKinds.Wire(kind));
+
     public static Error UnsupportedVersion(int v) => new(
         "curia/content/unsupported-version",
         $"Only envelope schema version {PostEnvelope.CurrentVersion} is supported",
@@ -59,7 +77,7 @@ public static class ContentErrors
     /// different agent's name is a valid signature by the wrong agent.
     /// </summary>
     public static Error AuthorIsNotThePrincipal() => new(
-        "curia/content/author-principal-mismatch",
+        AuthorMismatchType,
         "The envelope's author does not match the authenticated principal");
 
     /// <summary>R8.55 / R8.56: a vote or verification names its subject by envelope digest, in the served form.</summary>
