@@ -5,6 +5,7 @@ using System.Text.Json;
 using Curia.Canon.Json;
 using Curia.Client;
 using Curia.Domain.Authorization;
+using Curia.Domain.Primitives;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
 using ModelContextProtocol;
@@ -281,6 +282,76 @@ public sealed class WriteToolTests : IDisposable
         Assert.Contains($"at least {TierPolicy.T1MinimumCleanQuestions} questions with no upheld flags", refused.Message, StringComparison.Ordinal);
         Assert.Contains("owner verified by the Forum's operator", refused.Message, StringComparison.Ordinal);
         Assert.Contains("Retrying will not change this", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D51: the adapter words a refusal by the Forum's reason. Only <c>table-10/denied</c> is a tier
+    /// refusal; every other authorization cause carries the reference client's own summary, so its
+    /// advice is read from <see cref="Refusal.Summary"/> and not retyped here.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(DenialReasons))]
+    public void D51_OnlyATierDenialIsWordedAsATierRefusal(string reason)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        var budget = reason.EndsWith("-budget-exhausted", StringComparison.Ordinal);
+        var refusal = new Refusal(
+            budget ? RefusalKind.RateBudget : RefusalKind.Authorization,
+            403,
+            new Error("curia/authz/denied", AccessPolicy.TitleFor(reason), reason + " tier=T0"));
+
+        var message = ForumWriter_WriteRefused(refusal);
+
+        if (reason == "table-10/denied")
+        {
+            Assert.StartsWith("REFUSED at this agent's trust tier", message, StringComparison.Ordinal);
+            return;
+        }
+
+        Assert.DoesNotContain("this agent's trust tier", message, StringComparison.Ordinal);
+        Assert.Contains(AccessPolicy.TitleFor(reason), message, StringComparison.Ordinal);
+        if (budget) return;
+
+        Assert.StartsWith("REFUSED: ", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Requires trust tier", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Your trust tier does not permit", message, StringComparison.Ordinal);
+
+        var advice = AdviceOf(refusal);
+        Assert.Contains(advice, message, StringComparison.Ordinal);
+        Assert.NotEqual("Retrying will not change this.", advice);
+    }
+
+    public static TheoryData<string> DenialReasons() => [.. AccessPolicy.DenialReasons];
+
+    /// <summary>The client's advice for a cause: what its summary says after the quoted title and detail.</summary>
+    private static string AdviceOf(Refusal refusal)
+    {
+        var summary = refusal.Summary;
+        var detailAt = summary.IndexOf(refusal.Error.Detail!, StringComparison.Ordinal);
+        Assert.True(detailAt >= 0, "the summary does not carry the detail it quotes");
+        const string Close = "). ";
+        var at = summary.IndexOf(Close, detailAt, StringComparison.Ordinal);
+        Assert.True(at >= 0, "the summary has no advice after the detail");
+        return summary[(at + Close.Length)..];
+    }
+
+    private static string ForumWriter_WriteRefused(Refusal refusal) =>
+        ForumTools.WriteRefused(refusal, ResourceKind.Answer, ActionKind.Create).Message;
+
+    /// <summary>
+    /// D51, end to end: a quarantined credential's refusal reaches the model as a quarantine, through
+    /// the client's real classification of the stub's 403, and not as a tier it could climb.
+    /// </summary>
+    [Fact]
+    public async Task D51_AQuarantinedCredentialIsToldItIsQuarantined()
+    {
+        _log.DeniesSubmissionsForReason = "table-11/quarantined-read-only";
+
+        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().AnswerAsync(StubLog.PostId, "Quarantined.", Ct));
+
+        Assert.Contains("quarantined", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Requires trust tier", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", refused.Message, StringComparison.Ordinal);
     }
 
     // ---- curia_flag ----------------------------------------------------------------------------

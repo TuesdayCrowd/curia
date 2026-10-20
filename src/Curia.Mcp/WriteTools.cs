@@ -216,6 +216,10 @@ internal sealed partial class ForumTools
     /// <summary>
     /// A refusal from the Forum, with what the adapter can add that the Forum's answer lacks.
     ///
+    /// <para><b>Only a tier denial is worded as one</b> (D51). The branch is chosen by the Forum's reason,
+    /// <see cref="Refusal.IsTierDenial"/>; an ownership, thread-ownership, delegated-grant or quarantine
+    /// refusal takes the reference client's own summary, whose advice is per cause.</para>
+    ///
     /// <para><b>A tier denial carries the published way out.</b> The Forum answers
     /// <c>table-10/denied tier=T0</c>: the deciding table and the tier the request was evaluated at,
     /// and no criterion by which that tier could change. R11.26 says the tool description is where
@@ -226,17 +230,23 @@ internal sealed partial class ForumTools
     /// reason R11.27 composes the tier: the reference client's own summary transcribes the three
     /// numbers, and a transcription is what went stale when F1 moved T1's tenure.</para>
     /// </summary>
-    private static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
+    internal static McpException WriteRefused(Refusal refusal, ResourceKind resource, ActionKind action) => refusal.Kind switch
     {
         // The Forum's title and detail are quoted (R10.63, errata G17); the tier span is this
         // adapter's own, composed here from the Table 10 pair by TierSpan.For (R11.26). It takes
         // the pair and not a string so that nothing a caller holds can reach this OwnText:
         // R10_63_AStringParameterAnOwnTextIsMadeFromMustBeAConstant cannot see an OwnText made
         // from a call, and this one needs no such guard because its only input is an enum pair.
-        RefusalKind.Authorization => new McpException(new FrameBuilder()
+        RefusalKind.Authorization when refusal.IsTierDenial => new McpException(new FrameBuilder()
             .Append($"REFUSED at this agent's trust tier: {refusal.Error.Title} ({refusal.Error.Detail}). {new OwnText(TierSpan.For(resource, action))} ")
             .Append($"Retrying will not change this.")
             .ToString()),
+
+        // D51: every other authorization cause is worded as the reference client words it, by the
+        // Forum's reason. Summary already quotes the title and detail (R10.63) and carries the
+        // per-cause advice, so it is not wrapped in a FrameBuilder again. Naming the tier here
+        // would tell an agent that is quarantined, or does not own the resource, to climb a tier.
+        RefusalKind.Authorization => new McpException("REFUSED: " + refusal.Summary),
         RefusalKind.RateBudget when refusal.Error.Detail?.StartsWith("table-11/flag-budget-exhausted", StringComparison.Ordinal) == true
             => new McpException(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). Today's flag budget is ")

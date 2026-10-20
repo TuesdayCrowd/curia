@@ -102,6 +102,16 @@ public sealed class ToolDescriptionTests
         Assert.Contains("the Forum's word on this path", description, StringComparison.Ordinal);
     }
 
+    /// <summary>D51: the answer tool does not tell a model every refusal is a tier refusal.</summary>
+    [Fact]
+    public void D51_TheAnswerDescriptionDoesNotCallEveryRefusalATierRefusal()
+    {
+        var answer = Registered().Single(t => t.Name == "curia_answer").Description;
+
+        Assert.DoesNotContain("refuses at this agent's tier", answer, StringComparison.Ordinal);
+        Assert.Contains("names its cause", answer, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// R11.27: the notice is one frozen sentence common to every tool. R10.17's warning was frozen
     /// as a constant on the reasoning that a text an operator can reword will eventually say

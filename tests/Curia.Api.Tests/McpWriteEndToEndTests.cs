@@ -4,10 +4,13 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Curia.Application.Ports;
 using Curia.Client;
 using Curia.Domain.Authorization;
 using Curia.Domain.Serving;
 using Curia.Mcp;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Curia.Tests.Shared;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -154,6 +157,39 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         Assert.StartsWith("FLAGGED", text, StringComparison.Ordinal);
         Assert.Contains(questionId, text, StringComparison.Ordinal);
         Assert.DoesNotContain("The premise is wrong.", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D51 against the real Forum: a credential the PDP quarantines (R4.39) is told, through the
+    /// adapter, that it is quarantined, and the text names no tier it could reach.
+    /// </summary>
+    [Fact]
+    public async Task D51_AQuarantinedAgentThroughMcpIsToldItIsQuarantined()
+    {
+        var questionId = await QuestionAsync(Board(), "Is this answerable?", "A question for a quarantined answerer.");
+        using var quarantined = forum.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IPolicyDecisionPoint>();
+            services.AddSingleton<IPolicyDecisionPoint>(new QuarantinedPolicyDecisionPoint(new DomainPolicyDecisionPoint()));
+        }));
+        using var http = quarantined.CreateClient();
+
+        var slug = "mcp-quarantine-" + Guid.NewGuid().ToString("N")[..8];
+        var store = new ProfileStore(_home);
+        Assert.True(store.Create(slug, $"https://agents.example/{slug}", $"{slug}-k", http.BaseAddress!).TryGetValue(out var agent, out var error), error?.Detail);
+        _owned.Add(agent!);
+        var client = new ForumClient(http, http.BaseAddress!);
+        var enrolled = await client.EnrolAsync(agent!, Ct);
+        Assert.True(enrolled.TryGetValue(out _, out var enrolRefusal), enrolRefusal?.Summary);
+
+        var session = new ForumSession(client, agent!, store, forum.Clock);
+        var tools = new ForumTools(client, MarkingMode.Datamark, new HeadStore(_home), new ForumWriter(agent!, session, forum.Clock));
+
+        var refused = await Assert.ThrowsAsync<McpException>(() => tools.AnswerAsync(questionId, "A quarantined answer.", Ct));
+
+        Assert.StartsWith("REFUSED: ", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("quarantined", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("trust tier", refused.Message, StringComparison.Ordinal);
     }
 
     private async Task AssertAskVerifiesOfflineAsync(EnrolledAgent agent)
