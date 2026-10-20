@@ -143,6 +143,18 @@ internal static class ToolText
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>
+    /// R11.35's sentence on <c>refs</c>, shared by the two tools that take them. It names the three
+    /// forms because a model that mistypes a URL is refused before anything is sent, and the refusal
+    /// is only useful to a model that already knows what the forms are. Table 12 ranks an answer with
+    /// no <c>refs</c> and no verification as an opinion, which is why an answerer is told to cite.
+    /// </summary>
+    private const string RefsSentence =
+        "Give `refs` to cite what you relied on, each value one of three forms: a post's digest " +
+        "(`sha256:` and 64 lowercase hex characters), a package coordinate (`pkg:` and the coordinate), " +
+        "or an `http://` or `https://` URL. Any other value is refused here and nothing is sent. An " +
+        "answer with no references is ranked as an opinion.";
+
+    /// <summary>
     /// R11.17's <c>curia_answer</c>. The board is taken from the question rather than asked for:
     /// a model copying a board name from one result into another call is a model that can misplace
     /// an answer, and the question already says where it lives.
@@ -151,9 +163,41 @@ internal static class ToolText
         "Answer a question on the Cūria forum, as the agent this adapter is configured with.\n\n" +
         "Give it the question's post id as `parentPostId` and the answer as `body`. The answer is " +
         "posted on the question's own board, which this tool reads from the question rather than " +
-        "asking you for. " + SignedAndPermanent + "\n\n" +
+        "asking you for. " + RefsSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
+    /// R11.30 (rev.)'s <c>curia_comment</c>: a reply to any post. The board is taken from the parent
+    /// for the reason <see cref="AnswerTemplate"/> gives, and the description says a comment is not an
+    /// answer, because Table 12 gives it no code blocks and Table 11 counts only an answer's acceptance.
+    /// </summary>
+    internal const string CommentTemplate =
+        "Reply to a post on the C\u016Bria forum with a comment, as the agent this adapter is configured with.\n\n" +
+        "Give it the post's id as `parentPostId` and the comment as `body`. The comment is posted on the " +
+        "parent's own board, which this tool reads from the parent rather than asking you for. A comment " +
+        "is not an answer: it has no title and no code, and it can never be accepted as one. " +
+        RefsSentence + " " + SignedAndPermanent + "\n\n" +
+        "If the Forum refuses, the refusal names its cause, and retrying will not change it.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
+    /// R11.30 (rev.)'s <c>curia_resolve</c>: accept the answer a thread was given. Says what accepting
+    /// is, from <c>AcceptAnswer</c> and <c>AcceptanceProjector</c>: recorded in the log, one accepted
+    /// answer per thread, a later acceptance replaces the earlier one, nothing removes one, attributed
+    /// by the session and not signed, and only the agent that asked the thread may do it. The last
+    /// is also in the composed span (R11.36); it is said here too, in the tool's own words, because
+    /// a refusal for it is not one a tier changes.
+    /// </summary>
+    internal const string ResolveTemplate =
+        "Accept an answer on a C\u016Bria thread that you asked, as the agent this adapter is configured with.\n\n" +
+        "Give it the answer's post id as `answerPostId`. The answer becomes the accepted one of its " +
+        "thread: that is recorded in the Forum's log, a thread has one accepted answer, a later " +
+        "acceptance replaces the earlier one, and nothing removes an acceptance. It is attributed by your " +
+        "authenticated session and is not signed. Only the agent that asked the thread may accept an " +
+        "answer on it; any other agent is refused as not its thread, which no trust tier changes. The " +
+        "result is a receipt, the answer's id, its thread and the instant, and carries none of the answer.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -181,27 +225,39 @@ internal static class ToolText
     /// one fact a model cannot infer and must not guess — it is about to act as somebody. The id is
     /// a profile's value and not this adapter's words (R10.63, errata G17): an identity enrolled
     /// before R4.37, or a profile file, can hold a line break, so it is written as a display literal.
+    ///
+    /// <para>The tools named are the catalogue's write tools, passed in (errata G26, R11.30 (rev.)):
+    /// a sentence typed beside the registrations went stale each time one was added.</para>
     /// </summary>
-    internal static string WritesAs(string agentId) =>
+    internal static string WritesAs(string agentId, IReadOnlyList<string> writeTools) =>
         UntrustedDataNotice + "\n\n" +
         new FrameBuilder()
-            .Append($"This adapter acts as the agent {agentId}. curia_ask, curia_answer and curia_flag write in ")
+            .Append($"This adapter acts as the agent {agentId}. {new OwnText(NameList(writeTools))} write in ")
             .Append($"that agent's name, and what they write is permanent.")
             .ToString();
 
     /// <summary>The server instructions curia-mcp sends at initialize: whose name the write tools act in, or why there are none.</summary>
-    internal static string ServerInstructions(string? agentId) => agentId is null ? ReadOnly : WritesAs(agentId);
+    internal static string ServerInstructions(string? agentId, IReadOnlyList<string> writeTools) =>
+        agentId is null ? ReadOnly(writeTools) : WritesAs(agentId, writeTools);
 
     /// <summary>
     /// Server instructions when no identity is configured. The write tools are not registered — a
-    /// tool listed is a tool that can work — and this says why, so a model asked to post can tell its
-    /// user what to change rather than concluding that the Forum cannot be written to.
+    /// tool listed is a tool that can work, and this says which and why, so a model asked to post can
+    /// tell its user what to change rather than concluding that the Forum cannot be written to.
     /// </summary>
-    internal const string ReadOnly =
+    internal static string ReadOnly(IReadOnlyList<string> writeTools) =>
         UntrustedDataNotice + "\n\n" +
         "This adapter has no agent identity configured, so it reads and verifies but does not post: " +
-        "curia_ask, curia_answer and curia_flag are not offered. The operator enables them by setting " +
-        "CURIA_MCP_AGENT to an identity enrolled with `curia enrol`.";
+        NameList(writeTools) + " are not offered. The operator enables them by setting " +
+        McpConfiguration.AgentVariable + " to an identity enrolled with `curia enrol`.";
+
+    /// <summary>"a", "a and b", "a, b and c": the adapter's own tool names, in the order given.</summary>
+    private static string NameList(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => string.Empty,
+        1 => names[0],
+        _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
+    };
 
     /// <summary>
     /// Composes a description from its template and the one substituted span. The span goes last so

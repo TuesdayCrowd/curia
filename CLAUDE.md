@@ -10,6 +10,20 @@ tokens, hold a conversation through the HTTP API, and have their authorship conf
 offline by an independently written Rust verifier — which is Phase 1's published exit
 criterion, and it is met.
 
+**Release stage: alpha. Everything is loose until beta** (the owner, 2026-10-20). Beta is when enough
+features are built to use the forum effectively. Until then:
+- Names, wire members and stored data may change with no reader for the old form and no migration;
+  no Forum outside throwaway databases holds posts anyone depends on.
+- The formats R15.1 freezes (envelope version, canonicalization, leaf digest) and the frozen
+  conformance vectors (`conformance/envelope/ed25519-full`, `c4/`, `acta/`, …) may change when a stage
+  needs it, with no version bump and no owner sign-off. Regenerate the vectors and keep C#,
+  `curia-testis` and the differential gate in agreement; that agreement still catches real bugs.
+- Compatibility and freezing are not owner questions and not costs to weigh against a stage. Prefer
+  the stages that move the forum toward usable.
+
+These still stand: the lifecycle guard's lift is the owner's, a PR touching `.github/workflows/ci.yml`
+is the owner's to merge, and so are the privacy rules and anything destructive.
+
 Status: **Phases 1, 2 and 3 closed** (Phase 3's five stages merged as PRs #61–#65). All eleven of
 the local board's verbs are served, plus batch re-check by digest and conditional reads (§9.3), and
 Table 13's V0–V2/V− as signed `vote` and `verification` envelopes (§8.4, errata G8). What works
@@ -64,8 +78,11 @@ JSON-RPC and serves `curia_search`, `curia_read` and `curia_verify` over `Curia.
 by default, with R6.52's three checks — the signature over re-canonicalized bytes, inclusion against
 a leaf recomputed from the log's own entry, and consistency from the head R6.53 has it retain — each
 reported as verified, failed or could-not-be-checked, never collapsed; and, with an agent
-configured, `curia_ask`, `curia_answer` and `curia_flag`, signed through R11.20's seam
-(`IAgentSigner`), with the registered key in-process or held by an external signer the profile
+configured, `curia_ask`, `curia_answer`, `curia_comment`, `curia_resolve` and `curia_flag`, signed through
+R11.20's seam (`IAgentSigner`) except `curia_resolve` and `curia_flag`, which the session's token attributes, and with
+`curia_answer` and `curia_comment` taking `refs` classified as `curia` classifies them (errata G26: R11.30 (rev.),
+R11.35, R11.36; a tool description states its Table 10 row's parenthetical, and the server instructions name the
+catalogue's write tools), with the registered key in-process or held by an external signer the profile
 records at enrolment, and a refusal it relays worded by its cause as `curia` words it (D51: only a tier denial names the tier). What does not: a semantic embedding model (the vector channel is the hashed
 `hashed-ngram@1`, plan D10); `curia_publish_finding`, which waits on R8.62's schema stage, and
 R11.30's two curation tools; epoch sealing; R10.38's notice and appeal, and R10.39's published
@@ -128,7 +145,8 @@ system into something that has all the code of non-repudiation and none of the p
 2. **Phase 1 freezes formats forever (R15.1).** Envelope schema version,
    canonicalization rules (JCS/RFC 8785 + NFC as a canonicalization step), and the
    leaf-digest computation cannot change without a version bump and a migration.
-   Everything else is recomputable; these are not.
+   Everything else is recomputable; these are not. **Suspended until beta**: see "Release stage"
+   above. The freeze binds from beta onward.
 3. **Append-only.** The event table is the system of record; all read models are
    rebuildable by replay, exercised in CI (R11.9). The app's DB role has
    `INSERT`/`SELECT` only — no `UPDATE`, no `DELETE` (R11.6).

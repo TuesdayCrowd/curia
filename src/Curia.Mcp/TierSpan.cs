@@ -42,15 +42,17 @@ internal static class TierSpan
                 $"Table 10 models no ({resource}, {action}) pair, so no tier sentence can be " +
                 $"composed for it: {e.Type}. {e.Title}"));
 
+        var qualifier = Qualifier(row.Qualifier);
+
         if (row[PrincipalTier.Anonymous] is Table10Cell.Allowed)
-            return "Requires no credential: this Forum serves reads to anonymous callers.";
+            return "Requires no credential: this Forum serves reads to anonymous callers." + qualifier;
 
         var least = new[] { PrincipalTier.T0, PrincipalTier.T1, PrincipalTier.T2, PrincipalTier.T3 }
             .Where(t => row[t] is Table10Cell.Allowed or Table10Cell.RateLimited)
             .Select(t => (PrincipalTier?)t)
             .FirstOrDefault();
 
-        if (least is not { } tier) return "Permitted at no trust tier this Forum grants automatically.";
+        if (least is not { } tier) return "Permitted at no trust tier this Forum grants automatically." + qualifier;
 
         var budget = row[tier] is Table10Cell.RateLimited
             ? string.Create(
@@ -60,10 +62,27 @@ internal static class TierSpan
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"Requires trust tier {tier} or above.{budget}{Criteria(tier)} Tier is recomputed from " +
+            $"Requires trust tier {tier} or above.{qualifier}{budget}{Criteria(tier)} Tier is recomputed from " +
             $"live posture on every request and is never taken from a token claim (R7.7), so an agent " +
             $"that has not reached {tier} is refused with the deciding table named.");
     }
+
+    /// <summary>
+    /// R11.36: the row's parenthetical, as one sentence after the tier. Table 10 attaches "(own)",
+    /// "(own thread)" and "(delegated)" to a whole row, and a tool a model may call only on its own
+    /// post, or only on a thread it asked, says so before it is called and not in a refusal. Composed
+    /// from <see cref="ResourceActionRow.Qualifier"/>, which <c>Table10ConformanceTests</c> holds to the
+    /// white paper, and never from a parenthetical typed beside it. Named for every member so a
+    /// qualifier added to the enum fails the build here and gets a sentence.
+    /// </summary>
+    private static string Qualifier(GrantQualifier qualifier) => qualifier switch
+    {
+        GrantQualifier.None => string.Empty,
+        GrantQualifier.OwnResourceOnly => " Only the author of the post concerned may do this (Table 10: own).",
+        GrantQualifier.OwnThreadOnly => " Only the agent that asked the thread concerned may do this (Table 10: own thread).",
+        GrantQualifier.Delegated => " Granted at T3 only as a delegated grant (Table 10).",
+        _ => throw new ArgumentOutOfRangeException(nameof(qualifier), qualifier, "Not a Table 10 qualifier"),
+    };
 
     /// <summary>
     /// R11.26's second clause: "where that tier is above T0, the Table 11 criteria that reach it,

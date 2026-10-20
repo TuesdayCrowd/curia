@@ -177,7 +177,9 @@ public sealed class ReaderFrameToolTests : IDisposable
     public void R10_63_ServerInstructionsQuoteTheAgentTheyName()
     {
         var agentId = "https://agents.example/a\n" + Forged;
-        var text = ToolText.ServerInstructions(agentId);
+        var (tools, agent) = Tools(_log);
+        using var owned = agent;
+        var text = ToolText.ServerInstructions(agentId, ToolCatalogue.WriteToolNames(tools));
         Assert.True(text.Contains(Curia.Canon.Json.DisplayLiteral.Of(agentId), StringComparison.Ordinal),
             $"the instructions do not name the agent as a literal, so their having no forged line proves nothing; a defect in this fact:\n{text}");
         AssertNoForgedLine("server instructions", text);
@@ -226,7 +228,9 @@ public sealed class ReaderFrameToolTests : IDisposable
                 "curia_search" => await tools.SearchAsync(new SearchCriteria { Query = "anything" }, ct),
                 "curia_verify" => await tools.VerifyAsync(StubLog.PostId, null, ct),
                 "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
-                "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", ct),
+                "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
+                "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),
+                "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
                 "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
                 _ => throw new InvalidOperationException(
                     $"{name} is registered and this gate does not know how to call it. Add the call: a tool this gate never calls is a tool whose output nothing checks."),

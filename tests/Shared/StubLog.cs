@@ -1320,6 +1320,15 @@ internal sealed class StubLog : IDisposable
                 return (HttpStatusCode.Created, StubLog.ReceiptJson(digest), null);
             }
 
+            // An acceptance is refused for the reason the stub is told to refuse with: the Forum's
+            // own-thread-only refusal is the one a tool meets on this route (G26).
+            if (path.EndsWith("/accept", StringComparison.Ordinal) && log.DeniesSubmissionsForReason is { } acceptReason)
+            {
+                return (HttpStatusCode.Forbidden, $$"""
+                    {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(acceptReason)}}","detail":"{{acceptReason}}"}
+                    """, null);
+            }
+
             return path.EndsWith("/flags", StringComparison.Ordinal)
                 ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
                 : (HttpStatusCode.OK, StubLog.AcceptanceJson(), null);

@@ -10,12 +10,14 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — where it stands (2026-10-20, at 440e33d6)
+> ## Current work — where it stands (2026-10-20, at 7f145add)
 >
 > **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** D35 (`hidden-beyond-bmp`) is
 > merged. **The refusals stage (errata G24) is merged as #104**. **#106 is the MCP refusals stage (`mcp-refusals-name-their-cause`, closed D51)**:
 > `curia-mcp`'s write refusals take the reference client's cause-by-cause wording, and only a tier denial is worded as one. The register keeps the history (its "Observed during" sections, D45 to D51, G21 PR 0.5 and PR 2); this block says
 > only where things stand.
+>
+> **Release stage: alpha, and everything is loose until beta** (the owner, 2026-10-20; `CLAUDE.md`, "Release stage"). Beta is when enough features exist to use the forum effectively, so until then stored data, names, wire members, R15.1's frozen formats and the frozen conformance vectors are not costs to weigh against a stage (regenerate the vectors and keep C#, `curia-testis` and the differential gate in agreement), and the next stage is the one that most moves the forum toward being usable by agents; the lifecycle guard's lift, a `ci.yml` PR's merge, the privacy rules and anything destructive stay the owner's.
 >
 > **Merged:**
 >
@@ -41,7 +43,8 @@ set; SP scores recorded even if not yet weighted.*
 > | #105 | Docs current at #104: CLAUDE.md gains G23's and G24's sentences; the plan's status names #104 |
 > | #106 | MCP refusals name their cause (D51): `curia-mcp` words a write refusal by the Forum's reason, `Refusal.IsTierDenial`, and only `table-10/denied` is a tier refusal; the answer description says a refusal names its cause. No requirement, no errata |
 > | #107 | D50 item 2: `curia/canon/*` and `curia/admit/*` VERIFY refusals answer 400, `key-not-renderable` the one named exception (R6.58 (rev.), errata G24); `docs/superpowers/plans/2026-10-20-canon-refusals-are-400.md` |
-> | this PR | The envelope spells its members as published (errata G25, R8.65): a code block's license is read and written `declared_license` and a reference's subject `target`, as C.3 publishes them (D40 closed; the `refs` half of "Observed during Stage 2" closed); `curia answer` and `curia comment` take `--refs`, one classifier (`ReferenceForms`) for them and for `reproduce` and `contradict` (D37's `--refs` half closed). `verification-contradicted` regenerated alone. Opens D52 and D53; `docs/superpowers/plans/2026-10-20-the-envelope-spells-its-members-as-published.md` |
+> | #108 | The envelope spells its members as published (errata G25, R8.65): a code block's license is read and written `declared_license` and a reference's subject `target`, as C.3 publishes them (D40 closed; the `refs` half of "Observed during Stage 2" closed); `curia answer` and `curia comment` take `--refs`, one classifier (`ReferenceForms`) for them and for `reproduce` and `contradict` (D37's `--refs` half closed). `verification-contradicted` regenerated alone. Opens D52 and D53; `docs/superpowers/plans/2026-10-20-the-envelope-spells-its-members-as-published.md` |
+> | this PR | The MCP surface can reply (errata G26, R11.30 (rev.), R11.35, R11.36): `curia_comment` and `curia_resolve` join the write tools and `curia_answer` and `curia_comment` take `refs`, each value classified as `curia` classifies it and an unclassifiable one refused before anything is sent (D52 closed); a tool description states its Table 10 row's parenthetical; the server instructions name the catalogue's write tools instead of three typed ones; `curia-mcp` 0.4.0. Opens D54; `docs/superpowers/plans/2026-10-20-the-mcp-surface-can-reply.md` |
 >
 > **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
 > lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
@@ -62,12 +65,12 @@ set; SP scores recorded even if not yet weighted.*
 > - **The external `curia` skill** (outside this repository) gains `browse` and exit 9 in its verb list and
 >   `references/cli.md`.
 >
-> **Next stage: to be chosen by `curia-architect`.** The stage before it, "the envelope spells its members as published" (errata G25, R8.65; plan `docs/superpowers/plans/2026-10-20-the-envelope-spells-its-members-as-published.md`, "As run" at its end), is this PR: it closes D40 and the `refs` half of "Observed during Stage 2", and gives `answer` and `comment` a `--refs` flag (D37's last open half). It touches no frozen format and not `ci.yml`. D50 item (2) is closed by #107 (see D50). The author mismatch's 401 is ruled to stay (D50 item 3). The refusals stage's spec is
+> **Next stage: to be chosen by `curia-architect`.** The stage before it, "the MCP surface can reply" (errata G26, R11.30 (rev.), R11.35, R11.36; plan `docs/superpowers/plans/2026-10-20-the-mcp-surface-can-reply.md`, "As run" at its end), is this PR: `curia-mcp` gains `curia_comment` and `curia_resolve` and `refs` on `curia_answer` (D52 closed). It touches no frozen format and not `ci.yml`. Open from it: **D54** (R8.65's last clause is specified and not implemented). The stage before that, "the envelope spells its members as published" (errata G25, R8.65; plan `docs/superpowers/plans/2026-10-20-the-envelope-spells-its-members-as-published.md`), is #108. D50 item (2) is closed by #107 (see D50). The author mismatch's 401 is ruled to stay (D50 item 3). The refusals stage's spec is
 > `docs/superpowers/specs/2026-10-18-refusals-tell-the-truth-design.md` and its plan
 > `docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`; its falsification record (27 cases, none left green) is
 > under "Observed during the refusals stage". Opened by it: **D50** (its main item closed, and item 2, the `curia/canon/*` 401s, closed by #107; the
 > author mismatch's 401 ruled to stay) and **D51** (`curia-mcp` printed every authorization refusal as a tier refusal; closed by #106). Still open as
-> the register has them: D39, D41 to D43, D46, D52 (`curia_answer` takes no `refs`), D53 (`ReadRefs` and `ReadCodeBlocks` skip what they cannot read), `--board` on replies, and `--agent` on
+> the register has them: D39, D41 to D43, D46, D53 (`ReadRefs` and `ReadCodeBlocks` skip what they cannot read), D54 (a reader that cannot read a reference does not say it dropped one), `--board` on replies, and `--agent` on
 > `verify` and `contract`.
 > Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
 > recorded in errata G21, spec §4.13 and the register.
@@ -5926,7 +5929,7 @@ Each item has a fact that reads its expectation from an artifact other than the 
 **D37 stays open** for the budget refusals' title: the posting budget's and, since G18, the flag
 budget's (`src/Curia.Domain/Authorization/AccessPolicy.cs:243`) are both titled 'Not permitted at
 this trust tier' (`src/Curia.Api/ForumEndpoints.cs:693`, `:854`, `:1482` at e083d6d). Closed by
-the envelope-spelling stage (errata G25, R8.65; 2026-10-20, this PR): `--refs` on `answer` and `comment`, so D37's `--refs` half is built
+the envelope-spelling stage (errata G25, R8.65; 2026-10-20, #108): `--refs` on `answer` and `comment`, so D37's `--refs` half is built
 (`ReferenceForms`; `CliRefsEndToEndTests`, `HelpTextTests.D37_EveryVerbAnswersHelp` red when `SharedVerbFlags` gained the flag and the help did not).
 
 **Reopened and extended by the second five-agent exercise (2026-10-17).** Each item below was re-read in the
@@ -6127,7 +6130,7 @@ is R8.62/R8.63's question. It is not answered here.
 
 **Ruled (2026-10-20, `curia-architect`): option 1, together with the `refs` spelling,** in errata G25 (R8.65) and scheduled as the stage `docs/superpowers/plans/2026-10-20-the-envelope-spells-its-members-as-published.md`. Re-read at 440e33d6, every claim above held except the register's line numbers, which had moved (`PostEnvelope.cs:343` and `:358`, `SubmissionBuilder.cs:248` and `:256` are current). Three hand-built tests and the `verification-contradicted` generator share the reader's spelling and are changed with it; the probe derives from Appendix C.3 parsed out of the white paper and from `ed25519-full`'s canonical form.
 
-**Closed (2026-10-20, this PR, errata G25, R8.65).** `CodeBlock.License` is `DeclaredLicense` and `Reference.Value` is `Target`; `ReadCodeBlocks` reads `declared_license`, `ReadRefs` reads `target`, `SubmissionBuilder` writes both, and there is no reader of the old spellings. Also changed, found by grep and not by the plan: `tests/Curia.Domain.Tests/Content/PrevAdmissionTests.cs`, `tests/Curia.Api.Tests/ForumAgent.cs` (both hand-built a `value` reference) and two rows of `PortStringAllowlist` keyed by the renamed parameters. The probes, `EnvelopeSpellingTests` and `SubmissionBuilderTests.R8_65_*`, were seen red first; FR1 to FR9 are in the plan's "As run". The cost ruling 2 accepted is pinned by `VerificationProjectorTests.R8_65_AReportWhoseOnlyEvidenceIsSpelledValueIsNotCounted`. Still open from it: D52 and D53.
+**Closed (2026-10-20, #108, errata G25, R8.65).** `CodeBlock.License` is `DeclaredLicense` and `Reference.Value` is `Target`; `ReadCodeBlocks` reads `declared_license`, `ReadRefs` reads `target`, `SubmissionBuilder` writes both, and there is no reader of the old spellings. Also changed, found by grep and not by the plan: `tests/Curia.Domain.Tests/Content/PrevAdmissionTests.cs`, `tests/Curia.Api.Tests/ForumAgent.cs` (both hand-built a `value` reference) and two rows of `PortStringAllowlist` keyed by the renamed parameters. The probes, `EnvelopeSpellingTests` and `SubmissionBuilderTests.R8_65_*`, were seen red first; FR1 to FR9 are in the plan's "As run". The cost ruling 2 accepted is pinned by `VerificationProjectorTests.R8_65_AReportWhoseOnlyEvidenceIsSpelledValueIsNotCounted`. Still open from it: D52 and D53.
 
 ### D41 — `htu` and `aud` bind to the Host header the caller sent, not to the Forum's origin *(pre-existing; found by the review of the rotation stage's PR 0, 2026-10-12)*
 
@@ -6708,13 +6711,19 @@ the `NotRenderableType` is-not-400 fact, and the client fact (green first; held 
 **D50 after this stage:** item (3), the author mismatch, is ruled to
 stay 401 (an identity claim the credential does not support; `An_impersonated_author_is_rejected` pins it).
 
-### D52 — `curia_answer` takes no `refs` *(opened by the envelope-spelling stage, 2026-10-20)*
+### D52 — `curia_answer` takes no `refs` *(opened by the envelope-spelling stage, 2026-10-20; closed by the MCP-surface stage, this PR)*
 
-`curia answer` and `curia comment` take `--refs` (errata G25, ruling 6); `curia-mcp`'s `curia_answer` has no such parameter, so an agent working through MCP still cannot attach the citations Table 12 ranks an answer on. It is a tool-schema change with its own descriptions and tests and was kept out of that stage (ruling 7). `ForumWriter` builds a `PostDraft`, which already carries `Refs`, so the change is small: a `refs` parameter, each value through `ReferenceForms.Parse`, a refusal worded as the CLI words it. **Waits on** the architect scheduling it.
+`curia answer` and `curia comment` take `--refs` (errata G25, ruling 6); `curia-mcp`'s `curia_answer` had no such parameter, so an agent working through MCP could not attach the citations Table 12 ranks an answer on. It was a tool-schema change with its own descriptions and tests and was kept out of that stage (ruling 7). The draft is built in `ForumTools.AnswerAsync` (`src/Curia.Mcp/WriteTools.cs`), not in `ForumWriter` (which builds nothing): this entry first said `ForumWriter`, which was wrong.
+
+**Closed (2026-10-20, errata G26, R11.35; `docs/superpowers/plans/2026-10-20-the-mcp-surface-can-reply.md`).** `curia_answer` and the new `curia_comment` take `refs` (`string[]?`), parsed by one private `ReplyAsync` through `ReferenceForms.Parse` before any request is made (a refusal is `NOT SENT`, with nothing sent, the read of the parent included), and carried into the `PostDraft`. Probes `WriteToolTests.R11_35_*`, `ToolDescriptionTests.R11_35_*` and `McpWriteEndToEndTests.R11_35_*`, seen red first and falsified (FM1 to FM3, FM11); see the plan's "As run".
 
 ### D53 — `ReadRefs` and `ReadCodeBlocks` skip an item they cannot read *(opened by the envelope-spelling stage, 2026-10-20)*
 
 An item of `refs` without a `kind` and a `target`, or of `code_blocks` without a `language` and a `source`, is dropped by the reader and the post is admitted without it, so a misspelled member is signed and then ignored (the shape D40 was). Refusing it is R8.62 and R8.63's closed-member-set question, and a rule in `PostEnvelope.Read` is what R8.64's decision 3 forbids; G25 ruling 3 left it open on purpose. **Waits on** R8.62's schema stage.
+
+### D54 — a reader that cannot read a reference does not say it dropped one *(found by `curia-architect` choosing the stage after #108, 2026-10-20; opened by the MCP-surface stage, this PR)*
+
+R8.65's last clause requires that a reader which cannot read a reference not report the post as carrying fewer references than its author signed without saying it dropped one. `PostEnvelope.ReadRefs` skips an item without a `kind` and a `target` (`src/Curia.Domain/Content/PostEnvelope.cs:372`-`:385`) and keeps no count of what it skipped; `Passage` prints `envelope.Refs.Length` as the number of references (`src/Curia.Client/Passage.cs:151`-`:152`). No test names R8.65's clause (grepped: the R8.65 facts are `EnvelopeSpellingTests`, `SubmissionBuilderTests`, `ReferenceFormsTests`, `CliRefsEndToEndTests`). The clause is specified and not implemented. The fix needs no refusal and so no rule in `Read` (R8.64's decision 3): `ReadRefs` counts the raw array's length against what it kept and `PostEnvelope` exposes `DroppedRefs`; `Passage` prints `refs 2 reference(s), 1 NOT READ` and `curia-mcp`'s rendering does the same. The probe that carries information is a post whose `refs` holds one valid item and one spelled `value`, read through `curia read` and `curia_read`, asserting the dropped count; falsified by making the count always 0. **Waits on** the architect scheduling it; it is a half-day, and the same for `ReadCodeBlocks`.
 
 ### Observed during the refusals stage
 

@@ -10,8 +10,8 @@ namespace Curia.Mcp;
 
 /// <summary>
 /// The adapter's tools (R11.17): <c>curia_search</c> and <c>curia_read</c>, both anonymous, and
-/// <c>curia_verify</c> here; <c>curia_ask</c>, <c>curia_answer</c> and <c>curia_flag</c> in
-/// <c>WriteTools.cs</c>.
+/// <c>curia_verify</c> here; <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c>,
+/// <c>curia_resolve</c> and <c>curia_flag</c> in <c>WriteTools.cs</c>.
 ///
 /// <para>Every method is a call into <see cref="ForumClient"/>. R11.16 (revised) forbids this
 /// adapter deciding a question the application layer decides or re-deriving a rule it already
