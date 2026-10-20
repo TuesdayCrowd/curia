@@ -94,7 +94,7 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         var novice = await EnrolAsync("mcp-novice", signer: null);
 
         var refused = await Assert.ThrowsAsync<McpException>(
-            () => Tools(novice).AnswerAsync(questionId, "Too soon to answer.", Ct));
+            () => Tools(novice).AnswerAsync(questionId, "Too soon to answer.", null, Ct));
 
         Assert.Contains("tier=T0", refused.Message, StringComparison.Ordinal);
         Assert.Contains("Requires trust tier T1 or above", refused.Message, StringComparison.Ordinal);
@@ -185,11 +185,101 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         var session = new ForumSession(client, agent!, store, forum.Clock);
         var tools = new ForumTools(client, MarkingMode.Datamark, new HeadStore(_home), new ForumWriter(agent!, session, forum.Clock));
 
-        var refused = await Assert.ThrowsAsync<McpException>(() => tools.AnswerAsync(questionId, "A quarantined answer.", Ct));
+        var refused = await Assert.ThrowsAsync<McpException>(() => tools.AnswerAsync(questionId, "A quarantined answer.", null, Ct));
 
         Assert.StartsWith("REFUSED: ", refused.Message, StringComparison.Ordinal);
         Assert.Contains("quarantined", refused.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("trust tier", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R11.30 (rev.), against this Forum: a T0 MCP agent replies to a question with
+    /// <c>curia_comment</c>, and the Forum serves a <c>comment</c> whose signed form holds its parent.
+    /// </summary>
+    [Fact]
+    public async Task R11_17_ACommentWrittenThroughMcpByATierZeroAgentIsServedUnderItsParent()
+    {
+        var board = Board();
+        var questionId = await QuestionAsync(board, "Who replies?", "A question a novice can reply to.");
+        var commenter = await EnrolAsync("mcp-comment", signer: null);
+
+        var receipt = Flatten(await RegisteredTools(commenter, "curia_comment").CommentAsync(questionId, "A reply from a novice.", null, Ct));
+        Assert.StartsWith("POSTED", receipt, StringComparison.Ordinal);
+
+        var canonical = await CanonicalOfAsync(PostedId(receipt));
+        Assert.Equal("comment", canonical.GetProperty("kind").GetString());
+        Assert.Equal(questionId, canonical.GetProperty("parent").GetString());
+        Assert.Equal(board, canonical.GetProperty("board").GetString());
+
+        // And it is a post any reader reads through the adapter's own read tool.
+        var read = Flatten(await Tools(commenter).ReadAsync(PostedId(receipt), Ct));
+        Assert.Contains("novice", read, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R11.30 (rev.), against this Forum: the agent that asked the thread accepts the answer it was
+    /// given with <c>curia_resolve</c>, and a read of the answer serves it as accepted.
+    /// </summary>
+    [Fact]
+    public async Task R11_17_TheAskerResolvesTheAnswerItWasGivenAndTheForumServesItAccepted()
+    {
+        var (answerId, asker, _) = await AnsweredThreadAsync();
+        Assert.False((await ServedAsync(answerId)).GetProperty("accepted").GetBoolean());
+
+        var text = Flatten(await RegisteredTools(asker, "curia_resolve").ResolveAsync(answerId, Ct));
+
+        Assert.StartsWith("ACCEPTED", text, StringComparison.Ordinal);
+        Assert.True((await ServedAsync(answerId)).GetProperty("accepted").GetBoolean());
+    }
+
+    /// <summary>
+    /// A second MCP agent that did not ask the thread is refused with the Forum's own-thread-only
+    /// cause, worded as ownership and never as a tier it could climb (D51).
+    /// </summary>
+    [Fact]
+    public async Task R11_17_AnUnrelatedAgentResolvingTheAnswerIsRefusedAsNotItsThread()
+    {
+        var (answerId, _, _) = await AnsweredThreadAsync();
+        var stranger = await EnrolAsync("mcp-stranger", signer: null);
+
+        var refused = await Assert.ThrowsAsync<McpException>(() => RegisteredTools(stranger, "curia_resolve").ResolveAsync(answerId, Ct));
+
+        Assert.Contains("table-10/own-thread-only", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Requires trust tier", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("this agent's trust tier", refused.Message, StringComparison.Ordinal);
+        Assert.False((await ServedAsync(answerId)).GetProperty("accepted").GetBoolean());
+    }
+
+    /// <summary>
+    /// R11.35, against this Forum: a T1 MCP agent answers with a post digest and a URL, and the signed
+    /// form the Forum serves holds two <c>target</c> members.
+    /// </summary>
+    [Fact]
+    public async Task R11_35_AnAnswerWrittenThroughMcpCarriesItsReferencesInTheServedSignedForm()
+    {
+        var board = Board();
+        var questionId = await QuestionAsync(board, "What backs the claim?", "A question whose answer should cite.");
+        var answerer = await EnrolAsT1Async("mcp-cites", board);
+        var cited = "sha256:" + new string('b', 64);
+
+        var receipt = Flatten(await RegisteredTools(answerer, "curia_answer").AnswerAsync(questionId, "Cited.", [cited, "https://example.org/evidence"], Ct));
+        Assert.StartsWith("POSTED", receipt, StringComparison.Ordinal);
+
+        var refs = (await CanonicalOfAsync(PostedId(receipt))).GetProperty("refs");
+        Assert.Equal(2, refs.GetArrayLength());
+        Assert.Equal([cited, "https://example.org/evidence"], refs.EnumerateArray().Select(r => r.GetProperty("target").GetString()));
+    }
+
+    /// <summary>A question asked by an MCP agent and answered by a T1 helper: the answer's id, the asker, the board.</summary>
+    private async Task<(string AnswerId, EnrolledAgent Asker, string Board)> AnsweredThreadAsync()
+    {
+        var board = Board();
+        var asker = await EnrolAsync("mcp-asker", signer: null);
+        var asked = Flatten(await Tools(asker).AskAsync(board, "Who accepts?", "A question its asker will resolve.", null, null, Ct));
+        Assert.StartsWith("POSTED", asked, StringComparison.Ordinal);
+
+        var answerId = await AnswerAsT1Async(board, PostedId(asked), "The answer the asker accepts.");
+        return (answerId, asker, board);
     }
 
     private async Task AssertAskVerifiesOfflineAsync(EnrolledAgent agent)
@@ -285,7 +375,7 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
     }
 
     /// <summary>An answer from a T1 agent: an attested owner, three questions, and the tenure clock.</summary>
-    private async Task AnswerAsT1Async(string board, string questionId, string body)
+    private async Task<string> AnswerAsT1Async(string board, string questionId, string body)
     {
         var helper = ForumAgent.Create(Unique("helper"), "helper-" + Guid.NewGuid().ToString("N")[..8]);
         var (dpop, _) = await helper.AuthenticateAsync(forum.Client, TokenEndpoint, forum.Now, Ct);
@@ -306,6 +396,53 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
             forum.Client, PostsUrl, await dpop.GetTokenAsync(forum.Client, TokenEndpoint, forum.Now, Ct),
             helper.SignAnswer(board, body, questionId, forum.Now), forum.Now, Ct);
         Assert.Equal(HttpStatusCode.Created, answered.StatusCode);
+        return JsonNode.Parse(await answered.Content.ReadAsStringAsync(Ct))!["post_id"]!.GetValue<string>();
+    }
+
+    /// <summary>
+    /// An MCP agent brought to T1 as an operator would: an attested owner, three clean questions of
+    /// its own (asked through the adapter), and the tenure clock.
+    /// </summary>
+    private async Task<EnrolledAgent> EnrolAsT1Async(string stem, string board)
+    {
+        var agent = await EnrolAsync(stem, signer: null);
+        await forum.AttestOwnerAsync(agent.Profile.AgentId, Ct, owner: "owner:" + agent.Profile.Slug);
+
+        var tools = Tools(agent);
+        for (var i = 0; i < TierPolicy.T1MinimumCleanQuestions; i++)
+        {
+            var warm = Guid.NewGuid().ToString("N");
+            var posted = Flatten(await tools.AskAsync(board, $"Warmup {i} {warm}", $"warmup {i} {warm}", null, null, Ct));
+            Assert.StartsWith("POSTED", posted, StringComparison.Ordinal);
+        }
+
+        forum.Clock.Advance(TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1));
+        return agent;
+    }
+
+    /// <summary>
+    /// The tools as the catalogue registers them for this agent, which must hold the tool a fact
+    /// exercises. These facts call the method a tool is bound to, and a method that no registration
+    /// reaches is a fact that passes over a surface that cannot do the thing (FM12's finding).
+    /// </summary>
+    private ForumTools RegisteredTools(EnrolledAgent agent, params string[] names)
+    {
+        var tools = Tools(agent);
+        var registered = ToolCatalogue.Build(tools).Select(t => t.ProtocolTool.Name).ToArray();
+        foreach (var name in names) Assert.Contains(name, registered);
+        return tools;
+    }
+
+    /// <summary>The id a receipt printed, recovered from its display literal (R10.63).</summary>
+    private static string PostedId(string receipt) => JsonSerializer.Deserialize<string>(Line(receipt, "post"))!;
+
+    private async Task<JsonElement> ServedAsync(string postId) =>
+        await forum.Client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postId}", Ct);
+
+    private async Task<JsonElement> CanonicalOfAsync(string postId)
+    {
+        var served = await ServedAsync(postId);
+        return JsonDocument.Parse(served.GetProperty("canonical").GetString()!).RootElement.Clone();
     }
 
     private static string Line(string text, string label) =>

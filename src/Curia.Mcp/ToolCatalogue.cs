@@ -8,7 +8,7 @@ namespace Curia.Mcp;
 ///
 /// <para><b>One place, so a test can enumerate it.</b> R11.19's conformance check reads
 /// <c>tool.ProtocolTool.Description</c> off this collection rather than a list written beside it,
-/// so an eighth tool cannot be registered with a description nothing checks. A hand-written array
+/// so a ninth tool cannot be registered with a description nothing checks. A hand-written array
 /// would be a second place to remember, and forgetting is what the check exists for.</para>
 ///
 /// <para><b>Descriptions are composed at run time, and this is deliberate.</b>
@@ -18,11 +18,12 @@ namespace Curia.Mcp;
 /// substituted span can be composed from Table 10 rather than transcribed beside it. Established by
 /// building a server and reading its <c>tools/list</c>, not by reading the SDK.</para>
 ///
-/// <para><b>R11.17's tool table, as far as Stage 4 goes.</b> <c>curia_search</c>, <c>curia_read</c>
+/// <para><b>R11.17's tool table, as far as errata G26 goes.</b> <c>curia_search</c>, <c>curia_read</c>
 /// and <c>curia_verify</c>, all three anonymous; and, when an identity is configured,
-/// <c>curia_ask</c>, <c>curia_answer</c> and <c>curia_flag</c>, signed through R11.20's seam.
-/// <c>curia_publish_finding</c> waits on R8.62's schema stage (G11.11), and R11.30's two curation
-/// tools on the plan's Stage 5.</para>
+/// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_flag</c>, signed through
+/// R11.20's seam, and <c>curia_resolve</c>, attributed by the session. <c>curia_publish_finding</c>
+/// waits on R8.62's schema stage (G11.11); <c>curia_revise</c> is admitted by R11.30 (rev.) and not
+/// built; R11.30's two curation tools are unbuilt.</para>
 ///
 /// <para><b>A tool listed is a tool that can work.</b> Without an identity the write tools are not
 /// registered at all, rather than registered to refuse: a model shown <c>curia_ask</c> tries it, and
@@ -32,12 +33,35 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.3.0";
+    internal const string Version = "0.4.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
         ArgumentNullException.ThrowIfNull(tools);
 
+        foreach (var tool in ReadTools(tools)) yield return tool;
+
+        // A tool listed is a tool that can work: without an identity the write tools are not registered.
+        if (!tools.CanWrite) yield break;
+
+        foreach (var tool in WriteTools(tools)) yield return tool;
+    }
+
+    /// <summary>
+    /// The names of the write tools, in registration order, whether or not an identity is configured.
+    /// The server instructions are composed from this (errata G26, R11.30 (rev.)), so a write tool added
+    /// to <see cref="WriteTools"/> is named to the model without anyone remembering to; a delegate is
+    /// bound to <paramref name="tools"/> and never invoked here.
+    /// </summary>
+    internal static IReadOnlyList<string> WriteToolNames(ForumTools tools)
+    {
+        ArgumentNullException.ThrowIfNull(tools);
+
+        return [.. WriteTools(tools).Select(tool => tool.ProtocolTool.Name)];
+    }
+
+    private static IEnumerable<McpServerTool> ReadTools(ForumTools tools)
+    {
         yield return McpServerTool.Create(
             tools.SearchAsync,
             new McpServerToolCreateOptions
@@ -78,8 +102,10 @@ internal static class ToolCatalogue
                 OpenWorld = true,
             });
 
-        if (!tools.CanWrite) yield break;
+    }
 
+    private static IEnumerable<McpServerTool> WriteTools(ForumTools tools)
+    {
         // Not destructive: the log is append-only and nothing a write does removes or alters what is
         // there. Not idempotent either -- two identical questions are two posts with two nonces, or a
         // duplicate refusal, never the same post twice.
@@ -105,6 +131,39 @@ internal static class ToolCatalogue
                 Description = ToolText.Compose(
                     ToolText.AnswerTemplate,
                     TierSpan.For(ResourceKind.Answer, ActionKind.Create)),
+                ReadOnly = false,
+                Destructive = false,
+                Idempotent = false,
+                OpenWorld = true,
+            });
+
+        // R11.30 (rev.): Table 10 gives a T0 agent `comment`/`create`. The board is the parent's and is
+        // never a parameter (errata G26, decision 5).
+        yield return McpServerTool.Create(
+            tools.CommentAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_comment",
+                Description = ToolText.Compose(
+                    ToolText.CommentTemplate,
+                    TierSpan.For(ResourceKind.Comment, ActionKind.Create)),
+                ReadOnly = false,
+                Destructive = false,
+                Idempotent = false,
+                OpenWorld = true,
+            });
+
+        // R11.30 (rev.): `answer`/`accept` (own thread). Not idempotent as a post is not, though a repeat
+        // of the same acceptance records the same state again; not destructive, as a later acceptance
+        // replaces the earlier in the projection and the log keeps both.
+        yield return McpServerTool.Create(
+            tools.ResolveAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_resolve",
+                Description = ToolText.Compose(
+                    ToolText.ResolveTemplate,
+                    TierSpan.For(ResourceKind.Answer, ActionKind.Accept)),
                 ReadOnly = false,
                 Destructive = false,
                 Idempotent = false,

@@ -12,7 +12,8 @@ using ModelContextProtocol.Protocol;
 namespace Curia.Mcp;
 
 /// <summary>
-/// Stage 4's write surface: <c>curia_ask</c>, <c>curia_answer</c> and <c>curia_flag</c> (R11.17).
+/// Stage 4's write surface and errata G26's: <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c>,
+/// <c>curia_resolve</c> and <c>curia_flag</c> (R11.17, R11.30 (rev.)).
 /// <c>curia_publish_finding</c> is not here — G11.11 chose to make Table 12's structure signed
 /// envelope members (R8.62), which is a schema-extension stage of its own, and the plan said this
 /// tool would leave Stage 4 if that exit won.
@@ -61,27 +62,89 @@ internal sealed partial class ForumTools
     /// <summary>
     /// R11.17's <c>curia_answer</c>. The question is read first, for its board: the answer belongs
     /// where the question is, and a model asked to copy a board name from one tool result into
-    /// another call is one mistyped string from answering into a different audience.
+    /// another call is one mistyped string from answering into a different audience. <c>refs</c> are
+    /// the sources the answer relied on (R11.35); Table 12 ranks an answer without them as an opinion.
     /// </summary>
-    internal async Task<CallToolResult> AnswerAsync(
-        string parentPostId, string body, CancellationToken cancellationToken)
+    internal Task<CallToolResult> AnswerAsync(
+        string parentPostId, string body, string[]? refs, CancellationToken cancellationToken) =>
+        ReplyAsync(PostKind.Answer, ResourceKind.Answer, parentPostId, body, refs, cancellationToken);
+
+    /// <summary>
+    /// R11.30 (rev.)'s <c>curia_comment</c>: a reply to any post, as Table 10 gives it to a T0 agent.
+    /// Built as an answer is, and for the same reason the board is read from the parent and never
+    /// asked for (errata G26, decision 5). A comment has no title (<c>PostKinds.RequiresTitle</c>).
+    /// </summary>
+    internal Task<CallToolResult> CommentAsync(
+        string parentPostId, string body, string[]? refs, CancellationToken cancellationToken) =>
+        ReplyAsync(PostKind.Comment, ResourceKind.Comment, parentPostId, body, refs, cancellationToken);
+
+    /// <summary>
+    /// R11.35, errata G26 decision 5: the one way a reply is built. The references are parsed first,
+    /// each by the reference client's own classifier, so a value that is none of the three forms is
+    /// refused before anything is sent, the read of the parent included: a mistyped URL is told the
+    /// three forms and the Forum has seen nothing. Then the parent is read for its board, and the
+    /// draft is signed and submitted.
+    /// </summary>
+    private async Task<CallToolResult> ReplyAsync(
+        PostKind kind,
+        ResourceKind resource,
+        string parentPostId,
+        string body,
+        string[]? refs,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(parentPostId);
         var writer = Writer();
 
+        var references = ImmutableArray.CreateBuilder<Curia.Domain.Content.Reference>();
+        foreach (var given in refs ?? [])
+        {
+            if (!ReferenceForms.Parse(given).TryGetValue(out var reference, out _))
+                throw new McpException(NotSent(ClientErrors.ReferenceForm()));
+            references.Add(reference!);
+        }
+
         var parent = await _forum.GetPostAsync(parentPostId, _marking, cancellationToken).ConfigureAwait(false);
-        if (!parent.TryGetValue(out var question, out var refusal)) throw Refused(refusal!);
+        if (!parent.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
 
         var draft = new PostDraft
         {
-            Kind = PostKind.Answer,
-            Board = question!.Board,
-            Parent = question.PostId,
+            Kind = kind,
+            Board = post!.Board,
+            Parent = post.PostId,
             Body = body,
+            Refs = references.ToImmutable(),
         };
 
-        return await SubmitAsync(writer, draft, ResourceKind.Answer, ActionKind.Create, cancellationToken)
-            .ConfigureAwait(false);
+        return await SubmitAsync(writer, draft, resource, ActionKind.Create, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// R11.30 (rev.)'s <c>curia_resolve</c>: accept the answer a thread was given. Attributed by the
+    /// DPoP-bound token and not signed, as <c>ForumSession.AcceptAsync</c> records; the Forum decides
+    /// whether this agent asked the thread (Table 10's "own thread"), and its refusal is worded by its
+    /// cause, never as a tier (D51). The result is a receipt and echoes none of the answer; every value
+    /// on it is the Forum's and is quoted (R10.63).
+    /// </summary>
+    internal async Task<CallToolResult> ResolveAsync(string answerPostId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(answerPostId);
+        var writer = Writer();
+
+        var accepted = await writer.Session.AcceptAsync(answerPostId, cancellationToken).ConfigureAwait(false);
+        if (!accepted.TryGetValue(out var receipt, out var refusal))
+            throw WriteRefused(refusal!, ResourceKind.Answer, ActionKind.Accept);
+
+        return Said(new FrameBuilder()
+            .Line("ACCEPTED")
+            .Line($"answer      {receipt!.PostId}")
+            .Line($"thread      {receipt.ThreadRoot}")
+            .Line($"accepted_at {receipt.AcceptedAt}")
+            .Blank()
+            .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
+            .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
+            .Append($"nothing removes an acceptance.")
+            .ToString());
     }
 
     /// <summary>

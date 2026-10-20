@@ -5,6 +5,7 @@ using Curia.Domain.Moderation;
 using Curia.Domain.Serving;
 using Curia.Mcp;
 using Curia.Tests.Shared;
+using ModelContextProtocol.Server;
 using Xunit;
 
 namespace Curia.Mcp.Tests;
@@ -40,7 +41,11 @@ public sealed class ToolDescriptionTests
     /// until Stage 4 — would enumerate three tools, and every theory below would pass while the
     /// three descriptions that most need checking went unread.</para>
     /// </summary>
-    private static List<(string Name, string Description)> Registered(bool withIdentity = true)
+    private static List<(string Name, string Description)> Registered(bool withIdentity = true) =>
+        [.. RegisteredTools(withIdentity).Select(tool => (tool.ProtocolTool.Name, tool.ProtocolTool.Description ?? string.Empty))];
+
+    /// <summary>The registered tools themselves, for the facts that read a tool's schema and not only its description.</summary>
+    private static List<McpServerTool> RegisteredTools(bool withIdentity = true)
     {
         using var http = new HttpClient();
         var forum = new Uri("https://forum.invalid/", UriKind.Absolute);
@@ -61,8 +66,7 @@ public sealed class ToolDescriptionTests
                 writer = new ForumWriter(agent!, new ForumSession(client, agent!, log.Store, TimeProvider.System), TimeProvider.System);
             }
 
-            return [.. ToolCatalogue.Build(new ForumTools(client, MarkingMode.Datamark, heads, writer))
-                .Select(tool => (tool.ProtocolTool.Name, tool.ProtocolTool.Description ?? string.Empty))];
+            return [.. ToolCatalogue.Build(new ForumTools(client, MarkingMode.Datamark, heads, writer))];
         }
         finally
         {
@@ -154,6 +158,8 @@ public sealed class ToolDescriptionTests
         "curia_ask" => (ResourceKind.Question, ActionKind.Create),
         "curia_answer" => (ResourceKind.Answer, ActionKind.Create),
         "curia_flag" => (ResourceKind.Flag, ActionKind.Raise),
+        "curia_comment" => (ResourceKind.Comment, ActionKind.Create),
+        "curia_resolve" => (ResourceKind.Answer, ActionKind.Accept),
         _ => throw new InvalidOperationException(
             $"{name} has no Table 10 pair in this test's map. Add it, rather than letting the " +
             "row pass without checking what the description claims about authority."),
@@ -210,7 +216,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_answer", "curia_ask", "curia_flag", "curia_read", "curia_search", "curia_verify"],
+            ["curia_answer", "curia_ask", "curia_comment", "curia_flag", "curia_read", "curia_resolve", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -288,8 +294,185 @@ public sealed class ToolDescriptionTests
     [Fact]
     public void TheReadOnlyInstructionsNameTheVariableThatEnablesWriting()
     {
-        Assert.Contains(McpConfiguration.AgentVariable, ToolText.ReadOnly, StringComparison.Ordinal);
-        Assert.StartsWith(ToolText.UntrustedDataNotice, ToolText.ReadOnly, StringComparison.Ordinal);
-        Assert.StartsWith(ToolText.UntrustedDataNotice, ToolText.WritesAs("https://agents.example/x"), StringComparison.Ordinal);
+        var names = WriteToolNames();
+        var readOnly = ToolText.ReadOnly(names);
+
+        Assert.Contains(McpConfiguration.AgentVariable, readOnly, StringComparison.Ordinal);
+        Assert.StartsWith(ToolText.UntrustedDataNotice, readOnly, StringComparison.Ordinal);
+        Assert.StartsWith(ToolText.UntrustedDataNotice, ToolText.WritesAs("https://agents.example/x", names), StringComparison.Ordinal);
+    }
+
+    // ---- errata G26 -----------------------------------------------------------------------------
+
+    /// <summary>The catalogue's write-tool names, asked of a <see cref="ForumTools"/> with no identity at all.</summary>
+    private static IReadOnlyList<string> WriteToolNames()
+    {
+        using var http = new HttpClient();
+        var client = new ForumClient(http, new Uri("https://forum.invalid/", UriKind.Absolute));
+        return ToolCatalogue.WriteToolNames(new ForumTools(client, MarkingMode.Datamark, new HeadStore(Path.Combine(Path.GetTempPath(), "curia-tool-descriptions-never-written"))));
+    }
+
+    /// <summary>
+    /// What each Table 10 qualifier must say in a description (R11.36), by the one phrase that names
+    /// it. Written here and not read from <see cref="TierSpan"/>, so a span that drops a qualifier
+    /// cannot satisfy the fact by being measured against itself.
+    /// </summary>
+    private static string PhraseFor(GrantQualifier qualifier) => qualifier switch
+    {
+        GrantQualifier.OwnResourceOnly => "(Table 10: own)",
+        GrantQualifier.OwnThreadOnly => "(Table 10: own thread)",
+        GrantQualifier.Delegated => "delegated grant (Table 10)",
+        GrantQualifier.None => throw new InvalidOperationException("None has no phrase"),
+        _ => throw new ArgumentOutOfRangeException(nameof(qualifier), qualifier, "Not a Table 10 qualifier"),
+    };
+
+    /// <summary>
+    /// R11.36: a description states its Table 10 row's parenthetical. A tool that only the author of
+    /// the post, or the agent that asked the thread, may use says so before it is called.
+    /// </summary>
+    [Fact]
+    public void R11_36_ADescriptionStatesItsRowsParenthetical()
+    {
+        var checkedOne = false;
+        foreach (var (name, description) in Registered())
+        {
+            var (resource, action) = PairFor(name);
+            var qualifier = ResourceActionModel.RowFor(resource, action).Match(r => r.Qualifier, e => throw new InvalidOperationException(e.Title));
+            if (qualifier is GrantQualifier.None) continue;
+
+            checkedOne = true;
+            Assert.True(
+                description.Contains(PhraseFor(qualifier), StringComparison.Ordinal),
+                $"{name}'s description does not state its row's parenthetical ({qualifier})");
+        }
+
+        // Non-vacuity: at least one registered tool has a row with a parenthetical.
+        Assert.True(checkedOne, "no registered tool's row has a parenthetical, so this fact checked nothing");
+    }
+
+    /// <summary>The write pairs a T0 principal holds that no tool exercises, by decision. Asserted to be exactly this set.</summary>
+    private static readonly (ResourceKind Resource, ActionKind Action)[] NotExercisedByDecision =
+    [
+        (ResourceKind.Key, ActionKind.Rotate),
+        (ResourceKind.Key, ActionKind.Retire),
+        (ResourceKind.Revision, ActionKind.Create),
+    ];
+
+    /// <summary>
+    /// R11.30 (rev.): every write a T0 principal may do under Table 10 has a tool, except the named
+    /// set. Derived from the model's own pairs, not from the catalogue, so a surface that could never
+    /// reply fails here rather than passing a list of its own tools.
+    /// </summary>
+    [Fact]
+    public void R11_30_EveryWritePairATierZeroPrincipalHoldsHasATool()
+    {
+        var exercised = Registered().Select(t => PairFor(t.Name)).ToHashSet();
+
+        var t0Writes = ResourceActionModel.ModelledPairs
+            .Where(p => !ActionKinds.IsRead(p.Action))
+            .Where(p => ResourceActionModel.RowFor(p.Resource, p.Action).Match(r => r.T0 is Table10Cell.Allowed or Table10Cell.RateLimited, _ => false))
+            .ToArray();
+
+        Assert.NotEmpty(t0Writes);
+
+        // The exception set is itself pinned, so one cannot be added quietly.
+        Assert.Equal(3, NotExercisedByDecision.Length);
+        Assert.Equal(
+            new HashSet<(ResourceKind, ActionKind)>
+            {
+                (ResourceKind.Key, ActionKind.Retire), (ResourceKind.Key, ActionKind.Rotate), (ResourceKind.Revision, ActionKind.Create),
+            },
+            NotExercisedByDecision.ToHashSet());
+        foreach (var pair in NotExercisedByDecision) Assert.Contains(pair, t0Writes);
+
+        foreach (var pair in t0Writes.Except(NotExercisedByDecision))
+            Assert.True(exercised.Contains(pair), $"no registered tool exercises ({pair.Resource}, {pair.Action})");
+    }
+
+    /// <summary>The members Table 12 lists as optional for a kind, read from the white paper's own table.</summary>
+    private static string[] PublishedOptionalMembers(string kind)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "curia-agent-forum-WHITEPAPER.md")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+
+        var text = File.ReadAllText(Path.Combine(dir!.FullName, "curia-agent-forum-WHITEPAPER.md"));
+        var at = text.IndexOf("**Table 12", StringComparison.Ordinal);
+        Assert.True(at >= 0, "the white paper no longer carries Table 12");
+
+        foreach (var raw in text[at..].Split('\n'))
+        {
+            var cells = raw.Trim().Trim('|').Split('|').Select(c => c.Trim()).ToArray();
+            if (cells.Length < 3 || cells[0] != $"`{kind}`") continue;
+
+            return [.. System.Text.RegularExpressions.Regex.Matches(cells[2], "`([^`]+)`").Select(m => m.Groups[1].Value)];
+        }
+
+        throw new InvalidOperationException($"Table 12 has no row for {kind}");
+    }
+
+    /// <summary>The envelope's member names, read from the frozen conformance vector, not from the builder.</summary>
+    private static HashSet<string> PublishedEnvelopeMembers()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "conformance")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+
+        using var document = System.Text.Json.JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(dir!.FullName, "conformance", "envelope", "ed25519-full", "expected.canonical")));
+        return [.. document.RootElement.EnumerateObject().Select(m => m.Name)];
+    }
+
+    /// <summary>
+    /// R11.35: a write tool takes every optional member Table 12 lists for its kind that is an
+    /// envelope member and that this adapter offers. <c>code_blocks</c> is named as not offered, so
+    /// the fact is about the member and not about prose; <c>verification</c> is no member of an
+    /// answer's envelope (it is a kind of its own, R8.4) and is not read.
+    /// </summary>
+    [Theory]
+    [InlineData("curia_answer", "answer")]
+    [InlineData("curia_comment", "comment")]
+    public void R11_35_AWriteToolAcceptsEveryOptionalMemberTable12ListsForItsKindThatTheClientTakes(string tool, string kind)
+    {
+        string[] notOfferedByThisAdapter = ["code_blocks"];
+        var envelopeMembers = PublishedEnvelopeMembers();
+        var optional = PublishedOptionalMembers(kind).Where(envelopeMembers.Contains).Except(notOfferedByThisAdapter).ToArray();
+
+        Assert.Contains("refs", optional);
+
+        var schema = RegisteredTools().Single(t => t.ProtocolTool.Name == tool).ProtocolTool.InputSchema;
+        var properties = schema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToArray();
+
+        foreach (var member in optional)
+            Assert.True(properties.Contains(member), $"{tool}'s input schema has no property '{member}', which Table 12 lists as optional for {kind}");
+    }
+
+    /// <summary>
+    /// R11.30 (rev.): the server instructions name every registered write tool, from the catalogue and
+    /// not from a sentence typed beside it. Read-only, they say those tools are not offered.
+    /// </summary>
+    [Fact]
+    public void ServerInstructionsNameEveryRegisteredWriteTool()
+    {
+        var read = RegisteredTools(withIdentity: false).Select(t => t.ProtocolTool.Name).ToHashSet();
+        var writeTools = RegisteredTools().Select(t => t.ProtocolTool.Name).Where(n => !read.Contains(n)).ToArray();
+        Assert.NotEmpty(writeTools);
+
+        // The names the instructions are composed from are the catalogue's own, whatever the identity.
+        var names = WriteToolNames();
+        Assert.Equal(writeTools.Order(StringComparer.Ordinal), names.Order(StringComparer.Ordinal));
+
+        var withIdentity = ToolText.ServerInstructions("https://agents.example/x", names);
+        var readOnly = ToolText.ServerInstructions(null, names);
+
+        foreach (var name in writeTools)
+        {
+            Assert.True(withIdentity.Contains(name, StringComparison.Ordinal), $"the instructions with an identity do not name {name}");
+            Assert.True(readOnly.Contains(name, StringComparison.Ordinal), $"the read-only instructions do not name {name}");
+        }
+
+        Assert.Contains("not offered", readOnly, StringComparison.Ordinal);
     }
 }

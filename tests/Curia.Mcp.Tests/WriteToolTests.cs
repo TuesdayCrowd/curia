@@ -239,7 +239,7 @@ public sealed class WriteToolTests : IDisposable
     [Fact]
     public async Task R11_17_AnswerReadsTheQuestionAndPostsUnderItOnItsBoard()
     {
-        var result = await Tools().AnswerAsync(StubLog.PostId, "Rotate on the Forum's schedule.", Ct);
+        var result = await Tools().AnswerAsync(StubLog.PostId, "Rotate on the Forum's schedule.", null, Ct);
 
         Assert.StartsWith("POSTED", Flatten(result), StringComparison.Ordinal);
         Assert.Equal($"GET /v1/posts/{StubLog.PostId}", _log.Requests[0]);
@@ -257,7 +257,7 @@ public sealed class WriteToolTests : IDisposable
     [Fact]
     public async Task R11_18_TheAnswerResultCarriesNoPartOfTheQuestionItRead()
     {
-        var text = Flatten(await Tools().AnswerAsync(StubLog.PostId, "An answer.", Ct));
+        var text = Flatten(await Tools().AnswerAsync(StubLog.PostId, "An answer.", null, Ct));
 
         Assert.StartsWith("POSTED", text, StringComparison.Ordinal);
         Assert.DoesNotContain(StubLog.EntryOnlyMarker, text, StringComparison.Ordinal);
@@ -274,7 +274,7 @@ public sealed class WriteToolTests : IDisposable
     {
         _log.DeniesSubmissionsAtTier = "T0";
 
-        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().AnswerAsync(StubLog.PostId, "Too soon.", Ct));
+        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().AnswerAsync(StubLog.PostId, "Too soon.", null, Ct));
 
         Assert.Contains("table-10/denied tier=T0", refused.Message, StringComparison.Ordinal);
         Assert.Contains("Requires trust tier T1 or above", refused.Message, StringComparison.Ordinal);
@@ -347,11 +347,119 @@ public sealed class WriteToolTests : IDisposable
     {
         _log.DeniesSubmissionsForReason = "table-11/quarantined-read-only";
 
-        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().AnswerAsync(StubLog.PostId, "Quarantined.", Ct));
+        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().AnswerAsync(StubLog.PostId, "Quarantined.", null, Ct));
 
         Assert.Contains("quarantined", refused.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("Requires trust tier", refused.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("trust tier", refused.Message, StringComparison.Ordinal);
+    }
+
+    // ---- refs, curia_comment and curia_resolve (errata G26: R11.30 (rev.), R11.35) --------------
+
+    private static readonly string ADigest = "sha256:" + new string('a', 64);
+
+    /// <summary>
+    /// R11.35: an answer through MCP carries the references it was given as the envelope's signed
+    /// <c>refs</c> members, spelled as the published envelope spells them (R8.65).
+    /// </summary>
+    [Fact]
+    public async Task R11_35_AnAnswerThroughMcpCarriesTheReferencesItWasGiven()
+    {
+        var given = new[] { ADigest, "https://example.org/a", "pkg:nuget/CsCheck" };
+
+        var result = await Tools().AnswerAsync(StubLog.PostId, "Cited.", given, Ct);
+
+        Assert.StartsWith("POSTED", Flatten(result), StringComparison.Ordinal);
+        var refs = SubmittedEnvelope().GetProperty("refs");
+        Assert.Equal(3, refs.GetArrayLength());
+        Assert.Equal(["post", "url", "package"], refs.EnumerateArray().Select(r => r.GetProperty("kind").GetString()));
+        Assert.Equal(given, refs.EnumerateArray().Select(r => r.GetProperty("target").GetString()));
+    }
+
+    /// <summary>
+    /// R11.35: a value that is none of the three forms is refused before anything is sent: no token,
+    /// no read of the parent. The model is told the three forms, and the Forum has seen nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("ftp://x")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]
+    [InlineData("pkg:")]
+    [InlineData("https://")]
+    [InlineData("a-bare-word")]
+    public async Task R11_35_AValueThatIsNoneOfTheThreeFormsIsRefusedBeforeAnythingIsSent(string bad)
+    {
+        var refs = new[] { ADigest, bad };
+
+        var answered = await Assert.ThrowsAsync<McpException>(() => Tools().AnswerAsync(StubLog.PostId, "Cited.", refs, Ct));
+        Assert.StartsWith("NOT SENT: \"A reference is a post digest", answered.Message, StringComparison.Ordinal);
+        Assert.Empty(_log.Requests);
+
+        var commented = await Assert.ThrowsAsync<McpException>(() => Tools().CommentAsync(StubLog.PostId, "Cited.", refs, Ct));
+        Assert.StartsWith("NOT SENT: \"A reference is a post digest", commented.Message, StringComparison.Ordinal);
+        Assert.Empty(_log.Requests);
+    }
+
+    /// <summary>
+    /// R11.17, R11.30 (rev.): a comment is a signed <c>comment</c> under its parent, on the parent's
+    /// board, which is never a parameter, and it has no title. The digest printed is the digest of
+    /// the recorded body.
+    /// </summary>
+    [Fact]
+    public async Task R11_17_ACommentPostsASignedCommentUnderItsParentsBoard()
+    {
+        var text = Flatten(await Tools().CommentAsync(StubLog.PostId, "A reply.", null, Ct));
+
+        Assert.StartsWith("POSTED", text, StringComparison.Ordinal);
+        Assert.Equal($"GET /v1/posts/{StubLog.PostId}", _log.Requests[0]);
+
+        var envelope = SubmittedEnvelope();
+        Assert.Equal("comment", envelope.GetProperty("kind").GetString());
+        Assert.Equal(StubLog.PostId, envelope.GetProperty("parent").GetString());
+        Assert.Equal("b", envelope.GetProperty("board").GetString());
+        Assert.False(envelope.TryGetProperty("title", out _));
+        Assert.Contains(SubmittedDigest(), text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R11.17, R11.30 (rev.): an acceptance is token-attributed and not signed (nothing in the
+    /// request is an envelope), the result is a receipt of what the Forum recorded, each served value
+    /// a display literal, and none of the answer.
+    /// </summary>
+    [Fact]
+    public async Task R11_17_ResolveAcceptsTheAnswerItIsGivenAndReportsWhatTheForumReceived()
+    {
+        var result = await Tools().ResolveAsync(StubLog.AnswerPostId, Ct);
+        var text = Flatten(result);
+
+        // Every write was to the acceptance route (the first met the nonce challenge), none a submission.
+        var writes = _log.Requests.Where(r => r.StartsWith("POST /v1/", StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(writes);
+        Assert.All(writes, r => Assert.Equal($"POST /v1/posts/{StubLog.AnswerPostId}/accept", r));
+        using var body = JsonDocument.Parse(_log.WrittenBodies[^1]);
+        Assert.False(body.RootElement.TryGetProperty("envelope", out _));
+
+        Assert.StartsWith("ACCEPTED", text, StringComparison.Ordinal);
+        Assert.Contains(DisplayLiteral.Of(StubLog.AcceptedPostId), text, StringComparison.Ordinal);
+        Assert.Contains(DisplayLiteral.Of(StubLog.PostId), text, StringComparison.Ordinal);
+        Assert.DoesNotContain(StubLog.AnswerMarker, text, StringComparison.Ordinal);
+        Assert.DoesNotContain(StubLog.EntryOnlyMarker, text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D51's shape over the acceptance route: the Forum's own-thread-only refusal is worded by its
+    /// cause, and a model that does not own the thread is never told to climb a tier.
+    /// </summary>
+    [Fact]
+    public async Task R11_17_AnAcceptanceRefusedForOwnershipIsNotWordedAsATierRefusal()
+    {
+        _log.DeniesSubmissionsForReason = "table-10/own-thread-only";
+
+        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().ResolveAsync(StubLog.AnswerPostId, Ct));
+
+        Assert.Contains("only the agent that started the thread", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Requires trust tier", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("this agent's trust tier", refused.Message, StringComparison.Ordinal);
     }
 
     // ---- curia_flag ----------------------------------------------------------------------------
