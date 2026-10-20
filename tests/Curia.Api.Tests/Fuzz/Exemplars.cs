@@ -237,7 +237,7 @@ internal static class Exemplars
             envelope =>
             {
                 envelope["model_hint"] = "none";
-                envelope["code_blocks"] = new JsonArray(new JsonObject { ["language"] = "text", ["source"] = "x", ["license"] = "CC0-1.0" });
+                envelope["code_blocks"] = new JsonArray(new JsonObject { ["language"] = "text", ["source"] = "x", ["declared_license"] = "CC0-1.0" });
             }),
         Post("answer", (c, now) => c.Agent.Agent.SignAnswer(FuzzContext.SeedBoard, FuzzContext.Entropy("An answer body"), c.SeedQuestionId, now)),
         Post("comment", (c, now) => c.Agent.Agent.Sign(

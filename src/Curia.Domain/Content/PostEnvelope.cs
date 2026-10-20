@@ -6,14 +6,27 @@ using Curia.Domain.Verification;
 
 namespace Curia.Domain.Content;
 
-/// <summary>Table 9's <c>code_blocks</c> element: "Language, source, optional license".</summary>
-public sealed record CodeBlock(string Language, string Source, string? License);
+/// <summary>
+/// Table 9's <c>code_blocks</c> element: "Language, source, optional license". The license is the member
+/// <c>declared_license</c> (R8.9, R8.45, Appendix C.3; errata G25, R8.65), not <c>license</c>.
+/// </summary>
+public sealed record CodeBlock(string Language, string Source, string? DeclaredLicense);
 
 /// <summary>
 /// Table 9's <c>refs</c> element: "Citations: post digests, URLs, package coordinates with
-/// versions".
+/// versions". What it cites is the member <c>target</c> (Appendix C.3; errata G25, R8.65), not
+/// <c>value</c>; <see cref="Kind"/> is one of <see cref="ReferenceKinds"/> when a client writes it, and
+/// the reader does not restrict it.
 /// </summary>
-public sealed record Reference(string Kind, string Value, string? Version);
+public sealed record Reference(string Kind, string Target, string? Version);
+
+/// <summary>The kinds of reference Appendix C.3 shows (errata G25, decision 3): a post by digest, a package coordinate, a URL.</summary>
+public static class ReferenceKinds
+{
+    public const string Post = "post";
+    public const string Package = "package";
+    public const string Url = "url";
+}
 
 /// <summary>
 /// Table 9's signed fields, as a typed view.
@@ -330,6 +343,11 @@ public sealed record PostEnvelope(
             ? [.. a.Items.OfType<JsonValue.String>().Select(s => s.Value)]
             : [];
 
+    /// <summary>
+    /// Reads <c>language</c>, <c>source</c> and <c>declared_license</c> (errata G25, R8.65). An item without a language and a
+    /// source is skipped, not refused: refusing is R8.62's and R8.63's closed-member-set question, and a rule in <c>Read</c> is what R8.64's
+    /// decision 3 forbids. There is no reader of the pre-G25 spelling <c>license</c>.
+    /// </summary>
     private static ImmutableArray<CodeBlock> ReadCodeBlocks(Dictionary<string, JsonValue> fields)
     {
         if (!fields.TryGetValue("code_blocks", out var raw) || raw is not JsonValue.Array a)
@@ -340,12 +358,17 @@ public sealed record PostEnvelope(
         {
             var members = item.Members.ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal);
             if (TryString(members, "language", out var language) && TryString(members, "source", out var source))
-                blocks.Add(new CodeBlock(language, source, OptionalString(members, "license")));
+                blocks.Add(new CodeBlock(language, source, OptionalString(members, "declared_license")));
         }
 
         return blocks.ToImmutable();
     }
 
+    /// <summary>
+    /// Reads <c>kind</c>, <c>target</c> and <c>version</c> (errata G25, R8.65). An item without a kind and a target is skipped, not
+    /// refused (R8.62's question, see <see cref="ReadCodeBlocks"/>), so a post whose only evidence is spelled <c>value</c>, as the code
+    /// spelled it until G25, has no evidence; there is deliberately no reader of both spellings.
+    /// </summary>
     private static ImmutableArray<Reference> ReadRefs(Dictionary<string, JsonValue> fields)
     {
         if (!fields.TryGetValue("refs", out var raw) || raw is not JsonValue.Array a)
@@ -355,8 +378,8 @@ public sealed record PostEnvelope(
         foreach (var item in a.Items.OfType<JsonValue.Object>())
         {
             var members = item.Members.ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal);
-            if (TryString(members, "kind", out var kind) && TryString(members, "value", out var value))
-                refs.Add(new Reference(kind, value, OptionalString(members, "version")));
+            if (TryString(members, "kind", out var kind) && TryString(members, "target", out var target))
+                refs.Add(new Reference(kind, target, OptionalString(members, "version")));
         }
 
         return refs.ToImmutable();

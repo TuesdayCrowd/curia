@@ -52,7 +52,7 @@ public sealed class SignalEnvelopeTests
             M("method", method is null ? new JsonValue.Null() : new JsonValue.String(method)),
             M("result", new JsonValue.String(result)),
             M("refs", withRefs
-                ? new JsonValue.Array([new JsonValue.Object([M("kind", new JsonValue.String("url")), M("value", new JsonValue.String("https://example.test/trace"))])])
+                ? new JsonValue.Array([new JsonValue.Object([M("kind", new JsonValue.String("url")), M("target", new JsonValue.String("https://example.test/trace"))])])
                 : new JsonValue.Array([])),
             M("code_blocks", withCode
                 ? new JsonValue.Array([new JsonValue.Object([M("language", new JsonValue.String("sh")), M("source", new JsonValue.String("make test"))])])

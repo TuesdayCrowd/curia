@@ -43,6 +43,12 @@ public static class ClientErrors
         "Credential material detected in the content; nothing was sent. Rotate it",
         detail);
 
+    /// <summary>A <c>--refs</c> value that is none of the three forms Appendix C.3 shows (errata G25, R8.65). The value is not echoed.</summary>
+    public static Error ReferenceForm() => new(
+        "curia/client/reference-form",
+        "A reference is a post digest, a package coordinate or a URL",
+        "sha256:<64 lowercase hex> (a post), pkg:<coordinate> (a package), or http:// or https:// followed by an address (a URL)");
+
     public static Error EnvelopeInvalid(string detail) => new(
         "curia/client/envelope-invalid",
         "The envelope is not a valid Table 9 document",

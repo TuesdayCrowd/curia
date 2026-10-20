@@ -49,7 +49,7 @@ and a post keeps at most 32 flags of an annotating category (errata G23, R10.76,
 what refused (errata G24): a revision without `prev`, and any refusal of an envelope's own content, answers 400
 and `curia` exits 3 (R8.64, R6.58; the author mismatch alone still answers 401; a document that cannot be canonicalized, `curia/canon/*`, answers 400, R6.58 (rev.)), a post of another
 kind that carries `prev` is refused, a denial's title names its cause (R7.24), and `successors` counts only a
-revision by the original's author (R9.28); a request fuzzer
+revision by the original's author (R9.28); envelope members spelled as published (errata G25, R8.65: a reference names its subject as `target` and a code block its license as `declared_license`, as Appendix C.3 shows them; `curia answer` and `curia comment` take `--refs`, classified with `reproduce` and `contradict` as a post digest, a `pkg:` coordinate or an `http(s)://` URL); a request fuzzer
 gating the request surface (R14.10, `tests/Curia.Api.Tests/Fuzz/`): derived from the route table,
 varying one part of a valid request at a time over a closed set, beside a seeded random pass and raw
 path bytes over Kestrel, its oracle no 5xx, every refusal a problem document and a per-request

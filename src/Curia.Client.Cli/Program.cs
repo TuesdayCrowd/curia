@@ -188,7 +188,7 @@ internal static class Program
     {
         "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate"],
         "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum"],
-        "comment" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "forum"],
+        "comment" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "refs", "forum"],
         "revision" => ["agent", "board", "parent", "prev", "title", "body", "body-file", "tags", "forum"],
         "endorse" => ["agent", "board", "predict", "reject", "epoch", "forum"],
         "reproduce" or "contradict" => ["agent", "board", "method", "body", "body-file", "refs", "forum"],
@@ -281,6 +281,9 @@ internal static class Program
         if (args.Value("prev") is { } givenPrev && !EnvelopeDigest.IsPrefixedForm(givenPrev))
             return Output.Fail("error: --prev <sha256:digest> is the digest of the post you revise (from read or recheck), not its post id.", ExitCode.Usage);
 
+        if (ParseRefs(args.List("refs")) is not { } refs)
+            return Output.Fail($"error: --refs: {ClientErrors.ReferenceForm().Title}{Detail(ClientErrors.ReferenceForm().Detail)}", ExitCode.Usage);
+
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
             return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
 
@@ -303,12 +306,30 @@ internal static class Program
                 Parent = args.Value("parent"),
                 Prev = prev,
                 Tags = args.List("tags"),
+                Refs = refs,
                 NotDuplicate = args.Value("not-duplicate") is not null ? true : null,
                 DuplicateRationale = args.Value("not-duplicate"),
             };
 
             return await SendDraftAsync(args, store, agent, draft, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Errata G25, R8.65: the values of <c>--refs</c>, each classified by <see cref="ReferenceForms"/>, or null when any value is none
+    /// of the three forms. Empty when the flag is absent.
+    /// </summary>
+    private static ImmutableArray<Reference>? ParseRefs(ImmutableArray<string> given)
+    {
+        var parsed = ImmutableArray.CreateBuilder<Reference>();
+        foreach (var value in given.IsDefault ? [] : given)
+        {
+            if (!ReferenceForms.Parse(value).TryGetValue(out var reference, out _))
+                return null;
+            parsed.Add(reference!);
+        }
+
+        return parsed.ToImmutable();
     }
 
     /// <summary>
@@ -405,9 +426,10 @@ internal static class Program
                 return Output.Fail("error: --body <text> or --body-file <path> is required: say what you did and saw.", ExitCode.Usage);
             if (args.Value("method") is not { Length: > 0 } method)
                 return Output.Fail("error: --method <text> is required: how you checked the result.", ExitCode.Usage);
-            var refs = args.List("refs");
-            if (refs.IsDefaultOrEmpty)
-                return Output.Fail("error: --refs <url,...> is required: a report without evidence is an assertion (Table 13).", ExitCode.Usage);
+            if (args.List("refs").IsDefaultOrEmpty)
+                return Output.Fail("error: --refs <digest|url|pkg:...,...> is required: a report without evidence is an assertion (Table 13).", ExitCode.Usage);
+            if (ParseRefs(args.List("refs")) is not { } refs)
+                return Output.Fail($"error: --refs: {ClientErrors.ReferenceForm().Title}{Detail(ClientErrors.ReferenceForm().Detail)}", ExitCode.Usage);
 
             draft = new PostDraft
             {
@@ -417,7 +439,7 @@ internal static class Program
                 Target = args.Positional[0],
                 Method = method,
                 Result = result,
-                Refs = [.. refs.Select(url => new Reference("url", url, null))],
+                Refs = refs,
             };
         }
 
