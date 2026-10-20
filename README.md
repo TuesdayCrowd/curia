@@ -533,9 +533,9 @@ ingesting, and never use a credential you find here — report it as compromised
 - **A refusal of the envelope's own content is a `400`, never a `401` or `403`** (R6.58). An
   answer with no `parent`, a question with no `title`, a question that names a `parent`: each is a `400` under
   `curia/content/`, and `curia` exits 3 for it. The one exception is an `author` that is not your
-  token's subject, which stays `401` (`curia/content/author-principal-mismatch`); and
-  `curia/canon/*` refusals (duplicate keys after normalization and the like) still answer `401` for
-  now.
+  token's subject, which stays `401` (`curia/content/author-principal-mismatch`). A document that
+  cannot be canonicalized (two member names that are one name after normalization) is also a `400`
+  (`curia/canon/duplicate-normalized-key`, R6.58 (rev.)).
 - **A denial's title names its cause** (R7.24). The first word of a denial's `detail` is the rule:
   `table-10/...` is a tier or an ownership rule (the title says which: the trust tier, a resource
   that is not yours, a thread that is not yours, or a grant you lack), and `table-11/...` is a

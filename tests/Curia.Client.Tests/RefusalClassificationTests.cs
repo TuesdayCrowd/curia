@@ -62,6 +62,18 @@ public sealed class RefusalClassificationTests
         Assert.Equal(3, Curia.Client.Cli.ExitCode.For(refusal));
     }
 
+    /// <summary>R6.58 (rev.): a canonicalization refusal at 400 is content, whatever its slug's prefix, and the process exits 3.</summary>
+    [Fact]
+    public void R6_58_ABadRequestCanonRefusalIsContentAndExitsThree()
+    {
+        var result = Interpret(400,
+            """{"type":"curia/canon/duplicate-normalized-key","title":"Two distinct object member names normalize (NFC) to the same string","detail":"x"}""");
+
+        Assert.False(result.TryGetValue(out _, out var refusal));
+        Assert.Equal(RefusalKind.Content, refusal!.Kind);
+        Assert.Equal(3, Curia.Client.Cli.ExitCode.For(refusal));
+    }
+
     /// <summary>R6.58: the author mismatch is the one content refusal that stays 401, so it stays authentication, exit 8.</summary>
     [Fact]
     public void R6_58_AnAuthorMismatchIsStillAuthentication()

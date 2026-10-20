@@ -9158,7 +9158,9 @@ and R7.22; Table 10's `revision`/`create` "(own)"; §9.3, R9.10, R9.27. The code
 (`src/Curia.Api/ForumEndpoints.cs`), `CitationCheck.Resolve` (`src/Curia.Application/Projections/CitationCheck.cs`) and
 `Refusal.Summary` (`src/Curia.Client/ForumResult.cs`). **Class:** normative gap, carrying four requirements. It is the entry the
 implementation plan's register holds as D48 item (3), D38 and D37's reopened items. **Status:** proposed; not applied to the
-white paper. Nothing in the C# tree was run to write it; every claim below was read in the tree at cd754621.
+white paper. Nothing in the C# tree was run to write it; every claim below was read in the tree at cd754621, except the
+"Amendment, 2026-10-20" below, which was read at 4f1cabfb and replaces R6.58 as this entry first wrote it (D50 item 2; item 3
+of D50, R6.58's stated reason, is corrected in the same paragraph). Nothing else in the entry changes.
 
 **How it surfaced.** The second five-agent exercise (2026-10-17) found `curia revision` unable to succeed (D48): the client signed no
 `prev` and the Forum answered the missing one as a tier denial. Items (1) and (2) were fixed; item (3), what status a revision with
@@ -9200,7 +9202,7 @@ refusal made by VERIFY is mapped to **401** by `SubmitAttemptAsync`, so `parent-
    populations and both are required.
 5. **A schema refusal is 400; the author mismatch stays 401.** Every `curia/content/` error VERIFY makes except
    `author-principal-mismatch` answers 400. The mismatch is an identity claim the credential does not support and its 401 is pinned by
-   `An_impersonated_author_is_rejected`; moving it is a separate ruling.
+   `An_impersonated_author_is_rejected`; moving it is a separate ruling. *(Extended 2026-10-20 to a document that cannot be canonicalized: see R6.58 (rev.).)*
 6. **A denial's title is chosen by its reason, from a table whose completeness is checked against the PDP.** An unknown reason
    falls back to a neutral "Not permitted", never to the tier title.
 7. **A revision whose `prev` names a digest the log does not hold stays a 403 `own-resource-only`,** its title saying "or does not
@@ -9209,7 +9211,7 @@ refusal made by VERIFY is mapped to **401** by `SubmitAttemptAsync`, so `parent-
    reply's board (queued for the errata pass). `verify` and `contract` accepting `--agent` is a consistency choice with no false text
    in it and is left to a stage that touches the flag fences.
 
-**R6.58** A refusal that VERIFY makes of an envelope's own content, a member absent, mistyped or not allowed for its kind, SHALL answer
+**R6.58** *(first text, 2026-10-18; replaced by R6.58 (rev.) in the amendment below, which is the text in force.)* A refusal that VERIFY makes of an envelope's own content, a member absent, mistyped or not allowed for its kind, SHALL answer
 400 with a type under `curia/content/`. It SHALL NOT answer 401 or 403, which are reserved for a credential that fails and an act
 the principal may not do. `curia/content/author-principal-mismatch` is the one content type that answers 401. The reason: a status
 is the first thing a caller branches on, and a client told "unauthorized" for a field it forgot re-mints a token, or reports a fault in
@@ -9230,6 +9232,77 @@ standing said so.
 the credential's quarantine, the posting budget or the flag budget (R7.22). A cause that is not the tier SHALL NOT be titled as the
 tier, and a title SHALL NOT be derived from anything but the decision's reason. The reason: a title is the line a caller reads when it
 reads nothing else, and R7.22 exists so that "this resets" and "never" are not mistaken for each other.
+
+### Amendment, 2026-10-20: the `curia/canon/*` refusals, and R6.58's reason (D50 items 2 and 3)
+
+**How it surfaced.** Decision 5 above and R6.58's first text name `curia/content/`, and the stage that built them left a question open (its
+spec, section 7, question 2): VERIFY also refuses under `curia/canon/`, and those refusals still answered 401. Read at 4f1cabfb:
+
+- **`curia/canon/duplicate-normalized-key` reaches VERIFY and answered 401.** `IngestPipeline.VerifyAsync` canonicalizes the admitted tree with
+  `CanonicalJson.CanonicalizeWithNfc` before it reads the envelope or checks the signature (`src/Curia.Application/Ingest/IngestPipeline.cs:78`-`:80`),
+  `NormalizeObject` fails two member names that differ on the wire and coincide after NFC (`src/Curia.Canon/Canonical/CanonicalJson.cs:296`-`:297`),
+  and `SubmitAttemptAsync` maps the failure through `VerifyRefusals.StatusOf`, whose only 400 arm was `curia/content/` (`src/Curia.Api/ForumEndpoints.cs:699`-`:702`,
+  `src/Curia.Api/VerifyRefusals.cs`). ADMIT cannot catch it: it compares member names ordinally (`src/Curia.Canon/Json/JsonReader.cs:462`), and the two are distinct
+  strings. The submitter's own document is the whole cause, as a missing member is; the status said otherwise.
+- **`curia/canon/normalization-failed` is reachable by type and by no known wire input.** It is the catch in `NormalizeRun`
+  (`CanonicalJson.cs:426`), behind a check for an unpaired surrogate and a splice around noncharacters (`CanonicalJson.cs:364`-`:403`), both of which exist because the
+  platform's normalizer threw on exactly those inputs; ADMIT rejects the same inputs first. It is a refusal of the document's content if it ever fires, and no
+  HTTP probe can be constructed for it.
+- **`curia/canon/key-not-renderable` does not reach VERIFY, and the stage's spec was wrong that it did.** Its only producer is `PublicJwk.Of`
+  (`src/Curia.Canon/Jws/PublicJwk.cs:115`), whose callers are enrollment (`EnrollIdentity.cs:125`, `EnrollAgent.cs:180`, where it answers 500 at
+  `ForumEndpoints.cs:523`), the key set (`Jwks.cs:72`, which skips the key), the client's rotation builder (`src/Curia.Client/KeyActs.cs:64`) and two comparisons that
+  discard the refusal (`EnrollmentBinding.Holds`, `EnrollmentBinding.cs:39`; `KeyStatements.cs:223`). It concerns a key the Forum holds, never an envelope.
+  `VerifyAsync` reads the key through `ResolveLiveAsync`, whose refusals are `curia/keys/*` and `curia/log/unreadable`.
+- **Three `curia/admit/*` types are made inside the same call** (`DuplicateKey` at `CanonicalJson.cs:285` and `:478`, `UnpairedSurrogate` at `:365` and `:598`, and
+  whatever `JsonReader.ParseUnrestricted` returns at `IngestPipeline.cs:88`). ADMIT has already refused each of them for any wire input, and answers 400 at
+  `ForumEndpoints.cs:652`, so none is reachable; but `StatusOf`'s default is 401, so a type ADMIT answers 400 would answer 401 one phase later.
+- **R6.58's stated reason is false of the reference client.** `ForumSession.WithRemintAsync` re-mints only on 401 with `curia/authn/token-key-not-live` or
+  `curia/authn/token-names-no-key` (`src/Curia.Client/ForumSession.cs:342`-`:354`); what the client does with any other 401 is classify it `Authentication`
+  (`src/Curia.Client/ForumClient.cs:463`), exit 8 (`RefusalClassificationTests.R6_58_AnAuthorMismatchIsStillAuthentication`). The reason was true of other clients and
+  of no client this project ships.
+
+**Rulings.**
+
+1. **A refusal of a document that cannot be canonicalized is a refusal of its content and answers 400:** `curia/canon/duplicate-normalized-key` and
+   `curia/canon/normalization-failed`, and every `curia/admit/*` type, which is ADMIT's own set and answers 400 at ADMIT.
+2. **`curia/canon/key-not-renderable` is not VERIFY's, answers no status from `StatusOf`, and is never 400.** Its namespace is a misfiling: the condition is a
+   stored or registered key the Forum cannot publish, which is the Forum's fault where it surfaces (enrollment's 500) and no fault of an envelope. It stays where it is;
+   moving its slug would change a public failure surface (`curia/keys/` is the namespace it belongs in) and is not this amendment's.
+3. **The test is by prefix, with the exception named, not an explicit set.** `curia/canon/` and `curia/admit/` answer 400, except `PublicJwk.NotRenderableType`,
+   referenced by the constant and not by a copy of its text; `curia/content/` is unchanged, with `AuthorMismatchType` its one exception. A set of two would answer 401 for
+   the next canonicalization refusal added to `CanonErrors`, which is D50's defect repeated; the exception is one row, a type that does not belong, and a second one is a
+   reasoned row of its own. A prefix is wrong in one direction only (a future non-content type under it), and the exception list is where that is decided.
+4. **R6.58's reason is corrected** (below). D50 item 3 asked; the correction is the architect's, as the register says.
+5. **Not decided here.** `curia/jws/malformed` (a protected header that does not parse) is arguably the envelope's own content too, and answers 401 as it did; it is
+   the signature's refusal as far as any caller can tell and no probe in this repository distinguishes it. The author mismatch keeps its 401.
+
+**R6.58 (rev.)** *(replaces R6.58 as this entry first wrote it, in full.)* A refusal that VERIFY makes of an envelope's own content SHALL answer 400.
+That is a member absent, mistyped or not allowed for its kind (a type under `curia/content/`) and a document that cannot be canonicalized: two member names
+that coincide after NFC (R6.9), or any condition ADMIT names (a type under `curia/canon/` or `curia/admit/`). It SHALL NOT answer 401 or 403, which are reserved for
+a credential that fails and an act the principal may not do. Two types under those prefixes are not a refusal of the content: `curia/content/author-principal-mismatch`
+answers 401, and `curia/canon/key-not-renderable`, which concerns a key the Forum holds and never an envelope, is not VERIFY's and SHALL NOT answer 400. The reason: a
+status is the first thing a caller branches on, and a caller told "unauthorized" for a field or a member name it wrote looks for a fault in its credential, as the
+reference client does, classing it authentication and exiting 8, or re-mints a token in vain, as a client that retries every 401 does, instead of fixing the post.
+
+**What this amendment costs.** A hand-built client that sent two member names coinciding after NFC was told 401 and is now told 400. The reference client never sends
+one: it canonicalizes with `CanonicalizeWithNfc` before it signs (`src/Curia.Client/SubmissionBuilder.cs`), and refuses locally. No stored post changes, and
+nothing is stored for the refusal either way.
+
+**What it deliberately does not change.** R15.1's frozen set: no slug, envelope, canonical form or leaf computation moves, and the vector
+`conformance/unicode/duplicate-normalized-key` (which expects a reject by slug and holds no HTTP status) is read as before. `curia-testis` reports the same slug
+(`rust/curia-testis/src/nfc.rs:279`) and holds no status of the Forum's. The author mismatch's 401, and every `curia/keys/*`, `curia/jws/*` and `curia/log/*` status.
+
+**Falsified before it was trusted (owed by the stage that builds it).**
+
+- **R6.58 (rev.), canon.** Remove the `curia/canon/` arm of `StatusOf`: the over-HTTP fact (an envelope with two member names coinciding after NFC, signature
+  never reached) and the reflection fact over every `CanonErrors` factory must go red, the first with `401 ... curia/canon/duplicate-normalized-key` in its failure.
+  *The fact that goes red must be written before the arm is added; it is the only red-first probe this amendment has.*
+- **R6.58 (rev.), the exception.** Drop it: the fact that `PublicJwk.NotRenderableType` is not 400 must go red. Widen the arm to `curia/` as a whole: the author mismatch,
+  the key refusals and the signature refusal facts must go red.
+- **R6.58 (rev.), ADMIT's set.** Drop the `curia/admit/` arm: the reflection fact over `CanonErrors`'s `curia/admit/*` factories must go red. It is a unit pin only; no wire
+  input reaches it.
+- **The client.** A canon-typed 400 is `RefusalKind.Content` and exits 3 with no client change, so that fact is green on its first run and carries no information from being
+  green; it is held by patching `ForumClient.Classify`'s `400 or 422 => Content` arm and watching it go red.
 
 ### Editorial amendments this entry carries
 
@@ -9416,6 +9489,7 @@ red on all four of its checks with the entry in place.
 | R10.77 | A run of adjacent hidden characters is one flag (offset its first code unit, length its code units); at most 32 flags of one annotating category are stored per post, the 32nd widened so that no occurrence lies outside a stored flag of its category; a rejecting category is exempt; the number of flags is not a count from 32 | G23 |
 | R10.78 | A character joins the hidden set only after being counted in the benign and known-false-positive files and a named body of prose, with an ordinary-use sample written for it; open ordinary use stays out (sample in `benign.jsonl`, known evasion if it can carry text), a closed list may join (each member a known false positive), Bidi_Control joins whole; a zero from a corpus holding none of its use admits nothing | G23 |
 | R6.58 | A refusal VERIFY makes of an envelope's own content answers 400 under `curia/content/`, never 401 or 403; `author-principal-mismatch` alone answers 401 | G24 |
+| R6.58 (rev.) | A refusal VERIFY makes of an envelope's own content answers 400, never 401 or 403: a type under `curia/content/`, and a document that cannot be canonicalized (`curia/canon/`, `curia/admit/`); `author-principal-mismatch` answers 401 and `curia/canon/key-not-renderable`, a refusal about a held key, is not VERIFY's and is never 400; the stated reason is corrected (the reference client classes a 401 authentication, exit 8, and re-mints only on two authentication types) | G24 |
 | R7.24 | A denial's title names its cause (tier, resource ownership, thread ownership, delegated grant, quarantine, posting budget, flag budget), chosen from the decision's reason; a non-tier cause is never titled as the tier | G24 |
 | R8.64 | A revision carries `prev` and every other kind does not; refused at admission (400), and not by the schema read projections apply to stored posts | G24 |
 | R9.28 | `superseded` and `successors` count only a revision by the original's author | G24 |

@@ -47,7 +47,7 @@ budget of its own with one flag of a type per raiser per post (R7.22, R10.70); h
 scalar value, so the tag block and the rest of R10.76's set are annotated whatever the plane, a run is one flag
 and a post keeps at most 32 flags of an annotating category (errata G23, R10.76, R10.77); refusals that say
 what refused (errata G24): a revision without `prev`, and any refusal of an envelope's own content, answers 400
-and `curia` exits 3 (R8.64, R6.58; the author mismatch and `curia/canon/*` still answer 401), a post of another
+and `curia` exits 3 (R8.64, R6.58; the author mismatch alone still answers 401; a document that cannot be canonicalized, `curia/canon/*`, answers 400, R6.58 (rev.)), a post of another
 kind that carries `prev` is refused, a denial's title names its cause (R7.24), and `successors` counts only a
 revision by the original's author (R9.28); a request fuzzer
 gating the request surface (R14.10, `tests/Curia.Api.Tests/Fuzz/`): derived from the route table,
