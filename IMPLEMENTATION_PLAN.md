@@ -10,10 +10,10 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — where it stands (2026-10-19, at 6f4e196)
+> ## Current work — where it stands (2026-10-20, at 4f1cabfb)
 >
 > **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** D35 (`hidden-beyond-bmp`) is
-> merged. **The refusals stage (errata G24) is merged as #104**. **This PR is the MCP refusals stage (`mcp-refusals-name-their-cause`, closes D51)**:
+> merged. **The refusals stage (errata G24) is merged as #104**. **#106 is the MCP refusals stage (`mcp-refusals-name-their-cause`, closed D51)**:
 > `curia-mcp`'s write refusals take the reference client's cause-by-cause wording, and only a tier denial is worded as one. The register keeps the history (its "Observed during" sections, D45 to D51, G21 PR 0.5 and PR 2); this block says
 > only where things stand.
 >
@@ -39,7 +39,8 @@ set; SP scores recorded even if not yet weighted.*
 > | #103 | D35: SCREEN decides hidden by scalar value; one flag per run, at most 32 per category (errata G23, R10.76 to R10.78); D32's amplification half closed |
 > | #104 | Refusals tell the truth (errata G24): a revision needs `prev` and no other kind carries one, and a refusal of an envelope's own content is a 400 (R8.64, R6.58; D48 item (3), D38's ingest half); a successor is a revision by the original's author (R9.28; D38's projection half); a denial's title names its cause (R7.24); the client's refusal, keys and inbox text are true (D37's reopened items). Opens D50 and D51 |
 > | #105 | Docs current at #104: CLAUDE.md gains G23's and G24's sentences; the plan's status names #104 |
-> | this PR | MCP refusals name their cause (D51): `curia-mcp` words a write refusal by the Forum's reason, `Refusal.IsTierDenial`, and only `table-10/denied` is a tier refusal; the answer description says a refusal names its cause. No requirement, no errata |
+> | #106 | MCP refusals name their cause (D51): `curia-mcp` words a write refusal by the Forum's reason, `Refusal.IsTierDenial`, and only `table-10/denied` is a tier refusal; the answer description says a refusal names its cause. No requirement, no errata |
+> | this PR | D50 item 2: `curia/canon/*` and `curia/admit/*` VERIFY refusals answer 400, `key-not-renderable` the one named exception (R6.58 (rev.), errata G24); `docs/superpowers/plans/2026-10-20-canon-refusals-are-400.md` |
 >
 > **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
 > lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
@@ -60,11 +61,11 @@ set; SP scores recorded even if not yet weighted.*
 > - **The external `curia` skill** (outside this repository) gains `browse` and exit 9 in its verb list and
 >   `references/cli.md`.
 >
-> **Next stage: to be chosen by `curia-architect`** (D50's `curia/canon/*` 401s are the recommended small one; the author mismatch's 401 is ruled to stay). The refusals stage's spec is
+> **Next stage: to be chosen by `curia-architect`.** D50 item (2) is closed by this PR (see D50). The author mismatch's 401 is ruled to stay (D50 item 3). The refusals stage's spec is
 > `docs/superpowers/specs/2026-10-18-refusals-tell-the-truth-design.md` and its plan
 > `docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`; its falsification record (27 cases, none left green) is
-> under "Observed during the refusals stage". Opened by it: **D50** (its main item closed; the `curia/canon/*` 401s and the
-> author mismatch's 401 left open) and **D51** (`curia-mcp` printed every authorization refusal as a tier refusal; closed by this PR). Still open as
+> under "Observed during the refusals stage". Opened by it: **D50** (its main item closed, and item 2, the `curia/canon/*` 401s, closed by this PR; the
+> author mismatch's 401 ruled to stay) and **D51** (`curia-mcp` printed every authorization refusal as a tier refusal; closed by this PR). Still open as
 > the register has them: D39, D40, D41 to D43, D46, `--refs` on `answer` and `comment`, `--board` on replies, and `--agent` on
 > `verify` and `contract`.
 > Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
@@ -479,7 +480,7 @@ while filing errata G20, 2026-10-11); D41 (opened by the review of the rotation 
 `curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
 round 2 of the rotation stage's documents, 2026-10-12); D46 (opened by the rotation stage's PR 2,
 2026-10-15; D45, opened with it, is closed); and D37, reopened in part by the second five-agent exercise (2026-10-17) and built by the refusals stage except `--refs`;
-D48, opened by the same exercise, is closed; D50 and D51 (opened by the refusals stage, 2026-10-18).
+D48, opened by the same exercise, is closed; D50 and D51 (opened by the refusals stage, 2026-10-18); D50 item (2) closed 2026-10-20.
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
 findings are `D1`–`D9`; plan-D2 (below), decision-D2 (§16) and erratum-D2 (the published vectors do
@@ -6634,7 +6635,7 @@ word is the passage's alone.*
 **Related register entries.** D43 (the log key signs declarations only provisionally), D45 (R12.11's
 runbook gaps) and D46 (an omitted compromised ancestor is not detectable by a reader).
 
-### D50 — a VERIFY refusal of an envelope's own content answered 401, so a request problem read as an authentication failure *(found while ruling D48 item (3), read and then run, 2026-10-18; main item closed by the refusals stage, 2026-10-18; items (2) and (3) open)*
+### D50 — a VERIFY refusal of an envelope's own content answered 401, so a request problem read as an authentication failure *(found while ruling D48 item (3), read and then run, 2026-10-18; main item closed by the refusals stage, 2026-10-18; item (2) closed, 2026-10-20; item (3) ruled to stay)*
 
 **Found.** `SubmitAttemptAsync` answered every VERIFY refusal with 401 (`src/Curia.Api/ForumEndpoints.cs`,
 `Problem(StatusCodes.Status401Unauthorized, verifyError)`). So an answer with no `parent`, a question with no `title` and a question
@@ -6687,7 +6688,19 @@ wrong, and the quarantine fact only forbade the adapter's own "Requires trust ti
 forbid "trust tier" and "Your trust tier does not permit" in a non-tier refusal; FR4 is then red on both. FR2 as first written
 (`IsTierDenial => false`) does not compile (CA1822); the patch used reads the reason through an unreachable kind test instead.
 
-**D50 after this stage:** item (2), the `curia/canon/*` 401s, is the recommended next small stage; item (3), the author mismatch, is ruled to
+**Scoped, 2026-10-20 (`curia-architect`, read at 4f1cabfb; the amendment is errata G24's "Amendment, 2026-10-20", R6.58 (rev.)).** Item (2): of the three
+`curia/canon/*` types, `duplicate-normalized-key` reaches VERIFY (`IngestPipeline.cs:78`) and answered 401; `normalization-failed` reaches it by type and by no known wire
+input; `key-not-renderable` does **not** reach it (its only producer, `PublicJwk.Of`, is called by enrollment, the key set and two comparisons that discard the refusal),
+so the refusals spec's claim that VERIFY returns it is a ninth wrong statement of the architect's report. Ruling: `curia/canon/` and `curia/admit/` answer 400 by
+prefix, with `PublicJwk.NotRenderableType` the one named exception (never 400); `curia/admit/*` is included because ADMIT answers the same types 400 and `StatusOf`'s default
+would answer them 401 one phase later. Item (3): R6.58's reason is corrected in the same amendment: the reference client re-mints only on two authentication types
+(`ForumSession.cs:342`-`:354`). Probes owed, red first: an over-HTTP fact (two member names, one precomposed and one decomposed, in the envelope, any signature, since
+canonicalization precedes it; a control with the same bad signature and no collision answers 401 `curia/jws/signature-invalid`), reflection over every `CanonErrors` factory,
+the `NotRenderableType` is-not-400 fact, and the client fact (green first; held by falsification). `VerifyRefusalsTests` carries a pin of the old 401 that must be rewritten.
+
+**Item (2) closed, 2026-10-20 (R6.58 (rev.); `docs/superpowers/plans/2026-10-20-canon-refusals-are-400.md`).** `VerifyRefusals.StatusOf` answers 400 for `curia/canon/*` and `curia/admit/*` by prefix, `PublicJwk.NotRenderableType` excepted by constant. Probes, red first: `RefusalStatusTests.R6_58_MemberNamesThatCollideAfterNfcAreABadRequest` (401 with the slug in the body), `VerifyRefusalsTests.R6_58_EveryCanonErrorsRefusalIsBadRequest` (`InvalidUtf8 (curia/admit/invalid-utf8) answers 401, expected 400`); green first and held by falsification: the control `R6_58_TheSameSubmissionWithoutACollisionFailsAtTheSignature`, `R6_58_AKeyThatCannotBeRenderedIsNotBadRequest`, `RefusalClassificationTests.R6_58_ABadRequestCanonRefusalIsContentAndExitsThree`. Falsification FC1 to FC5: see the stage's plan.
+
+**D50 after this stage:** item (3), the author mismatch, is ruled to
 stay 401 (an identity claim the credential does not support; `An_impersonated_author_is_rejected` pins it).
 
 ### Observed during the refusals stage
@@ -6725,7 +6738,7 @@ about 27 minutes). **27 cases, 0 not red**, with two patches corrected (below) a
 replay and not on that precedent; (2) the replay fact over `PostProjector.Fold` is vacuous, `Fold` never calling `Read` (S1, over
 `SearchProjector.Fold`, is the discriminator; FR6); (3) `tests/Shared/StubLog.cs:1289` is not stale, it is `table-10/denied` under the tier
 title; (4) of the nine title sites the ninth, `PrincipalOf`, has no decision; (5) ruling 2's `curia/content/*` leaves `curia/canon/*` at 401
-(D50 item 2); (6) ruling 8 named three causes for their own summary, but `table-11/quarantined-read-only` and
+(D50 item 2, closed 2026-10-20); (6) ruling 8 named three causes for their own summary, but `table-11/quarantined-read-only` and
 `table-10/delegated-grant-required` printed the T0 paragraph too, so the summary is per cause for all five; (7) `conformance/envelope/ed25519-full`
 **is a finding with a non-null `prev`**: a cryptographic vector read only by `curia-testis` (`rust/curia-testis/src/envelope.rs`,
 `conformance.rs`) and written by `tools/GenerateEnvelopeFixtures`, frozen (R15.1) and not edited, a valid signature vector and an

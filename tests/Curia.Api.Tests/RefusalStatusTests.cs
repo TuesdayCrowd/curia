@@ -1,7 +1,11 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Curia.Canon.Canonical;
+using Curia.Canon.Json;
 using Curia.Domain.Content;
 using Xunit;
 
@@ -105,5 +109,73 @@ public sealed class RefusalStatusTests(ForumFixture forum) : IClassFixture<Forum
 
         var listed = await forum.Client.GetFromJsonAsync<JsonElement>($"/v1/boards/{board}/posts", ct);
         Assert.Equal(1, listed.GetArrayLength());
+    }
+
+    /// <summary>
+    /// A submission built by hand around a signature that signs some other envelope, so VERIFY refuses it at the
+    /// signature if it gets that far. Serialized with plain <c>Canonicalize</c> (no NFC), so two member names that
+    /// differ only by normalization stay distinct on the wire and pass ADMIT.
+    /// </summary>
+    private byte[] HandBuilt(ForumAgent agent, string board, bool collide)
+    {
+        using var other = JsonDocument.Parse(agent.Sign(PostKind.Question, board, "other", "Other", parent: null, forum.Now));
+        var signature = other.RootElement.GetProperty("signature").GetString()!;
+
+        var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
+        members.Add(new("v", new JsonValue.Number(PostEnvelope.CurrentVersion)));
+        members.Add(new("kind", new JsonValue.String(PostKinds.Wire(PostKind.Question))));
+        members.Add(new("author", new JsonValue.String(agent.AgentId)));
+        members.Add(new("board", new JsonValue.String(board)));
+        members.Add(new("title", new JsonValue.String("A title")));
+        members.Add(new("body", new JsonValue.String("a body")));
+        members.Add(new("code_blocks", new JsonValue.Array([])));
+        members.Add(new("refs", new JsonValue.Array([])));
+        members.Add(new("tags", new JsonValue.Array([new JsonValue.String("jcs")])));
+        members.Add(new("content_type", new JsonValue.String(PostEnvelope.RequiredContentType)));
+        members.Add(new("created_at", new JsonValue.String(forum.Now.ToString("o", CultureInfo.InvariantCulture))));
+        members.Add(new("nonce", new JsonValue.String(Guid.NewGuid().ToString("N"))));
+        // U+00E9 against U+0065 U+0301: distinct strings, one NFC form.
+        members.Add(new("caf\u00e9", new JsonValue.String("x")));
+        if (collide) members.Add(new("cafe\u0301", new JsonValue.String("y")));
+
+        var submission = new JsonValue.Object(
+        [
+            new("envelope", new JsonValue.Object(members.ToImmutable())),
+            new("signature", new JsonValue.String(signature)),
+        ]);
+        Assert.True(CanonicalJson.Canonicalize(submission).TryGetValue(out var wire, out _));
+        return wire.ToArray();
+    }
+
+    /// <summary>R6.58 (rev.): a document that cannot be canonicalized is a content refusal, 400, not a failed credential.</summary>
+    [Fact]
+    public async Task R6_58_MemberNamesThatCollideAfterNfcAreABadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (agent, dpop, token) = await AuthenticatedAsync(forum.Client, "author", ct);
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        using var response = await dpop.PostAsync(
+            forum.Client, PostsUrl, token, HandBuilt(agent, board, collide: true), forum.Now, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"{(int)response.StatusCode}: {body}");
+        Assert.Contains("curia/canon/duplicate-normalized-key", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>The control: the same garbage signature without a collision reaches the signature check and answers 401.</summary>
+    [Fact]
+    public async Task R6_58_TheSameSubmissionWithoutACollisionFailsAtTheSignature()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (agent, dpop, token) = await AuthenticatedAsync(forum.Client, "author", ct);
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        using var response = await dpop.PostAsync(
+            forum.Client, PostsUrl, token, HandBuilt(agent, board, collide: false), forum.Now, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.Unauthorized, $"{(int)response.StatusCode}: {body}");
+        Assert.Contains("curia/jws/signature-invalid", body, StringComparison.Ordinal);
     }
 }
