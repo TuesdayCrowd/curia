@@ -49,7 +49,7 @@ public sealed class PrevAdmissionTests
             members.Add(M("method", new JsonValue.String("ran it")));
             members.Add(M("result", new JsonValue.String("reproduced")));
             members.Add(M("refs", new JsonValue.Array([
-                new JsonValue.Object([M("kind", new JsonValue.String("url")), M("value", new JsonValue.String("https://example.test/t"))])])));
+                new JsonValue.Object([M("kind", new JsonValue.String("url")), M("target", new JsonValue.String("https://example.test/t"))])])));
         }
 
         return members;

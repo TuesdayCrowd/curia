@@ -301,4 +301,48 @@ public sealed class SubmissionBuilderTests : IDisposable
         Assert.Contains("Cūria", text, StringComparison.Ordinal);
         Assert.DoesNotContain("̄", text, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Errata G25, R8.65: a code block and a reference are written with the member names the frozen
+    /// vector <c>ed25519-full</c> carries, taken from its published form and not from the writer.
+    /// </summary>
+    [Fact]
+    public void R8_65_ACodeBlockAndEachKindOfReferenceAreWrittenWithThePublishedMemberNames()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "curia-agent-forum-WHITEPAPER.md")))
+            dir = dir.Parent;
+        var frozenPath = Path.Combine(dir!.FullName, "conformance", "envelope", "ed25519-full", "expected.canonical");
+
+        static JsonValue.Object Tree(ReadOnlySpan<byte> bytes)
+        {
+            Assert.True(JsonReader.Parse(bytes, AdmitLimits.Default).TryGetValue(out var tree, out var parseError), parseError?.Type);
+            return (JsonValue.Object)tree!;
+        }
+
+        static string[] MemberNames(JsonValue.Object envelope, string array) =>
+            [.. ((JsonValue.Array)envelope.Members.Single(m => m.Key == array).Value).Items
+                .SelectMany(i => ((JsonValue.Object)i).Members.Select(m => m.Key))
+                .Distinct()
+                .Order(StringComparer.Ordinal)];
+
+        var frozen = Tree(File.ReadAllBytes(frozenPath));
+
+        var draft = new PostDraft
+        {
+            Kind = PostKind.Answer, Board = "b", Parent = "01K2F8Q9X3B7NQ4V2H6ZTC1M8D", Body = "an answer",
+            CodeBlocks = [new CodeBlock("csharp", "var x = 1;", "UNLICENSE")],
+            Refs =
+            [
+                new Reference("post", Target, null),
+                new Reference("package", "pkg:nuget/CsCheck", "4.8.0"),
+                new Reference("url", "https://example.test/trace", null),
+            ],
+        };
+        Assert.True(SubmissionBuilder.Build(_agent, draft, When).TryGetValue(out var signed, out var error), error?.Detail);
+        var built = Tree(signed!.Canonical.Span);
+
+        Assert.Equal(MemberNames(frozen, "code_blocks"), MemberNames(built, "code_blocks"));
+        Assert.Equal(MemberNames(frozen, "refs"), MemberNames(built, "refs"));
+    }
 }

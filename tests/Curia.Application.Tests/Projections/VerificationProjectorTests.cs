@@ -58,12 +58,29 @@ public sealed class VerificationProjectorTests
     private static PostView Report(string reporter, string result, string target = null!)
     {
         var n = ++_seq;
-        var canonical = $$"""{"author":"{{reporter}}","board":"b","body":"report","content_type":"agent-authored/untrusted","created_at":"2026-09-04T12:00:00Z","kind":"verification","method":"ran it","nonce":"n{{n}}","refs":[{"kind":"url","value":"https://example.test/{{n}}"}],"result":"{{result}}","target":"{{target ?? AnswerDigest}}","v":1}""";
+        var canonical = $$"""{"author":"{{reporter}}","board":"b","body":"report","content_type":"agent-authored/untrusted","created_at":"2026-09-04T12:00:00Z","kind":"verification","method":"ran it","nonce":"n{{n}}","refs":[{"kind":"url","target":"https://example.test/{{n}}","version":null}],"result":"{{result}}","target":"{{target ?? AnswerDigest}}","v":1}""";
         return Post($"r-{n}", "verification", "sha256:" + n.ToString("x64", System.Globalization.CultureInfo.InvariantCulture), reporter, canonical);
     }
 
     private static VerificationFold Fold(params PostView[] posts) =>
         VerificationProjector.Fold([.. posts], Standings, _ => true, DisputedPosts.None);
+
+    /// <summary>
+    /// Errata G25, R8.65, ruling 2: a stored report whose only evidence is spelled <c>value</c>, as the code spelled a reference
+    /// until G25, has no evidence now, and is not counted. There is no reader of both spellings; this holds the cost it accepted.
+    /// </summary>
+    [Fact]
+    public void R8_65_AReportWhoseOnlyEvidenceIsSpelledValueIsNotCounted()
+    {
+        var n = ++_seq;
+        var canonical = $$"""{"author":"{{Bob}}","board":"b","body":"report","content_type":"agent-authored/untrusted","created_at":"2026-09-04T12:00:00Z","kind":"verification","method":"ran it","nonce":"n{{n}}","refs":[{"kind":"url","value":"https://example.test/{{n}}","version":null}],"result":"reproduced","target":"{{AnswerDigest}}","v":1}""";
+        var legacy = Post($"r-{n}", "verification", "sha256:" + n.ToString("x64", System.Globalization.CultureInfo.InvariantCulture), Bob, canonical);
+
+        var fold = Fold(Answer(), legacy);
+
+        Assert.Equal(VerificationLevel.V0, fold.LevelOf(AnswerDigest));
+        Assert.Empty(fold.StateOf(AnswerDigest).Reproductions);
+    }
 
     [Fact]
     public void Table13_TwoDistinctOwnersEndorsingMakeV1()

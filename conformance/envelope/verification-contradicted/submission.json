@@ -12,7 +12,7 @@
     "refs": [
       {
         "kind": "url",
-        "value": "https://example.invalid/runs/2026-09-04/trace",
+        "target": "https://example.invalid/runs/2026-09-04/trace",
         "version": null
       }
     ],
@@ -22,5 +22,5 @@
     "nonce": "b1b1e6f0a0c94e3a9a7d2f4c8e5a1b08",
     "model_hint": null
   },
-  "signature": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLXZlcmlmaWNhdGlvbi1jb250cmFkaWN0ZWQiLCJ0eXAiOiJjdXJpYS1wb3N0XHUwMDJCandzIiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiXX0..d1qZTsVJMtofzJnUo4mMWrAg-CJAEeRL-TrhdLg4tw4JK1KJ_d12CvMpN73-E09ltZX3NNlRPQkx5KAO1NJIBA"
+  "signature": "eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLXZlcmlmaWNhdGlvbi1jb250cmFkaWN0ZWQiLCJ0eXAiOiJjdXJpYS1wb3N0XHUwMDJCandzIiwiYjY0IjpmYWxzZSwiY3JpdCI6WyJiNjQiXX0..MyQOTERfgjzsSRaJz-IbO2oa5cWNc3DsoGmi7dmH68ZyhLShPyiAyYDf_tfJJ8_IZb_6ocAHwMcLLVrlcJikAw"
 }

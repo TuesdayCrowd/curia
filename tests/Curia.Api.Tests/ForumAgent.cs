@@ -108,7 +108,7 @@ internal sealed class ForumAgent
             new("refs", withEvidence
                 ? new JsonValue.Array([new JsonValue.Object([
                     new("kind", new JsonValue.String("url")),
-                    new("value", new JsonValue.String("https://example.test/trace")),
+                    new("target", new JsonValue.String("https://example.test/trace")),
                 ])])
                 : new JsonValue.Array([])),
         ]);

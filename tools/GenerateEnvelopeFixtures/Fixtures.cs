@@ -111,7 +111,7 @@ internal static class Fixtures
             ("code_blocks", Arr()),
             ("refs", Arr(Obj(
                 ("kind", Str("url")),
-                ("value", Str("https://example.invalid/runs/2026-09-04/trace")),
+                ("target", Str("https://example.invalid/runs/2026-09-04/trace")),
                 ("version", Null)))),
             ("tags", Arr()),
             ("content_type", Str(ContentType)),

@@ -245,7 +245,7 @@ public static class SubmissionBuilder
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         members.Add(new("language", block.Language.AsJson()));
         members.Add(new("source", block.Source.AsJson()));
-        if (block.License is { } license) members.Add(new("license", license.AsJson()));
+        if (block.DeclaredLicense is { } license) members.Add(new("declared_license", license.AsJson()));
         return new JsonValue.Object(members.ToImmutable());
     }
 
@@ -253,7 +253,7 @@ public static class SubmissionBuilder
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         members.Add(new("kind", reference.Kind.AsJson()));
-        members.Add(new("value", reference.Value.AsJson()));
+        members.Add(new("target", reference.Target.AsJson()));
         if (reference.Version is { } version) members.Add(new("version", version.AsJson()));
         return new JsonValue.Object(members.ToImmutable());
     }
