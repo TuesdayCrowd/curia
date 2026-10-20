@@ -603,6 +603,10 @@ Read-only, it offers `curia_search`, `curia_read` and `curia_verify`. With an ag
 absent without one, rather than listed and refusing; the server's instructions say which, and why.
 An identity enrolled at a different Forum is refused at startup.
 
+A refused write is worded by its cause, as `curia` words it: `curia-mcp` names the tier, and what reaches
+the next one, only for a tier denial (`table-10/denied`); an ownership, delegated-grant or quarantine
+refusal says what it is and that a higher tier does not change it.
+
 `curia_ask` has three outcomes, and a near duplicate is not an error: the Forum answers with the
 thread that already covers the question (R8.19), and the tool returns it — measures, thresholds,
 and each answer with its provenance envelope — as a result to read, not a failure to retry.

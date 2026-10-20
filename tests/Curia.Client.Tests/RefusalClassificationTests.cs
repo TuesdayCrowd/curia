@@ -37,6 +37,18 @@ public sealed class RefusalClassificationTests
         Assert.Contains("owner", refusal.Summary, StringComparison.Ordinal);
     }
 
+    /// <summary>D51: only Table 10's tier denial is a tier denial; every other cause, a budget and a missing detail are not.</summary>
+    [Theory]
+    [InlineData(RefusalKind.Authorization, "table-10/denied tier=T0", true)]
+    [InlineData(RefusalKind.Authorization, "table-10/own-resource-only tier=T0", false)]
+    [InlineData(RefusalKind.Authorization, "table-10/own-thread-only tier=T0", false)]
+    [InlineData(RefusalKind.Authorization, "table-10/delegated-grant-required tier=T0", false)]
+    [InlineData(RefusalKind.Authorization, "table-11/quarantined-read-only tier=T0", false)]
+    [InlineData(RefusalKind.Authorization, null, false)]
+    [InlineData(RefusalKind.RateBudget, "table-10/denied tier=T0", false)]
+    public void D51_OnlyATierDenialIsATierDenial(RefusalKind kind, string? detail, bool expected) =>
+        Assert.Equal(expected, new Refusal(kind, 403, new Error("curia/authz/denied", "Title", detail)).IsTierDenial);
+
     /// <summary>R6.58: a content refusal at 400 is content, whatever the Forum used to answer, and the process exits 3.</summary>
     [Fact]
     public void R6_58_ABadRequestContentRefusalIsContentAndExitsThree()

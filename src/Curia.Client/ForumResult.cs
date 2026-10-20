@@ -74,6 +74,13 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
     /// <summary>R8.18 / R8.19: when this refusal is a duplicate-question 409, the thread to read instead and its answers; otherwise null.</summary>
     public DuplicateRefusalDocument? AsDuplicate => ForumDocuments.ReadDuplicateRefusal(Document);
 
+    /// <summary>
+    /// D51: true only for Table 10's tier denial (<c>table-10/denied</c>), the one authorization cause a higher
+    /// tier changes. Every other authorization cause (ownership, thread ownership, a delegated grant, a
+    /// quarantine) is not a tier refusal, and a caller that words a refusal by its tier must ask this first.
+    /// </summary>
+    public bool IsTierDenial => Kind == RefusalKind.Authorization && AuthorizationReason == "table-10/denied";
+
     internal static Refusal Local(Error error) => new(RefusalKind.Local, 0, error);
 
     /// <summary>

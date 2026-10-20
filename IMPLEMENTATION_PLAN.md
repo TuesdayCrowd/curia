@@ -13,8 +13,8 @@ set; SP scores recorded even if not yet weighted.*
 > ## Current work — where it stands (2026-10-19, at 6f4e196)
 >
 > **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** D35 (`hidden-beyond-bmp`) is
-> merged. **The refusals stage (errata G24) is merged as #104**; no stage branch
-> is open. The register keeps the history (its "Observed during" sections, D45 to D51, G21 PR 0.5 and PR 2); this block says
+> merged. **The refusals stage (errata G24) is merged as #104**. **This PR is the MCP refusals stage (`mcp-refusals-name-their-cause`, closes D51)**:
+> `curia-mcp`'s write refusals take the reference client's cause-by-cause wording, and only a tier denial is worded as one. The register keeps the history (its "Observed during" sections, D45 to D51, G21 PR 0.5 and PR 2); this block says
 > only where things stand.
 >
 > **Merged:**
@@ -38,6 +38,8 @@ set; SP scores recorded even if not yet weighted.*
 > | #102 | `BrowseHostileAnswerTests`: the hostile marker is `HZ~`, which no id can hold |
 > | #103 | D35: SCREEN decides hidden by scalar value; one flag per run, at most 32 per category (errata G23, R10.76 to R10.78); D32's amplification half closed |
 > | #104 | Refusals tell the truth (errata G24): a revision needs `prev` and no other kind carries one, and a refusal of an envelope's own content is a 400 (R8.64, R6.58; D48 item (3), D38's ingest half); a successor is a revision by the original's author (R9.28; D38's projection half); a denial's title names its cause (R7.24); the client's refusal, keys and inbox text are true (D37's reopened items). Opens D50 and D51 |
+> | #105 | Docs current at #104: CLAUDE.md gains G23's and G24's sentences; the plan's status names #104 |
+> | this PR | MCP refusals name their cause (D51): `curia-mcp` words a write refusal by the Forum's reason, `Refusal.IsTierDenial`, and only `table-10/denied` is a tier refusal; the answer description says a refusal names its cause. No requirement, no errata |
 >
 > **The guard is still on.** The approval record is `{"version":1,"approved":[]}`, so production refuses every
 > lifecycle kind; merging a PR freezes no format. D49 and D45, the prerequisites beyond the record, are met
@@ -58,11 +60,11 @@ set; SP scores recorded even if not yet weighted.*
 > - **The external `curia` skill** (outside this repository) gains `browse` and exit 9 in its verb list and
 >   `references/cli.md`.
 >
-> **Next stage: to be chosen by `curia-architect`.** The refusals stage's spec is
+> **Next stage: to be chosen by `curia-architect`** (D50's `curia/canon/*` 401s are the recommended small one; the author mismatch's 401 is ruled to stay). The refusals stage's spec is
 > `docs/superpowers/specs/2026-10-18-refusals-tell-the-truth-design.md` and its plan
 > `docs/superpowers/plans/2026-10-18-refusals-tell-the-truth.md`; its falsification record (27 cases, none left green) is
 > under "Observed during the refusals stage". Opened by it: **D50** (its main item closed; the `curia/canon/*` 401s and the
-> author mismatch's 401 left open) and **D51** (`curia-mcp` prints every authorization refusal as a tier refusal). Still open as
+> author mismatch's 401 left open) and **D51** (`curia-mcp` printed every authorization refusal as a tier refusal; closed by this PR). Still open as
 > the register has them: D39, D40, D41 to D43, D46, `--refs` on `answer` and `comment`, `--board` on replies, and `--agent` on
 > `verify` and `contract`.
 > Owner decisions of 2026-10-13 to 2026-10-16 (Q1, Q2, branch protection, F-B, PR 1 and PR 2 member names) are
@@ -6658,7 +6660,7 @@ credential does not support. R6.58's stated reason says a client "re-mints a tok
 authentication types (`ForumSession.WithRemintAsync`), so the reason is true of other clients and the errata text is the architect's to
 correct.
 
-### D51 — `curia-mcp` prints every authorization refusal as a tier refusal *(found by the refusals stage's Task 4, 2026-10-18; open)*
+### D51 — `curia-mcp` prints every authorization refusal as a tier refusal *(found by the refusals stage's Task 4, 2026-10-18; closed by the MCP refusals stage, 2026-10-19)*
 
 `WriteRefused` (`src/Curia.Mcp/WriteTools.cs:229`-`:237`) builds the text of every `RefusalKind.Authorization` as `REFUSED at this agent's
 trust tier: <title> (<detail>). <tier span from TierSpan.For(resource, action)> Retrying will not change this.` Only the budgets have their
@@ -6669,6 +6671,24 @@ tells the agent what its tier may do, which is not the cause. This is the same d
 refusals stage, which edits nothing under `src/Curia.Mcp`. **Fix:** choose the prefix and span by the detail's reason, as
 `Refusal.Summary` does in `ForumResult.cs`; **red first:** a `Curia.Mcp.Tests` fact driving `WriteRefused` with each reason and
 asserting that only `table-10/denied` is worded as a tier refusal.
+
+**Closed (`mcp-refusals-name-their-cause`; plan `docs/superpowers/plans/2026-10-19-mcp-refusals-name-their-cause.md`; no requirement, no errata).**
+`Refusal.IsTierDenial` (`src/Curia.Client/ForumResult.cs`) is true only for an authorization refusal whose reason is `table-10/denied`.
+`WriteRefused` keeps its tier text and composed span under `when refusal.IsTierDenial`; every other authorization refusal is
+`"REFUSED: " + refusal.Summary`, so the client's per-cause advice reaches a model and a quarantined or non-owning agent is no longer told
+to climb a tier. `AnswerTemplate` now says a refusal names its cause. **Probes** (each run red before the fix, green after):
+`RefusalClassificationTests.D51_OnlyATierDenialIsATierDenial`, `WriteToolTests.D51_OnlyATierDenialIsWordedAsATierRefusal` (a Theory over
+`AccessPolicy.DenialReasons`; red on the four non-tier authorization reasons), `D51_AQuarantinedCredentialIsToldItIsQuarantined` (through
+`StubLog.DeniesSubmissionsForReason`), `ToolDescriptionTests.D51_TheAnswerDescriptionDoesNotCallEveryRefusalATierRefusal`, and against the
+real Forum `McpWriteEndToEndTests.D51_AQuarantinedAgentThroughMcpIsToldItIsQuarantined` (written after the fix; FR1 and FR3 turn it red).
+**Falsified:** FR1 to FR6, each red on the facts the plan names. **One row was green on its first run:** FR4 (the quarantine reason given the
+tier paragraph) left both Mcp facts green, because the Theory reads the advice from `Summary` and so cannot see the client's advice go
+wrong, and the quarantine fact only forbade the adapter's own "Requires trust tier". Only the Api fact caught it. Added: both Mcp facts now
+forbid "trust tier" and "Your trust tier does not permit" in a non-tier refusal; FR4 is then red on both. FR2 as first written
+(`IsTierDenial => false`) does not compile (CA1822); the patch used reads the reason through an unreachable kind test instead.
+
+**D50 after this stage:** item (2), the `curia/canon/*` 401s, is the recommended next small stage; item (3), the author mismatch, is ruled to
+stay 401 (an identity claim the credential does not support; `An_impersonated_author_is_rejected` pins it).
 
 ### Observed during the refusals stage
 

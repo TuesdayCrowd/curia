@@ -541,6 +541,13 @@ internal sealed class StubLog : IDisposable
     internal string? DeniesSubmissionsAtTier { get; set; }
 
     /// <summary>
+    /// Refuse every submission as the Forum refuses for this Table 10 or 11 reason (D51): <c>403</c>,
+    /// <c>curia/authz/denied</c>, the title <see cref="Curia.Domain.Authorization.AccessPolicy.TitleFor"/> gives the
+    /// reason and the reason alone as the detail.
+    /// </summary>
+    internal string? DeniesSubmissionsForReason { get; set; }
+
+    /// <summary>
     /// The nonce this stub currently accepts on a write. A write path requires one, as the Forum's
     /// does (R5.19): a proof without it, or with any other, is answered with RFC 9449 §8's challenge.
     ///
@@ -1283,6 +1290,13 @@ internal sealed class StubLog : IDisposable
 
             if (path == "/v1/posts")
             {
+                if (log.DeniesSubmissionsForReason is { } reason)
+                {
+                    return (HttpStatusCode.Forbidden, $$"""
+                        {"type":"curia/authz/denied","title":"{{Curia.Domain.Authorization.AccessPolicy.TitleFor(reason)}}","detail":"{{reason}}"}
+                        """, null);
+                }
+
                 if (log.DeniesSubmissionsAtTier is { } tier)
                 {
                     return (HttpStatusCode.Forbidden, $$"""

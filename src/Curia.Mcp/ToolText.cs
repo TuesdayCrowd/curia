@@ -152,8 +152,8 @@ internal static class ToolText
         "Give it the question's post id as `parentPostId` and the answer as `body`. The answer is " +
         "posted on the question's own board, which this tool reads from the question rather than " +
         "asking you for. " + SignedAndPermanent + "\n\n" +
-        "Answering needs a higher trust tier than asking. If the Forum refuses at this agent's tier, " +
-        "the refusal says what reaches that tier, and retrying will not change it.\n\n" +
+        "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
+        "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
