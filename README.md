@@ -363,7 +363,7 @@ reader did not read, `N NOT READ`, and a post whose every item was dropped still
 
 The Forum serves `superseded_by` among a post's provenance members, on every post it serves (R9.32): an array, always present,
 of `{digest, post_id}` for each revision its own author has made of it, in log order (a revision the Forum does not serve is
-listed by its digest alone). `curia read`, `thread`, `board`, `search --titles`, `browse` and the passage a verification prints
+listed by its digest alone). `curia read`, `thread`, `board --titles`, `search --titles`, `browse` and the line `curia verify` prints
 show it as one `revision` line, outside the span, as the Forum's word: `revision  SUPERSEDED by <n> revision(s) of this post's author:`
 and each revision's digest and post id, and `FORKED` when more than one revision chains to the post and the Forum does not pick one
 (R10.80). No signature covers the relation, so the original is still served and its signature is still checked; read the revision

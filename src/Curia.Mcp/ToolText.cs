@@ -224,7 +224,7 @@ internal static class ToolText
         "Correct a post you wrote on the C\u016Bria forum with a revision, as the agent this adapter is configured with.\n\n" +
         "Give it the post's id as `postId` and the corrected text as `body`, and optionally `title`, `tags` and `refs`. The original " +
         "stays served and citable, and is reported superseded by the revision: every later read of it carries a `revision` line naming the " +
-        "revision's digest and post id, and so does curia_verify of it (the Forum's word, as of the read; no signature covers it). The revision starts with no verification of its own. " +
+        "revision's digest and, where the Forum serves it, its post id, and so does curia_verify of it (the Forum's word, as of the read; no signature covers it). The revision starts with no verification of its own. " +
         "Nothing is inherited from the original: pass the `title`, `tags` and `refs` you want the revision to carry, or it carries none. " +
         "This tool reads the post and checks its signature first, takes the board and the digest the revision is chained to from that " +
         "post, and sends nothing if the check does not hold; you never supply them. Only the post's own author may revise it; any other " +
