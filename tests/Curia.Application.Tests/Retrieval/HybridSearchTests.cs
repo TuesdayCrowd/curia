@@ -93,6 +93,88 @@ public sealed class HybridSearchTests
         Assert.Equal("curia/retrieval/unknown-surface", badSurface!.Type);
     }
 
+    /// <summary>A surface configured at V1, one question and three answers (all V0) sharing the query's words.</summary>
+    private static async Task<Harness> ClampedHarnessAsync(CancellationToken ct)
+    {
+        var h = NewHarness(Require(RetrievalFloors.Parse([new("rest-search", "V1")])));
+        await AcceptAsync(h.Store, h.Indexer, "q", ct, title: "ECONNRESET from npgsql", body: "npgsql ECONNRESET on idle").ConfigureAwait(false);
+        for (var i = 0; i < 3; i++)
+            await AcceptAsync(h.Store, h.Indexer, $"a{i}", ct, kind: PostKind.Answer, title: null, body: $"npgsql ECONNRESET: set the keepalive {i}", parent: "q", author: $"https://agents.example/helper{i}").ConfigureAwait(false);
+        return h;
+    }
+
+    [Fact]
+    public async Task R10_54_ARequestBelowAConfiguredFloorIsServedAtTheFloor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = await ClampedHarnessAsync(ct);
+
+        var page = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V0), ct);
+
+        Assert.Equal(["q"], page.Results.Select(r => r.Post.PostId));
+        Assert.Equal(VerificationLevel.V1, page.Floor);
+    }
+
+    [Fact]
+    public async Task R10_54_ThePageStatesTheClamp()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = await ClampedHarnessAsync(ct);
+
+        var page = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V0), ct);
+
+        Assert.True(page.Clamped);
+        Assert.Equal(VerificationLevel.V0, page.RequestedFloor);
+        Assert.Equal(VerificationLevel.V0, page.PublishedDefault);
+    }
+
+    [Fact]
+    public async Task R9_24_ASourceNeverNamesARequestForALevelNotReceived()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = await ClampedHarnessAsync(ct);
+
+        var clamped = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V0), ct);
+        Assert.Equal((VerificationLevel.V1, "configured", true), (clamped.Floor, clamped.FloorSource, clamped.Clamped));
+
+        var above = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V2), ct);
+        Assert.Equal((VerificationLevel.V2, "requested", false), (above.Floor, above.FloorSource, above.Clamped));
+    }
+
+    [Fact]
+    public async Task R10_54_ThereIsNoCeiling()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = await ClampedHarnessAsync(ct);
+
+        var page = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V2), ct);
+
+        Assert.Equal(VerificationLevel.V2, page.Floor);
+        Assert.Equal(VerificationLevel.V2, page.RequestedFloor);
+    }
+
+    [Fact]
+    public async Task R10_54_ARequestEqualToTheFloorIsNotClamped()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = await ClampedHarnessAsync(ct);
+
+        var page = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V1), ct);
+
+        Assert.Equal((VerificationLevel.V1, "requested", false), (page.Floor, page.FloorSource, page.Clamped));
+    }
+
+    [Fact]
+    public async Task R9_30_AClampedQueryCountsWhatTheFloorInForceRemoved()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = await ClampedHarnessAsync(ct);
+
+        var page = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V0), ct);
+
+        Assert.Equal(3, page.ExcludedByFloor);
+    }
+
     [Fact]
     public async Task Table13_AnAnswerAtV2OutranksAnUnverifiedOneWithTheSameWords()
     {

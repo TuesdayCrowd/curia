@@ -45,7 +45,12 @@ public sealed record SearchPage(
     int K,
     double MinimumCosine,
     int ExcludedByFloor,
-    int ExcludedDisputed);
+    int ExcludedDisputed,
+    // R9.31: the surface's published default, the level the request named (null where it named none)
+    // and whether the request was served at a higher floor. None has a default for the reason the counts do not.
+    VerificationLevel PublishedDefault,
+    VerificationLevel? RequestedFloor,
+    bool Clamped);
 
 /// <summary>
 /// §9.2's pipeline: lexical and vector candidates fused by reciprocal rank fusion (R9.4), Table
@@ -116,7 +121,12 @@ public sealed class HybridSearch
         var disputed = DisputedPosts.Fold(log, PostProjector.Fold(log));
 
         var (surfaceFloor, source) = _floors.Resolve(surface);
-        var floor = query.RequestedFloor ?? surfaceFloor;
+
+        // R10.54 (rev.), R9.31: a request may raise the surface's floor and never lower it. A request
+        // below it is served at the floor in force and the page says so; `source` names the request
+        // only where the request's level is the one applied.
+        var clamped = query.RequestedFloor is { } asked && asked < surfaceFloor;
+        var floor = query.RequestedFloor is { } requested && !clamped ? requested : surfaceFloor;
         var admitted = HybridRanking.Admit(fused, floor);
         var excludedByFloor = fused.Length - admitted.Length;   // R9.30: the floor's removals alone, before dispute
         var diversified = HybridRanking.Diversify(admitted, limit);
@@ -131,14 +141,17 @@ public sealed class HybridSearch
             next,
             surface,
             floor,
-            query.RequestedFloor is null ? source : "requested",
+            query.RequestedFloor is null || clamped ? source : "requested",
             _embedder.Model,
             bound,
             HybridRanking.CandidateDepth,
             RankFusion.DefaultK,
             HybridRanking.MinimumCosine,
             excludedByFloor,
-            excludedDisputed));
+            excludedDisputed,
+            RetrievalFloorPolicy.PublishedFloor(surface),
+            query.RequestedFloor,
+            clamped));
     }
 
     /// <summary>

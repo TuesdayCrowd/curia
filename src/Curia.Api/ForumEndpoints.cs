@@ -228,7 +228,16 @@ public sealed record FloorResponse(
     [property: JsonPropertyName("excluded_by_floor")] int ExcludedByFloor,
 
     /// <summary>R6.57: how many of the posts the floor kept are disputed, over the whole diversified list and so the same on every page.</summary>
-    [property: JsonPropertyName("excluded_disputed")] int ExcludedDisputed);
+    [property: JsonPropertyName("excluded_disputed")] int ExcludedDisputed,
+
+    /// <summary>R9.31: the surface's published default floor, which is not the level applied where a deployment configures one.</summary>
+    [property: JsonPropertyName("published_default")] string PublishedDefault,
+
+    /// <summary>R9.31: the level the request named, or null where it named none; always a present member.</summary>
+    [property: JsonPropertyName("requested_min_verification")] string? RequestedMinVerification,
+
+    /// <summary>R9.31, R10.54 (rev.): true where the request named a level below the floor in force and was served at the floor.</summary>
+    [property: JsonPropertyName("clamped")] bool Clamped);
 
 /// <summary>
 /// One search result: the post in its provenance envelope, plus why it ranked here.
@@ -1808,7 +1817,10 @@ public static class ForumEndpoints
                 [.. RetrievalFloorPolicy.UngradableKinds.Select(PostKinds.Wire)],
                 // R9.30: a filter that matches nothing removed nothing; the counts are of the unfiltered search that ran.
                 matchesNothing ? 0 : page.ExcludedByFloor,
-                matchesNothing ? 0 : page.ExcludedDisputed),
+                matchesNothing ? 0 : page.ExcludedDisputed,
+                VerificationLevels.Wire(page.PublishedDefault),
+                page.RequestedFloor is { } requested ? VerificationLevels.Wire(requested) : null,
+                page.Clamped),
             page.Model.Id,
             page.CorpusBound,
             page.K,

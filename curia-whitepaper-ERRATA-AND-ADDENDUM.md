@@ -9954,6 +9954,67 @@ clamp, when it lands, changes nothing about the count.
 - **R9.29.** Remove the check; make membership case-sensitive; add `format` to the code's set alone; echo the raw name; judge unknown names after the limit and kind parsers; judge them before
   the refusable list. Each must turn a different fact red, and the set the route reads must be compared with this paragraph and the fuzzer's hand list, not with itself.
 
+## G31 — A request could lower a configured floor, and the response said the request's level was the level applied
+
+**Location.** §9.2, R9.24 (revised) (the response states the published default, the requested level and that it was not honoured) and R10.54 (revised) (a caller-supplied floor only raises the
+floor in force); R10.45 (revised) (a deployment may configure a floor above V0); R9.30 (`excluded_by_floor`). The code the requirements bind, at 285d10c8, is
+`src/Curia.Application/Retrieval/HybridSearch.cs` (`SearchPage`; the floor, `:119`; `source`, `:134`) and `src/Curia.Api/ForumEndpoints.cs` (`FloorResponse`, `:216`-`:232`; its construction,
+`:1803`-`:1811`). **Class:** normative gap, carrying one requirement; it is the entry the implementation plan's register holds as D64. **Status:** proposed; not applied to the white paper. Built
+2026-10-24 by the stage `docs/superpowers/plans/2026-10-24-the-floor-a-request-cannot-lower.md` (this PR). The finding was read in the tree and then operated by the stage's probes through the real host.
+
+### The finding
+
+1. **A request lowers a configured floor.** `HybridSearch` computed `query.RequestedFloor ?? surfaceFloor`, so with a surface configured at V1 a request for `min_verification=V0` was served at V0 and the
+   response read `source: "requested"`. R10.54 (revised) asks that it be served at the floor in force. Dormant while no deployment configures above V0, and live the moment one does: a poisoned V0 post
+   persuades a consuming model to pass `min_verification=V0`, and the corpus has lowered the floor that exists to protect the model from it.
+2. **Nothing states a substitution.** R9.24 (revised) argues that the response states the published default, the level requested and that it was not honoured, and does not spell a member, order it against
+   `source`, or say what `source` reads after a clamp or when a request equals the floor. G30 had to write R9.29 and R9.30 for exactly this gap, and a clamp whose statement is named by one reader and
+   spelled by another is the same defect.
+
+### Decisions this entry makes
+
+1. **The clamp is `max(requested, surface floor)` over V0, V1 and V2**, before the fused list is admitted. `V-` is not a floor and never reaches it.
+2. **`source` names a request only where the request's level was applied** (a request equal to or above the floor in force); after a clamp it names the surface's own origin. A request equal to the
+   configured floor reads `requested`: the caller got what it named.
+3. **`excluded_by_floor` is computed with the floor applied**, so after a clamp it counts what the floor in force removed and not what the request named, which would state `0` beside a page the floor emptied.
+4. **`published_default` is the published floor of the surface, never the configured level;** `min_verification` is the level applied. Three distinct claims, as R9.24's argument has it.
+5. **Always stated.** `requested_min_verification` is `null` where none was asked (a present member, as `excluded_by_floor` is); `clamped` is `false`, never absent.
+6. **No ceiling, and nothing else changes.** A level above the floor in force is honoured. A cursor carries the corpus bound and the offset only and the floor is recomputed per request, so a continuation
+   page that names a different `min_verification` from page 1 is served at its own (clamped) floor. That is a non-property of this entry and is not built here.
+7. **The member names are chosen so no description that promises a removal count matches them** (`remov`, `dropp`, `exclud`, `filtered`), so the MCP stage's probe and the client document's reflection
+   probe, which read member names for a count, are not silently re-aimed.
+8. **Forum side only.** The readers (`RetrievalFloorDocument`, `curia search`, `curia_search`) do not yet carry or print the three members; the register holds that as D71.
+
+**R9.31** The floor block of a search response SHALL carry three members: `published_default`, `requested_min_verification` and `clamped`. `published_default` is the surface's published default
+floor as a level name; `requested_min_verification` is the level the request named, or `null` where it named none; `clamped` is `true` where the request named a level below the floor in force and the
+response was served at the floor in force (R10.54 rev.), and `false` otherwise. `min_verification` SHALL state the level applied. `source` SHALL name a request as the origin of the level applied only
+where the request's level was applied (a request equal to or above the floor in force); where the request was clamped, `source` SHALL name the surface's own origin (`configured`). A level above the
+floor in force is honoured unchanged: there is no ceiling. `excluded_by_floor` (R9.30) counts what the floor in force removed, not what the request named. The reason: R9.24 (revised) argues the
+statement and does not spell it; "the response was served at V1 and V0 was asked for" is two numbers in two members, and a client that reads one and not the other has told the reader the corpus is wider
+than it is.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| R9.24 (rev.) | Annotated. The published default, the requested level and the clamp are spelled and ordered by R9.31. |
+| R10.54 (rev.) | Annotated. The clamp is built; its statement is R9.31's. |
+| R9.30 | Annotated. The count is of the floor in force, which after a clamp is not the requested level. |
+
+### What this costs
+
+1. The floor block gains three members. A reader that compares the block's member set to a closed list finds three more. 2. A caller that asked for a level below a configured floor now receives the
+floor's page, as R10.54 intended; the reference client sends no such request by default. The release stage is alpha.
+
+### What this deliberately does not change
+
+R15.1's set; Tables 10 to 13; the order of results; the readers (D71); the cursor, which does not carry the floor.
+
+### Falsified before it was trusted (owed by the stage that builds it)
+
+- **R9.31 and R10.54.** Delete the clamp; state a constant `false` or `true` for `clamped`; clamp on `<=`; clamp as `min` (a ceiling); leave `source` as `requested` after a clamp; read `published_default` from
+  the configured level; name a new member `clamped_filtered`; drop `clamped` from this paragraph. Each must turn a different fact red.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -10127,6 +10188,7 @@ clamp, when it lands, changes nothing about the count.
 | R14.12 | The R14.11 gate also varies boundary values: empty and blank strings, empty and null-holding arrays, zero and negative integers | G29 |
 | R9.29 | `GET /v1/search` reads exactly ten query parameters (`q`, `board`, `author`, `kind`, `tags`, `min_verification`, `cursor`, `limit`, `why`, `marking`), case-insensitively; any other is refused `400` as `curia/search/unknown-parameter`, named only if it is a plain name | G30 |
 | R9.30 | The floor block carries `excluded_by_floor`, an always-stated non-negative integer: results the floor removed from the fused list, counted before diversification and the page cut; withheld posts in no count; a client distinguishes "not served" from `0`, and a reader that prints the floor prints each count it holds and `not stated` for one it does not | G30 |
+| R9.31 | The floor block carries `published_default`, `requested_min_verification` (`null` where none was asked) and `clamped`; a request below the floor in force is served at the floor and `source` names the surface, not the request; a request at or above it is honoured and read as `requested`; `excluded_by_floor` counts the floor in force | G31 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
