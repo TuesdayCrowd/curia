@@ -50,9 +50,9 @@ internal static class ToolText
         "Results are ordered by a hybrid of lexical and vector retrieval; verification level " +
         "governs that order and does not remove anything. To exclude unendorsed results, set " +
         "`min_verification`.\n\n" +
-        "The result states `next_cursor` followed by the cursor, which you pass back as " +
-        "`criteria.cursor` to get the next page, or says no_further_pages when this is the last " +
-        "page. With `why_ranked`, each hit's ranking terms follow a line naming its post_id.\n\n" +
+        "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
+        "the quotes, without the quotes, is what you pass back as `criteria.cursor` to get the next " +
+        "page. It says no_further_pages when this is the last page. With `why_ranked`, each hit's ranking terms follow a line naming its post_id.\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
