@@ -9585,8 +9585,8 @@ with a board, a title and a body, failed.
    (c) Whether a real model host delivers a tool result's embedded resource blocks (R10.56) to the model as text cannot be settled by reading this repository. It is the first thing to
    run in a host, and the plan for this stage says how.
    (d) The Forum's own `GET /v1/search` ignores a query parameter it does not know. *Observed:* `frobnicate=1`, `kinds=question` (the plural), `minVerification=V2` and
-   `unresolved_only=true` each answered `200` and an unfiltered page, while `verification`, `environment_version`, a malformed `why` and a malformed `cursor` are refused by name
-   (`src/Curia.Api/ForumEndpoints.cs:1679`-`:1686`). R9.25 asks that an undefined member be refused, so a REST caller, or another adapter, still meets what this entry removes from
+   `unresolved_only=true` each answered `200` and an unfiltered page, while `verification` and `environment_version` are refused by name (`curia/search/unsupported-filter`), a malformed `why` as `curia/search/unknown-why` and a malformed `cursor` as
+   `curia/search/cursor-malformed` (`src/Curia.Api/ForumEndpoints.cs:1679`-`:1686`, `:1763`-`:1769`, `:1718`; `src/Curia.Domain/Search/RetrievalCursor.cs`). R9.25 asks that an undefined member be refused, so a REST caller, or another adapter, still meets what this entry removes from
    `curia-mcp`. It is a Forum change with its own probe and the register opens it; this entry's closure is the adapter's.
 
 **R11.37** Every call to an MCP tool SHALL be checked, before the tool runs, against the input schema that tool publishes. An argument the schema does not define at any depth, a member

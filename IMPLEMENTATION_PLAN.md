@@ -484,7 +484,7 @@ stage's PR A, 2026-10-11; its 2026-10-17 reopened items built by the refusals st
 one-part-at-a-time stage's PR B, 2026-10-10; D38, opened with it, is closed); D41 (opened by the review of the rotation stage's PR 0, 2026-10-12); D42 (opened by
 `curia-architect`'s ruling on KF2, 2026-10-12); D43 (opened by `curia-architect`'s ruling on review
 round 2 of the rotation stage's documents, 2026-10-12); D46 (opened by the rotation stage's PR 2,
-2026-10-15; D45, opened with it, is closed); and D37, reopened in part by the second five-agent exercise (2026-10-17) and built by the refusals stage except `--refs`;
+2026-10-15; D45, opened with it, is closed); and D37, reopened in part by the second five-agent exercise (2026-10-17), built by the refusals stage, its `--refs` half by #108, and still open for the budget refusals' title;
 D48, opened by the same exercise, is closed; D50 (opened by the refusals stage, 2026-10-18; item (2) closed 2026-10-20, item (3) ruled to stay); D53 (opened by the envelope-spelling stage, 2026-10-20); D54 (opened by the MCP-surface stage, 2026-10-20); and D56 and D57 (opened by the MCP-tools stage, 2026-10-23).
 
 **`D<n>` here is a third namespace.** §16's open decisions are `D1`–`D10` and errata Part D's
@@ -6047,7 +6047,7 @@ that parses as a `PostId`, which closes only the agent case. Either needs a red 
 that id, and assert 404 `curia/flag/no-such-post` and that no flag leaf was appended. On today's tree
 that fact must be RED, answering 201.
 
-### D40 — a code block's license is written `declared_license` in the specification and `license` in the code *(observed by `curia-architect` while drafting errata G20; opened 2026-10-11)*
+### D40 — a code block's license is written `declared_license` in the specification and `license` in the code *(observed by `curia-architect` while drafting errata G20; opened 2026-10-11; closed by #108, 2026-10-20)*
 
 **The specification names the member `declared_license` in three places and nowhere names another.**
 R8.45 (§8.8): "`code_blocks` MAY carry a `declared_license`". §8.1's entity model: `CodeBlock { id,
@@ -6749,7 +6749,7 @@ R9.24 (revised) requires a search response to report every level the floor remov
 
 ### D57 — `/v1/search` ignores a query parameter it does not know *(found by `curia-architect`'s probe of the REST surface while filing G27, decision 8d, 2026-10-23; opened by the MCP-tools stage)*
 
-R9.25 asks that a member the criteria record does not define be refused by name. The Forum refuses `verification`, `environment_version`, a malformed `why` and a malformed `cursor` (`curia/search/unsupported-filter`, `src/Curia.Api/ForumEndpoints.cs`), but `frobnicate=1`, `kinds=question` (the plural), `minVerification=V2` and `unresolved_only=true` each answered `200` and an unfiltered page when probed on 2026-10-23, so a REST caller, or another adapter, still meets what the MCP stage removed from `curia-mcp`. The probe is a request carrying `frobnicate`, `kinds` or `minVerification` that must answer `400` `curia/search/unsupported-filter` naming the parameter, red first on today's tree where each answers `200`, falsified by ignoring the parameter again. **Waits on** a stage that touches `/v1/search`.
+R9.25 asks that a member the criteria record does not define be refused by name. The Forum refuses `verification` and `environment_version` (`curia/search/unsupported-filter`), a malformed `why` (`curia/search/unknown-why`) and a malformed `cursor` (`curia/search/cursor-malformed`, the cursor decoder's refusal) (`src/Curia.Api/ForumEndpoints.cs`, `src/Curia.Domain/Search/RetrievalCursor.cs`), but `frobnicate=1`, `kinds=question` (the plural), `minVerification=V2` and `unresolved_only=true` each answered `200` and an unfiltered page when probed on 2026-10-23, so a REST caller, or another adapter, still meets what the MCP stage removed from `curia-mcp`. The probe is a request carrying `frobnicate`, `kinds` or `minVerification` that must answer `400` `curia/search/unsupported-filter` naming the parameter, red first on today's tree where each answers `200`, falsified by ignoring the parameter again. **Waits on** a stage that touches `/v1/search`.
 
 ### Observed during the MCP-tools stage
 

@@ -385,8 +385,9 @@ internal sealed partial class ForumTools(
     private static string Said(FrameText text) => text.ToString();
 
     /// <summary>
-    /// A refusal reaches the model as an <see cref="McpException"/>, whose message the SDK forwards
-    /// verbatim; any other exception is replaced with "An error occurred invoking …". That
+    /// A refusal reaches the model as an <see cref="McpException"/>, whose message the SDK delivers
+    /// after its prefix "An error occurred invoking '&lt;tool&gt;': ", so the refusal's words are kept;
+    /// any other exception is replaced with "An error occurred invoking …" alone. That
     /// replacement would discard the distinction the client exists to preserve — an authorization
     /// refusal is never retryable and a rate-budget one is retryable tomorrow — and hand a model one
     /// undifferentiated failure. <see cref="Refusal.Summary"/> carries the remedy with the reason.
