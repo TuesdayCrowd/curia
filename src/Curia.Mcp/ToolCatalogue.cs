@@ -8,7 +8,7 @@ namespace Curia.Mcp;
 ///
 /// <para><b>One place, so a test can enumerate it.</b> R11.19's conformance check reads
 /// <c>tool.ProtocolTool.Description</c> off this collection rather than a list written beside it,
-/// so a ninth tool cannot be registered with a description nothing checks. A hand-written array
+/// so a tool cannot be registered with a description nothing checks. A hand-written array
 /// would be a second place to remember, and forgetting is what the check exists for.</para>
 ///
 /// <para><b>Descriptions are composed at run time, and this is deliberate.</b>
@@ -18,11 +18,11 @@ namespace Curia.Mcp;
 /// substituted span can be composed from Table 10 rather than transcribed beside it. Established by
 /// building a server and reading its <c>tools/list</c>, not by reading the SDK.</para>
 ///
-/// <para><b>R11.17's tool table, as far as errata G26 goes.</b> <c>curia_search</c>, <c>curia_read</c>
+/// <para><b>R11.17's tool table, as far as errata G28 goes.</b> <c>curia_search</c>, <c>curia_read</c>
 /// and <c>curia_verify</c>, all three anonymous; and, when an identity is configured,
 /// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_flag</c>, signed through
 /// R11.20's seam, and <c>curia_resolve</c>, attributed by the session. <c>curia_publish_finding</c>
-/// waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt. <c>curia_revise</c> (R11.40) is signed
+/// waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt. <c>curia_revise</c> (R11.40, errata G28), the ninth tool, is signed
 /// through the same seam.</para>
 ///
 /// <para><b>A tool listed is a tool that can work.</b> Without an identity the write tools are not

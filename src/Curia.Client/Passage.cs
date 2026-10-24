@@ -28,6 +28,11 @@ namespace Curia.Client;
 /// concatenated context. <see cref="Reading.Render"/> says so in the output as well, because the
 /// aggregation step is the reader's and it has to know it owns it.</item>
 /// </list>
+///
+/// <para><b>What a passage says of the post and of itself (errata G28).</b> A post the Forum serves as accepted gets one
+/// <c>thread</c> line, in the frame and outside the span, in <see cref="AcceptedStatement"/>'s words, and a post it does not
+/// serve as accepted gets none (R10.79). The <c>refs</c> and <c>code</c> lines count what was read and say how many items the
+/// author signed that this client did not read, also for a post whose every item was dropped (R8.66).</para>
 /// </summary>
 public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
 {

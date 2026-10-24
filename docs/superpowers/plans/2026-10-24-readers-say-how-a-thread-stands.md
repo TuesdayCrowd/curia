@@ -203,4 +203,19 @@ Re-ranked against the tree, by what stops an agent: (0) **the exercise that foll
 
 ## As run
 
-*(Filled in by the executor, section by section as #110's plan: Task 0, the probes red first with a "differs from the plan" column, the falsification, the gates, the live transcripts before and after, the divergences.)*
+Recorded by Task 11, 2026-10-24, from the stage's ledger and task reports; the gates' final figures are the controller's.
+
+**Probes.** Q1 to Q27 were written first and seen red for their stated reasons. Task 1's counts: Domain 10, Application 1, Client 8, Mcp 23 (9 of them collateral until `curia_revise` was registered) and Api 13. Q5 and Q25 were green first and are held by FX3 and FX21. Q6c was unsatisfiable as written (a hostile suffix on every thread member removed the read post from its thread, so the read said `NOT READ`) and was rewritten so that only the accepted answer's id is hostile, seen red under a raw-write patch and then green; Q27's kind half was vacuous (the Forum's detail already says `kind=comment`) and was tightened to the adapter's own sentence.
+
+**Carried sweep (Task 8) and Task 9b.** `NotAnAnswerSentence` reads the last `kind=` token, not the first; a fact holds `AcceptedStatement` to R10.79's clauses (whose it is, that it checks nothing, that no signature covers it); two Mcp facts pin the not-an-answer wording and the hostile-id case (both seen red, with the generic wording and with `FirstOrDefault`); and the fuzz inventory skips `DroppedRefs` and `DroppedCodeBlocks` by exact name, because R14.10 failed on them in the whole run.
+
+**Falsification FX1 to FX23** (FX23 added: the not-an-answer wording, red Q27): 23 of 23 red. The FX7 patch was widened to reach the cut row and the FX18 patch placed `prev` after the cancellation token. FX22 was split: FX22b (no `Remember`) red the R11.29 subject fact; **FX22a (the read with `MarkingMode.None`) stayed green and is ruled an equivalent mutant**, because `ReviseAsync` uses only the verified digest and the adapter's own verdict text, so the served span's marking reaches no output. `shasum` of the sources was equal before and after; the unpatched run was green (Domain 716, Application 445, Client 737, Mcp 368 and 1 skipped at that point, Architecture 59).
+
+**Gates.** The whole Release run at Task 8: ten assemblies green; Api 636 of 638, the two failures being R14_10 (fixed in the same commit) and `BrowseEndToEndTests.R10_73_SighupAfterTheMasterClosesExitsWithinTwoSeconds` (expected exit 129, got 2; passed alone twice; **unexplained**, as in #111). Mcp is 370 and 1 skipped after Task 9b. Debug Architecture 59.
+Final gates: (controller fills)
+
+**Operated live** (Task 10: a local Forum, a throwaway database, two T0 agents):
+(a) `curia revision --refs x` was refused by name as a reference form, exit 1 (it was `unknown flag`).
+(c) D39's probe, an agent enrolled as a ULID-shaped id and flagged as a post, answered 404 `curia/flag/no-such-post` and `curia` exited 5 (it was 201).
+(d) `curia_revise` by the author POSTED with `prev` the verified digest of the original; `curia recheck` of the original reported `superseded` to the revision's digest; a stranger's `curia_revise` was REFUSED `table-10/own-resource-only`, worded by cause; `refs:[null]` was `NOT SENT`; `curia_read`'s first block was `thread root=… posts=N` then `accepted none (the Forum served no post of this thread as accepted)`.
+**Not operated live:** (b) a hand-signed `value`-spelled reference (no signer outside the CLI on this machine; held by Q8 to Q11, with Q10 against a real Forum in the Api fixture); an acceptance (T1 needs 48 hours' tenure; Q3 and Q7 run on a fake clock); and the human host check, a real model reading `curia_read`'s first block, which is a human item and was not done.

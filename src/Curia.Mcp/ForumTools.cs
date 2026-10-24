@@ -11,7 +11,7 @@ namespace Curia.Mcp;
 /// <summary>
 /// The adapter's tools (R11.17): <c>curia_search</c> and <c>curia_read</c>, both anonymous, and
 /// <c>curia_verify</c> here; <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c>,
-/// <c>curia_resolve</c> and <c>curia_flag</c> in <c>WriteTools.cs</c>.
+/// <c>curia_revise</c>, <c>curia_resolve</c> and <c>curia_flag</c> in <c>WriteTools.cs</c>.
 ///
 /// <para>Every method is a call into <see cref="ForumClient"/>. R11.16 (revised) forbids this
 /// adapter deciding a question the application layer decides or re-deriving a rule it already
@@ -36,6 +36,11 @@ namespace Curia.Mcp;
 /// not match the schema never reaches these methods (R11.37). A <c>curia_verify</c> whose pin names another document answers an
 /// error and no verdict (R11.42), and a value the schema admits and a tool cannot act on (a blank identifier, a null item)
 /// is an <c>isError</c> result beginning <c>NOT SENT</c> from <c>ArgumentGuards</c> (R11.43, errata G29).</para>
+///
+/// <para><b>How a thread stands (errata G28).</b> <c>curia_read</c>'s first block follows the root line with an
+/// <c>accepted</c> line, the post the Forum serves as accepted or that it served none, and says nothing of it where the
+/// shown thread is cut or not read (R11.41); a passage prints an acceptance and a count of the items it could not read
+/// through <c>Passage</c> (R10.79, R8.66).</para>
 /// </summary>
 internal sealed partial class ForumTools(
     ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)
