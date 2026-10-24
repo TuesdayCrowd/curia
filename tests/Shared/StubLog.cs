@@ -456,7 +456,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{OtherPostSupersededByJson()}} },
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{decoy.PrefixedDigest}}",
         "canonical":{{JsonString(canonical)}},"signature":"{{decoy.Signature}}",
@@ -718,7 +718,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"},
+        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"{{OtherPostSupersededByJson()}} },
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? canonical)}},"signature":"{{Answer.Signature}}",
@@ -861,9 +861,8 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>
     /// R9.32 and R10.80 (errata G32): the Forum's word on the revisions that supersede <see cref="PostId"/>, served as <c>provenance.superseded_by</c> on the
-    /// post. Default (not set): the member is not served, as an older Forum does not serve it, and a reader says so. Set to an empty array: served as <c>[]</c>.
-    /// D66 Task 0: only <see cref="PostJson"/> serves it for now; Task 6 serves it on every provenance object, defaults it to <c>[]</c> as the Forum does, and
-    /// keeps <see cref="OmitSupersededBy"/> as the control.
+    /// post. Default (not set): served as <c>[]</c>, as the Forum serves it on every post it serves.
+    /// It describes <see cref="PostId"/> alone; the decoy and the answer serve <c>[]</c>. <see cref="OmitSupersededBy"/> is the control that asks for an old Forum.
     /// </summary>
     internal ImmutableArray<Successor> SupersededBy { get; set; }
 
@@ -871,11 +870,14 @@ internal sealed class StubLog : IDisposable
     internal bool OmitSupersededBy { get; set; }
 
     private string SupersededByJson() =>
-        OmitSupersededBy || SupersededBy.IsDefault
+        OmitSupersededBy
             ? string.Empty
             : ",\"superseded_by\":[" + string.Join(
                 ",",
-                SupersededBy.Select(s => "{\"digest\":" + JsonString(s.Digest) + (s.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(s.PostId)) + "}")) + "]";
+                (SupersededBy.IsDefault ? [] : SupersededBy).Select(s => "{\"digest\":" + JsonString(s.Digest) + (s.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(s.PostId)) + "}")) + "]";
+
+    /// <summary>R9.32: every post the Forum serves carries the member; the posts that are not <see cref="PostId"/> have no successor here.</summary>
+    private string OtherPostSupersededByJson() => OmitSupersededBy ? string.Empty : ",\"superseded_by\":[]";
 
     internal string PostJson()
     {
