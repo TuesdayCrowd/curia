@@ -81,8 +81,8 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
         Assert.False(answer.IsError, answer.Text);
         Assert.Contains(IdsOf(answer), id => id == leaf);
         var first = answer.Blocks[0];
-        Assert.True(answer.Uris[0] is null && first.Contains("CUT", StringComparison.Ordinal),
-            $"the model was not told the thread was cut above a post the Forum would not serve:\n{first}");
+        Assert.True(answer.Uris[0] is null && first.Split('\n').Any(l => l.StartsWith("CUT", StringComparison.Ordinal)),
+            $"the model was not told, on a line beginning CUT, that the thread was cut above a post the Forum would not serve:\n{first}");
         Assert.Contains(Quoted(middle), first, StringComparison.Ordinal);
         Assert.DoesNotContain(Quoted(question), first, StringComparison.Ordinal);
     }
@@ -114,9 +114,17 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
             Assert.False(answer.IsError, answer.Text);
             seen.AddRange(IdsOf(answer));
 
+            Assert.True(answer.Uris[0] is null, $"page {page + 1}: the first block is a passage, not the adapter's own words:\n{answer.Blocks[0]}");
             last = answer.Blocks[0];
             var match = Regex.Match(last, "next_cursor=(\"(?:[^\"\\\\]|\\\\.)*\")");
-            if (!match.Success) break;
+            if (!match.Success)
+            {
+                Assert.True(
+                    seen.Count == expected.Length,
+                    $"no next_cursor in the adapter's text after page {page + 1}, with {seen.Count} of the Forum's {expected.Length} posts read:\n{last}");
+                break;
+            }
+
             cursor = JsonSerializer.Deserialize<string>(match.Groups[1].Value);
         }
 
@@ -145,18 +153,32 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
         var block = asked.Blocks[0];
         Assert.True(asked.Uris[0] is null, "the first block is a passage, not the adapter's own");
 
+        var quotedIds = hits.Select(h => Quoted(h.GetProperty("post").GetProperty("post_id").GetString()!)).ToArray();
+        var compared = 0;
         foreach (var hit in hits)
         {
             var id = hit.GetProperty("post").GetProperty("post_id").GetString()!;
             var why = hit.GetProperty("why_ranked");
             var at = block.IndexOf(Quoted(id), StringComparison.Ordinal);
             Assert.True(at >= 0, $"the adapter's block does not name {id} beside its why_ranked terms:\n{block}");
-            var tail = block[at..];
+
+            // Only this hit's own span: up to the next hit's quoted id, or the block's end.
+            var next = quotedIds.Select(q => block.IndexOf(q, at + 1, StringComparison.Ordinal)).Where(i => i > at).DefaultIfEmpty(block.Length).Min();
+            var tail = block[at..next];
             if (why.TryGetProperty("lexical", out var lexical))
+            {
                 Assert.Contains($"lexical rank {lexical.GetProperty("rank").GetInt32()}", tail, StringComparison.Ordinal);
+                compared++;
+            }
+
             if (why.TryGetProperty("vector", out var vector))
+            {
                 Assert.Contains($"cosine {vector.GetProperty("cosine_bp").GetInt32()} bp", tail, StringComparison.Ordinal);
+                compared++;
+            }
         }
+
+        Assert.True(compared > 0, "no why_ranked row was compared: a zero is a defect in this test, not a clean adapter");
 
         var unasked = await session.CallAsync("curia_search", new() { ["criteria"] = new Dictionary<string, object?> { ["query"] = term, ["board"] = board } });
         Assert.False(unasked.IsError, unasked.Text);
@@ -199,6 +221,26 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
         var board = Board();
         var asker = await EnrolAsync("needs-ask");
         await using var asking = await SessionAsync(asker);
+
+        // Controls: every member the schema lists, each inert. The omission calls below are attributable to the omission
+        // only if these are posted.
+        var controlAsk = await asking.CallAsync("curia_ask", new()
+        {
+            ["board"] = board,
+            ["title"] = $"Control {Guid.NewGuid():N}",
+            ["body"] = "A question carrying every member curia_ask lists.",
+            ["tags"] = Array.Empty<string>(),
+            ["notDuplicateRationale"] = "",
+        });
+        Assert.True(!controlAsk.IsError && controlAsk.Text.StartsWith("POSTED", StringComparison.Ordinal), $"the control curia_ask (every member, inert) was not posted:\n{controlAsk.Text}");
+        var controlComment = await asking.CallAsync("curia_comment", new()
+        {
+            ["parentPostId"] = ReceiptPostId(controlAsk.Text),
+            ["body"] = "A comment carrying every member curia_comment lists.",
+            ["refs"] = Array.Empty<string>(),
+        });
+        Assert.True(!controlComment.IsError && controlComment.Text.StartsWith("POSTED", StringComparison.Ordinal), $"the control curia_comment (every member, inert) was not posted:\n{controlComment.Text}");
+
         var asked = await asking.CallAsync("curia_ask", new() { ["board"] = board, ["title"] = $"Needs {Guid.NewGuid():N}", ["body"] = "A question carrying only what curia_ask needs." });
         Assert.False(asked.IsError, asked.Text);
         Assert.StartsWith("POSTED", asked.Text, StringComparison.Ordinal);
