@@ -119,6 +119,8 @@ internal sealed partial class ForumTools(
         // id, so the walk is this adapter's. Ancestors are kept for their Parent alone; nothing is rendered from them.
         var top = post!;
         string? unreadableParent = null;
+        var repeats = false;
+        var visited = new HashSet<string>(StringComparer.Ordinal) { top.PostId };
         var steps = 0;
         while (top.Parent is { Length: > 0 } parent && steps < MaxAncestorSteps)
         {
@@ -130,25 +132,47 @@ internal sealed partial class ForumTools(
                 break;
             }
 
-            top = ancestor!;
+            // A chain that returns to a post already read has no root to reach: say so rather than spend the bound.
+            if (!visited.Add(ancestor!.PostId))
+            {
+                repeats = true;
+                break;
+            }
+
+            top = ancestor;
         }
 
-        // Neither an unreadable ancestor nor the bound reaches a root: the thread shown begins at `top` and says so.
-        var cutAt = unreadableParent ?? (top.Parent is { Length: > 0 } unfollowed ? unfollowed : null);
+        // Neither an unreadable ancestor, a repeat nor the bound reaches a root: the thread shown begins at `top` and says so.
+        var cutAt = top.Parent is { Length: > 0 } unfollowed && !repeats ? unfollowed : null;
 
         // A thread that cannot be fetched leaves the post itself readable rather than failing the call: the post is
-        // what was asked for, and the first block says the rest was not read.
+        // what was asked for, and the first block says the rest was not read. A thread that does not include the post
+        // is not the post's thread, so it is treated the same way.
         var thread = await _forum.GetThreadAsync(top.PostId, _marking, cancellationToken).ConfigureAwait(false);
-        var threadRead = thread.TryGetValue(out var members, out var failure) && !members.IsDefaultOrEmpty;
+        var members = thread.TryGetValue(out var served, out var failure) ? served! : default;
+        var threadRead = !members.IsDefaultOrEmpty && members.Any(m => string.Equals(m.PostId, post.PostId, StringComparison.Ordinal));
 
-        var why = thread.IsOk ? "the Forum served no posts for it" : failure!.Summary;
-        var preamble = !threadRead
-            ? Said($"NOT READ the thread beginning at {top.PostId} could not be read, so the post alone is shown: {why}")
-            : cutAt is null
-                ? Said($"thread root={top.PostId} posts={members.Length}")
-                : unreadableParent is not null
-                    ? Said($"CUT the parent {unreadableParent} of post {top.PostId} could not be read, so the thread shown begins at {top.PostId} and is not the whole thread; posts={members.Length}")
-                    : Said($"CUT the upward walk stopped after {MaxAncestorSteps} steps without reaching a root, so the thread shown begins at {top.PostId}, whose parent {cutAt} was not followed; posts={members.Length}");
+        var frame = new FrameBuilder();
+        if (!threadRead)
+        {
+            var why = !thread.IsOk ? failure!.Summary
+                : members.IsDefaultOrEmpty ? "the Forum served no posts for it"
+                : "the thread the Forum served did not include the post";
+            frame.Line($"NOT READ the thread beginning at {top.PostId} could not be read, so the post alone is shown: {why}");
+        }
+        else if (unreadableParent is null && !repeats && cutAt is null)
+        {
+            frame.Line($"thread root={top.PostId} posts={members.Length}");
+        }
+
+        if (unreadableParent is not null)
+            frame.Line($"CUT the parent {unreadableParent} of post {top.PostId} could not be read, so the thread shown begins at {top.PostId} and is not the whole thread");
+        else if (repeats)
+            frame.Line($"CUT the parent chain repeats at a post already read, so it has no root; the thread shown begins at {top.PostId} and is not the whole thread");
+        else if (cutAt is not null)
+            frame.Line($"CUT the upward walk stopped after {MaxAncestorSteps} steps without reaching a root, so the thread shown begins at {top.PostId}, whose parent {cutAt} was not followed");
+
+        var preamble = frame.ToString();
 
         var posts = threadRead ? members : [post];
 

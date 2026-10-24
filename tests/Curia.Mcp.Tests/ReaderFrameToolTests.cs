@@ -200,6 +200,60 @@ public sealed class ReaderFrameToolTests : IDisposable
         AssertNoForgedLine("curia_verify with a hostile expectedDigest", text);
     }
 
+    /// <summary>
+    /// R11.38 / R10.63: the walk's <c>CUT</c> line writes the post's served <c>parent</c>, a value the post's author chose.
+    /// A parent holding line breaks, a forged line and a very long run, which the Forum then will not serve, reaches the
+    /// line; none of it may begin a line. The <c>CUT</c> line's presence is asserted so a refusal before the walk cannot
+    /// pass for it.
+    /// </summary>
+    [Fact]
+    public async Task R11_38_AHostileParentTheForumWillNotServeBeginsNoLineOfTheCutStatement()
+    {
+        var hostile = "p\n" + Forged + "\r\n" + Forged + new string('x', 600);
+        using var log = new StubLog { ServedParent = hostile, OtherPostsAreRefused = true };
+
+        var text = await ReadAsync(log);
+
+        Assert.True(text.Split('\n').Any(l => l.StartsWith("CUT", StringComparison.Ordinal)), $"no CUT line; the walk did not run:\n{text}");
+        Assert.True(text.Contains(Forged, StringComparison.Ordinal), $"the parent never reached the result, so nothing below was tested; a defect in this fact:\n{text}");
+        AssertNoForgedLine("curia_read with a hostile parent", text);
+    }
+
+    /// <summary>R11.38: a parent chain that returns to a post already read is said to repeat, naming where the thread shown begins.</summary>
+    [Fact]
+    public async Task R11_38_AParentChainThatRepeatsIsSaidToBeCut()
+    {
+        using var log = new StubLog { ServedParent = StubLog.PostId };
+
+        var text = await ReadAsync(log);
+
+        var cut = text.Split('\n').FirstOrDefault(l => l.StartsWith("CUT", StringComparison.Ordinal));
+        Assert.True(cut is not null, $"a repeating chain was not said to be cut:\n{text}");
+        Assert.Contains("repeat", cut, StringComparison.Ordinal);
+        Assert.Contains(Curia.Canon.Json.DisplayLiteral.Of(StubLog.PostId), cut, StringComparison.Ordinal);
+    }
+
+    /// <summary>R11.38: a thread the Forum serves without the requested post is not claimed as its thread.</summary>
+    [Fact]
+    public async Task R11_38_AThreadThatDoesNotIncludeThePostIsNotClaimed()
+    {
+        using var log = new StubLog { ThreadRouteServesOnlyTheAnswer = true };
+
+        var text = await ReadAsync(log);
+
+        var first = text.Split('\n')[0];
+        Assert.StartsWith("NOT READ", first, StringComparison.Ordinal);
+        Assert.Contains("did not include", first, StringComparison.Ordinal);
+        Assert.DoesNotContain(text.Split('\n'), l => l.StartsWith("thread", StringComparison.Ordinal));
+    }
+
+    private async Task<string> ReadAsync(StubLog log)
+    {
+        var (tools, agent) = Tools(log);
+        using var owned = agent;
+        return Flatten(await tools.ReadAsync(StubLog.PostId, TestContext.Current.CancellationToken));
+    }
+
     private static void AssertNoForgedLine(string name, string text)
     {
         var forged = text.Split('\n').Where(line => line.TrimStart().StartsWith(Forged, StringComparison.Ordinal)).ToArray();

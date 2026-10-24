@@ -796,6 +796,18 @@ internal sealed class StubLog : IDisposable
 
     // ---- the served documents -----------------------------------------------------------------
 
+    /// <summary>
+    /// The <c>parent</c> the post served under <see cref="PostId"/> carries (null: a root). R11.38's walk reads it, so it
+    /// is how a fact gives the walk an ancestor to follow, a hostile one, or the post itself (a chain that repeats).
+    /// </summary>
+    internal string? ServedParent { get; set; }
+
+    /// <summary>With <see cref="ServedParent"/> set, a read of any id but <see cref="PostId"/> is refused, as the Forum refuses a withheld post.</summary>
+    internal bool OtherPostsAreRefused { get; set; }
+
+    /// <summary>The thread route serves only the answer, a thread that does not include <see cref="PostId"/>.</summary>
+    internal bool ThreadRouteServesOnlyTheAnswer { get; set; }
+
     internal string PostJson()
     {
         // ActaEndpoints.ProofFor's own rule: against the latest signed head when it covers the
@@ -813,7 +825,7 @@ internal sealed class StubLog : IDisposable
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
         "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
-        "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
+        "post_id":"{{PostId}}","board":"b","kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{Submission.Signature}}",
         "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":false,
@@ -1465,6 +1477,15 @@ internal sealed class StubLog : IDisposable
                     int.Parse(Value(query, "from"), CultureInfo.InvariantCulture),
                     int.Parse(Value(query, "to"), CultureInfo.InvariantCulture)));
             }
+
+            if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesOnlyTheAnswer)
+                return (HttpStatusCode.OK, "[" + log.AnswerJson() + "]");
+
+            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
+                && log.OtherPostsAreRefused
+                && Uri.UnescapeDataString(path["/v1/posts/".Length..]) != PostId)
+                return (HttpStatusCode.NotFound,
+                    """{"type":"curia/stub/not-found","title":"No such post"}""");
 
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal))
             {
