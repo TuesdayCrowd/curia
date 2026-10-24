@@ -444,9 +444,17 @@ public sealed class ToolDescriptionTests
 
         var schema = RegisteredTools().Single(t => t.ProtocolTool.Name == tool).ProtocolTool.InputSchema;
         var properties = schema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToArray();
+        var required = schema.TryGetProperty("required", out var requiredList)
+            ? requiredList.EnumerateArray().Select(r => r.GetString()).ToArray()
+            : [];
 
         foreach (var member in optional)
+        {
             Assert.True(properties.Contains(member), $"{tool}'s input schema has no property '{member}', which Table 12 lists as optional for {kind}");
+
+            // R11.37: optional in the schema's `required` list too, or no model can call the tool without it.
+            Assert.False(required.Contains(member), $"{tool}'s input schema lists '{member}' required, which Table 12 lists as optional for {kind}");
+        }
     }
 
     /// <summary>

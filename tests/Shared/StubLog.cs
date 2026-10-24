@@ -602,6 +602,12 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal IReadOnlyList<long>? ServedLifecycle { get; set; }
 
+    /// <summary>
+    /// The <c>next_cursor</c> a search page serves; <c>null</c> (the default) serves none. Settable so R11.39's
+    /// probe can have the Forum offer a next page.
+    /// </summary>
+    internal string? SearchNextCursor { get; set; }
+
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
 
@@ -822,7 +828,7 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal string SearchJson() => $$"""
     {"results":[{"post":{{PostJson()}},"score_micro":1000000}],
-    "next_cursor":null,
+    "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
     "floor":{"surface":"mcp-search","min_verification":"V0","source":"published",
     "applies_to":["answer","finding"],"not_applicable_to":["question","comment"],"excluded_disputed":0},
     "model":"hashed-ngram@1","corpus_bound":1}
