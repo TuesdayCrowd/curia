@@ -24,7 +24,7 @@ Unmeasured caveat: small embedders have a high cosine floor for unrelated text, 
 ## 2. Runtime packages (checked on nuget.org, 2026-10-24)
 - `Microsoft.ML.OnnxRuntime` **1.31.0** (listed updated 2026-10-09; the licence line was not on the page, so confirm MIT on the licence link before merging). The scoping document's package manifest (section 9) already names it for Infrastructure.
 - `Microsoft.ML.Tokenizers` **2.0.1**, MIT (updated 2026-10-15), for the BERT WordPiece tokenizer reading `vocab.txt`. It avoids a hand-written tokenizer.
-- Policy fit: CS-3 puts versions in `Directory.Packages.props` (currently 8 entries, none ONNX). CS-7 confines ONNX types to Infrastructure, so the adapter goes in `Curia.Infrastructure`. The package is native, so the lock file (`restore --locked-mode`) and SBOM need regenerating.
+- Policy fit: CS-3 puts versions in `Directory.Packages.props` (currently 9 `PackageVersion` entries, none ONNX). CS-7 confines ONNX types to Infrastructure, so the adapter goes in `Curia.Infrastructure`. The package is native, so the lock file (`restore --locked-mode`) and SBOM need regenerating.
 - Version risk: both packages are under 3 weeks old. Pin the previous minor if the owner wants the usual two-week age margin (question 3).
 - Skip `.Gpu`: CPU-only for CI.
 
