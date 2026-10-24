@@ -149,7 +149,7 @@ internal sealed partial class ForumTools(
     /// this session read, or — failing that — what the Forum serves now, and the result says which.
     /// </param>
     internal async Task<CallToolResult> VerifyAsync(
-        string postId, string? expectedDigest, CancellationToken cancellationToken)
+        string postId, string? expectedDigest = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(postId);
 
@@ -231,9 +231,9 @@ internal sealed partial class ForumTools(
     /// honour comes back as a refusal naming it and reaches the model as one.
     /// </summary>
     internal async Task<CallToolResult> SearchAsync(
-        SearchCriteria criteria, CancellationToken cancellationToken)
+        SearchCriteria? criteria = null, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(criteria);
+        criteria ??= new SearchCriteria();
 
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).
