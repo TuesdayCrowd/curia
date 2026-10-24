@@ -295,7 +295,9 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
         // Label-independent: no check content of the control's rendering appears, and the failed result is shorter.
         var blocks = control.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
         Assert.True(blocks.Length >= 3, $"the control's rendering has {blocks.Length} blocks:\n{control.Text}");
+        // The revision line (R11.44) is the Forum's word beside the checks and is not one of them.
         var contents = blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(l => !l.StartsWith("revision    ", StringComparison.Ordinal))
             .Select(l => l[l.IndexOf(' ', StringComparison.Ordinal)..].TrimStart())
             .Append(blocks[2])
             .Select(c => c.Length > 40 ? c[..40] : c)

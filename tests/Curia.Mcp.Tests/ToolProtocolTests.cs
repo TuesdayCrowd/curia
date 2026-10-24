@@ -359,7 +359,7 @@ public sealed class ToolProtocolTests : IDisposable
     [Fact]
     public async Task R11_26_EveryParameterADescriptionNamesIsOneItsSchemaDefines()
     {
-        string[] resultTerms = ["next_cursor"];
+        string[] resultTerms = ["next_cursor", "revision"];
         await using var session = await Session.StartAsync(_log, _home, identity: true);
         var tools = await session.ListAsync();
         Assert.NotEmpty(tools);
@@ -383,7 +383,7 @@ public sealed class ToolProtocolTests : IDisposable
 
         Assert.True(named > 0, "no description names an argument in backticks, so nothing was compared; a defect in the fact");
         Assert.True(wrong.Count == 0, string.Join("; ", wrong.Distinct()));
-        Assert.Equal(["next_cursor"], resultTerms);
+        Assert.Equal(["next_cursor", "revision"], resultTerms);
     }
 
     // ---- R11.43, R14.12 (errata G29): a tool answers every value its schema admits ----------------------------------------

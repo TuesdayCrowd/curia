@@ -56,6 +56,20 @@ public static class Supersession
         return new OwnText($"superseded by {Revisions(list).Text} {Basis}{(list.Length > 1 ? Forked : string.Empty)}");
     }
 
+    /// <summary>What a verification adds to the statement: whose read it is about, and that a later read may differ (R11.44, ruling 9).</summary>
+    private const string AsOfTheRead = " (the Forum's word as of the read this verification is about; read the post again for now)";
+
+    /// <summary>
+    /// The verification's line, without its label (<c>revision    </c> is the caller's): the statement, or <c>none reported</c>, or
+    /// <c>NOT STATED</c>, each as of the read the verification is about. It is not a check and is in no verdict (R11.44).
+    /// </summary>
+    public static OwnText VerificationLine(ImmutableArray<Successor> list)
+    {
+        if (list.IsDefault) return new OwnText("NOT STATED (the Forum served no word on whether a revision supersedes this post, as of the read this verification is about)");
+        if (list.IsEmpty) return new OwnText("none reported (the Forum's word as of the read this verification is about)");
+        return new OwnText(Statement(list).Text + AsOfTheRead);
+    }
+
     /// <summary>The passage's frame line, <c>revision  ...</c>, or nothing for an empty list.</summary>
     public static OwnText? PassageLine(ImmutableArray<Successor> list)
     {

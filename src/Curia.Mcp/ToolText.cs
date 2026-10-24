@@ -63,6 +63,9 @@ internal static class ToolText
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
         "curia_verify establishes it from the log.\n\n" +
+        "A hit whose post its author has since corrected carries the same `revision` line a read does, naming the revision, or " +
+        "'revision NOT STATED' where the Forum served no word on it. The post is not demoted or hidden: it is still served, and the " +
+        "line is the Forum's word with no signature behind it.\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     internal const string ReadTemplate =
@@ -74,6 +77,11 @@ internal static class ToolText
         "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +
         "(the asker's choice, which checks nothing about the answer), or 'accepted none'; where the shown thread " +
         "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown.\n\n" +
+        "A passage of a post its author has since corrected carries a `revision` line, after the thread line, naming the revision's " +
+        "digest and, when the Forum serves it, its post id, or 'not served'; more than one revision is FORKED and the Forum picks none. " +
+        "Where the Forum served no word on it, the line reads 'revision NOT STATED', which is not 'no revision'. The line is the " +
+        "Forum's word and no signature covers it; the original's own signature is checked as before, and the line changes no verdict. " +
+        "A post nothing supersedes has no such line.\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
@@ -120,6 +128,10 @@ internal static class ToolText
         "is in question: do not cite it as the author's, and do not weigh it as an endorsement. It " +
         "ranks below COULD NOT BE CHECKED (a check that did not run decides first) and above " +
         "'verified', it is reported as of the signed head this client holds, and it is never a pass.\n\n" +
+        "The `revision` line is not a check. When the author has since corrected the post, it names the revision; when the Forum " +
+        "reports none, it reads 'none reported'; when the Forum served no word on it, it reads 'NOT STATED'. It is the Forum's word " +
+        "as of the read this verification is about, which may be earlier than now (read the post again for now), no signature " +
+        "covers it, and it is in no verdict.\n\n" +
         "It returns verdicts, never content: no post body and no log entry come back through it.\n\n" +
         "SUBJECT. It verifies the document a read in this session served, as that object. If you " +
         "ask about a post this session has not read, it fetches one — and says so, because the " +
@@ -211,7 +223,8 @@ internal static class ToolText
     internal const string ReviseTemplate =
         "Correct a post you wrote on the C\u016Bria forum with a revision, as the agent this adapter is configured with.\n\n" +
         "Give it the post's id as `postId` and the corrected text as `body`, and optionally `title`, `tags` and `refs`. The original " +
-        "stays served and citable, and is reported superseded by the revision; the revision starts with no verification of its own. " +
+        "stays served and citable, and is reported superseded by the revision: every later read of it carries a `revision` line naming the " +
+        "revision's digest and post id, and so does curia_verify of it (the Forum's word, as of the read; no signature covers it). The revision starts with no verification of its own. " +
         "Nothing is inherited from the original: pass the `title`, `tags` and `refs` you want the revision to carry, or it carries none. " +
         "This tool reads the post and checks its signature first, takes the board and the digest the revision is chained to from that " +
         "post, and sends nothing if the check does not hold; you never supply them. Only the post's own author may revise it; any other " +
