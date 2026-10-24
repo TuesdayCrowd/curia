@@ -843,6 +843,13 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal bool ThreadRouteServesTheThread { get; set; }
 
+    /// <summary>
+    /// Appended to the answer's <c>post_id</c> on the thread route alone, after <see cref="AcceptedPostIds"/> is applied to the real id.
+    /// The question, the single-post routes and the rest of the thread stay intact, so a read still finds its post in the thread and
+    /// the resolution line is written; unlike <see cref="HostileMember"/>, which hits every member of an array alike. Null by default.
+    /// </summary>
+    internal string? HostileAnswerIdSuffix { get; set; }
+
     private static string AcceptedJson(StubLog log, string postId) => log.AcceptedPostIds.Contains(postId) ? "true" : "false";
 
     internal string PostJson()
@@ -1559,7 +1566,12 @@ internal sealed class StubLog : IDisposable
             }
 
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesTheThread)
-                return (HttpStatusCode.OK, "[" + log.PostJson() + "," + log.AnswerJson() + "]");
+                {
+                var answer = log.AnswerJson();
+                if (log.HostileAnswerIdSuffix is { } hostileId)
+                    answer = answer.Replace($"\"post_id\":\"{AnswerPostId}\"", $"\"post_id\":{System.Text.Json.JsonSerializer.Serialize(AnswerPostId + hostileId)}", StringComparison.Ordinal);
+                return (HttpStatusCode.OK, "[" + log.PostJson() + "," + answer + "]");
+            }
 
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesOnlyTheAnswer)
                 return (HttpStatusCode.OK, "[" + log.AnswerJson() + "]");

@@ -453,33 +453,27 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
         Assert.DoesNotContain(first.Split('\n'), l => l.StartsWith("accepted", StringComparison.Ordinal));
     }
 
-    /// <summary>R11.41 / R10.63: an id the Forum served that lands on the resolution line is a literal; with every id of the thread hostile in turn, none begins a line.</summary>
+    /// <summary>
+    /// R11.41 / R10.63: an id the Forum served that lands on the resolution line is a literal. The hostile value is on the accepted
+    /// answer's id alone (<see cref="StubLog.HostileAnswerIdSuffix"/>), so the question and the thread stay intact and the line is
+    /// written. (The first form of this fact made every thread member's id hostile, which took the read post out of the thread: the
+    /// block said NOT READ and states no resolution, so no line could carry the id and the fact could not pass.)
+    /// </summary>
     [Fact]
     public async Task R11_41_AServedIdOnTheResolutionLineIsAnInertLiteral()
     {
-        using var probe = new StubLog { ThreadRouteServesTheThread = true };
-        probe.AcceptedPostIds.Add(StubLog.AnswerPostId);
-        var (tools, agent) = Tools(probe);
-        using (agent) await tools.ReadAsync(StubLog.PostId, TestContext.Current.CancellationToken);
-        var members = probe.ServedStringMembers.Where(m => m.Contains("/v1/threads/", StringComparison.Ordinal) && m.EndsWith(".post_id", StringComparison.Ordinal)).ToArray();
-        Assert.True(members.Length > 0, "the thread route served no post_id member, so nothing below was hostile; a defect in this fact");
-
-        var reached = false;
-        foreach (var member in members)
-        {
-            var (first, whole) = await ReadWithHostileMemberAsync(member);
-            reached |= first.Contains(Forged, StringComparison.Ordinal);
-            AssertNoForgedLine($"curia_read with {member} hostile", whole);
-        }
-
-        Assert.True(reached, "no hostile id reached the first block, so its having no forged line proves nothing (the resolution line names no served id)");
-    }
-
-    private async Task<(string First, string Whole)> ReadWithHostileMemberAsync(string member)
-    {
-        using var log = new StubLog { ThreadRouteServesTheThread = true, HostileSuffix = "\n" + Forged, HostileMember = member };
+        using var log = new StubLog { ThreadRouteServesTheThread = true, HostileAnswerIdSuffix = "\n" + Forged };
         log.AcceptedPostIds.Add(StubLog.AnswerPostId);
-        return await ReadBlocksAsync(log);
+
+        var (first, whole) = await ReadBlocksAsync(log);
+        var lines = first.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+
+        // Non-vacuity: the resolution line was written and carries the hostile id (written raw it would split the line, so the guard asks only that it is in the block).
+        Assert.StartsWith("thread root=", lines[0], StringComparison.Ordinal);
+        Assert.True(lines.Length > 1 && lines[1].StartsWith("accepted answer=", StringComparison.Ordinal) && first.Contains(Forged, StringComparison.Ordinal),
+            $"the hostile id did not reach the resolution line, so its having no forged line proves nothing:\n{first}");
+
+        AssertNoForgedLine("curia_read with the accepted answer's id hostile", whole);
     }
 
     /// <summary>
