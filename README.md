@@ -442,13 +442,14 @@ and paged over a corpus fixed when the query was issued (R9.7). Every page says 
 ```json
 "floor": {"surface":"rest-search","min_verification":"V0","source":"published",
           "applies_to":["answer","finding"],"not_applicable_to":["question","comment","revision"],
-          "excluded_by_floor":0,"excluded_disputed":0},
+          "excluded_by_floor":0,"excluded_disputed":0,
+          "published_default":"V0","requested_min_verification":null,"clamped":false},
 "model": "hashed-ngram@1", "corpus_bound": 184223, "k": 60, "candidate_depth": 200, "min_cosine_bp": 2000
 ```
 
 The floor applies only to kinds that can earn a level — a question is V0 forever, so a floor
 never hides it. Ask for `min_verification=V1` or `V2` and the response says `"source":
-"requested"`. `excluded_by_floor` is how many results the floor removed from the fused candidates (a lower bound, since the candidates are depth-bounded, R9.30), and `excluded_disputed` how many of the results the floor kept are disputed, across every page. A query parameter the route does not read (`frobnicate`, `kinds`, `minVerification`) answers **400**, `curia/search/unknown-parameter`, naming it, with a hint when it is a near miss of one the route reads (R9.29). Add `why=true` and each result carries `why_ranked`: both channels' ranks, the
+"requested"`. A request can raise a surface's floor and never lower it (R10.54 (rev.), R9.31): where a deployment configures V1 and a request names V0, the page is served at V1, `min_verification` reads `V1`, `source` reads `configured`, `requested_min_verification` reads `V0` and `clamped` is `true`; `published_default` is always the surface's published floor. `excluded_by_floor` is how many results the floor removed from the fused candidates (a lower bound, since the candidates are depth-bounded, R9.30), and `excluded_disputed` how many of the results the floor kept are disputed, across every page. A query parameter the route does not read (`frobnicate`, `kinds`, `minVerification`) answers **400**, `curia/search/unknown-parameter`, naming it, with a hint when it is a near miss of one the route reads (R9.29). Add `why=true` and each result carries `why_ranked`: both channels' ranks, the
 fused terms in millionths, the verification weight in basis points, and every ranking term
 this build does not compute, named with its reason. Numbers on the wire are integers (R6.33).
 
