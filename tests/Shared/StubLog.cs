@@ -603,10 +603,10 @@ internal sealed class StubLog : IDisposable
     internal IReadOnlyList<long>? ServedLifecycle { get; set; }
 
     /// <summary>
-    /// The <c>next_cursor</c> a search page serves; <c>null</c> (the default) serves none. Settable so R11.39's
-    /// probe can have the Forum offer a next page.
+    /// The <c>next_cursor</c> a search page serves; a cursor string by default (R11.39: the hostile-value fact then
+    /// drives the cursor line), and <c>null</c> when a fact sets it to serve the last page.
     /// </summary>
-    internal string? SearchNextCursor { get; set; }
+    internal string? SearchNextCursor { get; set; } = "c3R1Yi1jdXJzb3I=";
 
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];

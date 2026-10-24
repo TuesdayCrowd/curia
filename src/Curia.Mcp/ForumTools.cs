@@ -297,11 +297,30 @@ internal sealed partial class ForumTools(
     /// it, whether that was the published default, and the kinds it applied to. A floor a caller
     /// cannot read back is one it cannot distinguish from an empty corpus.
     /// </summary>
-    private static string Floor(SearchPage page) => new FrameBuilder()
-        .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
-        .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
-        .Append($"model={page.Model} results={page.Results.Length}")
-        .ToString();
+    private static string Floor(SearchPage page)
+    {
+        var frame = new FrameBuilder()
+            .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
+            .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
+            .Append($"model={page.Model} results={page.Results.Length}");
+
+        // R11.39: what the next call needs. The cursor is the Forum's, so it is a display literal; with none the
+        // model is told it is on the last page, which a missing word could not say.
+        if (page.NextCursor is { Length: > 0 } cursor)
+            frame.Line($" next_cursor={cursor}");
+        else
+            frame.Line(" no_further_pages (this is the last page)");
+
+        // R9.8, asked for: each hit's terms under its post id, written as the CLI writes them.
+        foreach (var hit in page.Results)
+        {
+            if (hit.Why is not { } why) continue;
+            frame.Line($"post_id={hit.Post.PostId}");
+            SearchScore.WriteWhy(frame, why);
+        }
+
+        return frame.ToString();
+    }
 
     /// <summary>A line or sentence of this adapter's own, with every served value quoted.</summary>
     private static string Said(FrameText text) => text.ToString();

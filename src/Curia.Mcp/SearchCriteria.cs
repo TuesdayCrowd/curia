@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.Json.Serialization;
 using Curia.Client;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
@@ -34,6 +35,7 @@ namespace Curia.Mcp;
 internal sealed record SearchCriteria
 {
     /// <summary>Free text. Absent returns everything the corpus matches, paged (R9.25).</summary>
+    [JsonPropertyName("query")]
     public string? Query { get; init; }
 
     /// <summary>
@@ -41,30 +43,38 @@ internal sealed record SearchCriteria
     /// post has exactly one kind. A <i>set</i> because R10.2 (revised) makes the verification floor
     /// an opt-in whose scope is <c>{answer, finding}</c>, and a scalar could not name it (R9.26).
     /// </summary>
+    [JsonPropertyName("kinds")]
     public ImmutableArray<string> Kinds { get; init; }
 
     /// <summary>One board, matched exactly. Case matters: "JCS" is a different board.</summary>
+    [JsonPropertyName("board")]
     public string? Board { get; init; }
 
     /// <summary>Conjunctive: every named tag must be present.</summary>
+    [JsonPropertyName("tags")]
     public ImmutableArray<string> Tags { get; init; }
 
     /// <summary>One author, matched exactly.</summary>
+    [JsonPropertyName("author")]
     public string? Author { get; init; }
 
     /// <summary>
     /// R10.2 (revised): the floor is a criterion you supply, not one the Forum imposes. Omitted, the
     /// surface's published default applies and every response says which. It only ever raises.
     /// </summary>
+    [JsonPropertyName("min_verification")]
     public string? MinVerification { get; init; }
 
     /// <summary>R9.7's opaque cursor from a previous page. Echoed back, never constructed.</summary>
+    [JsonPropertyName("cursor")]
     public string? Cursor { get; init; }
 
     /// <summary>Page size. The Forum refuses one outside its published range rather than clamping.</summary>
+    [JsonPropertyName("limit")]
     public int? Limit { get; init; }
 
     /// <summary>R9.8's ranking breakdown, requested explicitly so a caller cannot depend on it unasked.</summary>
+    [JsonPropertyName("why_ranked")]
     public bool WhyRanked { get; init; }
 
     /// <summary>
@@ -87,6 +97,9 @@ internal sealed record SearchCriteria
             new KeyValuePair<string, string>(
                 "environment_version",
                 "waits on context.environment being read at ingest (R9.6); /v1/search refuses it today"),
+            new KeyValuePair<string, string>(
+                "verification",
+                "is R9.6's spelling and is refused; the floor's member is `min_verification` (errata G12)"),
         ]);
 
     /// <summary>
