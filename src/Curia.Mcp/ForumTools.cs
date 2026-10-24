@@ -277,7 +277,7 @@ internal sealed partial class ForumTools(
         if (string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal))
             return (frame.Line($"pinned      to the digest you supplied, {expectedDigest}").ToString(), false);
 
-        const string Verdict = "No verdict was reached and no check is reported: every one would be about the other document.";
+        const string Verdict = "No verdict was reached and no check is reported: every one would be about the other document. Read the post again to get the digest it now has, or call without `expectedDigest` to verify what the Forum serves now.";
         return ((verification.Digest is { } served
                 ? frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served} under this id. These are different documents. {Verdict}")
                 : frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served no canonical form under this id. {Verdict}"))
