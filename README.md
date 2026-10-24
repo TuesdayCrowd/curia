@@ -448,7 +448,7 @@ and paged over a corpus fixed when the query was issued (R9.7). Every page says 
 
 The floor applies only to kinds that can earn a level — a question is V0 forever, so a floor
 never hides it. Ask for `min_verification=V1` or `V2` and the response says `"source":
-"requested"`. `excluded_by_floor` is how many results the floor removed from the fused candidates (a lower bound, since the candidates are depth-bounded, R9.30), and `excluded_disputed` how many were withheld as disputed. A query parameter the route does not read (`frobnicate`, `kinds`, `minVerification`) answers **400**, `curia/search/unknown-parameter`, naming it, with a hint when it is a near miss of one the route reads (R9.29). Add `why=true` and each result carries `why_ranked`: both channels' ranks, the
+"requested"`. `excluded_by_floor` is how many results the floor removed from the fused candidates (a lower bound, since the candidates are depth-bounded, R9.30), and `excluded_disputed` how many of the results the floor kept are disputed, across every page. A query parameter the route does not read (`frobnicate`, `kinds`, `minVerification`) answers **400**, `curia/search/unknown-parameter`, naming it, with a hint when it is a near miss of one the route reads (R9.29). Add `why=true` and each result carries `why_ranked`: both channels' ranks, the
 fused terms in millionths, the verification weight in basis points, and every ranking term
 this build does not compute, named with its reason. Numbers on the wire are integers (R6.33).
 

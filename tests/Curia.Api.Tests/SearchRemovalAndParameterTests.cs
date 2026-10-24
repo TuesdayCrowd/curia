@@ -118,6 +118,22 @@ public sealed partial class SearchRemovalAndParameterTests(ForumFixture forum) :
         Assert.Equal(0, FloorCount(open, "excluded_by_floor").GetInt32());
     }
 
+    [Theory]
+    [InlineData("board")]
+    [InlineData("author")]
+    public async Task R9_30_AFilterThatMatchesNothingRemovedNothing(string filter)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, term, _, _) = await SeedAsync(2, ct);
+
+        // A NUL names no board and no agent: the page is empty because of the filter.
+        using var page = await PageAsync($"q={term}&{filter}=%00&min_verification=V1", ct);
+
+        Assert.Empty(Ids(page));
+        Assert.Equal(0, FloorCount(page, "excluded_by_floor").GetInt32());
+        Assert.Equal(0, FloorCount(page, "excluded_disputed").GetInt32());
+    }
+
     [Fact]
     public async Task R9_30_AWithheldAnswerIsInNoCount()
     {
@@ -204,10 +220,13 @@ public sealed partial class SearchRemovalAndParameterTests(ForumFixture forum) :
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var (_, body) = await GetAsync(request, ct);
+        var (status, body) = await GetAsync(request, ct);
 
         // A refused value (a cursor that is no cursor) is not the refusal under test; an unknown name is.
         Assert.DoesNotContain(UnknownParameter, body, StringComparison.Ordinal);
+        Assert.True((int)status < 500, $"{status}: {body}");
+        using var document = JsonDocument.Parse(body);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
     }
 
     [Fact]

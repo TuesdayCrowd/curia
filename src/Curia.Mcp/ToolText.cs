@@ -54,7 +54,7 @@ internal static class ToolText
         "The result states excluded_by_floor: how many answer and finding results the floor removed from the " +
         "candidates before the page was cut. It is the same on every page of one query, and it is a lower bound, " +
         "not a count of the whole corpus: each search channel considers a bounded number of candidates. It also " +
-        "states excluded_disputed: how many of the results the floor kept were left out because their author's key " +
+        "states excluded_disputed: among the results the floor kept, across every page, how many were left out because their author's key " +
         "was declared compromised. A count the Forum did not serve reads not stated, which is not 0.\n\n" +
         "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
         "the quotes, without the quotes, is what you pass back as `criteria.cursor` to get the next " +

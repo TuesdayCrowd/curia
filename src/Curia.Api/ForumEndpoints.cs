@@ -227,7 +227,7 @@ public sealed record FloorResponse(
     /// </summary>
     [property: JsonPropertyName("excluded_by_floor")] int ExcludedByFloor,
 
-    /// <summary>R6.57: how many disputed posts, among those the floor kept, were removed from the page.</summary>
+    /// <summary>R6.57: how many of the posts the floor kept are disputed, over the whole diversified list and so the same on every page.</summary>
     [property: JsonPropertyName("excluded_disputed")] int ExcludedDisputed);
 
 /// <summary>
@@ -1806,8 +1806,9 @@ public static class ForumEndpoints
                 page.FloorSource,
                 [.. RetrievalFloorPolicy.GradableKinds.Select(PostKinds.Wire)],
                 [.. RetrievalFloorPolicy.UngradableKinds.Select(PostKinds.Wire)],
-                page.ExcludedByFloor,
-                page.ExcludedDisputed),
+                // R9.30: a filter that matches nothing removed nothing; the counts are of the unfiltered search that ran.
+                matchesNothing ? 0 : page.ExcludedByFloor,
+                matchesNothing ? 0 : page.ExcludedDisputed),
             page.Model.Id,
             page.CorpusBound,
             page.K,
