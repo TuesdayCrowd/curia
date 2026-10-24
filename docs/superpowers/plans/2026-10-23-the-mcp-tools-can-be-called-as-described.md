@@ -141,10 +141,98 @@ Re-ranked against the tree, by what stops an agent: (0) **before building, run t
 
 ## As run
 
-*(Filled by the stage: baselines, the red text each probe printed, FT1 to FT22 as run, the gates, the live transcripts before and after, the human smoke, and every divergence from this plan.)*
+Run 2026-10-23 from 1062f2ac (main, #109) to 05da1e41, plus the cursor sentence and these notes. Release, Postgres local. The sections below follow #109's plan: Task 0, the probes red first, the falsification, the gates, the live transcripts before and after, the human smoke, and the divergences.
 
 ### Task 0, as run (2026-10-23, at 1062f2ac)
 
 **Baselines, all re-measured** (Release, `ScreeningCostTests` excluded, Postgres local, in a detached worktree at 1062f2ac so no build of this branch touched them): Canon 329, Canon.Sodium 32, Domain.Primitives 64, Domain 677, Application 443, AuthN 140, Infrastructure 150, Client 718, Mcp 219, Api 614 (28 min 40 s), Architecture 58: eleven assemblies, all `Passed!`, 0 warnings in the Release build. Rust `cargo test --locked`: 268 passed, 2 ignored, 0 failed (the nine log lines matching `panicked` are test names ending `_not_panicked`). Every figure equals #109's "As run", so the plan's carried figures were right.
 
 **The ten live probes against the unmodified Release build** (a local Forum on a throwaway database, `curia-mcp` 0.4.0 driven over stdio JSON-RPC, four T0 identities enrolled by the probe run itself): `10 probes, 10 red: ['REQ', 'OPT', 'ARG', 'TYPE', 'CRIT', 'SPELL', 'CUR', 'WHY', 'THREAD', 'DESC']`. Each as the "Observed" table says: `curia_verify`, `curia_search`, `curia_ask`, `curia_answer` and `curia_comment` answer the bare `An error occurred invoking '<tool>'.` when an optional argument is omitted; `curia_comment` with `board` posted (`isError=False posted=1`); `refs` as a string answered the bare text; all six undefined criteria members answered unfiltered pages; `min_verification` left the floor at `min_verification="V0" source="published"`; the Forum's `next_cursor` was absent from the result; no `why_ranked` row; `curia_read` of a comment on a comment returned 2 of the Forum's 4 posts and named no root; the description promised removal counts the floor block (`applies_to, excluded_disputed, min_verification, not_applicable_to, source, surface`) does not serve. The transcript is kept outside the tree.
+
+### Probes, red first (Tasks 2a and 2b; Release; the commits are 4b3123f5 and 64435de3, with their fix rounds to cae1bf4c and c146368f)
+
+The Mcp-side probes were written into one new class, `ToolProtocolTests`, which drives the real server over an in-process stdio pair, and `ArgumentContractTests` (the pure function). `ArgumentContract` was a compile-only stub that returned no faults until Task 4 (ruling 5), so the assembly built and P10's runtime red was seen; before the stub was added the build stopped at `error CS0246: The type or namespace name 'ArgumentFault' could not be found`. Red on the unmodified tree: Mcp `Failed!  - Failed:    63, Passed:   228, Skipped:     1, Total:   292` (ToolProtocolTests 43, ArgumentContractTests 18, `ToolDescriptionTests.R11_35_*` 2; the skip is `curia_search` in P8, which needs nothing); Api class `McpToolContractEndToEndTests` `Failed!  - Failed:     8, Passed:     0, Skipped:     0, Total:     8`; Architecture 59 green (P15 is green first).
+
+| Probe | Test | Seen | Differs from the plan |
+|---|---|---|---|
+| P1 | `R14_11_EveryRegisteredToolHasARowInTheNeedsTableAndEveryRowATool` | green (eight and three tools) | none: green first, held by FT20 |
+| P2 | `R11_37_EveryToolsRequiredListIsExactlyWhatItNeeds` | `curia_ask's required list is [board,body,notDuplicateRationale,tags,title]; it needs [board,title,body]; curia_verify's required list is [expectedDigest,postId]; ...; curia_search's required list is [criteria]` | the lists print sorted, not in the plan's order |
+| P3 | `R11_37_RefsIsNotRequiredWhereTable12CallsItOptional` and the strengthened `ToolDescriptionTests.R11_35_*` | `curia_answer lists 'refs' required, which Table 12 lists as optional for answer`; `curia_answer's input schema lists 'refs' required, ...` | the strengthened parity fact is red in the same run, as ruling 2 put it |
+| P4 | `R11_37_AToolAnswersACallWithOnlyWhatItNeedsWithoutAnUncausedError` | red for `curia_verify`, `curia_search`, `curia_ask`, `curia_answer`, `curia_comment`: `<tool> answered the bare invocation error to a call carrying only what it needs: An error occurred invoking '<tool>'.`; `curia_read`, `curia_resolve`, `curia_flag` green | none |
+| P5 | `R11_37_AnArgumentTheSchemaDoesNotDefineIsRefusedByNameAndNothingIsSent` (all eight tools) and `R11_37_ABoardIsNotAnArgumentOfAReply` | `curia_ask accepted an argument its schema does not define: POSTED ...`; `curia_comment accepted a 'board', which its schema does not define (G26 decision 5): POSTED ...` | none; the board fact gained its control at review |
+| P6 | `R11_37_AMemberTheCriteriaRecordDoesNotDefineIsRefusedByName` (six rows) | all six `curia_search did not refuse '<member>' by name:` and an unfiltered page, `minVerification` included | none; the `verification` row compares against the substituted refusal as the row says |
+| P7 | `R11_37_AValueOfATypeTheSchemaDoesNotAdmitIsRefusedByName` | `curia_ask was given a number at 'board': An error occurred invoking 'curia_ask'.` (eight tools) | the null and element cases and the empty-request-log assertion were unseen red: the first case fails first |
+| P8 | `R11_37_AnAbsentRequiredMemberIsRefusedByName` | `curia_ask without 'board': An error occurred invoking 'curia_ask'.` (seven tools; `curia_search` skipped) | the skip is a `Skipped` in the count |
+| P9 | `R11_37_ANumericStringIsStillAdmittedForAnInteger` | green | none: green first, held by FT10 |
+| P10 | `ArgumentContractTests` | compile red (`CS0246`), then `Assert.Single() Failure: The collection was empty` on the 18 rows that expect a fault | none; three rows expecting no fault are green on the stub |
+| P11 | `R11_39_TheCriteriaRecordIsSpelledAsTheSpecificationSpellsIt` | `criteria has no member 'min_verification', which Appendix E publishes for GET /v1/search; its members are [query,kinds,board,tags,author,minVerification,cursor,limit,whyRanked]` | none |
+| P12 | `R11_39_AResultStatesTheNextCursorOrThatThereIsNone` (cursor and none) | cursor row: `no cursor was stated to the model, though the Forum served one:`; the none row red on the missing `no_further_pages` | none |
+| P13 | `R11_38_AReadWhoseThreadCannotBeFetchedSaysSo` | `the model was not told the thread could not be read: (the first block is the post, not a word from the adapter)` | none |
+| P14 | `R11_26_EveryParameterADescriptionNamesIsOneItsSchemaDefines` | **green** on the unmodified tree | yes: no description backticked an identifier the schema lacks (`min_verification` was bare), so it had nothing to compare; held by FT22, not by a red |
+| P15 | `R14_11_TheHostBuildsItsServerOptionsThroughTheComposition` (Architecture) | green after Task 1 | none: green first, held by FT19 |
+| P16 | `R11_38_AReplyToAReplyIsReadWithItsWholeThread` | `curia_read of <leaf> served 2 of the 3 posts GET /v1/threads/<question> serves.` | none |
+| P17 | `R11_38_AThreadFourLevelsDeepIsReadWhole` | `... served 2 of the 4 posts GET /v1/threads/<question> serves.` | seen (the row said predicted) |
+| P18 | `R11_38_AThreadAboveAWithheldAncestorIsSaidToBeCut` | `the model was not told, on a line beginning CUT, that the thread was cut above a post the Forum would not serve:` | the `CUT` line requirement came at review |
+| P19 | `R11_39_AnAgentPagesThroughSearchResultsWithTheCursorsItWasGiven` | `no next_cursor in the adapter's text after page 1, with 1 of the Forum's 3 posts read:` | first run printed a bare `Assert.Equal() Failure: Expected: 3 Actual: 1`; the message came at review |
+| P20 | `R11_39_WhyRankedIsRenderedWhenAskedAndAbsentWhenNot` | `the adapter's block does not name <id> beside its why_ranked terms:` | rows compared are counted and asserted above zero (review) |
+| P21 | `R11_37_AFloorSetThroughTheRecordIsAppliedAndStated` | the first line reads `surface="rest-search" min_verification="V0" source="published" ...` | none |
+| P22 | `R11_37_AToolCalledWithOnlyWhatItNeedsWorksAgainstARealForum` | `An error occurred invoking 'curia_ask'.` | the first run had no control to attribute it; controls (`tags: []`, `notDuplicateRationale: ""`, `refs: []`, each `POSTED`) were added at review and the omission call then failed alone |
+| P23 | `R9_24_NoDescriptionPromisesARemovalCountTheForumDoesNotServe` | `R9.24 (rev.): curia_search's description promises a count of removed results; the Forum's floor block serves none (members: surface, min_verification, source, applies_to, not_applicable_to, excluded_disputed).` | none |
+
+### Falsification FT1 to FT22 (Task 10)
+
+Each patch was applied to a copy-aside file, the Mcp, Api and Architecture test assemblies rebuilt `--no-incremental` in Release (0 build errors every row), Mcp whole, the Api class `McpToolContractEndToEndTests` (8 facts) and Architecture whole run, and the file restored by plain `cp` and `touch` with `git diff --quiet -- <file>` asserted. Every anchor was counted before the first row. **22 of 22 rows red, none stayed green.** `shasum` of the 14 non-build files under `src/Curia.Mcp/` plus `tests/Shared/StubLog.cs` was equal before and after; the residue grep over `src/` found nothing; the unpatched solution rebuilt `--no-incremental` (0 warnings, 0 errors) and ran green (Mcp 296 + 1 skipped, Client 718, Architecture 59, the Api contract classes 21).
+
+| Row | Patch as applied | Red |
+|---|---|---|
+| FT1 | `AskAsync`: `tags` and `notDuplicateRationale` lose `= null` | Mcp 2 (P2, P4 ask), Api 1 (P22) |
+| FT2 | `AnswerAsync`: `refs` default removed | Mcp 4 (P2, P3 both facts, P4 answer) |
+| FT3 | `CommentAsync`: `refs` default removed | Mcp 4 (P2, P3 both, P4 comment), Api 1 (P22) |
+| FT4 | `VerifyAsync`: `expectedDigest` default removed | Mcp 2 (P2, P4 verify) |
+| FT5 | `SearchAsync`: `criteria` default removed | Mcp 2 (P2, P4 search) |
+| FT6 | the `CallToolFilters.Add(...)` statement deleted | Mcp 31 (P5, P6, P7, P8) |
+| FT7 | `required` loop skipped (guard `... \|\| given.Count >= 0`) | Mcp 9 (P8 x7, P10 x2) |
+| FT8 | type check off (`admitted.Count > 0` became `admitted.Count < 0`) | Mcp 21 (P7 x8, P10 x13) |
+| FT9 | object descent off (`&& admitted.Count < 0`) | Mcp 12 (P6 nested, P7 nested, P10) |
+| FT10 | numeric string refused for an integer (`&& text.Length < 0`) | Mcp 3 (P9, P10 theory x2) |
+| FT11 | `[JsonPropertyName("min_verification")]` removed | Mcp 3 (P11, P6 `minVerification`, `R11_26_...`), Api 1 (P21) |
+| FT12 | `verification` removed from `Refusable` | Mcp 1 (P6 `verification` row) |
+| FT13 | the cursor / `no_further_pages` block removed from `Floor` | Mcp 2 (P12), Api 1 (P19) |
+| FT14 | the why-rows loop removed from `Floor` | Api 1 (P20; Mcp stays green, P20 being Api-only) |
+| FT15 | `ReadAsync` reads the thread of `post.Parent` again | Api 2 (P16, P17) |
+| FT16 | the upward walk stops after one step (`steps < 1`) | Api 2 (P16, P17) |
+| FT17 | an unreadable ancestor not mentioned (`unreadableParent = null;`, `cutAt` always null) | Api 1 (P18), Mcp 1 (`R11_38_AHostileParentTheForumWillNotServe...`) |
+| FT18 | a failed thread fetch not mentioned (the `NOT READ` line replaced by `_ = why;`) | Mcp 2 (P13, `R11_38_AThreadThatDoesNotIncludeThePostIsNotClaimed`) |
+| FT19 | `Program.cs` builds `new McpServerOptions { ... }` with no filter | Architecture 1 (P15) |
+| FT20 | a ninth tool `curia_ninth` with no needs row | Mcp 22 (P1, the R11.19 and P22 classification gates), Architecture 1 (`MutationResidueTests.NoSourceFileCarriesMutationResidue`, on the literal `FALSIFICATION` in the patch, an incidental extra) |
+| FT21 | the removal-count sentence restored in `SearchTemplate` | Api 1 (P23) |
+| FT22 | `notDuplicateRationale` renamed `reason` in `AskAsync`, description untouched | Mcp 3 (P14, P2, P5 control), Api 1 (the `curia_ask` control) |
+
+Patches that differ from the plan's literal wording, so that the red is the fact's and not an analyzer's: FT7, FT8, FT9, FT10, FT17 and FT18 use the operand forms in the table (no unreachable code, no unused assignment); FT13 and FT14 delete the block outright. FT22's first invocation aborted on a wrong occurrence count (3, not 4) in the runner before touching the file.
+
+### Gates
+
+Whole run at 05da1e41, Release, `ScreeningCostTests` excluded, Postgres local: Domain.Primitives 64, Canon.Sodium 32, AuthN 140, Application 443, Domain 677, Architecture 59, Mcp 296 (+1 skipped), Canon 329, Infrastructure 150, Client 718, Api 622 (27 min 44 s): eleven lines, all `Passed!`, 0 warnings. Debug build 0 warnings, 0 errors; `tests/Curia.Architecture.Tests` in Debug `Passed!  - Failed:     0, Passed:    59`. `dotnet restore Curia.sln --locked-mode` exit 0; `git status --porcelain '*packages.lock.json'` empty. After the cursor sentence (below): Release build 0 warnings, 0 errors; `Passed!  - Failed:     0, Passed:   296, Skipped:     1, Total:   297, Duration: 1 s - Curia.Mcp.Tests.dll (net10.0)` and the Api class `McpToolContractEndToEndTests` `Passed!  - Failed:     0, Passed:     8`. *(The controller adds Rust, the differential gate and the final figures.)*
+
+### The ten live probes, after (Task 11, 2026-10-23, at 05da1e41, `curia-mcp` 0.5.0)
+
+The scratch Forum restarted on the fixed build; the probe run enrolled four fresh T0 identities. `10 probes, 0 red: []`, each as before and now green: every tool's `required` list is exactly what it needs; a minimal call to every tool answers a result or a named refusal; an undefined argument and a wrong type each answer `isError=True`, `posted=0` and `NOT SENT: this call does not match curia_comment's input schema`; all six undefined or refusable criteria members are refused by name; the first line reads `min_verification="V2" source="requested"` for a floor set through the record; the Forum's `next_cursor` is in the result (`YzkzOjE=`); `why_ranked` rows are rendered; `curia_read` of a comment on a comment returned the Forum's 4 posts with the root named before the passages; the description promises no removal count and the floor block's members are `applies_to, excluded_disputed, min_verification, not_applicable_to, source, surface`. The transcript is kept outside the tree.
+
+### The human smoke (not a gate)
+
+Claude Code run headless (`claude -p`, model sonnet, `--strict-mcp-config`, only `curia_search` and `curia_read` allowed) with `curia-mcp` configured against the scratch Forum, asked to search, read the first hit and report verbatim. It reported the `next_cursor` (`YzkzOjI=`), `curia_read`'s first line `thread root="<id>" posts=4`, and the first post's body exactly as served, received inside the untrusted (datamarked) block. So this host delivers the `EmbeddedResourceBlock` text of each passage to the model (R10.56): G27 decision 8c is settled for Claude Code. One host only; others not run.
+
+### Divergences from the plan
+
+1. **Task 2 split into 2a and 2b**, and the in-process MCP client harness moved from `ToolProtocolTests` to `tests/Shared/McpProtocolSession.cs`, linked into both `Curia.Mcp.Tests` and `Curia.Api.Tests`, so the Api facts (P16 to P23) drive the same session. The failing-name set of the Mcp assembly was identical before and after the move.
+2. **Ruling 5's stub**: `src/Curia.Mcp/ArgumentContract.cs` was a compile-only stub in Task 2a (`Check` returned no faults) and was replaced in Task 4.
+3. **P14 was green on the unmodified tree**, not red as "Order of red" said; it is held by FT22 (which renamed a parameter and left the description, and went red).
+4. **`Base` sends valid non-null optionals** (`criteria {}`, `refs []`, `tags ["t"]`, a rationale string, a sha256 `expectedDigest`) rather than omitting them: on the unmodified tree an omitted optional answers the generic error, so every control would have been red for the wrong reason.
+5. **The integer check is 32-bit** (`TryGetInt32` / `int.TryParse`, commit d8fa8e2a). `TryGetInt64` admitted `3000000000` for `criteria.limit`, an `int?` whose binder rejects it with the uncaused error R11.37 forbids; `ArgumentContractTests.R11_37_AnIntegerAThirtyTwoBitBinderCannotHoldIsAWrongTypeFault` was seen red first (`Failed: 2`).
+6. **`Refusable` reasons apply to `curia_search`'s `criteria` only**, not to any tool's undefined argument (Refusable is the criteria record's list, R9.26).
+7. **`StubLog` gained knobs**: `SearchNextCursor` (default a cursor, so every search the stub serves has a next page unless a fact nulls it), `ServedParent`, `OtherPostsAreRefused` and `ThreadRouteServesOnlyTheAnswer`. It is compiled into Client.Tests too, so Task 5+6 and Task 7 ran Client.Tests (718 throughout).
+8. **Task 7 added** cycle detection (a parent chain that repeats is said to be `CUT`), a bound of 64 upward steps with its own `CUT` wording, and a `NOT READ` line for a thread the Forum served without the requested post (`the thread the Forum served did not include the post`); the `CUT` and `NOT READ` lines are both said when both apply; the `CUT` lines carry no `posts=`. Three facts in `ReaderFrameToolTests` (a hostile parent, a repeating chain, a thread lacking the post) were added at review, each seen red first.
+9. **The cursor sentence** (carried from Task 8+9's review, ruling 1 of Task 12): `curia_search`'s description now says the cursor is written in quotes and that the text between the quotes, without them, is what goes back as `criteria.cursor` (G27 decision 8b's observed failure is a model pasting the quotes). No fact pins the sentence; Mcp 296 + 1 skipped stayed green.
+10. **Version**: `ToolCatalogue.Version` 0.4.0 to 0.5.0 (Task 8+9).
+11. **The human smoke ran** (it was a plan gate, not a requirement): one host, Claude Code, as above.
+12. **Dispatch**: Tasks 3 and 4, 5 and 6, and 8 and 9 were each one dispatch (ruling 7); Task 11 and the smoke were the controller's.

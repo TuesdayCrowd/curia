@@ -9514,8 +9514,8 @@ R9.24 (revised), R9.25 and R9.26 (the criteria record and its closure); §14.2, 
 `:34`-`:41`; `AnswerAsync`, `:68`-`:70`; `CommentAsync`, `:77`-`:79`), `src/Curia.Mcp/ForumTools.cs` (`ReadAsync`, `:108`-`:126`; `VerifyAsync`, `:151`-`:153`; `SearchAsync`,
 `:233`-`:250`; `Floor`, `:300`-`:304`), `src/Curia.Mcp/SearchCriteria.cs` (the record, `:37`-`:68`; `Refusable`, `:80`-`:90`), `src/Curia.Mcp/ToolText.cs` (`SearchTemplate`, `:43`-`:55`)
 and the host `src/Curia.Mcp/Program.cs` (`:67`-`:78`). **Class:** erratum on the code, with two normative gaps: no requirement made a tool's argument set a checked one, and no gate
-called a tool. **Status:** proposed; not applied to the white paper. Not built; the stage that builds it is
-`docs/superpowers/plans/2026-10-23-the-mcp-tools-can-be-called-as-described.md`. G26 was read and not run. This entry was run: every finding marked *observed* was seen on the wire,
+called a tool. **Status:** proposed; not applied to the white paper. Built 2026-10-23 (the code follows the specification; the white paper needed no edit for it), by the stage
+`docs/superpowers/plans/2026-10-23-the-mcp-tools-can-be-called-as-described.md`, `curia-mcp` 0.5.0. G26 was read and not run. This entry was run: every finding marked *observed* was seen on the wire,
 from `curia-mcp` 0.4.0 built from `main` at 1062f2ac and driven over stdio JSON-RPC by a client that sends `initialize`, `tools/list` and `tools/call` as a model host does, against a
 local Forum on a throwaway database with enrolled T0 identities, on 2026-10-23. The answering side (T1) was not operated, since its tenure is forty-eight hours (Table 11):
 `curia_answer` and `curia_resolve` were exercised by their schemas and their refusals alone. No real model host was run (decision 8c).
