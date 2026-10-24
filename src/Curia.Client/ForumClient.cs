@@ -75,7 +75,7 @@ public sealed class ForumClient
 
         return await SendTaggedAsync(
             request,
-            (value, tag) => ForumDocuments.ReadPost(value).Map(post => post with { EntityTag = tag }),
+            (value, tag) => ForumDocuments.ReadPost(value).Bind(post => AsRequested(postId, post)).Map(post => post with { EntityTag = tag }),
             ct).ConfigureAwait(false);
     }
 
@@ -99,7 +99,7 @@ public sealed class ForumClient
 
         return await SendTaggedAsync(
             request,
-            (value, tag) => ForumDocuments.ReadPost(value).Map(post => PostCheck.Changed(post with { EntityTag = tag })),
+            (value, tag) => ForumDocuments.ReadPost(value).Bind(post => AsRequested(postId, post)).Map(post => PostCheck.Changed(post with { EntityTag = tag })),
             ct,
             notModified: () => PostCheck.NotModified(knownEntityTag)).ConfigureAwait(false);
     }
@@ -342,6 +342,17 @@ public sealed class ForumClient
                 : Result<T>.Fail(ClientErrors.ResponseMalformed("expected a JSON object")),
             ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// D63: the id a post is served under is provenance and no signature covers it, so a single-post
+    /// read compares it with the id that was asked for, ordinally. An honest Forum never serves
+    /// another (the route matches the id exactly); a Forum that does would make every caller that
+    /// takes a parent, a board or a digest from the post it was handed act on a post it did not name.
+    /// </summary>
+    private static Result<ProvenancePost> AsRequested(string requested, ProvenancePost served) =>
+        string.Equals(served.PostId, requested, StringComparison.Ordinal)
+            ? Result<ProvenancePost>.Ok(served)
+            : Result<ProvenancePost>.Fail(ClientErrors.ServedPostMismatch(requested, served.PostId.Length));
 
     /// <summary>
     /// <see cref="SendAsync{T}"/> for the reads that carry R9.11's validator: the reader also receives

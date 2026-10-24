@@ -1,3 +1,4 @@
+using Curia.Canon.Json;
 using Curia.Domain.Primitives;
 
 namespace Curia.Client;
@@ -48,6 +49,16 @@ public static class ClientErrors
         "curia/client/reference-form",
         "A reference is a post digest, a package coordinate or a URL",
         "sha256:<64 lowercase hex> (a post), pkg:<coordinate> (a package), or http:// or https:// followed by an address (a URL)");
+
+    /// <summary>
+    /// D63: a single-post read was answered with a post whose <c>post_id</c> is not the one asked for.
+    /// The requested id is the caller's own and is named; the served id is the Forum's text and is
+    /// not echoed (errata G17), only its length.
+    /// </summary>
+    public static Error ServedPostMismatch(string requested, int servedLength) => new(
+        "curia/client/served-post-mismatch",
+        "The Forum served a different post from the one asked for",
+        $"asked for {DisplayLiteral.Of(requested)}; the post served carries an id of {servedLength} characters that is not it");
 
     public static Error EnvelopeInvalid(string detail) => new(
         "curia/client/envelope-invalid",
