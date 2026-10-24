@@ -856,7 +856,7 @@ internal static class Program
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
         Output.Line(Help.SearchBanner);
-        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {Literals(page.Floor.AppliesTo)}; not to {Literals(page.Floor.NotApplicableTo)}");
+        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {Literals(page.Floor.AppliesTo)}; not to {Literals(page.Floor.NotApplicableTo)}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
         Output.Blank();
 
@@ -1838,6 +1838,10 @@ internal static class Program
     /// <summary>A local error's detail, as a display literal after a colon, or nothing.</summary>
     private static OwnText Detail(string? detail) =>
         new(detail is { Length: > 0 } d ? ": " + DisplayLiteral.Of(d) : string.Empty);
+
+    /// <summary>R9.30: a count the Forum served as an integer, or <c>not stated</c>; a missing count is never <c>0</c>.</summary>
+    private static OwnText Count(int? served) =>
+        new(served is { } count ? count.ToString(CultureInfo.InvariantCulture) : "not stated");
 
     /// <summary>A served list, each element a display literal, joined by commas (R10.63, errata G17).</summary>
     private static OwnText Literals(IEnumerable<string> values) =>
