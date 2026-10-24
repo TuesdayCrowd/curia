@@ -115,7 +115,7 @@ internal sealed partial class ForumTools(
     /// </summary>
     internal async Task<CallToolResult> ReadAsync(string postId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
 
         var read = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
@@ -210,7 +210,7 @@ internal sealed partial class ForumTools(
     internal async Task<CallToolResult> VerifyAsync(
         string postId, string? expectedDigest = null, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
 
         // R11.29: the document this session's read put in the model's context, when there is one.
         var read = _served.TryGetValue(postId, out var remembered);
@@ -301,6 +301,10 @@ internal sealed partial class ForumTools(
         SearchCriteria? criteria = null, CancellationToken cancellationToken = default)
     {
         criteria ??= new SearchCriteria();
+
+        // R11.43: a null item of an array member is refused by its path before the criteria are read.
+        if (ArgumentGuards.Items(criteria.Kinds.IsDefault ? null : criteria.Kinds, "criteria.kinds") is { } refused) return refused;
+        if (ArgumentGuards.Items(criteria.Tags.IsDefault ? null : criteria.Tags, "criteria.tags") is { } refusedTags) return refusedTags;
 
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).

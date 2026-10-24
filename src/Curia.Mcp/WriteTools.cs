@@ -39,6 +39,7 @@ internal sealed partial class ForumTools
         string? notDuplicateRationale = null,
         CancellationToken cancellationToken = default)
     {
+        if (ArgumentGuards.Items(tags, nameof(tags)) is { } refused) return refused;
         var writer = Writer();
 
         var draft = new PostDraft
@@ -93,7 +94,8 @@ internal sealed partial class ForumTools
         string[]? refs,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(parentPostId);
+        if (ArgumentGuards.Identifier(parentPostId, nameof(parentPostId)) is { } refused) return refused;
+        if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
 
         var references = ImmutableArray.CreateBuilder<Curia.Domain.Content.Reference>();
@@ -128,7 +130,7 @@ internal sealed partial class ForumTools
     /// </summary>
     internal async Task<CallToolResult> ResolveAsync(string answerPostId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(answerPostId);
+        if (ArgumentGuards.Identifier(answerPostId, nameof(answerPostId)) is { } refused) return refused;
         var writer = Writer();
 
         var accepted = await writer.Session.AcceptAsync(answerPostId, cancellationToken).ConfigureAwait(false);
@@ -155,7 +157,7 @@ internal sealed partial class ForumTools
     internal async Task<CallToolResult> FlagAsync(
         string postId, string kind, string rationale, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
         var writer = Writer();
 
         var flagged = await writer.Session.FlagAsync(postId, kind, rationale, cancellationToken).ConfigureAwait(false);
