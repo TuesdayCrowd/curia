@@ -226,16 +226,23 @@ internal sealed partial class ForumTools(
               + "This verdict is about the document the Forum served a moment ago, which is not "
               + "necessarily the one you are acting on. Pass the digest a read printed to pin it.\n";
 
-        var pinned = Pinned(expectedDigest, verification);
+        var (pinned, pinFailed) = Pinned(expectedDigest, verification);
+
+        // R11.42: a pin that is not the document answers an error and no verdict. Nothing below the pin line is
+        // about the document the caller named, and a result that goes on to render checks and close "VERIFIED."
+        // would put that sentence in front of a model that asked about something else.
+        if (pinFailed)
+            return new CallToolResult { Content = [new TextContentBlock { Text = subject + pinned }], IsError = true };
 
         return new CallToolResult
         {
             Content = [new TextContentBlock { Text = subject + pinned + verification.Render() }],
 
-            // The transport's own failure flag stays false: a post that fails verification is a
-            // successful answer to "is this post sound?", and marking it an error would put the one
-            // verdict a reader most needs into the channel clients are most likely to retry or
-            // discard. The text says FAILED in words that cannot be misread instead.
+            // The transport's own failure flag stays false for an unsound post: a post that fails verification is a
+            // successful answer to "is this post sound?", and marking it an error would put the one verdict a
+            // reader most needs into the channel clients are most likely to retry or discard. The text says FAILED
+            // in words that cannot be misread instead. A document that is not the one named (R11.42, above) is a
+            // different case: there is no answer to the question asked, so it is an error.
             IsError = false,
         };
     }
@@ -260,18 +267,19 @@ internal sealed partial class ForumTools(
     /// <para>Composed through the frame, so the digest the caller gave and the one the Forum served
     /// are each a display literal (R10.63): neither is this adapter's words.</para>
     /// </summary>
-    private static string Pinned(string? expectedDigest, PostVerification verification)
+    private static (string Text, bool Failed) Pinned(string? expectedDigest, PostVerification verification)
     {
-        if (string.IsNullOrWhiteSpace(expectedDigest)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(expectedDigest)) return (string.Empty, false);
 
         var frame = new FrameBuilder();
         if (string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal))
-            return frame.Line($"pinned      to the digest you supplied, {expectedDigest}").ToString();
+            return (frame.Line($"pinned      to the digest you supplied, {expectedDigest}").ToString(), false);
 
-        return (verification.Digest is { } served
-                ? frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served} under this id. These are different documents. Nothing below is about the one you asked about.")
-                : frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served no canonical form under this id. Nothing below is about the one you asked about."))
-            .ToString();
+        const string Verdict = "No verdict was reached and no check is reported: every one would be about the other document.";
+        return ((verification.Digest is { } served
+                ? frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served} under this id. These are different documents. {Verdict}")
+                : frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served no canonical form under this id. {Verdict}"))
+            .ToString(), true);
     }
 
     /// <summary>Keeps the served post, evicting the oldest once the session's cap is reached.</summary>

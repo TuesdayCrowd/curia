@@ -116,7 +116,7 @@ internal static class ToolText
         "ask about a post this session has not read, it fetches one — and says so, because the " +
         "Forum may serve a different document under the same id, and a verdict about that one tells " +
         "you nothing about yours. Pass the digest a read printed as `expectedDigest` to pin the " +
-        "subject; a mismatch is reported before anything else.\n\n" +
+        "subject; a mismatch answers an error and no verdict, and nothing else.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
