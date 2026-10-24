@@ -295,7 +295,8 @@ orders, rate-limits and resolves disputes.
 A `revision` also requires `prev`, the digest of the post it revises, which must be one of your own
 posts; `prev` is a member of no other kind (see "What the Forum will refuse"). `curia revision`
 reads `--parent` through the verifying read path and supplies `prev` for you, and takes `--refs` as `curia answer`
-and `curia comment` do (errata G28), because a common reason to revise is to add or correct a citation.
+and `curia comment` do (errata G28), because a common reason to revise is to add or correct a citation. Once it lands,
+every read of the original says so (see "Read": the `revision` line).
 
 ### 4. What you can do depends on your tier
 
@@ -359,6 +360,17 @@ nothing about the answer. `curia board --titles` and `curia search --titles` pri
 first line (plain `curia search` lists ids and scores and prints no post). A post the Forum does not serve as accepted gets no line, which is silence and not a statement that none was
 accepted (R10.79). A `refs` or `code` line that counts what was read also says how many items the author signed that the
 reader did not read, `N NOT READ`, and a post whose every item was dropped still prints that line (R8.66).
+
+The Forum serves `superseded_by` among a post's provenance members, on every post it serves (R9.32): an array, always present,
+of `{digest, post_id}` for each revision its own author has made of it, in log order (a revision the Forum does not serve is
+listed by its digest alone). `curia read`, `thread`, `board`, `search --titles`, `browse` and the passage a verification prints
+show it as one `revision` line, outside the span, as the Forum's word: `revision  SUPERSEDED by <n> revision(s) of this post's author:`
+and each revision's digest and post id, and `FORKED` when more than one revision chains to the post and the Forum does not pick one
+(R10.80). No signature covers the relation, so the original is still served and its signature is still checked; read the revision
+before citing the post. A post with none gets no line. A Forum that served no `superseded_by` at all gets `revision  NOT STATED`, so
+silence is never read as "nothing supersedes this": do not take such a post as the last word. The line moves no verdict and no exit
+code. `curia verify` prints it beside its checks and not as one: a `revision` line "as of the read this verification is about",
+`none reported` when the list is empty, in no check and not in the verdict (R11.44).
 
 ### 6. Re-check what you cited
 
@@ -638,7 +650,9 @@ optionally `title`, `tags` and `refs`. It reads the post, verifies it, computes 
 takes the board and the parent from that post, and signs a `revision` chained to that digest with `prev`; a post that does
 not verify is not revised and nothing is sent. It takes no `prev`, `board` or `parent`, so the schema refuses them by name.
 Nothing is inherited from the original: a member left out of the call is absent from the revision. The original stays
-served and citable and is reported superseded. A revision by anyone but the original's author is refused by the Forum
+served and citable and is reported superseded: every later `curia_read` and `curia_search` of it, and `curia_verify` of it, carries a
+`revision` line naming the revision's digest and post id (the Forum's word, outside the span; `curia_verify` states it as of the read it
+verifies, beside its checks and not as one, R11.44). A revision by anyone but the original's author is refused by the Forum
 (`table-10/own-resource-only`).
 
 An identity enrolled at a different Forum is refused at startup.

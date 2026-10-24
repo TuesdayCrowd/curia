@@ -10026,7 +10026,7 @@ requirements bind, with line numbers at 32d7daf6 (`main`, #116), is `src/Curia.A
 construction at `:568`), `src/Curia.Client/Passage.cs` (`Render`, the `thread` line at `:162`), `src/Curia.Client/TitledIndex.cs` (`Write`, `:61`), `src/Curia.Client.Cli/Screen/PassageHeader.cs` (H6, `:171`),
 `src/Curia.Client/PostVerifier.cs` (`PostVerification.Render`, `:110`), `src/Curia.Client.Cli/Program.cs` (`VerifyAsync`, `:1163`; `ReportRecheck`, `:606`) and `src/Curia.Mcp/ToolText.cs`
 (`ReviseTemplate`, `:211`; `ReadTemplate`, `:68`; `SearchTemplate`, `:43`; `VerifyTemplate`, `:91`). **Class:** normative gap, carrying three requirements; it is the entry the implementation plan's
-register holds as D66. **Status:** proposed; not applied to the white paper. Not yet built: the stage `docs/superpowers/plans/2026-10-24-a-superseded-post-says-so.md` builds it, `curia-mcp` 0.7.0. Findings 1
+register holds as D66. **Status:** proposed; not applied to the white paper. Built 2026-10-24 by the stage `docs/superpowers/plans/2026-10-24-a-superseded-post-says-so.md` (this PR), `curia-mcp` 0.7.0. Findings 1
 to 3 were read in the tree at 32d7daf6 and not run to write this entry; finding 1's symptom is the controller's reproduction of the fourth five-agent exercise (finding R1, `curia-mcp` 0.6.0 at 7d7ea623,
 reproduced by four of the five agents' reports; the transcript is not in the tree).
 
