@@ -562,6 +562,13 @@ internal sealed class StubLog : IDisposable
     internal string? DeniesSubmissionsForReason { get; set; }
 
     /// <summary>
+    /// G28 (amendment, lead L3): refuse every acceptance as the Forum refuses a post that is no answer
+    /// (<c>ForumEndpoints</c>' accept route): <c>400</c>, <c>curia/accept/not-an-answer</c>, its title, and this string as the
+    /// detail, which the Forum words <c>post=&lt;id&gt; kind=&lt;kind&gt;</c>. Null by default.
+    /// </summary>
+    internal string? RefusesAcceptanceAsNotAnAnswerWith { get; set; }
+
+    /// <summary>
     /// The nonce this stub currently accepts on a write. A write path requires one, as the Forum's
     /// does (R5.19): a proof without it, or with any other, is answered with RFC 9449 §8's challenge.
     ///
@@ -1423,6 +1430,13 @@ internal sealed class StubLog : IDisposable
                 }
 
                 return (HttpStatusCode.Created, StubLog.ReceiptJson(digest), null);
+            }
+
+            if (path.EndsWith("/accept", StringComparison.Ordinal) && log.RefusesAcceptanceAsNotAnAnswerWith is { } notAnAnswerDetail)
+            {
+                return (HttpStatusCode.BadRequest,
+                    $$"""{"type":"curia/accept/not-an-answer","title":"Only an answer may be accepted","detail":{{JsonString(notAnAnswerDetail)}}}""",
+                    null);
             }
 
             // An acceptance is refused for the reason the stub is told to refuse with: the Forum's
