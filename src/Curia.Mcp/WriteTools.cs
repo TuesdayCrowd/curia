@@ -328,6 +328,15 @@ internal sealed partial class ForumTools
             .Append($"at T2. It resets; it is not a tier denial.")
             .ToString()),
 
+        // G28 (amendment, lead L3): accepting a post that is no answer is the Forum's 400 with a cause and no way
+        // out. The adapter names the post's kind, which the Forum's detail carries as `kind=<k>`, and says where an
+        // answer's id is found. The kind is the Forum's word, so it is a display literal; the rest is this adapter's.
+        RefusalKind.Content when refusal.Error.Type == "curia/accept/not-an-answer" => new McpException(new FrameBuilder()
+            .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Type}). {new OwnText(NotAnAnswerSentence(refusal.Error.Detail))} ")
+            .Append($"Nothing was recorded. The answer's id is found by reading the question's thread with curia_read; ")
+            .Append($"pass the post id of an answer to curia_resolve.")
+            .ToString()),
+
         // Every other kind is reported as the reference client words it. Named, not discarded, so a
         // refusal kind added to the client fails the build here and gets a decision.
         RefusalKind.Local or RefusalKind.Transport or RefusalKind.Malformed or RefusalKind.Authentication
@@ -337,6 +346,18 @@ internal sealed partial class ForumTools
         // CS8524: a C# enum is not sealed to its named members.
         _ => throw new ArgumentOutOfRangeException(nameof(refusal), refusal.Kind, "Not a refusal kind"),
     };
+
+    /// <summary>
+    /// The first sentence of the not-an-answer refusal: the post is not an answer, and its kind when the Forum's detail
+    /// (<c>post=&lt;id&gt; kind=&lt;kind&gt;</c>) states one. The kind is the Forum's word, so it is quoted as a display literal.
+    /// </summary>
+    private static string NotAnAnswerSentence(string? detail)
+    {
+        var kind = detail?.Split(' ').FirstOrDefault(token => token.StartsWith("kind=", StringComparison.Ordinal))?["kind=".Length..];
+        return kind is { Length: > 0 }
+            ? $"The post you named is of kind {DisplayLiteral.Of(kind)}, and only a post of kind answer can be accepted."
+            : "The post you named is not an answer, and only an answer can be accepted.";
+    }
 
     /// <summary>A local refusal: nothing was sent, and for credential material that is the point.</summary>
     private static string NotSent(Error error)

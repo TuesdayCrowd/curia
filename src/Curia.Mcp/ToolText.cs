@@ -66,6 +66,9 @@ internal static class ToolText
         "The first block is the adapter's own, not a passage: it names the thread's root, or, when an " +
         "ancestor could not be read, says where the shown thread begins and that it is not the whole " +
         "thread, or says the thread could not be read and the post alone is shown.\n\n" +
+        "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +
+        "(the asker's choice, which checks nothing about the answer), or 'accepted none'; where the shown thread " +
+        "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown.\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +

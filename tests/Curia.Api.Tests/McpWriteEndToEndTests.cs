@@ -420,9 +420,14 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
 
         Assert.True(refused.IsError, $"accepting a comment was not refused:\n{refused.Text}");
         Assert.Contains("curia/accept/not-an-answer", refused.Text, StringComparison.Ordinal);
+        // The Forum's own detail already holds `kind=comment`, so a bare Contains("comment") passes on the Forum's words and
+        // proves nothing of the adapter's (the first form of this assertion was vacuous). The adapter's sentence is what is
+        // left when the Forum's quoted detail is removed: it must state the kind as a display literal and name curia_read.
+        var forumsDetail = JsonSerializer.Serialize($"post={commentId} kind=comment");
+        var own = refused.Text.Replace(forumsDetail, string.Empty, StringComparison.Ordinal);
         Assert.True(
-            refused.Text.Contains("comment", StringComparison.Ordinal) && refused.Text.Contains("curia_read", StringComparison.Ordinal),
-            $"the refusal carries the cause code and no next step (the post's kind, and where the answer's id is found):\n{refused.Text}");
+            own.Contains(JsonSerializer.Serialize("comment"), StringComparison.Ordinal) && own.Contains("curia_read", StringComparison.Ordinal),
+            $"the refusal carries the cause code and no next step of the adapter's own (the post's kind outside the Forum's detail, and where the answer's id is found):\n{refused.Text}");
     }
 
     /// <summary>A question asked by an MCP agent and answered by a T1 helper: the answer's id, the asker, the board.</summary>

@@ -50,6 +50,12 @@ internal sealed partial class ForumTools(
     /// <summary>R11.38: how many ancestors <c>curia_read</c> follows before it says the thread is cut.</summary>
     private const int MaxAncestorSteps = 64;
 
+    /// <summary>
+    /// R11.41: the parenthesis of <see cref="Passage.AcceptedStatement"/> (the Forum's word, what no signature covers, what an
+    /// acceptance checks), so the resolution line and the passage line that names the same post cannot drift apart.
+    /// </summary>
+    private static readonly string AcceptedBasis = Passage.AcceptedStatement[Passage.AcceptedStatement.IndexOf('(', StringComparison.Ordinal)..];
+
     private readonly ForumClient _forum = forum;
     private readonly MarkingMode _marking = marking;
     private readonly ForumWriter? _writer = writer;
@@ -170,6 +176,16 @@ internal sealed partial class ForumTools(
         else if (unreadableParent is null && !repeats && cutAt is null)
         {
             frame.Line($"thread root={top.PostId} posts={members.Length}");
+
+            // R11.41: the line after the root line says how the thread stands. The Forum's word, from the members it
+            // served, never a conclusion drawn from their content; the ids are the Forum's, so display literals. Written
+            // only here: where the shown thread is cut or unread, the accepted answer may be above what is shown and
+            // "none" would be a guess. More than one is a Forum fault (the fold keeps one per thread); each is listed.
+            var acceptedIds = members.Where(m => m.Accepted).Select(m => m.PostId).ToArray();
+            if (acceptedIds.Length == 0)
+                frame.Line($"accepted none {new OwnText("(the Forum served no post of this thread as accepted)")}");
+            else
+                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))))} {new OwnText(AcceptedBasis)}");
         }
 
         if (unreadableParent is not null)
