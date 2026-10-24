@@ -84,6 +84,9 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
     /// answers and accept it, so "accepted" must read as a claim about the asker and never about the answer. None of
     /// verified, correct, trusted, endorsed or true (R10.50: no field is a badge).
     /// </summary>
+    private static OwnText NotRead(int dropped) =>
+        new(dropped > 0 ? $", {dropped} NOT READ (signed by the author, not an item this client can read)" : string.Empty);
+
     public const string AcceptedStatement = "accepted by the thread's asker (the Forum's word: no signature covers an acceptance, and it checks nothing about the answer)";
 
     /// <summary>
@@ -164,11 +167,13 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (!Post.Provenance.RiskFlags.IsDefaultOrEmpty)
             frame.Line($"risk      {Literals(Post.Provenance.RiskFlags)}");
 
-        if (envelope is not null && !envelope.Refs.IsDefaultOrEmpty)
-            frame.Line($"refs      {envelope.Refs.Length} reference(s) inside the block below. NOT FETCHED, and this client has no code path that would fetch one (contract clause 3).");
+        // R8.66 (errata G28): the count beside what was read is what an agent uses to decide whether anything was cited, so
+        // an item the reader could not read is counted, and a post whose every item was dropped still prints its line.
+        if (envelope is not null && (!envelope.Refs.IsDefaultOrEmpty || envelope.DroppedRefs > 0))
+            frame.Line($"refs      {envelope.Refs.Length} reference(s) inside the block below{NotRead(envelope.DroppedRefs)}. NOT FETCHED, and this client has no code path that would fetch one (contract clause 3).");
 
-        if (envelope is not null && !envelope.CodeBlocks.IsDefaultOrEmpty)
-            frame.Line($"code      {envelope.CodeBlocks.Length} code block(s) inside the block below. NOT EXECUTED, NOT INSTALLED (contract clause 3).");
+        if (envelope is not null && (!envelope.CodeBlocks.IsDefaultOrEmpty || envelope.DroppedCodeBlocks > 0))
+            frame.Line($"code      {envelope.CodeBlocks.Length} code block(s) inside the block below{NotRead(envelope.DroppedCodeBlocks)}. NOT EXECUTED, NOT INSTALLED (contract clause 3).");
 
         frame.Blank();
         Standing(frame, Post.Provenance.Warning, new OwnText(Provenance.StandardWarning), "warning");

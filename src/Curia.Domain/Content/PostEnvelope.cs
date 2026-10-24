@@ -70,7 +70,8 @@ public sealed record PostEnvelope(
     string? ArtifactDigest = null,
     bool? NotDuplicate = null,
     string? DuplicateRationale = null,
-    // R8.66 (errata G28), Task 1: compile-only stubs, always 0 until Task 4 counts what ReadRefs and ReadCodeBlocks skip.
+    // R8.66 (errata G28): how many items of `refs` and `code_blocks` the author signed that this reader did not read (an item that
+    // is not an object, or lacks its required members; a member present and not an array counts as one). Not signed content.
     int DroppedRefs = 0,
     int DroppedCodeBlocks = 0)
 {
@@ -147,8 +148,8 @@ public sealed record PostEnvelope(
         if (!PostKinds.RequiresParent(kind) && parent is not null)
             return Fail(ContentErrors.ParentNotAllowed(kind));
 
-        var codeBlocks = ReadCodeBlocks(fields);
-        var refs = ReadRefs(fields);
+        var (codeBlocks, droppedCodeBlocks) = ReadCodeBlocks(fields);
+        var (refs, droppedRefs) = ReadRefs(fields);
 
         // R8.55 / R8.56 (errata G8): a vote and a verification name their subject by envelope
         // digest, and each carries what its kind is for. Checked here, once, for the reason the
@@ -259,7 +260,9 @@ public sealed record PostEnvelope(
             result,
             artifactDigest,
             notDuplicate,
-            duplicateRationale));
+            duplicateRationale,
+            droppedRefs,
+            droppedCodeBlocks));
     }
 
     /// <summary>
@@ -351,10 +354,12 @@ public sealed record PostEnvelope(
     /// source is skipped, not refused: refusing is R8.62's and R8.63's closed-member-set question, and a rule in <c>Read</c> is what R8.64's
     /// decision 3 forbids. There is no reader of the pre-G25 spelling <c>license</c>.
     /// </summary>
-    private static ImmutableArray<CodeBlock> ReadCodeBlocks(Dictionary<string, JsonValue> fields)
+    private static (ImmutableArray<CodeBlock> Kept, int Dropped) ReadCodeBlocks(Dictionary<string, JsonValue> fields)
     {
-        if (!fields.TryGetValue("code_blocks", out var raw) || raw is not JsonValue.Array a)
-            return [];
+        if (!fields.TryGetValue("code_blocks", out var raw))
+            return ([], 0);
+        if (raw is not JsonValue.Array a)
+            return ([], 1);
 
         var blocks = ImmutableArray.CreateBuilder<CodeBlock>();
         foreach (var item in a.Items.OfType<JsonValue.Object>())
@@ -364,7 +369,7 @@ public sealed record PostEnvelope(
                 blocks.Add(new CodeBlock(language, source, OptionalString(members, "declared_license")));
         }
 
-        return blocks.ToImmutable();
+        return (blocks.ToImmutable(), a.Items.Length - blocks.Count);
     }
 
     /// <summary>
@@ -372,10 +377,12 @@ public sealed record PostEnvelope(
     /// refused (R8.62's question, see <see cref="ReadCodeBlocks"/>), so a post whose only evidence is spelled <c>value</c>, as the code
     /// spelled it until G25, has no evidence; there is deliberately no reader of both spellings.
     /// </summary>
-    private static ImmutableArray<Reference> ReadRefs(Dictionary<string, JsonValue> fields)
+    private static (ImmutableArray<Reference> Kept, int Dropped) ReadRefs(Dictionary<string, JsonValue> fields)
     {
-        if (!fields.TryGetValue("refs", out var raw) || raw is not JsonValue.Array a)
-            return [];
+        if (!fields.TryGetValue("refs", out var raw))
+            return ([], 0);
+        if (raw is not JsonValue.Array a)
+            return ([], 1);
 
         var refs = ImmutableArray.CreateBuilder<Reference>();
         foreach (var item in a.Items.OfType<JsonValue.Object>())
@@ -385,6 +392,6 @@ public sealed record PostEnvelope(
                 refs.Add(new Reference(kind, target, OptionalString(members, "version")));
         }
 
-        return refs.ToImmutable();
+        return (refs.ToImmutable(), a.Items.Length - refs.Count);
     }
 }
