@@ -29,10 +29,21 @@ public static class ReferenceForms
 
         foreach (var prefix in UrlPrefixes)
         {
-            if (given.StartsWith(prefix, StringComparison.Ordinal) && given.Length > prefix.Length)
+            if (given.StartsWith(prefix, StringComparison.Ordinal) && IsUrl(given))
                 return Result<Reference>.Ok(new Reference(ReferenceKinds.Url, given, null));
         }
 
         return Result<Reference>.Fail(ClientErrors.ReferenceForm());
     }
+
+    /// <summary>
+    /// R8.67 (errata G29): a URL is an absolute <c>http</c> or <c>https</c> URI with an authority and no character
+    /// that is whitespace or a control. A signed reference cannot be amended, so a value that is not a URL is refused
+    /// before it is signed and not kept as a citation of nothing.
+    /// </summary>
+    private static bool IsUrl(string given) =>
+        Uri.TryCreate(given, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+        && given.StartsWith(uri.Scheme + "://", StringComparison.Ordinal)
+        && !given.Any(c => char.IsWhiteSpace(c) || char.IsControl(c));
 }
