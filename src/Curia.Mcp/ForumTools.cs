@@ -40,6 +40,9 @@ internal sealed partial class ForumTools(
     /// </summary>
     private const int RememberedPosts = 256;
 
+    /// <summary>R11.38: how many ancestors <c>curia_read</c> follows before it says the thread is cut.</summary>
+    private const int MaxAncestorSteps = 64;
+
     private readonly ForumClient _forum = forum;
     private readonly MarkingMode _marking = marking;
     private readonly ForumWriter? _writer = writer;
@@ -112,17 +115,44 @@ internal sealed partial class ForumTools(
         var read = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
 
-        // The thread the post sits in, so a reader evaluating an answer can see what it answers.
-        // A thread that cannot be fetched leaves the post itself readable rather than failing the
-        // call: the post is what was asked for.
-        var root = post!.Parent is { Length: > 0 } parent ? parent : post.PostId;
-        var thread = await _forum.GetThreadAsync(root, _marking, cancellationToken).ConfigureAwait(false);
+        // R11.38: the thread is the root's, found by following parent upward. The route serves the subtree under any
+        // id, so the walk is this adapter's. Ancestors are kept for their Parent alone; nothing is rendered from them.
+        var top = post!;
+        string? unreadableParent = null;
+        var steps = 0;
+        while (top.Parent is { Length: > 0 } parent && steps < MaxAncestorSteps)
+        {
+            steps++;
+            var up = await _forum.GetPostAsync(parent, _marking, cancellationToken).ConfigureAwait(false);
+            if (!up.TryGetValue(out var ancestor, out _))
+            {
+                unreadableParent = parent;
+                break;
+            }
 
-        var posts = thread.TryGetValue(out var siblings, out _) && !siblings.IsDefaultOrEmpty
-            ? siblings
-            : [post];
+            top = ancestor!;
+        }
 
-        return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false));
+        // Neither an unreadable ancestor nor the bound reaches a root: the thread shown begins at `top` and says so.
+        var cutAt = unreadableParent ?? (top.Parent is { Length: > 0 } unfollowed ? unfollowed : null);
+
+        // A thread that cannot be fetched leaves the post itself readable rather than failing the call: the post is
+        // what was asked for, and the first block says the rest was not read.
+        var thread = await _forum.GetThreadAsync(top.PostId, _marking, cancellationToken).ConfigureAwait(false);
+        var threadRead = thread.TryGetValue(out var members, out var failure) && !members.IsDefaultOrEmpty;
+
+        var why = thread.IsOk ? "the Forum served no posts for it" : failure!.Summary;
+        var preamble = !threadRead
+            ? Said($"NOT READ the thread beginning at {top.PostId} could not be read, so the post alone is shown: {why}")
+            : cutAt is null
+                ? Said($"thread root={top.PostId} posts={members.Length}")
+                : unreadableParent is not null
+                    ? Said($"CUT the parent {unreadableParent} of post {top.PostId} could not be read, so the thread shown begins at {top.PostId} and is not the whole thread; posts={members.Length}")
+                    : Said($"CUT the upward walk stopped after {MaxAncestorSteps} steps without reaching a root, so the thread shown begins at {top.PostId}, whose parent {cutAt} was not followed; posts={members.Length}");
+
+        var posts = threadRead ? members : [post];
+
+        return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false), preamble);
     }
 
     /// <summary>
