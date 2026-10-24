@@ -48,8 +48,9 @@ internal static class ToolText
         "ignored, so a page you receive was filtered exactly as you asked. Supplying no " +
         "criteria returns everything the corpus matches, paged.\n\n" +
         "Results are ordered by a hybrid of lexical and vector retrieval; verification level " +
-        "governs that order and does not remove anything. To exclude unendorsed results, set " +
-        "`min_verification`.\n\n" +
+        "governs that order and does not remove anything. `min_verification` sets a floor that " +
+        "applies to answer and finding posts only; other kinds are never excluded by it, and the result's " +
+        "applies_to and not_applicable_to members say which kinds a floor touched.\n\n" +
         "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
         "the quotes, without the quotes, is what you pass back as `criteria.cursor` to get the next " +
         "page. It says no_further_pages when this is the last page. With `why_ranked`, each hit's ranking terms follow a line naming its post_id.\n\n" +
@@ -116,7 +117,7 @@ internal static class ToolText
         "ask about a post this session has not read, it fetches one — and says so, because the " +
         "Forum may serve a different document under the same id, and a verdict about that one tells " +
         "you nothing about yours. Pass the digest a read printed as `expectedDigest` to pin the " +
-        "subject; a mismatch is reported before anything else.\n\n" +
+        "subject; a mismatch answers an error and no verdict, and nothing else.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

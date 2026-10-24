@@ -382,6 +382,260 @@ public sealed class ToolProtocolTests : IDisposable
         Assert.Equal(["next_cursor"], resultTerms);
     }
 
+    // ---- R11.43, R14.12 (errata G29): a tool answers every value its schema admits ----------------------------------------
+
+    /// <summary>The refusal's fixed opening (G27 ruling 3, G29 ruling 2): a tool's own, as opposed to the SDK's bare error.</summary>
+    private const string NotSent = "NOT SENT:";
+
+    public static TheoryData<string, int> RefsWithANullItem()
+    {
+        var data = new TheoryData<string, int>();
+        foreach (var tool in new[] { "curia_comment", "curia_answer" })
+            foreach (var index in new[] { 0, 1 })
+                data.Add(tool, index);
+        return data;
+    }
+
+    /// <summary>R11.43: a null item of <c>refs</c> is refused by index and nothing is sent. Seen red as the bare invocation error (the third exercise's R2).</summary>
+    [Theory]
+    [MemberData(nameof(RefsWithANullItem))]
+    public async Task R11_43_ANullItemOfRefsIsRefusedByIndexAndNothingIsSent(string tool, int nullAt)
+    {
+        await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var control = await session.CallAsync(tool, Base(tool));
+        Assert.False(Generic(tool, control) || control.Text.StartsWith(ContractRefusal, StringComparison.Ordinal), $"the control call was refused:\n{control.Text}");
+
+        _log.Requests.Clear();
+        var arguments = Base(tool);
+        arguments["refs"] = nullAt == 0 ? new object?[] { null } : ["https://a.example/x", null];
+        var result = await session.CallAsync(tool, arguments);
+
+        Assert.True(
+            result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal) && result.Text.Contains($"refs[{nullAt}]", StringComparison.Ordinal),
+            $"{tool} with a null at refs[{nullAt}] did not answer a NOT SENT naming it:\n{result.Text}");
+        Assert.Empty(_log.Requests);
+    }
+
+    /// <summary>R11.43: a null item of <c>tags</c>, as of <c>refs</c>. If it is green on the unmodified tree, FV9 holds it.</summary>
+    [Fact]
+    public async Task R11_43_ANullItemOfTagsIsRefusedByIndex()
+    {
+        await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var controlArguments = Base("curia_ask");
+        controlArguments["tags"] = new[] { "t", "u" };
+        var control = await session.CallAsync("curia_ask", controlArguments);
+        Assert.False(Generic("curia_ask", control) || control.Text.StartsWith(ContractRefusal, StringComparison.Ordinal), $"the control call (valid tags) was refused:\n{control.Text}");
+
+        _log.Requests.Clear();
+        var arguments = Base("curia_ask");
+        arguments["tags"] = new object?[] { "t", null };
+        var result = await session.CallAsync("curia_ask", arguments);
+
+        Assert.True(
+            result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal) && result.Text.Contains("tags[1]", StringComparison.Ordinal),
+            $"curia_ask with a null at tags[1] did not answer a NOT SENT naming it:\n{result.Text}");
+        Assert.Empty(_log.Requests);
+    }
+
+    /// <summary>The identifier arguments the five guarded sites take (<c>ForumTools.cs</c> read and verify; <c>WriteTools.cs</c> reply, resolve, flag).</summary>
+    private static readonly (string Tool, string Argument)[] Identifiers =
+    [
+        ("curia_read", "postId"), ("curia_verify", "postId"), ("curia_flag", "postId"),
+        ("curia_answer", "parentPostId"), ("curia_comment", "parentPostId"), ("curia_resolve", "answerPostId"),
+    ];
+
+    public static TheoryData<string, string, string> BlankIdentifiers()
+    {
+        var data = new TheoryData<string, string, string>();
+        foreach (var (tool, argument) in Identifiers)
+            foreach (var blank in new[] { "", "   " })
+                data.Add(tool, argument, blank);
+        return data;
+    }
+
+    /// <summary>R11.43: an empty or blank identifier is refused by the argument's name and nothing is sent. Seen red as the bare invocation error (the third exercise's R3).</summary>
+    [Theory]
+    [MemberData(nameof(BlankIdentifiers))]
+    public async Task R11_43_AnEmptyIdentifierIsRefusedByNameAndNothingIsSent(string tool, string argument, string blank)
+    {
+        await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var control = await session.CallAsync(tool, Base(tool));
+        Assert.False(Generic(tool, control) || control.Text.StartsWith(ContractRefusal, StringComparison.Ordinal), $"the control call was refused:\n{control.Text}");
+
+        _log.Requests.Clear();
+        var arguments = Base(tool);
+        arguments[argument] = blank;
+        var result = await session.CallAsync(tool, arguments);
+
+        Assert.True(
+            result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal) && result.Text.Contains(argument, StringComparison.Ordinal),
+            $"{tool} with {argument}={DisplayOf(blank)} did not answer a NOT SENT naming the argument:\n{result.Text}");
+        Assert.Empty(_log.Requests);
+    }
+
+    /// <summary>R11.43: the refusal names the argument and echoes no value (a blank of spaces and tabs leaves no escape of itself in the text).</summary>
+    [Theory]
+    [MemberData(nameof(BlankIdentifierArguments))]
+    public async Task R11_43_TheMessageNamesTheArgumentAndEchoesNoValue(string tool, string argument)
+    {
+        await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var arguments = Base(tool);
+        arguments[argument] = "  \t ";
+        var result = await session.CallAsync(tool, arguments);
+
+        Assert.True(result.Text.Contains(argument, StringComparison.Ordinal), $"{tool}'s answer does not name {argument}:\n{result.Text}");
+        Assert.True(result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal), $"{tool}'s answer is not a NOT SENT refusal:\n{result.Text}");
+        foreach (var echo in BlankEchoes)
+            Assert.DoesNotContain(echo, result.Text, StringComparison.Ordinal);
+    }
+
+    public static TheoryData<string, string> BlankIdentifierArguments()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var (tool, argument) in Identifiers) data.Add(tool, argument);
+        return data;
+    }
+
+    /// <summary>
+    /// R11.43 (errata G29, review): a local refusal of a write (a reference that is none of the three forms; a draft the
+    /// client will not build) reaches the model as an <c>isError</c> result whose text begins exactly <c>NOT SENT</c>, with no
+    /// SDK prefix, as the guards' refusals do. Both calls are varied from a control the same tool answered.
+    /// </summary>
+    [Theory]
+    [InlineData("curia_comment", "refs", "a-bare-word")]
+    [InlineData("curia_ask", "body", "My token is ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 and it fails.")]
+    public async Task R11_43_ALocalRefusalOfAWriteBeginsNotSentWithNoSdkPrefix(string tool, string argument, string value)
+    {
+        await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var control = await session.CallAsync(tool, Base(tool));
+        Assert.False(Generic(tool, control) || control.IsError, $"the control call was refused:\n{control.Text}");
+
+        _log.Requests.Clear();
+        var arguments = Base(tool);
+        arguments[argument] = argument == "refs" ? new[] { value } : value;
+        var result = await session.CallAsync(tool, arguments);
+
+        Assert.True(result.IsError, $"{tool} did not answer isError:\n{result.Text}");
+        Assert.StartsWith(NotSent, result.Text, StringComparison.Ordinal);
+        Assert.Empty(_log.Requests);
+    }
+
+    private static readonly string[] ValueKinds = ["array", "integer", "string"];
+
+    private static readonly string[] BlankEchoes = ["\t", "\\t", "\\u0009"];
+
+    private static string DisplayOf(string value) => Curia.Canon.Json.DisplayLiteral.Of(value);
+
+    /// <summary>
+    /// R14.12's boundary values, each with the words of the sentence that names it. The sentence is parsed from the errata
+    /// in <see cref="R14_12_TheBoundaryTableIsHeldToRequirementText"/>, so a row cannot be dropped quietly.
+    /// </summary>
+    private static readonly (string Phrase, string Kind, object? Value)[] BoundaryTable =
+    [
+        ("an empty", "string", ""),
+        ("a blank string", "string", "   "),
+        ("an empty array", "array", Array.Empty<object?>()),
+        ("an array holding `null`", "array", new object?[] { null }),
+        ("zero", "integer", 0),
+        ("a negative integer", "integer", -1),
+    ];
+
+    /// <summary>
+    /// R14.12 over every parameter of the schema <c>tools/list</c> serves (top level and <c>criteria</c>'s members): the
+    /// answer is never the SDK's bare invocation error, and a refusal of the tool's own begins NOT SENT and names the
+    /// argument. A tenth tool is varied the day it is registered.
+    /// </summary>
+    [Fact]
+    public async Task R14_12_NoToolAnswersABoundaryValueItsSchemaAdmitsWithTheUncausedError()
+    {
+        await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var tools = await session.ListAsync();
+        Assert.NotEmpty(tools);
+
+        var tried = new HashSet<string>(StringComparer.Ordinal);
+        var bare = new List<string>();
+        var unnamed = new List<string>();
+        foreach (var tool in tools)
+        {
+            foreach (var (path, kind, arguments, value) in BoundaryCalls(tool))
+            {
+                tried.Add(kind);
+                var result = await session.CallAsync(tool.Name, arguments);
+                var shown = $"{tool.Name} {path}={System.Text.Json.JsonSerializer.Serialize(value)}";
+                if (Generic(tool.Name, result)) bare.Add(shown);
+                else if (result.Text.StartsWith(NotSent, StringComparison.Ordinal) && !result.Text.Contains(path.Split('[')[0].Split('.')[^1], StringComparison.Ordinal))
+                    unnamed.Add(shown);
+            }
+        }
+
+        Assert.Equal(ValueKinds, tried.Order(StringComparer.Ordinal).ToArray());
+        Assert.True(bare.Count == 0, $"{bare.Count} boundary value(s) the schema admits were answered with the bare invocation error: {string.Join("; ", bare)}");
+        Assert.True(unnamed.Count == 0, $"a NOT SENT refusal did not name its argument: {string.Join("; ", unnamed)}");
+    }
+
+    /// <summary>R14.12: the boundary table is the sentence's six values, parsed from the errata.</summary>
+    [Fact]
+    public void R14_12_TheBoundaryTableIsHeldToRequirementText()
+    {
+        var text = File.ReadAllText(Path.Combine(Root("curia-whitepaper-ERRATA-AND-ADDENDUM.md"), "curia-whitepaper-ERRATA-AND-ADDENDUM.md"));
+        var match = Regex.Match(text, @"\*\*R14\.12\*\*[^\n]*?boundary values: (?<list>[^\n]*?)\. The reason", RegexOptions.None, TimeSpan.FromSeconds(5));
+        Assert.True(match.Success, "the errata no longer carries R14.12's sentence");
+
+        var phrases = match.Groups["list"].Value.Split(", ").SelectMany(group => group.Split(" and ")).Select(p => p.Trim()).ToArray();
+        Assert.Equal(6, phrases.Length);
+        Assert.Equal(phrases, BoundaryTable.Select(row => row.Phrase).ToArray());
+
+        // Each row's kind and value are what its phrase says.
+        foreach (var (phrase, kind, value) in BoundaryTable)
+        {
+            var says = phrase switch
+            {
+                "an empty" => kind == "string" && value is "",
+                "a blank string" => kind == "string" && value is string blank && blank.Length > 0 && blank.All(char.IsWhiteSpace),
+                "an empty array" => kind == "array" && value is object?[] { Length: 0 },
+                "an array holding `null`" => kind == "array" && value is object?[] { Length: 1 } one && one[0] is null,
+                "zero" => kind == "integer" && value is 0,
+                "a negative integer" => kind == "integer" && value is int negative && negative < 0,
+                _ => false,
+            };
+            Assert.True(says, $"the row for '{phrase}' holds kind '{kind}' and a value that is not what the phrase says");
+        }
+    }
+
+    /// <summary>One call per boundary value of each parameter the tool's schema defines, everything else the valid control.</summary>
+    private static IEnumerable<(string Path, string Kind, Dictionary<string, object?> Arguments, object? Value)> BoundaryCalls(Tool tool)
+    {
+        foreach (var property in tool.InputSchema.GetProperty("properties").EnumerateObject())
+        {
+            foreach (var (path, kind, arguments, value) in BoundaryCallsOf(tool.Name, property.Name, property.Value, member => member))
+                yield return (path, kind, arguments, value);
+
+            if (property.Name == "criteria" && property.Value.TryGetProperty("properties", out var inner))
+            {
+                foreach (var nested in inner.EnumerateObject())
+                {
+                    foreach (var call in BoundaryCallsOf(tool.Name, $"criteria.{nested.Name}", nested.Value, value => new Dictionary<string, object?> { [nested.Name] = value }, "criteria"))
+                        yield return call;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<(string Path, string Kind, Dictionary<string, object?> Arguments, object? Value)> BoundaryCallsOf(
+        string tool, string path, JsonElement schema, Func<object?, object?> wrap, string? top = null)
+    {
+        var admitted = schema.TryGetProperty("type", out var type)
+            ? type.ValueKind == JsonValueKind.Array ? type.EnumerateArray().Select(t => t.GetString()!).ToArray() : [type.GetString()!]
+            : [];
+        foreach (var (_, kind, value) in BoundaryTable)
+        {
+            if (!admitted.Contains(kind)) continue;
+            var arguments = Base(tool);
+            arguments[top ?? path] = wrap(value);
+            yield return (path, kind, arguments, value);
+        }
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
 
     private static Dictionary<string, object?> Minimal(string tool) => tool switch

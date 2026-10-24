@@ -33,7 +33,9 @@ namespace Curia.Mcp;
 /// <para><b>What a result says of itself (errata G27).</b> A search states its cursor, or that it is the last
 /// page, and the terms of each hit when asked (R11.39); <c>curia_read</c> returns the whole thread, its first
 /// block the adapter's own naming the root or where the shown thread begins (R11.38); a call whose arguments do
-/// not match the schema never reaches these methods (R11.37).</para>
+/// not match the schema never reaches these methods (R11.37). A <c>curia_verify</c> whose pin names another document answers an
+/// error and no verdict (R11.42), and a value the schema admits and a tool cannot act on (a blank identifier, a null item)
+/// is an <c>isError</c> result beginning <c>NOT SENT</c> from <c>ArgumentGuards</c> (R11.43, errata G29).</para>
 /// </summary>
 internal sealed partial class ForumTools(
     ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)
@@ -115,7 +117,7 @@ internal sealed partial class ForumTools(
     /// </summary>
     internal async Task<CallToolResult> ReadAsync(string postId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
 
         var read = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
@@ -210,7 +212,7 @@ internal sealed partial class ForumTools(
     internal async Task<CallToolResult> VerifyAsync(
         string postId, string? expectedDigest = null, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
 
         // R11.29: the document this session's read put in the model's context, when there is one.
         var read = _served.TryGetValue(postId, out var remembered);
@@ -226,16 +228,23 @@ internal sealed partial class ForumTools(
               + "This verdict is about the document the Forum served a moment ago, which is not "
               + "necessarily the one you are acting on. Pass the digest a read printed to pin it.\n";
 
-        var pinned = Pinned(expectedDigest, verification);
+        var (pinned, pinFailed) = Pinned(expectedDigest, verification);
+
+        // R11.42: a pin that is not the document answers an error and no verdict. Nothing below the pin line is
+        // about the document the caller named, and a result that goes on to render checks and close "VERIFIED."
+        // would put that sentence in front of a model that asked about something else.
+        if (pinFailed)
+            return new CallToolResult { Content = [new TextContentBlock { Text = subject + pinned }], IsError = true };
 
         return new CallToolResult
         {
             Content = [new TextContentBlock { Text = subject + pinned + verification.Render() }],
 
-            // The transport's own failure flag stays false: a post that fails verification is a
-            // successful answer to "is this post sound?", and marking it an error would put the one
-            // verdict a reader most needs into the channel clients are most likely to retry or
-            // discard. The text says FAILED in words that cannot be misread instead.
+            // The transport's own failure flag stays false for an unsound post: a post that fails verification is a
+            // successful answer to "is this post sound?", and marking it an error would put the one verdict a
+            // reader most needs into the channel clients are most likely to retry or discard. The text says FAILED
+            // in words that cannot be misread instead. A document that is not the one named (R11.42, above) is a
+            // different case: there is no answer to the question asked, so it is an error.
             IsError = false,
         };
     }
@@ -260,18 +269,19 @@ internal sealed partial class ForumTools(
     /// <para>Composed through the frame, so the digest the caller gave and the one the Forum served
     /// are each a display literal (R10.63): neither is this adapter's words.</para>
     /// </summary>
-    private static string Pinned(string? expectedDigest, PostVerification verification)
+    private static (string Text, bool Failed) Pinned(string? expectedDigest, PostVerification verification)
     {
-        if (string.IsNullOrWhiteSpace(expectedDigest)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(expectedDigest)) return (string.Empty, false);
 
         var frame = new FrameBuilder();
         if (string.Equals(expectedDigest, verification.Digest, StringComparison.Ordinal))
-            return frame.Line($"pinned      to the digest you supplied, {expectedDigest}").ToString();
+            return (frame.Line($"pinned      to the digest you supplied, {expectedDigest}").ToString(), false);
 
-        return (verification.Digest is { } served
-                ? frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served} under this id. These are different documents. Nothing below is about the one you asked about.")
-                : frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served no canonical form under this id. Nothing below is about the one you asked about."))
-            .ToString();
+        const string Verdict = "No verdict was reached and no check is reported: every one would be about the other document. Read the post again to get the digest it now has, or call without `expectedDigest` to verify what the Forum serves now.";
+        return ((verification.Digest is { } served
+                ? frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served {served} under this id. These are different documents. {Verdict}")
+                : frame.Line($"pinned      FAILED. You asked about {expectedDigest} and the Forum served no canonical form under this id. {Verdict}"))
+            .ToString(), true);
     }
 
     /// <summary>Keeps the served post, evicting the oldest once the session's cap is reached.</summary>
@@ -293,6 +303,10 @@ internal sealed partial class ForumTools(
         SearchCriteria? criteria = null, CancellationToken cancellationToken = default)
     {
         criteria ??= new SearchCriteria();
+
+        // R11.43: a null item of an array member is refused by its path before the criteria are read.
+        if (ArgumentGuards.Items(criteria.Kinds.IsDefault ? null : criteria.Kinds, "criteria.kinds") is { } refused) return refused;
+        if (ArgumentGuards.Items(criteria.Tags.IsDefault ? null : criteria.Tags, "criteria.tags") is { } refusedTags) return refusedTags;
 
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).

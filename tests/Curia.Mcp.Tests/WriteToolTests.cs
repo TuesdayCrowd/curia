@@ -222,12 +222,13 @@ public sealed class WriteToolTests : IDisposable
     {
         const string Token = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
 
-        var refused = await Assert.ThrowsAsync<McpException>(
-            () => Tools().AskAsync("b", "Why is my token rejected?", "My token is " + Token + " and it fails.", null, null, Ct));
+        var refused = await Tools().AskAsync("b", "Why is my token rejected?", "My token is " + Token + " and it fails.", null, null, Ct);
+        var text = Flatten(refused);
 
-        Assert.StartsWith("NOT SENT", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("Nothing left this host", refused.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(Token, refused.Message, StringComparison.Ordinal);
+        Assert.True(refused.IsError == true);
+        Assert.StartsWith("NOT SENT", text, StringComparison.Ordinal);
+        Assert.Contains("Nothing left this host", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(Token, text, StringComparison.Ordinal);
         Assert.Empty(_log.Requests);
     }
 
@@ -391,12 +392,30 @@ public sealed class WriteToolTests : IDisposable
     {
         var refs = new[] { ADigest, bad };
 
-        var answered = await Assert.ThrowsAsync<McpException>(() => Tools().AnswerAsync(StubLog.PostId, "Cited.", refs, Ct));
-        Assert.StartsWith("NOT SENT: \"A reference is a post digest", answered.Message, StringComparison.Ordinal);
+        var answered = await Tools().AnswerAsync(StubLog.PostId, "Cited.", refs, Ct);
+        Assert.True(answered.IsError == true);
+        Assert.StartsWith("NOT SENT: \"A reference is a post digest", Flatten(answered), StringComparison.Ordinal);
         Assert.Empty(_log.Requests);
 
-        var commented = await Assert.ThrowsAsync<McpException>(() => Tools().CommentAsync(StubLog.PostId, "Cited.", refs, Ct));
-        Assert.StartsWith("NOT SENT: \"A reference is a post digest", commented.Message, StringComparison.Ordinal);
+        var commented = await Tools().CommentAsync(StubLog.PostId, "Cited.", refs, Ct);
+        Assert.True(commented.IsError == true);
+        Assert.StartsWith("NOT SENT: \"A reference is a post digest", Flatten(commented), StringComparison.Ordinal);
+        Assert.Empty(_log.Requests);
+    }
+
+    /// <summary>R8.67 (errata G29): a URL that does not parse is none of the three forms, so a comment citing it is not sent.</summary>
+    [Fact]
+    public async Task R8_67_AMcpReplyWithAnUnparseableUrlIsNotSent()
+    {
+        var refs = new[] { "https://a b" };
+
+        var commented = await Tools().CommentAsync(StubLog.PostId, "Cited.", refs, Ct);
+        var text = Flatten(commented);
+
+        Assert.True(commented.IsError == true);
+        Assert.StartsWith("NOT SENT: \"A reference is a post digest", text, StringComparison.Ordinal);
+        Assert.Contains("pkg:", text, StringComparison.Ordinal);
+        Assert.Contains("https://", text, StringComparison.Ordinal);
         Assert.Empty(_log.Requests);
     }
 
@@ -549,11 +568,12 @@ public sealed class WriteToolTests : IDisposable
         var tools = Tools(agent: Delegated(signer));
         signer.Refuse();
 
-        var refused = await Assert.ThrowsAsync<McpException>(
-            () => tools.AskAsync("b", "Signed elsewhere?", "By another process.", null, null, Ct));
+        var refused = await tools.AskAsync("b", "Signed elsewhere?", "By another process.", null, null, Ct);
+        var text = Flatten(refused);
 
-        Assert.StartsWith("NOT SENT", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("signer-refused", refused.Message, StringComparison.Ordinal);
+        Assert.True(refused.IsError == true);
+        Assert.StartsWith("NOT SENT", text, StringComparison.Ordinal);
+        Assert.Contains("signer-refused", text, StringComparison.Ordinal);
         Assert.Empty(_log.Requests);
         Assert.Equal(0, signer.Signatures);
     }

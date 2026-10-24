@@ -32,12 +32,14 @@ namespace Curia.Mcp;
 ///
 /// <para><b>What a description may say is held to the schema (R11.37 to R11.39, errata G27).</b> Every
 /// tool's schema marks only its needs required, and a call carrying an argument the schema does not define
-/// is refused before it is sent, so a description names an argument only if its schema defines it.</para>
+/// is refused before it is sent, so a description names an argument only if its schema defines it. A value the schema admits and
+/// a tool cannot act on is refused by name through <c>ArgumentGuards</c> (R11.43, errata G29), and the gate varies each
+/// parameter's boundary values (R14.12).</para>
 /// </summary>
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.5.0";
+    internal const string Version = "0.5.1";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {

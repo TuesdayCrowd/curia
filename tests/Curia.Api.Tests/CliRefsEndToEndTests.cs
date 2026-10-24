@@ -98,6 +98,26 @@ public sealed partial class CliRefsEndToEndTests(KestrelForumFixture forum) : IC
         Assert.Matches(@"(?m)^refs\s+2 reference\(s\)", read.Stdout);
     }
 
+    /// <summary>R8.67 (errata G29): the same URL the MCP adapter refuses is refused by the command before anything is sent.</summary>
+    [Fact]
+    public async Task R8_67_TheCliRefusesTheSameUrlBeforeSending()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
+        var (questionId, _, board) = await AskAsync("asker-u", ct);
+        Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "quill-u", "--forum", Address)).Exit);
+        var before = await LogLengthAsync(ct);
+
+        var refused = await CuriaAsync(ct, "comment", "--agent", "quill-u", "--board", board, "--parent", questionId,
+            "--body", "a comment", "--refs", "https://a b", "--forum", Address);
+
+        Assert.True(refused.Exit == 1, $"exit {refused.Exit}, not 1:\n{refused.Stdout}{refused.Stderr}");
+        Assert.Contains("sha256:", refused.Stderr, StringComparison.Ordinal);
+        Assert.Contains("pkg:", refused.Stderr, StringComparison.Ordinal);
+        Assert.Contains("https://", refused.Stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await LogLengthAsync(ct));
+    }
+
     /// <summary>P8: a value that is none of the three forms is a usage error naming them, and nothing reaches the log.</summary>
     [Fact]
     public async Task R8_65_ARefsValueThatIsNoneOfTheThreeFormsIsRefusedBeforeAnythingIsSent()

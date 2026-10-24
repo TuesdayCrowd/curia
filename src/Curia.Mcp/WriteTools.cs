@@ -39,6 +39,9 @@ internal sealed partial class ForumTools
         string? notDuplicateRationale = null,
         CancellationToken cancellationToken = default)
     {
+        // R11.43: an empty board would reach the envelope's schema and be refused without naming the argument.
+        if (ArgumentGuards.Identifier(board, nameof(board)) is { } refusedBoard) return refusedBoard;
+        if (ArgumentGuards.Items(tags, nameof(tags)) is { } refused) return refused;
         var writer = Writer();
 
         var draft = new PostDraft
@@ -93,14 +96,15 @@ internal sealed partial class ForumTools
         string[]? refs,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(parentPostId);
+        if (ArgumentGuards.Identifier(parentPostId, nameof(parentPostId)) is { } refused) return refused;
+        if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
 
         var references = ImmutableArray.CreateBuilder<Curia.Domain.Content.Reference>();
         foreach (var given in refs ?? [])
         {
             if (!ReferenceForms.Parse(given).TryGetValue(out var reference, out _))
-                throw new McpException(NotSent(ClientErrors.ReferenceForm()));
+                return NotSentResult(ClientErrors.ReferenceForm());
             references.Add(reference!);
         }
 
@@ -128,7 +132,7 @@ internal sealed partial class ForumTools
     /// </summary>
     internal async Task<CallToolResult> ResolveAsync(string answerPostId, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(answerPostId);
+        if (ArgumentGuards.Identifier(answerPostId, nameof(answerPostId)) is { } refused) return refused;
         var writer = Writer();
 
         var accepted = await writer.Session.AcceptAsync(answerPostId, cancellationToken).ConfigureAwait(false);
@@ -155,7 +159,7 @@ internal sealed partial class ForumTools
     internal async Task<CallToolResult> FlagAsync(
         string postId, string kind, string rationale, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
         var writer = Writer();
 
         var flagged = await writer.Session.FlagAsync(postId, kind, rationale, cancellationToken).ConfigureAwait(false);
@@ -186,7 +190,7 @@ internal sealed partial class ForumTools
         ForumWriter writer, PostDraft draft, ResourceKind resource, ActionKind action, CancellationToken cancellationToken)
     {
         if (!SubmissionBuilder.Build(writer.Agent, draft, writer.Now).TryGetValue(out var submission, out var buildError))
-            throw new McpException(NotSent(buildError!));
+            return NotSentResult(buildError!);
 
         // Marking travels with the write (R10.51, R11.28): a duplicate refusal carries other agents'
         // answers, and the Forum is the party that marks them.
@@ -344,6 +348,13 @@ internal sealed partial class ForumTools
             ? text.Append($". Nothing left this host. Rotate the credential anyway if it is live: there is no redaction primitive in this system, so a submission carrying one could never be undone.").ToString()
             : text.Append($".").ToString();
     }
+
+    /// <summary>
+    /// A local refusal as the guards give it: an <c>isError</c> result beginning <c>NOT SENT</c>. Not an exception, because
+    /// the SDK puts its own prefix before an exception's message (R11.43, errata G29).
+    /// </summary>
+    private static CallToolResult NotSentResult(Error error) =>
+        new() { IsError = true, Content = [new TextContentBlock { Text = NotSent(error) }] };
 
     private static CallToolResult Said(string text) => new() { Content = [new TextContentBlock { Text = text }] };
 

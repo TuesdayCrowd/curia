@@ -200,6 +200,148 @@ public sealed class ReaderFrameToolTests : IDisposable
         AssertNoForgedLine("curia_verify with a hostile expectedDigest", text);
     }
 
+    // ---- R11.42 (errata G29): a failed pin carries no verdict ----------------------------------------------------------
+
+    private static string Sha256Of(string text) =>
+        "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    private async Task<CallToolResult> VerifyPinnedAsync(StubLog log, string? expectedDigest)
+    {
+        var (tools, agent) = Tools(log);
+        using var owned = agent;
+        return await tools.VerifyAsync(StubLog.PostId, expectedDigest, TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>The check labels and the closing word, read from the control's own rendering (a held pin), never typed here.</summary>
+    private static (string[] Labels, string Closing) RenderedVocabulary(string control)
+    {
+        var blocks = control.Replace("\r\n", "\n", StringComparison.Ordinal).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(blocks.Length >= 3, $"the control's rendering has {blocks.Length} blocks, not subject / checks / closing; a defect in this fact:\n{control}");
+        var labels = blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Split(' ')[0]).ToArray();
+        Assert.Equal(5, labels.Length);
+        var closing = blocks[2].Split(' ')[0];
+        Assert.NotEmpty(closing);
+        return (labels, closing);
+    }
+
+    /// <summary>The first forty characters of what each of the control's five check lines says after its label, and of its closing verdict.</summary>
+    private static string[] ContentOfChecks(string control)
+    {
+        var blocks = control.Replace("\r\n", "\n", StringComparison.Ordinal).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(blocks.Length >= 3, $"the control's rendering has {blocks.Length} blocks; a defect in this fact:\n{control}");
+        string Head(string value) => value.Length > 40 ? value[..40] : value;
+        return
+        [
+            .. blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => Head(l[(l.IndexOf(' ', StringComparison.Ordinal))..].TrimStart())),
+            Head(blocks[2]),
+        ];
+    }
+
+    /// <summary>R11.42: a pin that is not the document answers an error that states both digests and that no verdict was reached; the right pin does not.</summary>
+    [Fact]
+    public async Task R11_42_AFailedPinAnswersAnErrorAndNoVerdict()
+    {
+        var wrong = "sha256:" + new string('0', 64);
+        var failed = await VerifyPinnedAsync(_log, wrong);
+        var text = Flatten(failed);
+
+        Assert.True(failed.IsError == true, $"a failed pin answered isError={failed.IsError}:\n{text}");
+        Assert.Contains(Curia.Canon.Json.DisplayLiteral.Of(wrong), text, StringComparison.Ordinal);
+        Assert.Contains(Curia.Canon.Json.DisplayLiteral.Of(Sha256Of(_log.Canonical)), text, StringComparison.Ordinal);
+        Assert.Contains("no verdict", text, StringComparison.OrdinalIgnoreCase);
+
+        var control = await VerifyPinnedAsync(_log, Sha256Of(_log.Canonical));
+        Assert.False(control.IsError == true, $"the control (the right digest) answered an error:\n{Flatten(control)}");
+    }
+
+    /// <summary>R11.42: nothing after a failed pin is a check or a closing verdict of the other document.</summary>
+    [Fact]
+    public async Task R11_42_NothingAfterAFailedPinIsAboutTheOtherDocument()
+    {
+        var (labels, closing) = RenderedVocabulary(Flatten(await VerifyPinnedAsync(_log, Sha256Of(_log.Canonical))));
+        var controlText = Flatten(await VerifyPinnedAsync(_log, Sha256Of(_log.Canonical)));
+        var text = Flatten(await VerifyPinnedAsync(_log, "sha256:" + new string('0', 64)));
+
+        // Label-independent: the content of the control's checks and verdict, whatever they are called, is absent, and the result is shorter.
+        var contents = ContentOfChecks(controlText);
+        Assert.Equal(6, contents.Length);
+        var leaked = contents.Where(c => text.Contains(c, StringComparison.Ordinal)).ToArray();
+        Assert.True(leaked.Length == 0, $"the result after a failed pin still holds check content of the other document ({string.Join(" | ", leaked)}):\n{text}");
+        Assert.True(
+            text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length < controlText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length,
+            $"the result after a failed pin is no shorter than the control's:\n{text}");
+
+        var lines = text.Split('\n');
+        var offending = lines.Where(l => labels.Any(label => l.StartsWith(label + " ", StringComparison.Ordinal)) || l.StartsWith(closing, StringComparison.Ordinal)).ToArray();
+        Assert.True(offending.Length == 0, $"the result after a failed pin still holds a check or closing line of the other document ({string.Join(" | ", offending.Select(l => l.Length > 40 ? l[..40] : l))}):\n{text}");
+    }
+
+    /// <summary>R11.42 (ruling 6a): the pin is compared to the digest of the canonical form, never to the <c>digest</c> member the Forum served.</summary>
+    [Fact]
+    public async Task R11_42_ThePinIsComparedToTheDigestComputedAndNotTheOneServed()
+    {
+        var lie = "sha256:" + new string('b', 64);
+        using var log = new StubLog { ServedDigest = lie };
+        var computed = Sha256Of(log.Canonical);
+        Assert.NotEqual(lie, computed);
+        Assert.Equal(log.Submission.PrefixedDigest, computed);
+
+        var result = await VerifyPinnedAsync(log, lie);
+        var text = Flatten(result);
+
+        Assert.True(result.IsError == true, $"a pin equal to the served digest member held, though the canonical form digests to {computed}:\n{text}");
+        Assert.Contains(Curia.Canon.Json.DisplayLiteral.Of(computed), text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The text of an unpinned and of a held-pin verify of the stub's post, from the build before this stage; the digests, which vary with the agent's random key, are masked.</summary>
+    private const string GoldenNoPin = """
+subject     WARNING: no read in this session served this post, so it was fetched now. This verdict is about the document the Forum served a moment ago, which is not necessarily the one you are acting on. Pass the digest a read printed to pin it.
+post       "01TESTPOSTID0000000000000A"
+digest     sha256:<hex>   (computed here, from the served document)
+log_index  2
+anchor     signed head at tree size 5
+
+signature   verified: recanonicalized bytes are byte-identical to the served canonical form (kid="alice-1")
+inclusion   verified: leaf 2 of 5, recomputed from the log entry, is under root "sha256:<hex>", and the signed head commits to root "sha256:<hex>" at tree size 5
+consistency COULD NOT BE CHECKED: this client had retained no earlier head for "http://forum.test", so there was nothing to compare against. The head at tree size 5 is now retained, and the next verification will check the log against it (R6.53).
+key         verified: kid="alice-1" is the key the log bound to "https://agents.example/alice" at leaf 1, before this post at leaf 2, the post as the log holds it verifies under the key that leaf carries, and the signed head commits to root "sha256:<hex>" at tree size 5
+lifecycle   verified: the author's key "alice-1" was bound at log index 1 and was live at the post's 2; 2 lifecycle entries checked through log index 1
+
+VERIFIED. This client checked the signature over bytes it re-canonicalized itself, recomputed the log leaf from the log's own entry rather than accepting the digest the Forum served for it, found the signing key bound to the author in the log before the post, and found it live in the author's lifecycle when the post was accepted.
+""";
+
+    private const string GoldenHeldPin = """
+subject     WARNING: no read in this session served this post, so it was fetched now. This verdict is about the document the Forum served a moment ago, which is not necessarily the one you are acting on. Pass the digest a read printed to pin it.
+pinned      to the digest you supplied, "sha256:<hex>"
+post       "01TESTPOSTID0000000000000A"
+digest     sha256:<hex>   (computed here, from the served document)
+log_index  2
+anchor     signed head at tree size 5
+
+signature   verified: recanonicalized bytes are byte-identical to the served canonical form (kid="alice-1")
+inclusion   verified: leaf 2 of 5, recomputed from the log entry, is under root "sha256:<hex>", and the signed head commits to root "sha256:<hex>" at tree size 5
+consistency verified: the served head is the one this client retained, at tree size 5
+key         verified: kid="alice-1" is the key the log bound to "https://agents.example/alice" at leaf 1, before this post at leaf 2, the post as the log holds it verifies under the key that leaf carries, and the signed head commits to root "sha256:<hex>" at tree size 5
+lifecycle   verified: the author's key "alice-1" was bound at log index 1 and was live at the post's 2; 2 lifecycle entries checked through log index 1
+
+VERIFIED. This client checked the signature over bytes it re-canonicalized itself, recomputed the log leaf from the log's own entry rather than accepting the digest the Forum served for it, found the signing key bound to the author in the log before the post, and found it live in the author's lifecycle when the post was accepted.
+""";
+
+    private static string MaskDigests(string text) =>
+        System.Text.RegularExpressions.Regex.Replace(text.Replace("\r\n", "\n", StringComparison.Ordinal), "sha256:[0-9a-f]{64}", "sha256:<hex>").TrimEnd('\n');
+
+    /// <summary>R11.42: no pin, and a pin that holds, keep the text they had before this stage (golden taken from the unmodified build).</summary>
+    [Fact]
+    public async Task R11_42_ANoPinAndAHeldPinAreUnchanged()
+    {
+        Assert.Equal(GoldenNoPin, MaskDigests(Flatten(await VerifyPinnedAsync(_log, null))));
+        var pin = Sha256Of(_log.Canonical);
+        var held = Flatten(await VerifyPinnedAsync(_log, pin));
+        Assert.Contains($"pinned      to the digest you supplied, \"{pin}\"", held, StringComparison.Ordinal);
+        Assert.Contains($"digest     {pin}   (computed here", held, StringComparison.Ordinal);
+        Assert.Equal(GoldenHeldPin, MaskDigests(held));
+    }
+
     /// <summary>
     /// R11.38 / R10.63: the walk's <c>CUT</c> line writes the post's served <c>parent</c>, a value the post's author chose.
     /// A parent holding line breaks, a forged line and a very long run, which the Forum then will not serve, reaches the
