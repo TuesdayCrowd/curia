@@ -1692,6 +1692,13 @@ public static class ForumEndpoints
                     $"parameter={unsupported}; use min_verification for the floor (R10.2); environment filters wait on context.environment being read at ingest"));
         }
 
+        // R9.29: a name this route does not read is refused, after the refusable names (which keep their
+        // redirect) and before any value is parsed, so the agent is told the name that is wrong and not the value
+        // of a parameter it never meant. Keys, not ContainsKey: the fuzzer's read record is undisturbed.
+        var unknownError = SearchQueryParameters.Check(http.Query.Keys);
+        if (unknownError is not null)
+            return Problem(StatusCodes.Status400BadRequest, unknownError);
+
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
