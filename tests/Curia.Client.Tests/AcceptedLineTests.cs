@@ -127,6 +127,23 @@ public sealed class AcceptedLineTests : IDisposable
             Assert.DoesNotContain(clause, plain.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The constant itself, not a rendering of it: the moved R10.74 facts compare the constant to itself, so this is the fact
+    /// that holds its words to R10.79's sentence (parsed from the errata, which the call checks still holds the clauses).
+    /// </summary>
+    [Fact]
+    public void R10_79_TheAcceptanceStatementNamesTheForumTheAskerAndThatItChecksNothing()
+    {
+        R1079();
+        var statement = Curia.Client.Passage.AcceptedStatement;
+
+        Assert.NotEmpty(Clauses);
+        foreach (var clause in Clauses)
+            Assert.True(statement.Contains(clause, StringComparison.Ordinal), $"Passage.AcceptedStatement lacks R10.79's '{clause}': {statement}");
+        foreach (var badge in Badges)
+            Assert.DoesNotContain(badge, statement, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void R10_79_TheScreenAndTheLineFormShareOneAcceptanceStatement()
     {

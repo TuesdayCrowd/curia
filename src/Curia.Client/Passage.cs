@@ -84,10 +84,11 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
     /// answers and accept it, so "accepted" must read as a claim about the asker and never about the answer. None of
     /// verified, correct, trusted, endorsed or true (R10.50: no field is a badge).
     /// </summary>
+    public const string AcceptedStatement = "accepted by the thread's asker (the Forum's word: no signature covers an acceptance, and it checks nothing about the answer)";
+
+    /// <summary>R8.66's tail for a count line: how many signed items this client could not read, or nothing when none were dropped.</summary>
     private static OwnText NotRead(int dropped) =>
         new(dropped > 0 ? $", {dropped} NOT READ (signed by the author, not an item this client can read)" : string.Empty);
-
-    public const string AcceptedStatement = "accepted by the thread's asker (the Forum's word: no signature covers an acceptance, and it checks nothing about the answer)";
 
     /// <summary>
     /// The passage as this client frames it. Every value on the frame's lines that this client did

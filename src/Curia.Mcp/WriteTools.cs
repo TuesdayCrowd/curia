@@ -420,7 +420,7 @@ internal sealed partial class ForumTools
     /// </summary>
     private static string NotAnAnswerSentence(string? detail)
     {
-        var kind = detail?.Split(' ').FirstOrDefault(token => token.StartsWith("kind=", StringComparison.Ordinal))?["kind=".Length..];
+        var kind = detail?.Split(' ').LastOrDefault(token => token.StartsWith("kind=", StringComparison.Ordinal))?["kind=".Length..];
         return kind is { Length: > 0 }
             ? $"The post you named is of kind {DisplayLiteral.Of(kind)}, and only a post of kind answer can be accepted."
             : "The post you named is not an answer, and only an answer can be accepted.";

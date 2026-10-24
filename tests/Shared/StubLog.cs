@@ -1566,7 +1566,7 @@ internal sealed class StubLog : IDisposable
             }
 
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesTheThread)
-                {
+            {
                 var answer = log.AnswerJson();
                 if (log.HostileAnswerIdSuffix is { } hostileId)
                     answer = answer.Replace($"\"post_id\":\"{AnswerPostId}\"", $"\"post_id\":{System.Text.Json.JsonSerializer.Serialize(AnswerPostId + hostileId)}", StringComparison.Ordinal);

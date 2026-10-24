@@ -150,6 +150,10 @@ internal static class SurfaceInventory
         var members = new List<string>();
         foreach (var p in typeof(PostEnvelope).GetConstructors().Single().GetParameters())
         {
+            // R8.66 (errata G28): the reader's own counts of items it could not read, computed from the signed array and never
+            // a member the parser reads from the wire, so no request carries one.
+            if (p.Name!.StartsWith("Dropped", StringComparison.Ordinal)) continue;
+
             var name = SnakeCase(p.Name!);
             members.Add(name);
             if (p.ParameterType.IsGenericType
