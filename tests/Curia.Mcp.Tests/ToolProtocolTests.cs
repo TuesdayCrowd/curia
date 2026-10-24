@@ -421,6 +421,11 @@ public sealed class ToolProtocolTests : IDisposable
     public async Task R11_43_ANullItemOfTagsIsRefusedByIndex()
     {
         await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var controlArguments = Base("curia_ask");
+        controlArguments["tags"] = new[] { "t", "u" };
+        var control = await session.CallAsync("curia_ask", controlArguments);
+        Assert.False(Generic("curia_ask", control) || control.Text.StartsWith(ContractRefusal, StringComparison.Ordinal), $"the control call (valid tags) was refused:\n{control.Text}");
+
         _log.Requests.Clear();
         var arguments = Base("curia_ask");
         arguments["tags"] = new object?[] { "t", null };
@@ -555,6 +560,22 @@ public sealed class ToolProtocolTests : IDisposable
         var phrases = match.Groups["list"].Value.Split(", ").SelectMany(group => group.Split(" and ")).Select(p => p.Trim()).ToArray();
         Assert.Equal(6, phrases.Length);
         Assert.Equal(phrases, BoundaryTable.Select(row => row.Phrase).ToArray());
+
+        // Each row's kind and value are what its phrase says.
+        foreach (var (phrase, kind, value) in BoundaryTable)
+        {
+            var says = phrase switch
+            {
+                "an empty" => kind == "string" && value is "",
+                "a blank string" => kind == "string" && value is string blank && blank.Length > 0 && blank.All(char.IsWhiteSpace),
+                "an empty array" => kind == "array" && value is object?[] { Length: 0 },
+                "an array holding `null`" => kind == "array" && value is object?[] { Length: 1 } one && one[0] is null,
+                "zero" => kind == "integer" && value is 0,
+                "a negative integer" => kind == "integer" && value is int negative && negative < 0,
+                _ => false,
+            };
+            Assert.True(says, $"the row for '{phrase}' holds kind '{kind}' and a value that is not what the phrase says");
+        }
     }
 
     /// <summary>One call per boundary value of each parameter the tool's schema defines, everything else the valid control.</summary>

@@ -291,6 +291,21 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
         foreach (var label in new[] { "signature   ", "inclusion   ", "consistency ", "key         ", "lifecycle   " })
             Assert.DoesNotContain(failed.Text.Split('\n'), line => line.StartsWith(label, StringComparison.Ordinal));
         Assert.DoesNotContain(failed.Text.Split('\n'), line => line.StartsWith("VERIFIED", StringComparison.Ordinal));
+
+        // Label-independent: no check content of the control's rendering appears, and the failed result is shorter.
+        var blocks = control.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(blocks.Length >= 3, $"the control's rendering has {blocks.Length} blocks:\n{control.Text}");
+        var contents = blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l[l.IndexOf(' ', StringComparison.Ordinal)..].TrimStart())
+            .Append(blocks[2])
+            .Select(c => c.Length > 40 ? c[..40] : c)
+            .ToArray();
+        Assert.Equal(6, contents.Length);
+        var leaked = contents.Where(c => failed.Text.Contains(c, StringComparison.Ordinal)).ToArray();
+        Assert.True(leaked.Length == 0, $"the failed pin's result still holds check content ({string.Join(" | ", leaked)}):\n{failed.Text}");
+        Assert.True(
+            failed.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length < control.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length,
+            $"the failed result is no shorter than the control's:\n{failed.Text}");
     }
 
     /// <summary>R11.43: a null item of <c>refs</c> posts nothing, and the Forum's own thread document is the same after the call.</summary>

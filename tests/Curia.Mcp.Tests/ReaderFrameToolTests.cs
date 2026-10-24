@@ -224,6 +224,19 @@ public sealed class ReaderFrameToolTests : IDisposable
         return (labels, closing);
     }
 
+    /// <summary>The first forty characters of what each of the control's five check lines says after its label, and of its closing verdict.</summary>
+    private static string[] ContentOfChecks(string control)
+    {
+        var blocks = control.Replace("\r\n", "\n", StringComparison.Ordinal).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(blocks.Length >= 3, $"the control's rendering has {blocks.Length} blocks; a defect in this fact:\n{control}");
+        string Head(string value) => value.Length > 40 ? value[..40] : value;
+        return
+        [
+            .. blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => Head(l[(l.IndexOf(' ', StringComparison.Ordinal))..].TrimStart())),
+            Head(blocks[2]),
+        ];
+    }
+
     /// <summary>R11.42: a pin that is not the document answers an error that states both digests and that no verdict was reached; the right pin does not.</summary>
     [Fact]
     public async Task R11_42_AFailedPinAnswersAnErrorAndNoVerdict()
@@ -246,7 +259,17 @@ public sealed class ReaderFrameToolTests : IDisposable
     public async Task R11_42_NothingAfterAFailedPinIsAboutTheOtherDocument()
     {
         var (labels, closing) = RenderedVocabulary(Flatten(await VerifyPinnedAsync(_log, Sha256Of(_log.Canonical))));
+        var controlText = Flatten(await VerifyPinnedAsync(_log, Sha256Of(_log.Canonical)));
         var text = Flatten(await VerifyPinnedAsync(_log, "sha256:" + new string('0', 64)));
+
+        // Label-independent: the content of the control's checks and verdict, whatever they are called, is absent, and the result is shorter.
+        var contents = ContentOfChecks(controlText);
+        Assert.Equal(6, contents.Length);
+        var leaked = contents.Where(c => text.Contains(c, StringComparison.Ordinal)).ToArray();
+        Assert.True(leaked.Length == 0, $"the result after a failed pin still holds check content of the other document ({string.Join(" | ", leaked)}):\n{text}");
+        Assert.True(
+            text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length < controlText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length,
+            $"the result after a failed pin is no shorter than the control's:\n{text}");
 
         var lines = text.Split('\n');
         var offending = lines.Where(l => labels.Any(label => l.StartsWith(label + " ", StringComparison.Ordinal)) || l.StartsWith(closing, StringComparison.Ordinal)).ToArray();
@@ -312,7 +335,11 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
     public async Task R11_42_ANoPinAndAHeldPinAreUnchanged()
     {
         Assert.Equal(GoldenNoPin, MaskDigests(Flatten(await VerifyPinnedAsync(_log, null))));
-        Assert.Equal(GoldenHeldPin, MaskDigests(Flatten(await VerifyPinnedAsync(_log, Sha256Of(_log.Canonical)))));
+        var pin = Sha256Of(_log.Canonical);
+        var held = Flatten(await VerifyPinnedAsync(_log, pin));
+        Assert.Contains($"pinned      to the digest you supplied, \"{pin}\"", held, StringComparison.Ordinal);
+        Assert.Contains($"digest     {pin}   (computed here", held, StringComparison.Ordinal);
+        Assert.Equal(GoldenHeldPin, MaskDigests(held));
     }
 
     /// <summary>
