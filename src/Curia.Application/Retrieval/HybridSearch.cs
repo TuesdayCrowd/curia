@@ -26,7 +26,11 @@ public sealed record SearchQuery(
 /// A page of hybrid retrieval, with everything the response states about how it was made.
 /// <c>ExcludedDisputed</c> (R6.57) counts the posts the current log disputes among the diversified
 /// list the cursor's offset indexes, so it is equal on every page of one query; a disputed post
-/// below the verification floor is not in that list and is not counted. A page may be shorter than
+/// below the verification floor is not in that list and is not counted. <c>ExcludedByFloor</c>
+/// (R9.30) counts the posts the floor removed from the fused candidate list, before diversification
+/// and the window, so it is equal on every page of one query; it is a lower bound on what the floor
+/// hides from the corpus, because each channel cuts its candidates at the candidate depth. Neither
+/// count has a default: a forgotten pass-through must not compile into "removed nothing". A page may be shorter than
 /// its limit, or empty with a cursor, because disputed posts are dropped after the offset.
 /// </summary>
 public sealed record SearchPage(
@@ -40,11 +44,8 @@ public sealed record SearchPage(
     int CandidateDepth,
     int K,
     double MinimumCosine,
-    int ExcludedDisputed = 0)
-{
-    /// <summary>Task 0's stub (R9.30): Task 1 replaces it with the count the floor removed.</summary>
-    public int ExcludedByFloor => ExcludedDisputed * 0;
-}
+    int ExcludedByFloor,
+    int ExcludedDisputed);
 
 /// <summary>
 /// §9.2's pipeline: lexical and vector candidates fused by reciprocal rank fusion (R9.4), Table
@@ -117,6 +118,7 @@ public sealed class HybridSearch
         var (surfaceFloor, source) = _floors.Resolve(surface);
         var floor = query.RequestedFloor ?? surfaceFloor;
         var admitted = HybridRanking.Admit(fused, floor);
+        var excludedByFloor = fused.Length - admitted.Length;   // R9.30: the floor's removals alone, before dispute
         var diversified = HybridRanking.Diversify(admitted, limit);
 
         var window = diversified.Skip(offset).Take(limit);
@@ -135,6 +137,7 @@ public sealed class HybridSearch
             HybridRanking.CandidateDepth,
             RankFusion.DefaultK,
             HybridRanking.MinimumCosine,
+            excludedByFloor,
             excludedDisputed));
     }
 
