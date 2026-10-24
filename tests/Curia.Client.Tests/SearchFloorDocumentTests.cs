@@ -12,10 +12,6 @@ namespace Curia.Client.Tests;
 /// from <c>0</c> when the Forum does not, and a value that is no count is a malformed response, not a
 /// number the client has chosen. The floor block is scripted, so the oracle is the JSON this fact
 /// writes, not the client's reading of it.
-///
-/// <para>The members are read by reflection and not by name, so the fact compiles before the document
-/// has them and fails by saying what is missing (Task 0 of the stage; the document gains the members in
-/// Task 3).</para>
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -35,21 +31,13 @@ public sealed class SearchFloorDocumentTests
         return await client.SearchAsync(new SearchRequest("jcs") { MinVerification = "V1" }, MarkingMode.None, CancellationToken.None);
     }
 
-    /// <summary>The document's member by its property name: null when the document has none, which is the failure Task 0 records.</summary>
-    private static int? Count(RetrievalFloorDocument floor, string property)
-    {
-        var member = typeof(RetrievalFloorDocument).GetProperty(property);
-        Assert.True(member is not null, $"RetrievalFloorDocument has no {property} member (R9.30)");
-        return (int?)member.GetValue(floor);
-    }
-
     [Fact]
     public async Task R9_30_AClientKeepsTheCountsTheFloorBlockServes()
     {
         var found = await SearchAsync(Page(""","excluded_by_floor":4,"excluded_disputed":2"""));
 
         Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
-        Assert.Equal((4, 2), (Count(page.Floor, "ExcludedByFloor"), Count(page.Floor, "ExcludedDisputed")));
+        Assert.Equal((4, 2), (page.Floor.ExcludedByFloor, page.Floor.ExcludedDisputed));
     }
 
     [Theory]
@@ -61,7 +49,7 @@ public sealed class SearchFloorDocumentTests
         var found = await SearchAsync(Page(tail));
 
         Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
-        Assert.Equal(expected, Count(page.Floor, "ExcludedByFloor"));
+        Assert.Equal(expected, page.Floor.ExcludedByFloor);
     }
 
     [Theory]

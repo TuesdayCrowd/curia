@@ -78,9 +78,19 @@ public sealed record SearchHitDocument(ProvenancePost Post, long ScoreMicro, Why
 /// and is treated as opaque here rather than decoded, because a client that decoded it would be
 /// depending on an encoding the Forum is free to change.</para>
 /// </summary>
-/// <summary>R10.2 as stated on the response: the floor in force, where it came from, and the kinds it applied to.</summary>
+/// <summary>
+/// R10.2 as stated on the response: the floor in force, where it came from, and the kinds it applied to.
+/// <c>ExcludedByFloor</c> and <c>ExcludedDisputed</c> (R9.30) are the counts the Forum states; null means the
+/// Forum did not state one (an older Forum), which is not the same as zero.
+/// </summary>
 public sealed record RetrievalFloorDocument(
-    string Surface, string MinVerification, string Source, ImmutableArray<string> AppliesTo, ImmutableArray<string> NotApplicableTo);
+    string Surface,
+    string MinVerification,
+    string Source,
+    ImmutableArray<string> AppliesTo,
+    ImmutableArray<string> NotApplicableTo,
+    int? ExcludedByFloor,
+    int? ExcludedDisputed);
 
 public sealed record SearchPage(
     ImmutableArray<SearchHitDocument> Results,
@@ -361,6 +371,11 @@ internal static class ForumDocuments
         if (ClientJson.Object(o, "floor") is not { } floor)
             return Result<SearchPage>.Fail(ClientErrors.ResponseMalformed("search page states no floor (R10.2)"));
 
+        if (!FloorCount(floor, "excluded_by_floor").TryGetValue(out var excludedByFloor, out var floorCountError))
+            return Result<SearchPage>.Fail(floorCountError!);
+        if (!FloorCount(floor, "excluded_disputed").TryGetValue(out var excludedDisputed, out floorCountError))
+            return Result<SearchPage>.Fail(floorCountError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -369,9 +384,25 @@ internal static class ForumDocuments
                 ClientJson.String(floor, "min_verification") ?? string.Empty,
                 ClientJson.String(floor, "source") ?? string.Empty,
                 Strings(floor, "applies_to"),
-                Strings(floor, "not_applicable_to")),
+                Strings(floor, "not_applicable_to"),
+                excludedByFloor,
+                excludedDisputed),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
+    }
+
+    /// <summary>
+    /// R9.30: a floor count is absent (null: the Forum did not state it) or a non-negative whole number that
+    /// fits an int. Anything else that is present is a malformed response and is not coerced.
+    /// </summary>
+    private static Result<int?> FloorCount(JsonValue.Object floor, string name)
+    {
+        if (ClientJson.Member(floor, name) is null)
+            return Result<int?>.Ok(null);
+
+        return ClientJson.WholeNumber(floor, name) is >= 0 and <= int.MaxValue and var count
+            ? Result<int?>.Ok((int)count)
+            : Result<int?>.Fail(ClientErrors.ResponseMalformed("search page states a floor count that is not a count (R9.30)"));
     }
 
     private static WhyRanked ReadWhy(JsonValue.Object why)
