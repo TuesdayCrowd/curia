@@ -38,7 +38,7 @@ public sealed class RaiseFlagTests
     private static IEnumerable<AppendedEvent> FlagEvents(IReadOnlyList<AppendedEvent> log) =>
         log.Where(e => e.Event.Type.Value is FlagProjector.FlagCommittedType or FlagProjector.FlagRaisedType);
 
-    /// <summary>A post exists when its stream has an event; the existence check reads nothing else.</summary>
+    /// <summary>A post exists when its stream holds a <c>post.accepted</c> event (D39, R10.35): an event of another type is no post.</summary>
     private static async Task PostExistsAsync(InMemoryEventStore store, CancellationToken ct) =>
         Require(await store.AppendAsync(
             Require(AggregateId.Create(Post)),
