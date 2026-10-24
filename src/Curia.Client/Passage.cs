@@ -78,6 +78,15 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
             : Verdict.DescribeRead;
 
     /// <summary>
+    /// R10.79's statement of an acceptance, shared by every form that prints one (the line form, the titled index, the
+    /// screen's header H6, <c>curia_read</c>'s resolution line). Whose word (the Forum's), what no signature covers, whose
+    /// choice it is and that it checks nothing about the answer: the author of a hostile answer can ask the question it
+    /// answers and accept it, so "accepted" must read as a claim about the asker and never about the answer. None of
+    /// verified, correct, trusted, endorsed or true (R10.50: no field is a badge).
+    /// </summary>
+    public const string AcceptedStatement = "accepted by the thread's asker (the Forum's word: no signature covers an acceptance, and it checks nothing about the answer)";
+
+    /// <summary>
     /// The passage as this client frames it. Every value on the frame's lines that this client did
     /// not compute -- the post's identifiers, its author and owner, what the Forum said about it --
     /// is written as a display literal (R10.63, errata G17), so none can begin a line of the frame or
@@ -136,6 +145,13 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
             frame.Line($"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}, token=U+{Rune.GetRuneAt(SpanCheck.TokenFor(Post), 0).Value:X4}");
         else
             frame.Line($"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}");
+
+        // R10.79: the Forum serves `accepted` on every post, and a reader that prints none leaves the asker's
+        // acceptance unreadable to every caller but a person at the screen. One line, in the frame and never in the
+        // span, only for a post the Forum serves as accepted: an absent line is silence, not "none accepted". The
+        // statement is a constant the screen's header shares (R10.74), so the two cannot drift.
+        if (Post.Accepted)
+            frame.Line($"thread    {new OwnText(AcceptedStatement)}");
 
         // R8.15: a contradiction is surfaced where the post is read, not buried. The report's digest
         // is printed, each as a display literal, and nothing of its content; read it with curia

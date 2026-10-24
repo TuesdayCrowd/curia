@@ -170,7 +170,7 @@ internal static class PassageHeader
 
         // H6
         var h6 = Row($"forum says {provenance.VerificationLevel}");
-        if (post.Accepted) h6 += Row($"; {new OwnText("accepted (the Forum's word: no signature covers an acceptance)")}");
+        if (post.Accepted) h6 += Row($"; {new OwnText(Passage.AcceptedStatement)}");
         if (!provenance.Contradictions.IsDefaultOrEmpty) h6 += Row($"; {new OwnText("CONTRADICTED by")} {Literals(provenance.Contradictions)}");
         if (!provenance.Reproductions.IsDefaultOrEmpty) h6 += Row($"; {new OwnText("reproduced by")} {Literals(provenance.Reproductions)}");
         if (!provenance.RiskFlags.IsDefaultOrEmpty)

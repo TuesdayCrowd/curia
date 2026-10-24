@@ -440,7 +440,7 @@ public sealed class ScreenModelTests
         var hits = withWord.Where(r => r.Contains("accepted", StringComparison.Ordinal)).ToArray();
         Assert.Single(hits);
         Assert.StartsWith("forum says ", hits[0], StringComparison.Ordinal);
-        Assert.Contains("accepted (the Forum's word: no signature covers an acceptance)", hits[0], StringComparison.Ordinal);
+        Assert.Contains(Passage.AcceptedStatement, hits[0], StringComparison.Ordinal);
         Assert.DoesNotContain(without, r => r.Contains("accepted", StringComparison.Ordinal));
     }
 
@@ -562,7 +562,7 @@ public sealed class ScreenModelTests
             Assert.Contains(compact, r => r.StartsWith(word, StringComparison.Ordinal));
             Assert.Contains(key, compact);
             Assert.Contains(NotCheckedRow, compact);
-            Assert.Contains("accepted (the Forum's word: no signature covers an acceptance)", all, StringComparison.Ordinal);
+            Assert.Contains(Passage.AcceptedStatement, all, StringComparison.Ordinal);
             Assert.Contains($"risk {DisplayLiteral.Of("instruction-like")} x2", all, StringComparison.Ordinal);
             Assert.Contains($"risk {DisplayLiteral.Of("url")} x1", all, StringComparison.Ordinal);
 
