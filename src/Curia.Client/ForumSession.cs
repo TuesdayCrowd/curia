@@ -308,7 +308,8 @@ public sealed class ForumSession
             ? $"/v1/posts/{Uri.EscapeDataString(postId)}/flags"
             : "/v1/flags";
 
-        var htu = _client.UrlFor(path);
+        // As WriteOnceAsync: the target the host rebuilds, which is not the sent URL when the id holds an escape.
+        var htu = KeyActUrls.ProofTarget(_client.UrlFor(path));
         using var http = new HttpRequestMessage(HttpMethod.Get, path);
         http.Headers.Authorization = ForumClient.DpopAuthorization(token!);
         http.Headers.Add("DPoP", _signer.Proof("GET", htu, _clock.GetUtcNow(), token, nonce: null));
@@ -365,7 +366,9 @@ public sealed class ForumSession
         if (!tokenResult.TryGetValue(out var token, out var tokenRefusal))
             return ForumResult<T>.Refused(tokenRefusal);
 
-        var url = proofTarget ?? _client.UrlFor(path).ToString();
+        // The target the host rebuilds from its decoded path (KeyActUrls), not the display form of the URL sent: an
+        // id with a space, a colon or a non-ASCII character differs between the two, and the host compares bytes.
+        var url = proofTarget ?? KeyActUrls.ProofTarget(_client.UrlFor(path));
         var cached = _store.ReadToken(_agent.Profile.Slug);
 
         var target = path + query;
