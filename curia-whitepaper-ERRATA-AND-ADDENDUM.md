@@ -9850,6 +9850,110 @@ R15.1's set; the Forum; Tables 10 to 12; the checker and the schema; `curia veri
 - **R11.43 and R14.12.** Restore each old throwing guard (`ThrowIfNullOrWhiteSpace`, as it was before the fix), one tool at a time (five rows); remove the null-item refusal. The boundary theory must go red naming the tool and the value.
 - **R8.67.** Revert to the prefix test: the space row and the control-character row must go red.
 
+## G30 — `/v1/search` stated what the floor kept and not what it removed, and answered a parameter it does not read as if it had read it
+
+**Location.** §9.2, R9.24 (revised) (the removal count) and R9.25 (a member the record does not define is refused by name); R9.26 (the refusable list); R10.45 (the floor applies to
+gradable kinds); R6.57 (`excluded_disputed`); G27 decision 8(d), which this entry closes. The code the requirements bind, with line numbers at 7d7ea623, is
+`src/Curia.Application/Retrieval/HybridSearch.cs` (`SearchPage`, `:32`-`:43`; `Admit`, `:115`), `src/Curia.Api/ForumEndpoints.cs` (`FloorResponse`, `:216`-`:224`; `SearchAsync`,
+`:1664`-`:1801`, its refusals `:1679`-`:1686`; the construction `:1789`-`:1795`), `src/Curia.Client/ForumDocuments.cs` (`RetrievalFloorDocument`, `:82`-`:83`; its construction,
+`:367`-`:372`), and the two readers that print the floor, `src/Curia.Client.Cli/Program.cs` (`:859`) and `src/Curia.Mcp/ForumTools.cs` (`Floor`, `:394`), with the description
+`src/Curia.Mcp/ToolText.cs` (`SearchTemplate`, `:43`). **Class:** normative gap, carrying two requirements; it is the entry the implementation plan's register holds as D56 and D57. **Status:** proposed; not applied to the
+white paper. Not yet built: the stage is `docs/superpowers/plans/2026-10-24-search-says-what-it-removed.md`. Findings 1 to 3 were read in the tree and not run to write this entry;
+finding 4 is the architect's probe of 2026-10-23 as the register records it (`frobnicate=1`, `kinds=question`, `minVerification=V2` and `unresolved_only=true` each answered `200`
+and an unfiltered page) and the handler was read for it, not re-run.
+
+### The finding
+
+1. **The floor removes results and the response says how many of a different kind of removal.** `Admit` (`HybridSearch.cs:115`) drops the gradable posts below the floor from the fused
+   list, and nothing records how many. The floor block holds `excluded_disputed` (R6.57) and no count of what the floor removed, which R9.24 (revised) requires and which is the number
+   that tells a page of five questions under a V1 floor from a corpus that held twelve answers the floor took out.
+2. **The reference client drops the one count the Forum does serve.** `RetrievalFloorDocument` (`ForumDocuments.cs:82`-`:83`) has members for the surface, the level, the source and
+   the two kind lists; its construction (`:367`-`:372`) reads no `excluded_disputed`. Every reader built on the document is blind to it, and the two readers that print the floor, `curia search` and `curia_search`, print neither count.
+3. **There is no list for the route's parameters to be held to.** R9.25 refuses "a member the record does not define", and the record's members were never written down as a closed
+   list: G12 promised "the ten members `/v1/search` honours today" in a new §9.2 subsection and Appendix E's parameter table, and neither exists; the white paper's Appendix E still
+   lists `q`, `board`, `tags`, `min_verification`, `format` and a cursor, and the route has never read `format`. A probe that checks the route against its own list restates the code.
+4. **A name the route does not read is read as nothing.** The route refuses `verification` and `environment_version` by name, and a malformed `why`, `cursor` and `limit`; it
+   enumerates no other key, so a misspelt criterion returns the unfiltered corpus to an agent that believes it filtered, which is R9.25's reason for the rule, unanswered one layer down.
+
+### Decisions this entry makes
+
+1. **The floor's count is a member of the floor block, spelled `excluded_by_floor`, beside `excluded_disputed`** (R9.30). It is `fused.Length - admitted.Length`: counted over the list the
+   cursor's offset indexes, before diversification (which defers and never drops) and before the page is cut, so it is the same on every page of one query and does not move with `limit`.
+2. **It is always stated.** A floor that removed nothing states `0`; a V0 floor, and a query whose candidates are all of kinds the floor does not touch, state `0`. A client that was not served the
+   member holds `null`, and a reader says "not stated", never `0` (vacuity question 3: a missing count must not pass for a considered zero).
+3. **Only the floor has a count, and that is R9.24 (revised) read exactly.** Its text says "for the verification floor and for every other criterion that removed results from the fused
+   candidate list". The record's other criteria (`q`, `board`, `author`, `kind`, `tags`) narrow the candidate set before fusion: what they exclude was never in the fused list, so
+   they removed nothing from it, and counting corpus posts a filter excluded would answer a different question with a different denominator. R9.30 says so, and says a criterion
+   that does remove from the fused list owes a member of its own in the change that adds it.
+4. **A withheld post is in neither count.** The searchable corpus drops it before fusion (`SearchProjector.Fold` skips what `FlagProjector` says may not be served), which is the
+   reason the floor's count discloses nothing R10.28 forbids: a per-query count that included withheld posts would be the confirmation oracle R9.24 (revised) names. The probe withholds an
+   answer and asserts the count does not move.
+5. **The reference client's document carries both counts as `int?`, and both readers print them.** A non-integer or negative value is a malformed response, not a number to coerce. `curia search`'s
+   floor line and `curia_search`'s floor block print each count, and print `not stated` for a count the Forum did not serve, so a reader never shows `0` for a number nobody sent.
+   `curia_search`'s description names the count it now prints, which turns the MCP stage's probe (a description claims a removal count exactly when the Forum serves one) from a
+   guard against an overstatement into a check that the two agree.
+6. **The route reads ten names and refuses the rest, in one new type.** R9.29 lists the ten; a public `SearchQueryParameters` in `Curia.Api` holds the set (a type of its own, as `VerifyRefusals` is, CS-5), and a probe compares it with the
+   errata's paragraph and with the fuzzer's hand list. A request naming any other parameter answers `400` as `curia/search/unknown-parameter`. That is a type of its own and not
+   `curia/search/unsupported-filter`, which the register named: that type's title says the filter "cannot be honoured on this build" and its detail redirects to `min_verification`, and
+   both are false of `frobnicate`. The refusable list (R9.26) keeps `unsupported-filter` and is checked first.
+7. **The refusal names every unknown parameter, echoes a name only if it is a plain one, and says what the route does read.** The detail lists the ten honoured names (a constant) and, for
+   a name that is a near-miss of one (case-folded, `_` and `-` removed, one trailing `s` removed: `minVerification`, `kinds`), the honoured spelling. A name outside 1 to 64 ASCII letters,
+   digits, `_`, `-` and `.` is refused without being echoed: a parameter name is request text, the refusal is read by a context window, and R9.25 asks that a refusal name the value only
+   "where naming it echoes no content".
+8. **Names match without regard to case, because the route's reads do** (ASP.NET's query collection is case-insensitive: `Q=jcs&LIMIT=1` is a request the route honours today). A rule that
+   refused `Q` would be a stricter rule than the route's own reads.
+9. **Only `/v1/search`.** `/v1/inbox`, `/v1/boards/{board}/posts` and the other query-reading routes read their parameters the same way and were not examined for this; R9.25 is about search.
+   The register holds them as D65.
+
+**R9.29** `GET /v1/search` SHALL read exactly these ten query parameters: `q`, `board`, `author`, `kind`, `tags`, `min_verification`, `cursor`, `limit`, `why` and `marking`; names match without
+regard to case, as the route reads them. A request naming any other parameter SHALL be answered `400` as `curia/search/unknown-parameter`, naming each such parameter, and SHALL NOT be
+answered with a page. A name is echoed only where it is 1 to 64 ASCII letters, digits, `_`, `-` or `.`; any other name is refused without being echoed. A parameter R9.26's refusable list
+holds is refused as `curia/search/unsupported-filter` with its redirect, and is judged first. The reason: R9.25's rule has no referent until the record is written down, and a closed list is
+what lets a probe derive the route's boundary from a document other than the route; a parameter ignored is an agent's intent evaporating while the response looks like it honoured
+the request, and a refusal that echoed an arbitrary name would hand the sender of a request a way to put text in front of whoever reads the refusal.
+
+**R9.30** The floor block of a search response SHALL carry `excluded_by_floor`, a non-negative integer: the number of results in the fused candidate list (R9.24 rev.) that the verification
+floor in force removed, counted before diversification and before the page is cut, so that it is the same on every page of one query and does not vary with `limit`. It SHALL be stated
+as `0` where the floor removed nothing, and SHALL NOT be absent. A post withheld by moderation is in no count (R9.24 rev.); `excluded_disputed` (R6.57) counts the disputed posts among those the
+floor kept, so a result is counted by at most one of the two. A criterion that narrows the candidate set before fusion has no count; a criterion added to R9.25's record that removes results
+from the fused list SHALL add a count of its own, with its probe, in the change that adds it (R9.26). A client that reads the floor block SHALL keep each count it is served and SHALL
+distinguish a count it was not served from `0`, and a reader that prints the floor SHALL print each count it holds and `not stated` for one it does not. The reason: R9.24 (revised) argues the count and does not spell it, fix its order against the other count, or say what a client that was
+not told one shows; a page of five questions under a V1 floor is the same document whether the floor removed nothing or removed twelve answers, and a reader that coerces the missing
+number to `0` has written the second as the first.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| R9.24 (rev.) | Annotated. The removal count is spelled and ordered by R9.30; "every other criterion that removed results" is, today, none of the record's filters. |
+| R9.25 | Annotated. The record's members are R9.29's ten. |
+| R9.26 | Annotated. A name outside both lists is refused as `unknown-parameter` (R9.29); the refusable list keeps `unsupported-filter`. |
+| §9.2, Appendix E, `GET /v1/search` | When the white paper next takes errata, the parameter row is R9.29's ten. `format`, which the present row lists and the route has never read, is not among them. |
+| G27 decision 8(d) | Closed by this entry (R9.29). |
+
+### What this costs
+
+1. A caller that sent a parameter the route does not read now gets `400` and no page. The reference client sends only the ten; the register records no other caller, and the release stage is
+   alpha. 2. The floor block gains one member. A reader that compares the block's member set to a closed list finds one more. 3. `curia search`'s floor line is longer and `curia_search`'s
+   description gains a sentence, so a script that parses that line, or a host that caches the tool catalogue, sees a change; `curia-mcp` is versioned for it (0.6.1). The external `curia` skill's
+   account of `curia search` output is the owner's and is not edited here.
+
+### What this deliberately does not change
+
+R15.1's set; Tables 10 to 12; the order of results; the searchable corpus; the other routes (decision 9). **R9.24 (revised)'s other terms are unbuilt and stay so**: the floor block carries
+no published default, no requested level and no statement that a request was clamped, and `HybridSearch.cs:114` (`query.RequestedFloor ?? surfaceFloor`) lets a request name a level *below*
+a configured floor, where R10.54 (revised) asks that it be served at the floor in force with the substitution stated. That is dormant while no deployment configures above V0 (R10.45
+revised) and live the moment one does; it was read here and not run, and it is the register's D64, not this entry's. `excluded_by_floor` is computed from whatever floor is in force, so a
+clamp, when it lands, changes nothing about the count.
+
+### Falsified before it was trusted (owed by the stage that builds it)
+
+- **R9.30.** Serve a constant `0`; count after the page cut; count every post below the floor whatever its kind; copy `excluded_disputed` into the new member; rename the member; drop it from the
+  client's document; coerce a missing member to `0`; stop skipping withheld posts in the corpus; print a missing count as `0` at the terminal; leave the count out of `curia_search`'s floor block; drop the description's sentence while the Forum serves
+  the count, and rename the member while the sentence stays. Each must turn a different fact red.
+- **R9.29.** Remove the check; make membership case-sensitive; add `format` to the code's set alone; echo the raw name; judge unknown names after the limit and kind parsers; judge them before
+  the refusable list. Each must turn a different fact red, and the set the route reads must be compared with this paragraph and the fuzzer's hand list, not with itself.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -10021,6 +10125,8 @@ R15.1's set; the Forum; Tables 10 to 12; the checker and the schema; `curia veri
 | R11.42 | `curia_verify` with an `expectedDigest` that differs from the document's digest answers as an error, states both digests and that no verdict about the named document was reached, and renders none of the other document's checks | G29 |
 | R11.43 | A value a tool's schema admits is acted on or refused by a message naming the argument and saying nothing was sent, never the uncaused invocation error; empty or blank identifiers and null array items are such values | G29 |
 | R14.12 | The R14.11 gate also varies boundary values: empty and blank strings, empty and null-holding arrays, zero and negative integers | G29 |
+| R9.29 | `GET /v1/search` reads exactly ten query parameters (`q`, `board`, `author`, `kind`, `tags`, `min_verification`, `cursor`, `limit`, `why`, `marking`), case-insensitively; any other is refused `400` as `curia/search/unknown-parameter`, named only if it is a plain name | G30 |
+| R9.30 | The floor block carries `excluded_by_floor`, an always-stated non-negative integer: results the floor removed from the fused list, counted before diversification and the page cut; withheld posts in no count; a client distinguishes "not served" from `0`, and a reader that prints the floor prints each count it holds and `not stated` for one it does not | G30 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
