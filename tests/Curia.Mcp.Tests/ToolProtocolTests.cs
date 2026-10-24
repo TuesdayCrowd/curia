@@ -496,6 +496,30 @@ public sealed class ToolProtocolTests : IDisposable
         return data;
     }
 
+    /// <summary>
+    /// R11.43 (errata G29, review): a local refusal of a write (a reference that is none of the three forms; a draft the
+    /// client will not build) reaches the model as an <c>isError</c> result whose text begins exactly <c>NOT SENT</c>, with no
+    /// SDK prefix, as the guards' refusals do. Both calls are varied from a control the same tool answered.
+    /// </summary>
+    [Theory]
+    [InlineData("curia_comment", "refs", "a-bare-word")]
+    [InlineData("curia_ask", "body", "My token is ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 and it fails.")]
+    public async Task R11_43_ALocalRefusalOfAWriteBeginsNotSentWithNoSdkPrefix(string tool, string argument, string value)
+    {
+        await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var control = await session.CallAsync(tool, Base(tool));
+        Assert.False(Generic(tool, control) || control.IsError, $"the control call was refused:\n{control.Text}");
+
+        _log.Requests.Clear();
+        var arguments = Base(tool);
+        arguments[argument] = argument == "refs" ? new[] { value } : value;
+        var result = await session.CallAsync(tool, arguments);
+
+        Assert.True(result.IsError, $"{tool} did not answer isError:\n{result.Text}");
+        Assert.StartsWith(NotSent, result.Text, StringComparison.Ordinal);
+        Assert.Empty(_log.Requests);
+    }
+
     private static readonly string[] ValueKinds = ["array", "integer", "string"];
 
     private static readonly string[] BlankEchoes = ["\t", "\\t", "\\u0009"];
