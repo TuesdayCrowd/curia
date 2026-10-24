@@ -859,6 +859,24 @@ internal sealed class StubLog : IDisposable
 
     private static string AcceptedJson(StubLog log, string postId) => log.AcceptedPostIds.Contains(postId) ? "true" : "false";
 
+    /// <summary>
+    /// R9.32 and R10.80 (errata G32): the Forum's word on the revisions that supersede <see cref="PostId"/>, served as <c>provenance.superseded_by</c> on the
+    /// post. Default (not set): the member is not served, as an older Forum does not serve it, and a reader says so. Set to an empty array: served as <c>[]</c>.
+    /// D66 Task 0: only <see cref="PostJson"/> serves it for now; Task 6 serves it on every provenance object, defaults it to <c>[]</c> as the Forum does, and
+    /// keeps <see cref="OmitSupersededBy"/> as the control.
+    /// </summary>
+    internal ImmutableArray<Successor> SupersededBy { get; set; }
+
+    /// <summary>R10.80: serve no <c>superseded_by</c> whatever <see cref="SupersededBy"/> holds, as a Forum that predates the member does.</summary>
+    internal bool OmitSupersededBy { get; set; }
+
+    private string SupersededByJson() =>
+        OmitSupersededBy || SupersededBy.IsDefault
+            ? string.Empty
+            : ",\"superseded_by\":[" + string.Join(
+                ",",
+                SupersededBy.Select(s => "{\"digest\":" + JsonString(s.Digest) + (s.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(s.PostId)) + "}")) + "]";
+
     internal string PostJson()
     {
         // ActaEndpoints.ProofFor's own rule: against the latest signed head when it covers the
@@ -875,7 +893,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{ServedAs ?? Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{SupersededByJson()}} },
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{ServedDigest ?? Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{ServedSignature ?? Submission.Signature}}",

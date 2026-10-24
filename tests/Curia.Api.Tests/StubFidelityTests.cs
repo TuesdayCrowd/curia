@@ -59,6 +59,33 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R9.32 (errata G32): the post the stub serves carries <c>provenance.superseded_by</c>, as the post this Forum serves does. Found by path in each
+    /// document, so a stub that drops the member, or a Forum that does, is named by whichever lacks it.
+    /// </summary>
+    [Fact]
+    public async Task R9_32_TheStubsPostCarriesTheForumsSupersededByMember()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var agent = ForumAgent.Create(Unique("superseded"), "superseded-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await agent.AuthenticateAsync(http, TokenEndpoint, forum.Now, ct);
+        using var posted = await dpop.PostAsync(http, PostsUrl, token, agent.SignQuestion(Board(), Body, Title, forum.Now), forum.Now, ct);
+        Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
+        var postId = JsonNode.Parse(await posted.Content.ReadAsStringAsync(ct))!["post_id"]!.GetValue<string>();
+
+        var served = Paths(JsonNode.Parse(await http.GetStringAsync(new Uri($"/v1/posts/{postId}", UriKind.Relative), ct))!);
+        var stub = Paths(JsonNode.Parse(_stub.PostJson())!);
+
+        Assert.NotEmpty(served);
+        Assert.NotEmpty(stub);
+        const string Member = "provenance.superseded_by";
+        var lacking = new List<string>();
+        if (!stub.Contains(Member)) lacking.Add($"the stub's post lacks {Member}");
+        if (!served.Contains(Member)) lacking.Add($"the Forum's post lacks {Member}");
+        Assert.True(lacking.Count == 0, string.Join("; ", lacking));
+    }
+
+    /// <summary>
     /// The reference client reads this Forum's 409 completely — the first time its reader has run
     /// against the Forum rather than against a document written beside it.
     /// </summary>

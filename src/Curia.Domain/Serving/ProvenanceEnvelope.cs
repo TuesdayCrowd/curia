@@ -26,6 +26,12 @@ public enum MarkingMode
 }
 
 /// <summary>
+/// A revision that chains to a post (R9.32): its digest, and its post id only where the Forum serves it.
+/// COMPILE-ONLY STUB (D66 Task 0): the stage's Task 2 replaces this comment with the real documentation.
+/// </summary>
+public sealed record Successor(string Digest, string? PostId);
+
+/// <summary>
 /// R10.17's provenance envelope: what a reader is told about content it did not write.
 ///
 /// <para><b>Every field here answers a question a reader would otherwise guess at.</b>
@@ -73,7 +79,8 @@ public sealed record Provenance(
     ImmutableArray<string> Reproductions,
     ImmutableArray<string> Contradictions,
     string KeyStatus = "active",
-    long? DisputedByLogIndex = null)
+    long? DisputedByLogIndex = null,
+    ImmutableArray<Successor> SupersededBy = default)
 {
     /// <summary>
     /// R10.17's exact wording, and it is a constant rather than a template because the sentence is

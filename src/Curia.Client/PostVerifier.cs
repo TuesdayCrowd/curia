@@ -37,7 +37,8 @@ public sealed record PostVerification(
     Check Lifecycle,
     string? Digest,
     long? LogIndex,
-    long? AnchorTreeSize)
+    long? AnchorTreeSize,
+    ImmutableArray<Successor> SupersededBy = default)
 {
     /// <summary>
     /// One word for the five, for a caller that wants a single answer.
