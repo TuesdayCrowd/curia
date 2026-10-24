@@ -134,4 +134,95 @@ As #110: every .NET assembly in Release (`ScreeningCostTests` excluded), Debug b
 
 ## As run
 
-*(Filled in by the executor.)*
+Run 2026-10-24 from 034ed7e2 (main, #110) to 5877ab42, plus this record. Release, Postgres local. The sections follow #110's plan: baselines, the probes red first, the commits, the refusal-shape change, the falsification, the gates, the live transcripts, and the divergences. Every figure below is quoted from the stage's reports (`.superpowers/sdd/2026-10-24-verify-pin-and-admitted-values/`); none is the plan's prediction.
+
+### Task 0, as run (2026-10-24, at 034ed7e2)
+
+**Baselines, re-measured** (Release, `ScreeningCostTests` excluded, Postgres local, in a detached worktree at 034ed7e2 so no build of this branch touched them): Domain.Primitives 64, AuthN 140, Canon.Sodium 32, Architecture 59, Application 443, Mcp 296 (+1 skipped), Domain 677, Client 718, Infrastructure 150, Canon 329, Api 622; Rust `cargo test --locked` 268 passed, 2 ignored. All equal #110's figures. The pre-state was not re-operated by this stage's tasks: the controller's reproduction of R1 to R4 on 034ed7e2's build (the exercise's `REPRODUCED.md`, run against `curia-mcp` 0.5.0 on a local Forum and a throwaway database) is the "before" of the live probes below.
+
+### Probes, red first (Task 1; commits 10304b65 and its fix round 405688d1; Release)
+
+Only a compile-only stub of `ArgumentGuards` (`Identifier` = `ArgumentException.ThrowIfNullOrWhiteSpace`, nothing calling it) was in `src/`; `StubLog` gained `ServedDigest` (a served `digest` member that lies, for V3). Red on the unmodified tree: Mcp `Failed!  - Failed:    29, Passed:   298, Skipped:     1, Total:   328`, Client `Failed!  - Failed:     4, Passed:   721, Skipped:     0, Total:   725`, Api (the two classes it touched) `Failed!  - Failed:     3, Passed:    11, Skipped:     0, Total:    14`: 36 expected reds, no other fact moved.
+
+| Probe | Test | Seen (first red) | Differs from the plan |
+|---|---|---|---|
+| V1 | `R11_42_AFailedPinAnswersAnErrorAndNoVerdict` | `a failed pin answered isError=False:` and a text opening `pinned      FAILED. You asked about "sha256:000..."` and going on to every check | none |
+| V2 | `R11_42_NothingAfterAFailedPinIsAboutTheOtherDocument` | `the result after a failed pin still holds check content of the other document (verified: recanonicalized bytes are byte \| ... \| VERIFIED. This client checked the signat)` | the labels and the closing sentence are taken from the control's own text (fix round 1) |
+| V3 | `R11_42_ThePinIsComparedToTheDigestComputedAndNotTheOneServed` | `a pin equal to the served digest member held, though the canonical form digests to sha256:a7e7...` | red for the `isError` half: the comparison was already against the computed digest, so the pin failed as it should |
+| V4 | `R11_42_ANoPinAndAHeldPinAreUnchanged` | green first | as planned; held by FV3. The golden masks the two digests (the agent key is random per run) after asserting they carry the supplied pin |
+| V5 | `R11_43_ANullItemOfRefsIsRefusedByIndexAndNothingIsSent` (four rows) | `curia_answer with a null at refs[1] did not answer a NOT SENT naming it:` `An error occurred invoking 'curia_answer'.` | none |
+| V6 | `R11_43_ANullItemOfTagsIsRefusedByIndex` | `curia_ask with a null at tags[1] did not answer a NOT SENT naming it:` `An error occurred invoking 'curia_ask'.` | red, not green (the plan allowed either); a control with valid tags precedes it (fix round 1) |
+| V7 | `R11_43_AnEmptyIdentifierIsRefusedByNameAndNothingIsSent` (12 rows) | `curia_verify with postId="   " did not answer a NOT SENT naming the argument:` `An error occurred invoking 'curia_verify'.` | none |
+| V8 | `R11_43_TheMessageNamesTheArgumentAndEchoesNoValue` (6 rows) | `curia_read's answer does not name postId:` the bare error | none |
+| V9 | `R14_12_NoToolAnswersABoundaryValueItsSchemaAdmitsWithTheUncausedError` | `16 boundary value(s) the schema admits were answered with the bare invocation error:` the five identifier sites, `curia_ask tags=[null]`, `curia_comment` and `curia_answer` `refs=[null]`, and `curia_search criteria.tags=[null]` | two sites beyond the plan's list (below); no bare error for 0, -1 or an empty array |
+| V10 | `R14_12_TheBoundaryTableIsHeldToRequirementText` | green first | as planned; held by FV10. Each row's kind and value are bound to the phrase R14.12 names, parsed from the errata (fix round 1) |
+| V11 | `ReferenceFormsTests.R8_67_AUrlIsAnAbsoluteHttpUriWithoutWhitespaceOrControls` (7 rows) | four red: `'https://a b' was classified as a url`, likewise the tab row, the BEL row and `https:///` | `http://`, `http:relative` and the accepted row were green; `System.Uri` agrees with every row |
+| V12 | `R8_67_AMcpReplyWithAnUnparseableUrlIsNotSent` | `Assert.Throws() Failure: No exception was thrown` (the comment was posted) | none |
+| V13 | `R8_67_TheCliRefusesTheSameUrlBeforeSending` | `exit 0, not 1:` then `posted "01M5P7KMHHEZ0JFZSP537CFCXQ" kind "comment"` | none |
+| V14 | `R10_45_TheFloorSentenceNamesTheKindsItAppliesTo` | `Assert.DoesNotContain() Failure: Sub-string found ... "unendorsed results"`; the kinds are read from `RetrievalFloorPolicy.GradableKinds` and `PostKinds.Wire` | none |
+| V15 | `R11_42_ARealForumsPinnedVerifyFailsWithoutAVerdict` | `a failed pin answered isError=false:` and `pinned FAILED` followed by all five checks | none |
+| V16 | `R11_43_ACommentWithANullRefsItemPostsNothing` | `a null refs item did not answer a NOT SENT naming refs[0]:` the bare error; the thread unchanged, as the plan says | none |
+
+**Beyond the plan, found by V9.** `curia_search` with `criteria.tags=[null]` answered the bare error (the schema admits null items of `tags`); `criteria.kinds` was varied by the theory and did not fail. After Task 6 made a build error a result, V9 found a second: `curia_ask` with `board=""` answered a `NOT SENT` that did not name `board` (the envelope schema's message). Both are guarded, and both are recorded under D58.
+
+**Oracles.** V1 to V3 and V15 compute the digest with the BCL (`SHA256` over the UTF-8 canonical form, lower hex), not with `Curia.Canon` and not from a served member; V3 also asserts it equals the stub's `Submission.PrefixedDigest`. V10 parses R14.12's sentence from the errata. V11 asks `System.Uri`. V14 reads the Forum's own gradable kinds.
+
+### The fixes (Tasks 2 to 5; commits 1d8d7253, cb13e590, 1803695d, 7e8332f7)
+
+- **Task 2 (R11.42, 1d8d7253).** `Pinned` returns a held/failed flag with its text; on a failure `VerifyAsync` returns the subject line, the `pinned FAILED` line (both digests as display literals, "No verdict was reached and no check is reported: every one would be about the other document.") with `IsError = true`, and no check. The comparison stays against `verification.Digest`, the digest computed. `ToolText.VerifyTemplate` says a mismatch answers an error and no verdict.
+- **Task 3 (R11.43, cb13e590).** `ArgumentGuards.Identifier` and `Items` return the refusal as a result. The five `ThrowIfNullOrWhiteSpace` calls are replaced; `refs` (null or blank items) in `ReplyAsync`, `tags` in `AskAsync`, and `criteria.kinds` and `criteria.tags` in `SearchAsync` are guarded.
+- **Task 4 (R8.67, 1803695d).** `ReferenceForms.IsUrl`: an absolute `http`/`https` URI, the `scheme://` prefix kept, no whitespace or control character.
+- **Task 5 (7e8332f7).** `SearchTemplate`'s `min_verification` sentence says the floor applies to `answer` and `finding` posts only and that `applies_to` and `not_applicable_to` say which kinds a floor touched (without backticks: `R11_26` requires a backticked name to be a schema property).
+
+Gate after Tasks 2 to 5: Mcp `Passed!  - Failed:     0, Passed:   327, Skipped:     1, Total:   328`, Client `Passed!  - Failed:     0, Passed:   725, Skipped:     0, Total:   725`, Api (McpToolContractEndToEndTests, CliRefsEndToEndTests, McpWriteEndToEndTests, ReaderFrameTests) `Passed!  - Failed:     0, Passed:    27`, Architecture Release and Debug `Passed!  - Failed:     0, Passed:    59`. Intermediate reds seen and fixed: a guard that threw `McpException` failed 24 facts (the SDK prefixes an exception's message), and a backticked `applies_to` failed `R11_26`.
+
+### Task 6 (5877ab42): one refusal shape, and the facts it changed
+
+The reference-form refusal in `ReplyAsync` and `SubmitAsync`'s build error were the two local `NOT SENT` refusals still thrown, so a model saw them behind `An error occurred invoking '<tool>': `. Both now return the result the guards return (`NotSentResult`: `IsError`, text beginning `NOT SENT`), so a model meets one local-refusal shape and the next tool (`curia_revise`) is born under it. `curia_ask` with `board=""` (V9's second extra) is guarded by name.
+
+Facts that pinned the thrown shape, changed with intent unchanged: `WriteToolTests` `R11_35_AValueThatIsNoneOfTheThreeFormsIsRefusedBeforeAnythingIsSent` (answer and comment), `R8_67_AMcpReplyWithAnUnparseableUrlIsNotSent` (V12), `R10_26_ACredentialIsStoppedBeforeAnythingLeavesThisHost` and `R11_20_ADecliningSignerSendsNothing` (each from `ThrowsAsync` to an `IsError` result beginning `NOT SENT`, with the other assertions kept). Not changed: the facts that go through `WriteRefused` or the Forum's refusals (those still throw and still begin `REFUSED`). Added: `ToolProtocolTests.R11_43_ALocalRefusalOfAWriteBeginsNotSentWithNoSdkPrefix` (through the protocol: `isError`, the text begins exactly `NOT SENT`, an empty request log).
+
+### The whole suite (Task 6, Release, `ScreeningCostTests` excluded, Postgres local)
+
+`Passed!` for Domain.Primitives 64, Canon.Sodium 32, AuthN 140, Application 443, Domain 677, Architecture 59, Mcp 329 (+1 skipped), Canon 329, Infrastructure 150 and Client 725; Api `Failed!  - Failed:     1, Passed:   624, Skipped:     0, Total:   625, Duration: 28 m 6 s`. **The one failure is `BrowseEndToEndTests.R10_73_SighupAfterTheMasterClosesExitsWithinTwoSeconds` (expected exit 129, got 2).** It passed alone twice (`Passed!  - Failed:     0, Passed:     1`). It is a PTY and signal timing fact in `Curia.Client.Cli` browse, code this stage did not touch, and the same area has flaked under load before (TUI PR B); **the cause is unexplained, not resolved**, and CI is the next independent run. The Debug build is 0 warnings, 0 errors, `Curia.Architecture.Tests` in Debug `Passed!  - Failed:     0, Passed:    59`, and `dotnet restore Curia.sln --locked-mode` succeeded. `cargo fmt`, clippy, `cargo test`, the differential comparison and the conformance corpus were not re-run by this stage's tasks; the diff from 034ed7e2 touches no Rust, no `conformance/` file and no `.github/workflows/` file.
+
+### Falsification FV1 to FV12 (Task 7)
+
+Each patch was applied to a copy-aside file, the gate's assemblies rebuilt `--no-incremental` in Release, the facts run, and the file restored by plain `cp` and `touch` with `git diff --quiet` asserted. Every anchor was counted before the first row. **12 of 12 rows red (14 patches with the FV7, FV8 sub-rows and FV7b), none stayed green.** `shasum` of the 17 files under `src/Curia.Mcp/`, `src/Curia.Client/ReferenceForms.cs` and `tests/Shared/StubLog.cs` was equal before and after; the residue grep over `src/` found no patch text.
+
+| Row | Patch as applied | Red |
+|---|---|---|
+| FV1 | `VerifyAsync`: `if (pinFailed)` became `if (pinFailed && pinned.Length < 0)` (the checks render after a failed pin) | V2 (naming the other document's check content), V1, V3 (collateral), V15 |
+| FV2 | `IsError = true` became `false` after a failed pin | V1, V3, V15 |
+| FV3 | the held-pin line `pinned      to the digest you supplied, ` became `pin held, ` | V4 |
+| FV4 | `PostVerifier.cs:221` (Client, not Mcp): `digest = post.Digest;` after the deconstruction, so the pin is compared to the served member | V3 |
+| FV5 | `ThrowIfNullOrWhiteSpace` restored in `VerifyAsync` | V7 (2), V8, V9 (`curia_verify`) |
+| FV6 | restored in `ReadAsync` | V7 (2), V8, V9 (`curia_read`) |
+| FV7a | restored in `ReplyAsync` (`parentPostId`) | V7 (4), V8 (2), V9 (4 values) |
+| FV7b | `WriteTools.cs:107`, the reference-form `return NotSentResult(...)` became `throw new ArgumentException("ref form")` | V12, `R11_35` (6 rows), the protocol fact for a local refusal |
+| FV8a | restored in `ResolveAsync` | V7 (2), V8, V9 |
+| FV8b | restored in `FlagAsync` | V7 (2), V8, V9 |
+| FV9 | the four `ArgumentGuards.Items` calls (`refs`, `tags`, `criteria.kinds`, `criteria.tags`) commented out | V5 (4), V6, V9, V16 |
+| FV10 | `string.IsNullOrWhiteSpace(value)` became `value is null` | V7 (12: the empty and the blank rows), V8 (6), V9 |
+| FV11 | `ReferenceForms`: `IsUrl(given)` became the prefix test | V11 (4), V12, V13 |
+| FV12 | `SearchTemplate`'s floor sentence restored to "excludes unendorsed results" | V14 |
+
+Patches that differ from the plan's wording: FV4 targets `PostVerifier.cs` (the served `Digest` member is not visible to `Pinned`); FV10 uses `value is null`, which lets both an empty and a blank string through; FV7b is added for Task 6's change. Final unpatched run (Release `--no-incremental` build, 0 warnings, 0 errors): Mcp `Passed!  - Failed:     0, Passed:   329, Skipped:     1, Total:   330`, Client `Passed!  - Failed:     0, Passed:   725`, Architecture `Passed!  - Failed:     0, Passed:    59`, Api (the three classes) `Passed!  - Failed:     0, Passed:    24`.
+
+### The four probes, live, after (Task 8, 2026-10-24, at 5877ab42, Release, a fresh throwaway Forum)
+
+The same four probes the exercise reproduced on 034ed7e2, against the fixed build: **R1** a wrong pin answers `isError=True` and only the subject line and `pinned      FAILED. You asked about "sha256:..." and the Forum served "sha256:b80f..." under this id. These are different documents. "No verdict was reached and no check is reported: every one would be about the other document."` (no `VERIFIED.`, no check line); **R2** `refs: [null]` answers `isError=True`, `NOT SENT: refs[0] is null. Nothing was sent.`; **R3** `postId: ""` answers `isError=True`, `NOT SENT: postId is empty or blank. Nothing was sent.`; **R4a** `https://a b` is refused, `NOT SENT:` naming the three forms (a post digest, a package coordinate, or `http://` or `https://` followed by an address). **The control:** the right pin answers `isError=False`, prints `pinned      to the digest you supplied, "sha256:b80f..."` and every check, and closes `NOT ESTABLISHED.` here only because no head had been signed on the fresh Forum. The fix removed the verdict only for the wrong document.
+
+### Divergences from the plan
+
+1. **The guards return a result; they do not throw.** Ruling 2 and G29 decision 2 say `McpException`; the SDK puts `An error occurred invoking '<tool>': ` before an exception's message, which V5, V7 and V8 (`StartsWith` `NOT SENT`) reject, and G27's own contract refusal is returned for the same reason. R11.43 holds as worded (the refusal names the argument and says nothing was sent). The errata's Status line says so.
+2. **Both thrown `NOT SENT` sites became results** (the reference-form refusal in `ReplyAsync`, `SubmitAsync`'s build error), which the plan did not list; Task 6's facts moved with them (above).
+3. **V9 found two sites the plan did not list**: `curia_search` `criteria.tags=[null]` (and `criteria.kinds` is guarded with it), and `curia_ask` `board=""`. D58 records them.
+4. **The digest oracle is the BCL's SHA-256**, not `Curia.Canon`'s `EnvelopeDigest` (ruling 6a): the digest is by definition SHA-256 over the canonical bytes, and `EnvelopeDigest`'s input type would have to be borrowed from the code under test.
+5. **`StubLog.ServedDigest`** was added for V3 (a served `digest` member that disagrees with the canonical form).
+6. **V6 was red** (the plan allowed green) and **V3 is red for its `isError` half only** (the comparison was already against the computed digest); both are held by FV9 and FV4/FV2.
+7. **FV4's patch** is in `PostVerifier.cs`, **FV7b** was added, and FV10's patch is `value is null`.
+8. **The `min_verification` sentence names `applies_to` and `not_applicable_to` without backticks**, because `R11_26` requires a backticked identifier in a description to be a schema property.
+9. **`ToolCatalogue.Version` stays 0.5.0**: no tool, parameter or schema changed; a result's text and two descriptions (`curia_verify`'s and `curia_search`'s) did. The owner may bump it.
+10. **Deferred review minors**: V9 does not assert that a legal boundary value is accepted (R14.12's "nor a success where the value is meaningless"); V14 is brittle to a restructure of the paragraph; V11 has seven rows; `ReferenceForms.IsUrl` keeps a redundant `StartsWith(uri.Scheme + "://")`; the protocol fact for a local refusal covers a credential build error and not a schema build error (the boundary theory covers others).
+11. **Dispatch**: Task 1; Tasks 2 to 5 (one dispatch); Task 6; Task 7; this record. Tasks 0 and 8 were the controller's.

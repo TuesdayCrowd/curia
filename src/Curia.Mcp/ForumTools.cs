@@ -33,7 +33,9 @@ namespace Curia.Mcp;
 /// <para><b>What a result says of itself (errata G27).</b> A search states its cursor, or that it is the last
 /// page, and the terms of each hit when asked (R11.39); <c>curia_read</c> returns the whole thread, its first
 /// block the adapter's own naming the root or where the shown thread begins (R11.38); a call whose arguments do
-/// not match the schema never reaches these methods (R11.37).</para>
+/// not match the schema never reaches these methods (R11.37). A <c>curia_verify</c> whose pin names another document answers an
+/// error and no verdict (R11.42), and a value the schema admits and a tool cannot act on (a blank identifier, a null item)
+/// is an <c>isError</c> result beginning <c>NOT SENT</c> from <c>ArgumentGuards</c> (R11.43, errata G29).</para>
 /// </summary>
 internal sealed partial class ForumTools(
     ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)

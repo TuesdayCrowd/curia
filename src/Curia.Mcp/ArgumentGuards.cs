@@ -5,7 +5,7 @@ namespace Curia.Mcp;
 /// <summary>
 /// R11.43 (errata G29): the guards a tool applies to a value its schema admits but it cannot act on. A string
 /// parameter admits <c>""</c> and an array of strings admits <c>[null]</c>; left to the framework, either ends as the
-/// SDK's bare invocation error, which names no cause and so gets retried unchanged. Each guard throws the tool's own
+/// SDK's bare invocation error, which names no cause and so gets retried unchanged. Each guard returns the tool's own
 /// refusal in the voice of G27 ruling 3, <c>NOT SENT</c>, naming the argument (and the item's index) and never a
 /// value, so a model that sent a blank is not shown its blank back (R10.63). A guard answers a result with
 /// <c>isError</c> set and not an exception, because the SDK puts its own prefix before an exception's message and a
