@@ -419,7 +419,7 @@ public sealed class ToolProtocolTests : IDisposable
         return arguments;
     }
 
-    private static bool Generic(string tool, Answer result) =>
+    private static bool Generic(string tool, McpAnswer result) =>
         result.IsError && result.Text.Trim() == $"An error occurred invoking '{tool}'.";
 
     private static string[] Required(JsonElement schema) =>
@@ -540,30 +540,11 @@ public sealed class ToolProtocolTests : IDisposable
         return dir!.FullName;
     }
 
-    /// <summary>What a tool answered: the text a model reads, and whether the protocol marked it an error.</summary>
-    private readonly record struct Answer(bool IsError, string Text);
-
-    /// <summary>A real client and a real server over two pipes, the server built by <see cref="ServerComposition.Options"/>.</summary>
-    private sealed class Session : IAsyncDisposable
+    /// <summary>Builds the tools over the stub Forum and starts the shared protocol session on them.</summary>
+    private static class Session
     {
-        private readonly McpClient _client;
-        private readonly McpServer _server;
-        private readonly StreamServerTransport _transport;
-        private readonly EnrolledAgent? _agent;
-        private readonly Task _running;
-
-        private Session(McpClient client, McpServer server, StreamServerTransport transport, EnrolledAgent? agent, Task running)
+        internal static async Task<McpProtocolSession> StartAsync(StubLog log, string home, bool identity)
         {
-            _client = client;
-            _server = server;
-            _transport = transport;
-            _agent = agent;
-            _running = running;
-        }
-
-        internal static async Task<Session> StartAsync(StubLog log, string home, bool identity)
-        {
-            var ct = TestContext.Current.CancellationToken;
             EnrolledAgent? agent = null;
             ForumWriter? writer = null;
             if (identity)
@@ -573,66 +554,7 @@ public sealed class ToolProtocolTests : IDisposable
             }
 
             var tools = new ForumTools(log.Client(), MarkingMode.None, new HeadStore(home), writer);
-            var options = ServerComposition.Options(tools, writer?.Agent.Profile.AgentId);
-
-            var toServer = new Pipe();
-            var toClient = new Pipe();
-            var transport = new StreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream(), "curia-mcp-protocol-test", NullLoggerFactory.Instance);
-            var server = McpServer.Create(transport, options, NullLoggerFactory.Instance);
-            var running = server.RunAsync(ct);
-
-            var client = await McpClient.CreateAsync(
-                new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream(), NullLoggerFactory.Instance),
-                new McpClientOptions { ClientInfo = new Implementation { Name = "curia-protocol-gate", Version = "0" } },
-                NullLoggerFactory.Instance,
-                ct);
-
-            return new Session(client, server, transport, agent, running);
-        }
-
-        internal async Task<IReadOnlyList<Tool>> ListAsync() =>
-            [.. (await _client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken)).Select(t => t.ProtocolTool)];
-
-        internal async Task<CallToolResult> CallRawAsync(string tool, Dictionary<string, object?> arguments) =>
-            await _client.CallToolAsync(tool, arguments, cancellationToken: TestContext.Current.CancellationToken);
-
-        internal async Task<Answer> CallAsync(string tool, Dictionary<string, object?> arguments)
-        {
-            var result = await _client.CallToolAsync(tool, arguments, cancellationToken: TestContext.Current.CancellationToken);
-            var text = new StringBuilder();
-            foreach (var block in result.Content)
-            {
-                switch (block)
-                {
-                    case TextContentBlock t:
-                        text.AppendLine(t.Text);
-                        break;
-                    case EmbeddedResourceBlock { Resource: TextResourceContents resource }:
-                        text.AppendLine(resource.Text);
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            return new Answer(result.IsError == true, text.ToString().TrimEnd());
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await _client.DisposeAsync();
-            await _server.DisposeAsync();
-            await _transport.DisposeAsync();
-            try
-            {
-                await _running;
-            }
-            catch (OperationCanceledException)
-            {
-                // the session ended with its client
-            }
-
-            _agent?.Dispose();
+            return await McpProtocolSession.StartAsync(tools, writer?.Agent.Profile.AgentId, agent);
         }
     }
 }
