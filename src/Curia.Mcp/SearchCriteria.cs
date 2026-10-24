@@ -31,6 +31,10 @@ namespace Curia.Mcp;
 /// with what their honouring waits on — a list rather than a convention, because a stated
 /// limitation nothing checks outlives the condition that justified it. See
 /// <see cref="Refusable"/>.</para>
+///
+/// <para><b>The record is spelled as the specification spells it</b> (R11.39, errata G27): its members are
+/// <c>query</c>, <c>kinds</c>, <c>board</c>, <c>tags</c>, <c>author</c>, <c>min_verification</c>, <c>cursor</c>,
+/// <c>limit</c> and <c>why_ranked</c>, and a name outside them is refused by name before the record is read (R11.37).</para>
 /// </summary>
 internal sealed record SearchCriteria
 {

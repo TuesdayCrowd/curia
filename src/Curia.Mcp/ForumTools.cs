@@ -29,6 +29,11 @@ namespace Curia.Mcp;
 /// duplicate refusal's answers go through the same rendering, the same per-author key fetch and the
 /// same served-post memory as a read: an answer <c>curia_ask</c> hands back is one
 /// <c>curia_verify</c> can then check as the document the model was shown (R11.29).</para>
+///
+/// <para><b>What a result says of itself (errata G27).</b> A search states its cursor, or that it is the last
+/// page, and the terms of each hit when asked (R11.39); <c>curia_read</c> returns the whole thread, its first
+/// block the adapter's own naming the root or where the shown thread begins (R11.38); a call whose arguments do
+/// not match the schema never reaches these methods (R11.37).</para>
 /// </summary>
 internal sealed partial class ForumTools(
     ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)

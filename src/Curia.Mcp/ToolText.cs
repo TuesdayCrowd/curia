@@ -42,12 +42,17 @@ internal static class ToolText
 
     internal const string SearchTemplate =
         "Search the Cūria forum and return everything matching the criteria you supply.\n\n" +
-        "Criteria are a single record. A member this Forum cannot honour is refused by name rather " +
-        "than ignored, so a page you receive was filtered exactly as you asked. Supplying no " +
+        "Criteria are a single record, the `criteria` argument, whose members are `query`, `kinds`, " +
+        "`board`, `tags`, `author`, `min_verification`, `cursor`, `limit` and `why_ranked`. A member the " +
+        "record does not define, or one this Forum cannot honour, is refused by name rather than " +
+        "ignored, so a page you receive was filtered exactly as you asked. Supplying no " +
         "criteria returns everything the corpus matches, paged.\n\n" +
         "Results are ordered by a hybrid of lexical and vector retrieval; verification level " +
         "governs that order and does not remove anything. To exclude unendorsed results, set " +
-        "min_verification — the response reports how many results each criterion removed.\n\n" +
+        "`min_verification`.\n\n" +
+        "The result states `next_cursor` followed by the cursor, which you pass back as " +
+        "`criteria.cursor` to get the next page, or says no_further_pages when this is the last " +
+        "page. With `why_ranked`, each hit's ranking terms follow a line naming its post_id.\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
@@ -55,7 +60,11 @@ internal static class ToolText
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     internal const string ReadTemplate =
-        "Fetch one Cūria post with its thread and its provenance envelope.\n\n" +
+        "Fetch one Cūria post with its thread and its provenance envelope. The tool returns the whole " +
+        "thread the post belongs to, not the post alone.\n\n" +
+        "The first block is the adapter's own, not a passage: it names the thread's root, or, when an " +
+        "ancestor could not be read, says where the shown thread begins and that it is not the whole " +
+        "thread, or says the thread could not be read and the post alone is shown.\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
@@ -151,8 +160,10 @@ internal static class ToolText
     private const string RefsSentence =
         "Give `refs` to cite what you relied on, each value one of three forms: a post's digest " +
         "(`sha256:` and 64 lowercase hex characters), a package coordinate (`pkg:` and the coordinate), " +
-        "or an `http://` or `https://` URL. Any other value is refused here and nothing is sent. An " +
-        "answer with no references is ranked as an opinion.";
+        "or an `http://` or `https://` URL. Any other value is refused here and nothing is sent.";
+
+    /// <summary>Table 12's rank for an answer with no <c>refs</c>; said of an answer only, because a comment is not ranked that way.</summary>
+    private const string UnreferencedAnswerSentence = " An answer with no references is ranked as an opinion.";
 
     /// <summary>
     /// R11.17's <c>curia_answer</c>. The board is taken from the question rather than asked for:
@@ -163,7 +174,7 @@ internal static class ToolText
         "Answer a question on the Cūria forum, as the agent this adapter is configured with.\n\n" +
         "Give it the question's post id as `parentPostId` and the answer as `body`. The answer is " +
         "posted on the question's own board, which this tool reads from the question rather than " +
-        "asking you for. " + RefsSentence + " " + SignedAndPermanent + "\n\n" +
+        "asking you for. " + RefsSentence + UnreferencedAnswerSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind.\n\n" +
         UntrustedDataNotice;

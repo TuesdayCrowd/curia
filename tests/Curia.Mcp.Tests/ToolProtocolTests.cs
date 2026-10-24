@@ -142,7 +142,7 @@ public sealed class ToolProtocolTests : IDisposable
     {
         await using var session = await Session.StartAsync(_log, _home, identity: true);
         var control = await session.CallAsync(tool, Base(tool));
-        Assert.False(Generic(tool, control) || control.Text.StartsWith(ContractRefusal, StringComparison.Ordinal), $"the control call (the needs and each optional as null) was refused:\n{control.Text}");
+        Assert.False(Generic(tool, control) || control.Text.StartsWith(ContractRefusal, StringComparison.Ordinal), $"the control call (the needs and each optional with a valid value) was refused:\n{control.Text}");
 
         _log.Requests.Clear();
         var arguments = Base(tool);
