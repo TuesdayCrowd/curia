@@ -181,6 +181,88 @@ public sealed class HybridSearchTests
         Assert.All(page.Results, r => Assert.Equal(0, r.VectorRank));
     }
 
+    /// <summary>
+    /// R9.30's corpus: <paramref name="answers"/> ungraded answers (V0 under the default fold) and
+    /// <paramref name="questions"/> questions, all matching one query, by distinct authors so that
+    /// R10.7's cap defers nothing the count could confuse with a removal.
+    /// </summary>
+    private static async Task SeedAsync(Harness h, int answers, int questions, CancellationToken ct)
+    {
+        for (var i = 0; i < questions; i++)
+            await AcceptAsync(h.Store, h.Indexer, $"q{i}", ct, title: $"npgsql ECONNRESET case {i}", body: $"variant {i} of the npgsql ECONNRESET question", author: $"https://agents.example/q{i}").ConfigureAwait(false);
+        for (var i = 0; i < answers; i++)
+            await AcceptAsync(h.Store, h.Indexer, $"a{i}", ct, kind: PostKind.Answer, title: null, body: $"npgsql ECONNRESET: set the keepalive, variant {i}", parent: "q0", author: $"https://agents.example/a{i}").ConfigureAwait(false);
+    }
+
+    [Fact]
+    public async Task R9_30_TheFloorCountIsHowManyResultsTheFloorRemoved()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = NewHarness();
+        const int answersAppended = 3;
+        await SeedAsync(h, answersAppended, 1, ct);
+
+        var page = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V1), ct);
+
+        Assert.Equal(["q0"], page.Results.Select(r => r.Post.PostId));
+        Assert.Equal(answersAppended, page.ExcludedByFloor);
+    }
+
+    [Fact]
+    public async Task R9_30_AFloorThatRemovedNothingStatesZero()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = NewHarness();
+        await SeedAsync(h, 3, 1, ct);
+
+        var open = await SearchAsync(h, Query("npgsql ECONNRESET", floor: VerificationLevel.V0), ct);
+        Assert.Equal(4, open.Results.Length);
+        Assert.Equal(0, open.ExcludedByFloor);
+
+        // R10.45: a question is never graded, so a floor over ungradable kinds removes nothing.
+        var questionsOnly = NewHarness();
+        await SeedAsync(questionsOnly, 0, 3, ct);
+        var gated = await SearchAsync(questionsOnly, Query("npgsql ECONNRESET", floor: VerificationLevel.V1), ct);
+        Assert.Equal(3, gated.Results.Length);
+        Assert.Equal(0, gated.ExcludedByFloor);
+    }
+
+    [Fact]
+    public async Task R9_30_TheCountIsTheSameOnEveryPageOfOneQuery()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = NewHarness();
+        const int answersAppended = 3;
+        await SeedAsync(h, answersAppended, 3, ct);
+
+        var counts = new List<int>();
+        RetrievalCursor? cursor = null;
+        do
+        {
+            var page = await SearchAsync(h, Query("npgsql ECONNRESET", limit: 1, cursor: cursor, floor: VerificationLevel.V1), ct);
+            counts.Add(page.ExcludedByFloor);
+            cursor = page.Next;
+        }
+        while (cursor is not null);
+
+        Assert.Equal(3, counts.Count);
+        Assert.All(counts, c => Assert.Equal(answersAppended, c));
+    }
+
+    [Fact]
+    public async Task R9_30_TheCountDoesNotDependOnTheLimit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = NewHarness();
+        await SeedAsync(h, 3, 3, ct);
+
+        var narrow = await SearchAsync(h, Query("npgsql ECONNRESET", limit: 1, floor: VerificationLevel.V1), ct);
+        var wide = await SearchAsync(h, Query("npgsql ECONNRESET", limit: 50, floor: VerificationLevel.V1), ct);
+
+        Assert.Equal(3, wide.ExcludedByFloor);
+        Assert.Equal(wide.ExcludedByFloor, narrow.ExcludedByFloor);
+    }
+
     /// <summary>A fold whose only graded digest is the one named; every other digest is V0.</summary>
     private sealed class StubFold(string digest, VerificationLevel level)
     {

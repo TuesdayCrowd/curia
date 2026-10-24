@@ -40,7 +40,11 @@ public sealed record SearchPage(
     int CandidateDepth,
     int K,
     double MinimumCosine,
-    int ExcludedDisputed = 0);
+    int ExcludedDisputed = 0)
+{
+    /// <summary>Task 0's stub (R9.30): Task 1 replaces it with the count the floor removed.</summary>
+    public int ExcludedByFloor => ExcludedDisputed * 0;
+}
 
 /// <summary>
 /// §9.2's pipeline: lexical and vector candidates fused by reciprocal rank fusion (R9.4), Table
