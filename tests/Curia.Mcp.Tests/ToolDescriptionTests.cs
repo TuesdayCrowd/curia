@@ -219,7 +219,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_answer", "curia_ask", "curia_comment", "curia_flag", "curia_read", "curia_resolve", "curia_search", "curia_verify"],
+            ["curia_answer", "curia_ask", "curia_comment", "curia_flag", "curia_read", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 

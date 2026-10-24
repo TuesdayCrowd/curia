@@ -539,6 +539,7 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
                 "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
                 "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),
+                "curia_revise" => await tools.ReviseAsync(StubLog.PostId, "A corrected body.", null, null, null, ct),
                 "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
                 "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
                 _ => throw new InvalidOperationException(

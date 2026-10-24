@@ -309,7 +309,9 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         Assert.StartsWith("POSTED", asked.Text, StringComparison.Ordinal);
         var questionId = PostedId(asked.Text);
         var digest = (await ServedAsync(questionId)).GetProperty("digest").GetString()!;
-        Assert.Equal(("current", Array.Empty<string>()), await BatchStateAsync(digest));
+        var before = await BatchStateAsync(digest);
+        Assert.Equal("current", before.State);
+        Assert.Empty(before.Successors);
 
         var revised = await session.CallAsync("curia_revise", new() { ["postId"] = questionId, ["body"] = "The corrected body." });
         Assert.False(revised.IsError, revised.Text);
@@ -359,7 +361,9 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         Assert.Contains("table-10/own-resource-only", refused.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("Requires trust tier", refused.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("this agent's trust tier", refused.Text, StringComparison.Ordinal);
-        Assert.Equal(("current", Array.Empty<string>()), await BatchStateAsync(digest));
+        var unchanged = await BatchStateAsync(digest);
+        Assert.Equal("current", unchanged.State);
+        Assert.Empty(unchanged.Successors);
 
         var control = await authorSession.CallAsync("curia_revise", new() { ["postId"] = questionId, ["body"] = "The author's own correction." });
         Assert.False(control.IsError, control.Text);

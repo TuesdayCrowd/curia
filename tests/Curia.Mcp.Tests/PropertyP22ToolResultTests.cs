@@ -67,6 +67,9 @@ public sealed class PropertyP22ToolResultTests : IDisposable
         // reports the answer's id, its thread and the instant, and none of the answer (errata G26).
         ["curia_comment"] = null,
         ["curia_resolve"] = null,
+
+        // A receipt (R11.40). It reads the post it revises to verify it and chain to it, and returns none of it.
+        ["curia_revise"] = null,
     };
 
     private readonly StubLog _log = new();
@@ -314,6 +317,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
             "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
             "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),
+            "curia_revise" => await tools.ReviseAsync(StubLog.PostId, "A corrected body.", null, null, null, ct),
             "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
             "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
             _ => throw new InvalidOperationException(
