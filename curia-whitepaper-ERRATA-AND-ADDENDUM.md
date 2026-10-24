@@ -9858,7 +9858,7 @@ gradable kinds); R6.57 (`excluded_disputed`); G27 decision 8(d), which this entr
 `:1664`-`:1801`, its refusals `:1679`-`:1686`; the construction `:1789`-`:1795`), `src/Curia.Client/ForumDocuments.cs` (`RetrievalFloorDocument`, `:82`-`:83`; its construction,
 `:367`-`:372`), and the two readers that print the floor, `src/Curia.Client.Cli/Program.cs` (`:859`) and `src/Curia.Mcp/ForumTools.cs` (`Floor`, `:394`), with the description
 `src/Curia.Mcp/ToolText.cs` (`SearchTemplate`, `:43`). **Class:** normative gap, carrying two requirements; it is the entry the implementation plan's register holds as D56 and D57. **Status:** proposed; not applied to the
-white paper. Not yet built: the stage is `docs/superpowers/plans/2026-10-24-search-says-what-it-removed.md`. Findings 1 to 3 were read in the tree and not run to write this entry;
+white paper. Built 2026-10-24 by the stage `docs/superpowers/plans/2026-10-24-search-says-what-it-removed.md` (this PR). Findings 1 to 3 were read in the tree and not run to write this entry;
 finding 4 is the architect's probe of 2026-10-23 as the register records it (`frobnicate=1`, `kinds=question`, `minVerification=V2` and `unresolved_only=true` each answered `200`
 and an unfiltered page) and the handler was read for it, not re-run.
 
