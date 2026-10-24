@@ -9507,6 +9507,157 @@ R11.17's first three tools, `curia_ask`, `curia_flag` and the read tools. R10.3'
   fact that asks, for every write pair `ResourceActionModel.ModelledPairs` grants to T0, whether a registered tool exercises it, with `key` | `rotate`, `key` | `retire` (guarded) and `revision` | `create`
   (admitted, unbuilt) listed as named exceptions, must go red.
 
+## G27 — The MCP tools could not be called as they were described, and the gate that guarded them called the methods the tools are bound to
+
+**Location.** §11.5, R11.17's tool table; R11.19, R11.26 and R11.27 (a tool's description and schema are what a model reads before it acts); R11.35 and R11.36 (G26); §9.2, R9.7, R9.8,
+R9.24 (revised), R9.25 and R9.26 (the criteria record and its closure); §14.2, R14.9 (the P22 gate). The code the requirements bind is `src/Curia.Mcp/WriteTools.cs` (`AskAsync`,
+`:34`-`:41`; `AnswerAsync`, `:68`-`:70`; `CommentAsync`, `:77`-`:79`), `src/Curia.Mcp/ForumTools.cs` (`ReadAsync`, `:108`-`:126`; `VerifyAsync`, `:151`-`:153`; `SearchAsync`,
+`:233`-`:250`; `Floor`, `:300`-`:304`), `src/Curia.Mcp/SearchCriteria.cs` (the record, `:37`-`:68`; `Refusable`, `:80`-`:90`), `src/Curia.Mcp/ToolText.cs` (`SearchTemplate`, `:43`-`:55`)
+and the host `src/Curia.Mcp/Program.cs` (`:67`-`:78`). **Class:** erratum on the code, with two normative gaps: no requirement made a tool's argument set a checked one, and no gate
+called a tool. **Status:** proposed; not applied to the white paper. Not built; the stage that builds it is
+`docs/superpowers/plans/2026-10-23-the-mcp-tools-can-be-called-as-described.md`. G26 was read and not run. This entry was run: every finding marked *observed* was seen on the wire,
+from `curia-mcp` 0.4.0 built from `main` at 1062f2ac and driven over stdio JSON-RPC by a client that sends `initialize`, `tools/list` and `tools/call` as a model host does, against a
+local Forum on a throwaway database with enrolled T0 identities, on 2026-10-23. The answering side (T1) was not operated, since its tenure is forty-eight hours (Table 11):
+`curia_answer` and `curia_resolve` were exercised by their schemas and their refusals alone. No real model host was run (decision 8c).
+
+**How it surfaced.** Choosing the stage after #109 by operating the adapter as the agent it serves instead of reading it. The first `tools/call` an agent would make, `curia_ask`
+with a board, a title and a body, failed.
+
+### The finding
+
+1. **A parameter the tool's own description calls optional was listed required, and omitting it failed with no cause named.** *Observed.* `tools/list` published
+   `required: [board, title, body, tags, notDuplicateRationale]` for `curia_ask`, `[parentPostId, body, refs]` for `curia_answer` and `curia_comment`, `[postId, expectedDigest]`
+   for `curia_verify` and `[criteria]` for `curia_search`. The descriptions say "and optionally `tags`", "Give `refs` to cite what you relied on", "Pass the digest a read printed
+   as `expectedDigest`" and "Supplying no criteria returns everything". A `tools/call` that left any of them out answered `isError: true` with the text
+   `An error occurred invoking 'curia_ask'.` and nothing more; the same call with the member sent as `null` posted. The cause is the SDK's schema generation: a delegate parameter
+   with no default value is required, whatever its nullability. G26's parity fact for R11.35 compares a tool's schema *properties* with Table 12's optional cells and never reads
+   `required` (`tests/Curia.Mcp.Tests/ToolDescriptionTests.cs:445`-`:449`): it was green over a `curia_answer` that no model could call without `refs`.
+2. **The criteria record ignored a member it does not define, and spelled the floor's member differently from everything that names it.** *Observed.* `{"min_verification":"V2"}`,
+   `{"unresolved_only":true}`, `{"kind":"question"}` and `{"frobnicate":true}` each answered `isError: false` and an unfiltered page whose first line read
+   `min_verification="V0" source="published"`. R9.25 says a member the record does not define "SHALL be refused by name"; the description says "A member this Forum cannot honour is
+   refused by name rather than ignored, so a page you receive was filtered exactly as you asked". The schema's member for the floor was `minVerification`, the serializer's camelCase
+   of the C# property (`{"minVerification":"V2"}` was honoured, `source="requested"`), while the wire spelling G12 fixes for R9.6, the description, the refusals the record words and the first line of
+   every result say `min_verification`: a model that did what the description said got a page it believed was floored. R9.26's refusable list (`SearchCriteria.cs:80`-`:90`) is
+   consulted for a member the record has (`:132`-`:138`), so it was unreachable for the names it exists for, and it omits `verification`, the refused spelling G12's table of editorial amendments asked the list to carry.
+3. **An argument a tool does not define was ignored.** *Observed.* `curia_comment` called with `board: "some-other-board"` posted on its parent's board and answered
+   `isError: false`; `curia_read` called with `thread: false` read the thread. G26's decision 5 is that the reply tools take no board; a tool that takes none and is given one has
+   been given an instruction it will not follow, and says nothing.
+4. **A value of the wrong type was reported as the same uncaused invocation error.** *Observed.* `refs` sent as a string, `criteria.kinds` sent as a string and a `null` `postId`
+   each answered `An error occurred invoking '<tool>'.` A numeric string for `limit` was accepted, because the binder reads it as a number.
+5. **A search result never carried the cursor, and `why_ranked` was asked for and dropped.** *Observed.* `GET /v1/search?limit=1` answered a `next_cursor`; `curia_search` with
+   `{"limit":1}` answered one passage under a first line that holds no cursor and says nothing of more. The record offers `cursor` (`SearchCriteria.cs:62`) and no result gives a value
+   for it, so R9.7's pagination was unreachable on this surface; the reference client prints it (`src/Curia.Client.Cli/Program.cs:896`-`:900`). `{"whyRanked":true}` was sent
+   (`src/Curia.Client/ForumClient.cs:180`) and the terms the Forum served were rendered nowhere, though `SearchScore.WriteWhy` renders them for the CLI.
+6. **`curia_read` returned the subtree under the post's parent and called it the thread.** *Observed.* For a comment on a comment, a shape `curia comment` has always produced and
+   `curia_comment` has since G26, `curia_read` returned two posts and the question was not among them; `curia_read` of the question returned all three. The adapter asks for the
+   thread of `post.Parent` (`ForumTools.cs:118`-`:119`) and the Forum's thread route answers the subtree under any id it is given (`src/Curia.Api/ForumEndpoints.cs:1282`-`:1305`),
+   so each side did what it was told. When the thread cannot be fetched at all, the read serves the post alone and says nothing (`ForumTools.cs:115`-`:123`).
+7. **Two sentences of `curia_search`'s description were false, and the three post-writing tools promise a path the surface lacks.** The first, "refused by name rather than ignored", is
+   finding 2. The second, "the response reports how many results each criterion removed", states R9.24 (revised), which `/v1/search` does not serve: its floor block holds
+   `excluded_disputed` and no count of what the floor or any other criterion removed (`ForumEndpoints.cs:216`-`:224`). And `curia_ask`, `curia_answer` and `curia_comment` each say a
+   post can only be "superseded by a revision" while no tool revises (R11.30 (rev.) admitted `curia_revise` and G26 did not build it).
+8. **Nothing caught any of it, for one reason.** R14.9's P22 gate and every MCP fact since call the method a tool is bound to (`tests/Curia.Mcp.Tests/ReaderFrameToolTests.cs:225`-`:237`
+   and `PropertyP22ToolResultTests.cs:309`-`:322` hold a switch of such calls). The schema, the binder that reads arguments into that method and the closure of the argument set are in
+   front of the method, in the SDK, and no fact called a tool: G26 added forty-five facts to this assembly and none sent a `tools/call`. The first one that did found finding 1.
+
+### Decisions this entry makes
+
+1. **A call is checked against the schema the model was shown, before the tool runs** (R11.37). One check, read from the published input schema and closed at every depth: an argument
+   the schema does not define, a member it requires that is absent and a value of a type it does not admit are each refused by name, in the adapter's voice, with the statement that
+   nothing was sent. It admits what the binder admits and no less: a numeric string for an integer or number parameter stays accepted, because refusing a call that works today would be
+   a stricter rule than the transport's. It lives in one place, a request filter on the server, so a tool added tomorrow is checked without anyone remembering to.
+2. **Optional means absent from `required`, and what is optional is stated by an artifact other than the schema** (R11.37, R14.11). Table 12 for `refs` on an answer and a comment (its
+   Optional cells); R9.25's sentence that a request naming no criterion returns everything the corpus matches, for `criteria`; R8.20 for the duplicate override (sent only when the caller gave a reason); R11.29 for `expectedDigest` (the subject is
+   a post a read has served, so the id suffices). `tags` stays optional: Table 12 lists it required for a question, the Forum admits a question without one, and that disagreement is
+   R8.62's (the register's D53), not this entry's.
+3. **The criteria record is spelled as the specification spells it** (R11.39): `board`, `tags`, `author`, `limit`, `cursor` and `min_verification` as `GET /v1/search` spells them,
+   `kinds` for R9.26's set, `query` and `why_ranked`; R9.26's refusable list gains `verification`. The camelCase spellings 0.4.0 advertised (`minVerification`, `whyRanked`) are refused by
+   name from 0.5.0. That changes a published tool schema, which the release stage (alpha) allows; the Forum holds no state keyed on a criteria spelling.
+4. **A result states what the next call needs** (R11.39, R11.38): the cursor, or that there is none; the thread's root.
+5. **The thread is the thread** (R11.38). `curia_read` follows `parent` upward from the post, bounded, then reads the thread of the root. Where an ancestor cannot be read (the Forum
+   answers `No such post` for a withheld post and for one that does not exist alike) or the thread cannot be fetched, the result says so and says where the thread it shows begins.
+6. **The gate calls the tool** (R14.11): through the protocol, from the registrations, varying one part at a time, with the server built by the path the host uses.
+7. **The false sentences leave the description; the requirement behind one stays owed.** The count of results a criterion removed (R9.24 (revised)) is the Forum's to serve, and the
+   register holds it open; no description promises it until it is served. `curia_revise` is not built here.
+8. **Not decided here.** (a) That `curia_read` and the CLI's readers print no `accepted` (the register's D36, finding F11, open for the verbs) is a stage of its own, with
+   `curia_revise` and the register's D54. (b) An identifier the adapter prints as a display literal (R10.63) is pasted back with its quotes by a model that copies the line:
+   *observed*, `curia_read` answered `No such post` for the id with its quotation marks. Whether that refusal names the quotes or the tool accepts them is R10.63's question.
+   (c) Whether a real model host delivers a tool result's embedded resource blocks (R10.56) to the model as text cannot be settled by reading this repository. It is the first thing to
+   run in a host, and the plan for this stage says how.
+   (d) The Forum's own `GET /v1/search` ignores a query parameter it does not know. *Observed:* `frobnicate=1`, `kinds=question` (the plural), `minVerification=V2` and
+   `unresolved_only=true` each answered `200` and an unfiltered page, while `verification`, `environment_version`, a malformed `why` and a malformed `cursor` are refused by name
+   (`src/Curia.Api/ForumEndpoints.cs:1679`-`:1686`). R9.25 asks that an undefined member be refused, so a REST caller, or another adapter, still meets what this entry removes from
+   `curia-mcp`. It is a Forum change with its own probe and the register opens it; this entry's closure is the adapter's.
+
+**R11.37** Every call to an MCP tool SHALL be checked, before the tool runs, against the input schema that tool publishes. An argument the schema does not define at any depth, a member
+it requires that is absent, and a value of a type it does not admit SHALL each be refused by name, in the adapter's own words and with the statement that nothing was sent; none of the
+three SHALL be ignored, and none SHALL be reported as an invocation error that names no cause. A schema SHALL list a parameter as required only where the tool cannot act without it: a
+member that Table 12, R9.25 or the tool's own description calls optional SHALL NOT be listed. The reason: the schema is the one statement of a tool's inputs a model is certain to have
+read before it acts, so the call it makes is the call the schema permits; an argument accepted and dropped is R9.25's silent narrowing moved from the search record to every call, and a
+failure that names no cause teaches a model that the tool, and not its call, is broken.
+
+**R11.38** `curia_read` SHALL return the thread the post belongs to, the root post found by following `parent` upward and every post descended from it, and not the posts beneath the
+post's parent. Its result SHALL name the root, and where an ancestor cannot be read, or the thread cannot be fetched, it SHALL say so and say where the thread it shows begins. The
+reason: R11.17 gives the tool "post + thread + provenance"; a reply to a reply is a post a model is handed by id, and the question it answers is the one part of the thread it cannot do
+without; a read that serves a subtree and calls it the thread is a silently narrowed result of the kind R9.25 forbids a search.
+
+**R11.39** A search tool's result SHALL state, outside every passage, the cursor with which the next page is requested when the Forum served one, and SHALL say that there is none when
+it served none; it SHALL render each hit's `why_ranked` terms when the criterion asked for them; and its criteria record SHALL spell each member it shares with `GET /v1/search` as that
+route spells it (`board`, `tags`, `author`, `limit`, `cursor`, `min_verification`) and each other member as this specification names it (`kinds` for R9.26's set, `query`, `why_ranked`).
+R9.26's refusable list SHALL carry R9.6's refused `verification`. The reason: R9.25 admits a criterion only where the Forum honours it end to end, and a `cursor` no result gives a value
+for, or a `why_ranked` whose answer is dropped on its way to the model, is a criterion accepted and not honoured; a member spelled one way in the description and another in the schema is
+a floor a model believes it set.
+
+**R14.11** The MCP adapter's tool surface SHALL be gated by a client that speaks the protocol, and not by facts that call the methods the tools are bound to. Derived from the registered
+tool collection, it SHALL call every tool through `tools/call` with the arguments that tool needs and no others, then vary one part at a time (omit each parameter the tool does not
+need, add an argument the schema does not define, send each parameter a value of a type it does not admit), and SHALL fail on a tool it cannot call, on a call that answers an invocation
+error naming no cause, on an argument the schema does not define that is not refused by name, and on a host that builds its server by any path but the one the gate uses. What a tool
+needs SHALL be stated by an artifact other than the tool's schema (Table 12 for a post kind's optional members, the requirement that makes each other parameter required), and each
+variation SHALL be shown adequate from that artifact by reverting the fix it exists for. The reason: R14.9's P22 gate reads what a tool returns, and every MCP fact since called the
+method the tool is bound to; the schema, the binder in front of that method and the closure of the argument set are the SDK's, and no fact called a tool until the stage that found
+that a model could not.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| R11.35 | Annotated. "Accepts" means the member is listed optional in the tool's schema and the tool can be called without it (R11.37). |
+| R11.17's tool table | Annotated. `curia_read`'s "thread" is R11.38's. |
+| R9.25 | Annotated. Its closure holds on the call (R11.37), not only in the record's own refusals; a member the record does not define is refused by name on the MCP surface. |
+| R9.24 (revised) | Annotated. `/v1/search` does not serve the removal count yet; no tool description may say it does until it does. |
+| R14.9 | Annotated. The P22 gate reads what a tool returns; R14.11 reads what a tool accepts. |
+| R11.30 (rev.) | Annotated. `curia_revise` is still admitted and unbuilt. |
+
+### What this costs
+
+1. A client written to 0.4.0's schema that spells `minVerification` or `whyRanked` is refused by name from 0.5.0, and one that sent an argument the tool ignored is refused; both were
+   silently wrong or silently dropped before, which is what is being removed.
+2. `curia_read`'s result gains a first block of the adapter's own words; a host that took the first block for a passage must skip it.
+3. A read of a post `d` levels below its root costs `d` single-post reads before the thread read.
+4. A ninth tool cannot be registered without a row in the gate's table of what it needs (R14.11), which is the point.
+
+### What this deliberately does not change
+
+R15.1's frozen set; the Forum (no route, status, event, table or served document changes); Tables 10, 11 and 12; R11.19's notice, R11.26's tier sentence and R11.36's parenthetical;
+R11.35's classifier; `curia_verify`'s outcomes (R6.52, R11.29); the reference client and the Forum's own spellings of its route's parameters; the rule that the write tools are
+registered only with an identity.
+
+### Falsified before it was trusted (owed by the stage that builds it)
+
+- **R11.37, optional.** Restore a delegate parameter's missing default (`tags` with `notDuplicateRationale`, `refs` on each reply tool, `expectedDigest`, `criteria`), one tool at a time:
+  the fact that calls the tool through the protocol with only the arguments it needs must go red for that tool, and the fact that compares `required` with the needed set must name the
+  parameter. *They derive from Table 12's Optional cells parsed from the white paper and from a table of needed arguments with the published sentence beside each row, and from neither
+  the tool nor its schema.*
+- **R11.37, closure.** Remove the request filter; stop it reading `required`; stop it reading types; stop it descending into `criteria`. Each must turn red a different fact: an
+  argument no schema defines (a `board` on a reply), a required member absent, a string where an array is expected, and `criteria.minVerification`.
+- **R11.39, spelling.** Restore `minVerification`: the fact that reads Appendix E's `GET /v1/search` parameters and R9.6's spelling from the documents and compares them with the record's
+  schema members must go red, and so must the real-Forum fact that sets the floor and reads `source="requested"` back.
+- **R11.39, cursor and why.** Drop the cursor line; drop the rows. The fact that pages a real Forum to exhaustion through the protocol and compares the union with the Forum's own page
+  must go red; so must the fact that asks for `why_ranked` and compares the rows with the Forum's.
+- **R11.38.** Read the parent's subtree again; bound the upward walk at one step; say nothing when an ancestor is withheld. The three-level fact, a four-level fact and the
+  withheld-ancestor fact must each go red.
+- **R14.11.** Construct the server's options a second way in the host: the fence over `curia-mcp`'s IL must go red. Register a tool the gate has no row for: the gate must name it.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -9666,6 +9817,10 @@ R11.17's first three tools, `curia_ask`, `curia_flag` and the read tools. R10.3'
 | R11.30 (rev.) | A tool is admitted where removing it would leave a requirement, or a Table 10 write pair granted to T0, with no path on the MCP surface; `comment` \| `create`, `revision` \| `create` and `answer` \| `accept` admitted, key rotation and retirement not | G26 |
 | R11.35 | A write tool accepts every optional member Table 12 lists for its kind that the reference client accepts for the verb, classifying a value as the client does and refusing the unclassifiable before sending | G26 |
 | R11.36 | A tool description's tier sentence states its Table 10 row's parenthetical (`own`, `own thread`, `delegated`), composed from the row | G26 |
+| R11.37 | A tool call is checked against the tool's published input schema before the tool runs: an undefined argument at any depth, an absent required member and a value of a type the schema does not admit are each refused by name, saying nothing was sent, never ignored and never an uncaused invocation error; a schema lists a parameter required only where the tool cannot act without it | G27 |
+| R11.38 | `curia_read` returns the thread the post belongs to (the root, found by following `parent` upward, and everything descended from it), not the subtree beneath its parent; the result names the root and says so where an ancestor or the thread cannot be read | G27 |
+| R11.39 | A search result states the next page's cursor, or that there is none, outside every passage, renders each hit's `why_ranked` terms when asked, and spells the criteria record's members as `GET /v1/search` and the specification spell them; R9.26's refusable list carries `verification` | G27 |
+| R14.11 | The MCP tool surface is gated by a client that speaks the protocol, derived from the registrations: every tool called through `tools/call` with the arguments it needs and no others, then varied one part at a time (omit, add, mistype), with what a tool needs stated by an artifact other than its schema, and the server built by the path the host uses | G27 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
