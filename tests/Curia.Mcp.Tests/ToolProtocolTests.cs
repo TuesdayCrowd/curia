@@ -161,6 +161,9 @@ public sealed class ToolProtocolTests : IDisposable
     public async Task R11_37_ABoardIsNotAnArgumentOfAReply(string tool)
     {
         await using var session = await Session.StartAsync(_log, _home, identity: true);
+        var control = await session.CallAsync(tool, Base(tool));
+        Assert.False(Generic(tool, control) || control.Text.StartsWith(ContractRefusal, StringComparison.Ordinal), $"the control call (no board) was refused:\n{control.Text}");
+
         _log.Requests.Clear();
         var arguments = Base(tool);
         arguments["board"] = "elsewhere";
@@ -221,6 +224,7 @@ public sealed class ToolProtocolTests : IDisposable
         await using var session = await Session.StartAsync(_log, _home, identity: true);
         var schema = (await session.ListAsync()).Single(t => t.Name == tool).InputSchema;
         var tried = 0;
+        _log.Requests.Clear();
 
         foreach (var property in schema.GetProperty("properties").EnumerateObject())
         {
@@ -232,6 +236,7 @@ public sealed class ToolProtocolTests : IDisposable
                     result.IsError && result.Text.StartsWith(ContractRefusal, StringComparison.Ordinal) && result.Text.Contains(path, StringComparison.Ordinal),
                     $"{tool} was given {wrong} at '{path}':\n{result.Text}");
                 Assert.DoesNotContain(Sentinel, result.Text, StringComparison.Ordinal);
+                Assert.Empty(_log.Requests);
             }
         }
 
@@ -313,7 +318,7 @@ public sealed class ToolProtocolTests : IDisposable
 
         if (cursor is not null)
         {
-            Assert.True(adapters.Any(a => a.Contains("\"" + cursor + "\"", StringComparison.Ordinal)), $"no cursor was stated to the model, though the Forum served one:\n{string.Join("\n", adapters)}");
+            Assert.True(adapters.Any(a => a.Contains("next_cursor=\"" + cursor + "\"", StringComparison.Ordinal)), $"no cursor was stated to the model, though the Forum served one:\n{string.Join("\n", adapters)}");
             Assert.DoesNotContain(resources, r => r.Contains(cursor, StringComparison.Ordinal));
         }
         else
@@ -335,7 +340,11 @@ public sealed class ToolProtocolTests : IDisposable
 
         var first = result.Content[0] is TextContentBlock text ? text.Text : "(the first block is the post, not a word from the adapter)";
         Assert.True(first.Contains("NOT READ", StringComparison.Ordinal), $"the model was not told the thread could not be read:\n{first}");
-        Assert.Contains(result.Content, b => b is EmbeddedResourceBlock);
+        Assert.Contains("The stub serves no", first, StringComparison.Ordinal);
+        Assert.Contains("threads", first, StringComparison.Ordinal);
+
+        var served = result.Content.OfType<EmbeddedResourceBlock>().Select(b => ((TextResourceContents)b.Resource).Text).ToArray();
+        Assert.Contains(served, text => text.Contains(StubLog.PostId, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -389,16 +398,24 @@ public sealed class ToolProtocolTests : IDisposable
     };
 
     /// <summary>
-    /// What a tool needs, plus each optional member sent as <c>null</c>: a valid call on a tree whose schema lists
-    /// the optionals required and on one whose schema does not, so a variation of it is the only fault in the call.
+    /// What a tool needs, plus each optional member sent with a valid non-null value: a valid call on a tree whose schema
+    /// lists the optionals required and on one whose schema does not, whatever the schema says about null, so a variation
+    /// of it is the only fault in the call. (Omitting them would make the control a defect of R11.37 on today's tree.)
     /// </summary>
     private static Dictionary<string, object?> Base(string tool)
     {
         var arguments = Minimal(tool);
-        foreach (var optional in Table[tool].Optional) arguments[optional] = null;
+        foreach (var optional in Table[tool].Optional)
+            arguments[optional] = optional switch
+            {
+                "criteria" => new Dictionary<string, object?>(),
+                "refs" => Array.Empty<string>(),
+                "tags" => new[] { "t" },
+                "notDuplicateRationale" => "Not a duplicate: a different question.",
+                "expectedDigest" => "sha256:" + new string('0', 64),
+                _ => throw new InvalidOperationException($"{optional} has no valid value: add one to Base"),
+            };
 
-        // The search tool's `criteria` is not nullable in the 0.4.0 schema: an empty record is valid on both trees.
-        if (tool == "curia_search") arguments["criteria"] = new Dictionary<string, object?>();
         return arguments;
     }
 
@@ -413,34 +430,60 @@ public sealed class ToolProtocolTests : IDisposable
     private static string[] Properties(JsonElement schema) =>
         [.. schema.GetProperty("properties").EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal)];
 
-    /// <summary>A value of a kind the schema's type does not admit, for each top-level member and, in <c>criteria</c>, each of its members.</summary>
+    /// <summary>
+    /// Every kind of value the schema's type does not admit (null among them, for a member that is not nullable), for each
+    /// top-level member and, in <c>criteria</c>, each of its members; and, for an array member, each kind its items do not admit.
+    /// </summary>
     private static IEnumerable<(string Path, string Wrong, Dictionary<string, object?> Arguments)> Mismatches(string tool, string member, JsonElement schema)
     {
-        if (Wrong(schema) is { } wrong)
+        foreach (var wrong in Wrong(schema))
         {
             var arguments = Base(tool);
             arguments[member] = wrong.Value;
             yield return (member, wrong.Name, arguments);
         }
 
+        if (ItemsOf(schema) is { } items)
+        {
+            foreach (var wrong in Wrong(items))
+            {
+                var arguments = Base(tool);
+                arguments[member] = new object?[] { wrong.Value };
+                yield return ($"{member}[0]", $"{wrong.Name} as an element", arguments);
+            }
+        }
+
         if (member == "criteria" && schema.TryGetProperty("properties", out var inner))
         {
             foreach (var nested in inner.EnumerateObject())
             {
-                if (Wrong(nested.Value) is not { } nestedWrong) continue;
-                var arguments = Base(tool);
-                arguments["criteria"] = new Dictionary<string, object?> { [nested.Name] = nestedWrong.Value };
-                yield return ($"criteria.{nested.Name}", nestedWrong.Name, arguments);
+                foreach (var wrong in Wrong(nested.Value))
+                {
+                    var arguments = Base(tool);
+                    arguments["criteria"] = new Dictionary<string, object?> { [nested.Name] = wrong.Value };
+                    yield return ($"criteria.{nested.Name}", wrong.Name, arguments);
+                }
+
+                if (ItemsOf(nested.Value) is not { } nestedItems) continue;
+                foreach (var wrong in Wrong(nestedItems))
+                {
+                    var arguments = Base(tool);
+                    arguments["criteria"] = new Dictionary<string, object?> { [nested.Name] = new object?[] { wrong.Value } };
+                    yield return ($"criteria.{nested.Name}[0]", $"{wrong.Name} as an element", arguments);
+                }
             }
         }
     }
 
-    private static (string Name, object? Value)? Wrong(JsonElement schema)
+    private static JsonElement? ItemsOf(JsonElement schema) =>
+        schema.TryGetProperty("items", out var items) && items.ValueKind is JsonValueKind.Object ? items : null;
+
+    private static IEnumerable<(string Name, object? Value)> Wrong(JsonElement schema)
     {
         var admitted = schema.TryGetProperty("type", out var type)
             ? type.ValueKind == JsonValueKind.Array ? type.EnumerateArray().Select(t => t.GetString()!).ToArray() : [type.GetString()!]
             : [];
-        if (admitted.Length == 0) return null;
+        if (admitted.Length == 0) yield break;
 
         // The sentinel is never a numeric string, so it is a mistake for an integer as well.
         (string Kind, string Name, object? Value)[] candidates =
@@ -451,10 +494,8 @@ public sealed class ToolProtocolTests : IDisposable
         foreach (var (kind, name, value) in candidates)
         {
             var admits = admitted.Contains(kind) || (kind == "number" && admitted.Contains("integer"));
-            if (!admits) return (name, value);
+            if (!admits) yield return (name, value);
         }
-
-        return null;
     }
 
     private static string[] PublishedOptionalMembers(string kind)
