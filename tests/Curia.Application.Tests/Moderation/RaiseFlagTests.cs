@@ -332,4 +332,87 @@ public sealed class RaiseFlagTests
         Assert.Equal(("curia/flag/rationale-too-long", "field=rationale bytes=4097: at most 4096 UTF-8 bytes"), (error!.Type, error.Detail));
         Assert.Empty(FlagEvents(await LogAsync(store, ct)));
     }
+    /// <summary>
+    /// R10.35 (errata G28, annotated): an aggregate that is no post's is no post, whatever the id is shaped like. Here an
+    /// agent's enrolment sits under a post-shaped id (register D39's probe), so the stream holds an event and not a post's
+    /// creation; the type is named by <see cref="AgentStandingProjector.EnrolledType"/>, not by <see cref="RaiseFlag"/>.
+    /// The control, a post's stream, is flagged; nothing is appended for the refused one.
+    /// </summary>
+    [Fact]
+    public async Task R10_35_AFlagAgainstAnAggregateThatIsNoPostsIsRefusedAsNoSuchPostAndNothingIsAppended()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
+        var details = new InMemoryFlagDetailStore();
+        const string Enrolled = "01JP0ST0000000000000000002";
+
+        Require(await store.AppendAsync(
+            Require(AggregateId.Create(Enrolled)),
+            AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create("01JENROLLED0000000000000001")),
+                Require(EventType.Create(AgentStandingProjector.EnrolledType)),
+                Require(ActorId.Create(Enrolled)),
+                new JsonValue.Object([new("agent_id", new JsonValue.String(Enrolled)), new("kid", new JsonValue.String("k"))]))],
+            ct));
+        await PostExistsAsync(store, ct);
+        var before = (await LogAsync(store, ct)).Count;
+        Assert.Equal(2, before);
+
+        var raise = new RaiseFlag(store, details, clock, () => FixedSalt);
+        var control = await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct);
+        Assert.True(control.TryGetValue(out _, out var controlError), controlError?.Type);
+        var afterControl = (await LogAsync(store, ct)).Count;
+
+        var refused = await raise.RecordAsync(PostId.Parse(Enrolled), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct);
+
+        Assert.True(!refused.IsOk, $"a flag against {Enrolled}, an enrolled agent's aggregate, was accepted as {(refused.TryGetValue(out var raised, out _) ? raised : null)}");
+        Assert.False(refused.TryGetValue(out _, out var error));
+        Assert.Equal(FlagErrors.NoSuchPost(Enrolled).Type, error!.Type);
+        Assert.Equal(afterControl, (await LogAsync(store, ct)).Count);
+        Assert.Single(Require(await details.ReadAllAsync(ct)));
+    }
+
+    /// <summary>
+    /// R10.35's second control: a post that later gained a moderation event still holds its creation in its stream, so it is
+    /// still a post and is still flaggable (a guard that read the stream's last event only would refuse it).
+    /// </summary>
+    [Fact]
+    public async Task R10_35_APostThatWasLaterModeratedIsStillFlaggable()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTimeProvider(Start);
+        var store = new InMemoryEventStore(clock, new PermissiveLifecycleAppendGate());
+        var details = new InMemoryFlagDetailStore();
+
+        Require(await store.AppendAsync(
+            Require(AggregateId.Create(Post)),
+            AggregateVersion.New,
+            [new DomainEvent(
+                Require(EventId.Create(Post)),
+                Require(EventType.Create(PostProjector.PostAcceptedType)),
+                Require(ActorId.Create("https://agents.example/author")),
+                new JsonValue.Object(
+                [
+                    new("post_id", new JsonValue.String(Post)),
+                    new("canonical", new JsonValue.String("{\"body\":\"a question\"}")),
+                    new("signature", new JsonValue.String("sig")),
+                    new("digest", new JsonValue.String("sha256:" + new string('a', 64))),
+                    new("author", new JsonValue.String("https://agents.example/author")),
+                    new("board", new JsonValue.String("board-1")),
+                    new("kind", new JsonValue.String("question")),
+                ]))],
+            ct));
+
+        var raise = new RaiseFlag(store, details, clock);
+        Require(await raise.RecordAsync(PostId.Parse(Post), Typed.Agent(Reporter), FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct));
+        Require(await new ApplyModeration(store, details, clock).RecordAsync(
+            PostId.Parse(Post), ModerationEffect.Withhold, FlagKind.Spam, Curia.Domain.Moderation.Rationale.Parse("Reviewed."), Require(ActorId.Create("operator:reviewer")), ct));
+        Assert.Contains(await LogAsync(store, ct), e => e.Event.Type.Value == FlagProjector.ModerationAppliedType);
+
+        var again = await raise.RecordAsync(PostId.Parse(Post), Typed.Agent("https://agents.example/another"), FlagKind.Incorrect, Curia.Domain.Moderation.Rationale.Parse(Rationale), ct);
+
+        Assert.True(again.TryGetValue(out _, out var error), error?.Type);
+    }
 }

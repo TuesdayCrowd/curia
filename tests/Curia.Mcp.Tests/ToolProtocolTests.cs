@@ -42,6 +42,9 @@ public sealed class ToolProtocolTests : IDisposable
     /// required and the Forum admits a question without (R8.62, register D53), so tags is optional here.
     /// curia_answer, curia_comment: Table 12, Required `body`, `parent`; Optional `refs` (parsed in a fact below).
     /// curia_flag: R10.35, a type and the rationale the description says is required.
+    /// curia_revise: Table 12's `revision` row, "Required fields: `prev`, `body`, `revision_reason`", where `prev` is computed by the
+    /// tool (R11.40) and `revision_reason` is unenforced (G11 decision 3, R8.62), so the post and the body; the optional three are
+    /// Table 12's "all of the parent's fields", which are optional and not inherited.
     /// </summary>
     private static readonly Dictionary<string, (string[] Needs, string[] Optional)> Table = new(StringComparer.Ordinal)
     {
@@ -53,6 +56,7 @@ public sealed class ToolProtocolTests : IDisposable
         ["curia_comment"] = (["parentPostId", "body"], ["refs"]),
         ["curia_resolve"] = (["answerPostId"], []),
         ["curia_flag"] = (["postId", "kind", "rationale"], []),
+        ["curia_revise"] = (["postId", "body"], ["title", "tags", "refs"]),
     };
 
     /// <summary>A string no refusal may echo (R9.25), and never a numeric string.</summary>
@@ -390,7 +394,7 @@ public sealed class ToolProtocolTests : IDisposable
     public static TheoryData<string, int> RefsWithANullItem()
     {
         var data = new TheoryData<string, int>();
-        foreach (var tool in new[] { "curia_comment", "curia_answer" })
+        foreach (var tool in new[] { "curia_comment", "curia_answer", "curia_revise" })
             foreach (var index in new[] { 0, 1 })
                 data.Add(tool, index);
         return data;
@@ -442,6 +446,7 @@ public sealed class ToolProtocolTests : IDisposable
     [
         ("curia_read", "postId"), ("curia_verify", "postId"), ("curia_flag", "postId"),
         ("curia_answer", "parentPostId"), ("curia_comment", "parentPostId"), ("curia_resolve", "answerPostId"),
+        ("curia_revise", "postId"),
     ];
 
     public static TheoryData<string, string, string> BlankIdentifiers()
@@ -636,6 +641,178 @@ public sealed class ToolProtocolTests : IDisposable
         }
     }
 
+    // ---- R11.40 (errata G28): curia_revise -------------------------------------------------------------------------------
+
+    private static string Sha256Of(string text) =>
+        "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    /// <summary>The members R11.40 takes from the post it read, so no schema may define them.</summary>
+    private static readonly string[] NotACallersToChoose = ["prev", "board", "parent"];
+
+    private static readonly string[] CarriedTags = ["one", "two"];
+
+    private static readonly string[] BareWord = ["a-bare-word"];
+
+    /// <summary>The envelope of the last submission the stub received, parsed by <c>System.Text.Json</c> and not by the adapter's own reader.</summary>
+    private static JsonElement SubmittedEnvelope(StubLog log)
+    {
+        var wire = log.WrittenBodies.LastOrDefault(b => b.Contains("\"envelope\"", StringComparison.Ordinal));
+        Assert.True(wire is not null, $"nothing was submitted; the stub's requests: {string.Join(", ", log.Requests)}");
+        return JsonDocument.Parse(wire!).RootElement.GetProperty("envelope").Clone();
+    }
+
+    private static async Task AssertRegisteredAsync(McpProtocolSession session, string tool)
+    {
+        var names = (await session.ListAsync()).Select(t => t.Name).ToArray();
+        Assert.True(names.Contains(tool), $"{tool} is not a registered tool; tools/list serves [{string.Join(",", names)}]");
+    }
+
+    /// <summary>
+    /// R11.40: the revision's <c>prev</c> is the digest this adapter computes from the verified canonical form, never the <c>digest</c>
+    /// member the Forum served (here a lie); its <c>parent</c> is the post and its <c>board</c> the post's, from no argument; and the
+    /// schema defines none of the three. The oracle is the stub's own digest of the bytes it signed, computed by <c>SubmissionBuilder</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_40_ARevisionChainsToTheDigestTheAdapterComputesAndNotTheOneTheForumServed()
+    {
+        var lie = "sha256:" + new string('b', 64);
+        using var log = new StubLog { ServedDigest = lie };
+        await using var session = await Session.StartAsync(log, _home, identity: true);
+        await AssertRegisteredAsync(session, "curia_revise");
+
+        var properties = Properties((await session.ListAsync()).Single(t => t.Name == "curia_revise").InputSchema);
+        foreach (var forbidden in NotACallersToChoose)
+            Assert.DoesNotContain(forbidden, properties);
+
+        var result = await session.CallAsync("curia_revise", new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." });
+        Assert.False(result.IsError, result.Text);
+        Assert.StartsWith("POSTED", result.Text, StringComparison.Ordinal);
+
+        var envelope = SubmittedEnvelope(log);
+        Assert.Equal(Sha256Of(log.Canonical), log.Submission.PrefixedDigest);
+        Assert.NotEqual(lie, log.Submission.PrefixedDigest);
+        Assert.Equal(log.Submission.PrefixedDigest, envelope.GetProperty("prev").GetString());
+        Assert.Equal(StubLog.PostId, envelope.GetProperty("parent").GetString());
+        Assert.Equal("b", envelope.GetProperty("board").GetString());
+        Assert.Equal("revision", envelope.GetProperty("kind").GetString());
+    }
+
+    /// <summary>
+    /// R11.40: a post whose check did not hold is not revised and nothing is sent: a signature that does not verify, a served form that
+    /// is not the signed bytes, a key declared compromised from before the post. The control, a good post, is revised.
+    /// </summary>
+    [Theory]
+    [InlineData("a signature that does not verify", "NOT VERIFIED")]
+    [InlineData("a served canonical form that is not the signed bytes", "NOT VERIFIED")]
+    [InlineData("a key declared compromised from before the post", "DISPUTED")]
+    public async Task R11_40_APostThatDoesNotVerifyIsNotRevisedAndNothingIsSent(string fault, string verdict)
+    {
+        using var control = new StubLog();
+        await using (var good = await Session.StartAsync(control, _home, identity: true))
+        {
+            await AssertRegisteredAsync(good, "curia_revise");
+            var revised = await good.CallAsync("curia_revise", new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." });
+            Assert.False(revised.IsError, $"the control (a post that verifies) was not revised:\n{revised.Text}");
+        }
+
+        using var log = new StubLog();
+        switch (fault)
+        {
+            case "a signature that does not verify":
+                log.ServedSignature = log.Answer.Signature;
+                break;
+            case "a served canonical form that is not the signed bytes":
+                log.CanonicalContent = log.Canonical.Replace("A question whose", "A question whose altered", StringComparison.Ordinal);
+                Assert.NotEqual(log.Canonical, log.CanonicalContent);
+                break;
+            default:
+                log.KeyCompromised = (4, 1);
+                break;
+        }
+
+        await using var session = await Session.StartAsync(log, _home, identity: true);
+        log.Requests.Clear();
+        var result = await session.CallAsync("curia_revise", new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." });
+
+        Assert.True(result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal), $"a post with {fault} was not refused as NOT SENT:\n{result.Text}");
+        Assert.Contains(verdict, result.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Requests, r => r.StartsWith("POST", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R11.40: only what the caller gave is carried. The original here has a title, tags and references of its own (signed into the stub's
+    /// post); a revision given none of them carries none, and one given them carries exactly those. The second parse is <c>System.Text.Json</c>'s.
+    /// </summary>
+    [Fact]
+    public async Task R11_40_ARevisionCarriesOnlyWhatTheCallerGave()
+    {
+        const string Cited = "https://example.org/evidence";
+        using var log = new StubLog(
+            refsJson: """[{"kind":"url","target":"https://original.example/ref"}]""",
+            tagsJson: """["original-tag"]""");
+        await using var session = await Session.StartAsync(log, _home, identity: true);
+        await AssertRegisteredAsync(session, "curia_revise");
+
+        var bare = await session.CallAsync("curia_revise", new() { ["postId"] = StubLog.PostId, ["body"] = "Only a body." });
+        Assert.False(bare.IsError, bare.Text);
+        var inherited = SubmittedEnvelope(log);
+        Assert.False(inherited.TryGetProperty("title", out _), "the revision inherited the original's title");
+        Assert.Equal(0, inherited.GetProperty("refs").GetArrayLength());
+        Assert.Equal(0, inherited.GetProperty("tags").GetArrayLength());
+
+        log.WrittenBodies.Clear();
+        var given = await session.CallAsync("curia_revise", new()
+        {
+            ["postId"] = StubLog.PostId,
+            ["body"] = "A body, a title, tags and a reference.",
+            ["title"] = "A new title",
+            ["tags"] = CarriedTags,
+            ["refs"] = new[] { Cited },
+        });
+        Assert.False(given.IsError, given.Text);
+        var carried = SubmittedEnvelope(log);
+        Assert.Equal("A new title", carried.GetProperty("title").GetString());
+        Assert.Equal(CarriedTags, carried.GetProperty("tags").EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal([Cited], carried.GetProperty("refs").EnumerateArray().Select(r => r.GetProperty("target").GetString()));
+    }
+
+    /// <summary>
+    /// R11.29: the post <c>curia_revise</c> read is a post a read has served, so a <c>curia_verify</c> of it afterwards is not about a
+    /// document fetched blind. The control, a verify with no read before it, carries the warning.
+    /// </summary>
+    [Fact]
+    public async Task R11_29_APostARevisionReadIsASubjectAReadServed()
+    {
+        const string Blind = "no read in this session served this post";
+        using var log = new StubLog();
+        await using var control = await Session.StartAsync(log, _home, identity: true);
+        var blind = await control.CallAsync("curia_verify", new() { ["postId"] = StubLog.PostId });
+        Assert.Contains(Blind, blind.Text, StringComparison.Ordinal);
+
+        await using var session = await Session.StartAsync(log, _home, identity: true);
+        await AssertRegisteredAsync(session, "curia_revise");
+        var revised = await session.CallAsync("curia_revise", new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." });
+        Assert.False(revised.IsError, revised.Text);
+
+        var verified = await session.CallAsync("curia_verify", new() { ["postId"] = StubLog.PostId });
+        Assert.DoesNotContain(Blind, verified.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>R11.40, G26's order: a <c>refs</c> value of no form is refused before anything is read, so the stub has seen no request.</summary>
+    [Fact]
+    public async Task R11_40_ABadRefsValueIsRefusedBeforeAnythingIsRead()
+    {
+        using var log = new StubLog();
+        await using var session = await Session.StartAsync(log, _home, identity: true);
+        await AssertRegisteredAsync(session, "curia_revise");
+
+        log.Requests.Clear();
+        var result = await session.CallAsync("curia_revise", new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body.", ["refs"] = BareWord });
+
+        Assert.True(result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal), $"a refs value of no form was not refused as NOT SENT:\n{result.Text}");
+        Assert.Empty(log.Requests);
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
 
     private static Dictionary<string, object?> Minimal(string tool) => tool switch
@@ -648,6 +825,7 @@ public sealed class ToolProtocolTests : IDisposable
         "curia_comment" => new() { ["parentPostId"] = StubLog.PostId, ["body"] = "A reply." },
         "curia_resolve" => new() { ["answerPostId"] = StubLog.AnswerPostId },
         "curia_flag" => new() { ["postId"] = StubLog.PostId, ["kind"] = "incorrect", ["rationale"] = "The premise is wrong." },
+        "curia_revise" => new() { ["postId"] = StubLog.PostId, ["body"] = "A corrected body." },
         _ => throw new InvalidOperationException($"{tool} has no minimal call: add a row to Table and to this switch"),
     };
 
@@ -665,6 +843,7 @@ public sealed class ToolProtocolTests : IDisposable
                 "criteria" => new Dictionary<string, object?>(),
                 "refs" => Array.Empty<string>(),
                 "tags" => new[] { "t" },
+                "title" => "A corrected title",
                 "notDuplicateRationale" => "Not a duplicate: a different question.",
                 "expectedDigest" => "sha256:" + new string('0', 64),
                 _ => throw new InvalidOperationException($"{optional} has no valid value: add one to Base"),

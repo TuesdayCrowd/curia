@@ -62,7 +62,21 @@ internal sealed class StubLog : IDisposable
     private HttpClient? _http;
     private StubHandler? _handler;
 
-    internal StubLog(int treeSize = 5, int postIndex = 2, int keyIndex = 1, string bodySuffix = "", int? enrolledIndex = null)
+    /// <param name="refsJson">
+    /// R8.66 (errata G28): the question's <c>refs</c> as a raw JSON array, replacing the signed one, and signed again by the stub's agent: a
+    /// post whose author signed an item the reader cannot read (a <c>value</c>-spelled item, a non-object). Null leaves the member as built.
+    /// </param>
+    /// <param name="codeBlocksJson">The same for <c>code_blocks</c>.</param>
+    /// <param name="tagsJson">The same for <c>tags</c>, so a revision's inheriting nothing is a fact about a post that has some (R11.40).</param>
+    internal StubLog(
+        int treeSize = 5,
+        int postIndex = 2,
+        int keyIndex = 1,
+        string bodySuffix = "",
+        int? enrolledIndex = null,
+        string? refsJson = null,
+        string? codeBlocksJson = null,
+        string? tagsJson = null)
     {
         _root = Directory.CreateTempSubdirectory("curia-stub-log-").FullName;
 
@@ -84,7 +98,7 @@ internal sealed class StubLog : IDisposable
 
         Submission = SubmissionBuilder.Build(_agent, draft, DateTimeOffset.UnixEpoch)
             .TryGetValue(out var signed, out _)
-            ? signed!
+            ? WithMembers(_agent, signed!, refsJson, codeBlocksJson, tagsJson)
             : throw new InvalidOperationException("the stub could not sign a post");
 
         Canonical = Encoding.UTF8.GetString(Submission.Canonical.Span);
@@ -701,7 +715,7 @@ internal sealed class StubLog : IDisposable
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? canonical)}},"signature":"{{Answer.Signature}}",
-        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? canonical, MarkingMode.None))}},"accepted":false,
+        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? canonical, MarkingMode.None))}},"accepted":{{AcceptedJson(this, AnswerPostId)}},
         "log_index":{{AnswerIndex}},"inclusion_proof":{{ProofAt(AnswerIndex, AnswerIndex < HeadTreeSize ? HeadTreeSize : Leaves.Length)}}}
         """.ReplaceLineEndings(string.Empty);
     }
@@ -811,6 +825,26 @@ internal sealed class StubLog : IDisposable
     /// <summary>R11.42's probe: the <c>digest</c> member the Forum serves for the post, which a verifier must not trust (null serves the true one).</summary>
     internal string? ServedDigest { get; set; }
 
+    /// <summary>
+    /// R11.40's probe (errata G28): the <c>signature</c> member the Forum serves for the post in place of the true one, so the post is served and does
+    /// not verify. Null serves the true one.
+    /// </summary>
+    internal string? ServedSignature { get; set; }
+
+    /// <summary>
+    /// R10.79 and R11.41 (errata G28): the ids of the posts the stub serves as <c>accepted: true</c> in every document that serves them (the
+    /// post, the thread). Empty by default: every post is served not accepted. Held as the Forum's word and never derived from a post.
+    /// </summary>
+    internal HashSet<string> AcceptedPostIds { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// R11.41 (errata G28): <c>/v1/threads/{root}</c> serves the question and its one answer, in that order, each with the
+    /// <c>accepted</c> member <see cref="AcceptedPostIds"/> gives it. Off by default: the stub serves no thread, and a read says so.
+    /// </summary>
+    internal bool ThreadRouteServesTheThread { get; set; }
+
+    private static string AcceptedJson(StubLog log, string postId) => log.AcceptedPostIds.Contains(postId) ? "true" : "false";
+
     internal string PostJson()
     {
         // ActaEndpoints.ProofFor's own rule: against the latest signed head when it covers the
@@ -830,8 +864,8 @@ internal sealed class StubLog : IDisposable
         "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{ServedDigest ?? Submission.PrefixedDigest}}",
-        "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{Submission.Signature}}",
-        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":false,
+        "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{ServedSignature ?? Submission.Signature}}",
+        "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":{{AcceptedJson(this, PostId)}},
         "log_index":{{PostIndex}},"inclusion_proof":{{proof}}}
         """.ReplaceLineEndings(string.Empty);
     }
@@ -1016,6 +1050,49 @@ internal sealed class StubLog : IDisposable
         _agent.Dispose();
         _logKey.Dispose();
         Directory.Delete(_root, recursive: true);
+    }
+
+    /// <summary>
+    /// The question as <see cref="SubmissionBuilder"/> signed it, with <c>refs</c>, <c>code_blocks</c> and <c>tags</c> replaced by the raw JSON given
+    /// and signed again with the agent's key through the same detached JWS, so the post still verifies and carries what a client's draft could not
+    /// spell (R8.66). Returned as it was when nothing is replaced.
+    /// </summary>
+    private static SignedSubmission WithMembers(EnrolledAgent agent, SignedSubmission original, string? refsJson, string? codeBlocksJson, string? tagsJson)
+    {
+        if (refsJson is null && codeBlocksJson is null && tagsJson is null) return original;
+
+        static JsonValue Raw(string json) =>
+            JsonReader.Parse(Encoding.UTF8.GetBytes(json), AdmitLimits.Default).Match(v => v, e => throw new InvalidOperationException(e.Type));
+
+        var envelope = (JsonValue.Object)Raw(Encoding.UTF8.GetString(original.Canonical.Span));
+        var members = envelope.Members.ToList();
+        foreach (var (name, json) in new[] { ("refs", refsJson), ("code_blocks", codeBlocksJson), ("tags", tagsJson) })
+        {
+            if (json is null) continue;
+            members.RemoveAll(m => m.Key == name);
+            members.Add(new(name, Raw(json)));
+        }
+
+        var replaced = new JsonValue.Object([.. members]);
+        var canonical = CanonicalJson.CanonicalizeWithNfc(replaced).TryGetValue(out var bytes, out _)
+            ? bytes
+            : throw new InvalidOperationException("the replaced envelope has no canonical form");
+        var jws = new DetachedJws(
+            new Dictionary<string, IContentSigner>(StringComparer.Ordinal) { ["ES256"] = new Es256Adapter() },
+            new Dictionary<string, IContentVerifier>(StringComparer.Ordinal));
+        var signature = jws.Sign(canonical, agent.Signer).TryGetValue(out var signed, out _)
+            ? signed!.Compact
+            : throw new InvalidOperationException("the stub could not sign the replaced envelope");
+        var wire = CanonicalJson.CanonicalizeWithNfc(new JsonValue.Object(
+        [
+            new("envelope", replaced),
+            new("signature", new JsonValue.String(signature)),
+        ])).TryGetValue(out var wireBytes, out _)
+            ? wireBytes
+            : throw new InvalidOperationException("the replaced submission has no canonical form");
+        var digest = Digests.Sha256(canonical);
+
+        return new SignedSubmission(wire.ToArray(), canonical.ToArray(), signature, digest.ToHex(), digest.ToPrefixed());
     }
 
     private void Rebuild()
@@ -1480,6 +1557,9 @@ internal sealed class StubLog : IDisposable
                     int.Parse(Value(query, "from"), CultureInfo.InvariantCulture),
                     int.Parse(Value(query, "to"), CultureInfo.InvariantCulture)));
             }
+
+            if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesTheThread)
+                return (HttpStatusCode.OK, "[" + log.PostJson() + "," + log.AnswerJson() + "]");
 
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesOnlyTheAnswer)
                 return (HttpStatusCode.OK, "[" + log.AnswerJson() + "]");

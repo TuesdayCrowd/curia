@@ -69,7 +69,10 @@ public sealed record PostEnvelope(
     VerificationResult? Result = null,
     string? ArtifactDigest = null,
     bool? NotDuplicate = null,
-    string? DuplicateRationale = null)
+    string? DuplicateRationale = null,
+    // R8.66 (errata G28), Task 1: compile-only stubs, always 0 until Task 4 counts what ReadRefs and ReadCodeBlocks skip.
+    int DroppedRefs = 0,
+    int DroppedCodeBlocks = 0)
 {
     /// <summary>R8.29 / R6.33: the meta-prediction is an integer in basis points, inclusive both ends.</summary>
     public const int MaximumPredictedEndorsementBp = 10_000;

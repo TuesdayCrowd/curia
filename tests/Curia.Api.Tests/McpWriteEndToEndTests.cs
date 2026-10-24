@@ -270,6 +270,161 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         Assert.Equal([cited, "https://example.org/evidence"], refs.EnumerateArray().Select(r => r.GetProperty("target").GetString()));
     }
 
+    // ---- R11.40, R11.35, R11.30 (errata G28) against this Forum -------------------------------------------------------------
+
+    private async Task<McpProtocolSession> SessionAsync(EnrolledAgent agent) =>
+        await McpProtocolSession.StartAsync(Tools(agent), agent.Profile.AgentId);
+
+    private static async Task AssertRegisteredAsync(McpProtocolSession session, string tool)
+    {
+        var names = (await session.ListAsync()).Select(t => t.Name).ToArray();
+        Assert.True(names.Contains(tool), $"{tool} is not a registered tool; tools/list serves [{string.Join(",", names)}]");
+    }
+
+    /// <summary>The Forum's own re-check of one digest (R9.10): its state and the digests of the revisions that chain to it. The oracle for what a revision did.</summary>
+    private async Task<(string State, string[] Successors)> BatchStateAsync(string digest)
+    {
+        using var response = await forum.Client.PostAsJsonAsync("/v1/posts/batch", new { digests = new[] { digest } }, Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.True(response.IsSuccessStatusCode, body);
+        var item = JsonDocument.Parse(body).RootElement.GetProperty("items").EnumerateArray().Single();
+        var successors = item.TryGetProperty("successors", out var listed) ? listed.EnumerateArray().Select(d => d.GetString()!).ToArray() : [];
+        return (item.GetProperty("state").GetString()!, successors);
+    }
+
+    /// <summary>
+    /// R11.40 against this Forum: an author corrects its own post with <c>curia_revise</c>. The digest the Forum gave the original is the
+    /// stored revision's <c>prev</c> (the Forum's word, not the adapter's), the Forum's own batch re-check reports the original superseded
+    /// with the revision as its successor (R9.28, derived from <c>prev</c> by a path the adapter does not share), and a read of the
+    /// revision serves the thread with the revision under the original.
+    /// </summary>
+    [Fact]
+    public async Task R11_40_AnAuthorCorrectsItsOwnPostAndTheForumReportsTheOriginalSuperseded()
+    {
+        var author = await EnrolAsync("mcp-reviser", signer: null);
+        await using var session = await SessionAsync(author);
+        await AssertRegisteredAsync(session, "curia_revise");
+
+        var asked = await session.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "A question with a mistake", ["body"] = "The mistaken body." });
+        Assert.StartsWith("POSTED", asked.Text, StringComparison.Ordinal);
+        var questionId = PostedId(asked.Text);
+        var digest = (await ServedAsync(questionId)).GetProperty("digest").GetString()!;
+        Assert.Equal(("current", Array.Empty<string>()), await BatchStateAsync(digest));
+
+        var revised = await session.CallAsync("curia_revise", new() { ["postId"] = questionId, ["body"] = "The corrected body." });
+        Assert.False(revised.IsError, revised.Text);
+        Assert.StartsWith("POSTED", revised.Text, StringComparison.Ordinal);
+        var revisionId = PostedId(revised.Text);
+
+        var canonical = await CanonicalOfAsync(revisionId);
+        Assert.Equal("revision", canonical.GetProperty("kind").GetString());
+        Assert.Equal(questionId, canonical.GetProperty("parent").GetString());
+        Assert.Equal(digest, canonical.GetProperty("prev").GetString());
+
+        var revisionDigest = (await ServedAsync(revisionId)).GetProperty("digest").GetString()!;
+        var (state, successors) = await BatchStateAsync(digest);
+        Assert.Equal("superseded", state);
+        Assert.Equal([revisionDigest], successors);
+
+        var read = await session.CallAsync("curia_read", new() { ["postId"] = revisionId });
+        Assert.False(read.IsError, read.Text);
+        var ids = read.Uris.Where(u => u is not null).Select(u => Uri.UnescapeDataString(u![PostScheme.Length..])).ToArray();
+        Assert.Contains(questionId, ids);
+        Assert.Contains(revisionId, ids);
+    }
+
+    private const string PostScheme = "curia://post/";
+
+    /// <summary>
+    /// R11.40 / R11.16 (rev.): another agent's revision is the Forum's to refuse, and is worded by its cause (<c>own-resource-only</c>),
+    /// never as a tier it could climb. The Forum's batch re-check still says the original is current; the author's own revision of the
+    /// same post, afterwards, is the control that the refusal was the stranger's.
+    /// </summary>
+    [Fact]
+    public async Task R11_40_AnotherAgentsRevisionIsRefusedByCauseAndSupersedesNothing()
+    {
+        var author = await EnrolAsync("mcp-author", signer: null);
+        var stranger = await EnrolAsync("mcp-stranger", signer: null);
+        await using var authorSession = await SessionAsync(author);
+        await using var strangerSession = await SessionAsync(stranger);
+        await AssertRegisteredAsync(strangerSession, "curia_revise");
+
+        var asked = await authorSession.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "A question to be left alone", ["body"] = "Nobody else may correct this." });
+        var questionId = PostedId(asked.Text);
+        var digest = (await ServedAsync(questionId)).GetProperty("digest").GetString()!;
+
+        var refused = await strangerSession.CallAsync("curia_revise", new() { ["postId"] = questionId, ["body"] = "A hostile rewrite." });
+
+        Assert.True(refused.IsError, $"a stranger's revision was not refused:\n{refused.Text}");
+        Assert.Contains("table-10/own-resource-only", refused.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Requires trust tier", refused.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("this agent's trust tier", refused.Text, StringComparison.Ordinal);
+        Assert.Equal(("current", Array.Empty<string>()), await BatchStateAsync(digest));
+
+        var control = await authorSession.CallAsync("curia_revise", new() { ["postId"] = questionId, ["body"] = "The author's own correction." });
+        Assert.False(control.IsError, control.Text);
+        Assert.Equal("superseded", (await BatchStateAsync(digest)).State);
+    }
+
+    /// <summary>
+    /// R11.35 / R11.40 against this Forum: a T1 agent revises its answer to cite what it did not, and the stored revision's canonical form
+    /// holds the target; the original's holds none.
+    /// </summary>
+    [Fact]
+    public async Task R11_35_AnAnswerIsRevisedToCiteWhatItDidNotAndTheRevisionStoresTheRefs()
+    {
+        var board = Board();
+        var questionId = await QuestionAsync(board, "What backs the claim?", "A question whose answer will be revised to cite.");
+        var answerer = await EnrolAsT1Async("mcp-reviser-t1", board);
+        await using var session = await SessionAsync(answerer);
+        await AssertRegisteredAsync(session, "curia_revise");
+
+        var answered = await session.CallAsync("curia_answer", new() { ["parentPostId"] = questionId, ["body"] = "An answer that cites nothing." });
+        Assert.StartsWith("POSTED", answered.Text, StringComparison.Ordinal);
+        var answerId = PostedId(answered.Text);
+        var cited = "sha256:" + new string('d', 64);
+
+        var revised = await session.CallAsync("curia_revise", new()
+        {
+            ["postId"] = answerId,
+            ["body"] = "The same answer, now citing its sources.",
+            ["refs"] = new[] { cited },
+        });
+        Assert.False(revised.IsError, revised.Text);
+        var revisionId = PostedId(revised.Text);
+
+        var refs = (await CanonicalOfAsync(revisionId)).GetProperty("refs");
+        Assert.Equal([cited], refs.EnumerateArray().Select(r => r.GetProperty("target").GetString()));
+        Assert.Equal(0, (await CanonicalOfAsync(answerId)).GetProperty("refs").GetArrayLength());
+    }
+
+    /// <summary>
+    /// R11.30 (errata G28, amendment L3): accepting a post that is no answer is refused with the Forum's own cause
+    /// (<c>curia/accept/not-an-answer</c>, the oracle for the cause), and the adapter words it by naming the post's kind and saying that
+    /// the answer's id is found with <c>curia_read</c>.
+    /// </summary>
+    [Fact]
+    public async Task R11_30_ResolvingAPostThatIsNoAnswerSaysWhatToDoNext()
+    {
+        var asker = await EnrolAsync("mcp-asker-q27", signer: null);
+        var commenter = await EnrolAsync("mcp-commenter-q27", signer: null);
+        await using var askerSession = await SessionAsync(asker);
+        await using var commenterSession = await SessionAsync(commenter);
+
+        var asked = await askerSession.CallAsync("curia_ask", new() { ["board"] = Board(), ["title"] = "Which post is the answer?", ["body"] = "A question that gets a comment first." });
+        var commented = await commenterSession.CallAsync("curia_comment", new() { ["parentPostId"] = PostedId(asked.Text), ["body"] = "A comment, which is no answer." });
+        Assert.StartsWith("POSTED", commented.Text, StringComparison.Ordinal);
+        var commentId = PostedId(commented.Text);
+
+        var refused = await askerSession.CallAsync("curia_resolve", new() { ["answerPostId"] = commentId });
+
+        Assert.True(refused.IsError, $"accepting a comment was not refused:\n{refused.Text}");
+        Assert.Contains("curia/accept/not-an-answer", refused.Text, StringComparison.Ordinal);
+        Assert.True(
+            refused.Text.Contains("comment", StringComparison.Ordinal) && refused.Text.Contains("curia_read", StringComparison.Ordinal),
+            $"the refusal carries the cause code and no next step (the post's kind, and where the answer's id is found):\n{refused.Text}");
+    }
+
     /// <summary>A question asked by an MCP agent and answered by a T1 helper: the answer's id, the asker, the board.</summary>
     private async Task<(string AnswerId, EnrolledAgent Asker, string Board)> AnsweredThreadAsync()
     {
