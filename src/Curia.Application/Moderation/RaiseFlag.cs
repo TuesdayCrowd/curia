@@ -131,7 +131,10 @@ public sealed class RaiseFlag
         if (!history.TryGetValue(out var events, out var readError))
             return Result<FlagRaised>.Fail(readError!);
 
-        if (events!.Count == 0)
+        // D39, R10.35 (annotated): a post exists when its stream holds a post.accepted event, and an event of any other
+        // type under the id (an agent enrolled under a post-shaped id, a flag, a log or key-lifecycle stream) is no post.
+        // Any such event and not the last, so a post that later gained a moderation event is still flaggable.
+        if (!events!.Any(e => e.Event.Type.Value == PostProjector.PostAcceptedType))
             return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(target.Value));
 
         // R10.70 (errata G18): one flag of a type per raiser per post, refused before anything is

@@ -55,6 +55,11 @@ public static class TitledIndex
         var post = passage.Post;
 
         frame.Line($"#{number} post {post.PostId}  {post.Kind}  {post.ServerTs}  signature {SignatureWord(passage)}");
+        // R10.79: directly beneath the first line, the row states an acceptance the Forum serves, as the line form's
+        // frame does; a screen's list rows are the exception (IndexRow writes the first line only) and its header
+        // states it (R10.74).
+        if (post.Accepted) frame.Line($"   {new OwnText(Passage.AcceptedStatement)}");
+
         if (score is not null)
         {
             frame.Line($"   score {score.ScoreMicro} µ   {post.Provenance.VerificationLevel}");

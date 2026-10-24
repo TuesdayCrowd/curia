@@ -389,6 +389,119 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
         Assert.DoesNotContain(text.Split('\n'), l => l.StartsWith("thread", StringComparison.Ordinal));
     }
 
+    // ---- R11.41, R8.66 (errata G28): the first block states how the thread stands; a passage states what it dropped ----------
+
+    /// <summary>The adapter's own first block of a <c>curia_read</c> of the stub's question, and the whole result as text.</summary>
+    private async Task<(string First, string Whole)> ReadBlocksAsync(StubLog log)
+    {
+        var (tools, agent) = Tools(log);
+        using var owned = agent;
+        var result = await tools.ReadAsync(StubLog.PostId, TestContext.Current.CancellationToken);
+        var first = Assert.IsType<TextContentBlock>(result.Content[0]).Text;
+        return (first, Flatten(result));
+    }
+
+    private static string Quoted(string id) => Curia.Canon.Json.DisplayLiteral.Of(id);
+
+    /// <summary>
+    /// R11.41: the line after the root line names the post the Forum serves as accepted, as a display literal, or that it serves none; with
+    /// two served (a Forum fault) each is listed. The stub serves the thread (a question and its answer) and says which is accepted;
+    /// the Forum's word is the stub's <c>AcceptedPostIds</c>, never derived from a post.
+    /// </summary>
+    [Theory]
+    [InlineData("the answer is accepted", new[] { StubLog.AnswerPostId })]
+    [InlineData("none is accepted", new string[0])]
+    [InlineData("two are served accepted", new[] { StubLog.PostId, StubLog.AnswerPostId })]
+    public async Task R11_41_ThePreambleStatesWhichPostIsAcceptedOrThatNoneIs(string row, string[] accepted)
+    {
+        ArgumentNullException.ThrowIfNull(accepted);
+        using var log = new StubLog { ThreadRouteServesTheThread = true };
+        foreach (var id in accepted) log.AcceptedPostIds.Add(id);
+
+        var (first, _) = await ReadBlocksAsync(log);
+        var lines = first.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+
+        Assert.StartsWith("thread root=", lines[0], StringComparison.Ordinal);
+        var second = lines.Length > 1 ? lines[1] : "(no second line)";
+        if (accepted.Length == 0)
+        {
+            Assert.True(second.StartsWith("accepted none", StringComparison.Ordinal), $"{row}: the first block states no resolution for a thread whose root it names:\n{first}");
+            return;
+        }
+
+        Assert.True(second.StartsWith("accepted ", StringComparison.Ordinal) && !second.StartsWith("accepted none", StringComparison.Ordinal),
+            $"{row}: the first block states no resolution for a thread whose root it names:\n{first}");
+        foreach (var id in accepted) Assert.Contains(Quoted(id), second, StringComparison.Ordinal);
+        foreach (var other in new[] { StubLog.PostId, StubLog.AnswerPostId }.Except(accepted))
+            Assert.DoesNotContain(Quoted(other), second, StringComparison.Ordinal);
+    }
+
+    /// <summary>R11.41: where the thread shown is cut or was not read, the block states nothing of its resolution (the answer may be above what is shown). Green first (held by FX7).</summary>
+    [Theory]
+    [InlineData("cut")]
+    [InlineData("not read")]
+    public async Task R11_41_ACutOrUnreadThreadStatesNoResolution(string row)
+    {
+        using var log = row == "cut"
+            ? new StubLog { ThreadRouteServesTheThread = true, ServedParent = "01TESTPOSTID0000000000000Z", OtherPostsAreRefused = true }
+            : new StubLog();
+        log.AcceptedPostIds.Add(StubLog.AnswerPostId);
+
+        var (first, _) = await ReadBlocksAsync(log);
+
+        Assert.Contains(row == "cut" ? "CUT" : "NOT READ", first, StringComparison.Ordinal);
+        Assert.DoesNotContain(first.Split('\n'), l => l.StartsWith("accepted", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R11.41 / R10.63: an id the Forum served that lands on the resolution line is a literal. The hostile value is on the accepted
+    /// answer's id alone (<see cref="StubLog.HostileAnswerIdSuffix"/>), so the question and the thread stay intact and the line is
+    /// written. (The first form of this fact made every thread member's id hostile, which took the read post out of the thread: the
+    /// block said NOT READ and states no resolution, so no line could carry the id and the fact could not pass.)
+    /// </summary>
+    [Fact]
+    public async Task R11_41_AServedIdOnTheResolutionLineIsAnInertLiteral()
+    {
+        using var log = new StubLog { ThreadRouteServesTheThread = true, HostileAnswerIdSuffix = "\n" + Forged };
+        log.AcceptedPostIds.Add(StubLog.AnswerPostId);
+
+        var (first, whole) = await ReadBlocksAsync(log);
+        var lines = first.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+
+        // Non-vacuity: the resolution line was written and carries the hostile id (written raw it would split the line, so the guard asks only that it is in the block).
+        Assert.StartsWith("thread root=", lines[0], StringComparison.Ordinal);
+        Assert.True(lines.Length > 1 && lines[1].StartsWith("accepted answer=", StringComparison.Ordinal) && first.Contains(Forged, StringComparison.Ordinal),
+            $"the hostile id did not reach the resolution line, so its having no forged line proves nothing:\n{first}");
+
+        AssertNoForgedLine("curia_read with the accepted answer's id hostile", whole);
+    }
+
+    /// <summary>
+    /// R8.66: the passage resource block of <c>curia_read</c> carries the line a passage prints for what the author signed and the reader
+    /// did not read (the adapter renders through <c>Passage</c>). The stub's question is signed with one readable and one <c>value</c>-spelled
+    /// reference and a non-object code block; the second count is from <c>System.Text.Json</c> over the served canonical form.
+    /// </summary>
+    [Fact]
+    public async Task R8_66_CuriaReadStatesWhatItDropped()
+    {
+        using var log = new StubLog(
+            refsJson: """[{"kind":"url","target":"https://a.example/x"},{"kind":"url","value":"https://b.example/y"}]""",
+            codeBlocksJson: """["not an object"]""");
+        using var served = System.Text.Json.JsonDocument.Parse(log.Canonical);
+        Assert.Equal(2, served.RootElement.GetProperty("refs").GetArrayLength());
+        Assert.Equal(1, served.RootElement.GetProperty("code_blocks").GetArrayLength());
+
+        var (_, whole) = await ReadBlocksAsync(log);
+        var lines = whole.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+
+        var refs = lines.FirstOrDefault(l => l.StartsWith("refs      ", StringComparison.Ordinal));
+        Assert.True(refs is not null && refs.Contains("1 reference(s)", StringComparison.Ordinal) && refs.Contains("1 NOT READ", StringComparison.Ordinal),
+            $"the refs line of a passage with 2 signed references, 1 readable, is: {refs ?? "(no line)"}");
+        var code = lines.FirstOrDefault(l => l.StartsWith("code      ", StringComparison.Ordinal));
+        Assert.True(code is not null && code.Contains("0 code block(s)", StringComparison.Ordinal) && code.Contains("1 NOT READ", StringComparison.Ordinal),
+            $"no code line for a passage whose only code block was dropped: {code ?? "(no line)"}");
+    }
+
     private async Task<string> ReadAsync(StubLog log)
     {
         var (tools, agent) = Tools(log);
@@ -426,6 +539,7 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
                 "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
                 "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
                 "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),
+                "curia_revise" => await tools.ReviseAsync(StubLog.PostId, "A corrected body.", null, null, null, ct),
                 "curia_resolve" => await tools.ResolveAsync(StubLog.AnswerPostId, ct),
                 "curia_flag" => await tools.FlagAsync(StubLog.PostId, "incorrect", "The premise is wrong.", ct),
                 _ => throw new InvalidOperationException(

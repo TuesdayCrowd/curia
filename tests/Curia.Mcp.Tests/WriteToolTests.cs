@@ -481,6 +481,38 @@ public sealed class WriteToolTests : IDisposable
         Assert.DoesNotContain("this agent's trust tier", refused.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// G28 (amendment, lead L3): accepting a post that is no answer is worded by its cause. The Forum's detail
+    /// (<c>post=&lt;id&gt; kind=&lt;kind&gt;</c>) names the kind, which is its word and so a display literal, and the
+    /// refusal says where an answer's id is found.
+    /// </summary>
+    [Fact]
+    public async Task G28_ResolveOfAPostThatIsNoAnswerNamesItsKindAndSaysWhereAnAnswerIsFound()
+    {
+        _log.RefusesAcceptanceAsNotAnAnswerWith = $"post={StubLog.PostId} kind=question";
+
+        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().ResolveAsync(StubLog.PostId, Ct));
+
+        Assert.Contains($"of kind {DisplayLiteral.Of("question")}, and only a post of kind answer can be accepted", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("reading the question's thread with curia_read", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("Nothing was recorded", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A post id is a caller's string and the Forum echoes it in the detail ahead of the kind, so a hostile id may carry
+    /// <c>kind=</c> tokens of its own. The Forum's kind is the last one; the sentence must name it and not the id's.
+    /// </summary>
+    [Fact]
+    public async Task G28_AHostilePostIdCannotChooseTheKindTheRefusalNames()
+    {
+        _log.RefusesAcceptanceAsNotAnAnswerWith = "post=x kind=evil kind=question";
+
+        var refused = await Assert.ThrowsAsync<McpException>(() => Tools().ResolveAsync(StubLog.PostId, Ct));
+
+        Assert.Contains($"of kind {DisplayLiteral.Of("question")},", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("evil", refused.Message, StringComparison.Ordinal);
+    }
+
     // ---- curia_flag ----------------------------------------------------------------------------
 
     [Fact]

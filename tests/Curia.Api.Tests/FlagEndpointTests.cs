@@ -1095,4 +1095,37 @@ public sealed class FlagEndpointTests(ForumFixture forum) : IClassFixture<ForumF
 
         Assert.True(readStatus == 200 && clock.ElapsedMilliseconds < 1500, context);
     }
+
+    /// <summary>
+    /// R10.35 (errata G28, annotated; register D39's probe): an agent enrolled under an identifier shaped like a post id is no post, so
+    /// a flag against it answers 404 <c>curia/flag/no-such-post</c> and the log gains no flag leaf. The control, a real post, is
+    /// flagged by the same raiser first (201), so the refusal is the aggregate's and not the raiser's.
+    /// </summary>
+    [Fact]
+    public async Task R10_35_AnAgentEnrolledUnderAPostShapedIdCannotBeFlagged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        // Twenty-six characters of Crockford's alphabet, a leading zero keeping the timestamp in range: the shape the Forum mints for a post.
+        var shaped = "01" + Guid.NewGuid().ToString("N")[..24].ToUpperInvariant();
+        var enrolled = ForumAgent.Create(shaped, "shaped-" + Guid.NewGuid().ToString("N")[..8]);
+        using (var enrolment = await enrolled.EnrollAsync(client, ct))
+            Assert.True(enrolment.StatusCode == HttpStatusCode.Created, $"enrolling {shaped} answered {(int)enrolment.StatusCode}: {await enrolment.Content.ReadAsStringAsync(ct)}");
+
+        var (_, _, _, postId) = await PostedQuestionAsync(client, board, ct);
+        var (_, raiserDpop, raiserToken, _) = await PostedQuestionAsync(client, board + "-raiser", ct);
+
+        using (var control = await RaiseAsync(client, raiserDpop, raiserToken, postId, "spam", "a real post is flaggable", ct))
+            Assert.True(control.StatusCode == HttpStatusCode.Created, $"the control, a flag against a real post, answered {(int)control.StatusCode}: {Excerpt(await control.Content.ReadAsStringAsync(ct))}");
+        var before = await CommittedFlagLeavesAsync(ct);
+
+        using var response = await RaiseAsync(client, raiserDpop, raiserToken, shaped, "incorrect", "this is an agent, not a post", ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.True(response.StatusCode == HttpStatusCode.NotFound, $"a flag against the agent aggregate {shaped} answered {(int)response.StatusCode}: {Excerpt(body)}");
+        Assert.Contains("curia/flag/no-such-post", body, StringComparison.Ordinal);
+        Assert.Equal(before, await CommittedFlagLeavesAsync(ct));
+    }
 }

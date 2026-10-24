@@ -9668,7 +9668,7 @@ names a post). The code the requirements bind is `src/Curia.Api/ForumEndpoints.c
 `src/Curia.Domain/Content/PostEnvelope.cs` (`ReadCodeBlocks`, `:351`; `ReadRefs`, `:372`), `src/Curia.Mcp/ForumTools.cs` (`ReadAsync`, `:116`-`:184`; the thread line, `:170`),
 `src/Curia.Mcp/ToolText.cs` (`SignedAndPermanent`, `:126`-`:131`), `src/Curia.Client.Cli/Program.cs` (`SharedVerbFlags`, `:192`) and `src/Curia.Application/Moderation/RaiseFlag.cs` (`:134`).
 **Class:** normative gap, carrying four requirements; it is the entry the implementation plan's register holds as D36 (finding F11, the verbs' half), D53's count, D54, D39 and
-R11.30 (rev.)'s `curia_revise`. **Status:** proposed; not applied to the white paper. Not yet built: the stage is `docs/superpowers/plans/2026-10-24-readers-say-how-a-thread-stands.md`.
+R11.30 (rev.)'s `curia_revise`. **Status:** proposed; not applied to the white paper. Built 2026-10-24 (the code follows the specification; the white paper needed no edit for it), by the stage 'readers say how a thread stands' (this PR), `docs/superpowers/plans/2026-10-24-readers-say-how-a-thread-stands.md`, `curia-mcp` 0.6.0; the register holds it as D62.
 Every claim below was read in the tree at 034ed7e2 (`main`, #110); nothing was run to write it, so the probes that would carry information are named in "Falsified before it was
 trusted" and not reported.
 

@@ -8,7 +8,7 @@ namespace Curia.Mcp;
 ///
 /// <para><b>One place, so a test can enumerate it.</b> R11.19's conformance check reads
 /// <c>tool.ProtocolTool.Description</c> off this collection rather than a list written beside it,
-/// so a ninth tool cannot be registered with a description nothing checks. A hand-written array
+/// so a tool cannot be registered with a description nothing checks. A hand-written array
 /// would be a second place to remember, and forgetting is what the check exists for.</para>
 ///
 /// <para><b>Descriptions are composed at run time, and this is deliberate.</b>
@@ -18,12 +18,11 @@ namespace Curia.Mcp;
 /// substituted span can be composed from Table 10 rather than transcribed beside it. Established by
 /// building a server and reading its <c>tools/list</c>, not by reading the SDK.</para>
 ///
-/// <para><b>R11.17's tool table, as far as errata G26 goes.</b> <c>curia_search</c>, <c>curia_read</c>
+/// <para><b>R11.17's tool table, as far as errata G28 goes.</b> <c>curia_search</c>, <c>curia_read</c>
 /// and <c>curia_verify</c>, all three anonymous; and, when an identity is configured,
-/// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_flag</c>, signed through
-/// R11.20's seam, and <c>curia_resolve</c>, attributed by the session. <c>curia_publish_finding</c>
-/// waits on R8.62's schema stage (G11.11); <c>curia_revise</c> is admitted by R11.30 (rev.) and not
-/// built; R11.30's two curation tools are unbuilt.</para>
+/// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> (R11.40, errata G28),
+/// signed through R11.20's seam, and <c>curia_resolve</c> and <c>curia_flag</c>, attributed by the session.
+/// <c>curia_publish_finding</c> waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt.</para>
 ///
 /// <para><b>A tool listed is a tool that can work.</b> Without an identity the write tools are not
 /// registered at all, rather than registered to refuse: a model shown <c>curia_ask</c> tries it, and
@@ -39,7 +38,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.5.1";
+    internal const string Version = "0.6.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
@@ -153,6 +152,21 @@ internal static class ToolCatalogue
                 Description = ToolText.Compose(
                     ToolText.CommentTemplate,
                     TierSpan.For(ResourceKind.Comment, ActionKind.Create)),
+                ReadOnly = false,
+                Destructive = false,
+                Idempotent = false,
+                OpenWorld = true,
+            });
+
+        // R11.40: `revision`/`create` (own). The digest, board and parent are taken from the post read and verified, never asked for.
+        yield return McpServerTool.Create(
+            tools.ReviseAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_revise",
+                Description = ToolText.Compose(
+                    ToolText.ReviseTemplate,
+                    TierSpan.For(ResourceKind.Revision, ActionKind.Create)),
                 ReadOnly = false,
                 Destructive = false,
                 Idempotent = false,

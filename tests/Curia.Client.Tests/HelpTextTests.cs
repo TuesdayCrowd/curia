@@ -809,6 +809,23 @@ public sealed class HelpTextTests
     }
 
     /// <summary>
+    /// R11.35 (errata G28): <c>curia revision</c> takes <c>--refs</c>, as its sibling replies do, so the verb and
+    /// <c>curia_revise</c> are one thing. The flag list and the help say so; the control is a sibling that already does.
+    /// </summary>
+    [Fact]
+    public void R11_35_TheRevisionVerbTakesAndNamesRefs()
+    {
+        Assert.Contains("refs", Program.SharedVerbFlags("comment"));
+        Assert.Contains("--refs", Help.For("comment"), StringComparison.Ordinal);
+
+        Assert.True(Program.SharedVerbFlags("revision").Contains("refs"), "SharedVerbFlags(\"revision\") does not take refs");
+        Assert.True(Help.For("revision")!.Contains("--refs", StringComparison.Ordinal), "the help for 'curia revision' does not name --refs");
+        Assert.True(
+            Help.Usage.Split('\n').First(l => l.Contains("curia revision", StringComparison.Ordinal)).Contains("--refs", StringComparison.Ordinal),
+            "the usage line for 'curia revision' does not name --refs");
+    }
+
+    /// <summary>
     /// The EXIT CODES entry for <paramref name="code"/>: its first line, beginning with the number, and
     /// every continuation line indented beneath it, up to the next entry or section.
     /// </summary>

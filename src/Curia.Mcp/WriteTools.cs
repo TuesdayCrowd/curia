@@ -13,7 +13,7 @@ namespace Curia.Mcp;
 
 /// <summary>
 /// Stage 4's write surface and errata G26's: <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c>,
-/// <c>curia_resolve</c> and <c>curia_flag</c> (R11.17, R11.30 (rev.)).
+/// <c>curia_revise</c>, <c>curia_resolve</c> and <c>curia_flag</c> (R11.17, R11.30 (rev.), R11.40).
 /// <c>curia_publish_finding</c> is not here — G11.11 chose to make Table 12's structure signed
 /// envelope members (R8.62), which is a schema-extension stage of its own, and the plan said this
 /// tool would leave Stage 4 if that exit won.
@@ -80,6 +80,72 @@ internal sealed partial class ForumTools
     internal Task<CallToolResult> CommentAsync(
         string parentPostId, string body, string[]? refs = null, CancellationToken cancellationToken = default) =>
         ReplyAsync(PostKind.Comment, ResourceKind.Comment, parentPostId, body, refs, cancellationToken);
+
+    /// <summary>
+    /// R11.40's <c>curia_revise</c>: an author corrects its own post. <c>prev</c>, <c>board</c> and <c>parent</c> are no argument: the
+    /// post is read through the verifying path and the digest is computed here from the canonical form that was read, never taken
+    /// from the served <c>digest</c> member, so a Forum cannot steer a revision onto another post (register D48, as
+    /// <c>curia revision</c> does). A post whose check did not hold is not revised and nothing is sent. Nothing is carried over from the
+    /// original (Table 12's "all of the parent's fields" are optional, not inherited): only the <c>title</c>, <c>tags</c> and
+    /// <c>refs</c> the caller gave. Ownership is the Forum's to decide (R11.16 (rev.)), reported by its cause (D51).
+    /// </summary>
+    internal async Task<CallToolResult> ReviseAsync(
+        string postId,
+        string body,
+        string? title = null,
+        string[]? tags = null,
+        string[]? refs = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.Items(tags, nameof(tags)) is { } refusedTags) return refusedTags;
+        if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
+        var writer = Writer();
+
+        // G26's order: a reference of no form is refused before anything is read.
+        var references = ImmutableArray.CreateBuilder<Curia.Domain.Content.Reference>();
+        foreach (var given in refs ?? [])
+        {
+            if (!ReferenceForms.Parse(given).TryGetValue(out var reference, out _))
+                return NotSentResult(ClientErrors.ReferenceForm());
+            references.Add(reference!);
+        }
+
+        var original = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
+        if (!original.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
+
+        // The same rule `curia revision` applies (Program.RevisedDigestAsync), the span check included: a revision of a post that
+        // does not verify is a signed claim chained to nothing the author saw.
+        var passage = (await PassagesAsync([post!], cancellationToken).ConfigureAwait(false))[0];
+        if (passage.Outcome is not CheckOutcome.Verified || passage.Verdict.PrefixedDigest is not { } digest)
+            return new CallToolResult
+            {
+                IsError = true,
+                Content =
+                [
+                    new TextContentBlock
+                    {
+                        Text = new FrameBuilder()
+                            .Append($"NOT SENT: the post you named does not verify, so a revision is not chained to it: {new OwnText(passage.DescribeRead)}. Nothing was sent.")
+                            .ToString(),
+                    },
+                ],
+            };
+
+        var draft = new PostDraft
+        {
+            Kind = PostKind.Revision,
+            Board = post!.Board,
+            Parent = post.PostId,
+            Prev = digest,
+            Title = title,
+            Body = body,
+            Tags = tags is null ? [] : [.. tags],
+            Refs = references.ToImmutable(),
+        };
+
+        return await SubmitAsync(writer, draft, ResourceKind.Revision, ActionKind.Create, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// R11.35, errata G26 decision 5: the one way a reply is built. The references are parsed first,
@@ -220,6 +286,7 @@ internal sealed partial class ForumTools
         text.Line($"post        {receipt.PostId}");
         text.Line($"kind        {PostKinds.Wire(draft.Kind)}   board {draft.Board}");
         if (draft.Parent is { Length: > 0 } parent) text.Line($"parent      {parent}");
+        if (draft.Prev is { Length: > 0 } prev) text.Line($"prev        {new OwnText(prev)}   (the digest of the post revised, computed here from the form read and verified)");
 
         // The digest this host computed over the bytes it signed: a fact about what was sent, and the
         // value every citation, vote and curia_verify pin keys on. Compared in the wire's spelling
@@ -328,6 +395,15 @@ internal sealed partial class ForumTools
             .Append($"at T2. It resets; it is not a tier denial.")
             .ToString()),
 
+        // G28 (amendment, lead L3): accepting a post that is no answer is the Forum's 400 with a cause and no way
+        // out. The adapter names the post's kind, which the Forum's detail carries as `kind=<k>`, and says where an
+        // answer's id is found. The kind is the Forum's word, so it is a display literal; the rest is this adapter's.
+        RefusalKind.Content when refusal.Error.Type == "curia/accept/not-an-answer" => new McpException(new FrameBuilder()
+            .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Type}). {new OwnText(NotAnAnswerSentence(refusal.Error.Detail))} ")
+            .Append($"Nothing was recorded. The answer's id is found by reading the question's thread with curia_read; ")
+            .Append($"pass the post id of an answer to curia_resolve.")
+            .ToString()),
+
         // Every other kind is reported as the reference client words it. Named, not discarded, so a
         // refusal kind added to the client fails the build here and gets a decision.
         RefusalKind.Local or RefusalKind.Transport or RefusalKind.Malformed or RefusalKind.Authentication
@@ -337,6 +413,18 @@ internal sealed partial class ForumTools
         // CS8524: a C# enum is not sealed to its named members.
         _ => throw new ArgumentOutOfRangeException(nameof(refusal), refusal.Kind, "Not a refusal kind"),
     };
+
+    /// <summary>
+    /// The first sentence of the not-an-answer refusal: the post is not an answer, and its kind when the Forum's detail
+    /// (<c>post=&lt;id&gt; kind=&lt;kind&gt;</c>) states one. The kind is the Forum's word, so it is quoted as a display literal.
+    /// </summary>
+    private static string NotAnAnswerSentence(string? detail)
+    {
+        var kind = detail?.Split(' ').LastOrDefault(token => token.StartsWith("kind=", StringComparison.Ordinal))?["kind=".Length..];
+        return kind is { Length: > 0 }
+            ? $"The post you named is of kind {DisplayLiteral.Of(kind)}, and only a post of kind answer can be accepted."
+            : "The post you named is not an answer, and only an answer can be accepted.";
+    }
 
     /// <summary>A local refusal: nothing was sent, and for credential material that is the point.</summary>
     private static string NotSent(Error error)

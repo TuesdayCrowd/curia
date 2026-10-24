@@ -11,7 +11,7 @@ namespace Curia.Mcp;
 /// <summary>
 /// The adapter's tools (R11.17): <c>curia_search</c> and <c>curia_read</c>, both anonymous, and
 /// <c>curia_verify</c> here; <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c>,
-/// <c>curia_resolve</c> and <c>curia_flag</c> in <c>WriteTools.cs</c>.
+/// <c>curia_revise</c>, <c>curia_resolve</c> and <c>curia_flag</c> in <c>WriteTools.cs</c>.
 ///
 /// <para>Every method is a call into <see cref="ForumClient"/>. R11.16 (revised) forbids this
 /// adapter deciding a question the application layer decides or re-deriving a rule it already
@@ -36,6 +36,11 @@ namespace Curia.Mcp;
 /// not match the schema never reaches these methods (R11.37). A <c>curia_verify</c> whose pin names another document answers an
 /// error and no verdict (R11.42), and a value the schema admits and a tool cannot act on (a blank identifier, a null item)
 /// is an <c>isError</c> result beginning <c>NOT SENT</c> from <c>ArgumentGuards</c> (R11.43, errata G29).</para>
+///
+/// <para><b>How a thread stands (errata G28).</b> <c>curia_read</c>'s first block follows the root line with an
+/// <c>accepted</c> line, the post the Forum serves as accepted or that it served none, and says nothing of it where the
+/// shown thread is cut or not read (R11.41); a passage prints an acceptance and a count of the items it could not read
+/// through <c>Passage</c> (R10.79, R8.66).</para>
 /// </summary>
 internal sealed partial class ForumTools(
     ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)
@@ -49,6 +54,12 @@ internal sealed partial class ForumTools(
 
     /// <summary>R11.38: how many ancestors <c>curia_read</c> follows before it says the thread is cut.</summary>
     private const int MaxAncestorSteps = 64;
+
+    /// <summary>
+    /// R11.41: the parenthesis of <see cref="Passage.AcceptedStatement"/> (the Forum's word, what no signature covers, what an
+    /// acceptance checks), so the resolution line and the passage line that names the same post cannot drift apart.
+    /// </summary>
+    private static readonly string AcceptedBasis = Passage.AcceptedStatement[Passage.AcceptedStatement.IndexOf('(', StringComparison.Ordinal)..];
 
     private readonly ForumClient _forum = forum;
     private readonly MarkingMode _marking = marking;
@@ -170,6 +181,16 @@ internal sealed partial class ForumTools(
         else if (unreadableParent is null && !repeats && cutAt is null)
         {
             frame.Line($"thread root={top.PostId} posts={members.Length}");
+
+            // R11.41: the line after the root line says how the thread stands. The Forum's word, from the members it
+            // served, never a conclusion drawn from their content; the ids are the Forum's, so display literals. Written
+            // only here: where the shown thread is cut or unread, the accepted answer may be above what is shown and
+            // "none" would be a guess. More than one is a Forum fault (the fold keeps one per thread); each is listed.
+            var acceptedIds = members.Where(m => m.Accepted).Select(m => m.PostId).ToArray();
+            if (acceptedIds.Length == 0)
+                frame.Line($"accepted none {new OwnText("(the Forum served no post of this thread as accepted)")}");
+            else
+                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))))} {new OwnText(AcceptedBasis)}");
         }
 
         if (unreadableParent is not null)

@@ -162,6 +162,7 @@ public sealed class ToolDescriptionTests
         "curia_flag" => (ResourceKind.Flag, ActionKind.Raise),
         "curia_comment" => (ResourceKind.Comment, ActionKind.Create),
         "curia_resolve" => (ResourceKind.Answer, ActionKind.Accept),
+        "curia_revise" => (ResourceKind.Revision, ActionKind.Create),
         _ => throw new InvalidOperationException(
             $"{name} has no Table 10 pair in this test's map. Add it, rather than letting the " +
             "row pass without checking what the description claims about authority."),
@@ -218,7 +219,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_answer", "curia_ask", "curia_comment", "curia_flag", "curia_read", "curia_resolve", "curia_search", "curia_verify"],
+            ["curia_answer", "curia_ask", "curia_comment", "curia_flag", "curia_read", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -357,7 +358,6 @@ public sealed class ToolDescriptionTests
     [
         (ResourceKind.Key, ActionKind.Rotate),
         (ResourceKind.Key, ActionKind.Retire),
-        (ResourceKind.Revision, ActionKind.Create),
     ];
 
     /// <summary>
@@ -378,11 +378,11 @@ public sealed class ToolDescriptionTests
         Assert.NotEmpty(t0Writes);
 
         // The exception set is itself pinned, so one cannot be added quietly.
-        Assert.Equal(3, NotExercisedByDecision.Length);
+        Assert.Equal(2, NotExercisedByDecision.Length);
         Assert.Equal(
             new HashSet<(ResourceKind, ActionKind)>
             {
-                (ResourceKind.Key, ActionKind.Retire), (ResourceKind.Key, ActionKind.Rotate), (ResourceKind.Revision, ActionKind.Create),
+                (ResourceKind.Key, ActionKind.Retire), (ResourceKind.Key, ActionKind.Rotate),
             },
             NotExercisedByDecision.ToHashSet());
         foreach (var pair in NotExercisedByDecision) Assert.Contains(pair, t0Writes);
@@ -504,5 +504,36 @@ public sealed class ToolDescriptionTests
         Assert.DoesNotContain("unendorsed results", sentence, StringComparison.OrdinalIgnoreCase);
         foreach (var kind in gradable)
             Assert.True(sentence.Contains(kind, StringComparison.Ordinal), $"the floor sentence does not name the kind '{kind}', which the Forum's floor applies to; the description says: {sentence}");
+    }
+
+    /// <summary>
+    /// R11.26 (errata G28): every tool name a description or the server instructions mention is a registered tool, so two separately
+    /// authored artifacts (the descriptions and the catalogue) cannot drift: a description that sends a model to a tool that is not
+    /// there is the defect, and "only superseded by a revision (see curia_revise)" is the sentence that would. Green first (held by FX21).
+    /// </summary>
+    [Fact]
+    public void R11_26_EveryToolNameADescriptionMentionsIsARegisteredTool()
+    {
+        var registered = Registered().Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+        Assert.NotEmpty(registered);
+
+        var texts = Registered().Select(t => (Where: t.Name + "'s description", Text: t.Description))
+            .Append(("the server instructions", ToolText.ServerInstructions("https://agents.example/x", WriteToolNames())))
+            .Append(("the read-only server instructions", ToolText.ServerInstructions(null, WriteToolNames())))
+            .ToList();
+
+        var mentioned = 0;
+        var unregistered = new List<string>();
+        foreach (var (where, text) in texts)
+        {
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(text, @"\bcuria_[a-z]+(?:_[a-z]+)*"))
+            {
+                mentioned++;
+                if (!registered.Contains(match.Value)) unregistered.Add($"{where} names {match.Value}");
+            }
+        }
+
+        Assert.True(mentioned > 0, "no description or instruction names a tool, so nothing was compared; a defect in this fact");
+        Assert.True(unregistered.Count == 0, string.Join("; ", unregistered.Distinct()) + $" ({string.Join(",", registered.Order(StringComparer.Ordinal))} are registered)");
     }
 }

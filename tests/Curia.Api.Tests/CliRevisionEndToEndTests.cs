@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Curia.Api.Tests.Fuzz;
+using Curia.Application.Ports;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -118,5 +120,71 @@ public sealed partial class CliRevisionEndToEndTests(KestrelForumFixture forum) 
 
         Assert.Equal(1, revised.Exit);
         Assert.DoesNotContain("posted", revised.Stdout, StringComparison.Ordinal);
+    }
+
+    private async Task<int> LogLengthAsync(CancellationToken ct) =>
+        (await forum.Services.GetRequiredService<IEventReader>().ReadAllAsync(ct))
+            .Match(r => r.Count, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
+
+    /// <summary>
+    /// R11.35 (errata G28): <c>curia revision --refs</c> carries the references it is given. The stored revision's canonical form holds the
+    /// target as written and a <c>prev</c> that is still the original's digest, and the original's own form holds no reference.
+    /// </summary>
+    [Fact]
+    public async Task R11_35_ARevisionCarriesTheRefsItIsGiven()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
+
+        var address = forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "wren", "--forum", address)).Exit);
+        var asked = await CuriaAsync(ct, "ask", "--agent", "wren", "--board", board, "--title", "Original title", "--body", "the original body", "--forum", address);
+        Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
+        var (postId, digest) = ReadReceipt(asked.Stdout);
+        var cited = "sha256:" + new string('c', 64);
+
+        var revised = await CuriaAsync(ct, "revision", "--agent", "wren", "--board", board, "--parent", postId, "--body", "a corrected body", "--refs", cited, "--forum", address);
+        Assert.True(revised.Exit == 0, $"curia revision --refs exited {revised.Exit}:\n{revised.Stdout}{revised.Stderr}");
+        var (revisionId, _) = ReadReceipt(revised.Stdout);
+
+        async Task<JsonDocument> StoredAsync(string id)
+        {
+            using var served = await forum.Client.GetAsync($"{address}/v1/posts/{id}", ct);
+            using var json = JsonDocument.Parse(await served.Content.ReadAsStringAsync(ct));
+            return JsonDocument.Parse(Encoding.UTF8.GetBytes(json.RootElement.GetProperty("canonical").GetString()!));
+        }
+
+        using var stored = await StoredAsync(revisionId);
+        var reference = Assert.Single(stored.RootElement.GetProperty("refs").EnumerateArray());
+        Assert.Equal(cited, reference.GetProperty("target").GetString());
+        Assert.Equal(digest, stored.RootElement.GetProperty("prev").GetString());
+
+        using var original = await StoredAsync(postId);
+        Assert.Equal(0, original.RootElement.GetProperty("refs").GetArrayLength());
+    }
+
+    /// <summary>R11.35: a <c>--refs</c> value of none of the three forms is a usage error naming them, and nothing reaches the log (the log's length is the Forum's own count).</summary>
+    [Fact]
+    public async Task R11_35_ARevisionRefusesARefsValueItCannotClassifyBeforeAnythingIsSent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
+
+        var address = forum.Client.BaseAddress!.GetLeftPart(UriPartial.Authority);
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+        Assert.Equal(0, (await CuriaAsync(ct, "enrol", "--agent", "heron", "--forum", address)).Exit);
+        var asked = await CuriaAsync(ct, "ask", "--agent", "heron", "--board", board, "--title", "Original title", "--body", "the original body", "--forum", address);
+        Assert.True(asked.Exit == 0, asked.Stdout + asked.Stderr);
+        var (postId, _) = ReadReceipt(asked.Stdout);
+        var before = await LogLengthAsync(ct);
+
+        var refused = await CuriaAsync(ct, "revision", "--agent", "heron", "--board", board, "--parent", postId, "--body", "a corrected body", "--refs", "nonsense", "--forum", address);
+
+        Assert.Equal(1, refused.Exit);
+        Assert.DoesNotContain("unknown flag", refused.Stderr, StringComparison.Ordinal);
+        foreach (var form in new[] { "sha256:", "pkg:", "https://" })
+            Assert.True(refused.Stderr.Contains(form, StringComparison.Ordinal), $"the usage error does not name the form '{form}':\n{refused.Stderr}");
+        Assert.Equal(before, await LogLengthAsync(ct));
     }
 }

@@ -140,6 +140,9 @@ internal static class SurfaceInventory
         return members;
     }
 
+    /// <summary>R8.66's two counts, named exactly: a prefix test would also skip a wire member that happened to be named "Dropped...".</summary>
+    private static readonly HashSet<string> ReaderCounts = new(StringComparer.Ordinal) { "DroppedRefs", "DroppedCodeBlocks" };
+
     /// <summary>
     /// The envelope parser's known members: <see cref="PostEnvelope"/>'s fields, each the snake_case
     /// wire name the parser reads it from, and, for an array of domain records, each element member
@@ -150,6 +153,10 @@ internal static class SurfaceInventory
         var members = new List<string>();
         foreach (var p in typeof(PostEnvelope).GetConstructors().Single().GetParameters())
         {
+            // R8.66 (errata G28): the reader's own counts of items it could not read, computed from the signed array and never
+            // a member the parser reads from the wire, so no request carries one.
+            if (ReaderCounts.Contains(p.Name!)) continue;
+
             var name = SnakeCase(p.Name!);
             members.Add(name);
             if (p.ParameterType.IsGenericType

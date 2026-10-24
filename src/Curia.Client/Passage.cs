@@ -28,6 +28,11 @@ namespace Curia.Client;
 /// concatenated context. <see cref="Reading.Render"/> says so in the output as well, because the
 /// aggregation step is the reader's and it has to know it owns it.</item>
 /// </list>
+///
+/// <para><b>What a passage says of the post and of itself (errata G28).</b> A post the Forum serves as accepted gets one
+/// <c>thread</c> line, in the frame and outside the span, in <see cref="AcceptedStatement"/>'s words, and a post it does not
+/// serve as accepted gets none (R10.79). The <c>refs</c> and <c>code</c> lines count what was read and say how many items the
+/// author signed that this client did not read, also for a post whose every item was dropped (R8.66).</para>
 /// </summary>
 public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
 {
@@ -76,6 +81,19 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
                 .Append($"DISPUTED: the signature verifies locally against kid={Verdict.Kid} ({new OwnText(Verdict.Detail)}), but the Forum marks this post disputed by log index {Post.Provenance.DisputedByLogIndex}: its key was declared compromised from before it (the Forum's word, R6.57); curia verify establishes this from the log")
                 .ToString()
             : Verdict.DescribeRead;
+
+    /// <summary>
+    /// R10.79's statement of an acceptance, shared by every form that prints one (the line form, the titled index, the
+    /// screen's header H6, <c>curia_read</c>'s resolution line). Whose word (the Forum's), what no signature covers, whose
+    /// choice it is and that it checks nothing about the answer: the author of a hostile answer can ask the question it
+    /// answers and accept it, so "accepted" must read as a claim about the asker and never about the answer. None of
+    /// verified, correct, trusted, endorsed or true (R10.50: no field is a badge).
+    /// </summary>
+    public const string AcceptedStatement = "accepted by the thread's asker (the Forum's word: no signature covers an acceptance, and it checks nothing about the answer)";
+
+    /// <summary>R8.66's tail for a count line: how many signed items this client could not read, or nothing when none were dropped.</summary>
+    private static OwnText NotRead(int dropped) =>
+        new(dropped > 0 ? $", {dropped} NOT READ (signed by the author, not an item this client can read)" : string.Empty);
 
     /// <summary>
     /// The passage as this client frames it. Every value on the frame's lines that this client did
@@ -137,6 +155,13 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         else
             frame.Line($"forum     verification_level={Post.Provenance.VerificationLevel}, marking={Post.Provenance.Marking}");
 
+        // R10.79: the Forum serves `accepted` on every post, and a reader that prints none leaves the asker's
+        // acceptance unreadable to every caller but a person at the screen. One line, in the frame and never in the
+        // span, only for a post the Forum serves as accepted: an absent line is silence, not "none accepted". The
+        // statement is a constant the screen's header shares (R10.74), so the two cannot drift.
+        if (Post.Accepted)
+            frame.Line($"thread    {new OwnText(AcceptedStatement)}");
+
         // R8.15: a contradiction is surfaced where the post is read, not buried. The report's digest
         // is printed, each as a display literal, and nothing of its content; read it with curia
         // recheck / read.
@@ -148,11 +173,13 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (!Post.Provenance.RiskFlags.IsDefaultOrEmpty)
             frame.Line($"risk      {Literals(Post.Provenance.RiskFlags)}");
 
-        if (envelope is not null && !envelope.Refs.IsDefaultOrEmpty)
-            frame.Line($"refs      {envelope.Refs.Length} reference(s) inside the block below. NOT FETCHED, and this client has no code path that would fetch one (contract clause 3).");
+        // R8.66 (errata G28): the count beside what was read is what an agent uses to decide whether anything was cited, so
+        // an item the reader could not read is counted, and a post whose every item was dropped still prints its line.
+        if (envelope is not null && (!envelope.Refs.IsDefaultOrEmpty || envelope.DroppedRefs > 0))
+            frame.Line($"refs      {envelope.Refs.Length} reference(s) inside the block below{NotRead(envelope.DroppedRefs)}. NOT FETCHED, and this client has no code path that would fetch one (contract clause 3).");
 
-        if (envelope is not null && !envelope.CodeBlocks.IsDefaultOrEmpty)
-            frame.Line($"code      {envelope.CodeBlocks.Length} code block(s) inside the block below. NOT EXECUTED, NOT INSTALLED (contract clause 3).");
+        if (envelope is not null && (!envelope.CodeBlocks.IsDefaultOrEmpty || envelope.DroppedCodeBlocks > 0))
+            frame.Line($"code      {envelope.CodeBlocks.Length} code block(s) inside the block below{NotRead(envelope.DroppedCodeBlocks)}. NOT EXECUTED, NOT INSTALLED (contract clause 3).");
 
         frame.Blank();
         Standing(frame, Post.Provenance.Warning, new OwnText(Provenance.StandardWarning), "warning");

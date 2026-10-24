@@ -72,8 +72,8 @@ internal sealed class ForumAgent
             new("duplicate_rationale", new JsonValue.String(rationale)),
         ]);
 
-    internal byte[] SignAnswer(string board, string body, string parent, DateTimeOffset createdAt) =>
-        Sign(PostKind.Answer, board, body, title: null, parent, createdAt);
+    internal byte[] SignAnswer(string board, string body, string parent, DateTimeOffset createdAt, JsonValue? refs = null, JsonValue? codeBlocks = null) =>
+        Sign(PostKind.Answer, board, body, title: null, parent, createdAt, refs: refs, codeBlocks: codeBlocks);
 
     /// <summary>
     /// Builds a Table 9 envelope, canonicalizes it, signs it detached, and renders the wire
@@ -142,7 +142,9 @@ internal sealed class ForumAgent
         string? prev = null,
         string[]? tags = null,
         KeyValuePair<string, JsonValue>[]? extra = null,
-        bool wireInNfc = true)
+        bool wireInNfc = true,
+        JsonValue? refs = null,
+        JsonValue? codeBlocks = null)
     {
         var members = ImmutableArray.CreateBuilder<KeyValuePair<string, JsonValue>>();
         if (extra is not null) members.AddRange(extra);
@@ -154,8 +156,11 @@ internal sealed class ForumAgent
         if (prev is not null) members.Add(new("prev", new JsonValue.String(prev)));
         if (title is not null) members.Add(new("title", new JsonValue.String(title)));
         members.Add(new("body", new JsonValue.String(body)));
-        members.Add(new("code_blocks", new JsonValue.Array([])));
-        members.Add(new("refs", new JsonValue.Array([])));
+
+        // R8.66 (errata G28): the raw value of either member when a fact signs what a client's draft cannot spell (a `value`-spelled
+        // item, a non-object), so the Forum is shown a post whose evidence a reader will not read.
+        members.Add(new("code_blocks", codeBlocks ?? new JsonValue.Array([])));
+        members.Add(new("refs", refs ?? new JsonValue.Array([])));
         members.Add(new("tags", new JsonValue.Array(
             [.. (tags ?? ["jcs"]).Select(t => (JsonValue)new JsonValue.String(t))])));
         members.Add(new("content_type", new JsonValue.String(PostEnvelope.RequiredContentType)));

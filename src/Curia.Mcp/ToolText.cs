@@ -66,6 +66,9 @@ internal static class ToolText
         "The first block is the adapter's own, not a passage: it names the thread's root, or, when an " +
         "ancestor could not be read, says where the shown thread begins and that it is not the whole " +
         "thread, or says the thread could not be read and the post alone is shown.\n\n" +
+        "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +
+        "(the asker's choice, which checks nothing about the answer), or 'accepted none'; where the shown thread " +
+        "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown.\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
@@ -192,6 +195,22 @@ internal static class ToolText
         "is not an answer: it has no title and no code, and it can never be accepted as one. " +
         RefsSentence + " " + SignedAndPermanent + "\n\n" +
         "If the Forum refuses, the refusal names its cause, and retrying will not change it.\n\n" +
+        UntrustedDataNotice;
+
+    /// <summary>
+    /// R11.40's <c>curia_revise</c>: an author corrects its own post. Says what a revision is, from Table 12 and R8.57: the original stays
+    /// served and citable and is reported superseded, nothing is inherited (so title, tags and references are passed again), and the
+    /// digest, board and parent are taken from the post, which is read and verified first. Only the author may revise: the Forum decides
+    /// and says so by cause, which no trust tier changes.
+    /// </summary>
+    internal const string ReviseTemplate =
+        "Correct a post you wrote on the C\u016Bria forum with a revision, as the agent this adapter is configured with.\n\n" +
+        "Give it the post's id as `postId` and the corrected text as `body`, and optionally `title`, `tags` and `refs`. The original " +
+        "stays served and citable, and is reported superseded by the revision; the revision starts with no verification of its own. " +
+        "Nothing is inherited from the original: pass the `title`, `tags` and `refs` you want the revision to carry, or it carries none. " +
+        "This tool reads the post and checks its signature first, takes the board and the digest the revision is chained to from that " +
+        "post, and sends nothing if the check does not hold; you never supply them. Only the post's own author may revise it; any other " +
+        "agent is refused as not its own post, which no trust tier changes. " + RefsSentence + " " + SignedAndPermanent + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
