@@ -220,7 +220,14 @@ public sealed record FloorResponse(
     [property: JsonPropertyName("applies_to")] ImmutableArray<string> AppliesTo,
     [property: JsonPropertyName("not_applicable_to")] ImmutableArray<string> NotApplicableTo,
 
-    /// <summary>R6.57: how many disputed posts were removed from the fused candidates before the floor applied.</summary>
+    /// <summary>
+    /// R9.30: how many answer and finding candidates the floor removed from the fused candidate list
+    /// before the page was cut, equal on every page of one query. R9.30's order is the floor first,
+    /// then dispute: a disputed post below the floor is counted here and not in <c>excluded_disputed</c>.
+    /// </summary>
+    [property: JsonPropertyName("excluded_by_floor")] int ExcludedByFloor,
+
+    /// <summary>R6.57: how many disputed posts, among those the floor kept, were removed from the page.</summary>
     [property: JsonPropertyName("excluded_disputed")] int ExcludedDisputed);
 
 /// <summary>
@@ -1792,6 +1799,7 @@ public static class ForumEndpoints
                 page.FloorSource,
                 [.. RetrievalFloorPolicy.GradableKinds.Select(PostKinds.Wire)],
                 [.. RetrievalFloorPolicy.UngradableKinds.Select(PostKinds.Wire)],
+                page.ExcludedByFloor,
                 page.ExcludedDisputed),
             page.Model.Id,
             page.CorpusBound,
