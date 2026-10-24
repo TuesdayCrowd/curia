@@ -269,6 +269,62 @@ public sealed class DisputedContentTests(ForumFixture forum) : IClassFixture<For
             $"empty page with a cursor before the last: {emptyBeforeLast}; {string.Join(",", walk.Select(p => Number(p.Excluded)))}");
     }
 
+    /// <summary>
+    /// R9.30: a result is counted by at most one of the two counts. A disputed answer below the floor is
+    /// not among the posts the floor kept, so the floor counts it and dispute does not; under a floor that
+    /// keeps it, dispute counts it and the floor does not.
+    /// </summary>
+    [Fact]
+    public async Task R9_30_ADisputedAnswerBelowTheFloorIsCountedByTheFloorAndNotByDispute()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var board = "board-" + Suffix();
+        var term = "zfloor" + Suffix();
+
+        var asker = ForumAgent.Create($"https://agents.example/asker-{Suffix()}", "asker-" + Suffix());
+        var (askerDpop, askerToken) = await asker.AuthenticateAsync(http, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        var question = await AskAsync(asker, askerDpop, askerToken, board, $"How does {term} work", $"a question that mentions {term}", ct);
+
+        var thief = ForumAgent.Create($"https://agents.example/thief-{Suffix()}", "thief-" + Suffix());
+        var (dpop, token) = await thief.AuthenticateAsync(http, KeyActRequests.TokenEndpoint, forum.Now, ct);
+        await forum.AttestOwnerAsync(thief.AgentId, ct, owner: $"owner:thief-{Suffix()}");
+        for (var i = 0; i < 3; i++)
+        {
+            var nonce = Guid.NewGuid().ToString("N");
+            using var warmup = await dpop.PostAsync(http, PostsUrl, token, thief.SignQuestion(board, $"warmup {i} {nonce}", $"Warmup {i} {nonce}", forum.Now), forum.Now, ct);
+            Assert.Equal(HttpStatusCode.Created, warmup.StatusCode);
+        }
+
+        forum.Clock.Advance(TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1));
+        using var answered = await dpop.PostAsync(
+            http, PostsUrl, await dpop.GetTokenAsync(http, KeyActRequests.TokenEndpoint, forum.Now, ct), thief.SignAnswer(board, $"Signed by the thief {term}.", question.PostId, forum.Now), forum.Now, ct);
+        var answeredText = await answered.Content.ReadAsStringAsync(ct);
+        Assert.True(answered.StatusCode == HttpStatusCode.Created, answeredText);
+        using var accepted = JsonDocument.Parse(answeredText);
+        var answerId = accepted.RootElement.GetProperty("post_id").GetString()!;
+        var answerAt = (await ReadAsync(answerId, ct)).GetProperty("log_index").GetInt64();
+
+        await DeclareAsync(thief.AgentId, thief.Kid, answerAt, ct);
+
+        async Task<(int ByFloor, int ByDispute)> CountsAsync(string floor)
+        {
+            using var response = await http.GetAsync(new Uri($"/v1/search?q={term}&board={board}&min_verification={floor}", UriKind.Relative), ct);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var page = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var block = page.RootElement.GetProperty("floor");
+            Assert.True(block.TryGetProperty("excluded_by_floor", out var byFloor), "the floor block states no excluded_by_floor (R9.30)");
+            return (byFloor.GetInt32(), block.GetProperty("excluded_disputed").GetInt32());
+        }
+
+        var gated = await CountsAsync("V1");
+        var open = await CountsAsync("V0");
+
+        Assert.Equal(
+            "floor 1, dispute 0 | floor 0, dispute 1",
+            $"floor {Number(gated.ByFloor)}, dispute {Number(gated.ByDispute)} | floor {Number(open.ByFloor)}, dispute {Number(open.ByDispute)}");
+    }
+
     [Fact]
     public async Task R6_28_ADisputedPostIsNeverWithheldByTheDeclaration()
     {

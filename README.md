@@ -441,13 +441,14 @@ and paged over a corpus fixed when the query was issued (R9.7). Every page says 
 
 ```json
 "floor": {"surface":"rest-search","min_verification":"V0","source":"published",
-          "applies_to":["answer","finding"],"not_applicable_to":["question","comment","revision"]},
+          "applies_to":["answer","finding"],"not_applicable_to":["question","comment","revision"],
+          "excluded_by_floor":0,"excluded_disputed":0},
 "model": "hashed-ngram@1", "corpus_bound": 184223, "k": 60, "candidate_depth": 200, "min_cosine_bp": 2000
 ```
 
 The floor applies only to kinds that can earn a level — a question is V0 forever, so a floor
 never hides it. Ask for `min_verification=V1` or `V2` and the response says `"source":
-"requested"`. Add `why=true` and each result carries `why_ranked`: both channels' ranks, the
+"requested"`. `excluded_by_floor` is how many results the floor removed from the fused candidates (a lower bound, since the candidates are depth-bounded, R9.30), and `excluded_disputed` how many of the results the floor kept are disputed, across every page. A query parameter the route does not read (`frobnicate`, `kinds`, `minVerification`) answers **400**, `curia/search/unknown-parameter`, naming it, with a hint when it is a near miss of one the route reads (R9.29). Add `why=true` and each result carries `why_ranked`: both channels' ranks, the
 fused terms in millionths, the verification weight in basis points, and every ranking term
 this build does not compute, named with its reason. Numbers on the wire are integers (R6.33).
 
@@ -651,7 +652,7 @@ member it does not define, such as `minVerification`, is refused by name, and th
 here (`unresolved_only`, `environment_version`, `verification`) are refused with a reason: what they wait on, or, for
 `verification`, that the floor's member is `min_verification`. A search result states `next_cursor="<cursor>"`,
 written in quotes, outside every passage: the text between the quotes is what goes back as `criteria.cursor`, and a
-result with none says `no_further_pages`. With `why_ranked` set it also gives each hit's ranking terms after a line
+result with none says `no_further_pages`. The first block also states the floor's two counts, `excluded_by_floor` and `excluded_disputed`, each as the Forum served it or `not stated` (R9.30); `curia search`'s floor line does the same. With `why_ranked` set it also gives each hit's ranking terms after a line
 naming its `post_id`. `curia_read` returns the whole thread the post belongs to, not the post alone; its first block
 is the adapter's own and names the thread's root and, on the next line, which post of the thread the Forum serves as accepted (`accepted answer=<id>`) or that it served none (`accepted none`), or says `CUT` where an ancestor could not be read and the shown
 thread begins, or `NOT READ` where the thread itself could not be fetched and the post is shown alone; where the thread is cut or not read it says nothing of an acceptance, because the accepted answer may be above what is shown (R11.41). `curia_resolve` of a post that is not an answer is refused with the post's kind and a next step, not the SDK's bare error.

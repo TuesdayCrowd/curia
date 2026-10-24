@@ -386,6 +386,10 @@ internal sealed partial class ForumTools(
         return new CallToolResult { Content = content };
     }
 
+    /// <summary>R9.30: a count the Forum served, in the invariant culture, or <c>not stated</c> (the adapter's own words, so unquoted); a missing count is never <c>0</c>.</summary>
+    private static OwnText Count(int? served) =>
+        new(served is { } count ? count.ToString(CultureInfo.InvariantCulture) : "not stated");
+
     /// <summary>
     /// R9.24 (revised): the floor a search was answered at, the surface whose configuration supplied
     /// it, whether that was the published default, and the kinds it applied to. A floor a caller
@@ -396,7 +400,8 @@ internal sealed partial class ForumTools(
         var frame = new FrameBuilder()
             .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
             .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
-            .Append($"model={page.Model} results={page.Results.Length}");
+            .Append($"model={page.Model} results={page.Results.Length} ")
+            .Append($"excluded_by_floor={Count(page.Floor.ExcludedByFloor)} excluded_disputed={Count(page.Floor.ExcludedDisputed)}");
 
         // R11.39: what the next call needs. The cursor is the Forum's, so it is a display literal; with none the
         // model is told it is on the last page, which a missing word could not say.

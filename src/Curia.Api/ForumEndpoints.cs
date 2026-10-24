@@ -220,7 +220,14 @@ public sealed record FloorResponse(
     [property: JsonPropertyName("applies_to")] ImmutableArray<string> AppliesTo,
     [property: JsonPropertyName("not_applicable_to")] ImmutableArray<string> NotApplicableTo,
 
-    /// <summary>R6.57: how many disputed posts were removed from the fused candidates before the floor applied.</summary>
+    /// <summary>
+    /// R9.30: how many answer and finding candidates the floor removed from the fused candidate list
+    /// before the page was cut, equal on every page of one query. R9.30's order is the floor first,
+    /// then dispute: a disputed post below the floor is counted here and not in <c>excluded_disputed</c>.
+    /// </summary>
+    [property: JsonPropertyName("excluded_by_floor")] int ExcludedByFloor,
+
+    /// <summary>R6.57: how many of the posts the floor kept are disputed, over the whole diversified list and so the same on every page.</summary>
     [property: JsonPropertyName("excluded_disputed")] int ExcludedDisputed);
 
 /// <summary>
@@ -1685,6 +1692,13 @@ public static class ForumEndpoints
                     $"parameter={unsupported}; use min_verification for the floor (R10.2); environment filters wait on context.environment being read at ingest"));
         }
 
+        // R9.29: a name this route does not read is refused, after the refusable names (which keep their
+        // redirect) and before any value is parsed, so the agent is told the name that is wrong and not the value
+        // of a parameter it never meant. Keys, not ContainsKey: the fuzzer's read record is undisturbed.
+        var unknownError = SearchQueryParameters.Check(http.Query.Keys);
+        if (unknownError is not null)
+            return Problem(StatusCodes.Status400BadRequest, unknownError);
+
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
@@ -1792,7 +1806,9 @@ public static class ForumEndpoints
                 page.FloorSource,
                 [.. RetrievalFloorPolicy.GradableKinds.Select(PostKinds.Wire)],
                 [.. RetrievalFloorPolicy.UngradableKinds.Select(PostKinds.Wire)],
-                page.ExcludedDisputed),
+                // R9.30: a filter that matches nothing removed nothing; the counts are of the unfiltered search that ran.
+                matchesNothing ? 0 : page.ExcludedByFloor,
+                matchesNothing ? 0 : page.ExcludedDisputed),
             page.Model.Id,
             page.CorpusBound,
             page.K,
