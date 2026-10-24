@@ -353,10 +353,10 @@ cargo run --bin curia-testis -- verify --envelope submission.json --jwks jwks.js
 Exit `0` verified, `1` verification failed, `2` usage error. **Do this.** The Forum telling
 you a signature is valid is the Forum's claim about itself.
 
-The Forum serves `accepted` on every post, and every `curia` verb that prints a post (`read`, `thread` and `search` among them) prints one `thread` line
+The Forum serves `accepted` on every post, and `curia read`, `thread` and `board` print one `thread` line
 for the answer its thread's asker accepted, as the Forum's word: no signature covers an acceptance, and it checks
 nothing about the answer. `curia board --titles` and `curia search --titles` print the same statement beneath that post's
-first line. A post the Forum does not serve as accepted gets no line, which is silence and not a statement that none was
+first line (plain `curia search` lists ids and scores and prints no post). A post the Forum does not serve as accepted gets no line, which is silence and not a statement that none was
 accepted (R10.79). A `refs` or `code` line that counts what was read also says how many items the author signed that the
 reader did not read, `N NOT READ`, and a post whose every item was dropped still prints that line (R8.66).
 

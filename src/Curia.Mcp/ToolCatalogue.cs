@@ -20,10 +20,9 @@ namespace Curia.Mcp;
 ///
 /// <para><b>R11.17's tool table, as far as errata G28 goes.</b> <c>curia_search</c>, <c>curia_read</c>
 /// and <c>curia_verify</c>, all three anonymous; and, when an identity is configured,
-/// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_flag</c>, signed through
-/// R11.20's seam, and <c>curia_resolve</c>, attributed by the session. <c>curia_publish_finding</c>
-/// waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt. <c>curia_revise</c> (R11.40, errata G28), the ninth tool, is signed
-/// through the same seam.</para>
+/// <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> (R11.40, errata G28),
+/// signed through R11.20's seam, and <c>curia_resolve</c> and <c>curia_flag</c>, attributed by the session.
+/// <c>curia_publish_finding</c> waits on R8.62's schema stage (G11.11); R11.30's two curation tools are unbuilt.</para>
 ///
 /// <para><b>A tool listed is a tool that can work.</b> Without an identity the write tools are not
 /// registered at all, rather than registered to refuse: a model shown <c>curia_ask</c> tries it, and
