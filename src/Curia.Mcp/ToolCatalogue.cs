@@ -29,11 +29,15 @@ namespace Curia.Mcp;
 /// registered at all, rather than registered to refuse: a model shown <c>curia_ask</c> tries it, and
 /// a refusal that no call can cure is noise in the one channel it reads. The server instructions say
 /// why they are absent and how the operator enables them.</para>
+///
+/// <para><b>What a description may say is held to the schema (R11.37 to R11.39, errata G27).</b> Every
+/// tool's schema marks only its needs required, and a call carrying an argument the schema does not define
+/// is refused before it is sent, so a description names an argument only if its schema defines it.</para>
 /// </summary>
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.4.0";
+    internal const string Version = "0.5.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {

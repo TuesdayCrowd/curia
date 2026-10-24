@@ -1,7 +1,6 @@
 using Curia.Client;
 using Curia.Mcp;
 using Microsoft.Extensions.Logging.Abstractions;
-using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 // The composition root for `curia-mcp`: the MCP adapter of §11.5, as R11.16 (revised) permits it —
@@ -64,18 +63,7 @@ using var owned = identity;
 // needs it most, and two identities on one machine would hold two views of one log.
 var tools = new ForumTools(client, config.Marking, HeadStore.Default(), writer);
 
-var options = new McpServerOptions
-{
-    ServerInfo = new Implementation { Name = "curia-mcp", Version = ToolCatalogue.Version },
-
-    // Delivered once at initialize, before any tool schema arrives. R11.19 requires the notice in
-    // every description and says nothing about server instructions; it is here as well because this
-    // is the only text guaranteed to reach the model before anything else does -- and so is whose
-    // name the write tools act in, or why there are none.
-    ServerInstructions = ToolText.ServerInstructions(writer?.Agent.Profile.AgentId, ToolCatalogue.WriteToolNames(tools)),
-
-    ToolCollection = [.. ToolCatalogue.Build(tools)],
-};
+var options = ServerComposition.Options(tools, writer?.Agent.Profile.AgentId);
 
 // The typed reference and the disposal scope are separate locals: `await using var x =
 // y.ConfigureAwait(false)` binds x to a ConfiguredAsyncDisposable, which is not the transport and

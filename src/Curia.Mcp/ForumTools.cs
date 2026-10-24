@@ -29,6 +29,11 @@ namespace Curia.Mcp;
 /// duplicate refusal's answers go through the same rendering, the same per-author key fetch and the
 /// same served-post memory as a read: an answer <c>curia_ask</c> hands back is one
 /// <c>curia_verify</c> can then check as the document the model was shown (R11.29).</para>
+///
+/// <para><b>What a result says of itself (errata G27).</b> A search states its cursor, or that it is the last
+/// page, and the terms of each hit when asked (R11.39); <c>curia_read</c> returns the whole thread, its first
+/// block the adapter's own naming the root or where the shown thread begins (R11.38); a call whose arguments do
+/// not match the schema never reaches these methods (R11.37).</para>
 /// </summary>
 internal sealed partial class ForumTools(
     ForumClient forum, MarkingMode marking, HeadStore heads, ForumWriter? writer = null)
@@ -39,6 +44,9 @@ internal sealed partial class ForumTools(
     /// so a long one cannot grow without bound, and the oldest entry goes first.
     /// </summary>
     private const int RememberedPosts = 256;
+
+    /// <summary>R11.38: how many ancestors <c>curia_read</c> follows before it says the thread is cut.</summary>
+    private const int MaxAncestorSteps = 64;
 
     private readonly ForumClient _forum = forum;
     private readonly MarkingMode _marking = marking;
@@ -112,17 +120,68 @@ internal sealed partial class ForumTools(
         var read = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
 
-        // The thread the post sits in, so a reader evaluating an answer can see what it answers.
-        // A thread that cannot be fetched leaves the post itself readable rather than failing the
-        // call: the post is what was asked for.
-        var root = post!.Parent is { Length: > 0 } parent ? parent : post.PostId;
-        var thread = await _forum.GetThreadAsync(root, _marking, cancellationToken).ConfigureAwait(false);
+        // R11.38: the thread is the root's, found by following parent upward. The route serves the subtree under any
+        // id, so the walk is this adapter's. Ancestors are kept for their Parent alone; nothing is rendered from them.
+        var top = post!;
+        string? unreadableParent = null;
+        var repeats = false;
+        var visited = new HashSet<string>(StringComparer.Ordinal) { top.PostId };
+        var steps = 0;
+        while (top.Parent is { Length: > 0 } parent && steps < MaxAncestorSteps)
+        {
+            steps++;
+            var up = await _forum.GetPostAsync(parent, _marking, cancellationToken).ConfigureAwait(false);
+            if (!up.TryGetValue(out var ancestor, out _))
+            {
+                unreadableParent = parent;
+                break;
+            }
 
-        var posts = thread.TryGetValue(out var siblings, out _) && !siblings.IsDefaultOrEmpty
-            ? siblings
-            : [post];
+            // A chain that returns to a post already read has no root to reach: say so rather than spend the bound.
+            if (!visited.Add(ancestor!.PostId))
+            {
+                repeats = true;
+                break;
+            }
 
-        return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false));
+            top = ancestor;
+        }
+
+        // Neither an unreadable ancestor, a repeat nor the bound reaches a root: the thread shown begins at `top` and says so.
+        var cutAt = top.Parent is { Length: > 0 } unfollowed && !repeats ? unfollowed : null;
+
+        // A thread that cannot be fetched leaves the post itself readable rather than failing the call: the post is
+        // what was asked for, and the first block says the rest was not read. A thread that does not include the post
+        // is not the post's thread, so it is treated the same way.
+        var thread = await _forum.GetThreadAsync(top.PostId, _marking, cancellationToken).ConfigureAwait(false);
+        var members = thread.TryGetValue(out var served, out var failure) ? served! : default;
+        var threadRead = !members.IsDefaultOrEmpty && members.Any(m => string.Equals(m.PostId, post.PostId, StringComparison.Ordinal));
+
+        var frame = new FrameBuilder();
+        if (!threadRead)
+        {
+            var why = !thread.IsOk ? failure!.Summary
+                : members.IsDefaultOrEmpty ? "the Forum served no posts for it"
+                : "the thread the Forum served did not include the post";
+            frame.Line($"NOT READ the thread beginning at {top.PostId} could not be read, so the post alone is shown: {why}");
+        }
+        else if (unreadableParent is null && !repeats && cutAt is null)
+        {
+            frame.Line($"thread root={top.PostId} posts={members.Length}");
+        }
+
+        if (unreadableParent is not null)
+            frame.Line($"CUT the parent {unreadableParent} of post {top.PostId} could not be read, so the thread shown begins at {top.PostId} and is not the whole thread");
+        else if (repeats)
+            frame.Line($"CUT the parent chain repeats at a post already read, so it has no root; the thread shown begins at {top.PostId} and is not the whole thread");
+        else if (cutAt is not null)
+            frame.Line($"CUT the upward walk stopped after {MaxAncestorSteps} steps without reaching a root, so the thread shown begins at {top.PostId}, whose parent {cutAt} was not followed");
+
+        var preamble = frame.ToString();
+
+        var posts = threadRead ? members : [post];
+
+        return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false), preamble);
     }
 
     /// <summary>
@@ -149,7 +208,7 @@ internal sealed partial class ForumTools(
     /// this session read, or — failing that — what the Forum serves now, and the result says which.
     /// </param>
     internal async Task<CallToolResult> VerifyAsync(
-        string postId, string? expectedDigest, CancellationToken cancellationToken)
+        string postId, string? expectedDigest = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(postId);
 
@@ -231,9 +290,9 @@ internal sealed partial class ForumTools(
     /// honour comes back as a refusal naming it and reaches the model as one.
     /// </summary>
     internal async Task<CallToolResult> SearchAsync(
-        SearchCriteria criteria, CancellationToken cancellationToken)
+        SearchCriteria? criteria = null, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(criteria);
+        criteria ??= new SearchCriteria();
 
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).
@@ -297,18 +356,38 @@ internal sealed partial class ForumTools(
     /// it, whether that was the published default, and the kinds it applied to. A floor a caller
     /// cannot read back is one it cannot distinguish from an empty corpus.
     /// </summary>
-    private static string Floor(SearchPage page) => new FrameBuilder()
-        .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
-        .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
-        .Append($"model={page.Model} results={page.Results.Length}")
-        .ToString();
+    private static string Floor(SearchPage page)
+    {
+        var frame = new FrameBuilder()
+            .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
+            .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
+            .Append($"model={page.Model} results={page.Results.Length}");
+
+        // R11.39: what the next call needs. The cursor is the Forum's, so it is a display literal; with none the
+        // model is told it is on the last page, which a missing word could not say.
+        if (page.NextCursor is { Length: > 0 } cursor)
+            frame.Line($" next_cursor={cursor}");
+        else
+            frame.Line(" no_further_pages (this is the last page)");
+
+        // R9.8, asked for: each hit's terms under its post id, written as the CLI writes them.
+        foreach (var hit in page.Results)
+        {
+            if (hit.Why is not { } why) continue;
+            frame.Line($"post_id={hit.Post.PostId}");
+            SearchScore.WriteWhy(frame, why);
+        }
+
+        return frame.ToString();
+    }
 
     /// <summary>A line or sentence of this adapter's own, with every served value quoted.</summary>
     private static string Said(FrameText text) => text.ToString();
 
     /// <summary>
-    /// A refusal reaches the model as an <see cref="McpException"/>, whose message the SDK forwards
-    /// verbatim; any other exception is replaced with "An error occurred invoking …". That
+    /// A refusal reaches the model as an <see cref="McpException"/>, whose message the SDK delivers
+    /// after its prefix "An error occurred invoking '&lt;tool&gt;': ", so the refusal's words are kept;
+    /// any other exception is replaced with "An error occurred invoking …" alone. That
     /// replacement would discard the distinction the client exists to preserve — an authorization
     /// refusal is never retryable and a rate-budget one is retryable tomorrow — and hand a model one
     /// undifferentiated failure. <see cref="Refusal.Summary"/> carries the remedy with the reason.

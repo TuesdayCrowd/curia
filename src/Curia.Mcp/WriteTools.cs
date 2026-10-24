@@ -35,9 +35,9 @@ internal sealed partial class ForumTools
         string board,
         string title,
         string body,
-        string[]? tags,
-        string? notDuplicateRationale,
-        CancellationToken cancellationToken)
+        string[]? tags = null,
+        string? notDuplicateRationale = null,
+        CancellationToken cancellationToken = default)
     {
         var writer = Writer();
 
@@ -66,7 +66,7 @@ internal sealed partial class ForumTools
     /// the sources the answer relied on (R11.35); Table 12 ranks an answer without them as an opinion.
     /// </summary>
     internal Task<CallToolResult> AnswerAsync(
-        string parentPostId, string body, string[]? refs, CancellationToken cancellationToken) =>
+        string parentPostId, string body, string[]? refs = null, CancellationToken cancellationToken = default) =>
         ReplyAsync(PostKind.Answer, ResourceKind.Answer, parentPostId, body, refs, cancellationToken);
 
     /// <summary>
@@ -75,7 +75,7 @@ internal sealed partial class ForumTools
     /// asked for (errata G26, decision 5). A comment has no title (<c>PostKinds.RequiresTitle</c>).
     /// </summary>
     internal Task<CallToolResult> CommentAsync(
-        string parentPostId, string body, string[]? refs, CancellationToken cancellationToken) =>
+        string parentPostId, string body, string[]? refs = null, CancellationToken cancellationToken = default) =>
         ReplyAsync(PostKind.Comment, ResourceKind.Comment, parentPostId, body, refs, cancellationToken);
 
     /// <summary>
