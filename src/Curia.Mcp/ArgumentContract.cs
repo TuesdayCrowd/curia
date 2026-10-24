@@ -118,18 +118,18 @@ internal static class ArgumentContract
         JsonValueKind.True or JsonValueKind.False => types.Contains("boolean"),
         JsonValueKind.Array => types.Contains("array"),
         JsonValueKind.Object => types.Contains("object"),
-        JsonValueKind.Number => types.Contains("number") || (types.Contains("integer") && value.TryGetInt64(out _)),
+        JsonValueKind.Number => types.Contains("number") || (types.Contains("integer") && value.TryGetInt32(out _)),
         JsonValueKind.String => types.Contains("string") || AdmitsNumericText(types, value.GetString()!),
         JsonValueKind.Undefined => false,
         _ => false,
     };
 
-    /// <summary>The binder reads a numeric string as a number; the contract is not stricter than the transport (ruling 3).</summary>
+    /// <summary>The binder reads a numeric string as a number, and binds every integer parameter as an <c>int</c> (a 32-bit value), so that is the range admitted; the contract is not stricter than the transport (ruling 3).</summary>
     private static bool AdmitsNumericText(List<string> types, string text)
     {
         if (types.Contains("number"))
             return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && double.IsFinite(d);
 
-        return types.Contains("integer") && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
+        return types.Contains("integer") && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
     }
 }

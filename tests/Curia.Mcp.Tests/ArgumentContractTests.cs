@@ -102,6 +102,17 @@ public sealed class ArgumentContractTests
         Assert.Contains(expected, fault.Expected, StringComparison.Ordinal);
     }
 
+    /// <summary>The binder binds <c>int?</c>: a value it cannot hold must be refused here, with a cause, not fail in the SDK without one.</summary>
+    [Theory]
+    [InlineData("""{"board":"b","limit":3000000000}""")]
+    [InlineData("""{"board":"b","limit":"3000000000"}""")]
+    public void R11_37_AnIntegerAThirtyTwoBitBinderCannotHoldIsAWrongTypeFault(string arguments)
+    {
+        var fault = Assert.Single(Check(Schema, arguments));
+        Assert.Equal("limit", fault.Path);
+        Assert.Equal(ArgumentFaultKind.WrongType, fault.Kind);
+    }
+
     [Fact]
     public void R11_37_AnArrayElementOfTheWrongTypeIsAFaultAtItsIndex()
     {
