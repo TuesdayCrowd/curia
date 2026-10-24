@@ -808,6 +808,9 @@ internal sealed class StubLog : IDisposable
     /// <summary>The thread route serves only the answer, a thread that does not include <see cref="PostId"/>.</summary>
     internal bool ThreadRouteServesOnlyTheAnswer { get; set; }
 
+    /// <summary>R11.42's probe: the <c>digest</c> member the Forum serves for the post, which a verifier must not trust (null serves the true one).</summary>
+    internal string? ServedDigest { get; set; }
+
     internal string PostJson()
     {
         // ActaEndpoints.ProofFor's own rule: against the latest signed head when it covers the
@@ -826,7 +829,7 @@ internal sealed class StubLog : IDisposable
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
         "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
-        "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Submission.PrefixedDigest}}",
+        "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{ServedDigest ?? Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{Submission.Signature}}",
         "rendered":{{JsonString(Datamarking.Render(RenderedContent ?? Canonical, MarkingMode.None))}},"accepted":false,
         "log_index":{{PostIndex}},"inclusion_proof":{{proof}}}

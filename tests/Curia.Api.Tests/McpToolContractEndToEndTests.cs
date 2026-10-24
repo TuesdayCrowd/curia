@@ -257,6 +257,60 @@ public sealed class McpToolContractEndToEndTests(ForumFixture forum) : IClassFix
         AssertNoRefs(canonical);
     }
 
+    // ---- R11.42, R11.43 (errata G29) against a real Forum ------------------------------------------------------------
+
+    /// <summary>The digest of a served document's canonical form, computed here with the BCL and not read from the Forum's <c>digest</c> member.</summary>
+    private async Task<string> DigestOfServedAsync(string postId)
+    {
+        var served = await forum.Client.GetFromJsonAsync<JsonElement>($"/v1/posts/{postId}", Ct);
+        return "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(served.GetProperty("canonical").GetString()!)));
+    }
+
+    /// <summary>R11.42: a real Forum, a pin that is another real post's digest: an error, both digests, and no check line.</summary>
+    [Fact]
+    public async Task R11_42_ARealForumsPinnedVerifyFailsWithoutAVerdict()
+    {
+        var board = Board();
+        var agent = await EnrolAsync("pin");
+        var named = await AskAsync(agent, board, $"Named {Guid.NewGuid():N}", "The post the caller names.");
+        var other = await AskAsync(agent, board, $"Other {Guid.NewGuid():N}", "A different post the caller holds the digest of.");
+        var wrongDigest = await DigestOfServedAsync(other);
+        var rightDigest = await DigestOfServedAsync(named);
+        Assert.NotEqual(rightDigest, wrongDigest);
+
+        await using var session = await SessionAsync(agent);
+        var control = await session.CallAsync("curia_verify", new() { ["postId"] = named, ["expectedDigest"] = rightDigest });
+        Assert.False(control.IsError, $"the control (the right digest) was an error:\n{control.Text}");
+        Assert.Contains("signature   ", control.Text, StringComparison.Ordinal);
+
+        var failed = await session.CallAsync("curia_verify", new() { ["postId"] = named, ["expectedDigest"] = wrongDigest });
+
+        Assert.True(failed.IsError, $"a failed pin answered isError=false:\n{failed.Text}");
+        Assert.Contains(Quoted(wrongDigest), failed.Text, StringComparison.Ordinal);
+        Assert.Contains(Quoted(rightDigest), failed.Text, StringComparison.Ordinal);
+        foreach (var label in new[] { "signature   ", "inclusion   ", "consistency ", "key         ", "lifecycle   " })
+            Assert.DoesNotContain(failed.Text.Split('\n'), line => line.StartsWith(label, StringComparison.Ordinal));
+        Assert.DoesNotContain(failed.Text.Split('\n'), line => line.StartsWith("VERIFIED", StringComparison.Ordinal));
+    }
+
+    /// <summary>R11.43: a null item of <c>refs</c> posts nothing, and the Forum's own thread document is the same after the call.</summary>
+    [Fact]
+    public async Task R11_43_ACommentWithANullRefsItemPostsNothing()
+    {
+        var board = Board();
+        var agent = await EnrolAsync("nullref");
+        var question = await AskAsync(agent, board, $"Null ref {Guid.NewGuid():N}", "A question to comment under.");
+        var before = await forum.Client.GetStringAsync($"/v1/threads/{question}", Ct);
+
+        await using var session = await SessionAsync(agent);
+        var result = await session.CallAsync("curia_comment", new() { ["parentPostId"] = question, ["body"] = "A comment.", ["refs"] = new object?[] { null } });
+
+        Assert.True(
+            result.IsError && result.Text.StartsWith("NOT SENT:", StringComparison.Ordinal) && result.Text.Contains("refs[0]", StringComparison.Ordinal),
+            $"a null refs item did not answer a NOT SENT naming refs[0]:\n{result.Text}");
+        Assert.Equal(before, await forum.Client.GetStringAsync($"/v1/threads/{question}", Ct));
+    }
+
     // ---- P23: no description promises what the Forum does not serve (R9.24 (rev.)) -----------------------------------
 
     [Fact]

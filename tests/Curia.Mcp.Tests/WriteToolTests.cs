@@ -400,6 +400,20 @@ public sealed class WriteToolTests : IDisposable
         Assert.Empty(_log.Requests);
     }
 
+    /// <summary>R8.67 (errata G29): a URL that does not parse is none of the three forms, so a comment citing it is not sent.</summary>
+    [Fact]
+    public async Task R8_67_AMcpReplyWithAnUnparseableUrlIsNotSent()
+    {
+        var refs = new[] { "https://a b" };
+
+        var commented = await Assert.ThrowsAsync<McpException>(() => Tools().CommentAsync(StubLog.PostId, "Cited.", refs, Ct));
+
+        Assert.StartsWith("NOT SENT: \"A reference is a post digest", commented.Message, StringComparison.Ordinal);
+        Assert.Contains("pkg:", commented.Message, StringComparison.Ordinal);
+        Assert.Contains("https://", commented.Message, StringComparison.Ordinal);
+        Assert.Empty(_log.Requests);
+    }
+
     /// <summary>
     /// R11.17, R11.30 (rev.): a comment is a signed <c>comment</c> under its parent, on the parent's
     /// board, which is never a parameter, and it has no title. The digest printed is the digest of

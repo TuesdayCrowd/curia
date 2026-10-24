@@ -1,7 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
 using Curia.Client;
 using Curia.Domain.Authorization;
+using Curia.Domain.Content;
 using Curia.Domain.Moderation;
+using Curia.Domain.Retrieval;
 using Curia.Domain.Serving;
 using Curia.Mcp;
 using Curia.Tests.Shared;
@@ -482,5 +484,25 @@ public sealed class ToolDescriptionTests
         }
 
         Assert.Contains("not offered", readOnly, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R10.45, R9.24 (rev.), errata G29 ruling 5: the sentence about <c>min_verification</c> says what the floor applies to.
+    /// The kinds are the Forum's own (<c>RetrievalFloorPolicy</c>), not typed here; the words "unendorsed results" claim a
+    /// removal of results the floor does not touch.
+    /// </summary>
+    [Fact]
+    public void R10_45_TheFloorSentenceNamesTheKindsItAppliesTo()
+    {
+        var search = Registered().Single(t => t.Name == "curia_search").Description;
+        var paragraph = search.Split("\n\n").Single(p => p.StartsWith("Results are ordered", StringComparison.Ordinal));
+        var sentence = paragraph[(paragraph.LastIndexOf(". ", paragraph.Length - 2, StringComparison.Ordinal) + 2)..];
+        Assert.Contains("`min_verification`", sentence, StringComparison.Ordinal);
+
+        var gradable = RetrievalFloorPolicy.GradableKinds.Select(PostKinds.Wire).ToArray();
+        Assert.NotEmpty(gradable);
+        Assert.DoesNotContain("unendorsed results", sentence, StringComparison.OrdinalIgnoreCase);
+        foreach (var kind in gradable)
+            Assert.True(sentence.Contains(kind, StringComparison.Ordinal), $"the floor sentence does not name the kind '{kind}', which the Forum's floor applies to; the description says: {sentence}");
     }
 }

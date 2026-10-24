@@ -62,4 +62,41 @@ public sealed class ReferenceFormsTests
         Assert.Contains("pkg:", error.Detail, StringComparison.Ordinal);
         Assert.Contains("https://", error.Detail, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// R8.67 (errata G29): a URL parses as an absolute <c>http</c> or <c>https</c> URI and holds no whitespace or control
+    /// character. Each row carries whether the published sentence admits it; <c>System.Uri</c> (RFC 3986's absolute-URI
+    /// rule, a different call path from <c>ReferenceForms</c>) is asked too, and the row must agree with it.
+    /// </summary>
+    public static TheoryData<string, bool> UrlRows()
+    {
+        var bell = ((char)7).ToString();
+        return new TheoryData<string, bool>
+        {
+            { "https://a b", false },
+            { "http://x\ty", false },
+            { "https://x" + bell, false },
+            { "http://", false },
+            { "https:///", false },
+            { "http:relative", false },
+            { "https://a.example/x?y=1#z", true },
+        };
+    }
+
+    [Theory]
+    [MemberData(nameof(UrlRows))]
+    public void R8_67_AUrlIsAnAbsoluteHttpUriWithoutWhitespaceOrControls(string given, bool admitted)
+    {
+        ArgumentNullException.ThrowIfNull(given);
+        var oracle = Uri.TryCreate(given, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && given.StartsWith(uri.Scheme + "://", StringComparison.Ordinal)
+            && !given.Any(c => char.IsWhiteSpace(c) || char.IsControl(c));
+        Assert.Equal(admitted, oracle);
+
+        var parsed = ReferenceForms.Parse(given);
+        Assert.True(admitted == parsed.TryGetValue(out var reference, out var error), $"'{given}' was {(admitted ? "refused" : "classified as a url")}");
+        if (admitted) Assert.Equal("url", reference!.Kind);
+        else Assert.Contains("https://", error!.Detail, StringComparison.Ordinal);
+    }
 }
