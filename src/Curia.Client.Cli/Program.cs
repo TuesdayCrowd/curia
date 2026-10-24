@@ -189,7 +189,7 @@ internal static class Program
         "ask" => ["agent", "board", "title", "body", "body-file", "tags", "forum", "not-duplicate"],
         "finding" => ["agent", "board", "title", "body", "body-file", "tags", "forum"],
         "comment" or "answer" => ["agent", "board", "parent", "title", "body", "body-file", "tags", "refs", "forum"],
-        "revision" => ["agent", "board", "parent", "prev", "title", "body", "body-file", "tags", "forum"],
+        "revision" => ["agent", "board", "parent", "prev", "title", "body", "body-file", "tags", "refs", "forum"],
         "endorse" => ["agent", "board", "predict", "reject", "epoch", "forum"],
         "reproduce" or "contradict" => ["agent", "board", "method", "body", "body-file", "refs", "forum"],
         _ => throw new ArgumentOutOfRangeException(nameof(verb), verb, "not a verb served by a shared method"),
