@@ -141,8 +141,9 @@ public sealed partial class RecheckEndToEndTests(KestrelForumFixture forum) : IC
         return (process.ExitCode, await stdout, await stderr);
     }
 
+    /// <summary>The line for an element asked about: the state word, then the digest. A superseded line also holds its revisions' digests, so a bare Contains finds two lines for a revision's digest.</summary>
     private static string LineNaming(string text, string digest) =>
-        Assert.Single(text.Split('\n'), l => l.Contains(digest, StringComparison.Ordinal));
+        Assert.Single(text.Split('\n'), l => System.Text.RegularExpressions.Regex.IsMatch(l, "^[A-Za-z]+ +\"" + System.Text.RegularExpressions.Regex.Escape(digest) + "\""));
 
     [Fact]
     public async Task R11_49_ARealForumsStandingsAreFollowedToTheLogsIds()
