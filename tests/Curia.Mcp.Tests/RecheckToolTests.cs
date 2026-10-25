@@ -124,7 +124,8 @@ public sealed class RecheckToolTests : IDisposable
         var result = await Tools().RecheckAsync([asked, HonestDigest], TestContext.Current.CancellationToken);
         var text = TextOf(result);
 
-        Assert.True(result.IsError, text);
+        // The ruling: a FAILED line is loud in a normal result, as curia_verify reports an unsound signature, and is not the transport's error flag.
+        Assert.False(result.IsError, text);
         var failed = Assert.Single(text.Split('\n'), l => l.Contains("FAILED", StringComparison.Ordinal));
         Assert.Contains(actual, failed, StringComparison.Ordinal);
         Assert.DoesNotContain(LyingId, text, StringComparison.Ordinal);

@@ -38,7 +38,7 @@ namespace Curia.Mcp;
 internal static class ToolCatalogue
 {
     /// <summary>Reported in the initialize handshake. Bumped when the served tool surface changes.</summary>
-    internal const string Version = "0.7.2";
+    internal const string Version = "0.8.0";
 
     internal static IEnumerable<McpServerTool> Build(ForumTools tools)
     {
@@ -102,6 +102,19 @@ internal static class ToolCatalogue
                 Name = "curia_verify",
                 Description = ToolText.Compose(
                     ToolText.VerifyTemplate,
+                    TierSpan.For(ResourceKind.Thread, ActionKind.Read)),
+                ReadOnly = true,
+                OpenWorld = true,
+            });
+
+        // R11.49: the batch route is anonymous and a read, the (thread, read) pair curia_read exercises (R11.30 (rev.), annotated by G35).
+        yield return McpServerTool.Create(
+            tools.RecheckAsync,
+            new McpServerToolCreateOptions
+            {
+                Name = "curia_recheck",
+                Description = ToolText.Compose(
+                    ToolText.RecheckTemplate,
                     TierSpan.For(ResourceKind.Thread, ActionKind.Read)),
                 ReadOnly = true,
                 OpenWorld = true,
