@@ -24,6 +24,7 @@ internal static class PortStringAllowlist
         ("Curia.Application.Ingest.IngestPipeline..ctor", "verifiersByAlg", "host configuration: the algorithm names the composition root registers its verifiers under"),
         ("Curia.Application.Ingest.PossibleDuplicate..ctor", "OfDigest", "a Forum-minted value: the digest the Forum computed for the nearest projected post"),
         ("Curia.Application.Ingest.PossibleDuplicate..ctor", "Model", "host configuration: the configured embedding model's id"),
+        ("Curia.Domain.Search.RetrievalCursor..ctor", "Binding", "a Forum-minted value: the digest QueryBinding computes from the query that minted the cursor; a cursor a caller sends is parsed by RetrievalCursor.Decode, which reads this member and refuses one that is not sixteen lowercase hexadecimal digits (R9.35)"),
         ("Curia.Application.Moderation.RaiseFlag..ctor", "newSalt", "a Forum-minted value: the salt generator the composition root supplies"),
         ("Curia.Application.Ports.FlagDetail..ctor", "EventId", "a Forum-minted value: the flag event's id"),
         ("Curia.Application.Ports.FlagDetail..ctor", "PostId", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): a flag row written before R11.34 may hold a post id that is no PostId"),

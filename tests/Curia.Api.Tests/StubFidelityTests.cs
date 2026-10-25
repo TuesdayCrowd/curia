@@ -86,6 +86,70 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R9.36 (errata G36): the question the stub serves carries <c>provenance.accepted_answer</c> in each state the Forum serves it in: <c>null</c> where
+    /// no acceptance stands, an object with <c>digest</c> and <c>post_id</c> where the answer is served, and an object with <c>digest</c> alone where it is
+    /// not (the Forum's word on an answer it withholds). Each stub state is held to the response of this Forum for the same state, by key set and value kind;
+    /// a stub that serves nothing, or a different shape, is named by the state.
+    /// </summary>
+    [Fact]
+    public async Task R9_36_TheStubServesTheMemberAsTheForumDoes()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
+
+        async Task<string> RealMemberAsync()
+        {
+            var raw = await forum.Client.GetStringAsync(new Uri($"/v1/posts/{scene.Question.PostId}", UriKind.Relative), ct);
+            var provenance = JsonNode.Parse(raw)!["provenance"]!.AsObject();
+            return provenance.ContainsKey("accepted_answer") ? Describe(provenance["accepted_answer"]) : "absent";
+        }
+
+        static string Describe(JsonNode? node) => node switch
+        {
+            null => "null",
+            JsonObject o => "object{" + string.Join(",", o.Select(p => p.Key + ":" + (p.Value?.GetValueKind() ?? JsonValueKind.Null)).Order(StringComparer.Ordinal)) + "}",
+            _ => node.GetValueKind().ToString(),
+        };
+
+        string StubMember(StubAcceptedAnswer state)
+        {
+            _stub.AcceptedAnswer = state;
+            var provenance = JsonNode.Parse(_stub.PostJson())!["provenance"]!.AsObject();
+            return provenance.ContainsKey("accepted_answer") ? Describe(provenance["accepted_answer"]) : "absent";
+        }
+
+        // The shapes R9.36 gives, written from the errata's paragraph (a null, an object with digest and post_id, an object with digest alone), so the
+        // comparison below holds both documents to the requirement and not only to each other.
+        var names = PublishedSearchPage.AcceptedAnswerNames();
+        Assert.Equal(["accepted_answer", "digest", "post_id"], names);
+        const string Null = "null";
+        const string Served = "object{digest:String,post_id:String}";
+        const string Unserved = "object{digest:String}";
+
+        var mismatches = new List<string>();
+
+        void Hold(string state, StubAcceptedAnswer stub, string real, string expected)
+        {
+            var stubbed = StubMember(stub);
+            if (real != expected) mismatches.Add($"{state}: the Forum serves {real}, R9.36 gives {expected}");
+            if (stubbed != real) mismatches.Add($"{state}: the stub serves {stubbed}, the Forum serves {real}");
+        }
+
+        // No acceptance stands.
+        Hold("none", StubAcceptedAnswer.None, await RealMemberAsync(), Null);
+
+        // An acceptance stands and the answer is served.
+        await scene.AcceptAsync(forum, scene.Answer1, ct);
+        Hold("standing", StubAcceptedAnswer.Standing, await RealMemberAsync(), Served);
+
+        // An acceptance stands and the answer is withheld.
+        await forum.WithholdAsync(scene.Answer1.PostId, ct);
+        Hold("unserved", StubAcceptedAnswer.StandingUnserved, await RealMemberAsync(), Unserved);
+
+        Assert.True(mismatches.Count == 0, "the stub serves the member differently from the Forum: " + string.Join("; ", mismatches));
+    }
+
+    /// <summary>
     /// R9.10 (errata G35): the stub's batch answers as this Forum's does for the same request. Per element, an item's members are compared by path
     /// (a current item, an unknown digest, a malformed element); the batch is anonymous on both; and a batch over the cap is refused with the Forum's
     /// problem document, holding <c>cap=</c> and <c>received=</c>. The tool's facts agree with the stub, so the stub is held to the route.

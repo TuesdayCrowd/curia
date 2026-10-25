@@ -16,10 +16,10 @@ namespace Curia.Domain.Search;
 /// than argued, and an offset into that fixed ordering is then an exact position. New posts appear
 /// on the next fresh query, never mid-page.</para>
 /// </summary>
-public sealed record RetrievalCursor(long CorpusBound, int Offset)
+public sealed record RetrievalCursor(long CorpusBound, int Offset, string Binding = QueryBinding.Unbound)
 {
     public string Encode() => Convert.ToBase64String(Encoding.ASCII.GetBytes(
-        string.Create(CultureInfo.InvariantCulture, $"c{CorpusBound}:{Offset}")));
+        string.Create(CultureInfo.InvariantCulture, $"c{CorpusBound}:{Offset}:{Binding}")));
 
     /// <summary>
     /// Absent (<see langword="null"/> success) or a cursor; a malformed one is a refusal.
@@ -50,10 +50,17 @@ public sealed record RetrievalCursor(long CorpusBound, int Offset)
             var separator = text.IndexOf(':', StringComparison.Ordinal);
             if (separator <= 1) return Malformed();
 
+            // Seam (R9.35, not yet the rule): the offset is read up to a second separator when there is one, and what follows it is
+            // kept as the binding, unchecked. The stage that builds item 10 requires exactly three fields and a binding of sixteen
+            // lowercase hexadecimal digits.
+            var next = text.IndexOf(':', separator + 1);
+            var offsetText = next < 0 ? text.AsSpan(separator + 1) : text.AsSpan(separator + 1, next - separator - 1);
+            var binding = next < 0 ? QueryBinding.Unbound : text[(next + 1)..];
+
             return long.TryParse(text.AsSpan(1, separator - 1), CultureInfo.InvariantCulture, out var bound)
-                && int.TryParse(text.AsSpan(separator + 1), CultureInfo.InvariantCulture, out var offset)
+                && int.TryParse(offsetText, CultureInfo.InvariantCulture, out var offset)
                 && bound >= 0 && offset >= 0
-                    ? Result<RetrievalCursor?>.Ok(new RetrievalCursor(bound, offset))
+                    ? Result<RetrievalCursor?>.Ok(new RetrievalCursor(bound, offset, binding))
                     : Malformed();
         }
         catch (FormatException)

@@ -168,6 +168,10 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (Supersession.PassageLine(Post.Provenance.SupersededBy) is { } superseded)
             frame.Line($"{superseded}");
 
+        // R10.81 (errata G36): the Forum's word on which answer settles a question, from AnswerStanding's words, in the frame and never in the span.
+        if (AnswerStanding.PassageLine(Post.Kind, Post.Provenance.AcceptedAnswer) is { } answers)
+            frame.Line($"{answers}");
+
         // R8.15: a contradiction is surfaced where the post is read, not buried. The report's digest
         // is printed, each as a display literal, and nothing of its content; read it with curia
         // recheck / read.

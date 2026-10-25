@@ -167,6 +167,48 @@ public sealed class HybridRankingTests
         Assert.Equal(["d", "x", "o"], HybridRanking.Diversify(reversed, pageSize: 10).Select(r => r.Post.PostId));
     }
 
+    /// <summary>R9.7 and R9.35: the cursor carries the corpus bound, the offset and the binding of the query that minted it, and round trips.</summary>
+    [Fact]
+    public void R9_7_TheCursorCarriesTheBoundTheOffsetAndTheBinding()
+    {
+        var cursor = new RetrievalCursor(184223, 50, "0123456789abcdef");
+        var decoded = Assert.IsType<RetrievalCursor>(Require(RetrievalCursor.Decode(cursor.Encode())));
+
+        Assert.Equal((184223L, 50, "0123456789abcdef"), (decoded.CorpusBound, decoded.Offset, decoded.Binding));
+        Assert.Equal("c184223:50:0123456789abcdef", Encoding.ASCII.GetString(Convert.FromBase64String(cursor.Encode())));
+    }
+
+    /// <summary>R9.35: a cursor with no binding, or one that is not sixteen lowercase hexadecimal digits, is malformed and the refusal echoes nothing.</summary>
+    [Theory]
+    [InlineData("c4:1")]                           // the form before the binding: two fields
+    [InlineData("c4:1:")]                          // an empty binding
+    [InlineData("c4:1:0123456789ABCDEF")]          // uppercase
+    [InlineData("c4:1:0123456789abcde")]           // fifteen digits
+    [InlineData("c4:1:0123456789abcdef0")]         // seventeen digits
+    [InlineData("c4:1:zzzzzzzzzzzzzzzz")]          // sixteen characters that are not hex
+    [InlineData("c4:1:0123456789abcdef:0")]        // four fields
+    public void R9_35_ACursorWithoutAWellFormedBindingIsMalformed(string plain)
+    {
+        var encoded = Convert.ToBase64String(Encoding.ASCII.GetBytes(plain));
+
+        var result = RetrievalCursor.Decode(encoded);
+
+        Assert.True(!result.TryGetValue(out var cursor, out var error), $"Decode read '{plain}' as a cursor (offset {cursor?.Offset}, binding '{cursor?.Binding}'); expected cursor-malformed");
+        Assert.Equal("curia/search/cursor-malformed", error!.Type);
+        Assert.DoesNotContain(encoded, error.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain(encoded, error.Detail ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain(plain, error.Detail ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>Control for the rows above: the same cursor with a well-formed binding is read.</summary>
+    [Fact]
+    public void R9_35_ACursorWithAWellFormedBindingIsRead()
+    {
+        var encoded = Convert.ToBase64String(Encoding.ASCII.GetBytes("c4:1:0123456789abcdef"));
+
+        Assert.Equal(new RetrievalCursor(4, 1, "0123456789abcdef"), Require(RetrievalCursor.Decode(encoded)));
+    }
+
     [Fact]
     public void R9_7_TheCursorCarriesTheCorpusBoundAndRoundTrips()
     {
