@@ -908,7 +908,7 @@ internal sealed class StubLog : IDisposable
     /// (the answer and the decoy never carry the member): not at all (<see cref="StubAcceptedAnswer.Absent"/>, a Forum that predates the member and
     /// the default), <c>null</c> (<see cref="StubAcceptedAnswer.None"/>), the answer by digest and post id (<see cref="StubAcceptedAnswer.Standing"/>),
     /// or by digest alone (<see cref="StubAcceptedAnswer.StandingUnserved"/>, an answer the Forum does not serve).
-    /// <b>The knob is present and serves nothing yet</b>: the stage that builds item 15 makes <see cref="AcceptedAnswerJson"/> write the member.
+    /// The stub writes the member as this Forum does (<c>StubFidelityTests</c> holds it to the route).
     /// </summary>
     internal StubAcceptedAnswer AcceptedAnswer { get; set; }
 
@@ -918,7 +918,14 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal bool SearchRefusesTheCursor { get; set; }
 
-    private static string AcceptedAnswerJson() => string.Empty;
+    private string AcceptedAnswerJson() => AcceptedAnswer switch
+    {
+        StubAcceptedAnswer.Absent => string.Empty,
+        StubAcceptedAnswer.None => ",\"accepted_answer\":null",
+        StubAcceptedAnswer.Standing => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + ",\"post_id\":" + JsonString(AnswerPostId) + "}",
+        StubAcceptedAnswer.StandingUnserved => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + "}",
+        _ => throw new ArgumentOutOfRangeException(nameof(AcceptedAnswer), AcceptedAnswer, "not a state of the member"),
+    };
 
     /// <summary>R9.32: every post the Forum serves carries the member; the posts that are not <see cref="PostId"/> have no successor here.</summary>
     private string OtherPostSupersededByJson() => OmitSupersededBy ? string.Empty : ",\"superseded_by\":[]";

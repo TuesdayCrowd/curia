@@ -173,6 +173,8 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
             return JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
         }
 
+        // R9.36: the Forum serves the member on a question (null, no acceptance stands), so the stub does too.
+        _stub.AcceptedAnswer = StubAcceptedAnswer.None;
         using var stubHttp = _stub.RawClient();
         var served = await BatchAsync(http, digest, unknown, "nope");
         var stubbed = await BatchAsync(stubHttp, _stub.Submission.PrefixedDigest, unknown, "nope");
