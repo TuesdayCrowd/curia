@@ -906,6 +906,82 @@ internal sealed class StubLog : IDisposable
     /// <summary>R9.32: every post the Forum serves carries the member; the posts that are not <see cref="PostId"/> have no successor here.</summary>
     private string OtherPostSupersededByJson() => OmitSupersededBy ? string.Empty : ",\"superseded_by\":[]";
 
+    /// <summary>R9.10: the digest list of every <c>POST /v1/posts/batch</c> the stub answered, in order; a non-string element is recorded as null.</summary>
+    internal List<string?[]> BatchRequests { get; } = [];
+
+    /// <summary>
+    /// R9.10: the batch's answer as the test wants it served, given the digests received: one raw JSON item per element (see <see cref="BatchItem"/>).
+    /// Unset, the stub answers as the Forum does for the one post it holds (<see cref="BatchItemFor"/>), which is one item per element, in order.
+    /// </summary>
+    internal Func<IReadOnlyList<string?>, IReadOnlyList<string>>? BatchAnswer { get; set; }
+
+    /// <summary>R9.20: when set, a batch of more digests than this is refused 400 <c>curia/posts/batch-too-large</c> naming the cap and the count, as the Forum refuses one over its cap.</summary>
+    internal int? BatchCap { get; set; }
+
+    private static readonly System.Text.RegularExpressions.Regex DigestShape = new("^sha256:[0-9a-f]{64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>One item of R9.10's batch as the Forum serves it: <c>digest</c> (null for a malformed element), <c>state</c>, <c>successors</c>, <c>forked</c> and <c>post</c> (raw JSON, or null).</summary>
+    internal static string BatchItem(string? digest, string state, IEnumerable<string>? successors = null, bool forked = false, string? postJson = null) =>
+        "{\"digest\":" + (digest is null ? "null" : JsonString(digest))
+        + ",\"state\":" + JsonString(state)
+        + ",\"successors\":[" + string.Join(",", (successors ?? []).Select(JsonString)) + "]"
+        + ",\"forked\":" + (forked ? "true" : "false")
+        + ",\"post\":" + (postJson ?? "null") + "}";
+
+    /// <summary>
+    /// A post as <c>GET /v1/posts/{id}</c> serves it, with the members a batch item's reader needs and the ones a test chooses (the signature is this stub's own, whose header parses; the digest check here is keyless and reads nothing else of it):
+    /// <paramref name="canonical"/> is the served canonical form and <paramref name="digest"/> the digest served beside it (the two a lying Forum
+    /// can disagree on), <paramref name="supersededBy"/> the Forum's word on a correction (R9.32) and <paramref name="disputedBy"/> R6.57's mark.
+    /// </summary>
+    internal string BatchPostJson(
+        string postId, string canonical, string digest, ImmutableArray<Successor> supersededBy = default, long? disputedBy = null,
+        string author = "urn:curia:agent:alice", string rendered = "r") =>
+        $$"""
+        {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
+        "author":{{JsonString(author)}},"owner_verified":true,"signature_valid":true,
+        "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
+        "marking_caveat":null,"reader_contract":"http://forum.test/c","key_status":"{{(disputedBy is null ? "active" : "compromised")}}"{{(disputedBy is null ? string.Empty : ",\"disputed_by_log_index\":" + disputedBy.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))}}{{(supersededBy.IsDefault ? string.Empty : ",\"superseded_by\":[" + string.Join(",", supersededBy.Select(x => "{\"digest\":" + JsonString(x.Digest) + (x.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(x.PostId)) + "}")) + "]")}} },
+        "post_id":{{JsonString(postId)}},"board":"b","kind":"question","parent":null,
+        "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":{{JsonString(digest)}},
+        "canonical":{{JsonString(canonical)}},"signature":"{{Submission.Signature}}","rendered":{{JsonString(rendered)}},"accepted":false}
+        """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>The Forum's answer for one digest when this stub holds the post (<see cref="PostId"/>): <c>current</c>, or <c>superseded</c> naming <see cref="SupersededBy"/>; <c>malformed</c> for what is no digest; <c>unknown</c> otherwise.</summary>
+    internal string BatchItemFor(string? requested)
+    {
+        if (requested is null || !DigestShape.IsMatch(requested)) return BatchItem(null, "malformed");
+        if (!string.Equals(requested, Submission.PrefixedDigest, StringComparison.Ordinal)) return BatchItem(requested, "unknown");
+
+        var successors = SupersededBy.IsDefault ? [] : SupersededBy.Select(s => s.Digest).ToArray();
+        return BatchItem(requested, successors.Length > 0 ? "superseded" : "current", successors, successors.Length > 1, PostJson());
+    }
+
+    private (HttpStatusCode Status, string Body) Batched(string body)
+    {
+        string?[] digests;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(body);
+            digests = [.. document.RootElement.GetProperty("digests").EnumerateArray()
+                .Select(e => e.ValueKind == System.Text.Json.JsonValueKind.String ? e.GetString() : null)];
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return (HttpStatusCode.BadRequest, """{"type":"curia/posts/batch-malformed","title":"The body must be an object with a digests array"}""");
+        }
+
+        BatchRequests.Add(digests);
+
+        if (BatchCap is { } cap && digests.Length > cap)
+        {
+            return (HttpStatusCode.BadRequest,
+                $$"""{"type":"curia/posts/batch-too-large","title":"Too many digests in one batch; split the request","detail":"cap={{cap}} received={{digests.Length}}"}""");
+        }
+
+        var items = BatchAnswer?.Invoke(digests) ?? [.. digests.Select(BatchItemFor)];
+        return (HttpStatusCode.OK, "{\"items\":[" + string.Join(",", items) + "]}");
+    }
+
     internal string PostJson()
     {
         // ActaEndpoints.ProofFor's own rule: against the latest signed head when it covers the
@@ -1263,9 +1339,13 @@ internal sealed class StubLog : IDisposable
 
             log.Record(method, path, query, request);
 
-            var (status, body, challenge) = method == HttpMethod.Post
-                ? Written(log, path, request)
-                : Answered(Answer(log, path, query));
+            // R9.10's route is anonymous, so it is answered before the writes that require a DPoP proof; routed through
+            // Written it would be "unrouted" for the path, trap 12's shape.
+            var (status, body, challenge) = method == HttpMethod.Post && path == "/v1/posts/batch"
+                ? Answered(log.Batched(log.WrittenBodies[^1]))
+                : method == HttpMethod.Post
+                    ? Written(log, path, request)
+                    : Answered(Answer(log, path, query));
 
             if (path != "/oauth/token")
             {

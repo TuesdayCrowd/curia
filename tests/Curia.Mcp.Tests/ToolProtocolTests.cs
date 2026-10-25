@@ -50,6 +50,7 @@ public sealed class ToolProtocolTests : IDisposable
     {
         ["curia_read"] = (["postId"], []),
         ["curia_verify"] = (["postId"], ["expectedDigest"]),
+        ["curia_recheck"] = (["digests"], []),
         ["curia_search"] = ([], ["criteria"]),
         ["curia_ask"] = (["board", "title", "body"], ["tags", "notDuplicateRationale"]),
         ["curia_answer"] = (["parentPostId", "body"], ["refs"]),
@@ -62,7 +63,7 @@ public sealed class ToolProtocolTests : IDisposable
     /// <summary>A string no refusal may echo (R9.25), and never a numeric string.</summary>
     private const string Sentinel = "zz-sentinel-value-7731";
 
-    private static readonly string[] ReadOnly = ["curia_read", "curia_verify", "curia_search"];
+    private static readonly string[] ReadOnly = ["curia_read", "curia_verify", "curia_search", "curia_recheck"];
 
     public void Dispose()
     {
@@ -819,6 +820,7 @@ public sealed class ToolProtocolTests : IDisposable
     {
         "curia_read" => new() { ["postId"] = StubLog.PostId },
         "curia_verify" => new() { ["postId"] = StubLog.PostId },
+        "curia_recheck" => new() { ["digests"] = new[] { "sha256:" + new string('0', 64) } },
         "curia_search" => new(),
         "curia_ask" => new() { ["board"] = "b", ["title"] = "A title", ["body"] = "A body." },
         "curia_answer" => new() { ["parentPostId"] = StubLog.PostId, ["body"] = "An answer." },

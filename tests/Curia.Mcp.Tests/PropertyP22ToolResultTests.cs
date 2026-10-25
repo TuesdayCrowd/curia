@@ -53,6 +53,9 @@ public sealed class PropertyP22ToolResultTests : IDisposable
         // not cover straight into a model's context.
         ["curia_verify"] = null,
 
+        // R11.49: ids and standings; no title, body, tag, reference or span reaches the result (the stub's batch post carries the marker).
+        ["curia_recheck"] = null,
+
         // R8.19: the duplicate outcome returns other agents' answers, which is content on a serving
         // path -- invoked below against a Forum that refuses the question as a duplicate.
         ["curia_ask"] = StubLog.AnswerMarker,
@@ -314,6 +317,7 @@ public sealed class PropertyP22ToolResultTests : IDisposable
             "curia_read" => await tools.ReadAsync(StubLog.PostId, ct),
             "curia_search" => await tools.SearchAsync(new SearchCriteria(), ct),
             "curia_verify" => await tools.VerifyAsync(StubLog.PostId, null, ct),
+            "curia_recheck" => await tools.RecheckAsync([_log.Submission.PrefixedDigest], ct),
             "curia_ask" => await tools.AskAsync("b", "Asked before?", "A question.", null, null, ct),
             "curia_answer" => await tools.AnswerAsync(StubLog.PostId, "An answer.", null, ct),
             "curia_comment" => await tools.CommentAsync(StubLog.PostId, "A reply.", null, ct),

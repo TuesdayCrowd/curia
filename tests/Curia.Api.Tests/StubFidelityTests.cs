@@ -86,6 +86,49 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
     }
 
     /// <summary>
+    /// R9.10 (errata G35): the stub's batch answers as this Forum's does for the same request. Per element, an item's members are compared by path
+    /// (a current item, an unknown digest, a malformed element); the batch is anonymous on both; and a batch over the cap is refused with the Forum's
+    /// problem document, holding <c>cap=</c> and <c>received=</c>. The tool's facts agree with the stub, so the stub is held to the route.
+    /// </summary>
+    [Fact]
+    public async Task R9_34_TheStubsBatchHasTheForumsMembersAndTheForumsCapRefusal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var http = forum.Client;
+        var agent = ForumAgent.Create(Unique("batch"), "batch-" + Guid.NewGuid().ToString("N")[..8]);
+        var (dpop, token) = await agent.AuthenticateAsync(http, TokenEndpoint, forum.Now, ct);
+        using var posted = await dpop.PostAsync(http, PostsUrl, token, agent.SignQuestion(Board(), Body, Title, forum.Now), forum.Now, ct);
+        Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
+        var digest = JsonNode.Parse(await posted.Content.ReadAsStringAsync(ct))!["digest"]!.GetValue<string>();
+        var unknown = "sha256:" + new string('0', 64);
+
+        async Task<JsonNode> BatchAsync(HttpClient client, params string[] digests)
+        {
+            using var content = new StringContent(JsonSerializer.Serialize(new { digests }), Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync(new Uri("/v1/posts/batch", UriKind.Relative), content, ct);
+            return JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
+        }
+
+        using var stubHttp = _stub.RawClient();
+        var served = await BatchAsync(http, digest, unknown, "nope");
+        var stubbed = await BatchAsync(stubHttp, _stub.Submission.PrefixedDigest, unknown, "nope");
+
+        var (forumItems, stubItems) = (served["items"]!.AsArray(), stubbed["items"]!.AsArray());
+        Assert.Equal(forumItems.Count, stubItems.Count);
+        string[] positions = ["a current item", "an unknown digest", "a malformed element"];
+        for (var i = 0; i < forumItems.Count; i++)
+            AssertSameMembers(positions[i], Paths(forumItems[i]!), Paths(stubItems[i]!));
+
+        // The cap: sixty-five digests are over the Forum's cap of sixty-four.
+        var over = Enumerable.Range(0, 65).Select(i => "sha256:" + i.ToString("x", System.Globalization.CultureInfo.InvariantCulture).PadLeft(64, '0')).ToArray();
+        _stub.BatchCap = 64;
+        AssertSameMembers("the over-cap refusal", Paths(await BatchAsync(http, over)), Paths(await BatchAsync(stubHttp, over)));
+        Assert.Equal(
+            (await BatchAsync(http, over))["detail"]!.GetValue<string>(),
+            (await BatchAsync(stubHttp, over))["detail"]!.GetValue<string>());
+    }
+
+    /// <summary>
     /// The reference client reads this Forum's 409 completely — the first time its reader has run
     /// against the Forum rather than against a document written beside it.
     /// </summary>

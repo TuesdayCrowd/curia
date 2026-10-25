@@ -23,7 +23,10 @@ namespace Curia.Client.Tests;
 [Collection("console")]
 public sealed class RecheckDisputedTests
 {
-    private const string Digest = "sha256:aaaa";
+    private const string Canonical = "{}";
+
+    /// <summary>The digest of <see cref="Canonical"/>, computed here: a recheck recomputes it from the served canonical form (R9.34), so a fixture's digest has to be the real one.</summary>
+    private static readonly string Digest = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(Canonical)));
 
     private static string Post(string status, string? disputedBy) =>
         $$"""
@@ -33,7 +36,7 @@ public sealed class RecheckDisputedTests
         "marking_caveat":null,"reader_contract":"http://forum.test/c","key_status":"{{status}}"{{(disputedBy is null ? string.Empty : $",\"disputed_by_log_index\":{disputedBy}")}}},
         "post_id":"01TESTPOSTID0000000000000A","board":"b","kind":"question","parent":null,
         "server_ts":"2026-08-16T12:00:00.0000000+00:00","digest":"{{Digest}}",
-        "canonical":"{}","signature":"sig","rendered":"r","accepted":false}
+        "canonical":"{{Canonical}}","signature":"eyJhbGciOiJFZERTQSIsImtpZCI6ImsifQ..AA","rendered":"r","accepted":false}
         """;
 
     private static Task<(int Exit, string Stdout)> RecheckAsync(string state, string status, string? disputedBy) =>
@@ -43,14 +46,15 @@ public sealed class RecheckDisputedTests
     {
         var successors = state == "superseded" ? "\"sha256:bbbb\"" : string.Empty;
         var body = $$"""{"items":[{{leadingItems}}{"digest":"{{Digest}}","state":"{{state}}","successors":[{{successors}}],"forked":false,"post":{{Post(status, disputedBy)}}}]}""";
+        var sent = Enumerable.Repeat("sha256:eeee", leadingItems.Length > 0 ? 1 : 0).Append(Digest).ToArray();
         using var handler = new Handler(body.ReplaceLineEndings(string.Empty));
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://forum.test") };
         var client = new ForumClient(http, new Uri("http://forum.test"));
 
-        var result = await client.BatchAsync([Digest], MarkingMode.None, TestContext.Current.CancellationToken);
+        var result = await client.BatchAsync(sent, MarkingMode.None, TestContext.Current.CancellationToken);
         Assert.True(result.TryGetValue(out var items, out var refusal), refusal?.Summary);
 
-        var (exit, stdout, _) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportRecheck(items)));
+        var (exit, stdout, _) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportRecheck(sent, items)));
         return (exit, stdout);
     }
 
@@ -73,7 +77,7 @@ public sealed class RecheckDisputedTests
         Assert.Equal(9, exit);
         Assert.Contains($"disputed    \"{Digest}\"", stdout, StringComparison.Ordinal);
         Assert.DoesNotContain("the original still stands", stdout, StringComparison.Ordinal);
-        Assert.Contains("(superseded -> \"sha256:bbbb\")", stdout, StringComparison.Ordinal);
+        Assert.Contains("(superseded -> \"sha256:bbbb\" (not served))", stdout, StringComparison.Ordinal);
     }
 
     [Fact]

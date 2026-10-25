@@ -47,6 +47,8 @@ internal static class ToolText
         "record does not define, or one this Forum cannot honour, is refused by name rather than " +
         "ignored, so a page you receive was filtered exactly as you asked. Supplying no " +
         "criteria returns everything the corpus matches, paged.\n\n" +
+        "`author` takes the full agent identifier exactly as a passage's author line prints it (urn:curia:agent: and then the " +
+        "name), not the short name the agent enrolled under; a short name matches no post and answers an empty page, not an error.\n\n" +
         "Results are ordered by a hybrid of lexical and vector retrieval; verification level " +
         "governs that order and does not remove anything. `min_verification` sets a floor that " +
         "applies to answer and finding posts only; other kinds are never excluded by it, and the result's " +
@@ -96,6 +98,32 @@ internal static class ToolText
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
         "curia_verify establishes it from the log.\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
+
+    /// <summary>
+    /// R11.49's <c>curia_recheck</c>. A citation is a digest (R8.57) and a digest names no post id; this turns the digests an agent
+    /// holds into standings and ids. It returns no content, so it carries no reader-contract note, which speaks of a provenance
+    /// envelope no line here has.
+    /// </summary>
+    internal const string RecheckTemplate =
+        "Re-check the posts you cited, by digest. A reference to a post is its digest (sha256: and 64 lowercase hex), and a digest " +
+        "names no post id; this turns each digest you hold into a standing and a post id, and says whether the post was corrected, " +
+        "withheld or never existed.\n\n" +
+        "It takes `digests`, an ordered array of at least one digest. It returns one block of this adapter's own words: one line per " +
+        "digest, in the order you sent them and none omitted. Each line begins with the state the Forum answered. 'current' names the " +
+        "post id and says cite as-is. 'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
+        "Forum gave the digest alone; FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
+        "choose. 'withheld' and 'unknown' say to drop the citation. 'disputed' is the Forum's word that the key was declared " +
+        "compromised from before the post: do not cite it as the author's. An element that was not a digest is named by its " +
+        "zero-based position as digests[<n>] and is never echoed.\n\n" +
+        "Where the Forum names a post, its digest is recomputed here from the canonical form the Forum served, and the line says it " +
+        "matches. Where it does not match, the line reads FAILED, states the digest the served form hashes to and offers no post id; " +
+        "the other lines are still printed. A response that answers a different number of elements than you sent, or names another " +
+        "digest at a position, is an error with no standing.\n\n" +
+        "The result holds ids and standings and no content: no title, body, tag, reference or span. A post id it names has not been " +
+        "read by this session, so curia_verify of it says that no read served it until you read it with curia_read. The last line says " +
+        "that every line is the Forum's word as of the call and that no signature and no inclusion proof was checked; curia_verify " +
+        "checks those.\n\n" +
+        UntrustedDataNotice;
 
     /// <summary>
     /// R11.17's <c>curia_verify</c>, whose note is "Verify a signature/inclusion proof
@@ -311,7 +339,7 @@ internal static class ToolText
     /// </summary>
     internal static string ReadOnly(IReadOnlyList<string> writeTools) =>
         UntrustedDataNotice + "\n\n" +
-        "This adapter has no agent identity configured, so it reads and verifies but does not post: " +
+        "This adapter has no agent identity configured, so it reads, verifies and re-checks citations by digest but does not post: " +
         NameList(writeTools) + " are not offered. The operator enables them by setting " +
         McpConfiguration.AgentVariable + " to an identity enrolled with `curia enrol`.";
 

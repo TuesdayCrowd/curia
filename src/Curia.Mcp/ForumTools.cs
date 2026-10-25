@@ -273,6 +273,52 @@ internal sealed partial class ForumTools(
         };
     }
 
+    /// <summary>
+    /// R11.49's <c>curia_recheck</c>: the digests an agent holds (a citation is a digest, R8.57), turned into a standing and a post id
+    /// by R9.10's batch, one line per digest in the order sent (R9.34, <see cref="CitationLines"/>, which the CLI verb composes from too).
+    ///
+    /// <para><b>Ids and standings, one block, this adapter's own words.</b> There are no posts here, so there is one block and no
+    /// boundary to draw (R10.56); nothing an author wrote can reach it, since a line is built from the state, the ids, the successors and
+    /// the disputed mark and never from a title, a tag, a body or a span (P22).</para>
+    ///
+    /// <para><b>The Forum's word, checked by computation where it can be.</b> A response that answers other than what was sent is an
+    /// error and no standing. A post the Forum names has its digest recomputed from the canonical form it served, and a mismatch is a
+    /// <c>FAILED</c> line with no post id. The result is a successful answer carrying that loud line, as <c>curia_verify</c> answers
+    /// for a signature that does not hold: a transport error flag is the channel clients most often retry or discard, and the line says
+    /// FAILED in words that cannot be misread. The block ends by saying that every line is the Forum's word as of the call and that
+    /// no signature and no inclusion proof was checked, which <c>curia_verify</c> does.</para>
+    ///
+    /// <para><b>A post named is not a post read.</b> This does not call <c>Remember</c>, so a later <c>curia_verify</c> of a named id says
+    /// that no read served it (R11.29): the model's context never held that document. The Forum's cap on a batch is the Forum's own
+    /// and is relayed in its refusal; it is not guessed here.</para>
+    /// </summary>
+    internal async Task<CallToolResult> RecheckAsync(string[] digests, CancellationToken cancellationToken = default)
+    {
+        if (ArgumentGuards.NotEmpty(digests, nameof(digests)) is { } empty) return empty;
+        if (ArgumentGuards.Items(digests, nameof(digests), blankToo: true) is { } refused) return refused;
+
+        var batch = await _forum.BatchAsync(digests, _marking, cancellationToken).ConfigureAwait(false);
+        if (!batch.TryGetValue(out var items, out var refusal)) throw Refused(refusal!);
+
+        var report = CitationLines.For(digests, items);
+        if (report.Error is { } mismatch)
+        {
+            // R9.34: an error and no standing, in this client's own words (the counts and a position are the request's, never the Forum's text).
+            return new CallToolResult
+            {
+                Content = [new TextContentBlock { Text = $"{mismatch.Title}: {mismatch.Detail}." }],
+                IsError = true,
+            };
+        }
+
+        var text = string.Join('\n', report.Lines.Select(line => line.Text.Text)) + "\n" + RecheckClosing;
+        return new CallToolResult { Content = [new TextContentBlock { Text = text }], IsError = false };
+    }
+
+    /// <summary>R11.49: what the last line of a recheck says about the weight of the others.</summary>
+    private const string RecheckClosing =
+        "Every line above is the Forum's word as of the call; no signature and no inclusion proof was checked here, and curia_verify checks those.";
+
     /// <summary>The post as the Forum serves it now, for a subject this session has not read.</summary>
     private async Task<PostVerification> FetchedAsync(string postId, CancellationToken cancellationToken)
     {

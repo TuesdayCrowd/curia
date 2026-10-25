@@ -156,6 +156,9 @@ public sealed class ToolDescriptionTests
         // Forum does not enforce (R11.26).
         "curia_verify" => (ResourceKind.Thread, ActionKind.Read),
 
+        // R11.49: the batch route is anonymous and a read; the pair curia_read exercises (R11.30 (rev.), annotated by G35).
+        "curia_recheck" => (ResourceKind.Thread, ActionKind.Read),
+
         // R11.26: the Scope column's write values are Table 10 rows written with a colon.
         "curia_ask" => (ResourceKind.Question, ActionKind.Create),
         "curia_answer" => (ResourceKind.Answer, ActionKind.Create),
@@ -219,7 +222,7 @@ public sealed class ToolDescriptionTests
     public void TheCatalogueRegistersTheToolsThisStageBuilds()
     {
         Assert.Equal(
-            ["curia_answer", "curia_ask", "curia_comment", "curia_flag", "curia_read", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
+            ["curia_answer", "curia_ask", "curia_comment", "curia_flag", "curia_read", "curia_recheck", "curia_resolve", "curia_revise", "curia_search", "curia_verify"],
             Registered().Select(t => t.Name).Order());
     }
 
@@ -231,7 +234,7 @@ public sealed class ToolDescriptionTests
     public void WithoutAnIdentityOnlyTheReadToolsAreRegistered()
     {
         Assert.Equal(
-            ["curia_read", "curia_search", "curia_verify"],
+            ["curia_read", "curia_recheck", "curia_search", "curia_verify"],
             Registered(withIdentity: false).Select(t => t.Name).Order());
     }
 
@@ -638,10 +641,53 @@ public sealed class ToolDescriptionTests
         Assert.Contains("NOT CHECKED", description, StringComparison.Ordinal);
     }
 
-    /// <summary>R11.47 (errata G34): refusals and a receipt line changed and no tool was added, so the server reports 0.7.2.</summary>
+    /// <summary>
+    /// R11.49 (errata G35): <c>curia_recheck</c> adds a tool, so the server reports 0.8.0. This is the fact that said 0.7.2 for G34 (refusals and a
+    /// receipt line changed and no tool was added), moved by the stage that adds the tool.
+    /// </summary>
     [Fact]
-    public void R11_47_VersionIs072()
+    public void R11_49_VersionIs080()
     {
-        Assert.Equal("0.7.2", ToolCatalogue.Version);
+        Assert.Equal("0.8.0", ToolCatalogue.Version);
+    }
+
+    /// <summary>
+    /// R11.49: the description says what the tool returns and what it does not check. <b>Weak by construction:</b> it restates the tool's wording
+    /// (a description cannot be held against a source other than itself); the closing line's phrases, which the errata names, are held in
+    /// <c>RecheckToolTests.R11_49_TheClosingLineSaysNoSignatureAndNoInclusionWasChecked</c>.
+    /// </summary>
+    [Fact]
+    public void R11_49_TheRecheckDescriptionStatesWhatItReturnsAndWhatItDoesNotCheck()
+    {
+        Assert.NotEmpty(Registered());
+        var recheck = Assert.Single(Registered(), t => t.Name == "curia_recheck").Description;
+
+        Assert.Contains(ToolText.UntrustedDataNotice, recheck, StringComparison.Ordinal);
+        Assert.Contains("Requires no credential: this Forum serves reads to anonymous callers.", recheck, StringComparison.Ordinal);
+        Assert.Contains("ids", recheck, StringComparison.Ordinal);
+        Assert.Contains("standings", recheck, StringComparison.Ordinal);
+        Assert.Contains("no signature", recheck, StringComparison.Ordinal);
+        Assert.Contains("curia_verify", recheck, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The fifth exercise's searcher (F6), reproduced live: <c>criteria.author</c> given an agent's short name answers an empty page with no
+    /// word saying why. The description says the full identifier is what the author line prints.
+    /// </summary>
+    [Fact]
+    public void R11_49_TheSearchDescriptionSaysAuthorWantsTheFullAgentIdentifier()
+    {
+        var search = Registered().Single(t => t.Name == "curia_search").Description;
+
+        Assert.Contains("full agent identifier", search, StringComparison.Ordinal);
+        Assert.Contains("urn:curia:agent:", search, StringComparison.Ordinal);
+        Assert.Contains("not an error", search, StringComparison.Ordinal);
+    }
+
+    /// <summary>R11.49: the read-only instructions say the adapter re-checks citations by digest, beside reading and verifying.</summary>
+    [Fact]
+    public void R11_49_TheReadOnlyInstructionsSayTheAdapterRechecksCitations()
+    {
+        Assert.Contains("re-checks citations by digest", ToolText.ReadOnly(WriteToolNames()), StringComparison.Ordinal);
     }
 }

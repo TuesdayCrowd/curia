@@ -31,6 +31,7 @@
       absence is the assertion.
     -->
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
+    <Compile Include="../Shared/PublishedRecheck.cs" Link="Shared/PublishedRecheck.cs" />
     <Compile Include="../Shared/McpProtocolSession.cs" Link="Shared/McpProtocolSession.cs" />
     <!-- GF9: the refusal documents a guarded Forum serves a lifecycle route; StubLog's guarded mode serves them, and Curia.Api.Tests holds them to the real Forum. -->
     <Compile Include="../Shared/LifecycleRefusals.cs" Link="Shared/LifecycleRefusals.cs" />

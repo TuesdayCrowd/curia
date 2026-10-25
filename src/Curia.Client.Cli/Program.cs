@@ -586,66 +586,28 @@ internal static class Program
         var result = await client.BatchAsync(args.Positional, marking, ct).ConfigureAwait(false);
         if (!result.TryGetValue(out var items, out var refusal)) return Output.Fail(refusal);
 
-        return ReportRecheck(items);
+        return ReportRecheck(args.Positional, items);
     }
 
     /// <summary>
     /// The lines and the exit of <c>curia recheck</c>, over the items the Forum answered. Separate from the HTTP call so a
     /// fact can drive it with a batch response of its own making.
     /// </summary>
-    internal static int ReportRecheck(ImmutableArray<CitationDocument> items)
+    internal static int ReportRecheck(IReadOnlyList<string> sent, ImmutableArray<CitationDocument> items)
     {
-        var anyMalformed = false;
-        var anyGone = false;
-        var anyDisputed = false;
+        var report = CitationLines.For(sent, items);
+        if (report.Error is { } refused)
+            return Output.Fail(new Refusal(RefusalKind.Malformed, 0, refused));
 
-        for (var i = 0; i < items.Length; i++)
-        {
-            var item = items[i];
-            switch (item.State)
-            {
-                case "current" when item.Post?.Provenance.DisputedByLogIndex is not null:
-                    anyDisputed = true;
-                    Output.Line($"disputed    {item.Digest}  the signature may hold, but the key was declared compromised from before this post (the Forum's word, R6.57): do not cite it as the author's");
-                    break;
+        foreach (var line in report.Lines) Output.Line($"{line.Text}");
 
-                // A successor may be signed under another key, so the line still names what to read next.
-                case "superseded" when item.Post?.Provenance.DisputedByLogIndex is not null:
-                    anyDisputed = true;
-                    Output.Line($"disputed    {item.Digest}  (superseded -> {Literals(item.Successors)}) the signature may hold, but the key was declared compromised from before this post (the Forum's word, R6.57): do not cite it as the author's; re-read the successor before citing it");
-                    break;
-
-                case "current":
-                    Output.Line($"current     {item.Digest}  cite as-is");
-                    break;
-
-                case "superseded":
-                    Output.Line($"superseded  {item.Digest}  -> {Literals(item.Successors)}{new OwnText(item.Forked ? "  (forked: more than one revision chains here)" : string.Empty)}  re-read before citing; the original still stands");
-                    break;
-
-                case "withheld":
-                    anyGone = true;
-                    Output.Line($"withheld    {item.Digest}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)");
-                    break;
-
-                case "unknown":
-                    anyGone = true;
-                    Output.Line($"unknown     {item.Digest}  no post here bears this digest; check the encoding (sha256:<64 hex>), then drop it");
-                    break;
-
-                case "malformed":
-                    anyMalformed = true;
-                    Output.Line($"malformed   [#{i + 1}]  not a digest; expected sha256:<64 lowercase hex>");
-                    break;
-
-                default:
-                    anyGone = true;
-                    Output.Line($"{item.State}  {item.Digest}  (a state this build does not know; treat the citation as changed)");
-                    break;
-            }
-        }
-
-        return anyMalformed ? ExitCode.Usage : anyGone ? ExitCode.NotFound : anyDisputed ? ExitCode.Disputed : ExitCode.Ok;
+        // A FAILED line is a check that ran and did not hold (the served canonical form does not hash to the digest asked about): exit 6,
+        // ranked first as it is for the other readers (a check that failed outranks 8, 9 and the citations to drop).
+        return report.Failed ? ExitCode.Unverified
+            : report.Lines.Any(l => l.Malformed) ? ExitCode.Usage
+            : report.Lines.Any(l => l.Gone) ? ExitCode.NotFound
+            : report.Lines.Any(l => l.Disputed) ? ExitCode.Disputed
+            : ExitCode.Ok;
     }
 
     /// <summary>

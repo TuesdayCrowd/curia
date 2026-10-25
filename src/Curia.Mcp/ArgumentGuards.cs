@@ -30,6 +30,12 @@ internal static class ArgumentGuards
         return value is not null && string.IsNullOrWhiteSpace(value) ? Refusal($"{argument} is empty or blank") : null;
     }
 
+    /// <summary>R11.49: an array argument that must hold at least one item is not empty. An absent array (null) is left to the contract check.</summary>
+    internal static CallToolResult? NotEmpty(IReadOnlyCollection<string?>? items, string argument)
+    {
+        return items is { Count: 0 } ? Refusal($"{argument} is empty") : null;
+    }
+
     /// <summary>An item of an array argument is not null. <paramref name="blankToo"/> also refuses an empty or whitespace item.</summary>
     internal static CallToolResult? Items(IEnumerable<string?>? items, string argument, bool blankToo = false)
     {
