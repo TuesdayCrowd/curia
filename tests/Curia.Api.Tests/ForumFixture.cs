@@ -111,6 +111,22 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     internal string ConnectionString => _connectionString;
 
     /// <summary>
+    /// How many events of <paramref name="eventType"/> the log holds on <paramref name="aggregateId"/>, read
+    /// from the table itself and not through the host's event store, so a count is not the code under test
+    /// reporting on its own appends.
+    /// </summary>
+    internal async Task<long> CountEventsAsync(string eventType, string aggregateId, CancellationToken ct)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(ct);
+        await using var count = new NpgsqlCommand(
+            "SELECT count(*) FROM events WHERE event_type = @type AND aggregate_id = @aggregate;", connection);
+        count.Parameters.AddWithValue("type", eventType);
+        count.Parameters.AddWithValue("aggregate", aggregateId);
+        return (long)(await count.ExecuteScalarAsync(ct))!;
+    }
+
+    /// <summary>
     /// Withholds a post through R10.59's writer — the same <see cref="ApplyModeration"/> the operator
     /// tool runs — never by hand-building the event. A fixture written by the people who wrote the
     /// fold agrees with the fold (trap 16); this one has to agree with the writer.

@@ -39,7 +39,7 @@ public sealed record InboxPage(
     int ExcludedAsAlreadyAnswered);
 
 /// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
-public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt);
+public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt, bool AlreadyAccepted = false);
 
 /// <summary>R9.8/R8.36's breakdown: why this result ranked where it did.</summary>
 /// <summary>The lexical channel's part of a ranking: its rank and the match counts behind its score.</summary>
@@ -90,7 +90,11 @@ public sealed record RetrievalFloorDocument(
     ImmutableArray<string> AppliesTo,
     ImmutableArray<string> NotApplicableTo,
     int? ExcludedByFloor,
-    int? ExcludedDisputed);
+    int? ExcludedDisputed,
+    string? PublishedDefault = null,
+    string? RequestedMinVerification = null,
+    bool? Clamped = null,
+    bool ClampStated = false);
 
 public sealed record SearchPage(
     ImmutableArray<SearchHitDocument> Results,

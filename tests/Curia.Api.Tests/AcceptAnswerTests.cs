@@ -211,4 +211,64 @@ public sealed class AcceptAnswerTests(ForumFixture forum) : IClassFixture<ForumF
             await response.Content.ReadAsStringAsync(ct),
             StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// R8.68 (errata G33, closing D69): the second resolve of the answer that stands records nothing. It
+    /// answers 200 with the first acceptance's time and <c>already_accepted</c>, and the log holds one
+    /// <c>answer.accepted</c> event, counted from the table.
+    /// </summary>
+    [Fact]
+    public async Task R8_68_ASecondResolveAnswers200WithTheFirstTimeAndOneEventIsLogged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        var (question, answer, _, askerDpop, _) = await ThreadAsync(client, board, ct);
+
+        using var first = await AcceptAsync(client, askerDpop, await FreshTokenAsync(client, askerDpop, ct), answer, ct);
+        var firstBody = await first.Content.ReadAsStringAsync(ct);
+        forum.Clock.Advance(TimeSpan.FromMinutes(5));
+        using var second = await AcceptAsync(client, askerDpop, await FreshTokenAsync(client, askerDpop, ct), answer, ct);
+        var secondBody = await second.Content.ReadAsStringAsync(ct);
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+
+        using var firstJson = JsonDocument.Parse(firstBody);
+        using var secondJson = JsonDocument.Parse(secondBody);
+        Assert.False(firstJson.RootElement.GetProperty("already_accepted").GetBoolean());
+        Assert.True(secondJson.RootElement.GetProperty("already_accepted").GetBoolean());
+        Assert.Equal(
+            firstJson.RootElement.GetProperty("accepted_at").GetString(),
+            secondJson.RootElement.GetProperty("accepted_at").GetString());
+
+        static Dictionary<string, string> WithoutFlag(JsonElement body) =>
+            body.EnumerateObject()
+                .Where(p => p.Name != "already_accepted")
+                .ToDictionary(p => p.Name, p => p.Value.GetRawText());
+        Assert.NotEmpty(WithoutFlag(firstJson.RootElement));
+        Assert.Equal(WithoutFlag(firstJson.RootElement), WithoutFlag(secondJson.RootElement));
+
+        Assert.Equal(1, await forum.CountEventsAsync("answer.accepted", question, ct));
+    }
+
+    /// <summary>The control: the 400 and 403 paths are untouched by idempotence and append nothing.</summary>
+    [Fact]
+    public async Task R8_68_ANonAnswerAndAStrangerAreRefusedAsBefore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        var (question, answer, _, askerDpop, _) = await ThreadAsync(client, board, ct);
+        var (_, strangerDpop, strangerToken) = await AuthenticatedAsync(client, "stranger", ct);
+
+        using var notAnAnswer = await AcceptAsync(client, askerDpop, await FreshTokenAsync(client, askerDpop, ct), question, ct);
+        using var stranger = await AcceptAsync(client, strangerDpop, strangerToken, answer, ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, notAnAnswer.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, stranger.StatusCode);
+        Assert.Equal(0, await forum.CountEventsAsync("answer.accepted", question, ct));
+    }
 }

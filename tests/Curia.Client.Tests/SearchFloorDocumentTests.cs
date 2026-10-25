@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using Curia.Client;
 using Curia.Domain.Serving;
 using Xunit;
@@ -77,6 +78,108 @@ public sealed class SearchFloorDocumentTests
 
         Assert.False(found.TryGetValue(out _, out var refusal), "a fractional floor count was read as a page");
         Assert.Equal(RefusalKind.Malformed, refusal!.Kind);
+    }
+
+    private const string Errata = "curia-whitepaper-ERRATA-AND-ADDENDUM.md";
+
+    private static string Paragraph(string text, string anchor)
+    {
+        var start = text.IndexOf(anchor, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"the errata has no paragraph that begins {anchor}");
+        var end = text.IndexOf("\n\n", start, StringComparison.Ordinal);
+        return Regex.Replace(text[start..(end < 0 ? text.Length : end)], @"\s+", " ", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// The three member names R9.31 gives ("SHALL carry three members: ..."), read from the errata and not from the code, each
+    /// checked to appear in R9.33's paragraph too. Sorted ordinally; the count is asserted before they are returned.
+    /// </summary>
+    private static string[] PublishedMembers()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, Errata))) dir = dir.Parent;
+        Assert.NotNull(dir);
+
+        var text = File.ReadAllText(Path.Combine(dir!.FullName, Errata));
+        var sentence = Regex.Match(Paragraph(text, "**R9.31**"), @"three members: (?<list>.+?)\.", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
+        Assert.True(sentence.Success, "R9.31 no longer says 'three members: ...'");
+
+        var names = Regex.Matches(sentence.Groups["list"].Value, @"`(\w+)`", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5))
+            .Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(3, names.Length);
+
+        var r933 = Paragraph(text, "**R9.33**");
+        foreach (var name in names)
+            Assert.Contains($"`{name}`", r933, StringComparison.Ordinal);
+
+        return names;
+    }
+
+    /// <summary>A value of the member's own type, as JSON, and what the document should hold for it once read.</summary>
+    private static (string Json, string Expected) Sample(string member) => member switch
+    {
+        "published_default" => ("\"V0\"", "V0"),
+        "requested_min_verification" => ("\"V1\"", "V1"),
+        "clamped" => ("true", "True"),
+        _ => throw new InvalidOperationException($"R9.31 names a member this fact has no sample for: {member}"),
+    };
+
+    private static string Pascal(string member) =>
+        string.Concat(member.Split('_').Select(part => char.ToUpperInvariant(part[0]) + part[1..]));
+
+    [Fact]
+    public async Task R9_33_AReaderCarriesTheThreeMembersR931Names()
+    {
+        var names = PublishedMembers();
+        var tail = string.Concat(names.Select(n => $",\"{n}\":{Sample(n).Json}"));
+
+        var found = await SearchAsync(Page(tail));
+
+        Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
+        var read = names.ToDictionary(
+            n => n,
+            n => typeof(RetrievalFloorDocument).GetProperty(Pascal(n))?.GetValue(page.Floor)?.ToString());
+        var served = names.ToDictionary(n => n, n => (string?)Sample(n).Expected);
+
+        Assert.Equal(served.OrderBy(p => p.Key, StringComparer.Ordinal), read.OrderBy(p => p.Key, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task R9_33_AnAbsentBlockIsNotStated()
+    {
+        var found = await SearchAsync(Page(""));
+
+        Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
+        Assert.False(page.Floor.ClampStated);
+        Assert.Null(page.Floor.Clamped);
+        Assert.Null(page.Floor.PublishedDefault);
+        Assert.Null(page.Floor.RequestedMinVerification);
+    }
+
+    [Fact]
+    public async Task R9_33_ANullRequestIsStatedAndIsNone()
+    {
+        var found = await SearchAsync(Page(""","published_default":"V0","requested_min_verification":null,"clamped":false"""));
+
+        Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
+        Assert.True(page.Floor.ClampStated);
+        Assert.Null(page.Floor.RequestedMinVerification);
+        Assert.False(page.Floor.Clamped);
+        Assert.Equal("V0", page.Floor.PublishedDefault);
+    }
+
+    [Theory]
+    [InlineData(""","published_default":"V0","requested_min_verification":null,"clamped":"no" """)]
+    [InlineData(""","published_default":"V0","requested_min_verification":null,"clamped":1""")]
+    [InlineData(""","published_default":3,"requested_min_verification":null,"clamped":false""")]
+    [InlineData(""","published_default":"V0","requested_min_verification":5,"clamped":false""")]
+    public async Task R9_33_AMemberThatIsPresentAndMistypedIsAMalformedResponse(string tail)
+    {
+        var found = await SearchAsync(Page(tail));
+
+        Assert.False(found.TryGetValue(out _, out var refusal), "a mistyped clamp member was read as a page");
+        Assert.Equal(RefusalKind.Malformed, refusal!.Kind);
+        Assert.Contains("R9.33", refusal.Error.Detail ?? string.Empty, StringComparison.Ordinal);
     }
 
     private sealed class Scripted(string body) : HttpMessageHandler

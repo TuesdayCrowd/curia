@@ -11,7 +11,8 @@ namespace Curia.Application.Moderation;
 /// <param name="ThreadRoot">The thread whose accepted answer this is.</param>
 /// <param name="AnswerId">The answer that now stands.</param>
 /// <param name="AcceptedAt">The store's <c>server_ts</c> — R6.5's Forum observation.</param>
-public sealed record Acceptance(string ThreadRoot, string AnswerId, DateTimeOffset AcceptedAt);
+/// <param name="AlreadyAccepted">Compile-only stub for the D61 sweep's probes (R8.68); the stage builds it.</param>
+public sealed record Acceptance(string ThreadRoot, string AnswerId, DateTimeOffset AcceptedAt, bool AlreadyAccepted = false);
 
 /// <summary>
 /// Table 10's <c>answer</c>/<c>accept</c>, as a use case.

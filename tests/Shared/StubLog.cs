@@ -629,6 +629,33 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal string? SearchNextCursor { get; set; } = "c3R1Yi1jdXJzb3I=";
 
+    /// <summary>
+    /// R9.31/R9.33 (errata G33): serve the floor block as an older Forum does, with none of <c>published_default</c>,
+    /// <c>requested_min_verification</c> and <c>clamped</c>. Off by default: the stub serves them as the Forum does.
+    /// </summary>
+    internal bool OmitClampMembers { get; set; }
+
+    /// <summary>
+    /// R9.31: the level the request named, served as <c>requested_min_verification</c>; null serves <c>null</c> (the request
+    /// named none). A level served with <see cref="FloorClamped"/> true is a request below the floor in force.
+    /// </summary>
+    internal string? FloorRequestedMinVerification { get; set; }
+
+    /// <summary>R9.31: serve <c>clamped: true</c>, <c>min_verification</c> at the floor in force (V1) and <c>source</c> <c>configured</c>.</summary>
+    internal bool FloorClamped { get; set; }
+
+    /// <summary>
+    /// R9.33: raw JSON members served in place of the three clamp members, so a fact can serve one that is present and
+    /// mistyped (a duplicate member would be refused by the ADMIT profile, not read).
+    /// </summary>
+    internal string? FloorClampOverride { get; set; }
+
+    /// <summary>
+    /// R8.68 (errata G33): <c>already_accepted</c> as the accept route serves it: null omits the member (an older Forum),
+    /// true and false serve it.
+    /// </summary>
+    internal bool? AcceptanceAlreadyAccepted { get; set; }
+
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
 
@@ -670,9 +697,9 @@ internal sealed class StubLog : IDisposable
     {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"}
     """.ReplaceLineEndings(string.Empty);
 
-    internal static string AcceptanceJson() => $$"""
+    internal static string AcceptanceJson(bool? alreadyAccepted = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
-    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"}
+    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -912,10 +939,20 @@ internal sealed class StubLog : IDisposable
     internal string SearchJson() => $$"""
     {"results":[{"post":{{PostJson()}},"score_micro":1000000}],
     "next_cursor":{{(SearchNextCursor is null ? "null" : JsonString(SearchNextCursor))}},
-    "floor":{"surface":"mcp-search","min_verification":"V0","source":"published",
-    "applies_to":["answer","finding"],"not_applicable_to":["question","comment"],"excluded_disputed":0},
+    "floor":{"surface":"mcp-search","min_verification":"{{(FloorClamped ? "V1" : "V0")}}","source":"{{(FloorClamped ? "configured" : "published")}}",
+    "applies_to":["answer","finding"],"not_applicable_to":["question","comment"],"excluded_disputed":0{{ClampMembersJson()}}},
     "model":"hashed-ngram@1","corpus_bound":1}
     """.ReplaceLineEndings(string.Empty);
+
+    /// <summary>R9.31's three members as the Forum serves them after <c>excluded_disputed</c>, or nothing for an older Forum.</summary>
+    private string ClampMembersJson()
+    {
+        if (OmitClampMembers) return string.Empty;
+        if (FloorClampOverride is { } raw) return "," + raw;
+
+        var requested = FloorRequestedMinVerification is null ? "null" : JsonString(FloorRequestedMinVerification);
+        return $",\"published_default\":\"V0\",\"requested_min_verification\":{requested},\"clamped\":{(FloorClamped ? "true" : "false")}";
+    }
 
     internal string JwksJson()
     {
@@ -1470,7 +1507,7 @@ internal sealed class StubLog : IDisposable
 
             return path.EndsWith("/flags", StringComparison.Ordinal)
                 ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
-                : (HttpStatusCode.OK, StubLog.AcceptanceJson(), null);
+                : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted), null);
         }
 
         /// <summary><c>rotation</c> or <c>retirement</c> for a lifecycle route's path, or null for any other.</summary>

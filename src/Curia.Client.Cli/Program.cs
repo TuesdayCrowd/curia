@@ -780,10 +780,19 @@ internal static class Program
             if (!accepted.TryGetValue(out var receipt, out var refusal))
                 return await RefusedAsAgentAsync(client, agent.Profile, refusal, ct).ConfigureAwait(false);
 
-            Output.Line($"accepted  {receipt!.PostId}");
-            Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
-            return ExitCode.Ok;
+            return WriteAcceptance(receipt!);
         }
+    }
+
+    /// <summary>
+    /// The receipt of <c>curia resolve</c>, as lines. Extracted unchanged so that a fact can drive it (the D61 sweep's R8.68 probes);
+    /// the stage that builds R8.68 words a replay here.
+    /// </summary>
+    internal static int WriteAcceptance(AcceptanceReceipt receipt)
+    {
+        Output.Line($"accepted  {receipt.PostId}");
+        Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
+        return ExitCode.Ok;
     }
 
     /// <summary>
