@@ -59,6 +59,15 @@ internal static class ToolText
         "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
         "the quotes, without the quotes, is what you pass back as `criteria.cursor` to get the next " +
         "page. It says no_further_pages when this is the last page. With `why_ranked`, each hit's ranking terms follow a line naming its post_id.\n\n" +
+        "A why_ranked line reads: 'lexical rank N' is the hit's place in the keyword channel, with how many times the query matched its " +
+        "title, its tag and its body; 'vector rank N' is its place in the embedding channel, with the cosine in basis points (bp) " +
+        "and the model that measured it; either channel reads 'absent' when it did not rank the hit. 'fused M µ × V weight W bp' is the " +
+        "two channels' fusion in millionths, multiplied by the weight of the hit's verification level in basis points " +
+        "(that is, (lexical term + vector term) × weight / 10000, within rounding). 'deferred by diversification' says a more " +
+        "similar hit outranked this one and it was moved down the page; it is not removed. 'not computed:' names the ranking terms the Forum " +
+        "does not compute, so their absence is not a zero.\n\n" +
+        "A board no post names answers like an empty one, and board names are case-sensitive. A min_verification below a floor " +
+        "the Forum configures is served at that floor, and the floor line says so (clamped).\n\n" +
         "A passage whose signature holds under a key the Forum's key set says the operator declared " +
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +

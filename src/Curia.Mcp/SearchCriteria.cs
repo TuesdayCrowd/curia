@@ -117,7 +117,7 @@ internal sealed record SearchCriteria
         foreach (var kind in kinds)
         {
             if (!PostKinds.TryParse(kind, out _))
-                return Refuse("kinds", kind, "not a Table 9 post kind");
+                return Refuse("kinds", kind, $"not a Table 9 post kind ({string.Join(", ", Enum.GetValues<PostKind>().Select(PostKinds.Wire))})");
         }
 
         if (MinVerification is { Length: > 0 } floor

@@ -313,6 +313,13 @@ internal sealed partial class ForumTools
         text.Line($"server_ts   {receipt.ServerTs}");
         text.Line($"author      {writer.Agent.Profile.AgentId}   (signed with kid {writer.Agent.Signer.Kid})");
 
+        // D61 item 14 (R11.40, errata G33): a revision signs the members the caller gave and inherits nothing, so the
+        // receipt says what this one carries. The title is the caller's own string: a display literal.
+        if (draft.Kind is PostKind.Revision)
+            text.Line(
+                $"carries    title {new OwnText(draft.Title is null ? "none" : DisplayLiteral.Of(draft.Title))}, {draft.Tags.Length} tag(s), " +
+                $"{draft.Refs.Length} reference(s); nothing is inherited from the post revised (R11.40)");
+
         if (!receipt.RiskFlags.IsDefaultOrEmpty)
         {
             text.Line($"annotated   {new OwnText(string.Join(", ", receipt.RiskFlags.Select(DisplayLiteral.Of)))}");
@@ -407,7 +414,7 @@ internal sealed partial class ForumTools
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
             .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")
             .Append($"{TierPolicy.PostsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.PostsPerDay(PrincipalTier.T2)} ")
-            .Append($"at T2. It resets; it is not a tier denial.")
+            .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial.")
             .ToString()),
 
         // G28 (amendment, lead L3): accepting a post that is no answer is the Forum's 400 with a cause and no way
