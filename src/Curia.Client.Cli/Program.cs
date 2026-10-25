@@ -785,11 +785,18 @@ internal static class Program
     }
 
     /// <summary>
-    /// The receipt of <c>curia resolve</c>, as lines. Extracted unchanged so that a fact can drive it (the D61 sweep's R8.68 probes);
-    /// the stage that builds R8.68 words a replay here.
+    /// The receipt of <c>curia resolve</c>, as lines. A fact drives it directly. R8.68: a replay says the answer was already the
+    /// accepted one, that nothing was recorded, and that the time is the first acceptance's.
     /// </summary>
     internal static int WriteAcceptance(AcceptanceReceipt receipt)
     {
+        if (receipt.AlreadyAccepted)
+        {
+            Output.Line($"accepted  {receipt.PostId}   (already the accepted answer; nothing was recorded)");
+            Output.Line($"thread    {receipt.ThreadRoot}   first accepted at {receipt.AcceptedAt}");
+            return ExitCode.Ok;
+        }
+
         Output.Line($"accepted  {receipt.PostId}");
         Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
         return ExitCode.Ok;

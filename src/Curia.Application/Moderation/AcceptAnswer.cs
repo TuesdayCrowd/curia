@@ -11,7 +11,7 @@ namespace Curia.Application.Moderation;
 /// <param name="ThreadRoot">The thread whose accepted answer this is.</param>
 /// <param name="AnswerId">The answer that now stands.</param>
 /// <param name="AcceptedAt">The store's <c>server_ts</c> — R6.5's Forum observation.</param>
-/// <param name="AlreadyAccepted">Compile-only stub for the D61 sweep's probes (R8.68); the stage builds it.</param>
+/// <param name="AlreadyAccepted">R8.68: the answer was already the accepted one, nothing was appended, and <paramref name="AcceptedAt"/> is the first acceptance's time.</param>
 public sealed record Acceptance(string ThreadRoot, string AnswerId, DateTimeOffset AcceptedAt, bool AlreadyAccepted = false);
 
 /// <summary>
@@ -46,6 +46,9 @@ public sealed class AcceptAnswer
     /// Records that <paramref name="answerId"/> is the accepted answer of
     /// <paramref name="threadRoot"/>.
     ///
+    /// <para>Idempotent for the answer that stands (R8.68, closing D69): a replay appends nothing and returns the standing
+    /// acceptance with <see cref="Acceptance.AlreadyAccepted"/> set; a different answer appends, latest wins.</para>
+    ///
     /// <para>Authorization — including Table 10's "(own thread)" — is the caller's, and is settled
     /// before this is reached. This records a decision; it does not make one.</para>
     /// </summary>
@@ -65,9 +68,33 @@ public sealed class AcceptAnswer
         if (!ActorId.Create(acceptedBy.Value).TryGetValue(out var actor, out var actorError))
             return Result<Acceptance>.Fail(actorError!);
 
+        // R8.68: one decision, and on a lost race one re-read and a second decision, never a loop. Two callers
+        // accepting one answer end as one event (the loser's second pass finds it standing); two callers
+        // accepting different answers end latest-wins, as before.
+        var first = await DecideAsync(aggregate, threadRoot, answerId, acceptedBy, actor, cancellationToken).ConfigureAwait(false);
+        if (first.TryGetValue(out _, out var firstError)
+            || !string.Equals(firstError!.Type, DomainErrors.ConcurrencyConflictType, StringComparison.Ordinal))
+            return first;
+
+        return await DecideAsync(aggregate, threadRoot, answerId, acceptedBy, actor, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Result<Acceptance>> DecideAsync(
+        AggregateId aggregate,
+        PostId threadRoot,
+        PostId answerId,
+        AgentId acceptedBy,
+        ActorId actor,
+        CancellationToken cancellationToken)
+    {
         var history = await _events.ReadByAggregateAsync(aggregate, cancellationToken).ConfigureAwait(false);
         if (!history.TryGetValue(out var events, out var readError))
             return Result<Acceptance>.Fail(readError!);
+
+        // R8.68: accepting the answer that already stands records nothing and answers the first time.
+        if (AcceptanceProjector.Standing(events!) is { } standing
+            && string.Equals(standing.AnswerId, answerId.Value, StringComparison.Ordinal))
+            return Result<Acceptance>.Ok(new Acceptance(threadRoot.Value, answerId.Value, standing.AcceptedAt, AlreadyAccepted: true));
 
         if (!AggregateVersion.From(events!.Count).TryGetValue(out var version, out var versionError))
             return Result<Acceptance>.Fail(versionError!);
@@ -93,6 +120,6 @@ public sealed class AcceptAnswer
             .ConfigureAwait(false);
 
         return appended.Map(recorded => new Acceptance(
-            threadRoot.Value, answerId.Value, recorded[0].ServerTimestamp.Value));
+            threadRoot.Value, answerId.Value, recorded[0].ServerTimestamp.Value, AlreadyAccepted: false));
     }
 }

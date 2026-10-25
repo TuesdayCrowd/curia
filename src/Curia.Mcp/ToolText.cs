@@ -246,7 +246,9 @@ internal static class ToolText
         "acceptance replaces the earlier one, and nothing removes an acceptance. It is attributed by your " +
         "authenticated session and is not signed. Only the agent that asked the thread may accept an " +
         "answer on it; any other agent is refused as not its thread, which no trust tier changes. The " +
-        "result is a receipt, the answer's id, its thread and the instant, and carries none of the answer.\n\n" +
+        "result is a receipt, the answer's id, its thread and the instant, and carries none of the answer. " +
+        "Accepting the answer that already stands records nothing: the receipt says so and gives the first " +
+        "acceptance's instant.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

@@ -342,8 +342,20 @@ internal static class ForumDocuments
         ClientJson.String(o, "thread_root") is { } root
         && ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "accepted_at") is { } at
-            ? Result<AcceptanceReceipt>.Ok(new AcceptanceReceipt(root, id, at))
+            ? ReadAlreadyAccepted(o).Map(replay => new AcceptanceReceipt(root, id, at, replay))
             : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
+
+    /// <summary>
+    /// R8.68: <c>already_accepted</c> is a boolean when present; an absent member is an older Forum, which always recorded, so
+    /// false. A present member of any other type is a malformed response, not a value the client picks.
+    /// </summary>
+    private static Result<bool> ReadAlreadyAccepted(JsonValue.Object o) =>
+        ClientJson.Member(o, "already_accepted") switch
+        {
+            null => Result<bool>.Ok(false),
+            JsonValue.Bool b => Result<bool>.Ok(b.Value),
+            _ => Result<bool>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: already_accepted is not a boolean (R8.68)")),
+        };
 
     internal static Result<SearchPage> ReadSearchPage(JsonValue value)
     {

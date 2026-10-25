@@ -205,16 +205,28 @@ internal sealed partial class ForumTools
         if (!accepted.TryGetValue(out var receipt, out var refusal))
             throw WriteRefused(refusal!, ResourceKind.Answer, ActionKind.Accept);
 
-        return Said(new FrameBuilder()
-            .Line("ACCEPTED")
-            .Line($"answer      {receipt!.PostId}")
-            .Line($"thread      {receipt.ThreadRoot}")
-            .Line($"accepted_at {receipt.AcceptedAt}")
-            .Blank()
-            .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
-            .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
-            .Append($"nothing removes an acceptance.")
-            .ToString());
+        // R8.68: a replay is worded as one and carries the first acceptance's time; nothing was recorded.
+        return Said(receipt!.AlreadyAccepted
+            ? new FrameBuilder()
+                .Line("ACCEPTED (already the accepted answer; nothing was recorded)")
+                .Line($"answer      {receipt.PostId}")
+                .Line($"thread      {receipt.ThreadRoot}")
+                .Line($"first accepted at {receipt.AcceptedAt}")
+                .Blank()
+                .Append($"This answer already stood as the thread's accepted one, so the Forum's log gained no event ")
+                .Append($"and the time above is the first acceptance's. A thread has one accepted answer: accepting ")
+                .Append($"another replaces this one, and nothing removes an acceptance.")
+                .ToString()
+            : new FrameBuilder()
+                .Line("ACCEPTED")
+                .Line($"answer      {receipt.PostId}")
+                .Line($"thread      {receipt.ThreadRoot}")
+                .Line($"accepted_at {receipt.AcceptedAt}")
+                .Blank()
+                .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
+                .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
+                .Append($"nothing removes an acceptance.")
+                .ToString());
     }
 
     /// <summary>
