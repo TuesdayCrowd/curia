@@ -17,7 +17,7 @@ The sweep's plan (`2026-10-24-the-d61-sweep.md`, "The split" and "Next stage") n
 | (not planned) | **PR 2a, this plan**: "a revision names what it replaces", **errata G34**, `curia-mcp` **0.7.2** |
 | PR 2, "an agent can reach what it holds", G34, 0.8.0 | **PR 2b**: D61 items 15, 16, 10, **errata G35**, `curia-mcp` **0.8.0** (version unchanged: a tool is added) |
 
-Citations to rewrite in this PR (the whole set, found by `git grep -n G34` at c7e0fec6): `IMPLEMENTATION_PLAN.md` "Next stage" (line 82) and the D61 sweep paragraph (line 6819); `docs/superpowers/plans/2026-10-24-the-d61-sweep.md` lines 14 and 217 (a bracketed amendment: "became PR 2b, G35; PR 2a took G34"; the file is otherwise a closed record and its body is not edited). Nothing under `src/` or `tests/` cites G34 today. Run `git grep -n "G34\|G35"` again at writing: if another writer has taken G35, stop and report.
+Citations to rewrite in this PR (the whole set, found by `git grep -n G34` at c7e0fec6): `IMPLEMENTATION_PLAN.md` "Next stage" (line 82) and the D61 sweep paragraph (line 6819); `docs/superpowers/plans/2026-10-24-the-d61-sweep.md` lines 14 and 217 (a bracketed amendment: "became PR 2b, G35; PR 2a took G34"; the file is otherwise a closed record and its body is not edited). Nothing under `src/` or `tests/` cited G34 at c7e0fec6 (this stage's code now cites it, as R11.47 and R11.48). Run `git grep -n "G34\|G35"` again at writing: if another writer has taken G35, stop and report.
 
 **Serial, not parallel.** 2a and 2b both rewrite "Next stage", D61 and "Current work", and both edit `WriteTools.cs`/`ToolText.cs`. Do not branch 2b before 2a merges.
 
@@ -227,4 +227,46 @@ As #119: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres
 
 ## As run
 
-*(Written at the stage.)*
+Branch `a-revision-names-what-it-replaces` on main c7e0fec6 (#119); tasks as commits `PR 2a (plan)`, `(T0)` to `(T4)`, and `(T8)` (this docs commit). Task 6 (falsification) and Task 5 (gates) changed no tracked file.
+
+**Operated live (Task 7):** the fixed build (13fc3075) on a local Forum and a throwaway database. R1: revising Q a second time was refused `NOT SENT` naming the successor, and the log held one revision after it; revising the latest revision still posted. FORKED: with two revisions of one original (one by `curia_revise`, one by the CLI `curia revision`, which still forks: D72's lead), `curia_revise` of the original was refused naming both successors and `FORKED`, and `curia_read` printed `SUPERSEDED by 2` and `FORKED`. R2: a stranger revising Q was refused as not the author with the budget unspent and with it spent; the spent agent revising its own post still got `rate-budget-exhausted` (the control). Item 17: `refs[1]` for one bad item and `refs[0], refs[2]` for two, through `curia_answer`, `curia_comment`, `curia_revise` and `curia answer --refs`, never echoing the value. Every revise receipt carried `supersession none was reported`; the NOT CHECKED form needs an older Forum and is held by PA4. Forum, database and worktree removed afterwards.
+
+### Task 0: the unmodified tree, live, then the probes
+
+Operated in a detached Release worktree at 96e2a9b8 (a Forum on its own port and throwaway database, torn down after), before any fix.
+- **R1 reproduced exactly.** Ask Q, `curia_revise` Q (posted, revision A), `curia_read` Q printed `SUPERSEDED by 1 revision(s)`; `curia_revise` Q again posted B with a receipt silent about A; `curia_read` Q then printed `SUPERSEDED by 2 revision(s) ... FORKED`. The oracle is the log, not the receipt: the events table held two revision events whose signed `prev` (read from `(payload->>'canonical')::jsonb->>'prev'`; there is no `payload->>'prev'`) is Q's digest.
+- **R2 reproduced, and the plan's risk 7 is answered.** With the budget unspent, a second agent revising the first's post got `table-10/own-resource-only tier=T0`; with the budget spent (three posts) the same call got `table-11/rate-budget-exhausted ... It resets`. The second is what hides the first.
+- **The CLI fork hole.** The first identity's budget was already spent, so `curia revision` as it was refused by the budget (exit 4), not a third fork; with a fresh identity, ask, `curia_revise` (posted), then `curia revision` of the same original posted (exit 0, no check) and `curia_read` printed FORKED. The hole is real; no code changed (a lead of D72).
+- **Item 17 reproduced on all four surfaces**: `curia_answer`, `curia_comment`, `curia_revise` and `curia answer --refs` (exit 1), given three refs with the middle one `nope`, printed the three-forms sentence and no index. Item 18 cannot be reached live (the real Forum states all three members); it is PA18 and PA20's red text.
+- Two of the filler asks were refused as NEAR DUPLICATES (R8.18) and did not count toward the budget, so the end-to-end fixture uses three unrelated questions.
+- **Probes PA1 to PA21 written before the fix and seen red for their stated reason** (Mcp whole: 27 failed, 423 passed, 1 skipped, the 27 exactly the new probes; Client whole: 6 failed; `ReviseGuardEndToEndTests`: PA10 and PA11 failed). Red texts: PA1 to PA3, PA6 to PA9 `the revision was not refused: POSTED`; PA4 `Not found: supersession NOT CHECKED`; PA5 `Not found: supersession none reported`; PA10 `Expected: 1 Actual: 2` (two revision events); PA11 `Sub-string found: rate-budget-exhausted`; PA12 `Not found: FORKED`; PA13 `Expected "0.7.2" Actual "0.7.1"`; PA14 and PA15 `Not found: refs[i]`; PA16 and PA17 no index; PA18 `Not found: requested=not stated clamped=true published_default`; PA19's omit-request row `Expected: False Actual: True` (its other four rows green first, held by FPA19); PA20 `Not found: requested not stated; clamped false; published default V0`; PA21 red at `the errata names FORKED, and the output that should print it does not`. PA8's exact-id control was green first and is held by FPA3.
+- Two compile-only seams were needed and added (a `ParseAll` over a list, `RequestedMinVerificationStated` defaulted false); the plan's other listed seams were not, because no probe referenced them.
+- **Table corrections.** PA17 is `tests/Curia.Client.Tests/CliRefsIndexTests.cs` (a theory over answer, comment and revision, through `HelpTextTests.RunCuriaAsync`, made `internal`), and pins `refs[1]` as R11.48 states it, not the CLI's `--refs` prefix. PA14 and PA15 are theories over the three tools. A write through the stub is sent twice (the DPoP nonce challenge) with one envelope, so "one envelope written" counts distinct envelope bodies. PA21 derives its tokens from the errata and asserts a non-empty set before comparing.
+
+### Rulings made while building (`progress.md`)
+
+1. Accept the architect's extras: the author guard runs first; every failing `refs` index is named; the supersession receipt line; the CLI fork hole is a D72 lead, not fixed.
+2. FPA24 is restated in Task 6 against the receipt line as built (no seam needed). Cost: none.
+3. PA17 lives in `CliRefsIndexTests` with the `refs[1]` spelling; `HelpTextTests.RunCuriaAsync` made `internal`.
+4. The receipt line reads exactly as the errata words it: `supersession none was reported` and the `NOT CHECKED` form; Task 1 made PA5 and PA21 match the errata words exactly.
+5. "One envelope" means distinct envelope bodies (a DPoP nonce retry sends twice).
+6. Served author against signed author (ruling 2 of the plan): the guard compares the author the verified read serves; FPA27 shows the equivalence for a verified post.
+
+### Existing facts that changed
+
+- `McpWriteEndToEndTests.R11_40_AnotherAgentsRevisionIsRefusedByCause` now asserts the adapter's `NOT SENT` ("only a post's own author may revise it"), because the author guard runs before the Forum is asked; its control is unchanged and the Forum's own-resource refusal stays covered by PA11's budget control.
+- The `curia-mcp` version fact `R11_46` (0.7.1) was replaced by PA13 (0.7.2).
+- `SearchFloorDocumentTests` moved from `ClampStated` to `RequestedMinVerificationStated`; `ParseRefs` in the CLI is kept as a thin wrapper over `ParseAll` because `HelpTextTests` scans it for `args.List("refs")`.
+- The author-refusal words are in `WriteTools`, not `Supersession` (they are not about supersession).
+
+### Falsification (Task 6)
+
+FPA1 to FPA27 run row by row: copy aside, an exactly-one-match assert, a `--no-incremental` Release build, the named facts, restore by plain copy and `touch`, a sha and `git diff --quiet` per row (all equal before the first row and after the last). **26 rows red on every named fact; FPA27 green by design**: comparing the signed envelope's author in place of the served one left Mcp 29/29 and `ReviseGuardEndToEndTests` 2/2 green, because for a post that passes verification the served author equals the signed one (the verifier refuses a mismatch before the guard runs), which is ruling 2's equivalence claim, run and written. Rows red beyond the named facts (a wider patch, not a defect): FPA5, FPA8, FPA9, FPA10 and FPA24 also redden PA21; FPA12 (both guards thrown as `McpException`) reddens every revise fact that expects a returned refusal; FPA14 and FPA15 also redden PA15 to PA17 (the index shows in the CLI and the tools through the shared `ParseAll`); FPA16 and FPA17 redden the answer and comment rows, and the revise rows, of PA14; FPA20 also reddens `R9_33_CuriaSearchToolPrintsRequestedClampedAndPublishedDefault`; FPA26 (the guard fires when the post is the caller's) reddens most own-post revise facts. FPA25 (the errata R11.47 paragraph loses FORKED) reddens PA21 at `the errata names 3 tokens ... not the 4`. After the last row: unpatched `Curia.sln` Release `--no-incremental` 0 warnings, 0 errors, and a residue scan of `src/` found no patch residue.
+
+### Gates at 13fc3075
+
+`dotnet build Curia.sln -c Release`: 0 warnings, 0 errors. Release tests: Domain.Primitives 64, AuthN 140, Canon.Sodium 32, Architecture 59, Application 462, Mcp 449 passed and 1 skipped (that skip pre-dates), Domain 691, Client 824, Canon 329, Infrastructure 150, Api 724 of 724 (26 m 42 s), each with 0 failed. `cargo fmt --check`, clippy `-D warnings` and `cargo test --locked` clean; the differential gate (`--fail-on-divergence`) 0 divergences; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red naming their cell; Debug build 0 warnings and `Curia.Architecture.Tests` in Debug 59. Added lines under `src/` and `tests/` scanned for code points above U+007E: none. No frozen format, vector or workflow moved.
+
+### Left as stated
+
+The residual non-properties of D72 (a revision that lands between the read and the write; `curia revision` has the same hole; a superseded original ranks above its correction). Risk 1 stands: an agent that wants a deliberate fork cannot make one through `curia_revise`. PR 2b (errata G35) and the sixth exercise follow.

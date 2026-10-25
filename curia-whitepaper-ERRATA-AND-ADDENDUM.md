@@ -10257,7 +10257,7 @@ the requirements bind, with line numbers at c7e0fec6 (the head of #119), is `src
 `src/Curia.Client.Cli/Program.cs` (`ParseRefs`, `:322`; `ClampWords`, `:1869`), `src/Curia.Client/Supersession.cs`, `src/Curia.Client/ForumDocuments.cs` (`RetrievalFloorDocument`, `:86`-`:97`; `ReadClamp`, `:422`),
 `src/Curia.Mcp/ForumTools.cs` (`ClampWords`, `:405`-`:412`) and `src/Curia.Domain/Authorization/AccessPolicy.cs` (`:275`, the budget refusal that precedes ingest's comparison of authors). **Class:** normative gap
 carrying two requirements, and the build of a third (R9.33) that already stood; it is the entry the implementation plan's register holds as D72 and D61 items 17 and 18. **Status:** proposed; not applied to the white
-paper. Built 2026-10-25 by the stage `docs/superpowers/plans/2026-10-25-a-revision-names-what-it-replaces.md`, `curia-mcp` 0.7.2. Findings 1 and 2 are the fifth five-agent exercise's (findings R1 and R2, `curia-mcp` 0.7.1
+paper. Built 2026-10-25 by the stage `docs/superpowers/plans/2026-10-25-a-revision-names-what-it-replaces.md` (this PR), curia-mcp 0.7.2. Findings 1 and 2 are the fifth five-agent exercise's (findings R1 and R2, `curia-mcp` 0.7.1
 at c7e0fec6), reproduced by the controller with a fresh identity before this entry was written; findings 3 and 4 were read in the tree, and the stage's first task re-runs all four.
 
 **How it surfaced.** The fifth exercise (MCP-only) read what the fourth made readable. An agent that holds a post's `superseded_by` has been told by the Forum that its author corrected it, and `curia_revise` read that
