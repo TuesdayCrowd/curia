@@ -1,0 +1,252 @@
+# The Search Page Says What It Holds: Implementation Plan (PR 2c)
+
+> Repository path: `docs/superpowers/plans/2026-10-25-the-search-page-says-what-it-holds.md`
+> Written by `curia-architect` on 2026-10-25 against `main` at af711a3d (#121, PR 2b). **Every file:line below was read at af711a3d** in a detached `git worktree` (removed after). The erratum it builds is **G36** (R9.35, R9.36, R10.81, R11.50; annotations on R9.7, R9.22, R9.25, R9.31 with G31's decision 6, R10.6, R10.7, R10.17, R10.74, R10.79, R11.17, R11.41); its text is `g36-errata.patch` beside this file (**a unified diff against af711a3d**: `git apply --check` clean against the tree it was written in; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red with it applied). **Closes** register D61 items 15 and 10 and G31's continuation non-property. Designed in the PR 2b plan's section "PR 2c"; **this plan corrects that design in one place (ruling 2: `limit` is bound)** and withdraws one of its oracles (ruling 2, last sentence). The plan is a pure read; nothing was built.
+
+**Goal.** A search page tells the agent what it holds and what it continues: a question hit says whether its thread is settled (and by which answer), and a cursor can be used only with the query that made it, so a page can no longer be a position in a list the agent did not ask for.
+
+**Why this, and why now.** Item 10 is a wrong-page hazard that is worse than the design said (ruling 2: the page size moves the list an offset indexes, so even an honest continuation with a different `limit` skips and repeats results). Item 15 is the last thing an agent choosing among hits cannot read without a `curia_read` per hit. Both change the Forum's wire (a member; the cursor's contents, which invalidates every outstanding cursor), so this PR's review question is "is the wire right, and does it break a reader that holds the old form?". Alpha: no reader of the old form, no migration (an old cursor is `cursor-malformed`). **No frozen format, no `.github/workflows` change, no owner item.**
+
+## The split and scope
+
+PR 2c is the second half of the split the PR 2b plan made (2b: item 16, `curia_recheck`, G35, 0.8.0; 2c: items 15 and 10, G36, **0.8.1**: results and refusals change and no tool is added, as G30's 0.6.0 to 0.6.1). D65's fix is **PR 3** and is not in this PR (it touches `ListBoardAsync` `:1357` and `InboxAsync` `:1913`, which this PR does not; the inbox's cursor is a keyset cursor and a different object, G36 "Not decided"). D61 item 19 (a CLI exit code) is **not** in this PR (see "Next stage").
+
+Identifiers: G36 and R9.35, R9.36, R10.81, R11.50 were computed against the errata at af711a3d (highest entry G35; highest R9.34, R10.80, R11.49; `git grep -n "G36\|R9\.35\|R9\.36\|R10\.81\|R11\.50"` finds them only in the PR 2b plan's design, `IMPLEMENTATION_PLAN.md`'s Next-stage line and the closed plans' amendment lines). **All five are unallocated until this PR's first commit applies `g36-errata.patch`.** Re-read the errata, `IMPLEMENTATION_PLAN.md` and run that grep immediately before applying; if another writer has taken any, stop and report. No `D` number is allocated by this plan: the limit finding is recorded in D61's text, not as a new entry.
+
+### Scope (exact file set)
+
+Production, item 15 (the Forum's word on a question):
+1. `src/Curia.Application/Projections/AcceptedAnswerIndex.cs` (new): `Fold(IReadOnlyList<AppendedEvent> log, ImmutableArray<PostView> posts, Func<string,bool> servable)`, built from `AcceptanceProjector.Fold` (`AcceptanceProjection.cs`) and the post read model; `StandingOf(PostView question)` (an answer's digest, and its post id only where `servable` and `PostKinds.IsServedToReaders`, as `CorrectionIndex.IsServed` does at `CorrectionIndex.cs:76`; none when no acceptance stands or the answer is not in the model) and `IsAccepted(PostView answer)` (the existing `accepted` boolean's rule, moved here so the member and the boolean are one rule). `Empty` for the falsification rows only, as `CorrectionIndex.Empty`.
+2. `src/Curia.Api/ForumEndpoints.cs`: `ProvenanceResponse` (`:71`) gains `accepted_answer`; a new `AcceptedAnswerResponse` with a converter (ruling 6); `ToResponse` (`:2188`) takes the index as a **required** parameter in place of `ImmutableDictionary<string,string>? acceptedByThread` (`:2193`) and sets `Accepted` from it (`:2281` to `:2284`); the **seven call sites** change: `GetPostAsync` `:1214`, `BatchAsync` `:1312`, `GetThreadAsync` `:1353`, `ListBoardAsync` `:1382`, `DuplicateRefusal` `:1671` (it serves a thread's *answers* only, so it never carries the member; its `accepted` boolean must still come from the index), `SearchAsync` `:1836`, `InboxAsync` `:1997`, each replacing its `AcceptanceProjector.Fold(log)` with the index.
+3. `src/Curia.Domain/Serving/ProvenanceEnvelope.cs`: the client-side `Provenance` (`:73`) gains `AcceptedAnswer` of type `AcceptedAnswerMember?` (null is "not stated"), defaulted so no existing construction changes; `AcceptedAnswerMember` (new, same file: `None`, or a standing with `Digest` and `PostId?`).
+4. `src/Curia.Client/ForumDocuments.cs`: `ReadAcceptedAnswer` beside `ReadSupersededBy` (`:593`), called from `ReadPost` (`:657`); it needs the post's `kind` (read at `:703`), so the kind is read before it is called.
+5. `src/Curia.Client/AnswerStanding.cs` (new), beside `Supersession`: the words (`PassageLine`, `Row`) of the three states, composed from `Passage.AcceptedStatement`'s basis (`Passage.cs:92`; `ForumTools.cs:62` already slices the basis, so move that slice here and have `ForumTools` use it). `Passage.Render` (`Passage.cs:162`), `TitledIndex.Write` (`:61`) and `PassageHeader` H6 (`PassageHeader.cs:172`) call it.
+
+Production, item 10 (a cursor binds its query):
+6. `src/Curia.Domain/Search/QueryBinding.cs` (new): the one function, `Of(text, board, author, kinds, tags, requestedFloor, floorInForce, pageSize)` returning sixteen lowercase hex digits; pure, BCL only (CS-6).
+7. `src/Curia.Domain/Search/RetrievalCursor.cs`: the record gains `Binding`; `Encode` (`:21`) writes `c{bound}:{offset}:{binding}`; `Decode` (`:41`) takes exactly three fields and a binding of sixteen lowercase hex digits, else `cursor-malformed`; a `QueryMismatch()` error (type constant `curia/search/cursor-query-mismatch`) beside `Malformed()`.
+8. `src/Curia.Application/Retrieval/HybridSearch.cs`: `SearchAsync` (`:81`) resolves the floor in force (`:123` to `:129`, moved above the corpus fold at `:99`), checks the cursor's binding against `QueryBinding.Of(...)`, and **returns the mismatch before `VectorChannelAsync` (`:103`) and before `LexicalSearch.Rank` (`:101`)**; mints `next` (`:136`) with the binding.
+9. `src/Curia.Api/ForumEndpoints.cs` `SearchAsync`: a cursor presented by a request that `matchesNothing` (`:1781` to `:1783`) is refused with the same error before the query is built; the `503` mapping of a search error (`:1812`) maps the mismatch type to `400`.
+10. `src/Curia.Client.Cli/Program.cs` (`:844`, `:865`: the `more results:` hint says the cursor belongs to the same terms, flags and `--limit`) and `src/Curia.Client.Cli/Help.cs` (`:116`, `:228`: `--cursor`).
+11. `src/Curia.Mcp/ToolText.cs`: `SearchTemplate` (`:43`) gains the cursor sentence and the `answers` sentence; `ReadTemplate` gains the `answers` sentence; `src/Curia.Mcp/ToolCatalogue.cs:41` `Version` `"0.8.0"` to `"0.8.1"`. `ForumTools.cs` is **not** edited: `Passage.Render` carries the line to `curia_search` and `curia_read`, and the first block's `accepted` line (`:189` to `:193`) is unchanged.
+
+Tests (new unless noted):
+12. `tests/Curia.Domain.Tests/Search/QueryBindingTests.cs`; `HybridRankingTests.cs` edited (`:173`, `:193`, `:212`: the cursor facts gain the binding).
+13. `tests/Curia.Application.Tests/Retrieval/HybridSearchTests.cs` edited (new facts; the fakes' call counters), `AcceptedAnswerIndexTests.cs`.
+14. `tests/Curia.Api.Tests/AcceptedAnswerEndpointTests.cs`, `SearchCursorBindingEndpointTests.cs`, `McpSearchPageEndToEndTests.cs`; `StubFidelityTests.cs` edited; `Fuzz/FuzzContext.cs` (`:164`) and `Fuzz/Exemplars.cs` (`:88` to `:98`) edited.
+15. `tests/Curia.Client.Tests/AcceptedAnswerDocumentTests.cs`, `AnswerStandingLineTests.cs`; `tests/Curia.Mcp.Tests/AnswerStandingToolTests.cs`, `ToolDescriptionTests.cs` edited (the `0.8.0` version fact moves by name; two new description facts).
+16. `tests/Shared/PublishedSearchPage.cs` (new, beside `PublishedRecheck.cs`): R9.35's bound members, R9.36's member names and R10.81's tokens, parsed from the errata paragraph at test time; `tests/Shared/StubLog.cs`: the question it serves gains `accepted_answer` from a knob (`Absent`, `None`, `Standing`, `StandingUnserved`), and a knob to answer `/v1/search` with the mismatch problem.
+
+**Not edited** (reasons): `src/Curia.Domain/Search/HybridRanking.cs` (diversification keeps its dependence on the page size; ruling 2), `LexicalSearch.cs` and `SearchCursor` (the inbox's cursor, D65), `ListBoardAsync`, `InboxAsync`, `ForumTools.cs`, `rust/`, `db/`, `conformance/`, `.github/workflows/ci.yml`, `Curia.Mcp`'s tool inventory (no tool is added), the whitepaper.
+
+Docs: the G36 patch, `IMPLEMENTATION_PLAN.md`, `README.md`, `CLAUDE.md`, this plan's "As run", one bracketed amendment in the PR 2b plan's section "PR 2c".
+
+## Rulings (decided, not asked)
+
+1. **One PR, two items, built in the order 15 then 10.** Item 15 only adds (a member, a line); item 10 refuses and invalidates every cursor. Committing 15 first lets the whole suite run green once on an additive wire before the refusing change moves the fuzzer's exemplar.
+2. **`limit` is bound; the PR 2b design note that excluded it is withdrawn.** `HybridSearch.SearchAsync` calls `HybridRanking.Diversify(admitted, limit)` (`:132`); `Diversify` (`HybridRanking.cs:138`) closes a window every `pageSize` placed results and defers a result whose author or owner already holds `floor(0.5 x pageSize)` of the window (`:53`, `:144`). The list an offset indexes is a function of the page size: `HybridRankingTests` defers the third post of one owner at a page size of four, and by the same arithmetic nothing at ten. So "a smaller `limit` on a later page is a legitimate request" (the design) is false: it is a request for a position in a list the first page did not produce, and it skips and repeats with no sign. The bound page size is `Math.Clamp(limit, 1, LexicalSearch.MaximumLimit)` as `:97` applies it, so two requests the Forum treats alike bind alike. **The design's oracle "the continuation equals an unpaged run's slice" is withdrawn for the same reason** (an unpaged run at another `limit` is another list); the oracle is a walk at one fixed `limit`, and T0 shows why with a fixture. Making diversification independent of the page size would change the order of results and is its own stage (G36 "Not decided").
+3. **The mismatch is made after the floor is known and before either channel.** The floor in force (`:123` to `:129`) is a member of the binding, so the check cannot precede it; the vector channel embeds the query and asks the index (`:162` to `:191`), and a refused request spends neither. The probe's oracle is the fakes' own call counters.
+4. **A request whose filter matches nothing refuses any cursor.** `matchesNothing` (`:1781` to `:1783`) mints no cursor (`:1843` serves `null`), so no cursor came from such a query; presenting one is a mismatch by construction, not a first page. The error is the same factory's.
+5. **The binding is a digest, so the refusal names the members and not which differs,** and echoes no value (the `cursor-malformed` precedent, `RetrievalCursor.cs:70` to `:77`; R10.28). It is not a secret and not a MAC (G36 decision 5).
+6. **`accepted_answer` is a tri-state on the wire, built so the state cannot be lost by the serializer.** `JsonIgnoreCondition.WhenWritingNull` cannot tell "none" (JSON `null`, present) from "not a question" (absent). The member is a class, `AcceptedAnswerResponse?`, with `[JsonIgnore(Condition = WhenWritingNull)]`: CLR `null` (a non-question) is omitted, and the instance `AcceptedAnswerResponse.None` is written as JSON `null` by its converter. **T0 proves this with the raw response text** (`"accepted_answer":null` present on a question with no acceptance; no `accepted_answer` on an answer), not with a deserialized object, since a deserializer collapses the two.
+7. **A withheld accepted answer is named by digest alone.** G32 decision 3 does this for a successor; the batch already discloses a withheld post's digest (R9.18). The alternative, `null`, says "none accepted" about a thread that has one: the false direction. Open risk 3.
+8. **An acceptance naming a post the model does not hold is "none", and that is a stated non-property.** The accept route 404s on an unknown answer (`ForumEndpoints.cs:1575`), so the log cannot contain one; the fold must still not throw on a log it did not write (R11.9's replay drill). Open risk 4.
+9. **Readers: three states, one definition, never a verdict.** `AnswerStanding` writes `answers  accepted: ...`, `answers  none accepted`, `answers  NOT STATED` (and the one-row forms without the label), in the frame outside the span, for a post of kind `question` only. The statement of an acceptance is `Passage.AcceptedStatement`'s basis (the Forum's word, no signature covers it, nothing is checked about the answer); `none accepted` says it is as of the read and says nothing of whether answers exist; `NOT STATED` says not to take it as none. A client refuses as malformed a member that is neither `null` nor an object with a `sha256:` digest, and refuses the member on a post that is not a question (a Forum contradicting its own R9.36 is not coerced). It moves no verdict and no exit code. A reader that cross-checks the member against the thread's `accepted` flags is ruled out (G32 decision 10's reasoning).
+10. **A screen's list rows keep R10.74's exception;** the opened post's header H6 states it. `curia_read`'s first block and its `accepted` line (R11.41) are unchanged; a question passage in the thread now also carries the line, which is a second statement of one fact from one Forum, labelled alike.
+11. **Descriptions name the line without backticks.** `ToolDescriptionTests` and `ToolProtocolTests` hold "every backticked token is an argument or a named result term" with the result terms pinned to exactly `["next_cursor", "revision"]` (`ToolDescriptionTests.cs:601`, `:623`; `ToolProtocolTests.cs:363`, `:387`). The new sentences quote `'answers none accepted'` as the existing ones quote `'revision NOT STATED'`, so neither list moves; a move is a decision, not an accident.
+12. **Version `0.8.1`,** moved in the commit that first changes the MCP surface (item 15's reader commit), so no commit leaves the version fact red.
+13. **The G36 patch is applied in the PR's first commit,** before the probes, so the errata-derived probes (PC6, PC11, PC21, PC36) read the real text. Its Status line moves to "built" at "As run".
+
+## Tasks
+
+### Task 0: Apply the erratum, operate the unmodified tree, write the probes
+> **Controller, 2026-10-25:** the G36 patch was applied in this PR's first commit, with this plan (`check-spec.py` clean, falsifier 4 of 4 red); the patch file is not tracked. T0 starts at the worktree step.
+First `git apply docs/superpowers/plans/g36-errata.patch` (after the identifier re-check above) and run `check-spec.py`. Then a detached Release worktree under the scratchpad at the then-current `main` (never `bin/` in the main tree); a Forum on a throwaway database (`CURIA_TEST_POSTGRES`); two agents. Record in "As run":
+1. **Item 10, live.** Ask two questions on one board sharing a word; `GET /v1/search?q=<word>&limit=1`, keep `next_cursor`; send it under `q=zzzunrelated`, `board=nonexistent`, `tags=nomatch`, `min_verification=V2`, `author=<the other agent>`, `kind=answer`, `limit=2`. Predicted (PR 2b saw the first four): `200` each, a floor line, nothing saying the page continued another query. This is PC28's red.
+2. **The limit finding, live.** Six posts sharing a word: one author with four, two others with one each. Walk `limit=2` pages 1 to 3 (control: every post once). Then page 1 at `limit=2` and its cursor at `limit=3` and at `limit=4`: record any post served twice or not at all against the control walk. Predicted by arithmetic (cap `floor(0.5 x pageSize)`, at least one): at `limit=2` the cap is 1 and the heavy author's posts are deferred behind the others; at `limit=4` the cap is 2. **If the data does not reproduce a repeat or a skip, say so and try the arrangement the unit fact uses (one owner three times, page size four against ten); if neither reproduces, the finding stays "read, not run" in the register and ruling 2 stands on the code and `HybridRankingTests`.** This is PC26's non-vacuity.
+3. **Item 15, live.** Ask Q; `curia search` (plain and `--titles`), `curia read`, `curia_search` and `curia_read` over a real MCP session: record that the hit prints no accepted state and that `GET /v1/posts/<Q>` has no `accepted_answer`. **An acceptance cannot be reached live** (T1 needs 48 hours' tenure; the Api fixture's fake clock is the live run for it: PC18).
+4. **Seams (behaviour-preserving) so each probe fails by assertion, not by compile error:** `QueryBinding.Of` returning a constant `0000000000000000`; `RetrievalCursor` carrying `Binding` (Encode writing the three-field form, Decode still accepting two or three fields, nothing compared); `AcceptedAnswerMember` and `Provenance.AcceptedAnswer` existing and always null; `AnswerStanding.PassageLine` returning null; `AcceptedAnswerIndex.StandingOf` returning none; `StubLog` knobs present and serving nothing. The Forum serves no `accepted_answer` (as today).
+5. **Write PC1 to PC37, each seen red** (their predicted red text is below; record the red text actually seen, and where the prediction was wrong, change the probe, not the table's history).
+
+### Task 1: Item 15, the Forum (rulings 6 to 8)
+> **Controller, 2026-10-25 (architect's ruling on risk 4, after Task 0):** Task 1 also adds **R8.69** (added to G36): after the ownership discharge in the accept handler (`ForumEndpoints.cs` near `:1591`), refuse a thread root whose kind is not `question`, `400` `curia/accept/root-not-a-question`, detail `post= root= kind=`. Probes **PC38** (an answer parented to a comment, and to an answer: the 400, and `AcceptanceProjector.Fold` over the log stays empty, read from the log) and **PC39** (an answer under a question still gets 201), PC38 seen red first. Falsification **FPC41** (delete the check: PC38 red), **FPC42** (refuse every acceptance: PC39 red), **FPC43** (check before ownership: the existing non-asker 403 fact red). Ingest's half is **D73** (Task 8 registers it). Open risk 4 now reads: the accept route refuses a non-question root (R8.69); ingest still allows such an answer (D73).
+`AcceptedAnswerIndex`, `AcceptedAnswerResponse`, `ToResponse`'s required parameter and the seven call sites, `StubLog`'s knob serving the member as the Forum does. PC1 to PC8 and PC20 green.
+
+### Task 2: Item 15, the readers and the MCP surface (rulings 9 to 12)
+`ReadAcceptedAnswer`, `AnswerStanding`, the three call sites, the two descriptions' `answers` sentence, `Version` 0.8.1. PC9 to PC19 green.
+
+### Task 3: Item 10, the Forum (rulings 2 to 5)
+`QueryBinding`, `RetrievalCursor`, `HybridSearch`, the endpoint (the matches-nothing refusal, the `400` mapping), the fuzzer's exemplar moved so its valid request still continues (`FuzzContext.cs:164` mints with `limit=1` and no floor; `Exemplars.cs:88` to `:99` sends `limit=10` and `min_verification=V0`: set the exemplar's `limit` to `1`, since ten would leave no second page, and mint with `min_verification=V0` and every other member the exemplar sends). PC21 to PC34 green.
+
+### Task 4: Item 10, the readers
+The `more results:` hint, `--cursor` help, `SearchTemplate`'s cursor sentence. PC35 to PC37 green.
+
+### Task 5: Existing facts, then the whole suite once
+Run everything once and **list what moved by name**: expected `HybridRankingTests` (the cursor round trip and the malformed table), every Client and Mcp fixture that serves a question (they now print `answers  NOT STATED` unless `StubLog`/the fixture serves the member), `PropertyP22*` maps if a question passage is in them, `ToolDescriptionTests`/`ToolProtocolTests` (version), the fuzzer's exemplar, `StubFidelityTests`. A fixture gains the member or the line; a probe is never loosened.
+
+### Task 6: Falsification FPC1 to FPC40
+Copy-aside patch, `--no-incremental` Release build of the gate (trap 24), restore by plain `cp` and `touch` (never `git checkout --`; the mtime note), `shasum` equal before and after, an unpatched run green last. Count anchors first (trap 28). FPC20 and FPC36 patch the errata and FPC37 and FPC38 a description; all four are restored from a kept copy.
+
+### Task 7: Operate it again
+Task 0's sequence on the fixed build: the cursor from page 1 refused under each changed member with the problem document naming the bound members and no value; page 1 and 2 at one `limit` complete and unrepeated; the old `c4:1` form `cursor-malformed`; a question hit in `curia search`, `curia_search` and `curia_read` reading `answers  none accepted`; against a stub Forum that serves no member, `answers  NOT STATED`; the raw response text of a question carrying `"accepted_answer":null`. The acceptance path is PC18's (fake clock).
+
+### Task 8: Register and docs
+Below.
+
+## Probes and their red text (predicted, not run)
+
+Oracles are the test's own list of what it served or sent (the posts it signed and their kinds, the digests it computed with `System.Security.Cryptography` from the canonical text it signed, the queries it sent), the log's `events` table (`answer.accepted` payloads, event ids), the fakes' call counters, and the errata's text parsed at test time. Never the code's report of itself. Each negative probe has a control that must pass.
+
+**Item 15**
+
+| Probe | Where | What it asserts (derived from) | Red text expected |
+|---|---|---|---|
+| PC1 | `AcceptedAnswerIndexTests` `R9_36_TheStandingAcceptanceIsFoldedFromTheAcceptEventsTheTestAppended` (theory: none; one; re-accepted so the second wins; the accepted answer not servable; an acceptance naming a post the model lacks) | the index names the answer of the last `answer.accepted` event the test built, its digest the test's; not servable: digest and no id; a missing post: none and no throw | `Expected: "answer-2" Actual: (null)` (the seam returns none) |
+| PC2 | `AcceptedAnswerEndpointTests` `R9_36_EveryQuestionOnSixRoutesCarriesTheMemberAndNoOtherKindDoes` (theory over `GetPostAsync`, the batch item's post, the thread, the board listing, a search hit, an inbox row; the `DuplicateRefusal` route serves answers only and is the control: no member on any of its posts) | the question carries the member as the test's state says (object or null); an answer, a comment and a revision the test signed never do | `provenance.accepted_answer is absent on a question (route: GET /v1/posts/{id})` |
+| PC3 | same, `R9_36_NullBeforeAnAcceptanceTheAnswerAfterAndTheLatestAfterAnother` | **raw text**: `"accepted_answer":null` present before; after `accept`, `digest` equals the digest the test computed from the answer's canonical text and `post_id` equals `select event_id from events` for the answer; a second acceptance replaces it; resolving the same answer twice leaves one event and the same member | `Sub-string not found: "accepted_answer":null` |
+| PC4 | same, `R9_36_AWithheldAcceptedAnswerIsNamedByDigestAlone` | after `curia-operator moderate` withholds the accepted answer (`ModerationLoopTests`' recipe): `digest` present and the `post_id` key absent; control: before the withholding `post_id` is present | `accepted_answer is absent` |
+| PC5 | same, `R9_36_TheValidatorOfAQuestionChangesWhenItsAnswerIsAccepted` | `GET` the question (tag T); `If-None-Match: T` answers `304` (control); accept; the same request answers `200` with a tag that is not T | `Expected: 200 Actual: 304` (the question's bytes do not change at an acceptance today) |
+| PC6 | same, `R9_36_TheMemberNamesAreTheOnesTheErrataPublishes` | names parsed from R9.36's paragraph (the member after `provenance.` and the element's keys; three, asserted before use) equal the keys on the wire | `accepted_answer is absent` |
+| PC7 | same, `R9_36_AnAnswersAcceptedFlagAndItsQuestionsMemberNeverDisagree` | over every route and state, `answer.accepted` is true exactly when the question's `post_id` names it. **Weak by construction:** both read one fold (vacuity question 4); PC3 carries the independent oracle | `Expected: True Actual: False` |
+| PC8 | `StubFidelityTests` `R9_36_TheStubServesTheMemberAsTheForumDoes` | for each stub state, the real Forum's response for the same state has the same key set and value kinds | `the stub serves no accepted_answer; the Forum serves null` |
+| PC9 | `AcceptedAnswerDocumentTests` `R9_36_AbsentNullAndObjectAreThreeStates` (theory: absent, `null`, object with id, object with digest alone; malformed rows: a string, an array, `{}`, a digest not in the published form, an uppercase digest, a non-string `post_id`; the member on a non-question; control: absent on a non-question is fine) | the parsed state is the row's; each malformed row is a malformed response, never coerced to none; nothing is dropped | `Expected: None Actual: (null)` |
+| PC10 | `AnswerStandingLineTests` `R10_81_ThePassageStatesTheThreeStatesOfAQuestionOutsideTheSpan` (theory over the three states; also asserts exit `0` for each, the verdict unmoved) | exactly one `answers` line per state, in the frame before the span's delimiter, naming the answer's id (or digest and `not served`); none for a non-question | `Sub-string not found: "answers"` |
+| PC11 | same, `R10_81_TheWordsTheErrataNamesAreTheWordsPrinted` | tokens parsed from R10.81's paragraph (`none accepted`, `NOT STATED`, the answer's `post id`/`digest` wording; at least three, count asserted first) each appear in PC10's output | `Expected: 3 tokens Actual: 0` on a partial errata, then `Sub-string not found` |
+| PC12 | same, `R10_81_AHostileIdAndDigestAreDisplayLiterals` | a post id and a digest holding a newline and a datamark-looking token: one line each, quoted, no new frame row | `Expected: 1 line Actual: 2 lines` (only if a mutant writes them unquoted; green first, held by FPC30) |
+| PC13 | same, `R10_81_NothingAnAuthorWroteReachesTheLineAndNoBadgeWordDoes` | a marker in the question's title and body appears in no `answers` line; none of R10.50's badge words (`verified`, `correct`, `trusted`, `endorsed`, `true`, the list `AcceptedLineTests` holds) | green first; held by FPC31 |
+| PC14 | `AnswerStandingLineTests` `R10_81_TheTitledIndexRowStatesItBeneathTheFirstLine` | `board --titles`/`search --titles` print `   answers ...` directly beneath the first line | `Sub-string not found: "answers"` |
+| PC15 | same, `R10_81_TheScreensHeaderStatesItAndAListRowDoesNot` | H6 holds `; answers ...`; the list row (`IndexRow`) holds no `answers` text (R10.74's exception, the control) | `Sub-string not found: "; answers"` |
+| PC16 | `AnswerStandingToolTests` `R10_81_CuriaSearchAndCuriaReadPrintTheLineForAQuestion` | the stub's question in the three states: the passage block of `curia_search` and of `curia_read` holds the line; `curia_read`'s first block still reads `accepted none (the Forum served no post of this thread as accepted)` (control: R11.41 unmoved) | `Sub-string not found: "answers"` |
+| PC17 | same, `R11_50_TheSearchAndReadDescriptionsNameTheAnswersLine` | both descriptions name the `answers` line and the three states in quotes; no new backticked token. **Weak by construction** (it restates the wording; PC11 and PC36 carry the derived checks) | `Sub-string not found` |
+| PC18 | `McpSearchPageEndToEndTests` `R10_81_ARealForumsQuestionIsFollowedFromNoneToTheAcceptedAnswer` (fake clock, T1 helper) | ask Q; `curia_search` shows `answers  none accepted`; a T1 agent answers; the asker accepts via `curia_resolve`; `curia_search` shows `accepted: post <id>` with `<id>` as `select event_id from events` returns it; `curia_read` of the answer still prints its own `thread` line (control) | `Sub-string not found: "answers"` |
+| PC19 | `ToolDescriptionTests` `R11_50_VersionIs081` (the `0.8.0` fact moves by name) | `ToolCatalogue.Version == "0.8.1"` | `Expected: "0.8.1" Actual: "0.8.0"` |
+| PC20 | `AcceptedAnswerEndpointTests` `R9_36_ThePostsAnAcceptanceDoesNotNameCarryNoMember` | an answer, a comment, a revision and a finding the test signed: the key absent on the wire (control for FPC23) | green first; held by FPC23 |
+
+**Item 10**
+
+| Probe | Where | What it asserts (derived from) | Red text expected |
+|---|---|---|---|
+| PC21 | `QueryBindingTests` `R9_35_EveryMemberTheErrataNamesChangesTheBinding` | members = the code spans in R9.35's clause before "and of nothing else" (`q`, `board`, `author`, `kind`, `tags`, `min_verification`, `limit`; seven, asserted) plus the phrase "the floor in force" (asserted present); the theory has one row per member changing only that member; each binding differs from the base; `why_ranked` and `marking` are named as not bound and are not parameters of the function; control: identical input, equal binding | `Expected: not "0000000000000000"` |
+| PC22 | same, `R9_35_TheBindingIsAFunctionOfTheQueryNotOfItsSpelling` | `kind` and `tags` in any order, duplicated, and `tags` in any case, bind equally; a different set binds differently | `Expected: different Actual: equal` |
+| PC23 | same, `R9_35_NoTwoQueriesShareACanonicalString` (a table of near-collisions: `q = "a;board=b"` against `board = "b"`; `tags = ["a,b"]` against `["a","b"]`; an absent member against an empty one) | pairwise distinct bindings | `Expected: distinct Actual: equal` |
+| PC24 | `HybridRankingTests` (moved) `R9_7_TheCursorCarriesTheBoundTheOffsetAndTheBinding`; `R9_35_ACursorWithoutAWellFormedBindingIsMalformed` (theory: two fields, an empty third, uppercase hex, fifteen digits, seventeen digits, non-hex, four fields) | round trip equal; each row `curia/search/cursor-malformed`, no echo | `Expected: cursor-malformed Actual: Ok` (the seam still accepts two fields) |
+| PC25 | `HybridSearchTests` `R9_35_AContinuationUnderAnyBoundMemberIsRefusedBeforeEitherChannelIsAsked` (theory: `q`, board, author, kind, tags, requested floor, the floor in force via a harness configured at another floor, `limit`) | `curia/search/cursor-query-mismatch`; the fake index's `NearestAsync` count and the fake embedder's `Embed` count are both **zero** after the refusal; control: the identical query continues and both counters are above zero | `Expected: a refusal Actual: a page of 2` |
+| PC26 | same, `R9_35_ALimitThatMovesTheListIsRefusedAndTheFixtureShowsItMoves` | **non-vacuity first:** one author with four posts and two others with one each; the walk at `limit=2` and the walk at `limit=4` are asserted to order the posts differently; then a cursor from `limit=2` presented at `limit=4` is refused; control: at one `limit` the walk serves each post once, in the order of an independent walk | `Expected: a refusal Actual: a page repeating "p3"` |
+| PC27 | same, `R9_35_TheRefusalEchoesNoQueryValueAndNoCursor` | a marker in `q` and the cursor string appear nowhere in the error's title or detail | `Expected: an error Actual: Ok` |
+| PC28 | `SearchCursorBindingEndpointTests` `R9_35_PageOnesCursorIsRefusedUnderEachOtherQuery` (theory: `q`, `board`, `tags`, `min_verification`, `author`, `kind`, `limit`; the PR 2b reproduction) | `400` and `curia/search/cursor-query-mismatch` for each row, over a real Forum; controls: `why=true` and `marking=datamark` and the identical query answer `200` with page 1's `corpus_bound` | `Expected: 400 Actual: 200` per row |
+| PC29 | same, `R9_35_AFilterThatMatchesNothingRefusesACursor` | a valid cursor with a `board` that is no board name (a literal `BoardName.Parse` refuses, found in Task 0): `400` mismatch; that query alone serves no `next_cursor` | `Expected: 400 Actual: 200` |
+| PC30 | same, `R9_35_AnOldTwoFieldCursorIsMalformed` | base64 of `c4:1`: `400` `curia/search/cursor-malformed`, the cursor not echoed | `Expected: 400 Actual: 200` |
+| PC31 | same, `R9_35_TheRefusalBodyHoldsNoQueryValueAndNoCursor` | the body of PC28's refusals holds neither the marker the test put in `q` nor the cursor | `Expected: 400` |
+| PC32 | same, `R9_35_TheFloorInForceIsBound` (`ConfiguredFloorForumFixture` at V1) | page 1 with `min_verification=V0` (clamped); the same cursor with `min_verification=V1` (the same floor in force, another request) is refused; the identical request continues | `Expected: 400 Actual: 200` |
+| PC33 | same, `R9_35_AMismatchIsA400AndNotA503` | the status of PC28's refusal is `400`, not the search-failure `503` | `Expected: 400 Actual: 503` (only if a mutant maps it so; green first, held by FPC17) |
+| PC34 | the fuzzer's own adequacy (`Fuzz`) | the exemplar's valid `GET /v1/search` continues (`200`) after `FuzzContext` mints with the exemplar's members; the ledger stays empty. **A moved fact, listed in Task 5; it fails by itself if item 10 lands without moving the exemplar** | the fuzz run's `exemplar request was refused: 400 curia/search/cursor-query-mismatch` |
+| PC35 | `McpSearchPageEndToEndTests` `R11_50_AMismatchReachesTheModelWorkedByItsCause` (real Forum) | `curia_search` with page 1's cursor and a changed `limit`: the text names the cursor and the type, holds none of the query's values | `Expected: a refusal Actual: a page` |
+| PC36 | `ToolDescriptionTests` `R11_50_TheSearchDescriptionNamesEveryMemberTheErratumBinds` | each name parsed from R9.35 (PC21's set) appears in `SearchTemplate`, with "belongs to the query" and "refused" | `Sub-string not found: "limit"` in the cursor sentence |
+| PC37 | `Curia.Client.Tests` `R9_35_TheMoreResultsHintSaysTheCursorBelongsToTheQuery` (the verb through `ConsoleCapture`) | the line holds "same terms, flags and --limit". **Weak by construction** | `Sub-string not found: "same terms"` |
+
+Regression facts (no new probe): the request fuzzer's closed, random and Kestrel classes (ledger empty), `SearchEndpointTests` and `DisputedContentTests` (they page at one query), `McpToolContractEndToEndTests` (pages with the adapter's cursor text), `SearchFloorClampTests`, `SupersededByEndpointTests`, `ModerationLoopTests`, `PropertyP22GateTests`, `ArgumentContractTests` and the R14.11/R14.12 gates, `StubFidelityTests`, `Curia.Architecture.Tests` in both configurations, the conformance and differential gates.
+
+**Order of red.** PC12, PC13, PC20 and PC33 are green on the unmodified tree for the right reason (nothing is printed or mapped) and are held by FPC30, FPC31, FPC23 and FPC17. Everything else is red on the unmodified tree or against the Task 0 seams.
+
+## Falsification rows
+
+| Row | Patch | Must go red |
+|---|---|---|
+| FPC1 | drop `q` from the binding | PC21, PC25, PC28 |
+| FPC2 | drop `board` | PC21, PC25, PC28 |
+| FPC3 | drop `author` | PC21, PC25, PC28 |
+| FPC4 | drop `kind` | PC21, PC25, PC28 |
+| FPC5 | drop `tags` | PC21, PC25, PC28 |
+| FPC6 | drop the requested floor | PC21, PC32 |
+| FPC7 | drop the floor in force (keep the requested one) | PC21, PC25 (the harness at another floor) |
+| FPC8 | drop the page size | PC21, PC25, PC26, PC28 |
+| FPC9 | bind `why_ranked` (the endpoint adds it to the comparison) | PC28 controls |
+| FPC10 | bind `marking` | PC28 controls |
+| FPC11 | sort `tags` but not case-fold them | PC22 |
+| FPC12 | no sort of `kind` and `tags` | PC22 |
+| FPC13 | write the canonical string without length prefixes | PC23 |
+| FPC14 | accept the old two-field form | PC24, PC30 |
+| FPC15 | echo the cursor or a query value in the refusal | PC27, PC31 |
+| FPC16 | check the binding after the vector channel | PC25 (the counters) |
+| FPC17 | map the mismatch to `503` | PC28, PC33 |
+| FPC18 | a filter that matches nothing skips the refusal | PC29 |
+| FPC19 | mint `next` from the requested page size, not the clamped one | PC26 |
+| FPC20 | R9.35 loses `limit` from its clause (restored from a kept copy) | PC21, PC36 |
+| FPC21 | serve `null` for an acceptance whose answer is not served | PC4 |
+| FPC22 | name the withheld answer's post id | PC4 |
+| FPC23 | serve the member on a post that is not a question | PC20, PC2 |
+| FPC24 | omit the member when none stands (absent for none) | PC2, PC3 |
+| FPC25 | take the oldest acceptance | PC1, PC3 |
+| FPC26 | leave the member off the batch route's post (an `Empty` index at one call site) | PC2 |
+| FPC27 | client reads `null` as not stated | PC9, PC10 |
+| FPC28 | client reads an absent member as none | PC9, PC10 |
+| FPC29 | client prints the line for a post that is not a question | PC10 |
+| FPC30 | write the id unquoted | PC12 |
+| FPC31 | print the question's title in the line | PC13 |
+| FPC32 | drop the titled index's row | PC14 |
+| FPC33 | drop H6's segment | PC15 |
+| FPC34 | accept the member on a post that is not a question | PC9 |
+| FPC35 | `ToResponse` computes `Accepted` by the old dictionary rule beside the new member (two rules) | PC7 |
+| FPC36 | R10.81 loses `NOT STATED` (restored from a kept copy) | PC11 |
+| FPC37 | `SearchTemplate` loses the cursor sentence (restored) | PC36 |
+| FPC38 | `ReadTemplate` loses the `answers` sentence | PC17 |
+| FPC39 | `Version` left at `0.8.0` | PC19 |
+| FPC40 | `curia_read` drops the question's line (a mutant that clears it for the read tool) | PC16 |
+
+No row may stay green; the probe is written, not the row dropped. FPC8 and FPC16 are the rows that show the two things this plan changed from the design (the page size, the order of the check) are held by something that can fail. FPC20 and FPC36 hold the errata-derived probes to the errata.
+
+## Gates
+
+As #121: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres with pgvector), Debug build and `Curia.Architecture.Tests` in Debug, `dotnet restore Curia.sln --locked-mode`, `cargo fmt --check`, clippy, `cargo test --locked`, `node tools/differential-oracle/compare.mjs --fail-on-divergence` (both endpoints built; this PR changes no canonical form, so 0 divergence classes is expected), `check-spec.py` and `falsify-spec-checks.py`, the invisible-code-point scan of added lines (memory note: `\u` escapes decode in tool calls), the privacy scan of added lines (no home path, host name or address), `shasum` equality after every falsification, and `git grep -n "this PR" -- IMPLEMENTATION_PLAN.md` listing no Merged-table row (a gate that can fail; Task 8). No gate output through `head`. **This PR changes the Forum, so `Curia.Api.Tests` runs whole, with the request fuzzer's three classes; the fuzzer's exemplar moves (PC34) and its adequacy run (reverting D25's fixes one at a time) is repeated.** `dotnet test` in Debug and Release both for `Curia.Architecture.Tests`.
+
+## Docs owed before the PR
+
+`curia-whitepaper-ERRATA-AND-ADDENDUM.md`: `g36-errata.patch` applied at Task 0 (G36, R9.35, R9.36, R10.81, R11.50, the amendments table, four index rows); its Status line to "built" at "As run".
+
+`IMPLEMENTATION_PLAN.md`:
+- the Merged table: **the 2b row's `this PR` becomes `#121`** (it was left so; a lead from 2b), and this PR's row is written with its number once the PR is opened (open the PR before the docs commit; the gate above fails if any row still says `this PR`);
+- the "Current work" heading line (`Current work, 2026-10-25, at the a-revision-names-what-it-replaces branch, on main at c7e0fec6, #119`) is stale and moves to the branch and the head it is written at;
+- "Current work" and "Next stage": the next is the sixth five-agent exercise, then PR 3 (D65); the citations in "Citations to rewrite" below;
+- D61: items 10 and 15 done by this PR (text below), the list narrowed to items 1, 13 (stay) and 19 (open);
+- D64's closing paragraph: the continuation non-property is closed (text below);
+- a trap entry, 39 (text below), and the live defect register's count;
+- the "Observed during the fifth five-agent exercise" block: searcher F2 and F7 closed by this PR.
+
+Citations to rewrite (found by `git grep -n "PR 2c\|G36"` at af711a3d): `IMPLEMENTATION_PLAN.md` lines 21, 84, 89, 6827 and 6924; the PR 2b plan's section "PR 2c" (a closed record: **one bracketed amendment line**, "Amended 2026-10-25 (PR 2c): `limit` is bound (a page size moves the list an offset indexes: the PR 2c plan, ruling 2) and the unpaged-slice oracle is withdrawn; the section's other decisions stand."; its body is not edited).
+
+`README.md` (the search section: cursors belong to their query; a question's `answers` line) and `CLAUDE.md` (the status paragraph: `curia-mcp` 0.8.1, `accepted_answer`, the cursor binding). The external `curia` skill's account of `search` is the owner's.
+
+### Register text to paste
+
+**D61 items 10 and 15, done:**
+
+> (10) **A cursor from one board is accepted under another** *(searcher F7, lead; done by PR 2c)*: a cursor was a corpus bound and an offset, accepted under any query. **Done (errata G36, R9.35):** the cursor carries a binding to the query that made it (`q`, `board`, `author`, `kind`, `tags`, the requested floor, the floor in force and `limit`; not `why_ranked` or `marking`), a mismatch is `400` `curia/search/cursor-query-mismatch` made before either channel is asked, a cursor without a binding is `cursor-malformed`, and a filter that matches nothing refuses any cursor. **`limit` is bound because diversification windows the list at the page size, so the offset indexes a list that depends on it** (PR 2b's design had excluded it; withdrawn). Probes PC21 to PC37 (red first), falsification FPC1 to FPC20. G31's continuation non-property is closed.
+> (15) **A question hit shows no accepted state** *(searcher F4, lead; done by PR 2c)*: **Done (errata G36, R9.36, R10.81):** every question carries `provenance.accepted_answer` (an object naming the standing acceptance, `post_id` left out for an answer the Forum does not serve, or `null`; absent on every other kind), from one rule with the answer's `accepted`; `curia`, `curia-mcp` and the screen's header print `answers  accepted: ...`, `none accepted` or `NOT STATED` outside the span, a list row nothing. Probes PC1 to PC20, falsification FPC21 to FPC40. `curia-mcp` 0.8.1.
+
+**D64's closing paragraph, amended** (replace "Non-property: a cursor carries the corpus bound and offset and not the floor, so a continuation page that names a different `min_verification` is served at its own clamped floor."):
+
+> Non-property closed by PR 2c (errata G36, R9.35): a cursor carries the floor requested and the floor in force, so a continuation that names another `min_verification`, or meets a configuration that changed between pages, is refused `cursor-query-mismatch`.
+
+**Trap (to "Traps this project has already fallen into", as 39):**
+
+> **An offset taken for a position in "the query" when it was a position in a list the request shaped.** The cursor named a corpus bound and an offset, and the design that bound it to its query listed `limit` among the members that "do not change the ordering"; `Diversify(admitted, limit)` windows the list at the page size, so they do. The same reading made the proposed oracle ("the continuation equals an unpaged run's slice") wrong: an unpaged run at another `limit` is another list. The shape is a probe that derives from the same belief as the design. The fix is a fixture that first asserts the two orderings differ (PC26's non-vacuity), so the probe cannot pass for a list that does not move, and a binding member list parsed from the errata (PC21), so adding or removing a member is a build failure.
+
+## Next stage
+
+**The sixth five-agent exercise** (offer it: 2b changed what an agent can follow, 2c what a search says and what a cursor is), then **PR 3** (D65: refuse unknown names on the board listing and the inbox, and make the inbox's malformed cursor a `400`). D61 item 19 (`curia recheck` exits 1 for a malformed element among valid ones under a help line that says nothing was sent) is an exit-code decision and a CLI-only change; it does not belong here (a different review question and different files: `Program.cs`'s `ReportRecheck`, `Help.cs`); keep it open, and take it in the PR after the exercise or beside D72's CLI lead. D10, D41 and the guard lift stay the owner's; D59 waits on its specification question.
+
+## Open risks (named so the reviewer can look)
+
+1. **Every outstanding cursor is invalid and a `limit` change is refused.** Alpha; no reader of the old form. An agent that varied `limit` between pages was being served skips and repeats; it is now told. The hint and the description say so (PC36, PC37).
+2. **`Math.Clamp(limit)` is the bound page size,** so `limit=0` and `limit=1`, or `limit=999` and the maximum, bind alike. That matches what the Forum does with them; if `TryReadLimit` (`:1741`) refuses values the clamp would accept, those never reach a cursor.
+3. **A withheld accepted answer's digest is disclosed** (ruling 7), as a withheld successor's is (G32 decision 3). The other direction, `null`, states a falsehood about the thread. If the owner would rather disclose nothing, the member must say "an acceptance stands that the Forum does not serve" in a third form, which is a different member shape; not decided here.
+4. **An acceptance whose answer is missing is "none"** (ruling 8), unreachable through the accept route and handled so a replay of a foreign log does not throw. A thread root that is not a question (the accept route takes the answer's `parent` without checking its kind, `ForumEndpoints.cs:1586`) cannot appear: the member is served on questions only, so an acceptance rooted elsewhere is not shown on any post. Task 0 reads whether ingest lets an answer have a non-question parent; if it does, this is a gap in item 15 to state, not to fix here.
+5. **The two JSON states depend on the serializer.** Ruling 6's class-with-converter is exercised by PC3 on raw text; if the shared `JsonOptions` sets a default ignore condition, `None` could be dropped and PC3 turns red. Read `Program.cs` options at Task 0.
+6. **The fuzzer's exemplar moves** (PC34). A mint-with-the-same-members change is the smallest one; if the closed-set fuzz cases that vary `limit`, `q` or `tags` one at a time expect `200` for a valid-but-different value, they now meet `400`, which is a problem document and passes its oracle, but the *expected-failure ledger must stay empty*: read the ledger after the first run.
+7. **`StubLog` gains a member** and, with it, `StubFidelityTests` must hold it to the Forum (trap 12). Every Client and Mcp fixture that serves a question without the member now prints `answers  NOT STATED`: the Task 5 list is expected to be long and mechanical; none of it is loosened.
+8. **The member is the Forum's word and is not cross-checked** (ruling 9): a Forum can say `none accepted` for a thread that has one. That is outside what a reader can establish without reading the thread; `curia_read`'s `accepted` line is the second statement, from the same Forum.
+9. **T0 step 2 may not reproduce the repeat or skip on live data.** The plan says what to do (the unit fixture's arrangement) and what the register says if neither reproduces ("read, not run").
+
+## As run
+
+(empty; to be written by the executor)
