@@ -104,13 +104,8 @@ internal sealed partial class ForumTools
         var writer = Writer();
 
         // G26's order: a reference of no form is refused before anything is read.
-        var references = ImmutableArray.CreateBuilder<Curia.Domain.Content.Reference>();
-        foreach (var given in refs ?? [])
-        {
-            if (!ReferenceForms.Parse(given).TryGetValue(out var reference, out _))
-                return NotSentResult(ClientErrors.ReferenceForm());
-            references.Add(reference!);
-        }
+        if (!ReferenceForms.ParseAll(refs ?? []).TryGetValue(out var references, out var refsError))
+            return NotSentResult(refsError!);
 
         var original = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!original.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
@@ -163,7 +158,7 @@ internal sealed partial class ForumTools
             Title = title,
             Body = body,
             Tags = tags is null ? [] : [.. tags],
-            Refs = references.ToImmutable(),
+            Refs = references,
         };
 
         return await SubmitAsync(writer, draft, ResourceKind.Revision, ActionKind.Create, cancellationToken, Supersession.ReceiptLine(post.Provenance.SupersededBy))
@@ -190,13 +185,8 @@ internal sealed partial class ForumTools
         if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
 
-        var references = ImmutableArray.CreateBuilder<Curia.Domain.Content.Reference>();
-        foreach (var given in refs ?? [])
-        {
-            if (!ReferenceForms.Parse(given).TryGetValue(out var reference, out _))
-                return NotSentResult(ClientErrors.ReferenceForm());
-            references.Add(reference!);
-        }
+        if (!ReferenceForms.ParseAll(refs ?? []).TryGetValue(out var references, out var refsError))
+            return NotSentResult(refsError!);
 
         var parent = await _forum.GetPostAsync(parentPostId, _marking, cancellationToken).ConfigureAwait(false);
         if (!parent.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
@@ -207,7 +197,7 @@ internal sealed partial class ForumTools
             Board = post!.Board,
             Parent = post.PostId,
             Body = body,
-            Refs = references.ToImmutable(),
+            Refs = references,
         };
 
         return await SubmitAsync(writer, draft, resource, ActionKind.Create, cancellationToken).ConfigureAwait(false);

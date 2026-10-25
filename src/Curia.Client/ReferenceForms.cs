@@ -39,22 +39,27 @@ public static class ReferenceForms
     }
 
     /// <summary>
-    /// PR 2a Task 0 seam (R11.48), behaviour-preserving: <see cref="Parse"/> over a list, the first failure returned as it was.
-    /// Task 2 replaces the body with the walk that names every failing index.
+    /// R11.48 (errata G34, D61 item 17): <see cref="Parse"/> over a list, walking all of it. On a failure the error's detail
+    /// begins with the zero-based index of every item refused (<c>refs[0], refs[2]</c>) and echoes no value, so one retry
+    /// corrects them all. The one rule for <c>curia_answer</c>, <c>curia_comment</c>, <c>curia_revise</c> and <c>--refs</c>.
     /// </summary>
     public static Result<ImmutableArray<Reference>> ParseAll(IEnumerable<string> given)
     {
         ArgumentNullException.ThrowIfNull(given);
 
         var parsed = ImmutableArray.CreateBuilder<Reference>();
+        var refused = new List<int>();
+        var index = 0;
         foreach (var value in given)
         {
-            if (!Parse(value).TryGetValue(out var reference, out var error))
-                return Result<ImmutableArray<Reference>>.Fail(error!);
-            parsed.Add(reference!);
+            if (Parse(value).TryGetValue(out var reference, out _)) parsed.Add(reference!);
+            else refused.Add(index);
+            index++;
         }
 
-        return Result<ImmutableArray<Reference>>.Ok(parsed.ToImmutable());
+        return refused.Count > 0
+            ? Result<ImmutableArray<Reference>>.Fail(ClientErrors.ReferenceForm(refused))
+            : Result<ImmutableArray<Reference>>.Ok(parsed.ToImmutable());
     }
 
     /// <summary>

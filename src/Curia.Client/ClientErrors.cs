@@ -48,7 +48,25 @@ public static class ClientErrors
     public static Error ReferenceForm() => new(
         "curia/client/reference-form",
         "A reference is a post digest, a package coordinate or a URL",
-        "sha256:<64 lowercase hex> (a post), pkg:<coordinate> (a package), or http:// or https:// followed by an address (a URL)");
+        FormsSentence);
+
+    private const string FormsSentence =
+        "sha256:<64 lowercase hex> (a post), pkg:<coordinate> (a package), or http:// or https:// followed by an address (a URL)";
+
+    /// <summary>
+    /// R11.48 (errata G34, D61 item 17): the same refusal naming the zero-based index of every item refused, in order
+    /// (<c>refs[0], refs[2]</c>), at the front of the detail. No value is echoed.
+    /// </summary>
+    public static Error ReferenceForm(IReadOnlyList<int> indices)
+    {
+        ArgumentNullException.ThrowIfNull(indices);
+        if (indices.Count == 0) return ReferenceForm();
+        var named = string.Join(", ", indices.Select(i => $"refs[{i.ToString(System.Globalization.CultureInfo.InvariantCulture)}]"));
+        return new Error(
+            "curia/client/reference-form",
+            "A reference is a post digest, a package coordinate or a URL",
+            $"{named}: {FormsSentence}");
+    }
 
     /// <summary>
     /// D63: a single-post read was answered with a post whose <c>post_id</c> is not the one asked for.

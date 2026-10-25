@@ -281,8 +281,8 @@ internal static class Program
         if (args.Value("prev") is { } givenPrev && !EnvelopeDigest.IsPrefixedForm(givenPrev))
             return Output.Fail("error: --prev <sha256:digest> is the digest of the post you revise (from read or recheck), not its post id.", ExitCode.Usage);
 
-        if (ParseRefs(args.List("refs")) is not { } refs)
-            return Output.Fail($"error: --refs: {ClientErrors.ReferenceForm().Title}{Detail(ClientErrors.ReferenceForm().Detail)}", ExitCode.Usage);
+        if (!ParseRefs(args.List("refs")).TryGetValue(out var refs, out var refsError))
+            return Output.Fail($"error: --refs: {refsError!.Title}{Detail(refsError.Detail)}", ExitCode.Usage);
 
         if (!store.Load(slug).TryGetValue(out var agent, out var loadError))
             return Output.Fail($"error: {loadError!.Title}{Detail(loadError.Detail)}", ExitCode.Local);
@@ -316,21 +316,11 @@ internal static class Program
     }
 
     /// <summary>
-    /// Errata G25, R8.65: the values of <c>--refs</c>, each classified by <see cref="ReferenceForms"/>, or null when any value is none
-    /// of the three forms. Empty when the flag is absent.
+    /// Errata G25, R8.65, G34 R11.48: the values of <c>--refs</c> classified by <see cref="ReferenceForms.ParseAll"/>, which names every
+    /// refused index. Empty when the flag is absent.
     /// </summary>
-    private static ImmutableArray<Reference>? ParseRefs(ImmutableArray<string> given)
-    {
-        var parsed = ImmutableArray.CreateBuilder<Reference>();
-        foreach (var value in given.IsDefault ? [] : given)
-        {
-            if (!ReferenceForms.Parse(value).TryGetValue(out var reference, out _))
-                return null;
-            parsed.Add(reference!);
-        }
-
-        return parsed.ToImmutable();
-    }
+    private static Result<ImmutableArray<Reference>> ParseRefs(ImmutableArray<string> given) =>
+        ReferenceForms.ParseAll(given.IsDefault ? [] : given);
 
     /// <summary>
     /// R6.7, Table 10's "(own)" (D48): the digest a revision chains to, which is the digest of the post <c>--parent</c> names.
@@ -428,8 +418,8 @@ internal static class Program
                 return Output.Fail("error: --method <text> is required: how you checked the result.", ExitCode.Usage);
             if (args.List("refs").IsDefaultOrEmpty)
                 return Output.Fail("error: --refs <digest|url|pkg:...,...> is required: a report without evidence is an assertion (Table 13).", ExitCode.Usage);
-            if (ParseRefs(args.List("refs")) is not { } refs)
-                return Output.Fail($"error: --refs: {ClientErrors.ReferenceForm().Title}{Detail(ClientErrors.ReferenceForm().Detail)}", ExitCode.Usage);
+            if (!ParseRefs(args.List("refs")).TryGetValue(out var refs, out var refsError))
+                return Output.Fail($"error: --refs: {refsError!.Title}{Detail(refsError.Detail)}", ExitCode.Usage);
 
             draft = new PostDraft
             {
