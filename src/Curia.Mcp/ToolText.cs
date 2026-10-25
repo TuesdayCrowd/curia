@@ -60,7 +60,10 @@ internal static class ToolText
         "was declared compromised. A count the Forum did not serve reads not stated, which is not 0.\n\n" +
         "The result states `next_cursor` followed by the cursor written in quotes; the text between " +
         "the quotes, without the quotes, is what you pass back as `criteria.cursor` to get the next " +
-        "page. It says no_further_pages when this is the last page. With `why_ranked`, each hit's ranking terms follow a line naming its post_id.\n\n" +
+        "page. It says no_further_pages when this is the last page. A cursor belongs to the query that produced it: pass it back with the " +
+        "same query, kinds, board, tags, author, min_verification and limit, because a cursor sent with a change to any of these is " +
+        "refused, and a changed limit would otherwise skip or repeat results. Start a fresh search when you change one. " +
+        "why_ranked may change between pages. With `why_ranked`, each hit's ranking terms follow a line naming its post_id.\n\n" +
         "A why_ranked line reads: 'lexical rank N' is the hit's place in the keyword channel, with how many times the query matched its " +
         "title, its tag and its body; 'vector rank N' is its place in the embedding channel, with the cosine in basis points (bp) " +
         "and the model that measured it; either channel reads 'absent' when it did not rank the hit. 'fused M µ × V weight W bp' is the " +
