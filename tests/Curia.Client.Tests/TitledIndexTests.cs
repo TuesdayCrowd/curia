@@ -301,8 +301,8 @@ public sealed class TitledIndexTests : IDisposable
             var lines = Lines(text);
             var at = $"under {marking}:\n{DisplayLiteral.Of(text)}";
 
-            // Count line, warning, marking line, frame id line, parent line, three span lines.
-            Assert.True(lines.Length == 8, $"{lines.Length} lines, not the honest 8, {at}");
+            // Count line, warning, marking line, frame id line, answers row (R10.81: a question served without the member), parent line, three span lines.
+            Assert.True(lines.Length == 9, $"{lines.Length} lines, not the honest 9, {at}");
             Assert.DoesNotContain(lines, l => l.StartsWith("#4", StringComparison.Ordinal));
 
             var inner = Assert.Single(InnerLines(lines));

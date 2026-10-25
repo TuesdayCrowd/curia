@@ -38,8 +38,6 @@ public sealed record Successor(string Digest, string? PostId);
 /// member was <c>null</c>: no acceptance stands) or a standing acceptance, naming the answer by <see cref="Digest"/> and by
 /// <see cref="PostId"/> only where the Forum serves that answer (R10.36). A <see cref="Provenance"/> that carries no
 /// <see cref="AcceptedAnswerMember"/> at all is a Forum that did not say, which is a third state and not "none".
-///
-/// <para><b>Seam, not yet read.</b> The member exists so the probes that need it fail by assertion; nothing builds one yet.</para>
 /// </summary>
 public sealed record AcceptedAnswerMember(string? Digest, string? PostId)
 {

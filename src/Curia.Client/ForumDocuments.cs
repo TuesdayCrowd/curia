@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Curia.Canon.Json;
+using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Domain.Serving;
 
@@ -623,6 +624,42 @@ internal static class ForumDocuments
         return Result<ImmutableArray<Successor>>.Ok(revisions.MoveToImmutable());
     }
 
+    /// <summary>
+    /// R9.36 / R10.81: <c>provenance.accepted_answer</c> is absent (the Forum did not state it: null, which is not "none"), <c>null</c>
+    /// (<see cref="AcceptedAnswerMember.None"/>), or an object holding a <c>digest</c> of the published <c>sha256:&lt;64 lowercase hex&gt;</c>
+    /// form and an optional string <c>post_id</c>; and it is on a question only. Anything else that is present is a malformed response and
+    /// is not coerced to none, which would tell an agent a settled thread is open; nor is the member read off a post that is not a question,
+    /// since a Forum that contradicts its own R9.36 is not one whose word to print.
+    /// </summary>
+    private static Result<AcceptedAnswerMember?> ReadAcceptedAnswer(JsonValue.Object provenance, string kind)
+    {
+        var malformed = Result<AcceptedAnswerMember?>.Fail(
+            ClientErrors.ResponseMalformed("provenance.accepted_answer is neither null nor an answer's digest and optional post id (R9.36)"));
+
+        if (ClientJson.Member(provenance, "accepted_answer") is not { } member)
+            return Result<AcceptedAnswerMember?>.Ok(null);
+
+        if (!string.Equals(kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal))
+            return Result<AcceptedAnswerMember?>.Fail(
+                ClientErrors.ResponseMalformed("provenance.accepted_answer is on a post that is not a question (R9.36)"));
+
+        if (member is JsonValue.Null) return Result<AcceptedAnswerMember?>.Ok(AcceptedAnswerMember.None);
+
+        if (member is not JsonValue.Object answer
+            || ClientJson.String(answer, "digest") is not { } digest
+            || !EnvelopeDigest.IsPrefixedForm(digest))
+            return malformed;
+
+        string? postId = null;
+        if (ClientJson.Member(answer, "post_id") is { } id)
+        {
+            if (id is not JsonValue.String text) return malformed;
+            postId = text.Value;
+        }
+
+        return Result<AcceptedAnswerMember?>.Ok(new AcceptedAnswerMember(digest, postId));
+    }
+
     internal static Result<ProvenancePost> ReadPost(JsonValue value)
     {
         if (value is not JsonValue.Object o)
@@ -657,6 +694,9 @@ internal static class ForumDocuments
         if (!ReadSupersededBy(p).TryGetValue(out var supersededBy, out var supersededError))
             return Result<ProvenancePost>.Fail(supersededError!);
 
+        if (!ReadAcceptedAnswer(p, ClientJson.String(o, "kind") ?? string.Empty).TryGetValue(out var acceptedAnswer, out var acceptedError))
+            return Result<ProvenancePost>.Fail(acceptedError!);
+
         var provenance = new Provenance(
             ClientJson.String(p, "content_type") ?? string.Empty,
             ClientJson.String(p, "warning") ?? string.Empty,
@@ -677,7 +717,8 @@ internal static class ForumDocuments
             // a post as `current`, can say so; absent from an older Forum, which reads as `active` and not disputed.
             ClientJson.String(p, "key_status") ?? "active",
             ClientJson.WholeNumber(p, "disputed_by_log_index"),
-            supersededBy);
+            supersededBy,
+            acceptedAnswer);
 
         if (ClientJson.String(o, "post_id") is not { } postId
             || ClientJson.String(o, "canonical") is not { } canonical

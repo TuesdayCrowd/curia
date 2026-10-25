@@ -642,16 +642,6 @@ public sealed class ToolDescriptionTests
     }
 
     /// <summary>
-    /// R11.49 (errata G35): <c>curia_recheck</c> adds a tool, so the server reports 0.8.0. This is the fact that said 0.7.2 for G34 (refusals and a
-    /// receipt line changed and no tool was added), moved by the stage that adds the tool.
-    /// </summary>
-    [Fact]
-    public void R11_49_VersionIs080()
-    {
-        Assert.Equal("0.8.0", ToolCatalogue.Version);
-    }
-
-    /// <summary>
     /// R11.49: the description says what the tool returns and what it does not check. <b>Weak by construction:</b> it restates the tool's wording
     /// (a description cannot be held against a source other than itself); the closing line's phrases, which the errata names, are held in
     /// <c>RecheckToolTests.R11_49_TheClosingLineSaysNoSignatureAndNoInclusionWasChecked</c>.

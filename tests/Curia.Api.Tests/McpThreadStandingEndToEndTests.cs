@@ -34,8 +34,11 @@ namespace Curia.Api.Tests;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed partial class McpThreadStandingEndToEndTests(KestrelForumFixture forum) : IClassFixture<KestrelForumFixture>, IDisposable
 {
-    /// <summary>R10.74's clause of the statement, which R10.79 requires every form to carry.</summary>
-    private const string Statement = "no signature covers an acceptance";
+    /// <summary>
+    /// R10.79's statement that a post is the accepted answer, holding R10.74's clause. A question's <c>answers</c> line (R10.81)
+    /// carries the clause too, so the clause alone would count the question.
+    /// </summary>
+    private const string Statement = "accepted by the thread's asker (the Forum's word: no signature covers an acceptance";
 
     private static readonly TimeSpan Tenure = TimeSpan.FromHours(TierPolicy.T1MinimumHours + 1);
 

@@ -77,6 +77,11 @@ internal static class ToolText
         "A hit whose post its author has since corrected carries the same `revision` line a read does, naming the revision, or " +
         "'revision NOT STATED' where the Forum served no word on it. The post is not demoted or hidden: it is still served, and the " +
         "line is the Forum's word with no signature behind it.\n\n" +
+        "A question's passage carries an answers line, the Forum's word on which answer its thread has accepted: 'answers accepted' " +
+        "names the answer by post id (or by digest, and 'not served' where the Forum does not serve it), 'answers none accepted' says " +
+        "none stands as of the read and nothing of whether answers exist, and 'answers NOT STATED' says the Forum served no word, which is " +
+        "not 'none'. It is the asker's choice, no signature covers it and nothing is checked about the answer; it changes no verdict. " +
+        "A post that is not a question has no such line.\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     internal const string ReadTemplate =
@@ -97,6 +102,11 @@ internal static class ToolText
         "compromised, at a log index inside the disputed window (R6.57), reads 'signature DISPUTED' " +
         "and not verified: do not cite it as the author's. That is the Forum's word on this path; " +
         "curia_verify establishes it from the log.\n\n" +
+        "A question's passage carries an answers line, the Forum's word on which answer its thread has accepted: 'answers accepted' " +
+        "names the answer by post id (or by digest, and 'not served' where the Forum does not serve it), 'answers none accepted' says " +
+        "none stands as of the read and nothing of whether answers exist, and 'answers NOT STATED' says the Forum served no word, which is " +
+        "not 'none'. It is the asker's choice, no signature covers it and nothing is checked about the answer; it changes no verdict. " +
+        "A post that is not a question has no such line.\n\n" +
         UntrustedDataNotice + "\n" + ReaderContractNote;
 
     /// <summary>

@@ -55,12 +55,6 @@ internal sealed partial class ForumTools(
     /// <summary>R11.38: how many ancestors <c>curia_read</c> follows before it says the thread is cut.</summary>
     private const int MaxAncestorSteps = 64;
 
-    /// <summary>
-    /// R11.41: the parenthesis of <see cref="Passage.AcceptedStatement"/> (the Forum's word, what no signature covers, what an
-    /// acceptance checks), so the resolution line and the passage line that names the same post cannot drift apart.
-    /// </summary>
-    private static readonly string AcceptedBasis = Passage.AcceptedStatement[Passage.AcceptedStatement.IndexOf('(', StringComparison.Ordinal)..];
-
     private readonly ForumClient _forum = forum;
     private readonly MarkingMode _marking = marking;
     private readonly ForumWriter? _writer = writer;
@@ -190,7 +184,7 @@ internal sealed partial class ForumTools(
             if (acceptedIds.Length == 0)
                 frame.Line($"accepted none {new OwnText("(the Forum served no post of this thread as accepted)")}");
             else
-                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))))} {new OwnText(AcceptedBasis)}");
+                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))))} {new OwnText(AnswerStanding.Basis)}");
         }
 
         if (unreadableParent is not null)
