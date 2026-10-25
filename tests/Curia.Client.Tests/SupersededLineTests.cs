@@ -179,7 +179,7 @@ public sealed class SupersededLineTests : IDisposable
         Assert.True(notStated.Contains("   revision NOT STATED"), $"the index row for a post served without the member says nothing:\n{string.Join('\n', notStated)}");
 
         // Control: an empty list is silence.
-        Assert.DoesNotContain(rowsOf(None), r => r.Contains("supersed", StringComparison.OrdinalIgnoreCase) || r.Contains("NOT STATED", StringComparison.Ordinal));
+        Assert.DoesNotContain(rowsOf(None), r => r.Contains("supersed", StringComparison.OrdinalIgnoreCase) || r.Contains("revision NOT STATED", StringComparison.Ordinal));
     }
 
     [Fact]

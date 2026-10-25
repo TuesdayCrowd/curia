@@ -431,8 +431,9 @@ public sealed class ScreenModelTests
     [Fact]
     public void R10_74_AcceptedIsTheForumsWordAndOnlyInH6()
     {
-        var accepted = Hand(["a line"]) with { Post = Hand(["a line"]).Post with { Accepted = true } };
-        var plain = Hand(["a line"]);
+        // An answer: a question's header also states its accepted answer (R10.81), in words that hold "accepted", and this fact is about R10.79's line.
+        var accepted = Hand(["a line"]) with { Post = Hand(["a line"]).Post with { Kind = "answer", Accepted = true } };
+        var plain = Hand(["a line"]) with { Post = Hand(["a line"]).Post with { Kind = "answer" } };
 
         var withWord = PassageHeader.Rows(accepted, 1, 200).Select(r => r.Text).ToArray();
         var without = PassageHeader.Rows(plain, 1, 200).Select(r => r.Text).ToArray();

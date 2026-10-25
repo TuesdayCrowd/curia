@@ -34,6 +34,21 @@ public enum MarkingMode
 public sealed record Successor(string Digest, string? PostId);
 
 /// <summary>
+/// R9.36 (errata G36): the Forum's word on which answer, if any, stands as a question's accepted one. Either <see cref="None"/> (the
+/// member was <c>null</c>: no acceptance stands) or a standing acceptance, naming the answer by <see cref="Digest"/> and by
+/// <see cref="PostId"/> only where the Forum serves that answer (R10.36). A <see cref="Provenance"/> that carries no
+/// <see cref="AcceptedAnswerMember"/> at all is a Forum that did not say, which is a third state and not "none".
+/// </summary>
+public sealed record AcceptedAnswerMember(string? Digest, string? PostId)
+{
+    /// <summary>No acceptance stands.</summary>
+    public static AcceptedAnswerMember None { get; } = new(null, null);
+
+    /// <summary>True when no acceptance stands.</summary>
+    public bool IsNone => Digest is null;
+}
+
+/// <summary>
 /// R10.17's provenance envelope: what a reader is told about content it did not write.
 ///
 /// <para><b>Every field here answers a question a reader would otherwise guess at.</b>
@@ -64,6 +79,11 @@ public sealed record Successor(string Digest, string? PostId);
 /// predates the member); an empty array means nothing supersedes the post. The Forum's word, outside the signed bytes and
 /// the leaf, so a reader prints it as such (R10.80) and never as a verdict on the post.
 /// </param>
+/// <param name="AcceptedAnswer">
+/// R9.36: the answer the thread's standing acceptance names, on a question only. Null means the Forum did not say (the member was
+/// absent); <see cref="AcceptedAnswerMember.None"/> means the member was <c>null</c>. The Forum's word, outside the signed bytes and the
+/// leaf, so a reader prints it as such (R10.81) and never as a verdict on the post or on the answer.
+/// </param>
 /// <param name="Marking">
 /// Which marking was applied, so a client can strip it after its model has consumed the marked form
 /// (R10.14). Reported even when <see cref="MarkingMode.None"/>: "no marking" is information too, and
@@ -87,7 +107,8 @@ public sealed record Provenance(
     ImmutableArray<string> Contradictions,
     string KeyStatus = "active",
     long? DisputedByLogIndex = null,
-    ImmutableArray<Successor> SupersededBy = default)
+    ImmutableArray<Successor> SupersededBy = default,
+    AcceptedAnswerMember? AcceptedAnswer = null)
 {
     /// <summary>
     /// R10.17's exact wording, and it is a constant rather than a template because the sentence is

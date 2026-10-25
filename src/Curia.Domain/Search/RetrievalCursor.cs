@@ -16,10 +16,10 @@ namespace Curia.Domain.Search;
 /// than argued, and an offset into that fixed ordering is then an exact position. New posts appear
 /// on the next fresh query, never mid-page.</para>
 /// </summary>
-public sealed record RetrievalCursor(long CorpusBound, int Offset)
+public sealed record RetrievalCursor(long CorpusBound, int Offset, string Binding)
 {
     public string Encode() => Convert.ToBase64String(Encoding.ASCII.GetBytes(
-        string.Create(CultureInfo.InvariantCulture, $"c{CorpusBound}:{Offset}")));
+        string.Create(CultureInfo.InvariantCulture, $"c{CorpusBound}:{Offset}:{Binding}")));
 
     /// <summary>
     /// Absent (<see langword="null"/> success) or a cursor; a malformed one is a refusal.
@@ -45,15 +45,16 @@ public sealed record RetrievalCursor(long CorpusBound, int Offset)
         try
         {
             var text = Encoding.ASCII.GetString(Convert.FromBase64String(encoded));
-            if (text.Length < 4 || text[0] != 'c') return Malformed();
 
-            var separator = text.IndexOf(':', StringComparison.Ordinal);
-            if (separator <= 1) return Malformed();
+            // R9.35: exactly `c{bound}:{offset}:{binding}`, the binding sixteen lowercase hexadecimal digits. A cursor of any other
+            // shape (the two-field form an earlier build minted, a fourth field, an empty or malformed binding) is malformed.
+            var fields = text.Split(':');
+            if (fields.Length != 3 || fields[0].Length < 2 || fields[0][0] != 'c' || !IsCanonicalNumeral(fields[0][1..]) || !IsCanonicalNumeral(fields[1]) || !IsBinding(fields[2]))
+                return Malformed();
 
-            return long.TryParse(text.AsSpan(1, separator - 1), CultureInfo.InvariantCulture, out var bound)
-                && int.TryParse(text.AsSpan(separator + 1), CultureInfo.InvariantCulture, out var offset)
-                && bound >= 0 && offset >= 0
-                    ? Result<RetrievalCursor?>.Ok(new RetrievalCursor(bound, offset))
+            return long.TryParse(fields[0].AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out var bound)
+                && int.TryParse(fields[1], NumberStyles.None, CultureInfo.InvariantCulture, out var offset)
+                    ? Result<RetrievalCursor?>.Ok(new RetrievalCursor(bound, offset, fields[2]))
                     : Malformed();
         }
         catch (FormatException)
@@ -61,6 +62,24 @@ public sealed record RetrievalCursor(long CorpusBound, int Offset)
             return Malformed();
         }
     }
+
+    /// <summary>Digits only, and no leading zero unless the numeral is a lone zero: the one spelling <see cref="Encode"/> writes.</summary>
+    private static bool IsCanonicalNumeral(string text) =>
+        text.Length > 0 && text.All(char.IsAsciiDigit) && (text.Length == 1 || text[0] != '0');
+
+    private static bool IsBinding(string text) =>
+        text.Length == 16 && text.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
+
+    /// <summary>
+    /// R9.35: the refusal for a cursor that is well formed and belongs to another query. It names the bound members and no value, and
+    /// not which of them differs: the binding is a digest, so the Forum cannot say, and a cursor that echoed what it was minted for
+    /// would quote the caller's query back.
+    /// </summary>
+    public static Error QueryMismatch() => new(
+        "curia/search/cursor-query-mismatch",
+        "The `cursor` member belongs to a different query than this request",
+        "A cursor is valid only with the query that produced it: the same q, board, author, kind, tags, min_verification and limit " +
+        "(why and marking may differ). Send the cursor back with exactly the request that returned it, or omit it to start a fresh query (R9.35).");
 
     /// <summary>
     /// The refusal, echoing no value. A cursor the caller did not mint is evidence of corruption or

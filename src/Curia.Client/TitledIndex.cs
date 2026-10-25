@@ -61,6 +61,8 @@ public static class TitledIndex
         if (post.Accepted) frame.Line($"   {new OwnText(Passage.AcceptedStatement)}");
         // R10.80: and a supersession the Forum serves, or that it served none, from Supersession's words; an empty list is silence.
         if (Supersession.Row(post.Provenance.SupersededBy) is { } superseded) frame.Line($"   {superseded}");
+        // R10.81: and which answer settles a question, from AnswerStanding's words.
+        if (AnswerStanding.Row(post.Kind, post.Provenance.AcceptedAnswer) is { } answers) frame.Line($"   {answers}");
 
         if (score is not null)
         {

@@ -903,6 +903,30 @@ internal sealed class StubLog : IDisposable
                 ",",
                 (SupersededBy.IsDefault ? [] : SupersededBy).Select(s => "{\"digest\":" + JsonString(s.Digest) + (s.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(s.PostId)) + "}")) + "]";
 
+    /// <summary>
+    /// R9.36 and R10.81 (errata G36): what the Forum says of the answer that stands as <see cref="PostId"/>'s accepted one, on the question alone
+    /// (the answer and the decoy never carry the member): not at all (<see cref="StubAcceptedAnswer.Absent"/>, a Forum that predates the member and
+    /// the default), <c>null</c> (<see cref="StubAcceptedAnswer.None"/>), the answer by digest and post id (<see cref="StubAcceptedAnswer.Standing"/>),
+    /// or by digest alone (<see cref="StubAcceptedAnswer.StandingUnserved"/>, an answer the Forum does not serve).
+    /// The stub writes the member as this Forum does (<c>StubFidelityTests</c> holds it to the route).
+    /// </summary>
+    internal StubAcceptedAnswer AcceptedAnswer { get; set; }
+
+    /// <summary>
+    /// R9.35 and R11.50: answer <c>GET /v1/search</c> with <c>curia/search/cursor-query-mismatch</c> (<c>400</c>) instead of a page, as the Forum
+    /// does for a cursor that does not belong to the request. <b>The stub serves the refusal the Forum's factory builds.</b>
+    /// </summary>
+    internal bool SearchRefusesTheCursor { get; set; }
+
+    private string AcceptedAnswerJson() => AcceptedAnswer switch
+    {
+        StubAcceptedAnswer.Absent => string.Empty,
+        StubAcceptedAnswer.None => ",\"accepted_answer\":null",
+        StubAcceptedAnswer.Standing => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + ",\"post_id\":" + JsonString(AnswerPostId) + "}",
+        StubAcceptedAnswer.StandingUnserved => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + "}",
+        _ => throw new ArgumentOutOfRangeException(nameof(AcceptedAnswer), AcceptedAnswer, "not a state of the member"),
+    };
+
     /// <summary>R9.32: every post the Forum serves carries the member; the posts that are not <see cref="PostId"/> have no successor here.</summary>
     private string OtherPostSupersededByJson() => OmitSupersededBy ? string.Empty : ",\"superseded_by\":[]";
 
@@ -998,7 +1022,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{ServedAs ?? Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{SupersededByJson()}} },
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{SupersededByJson()}}{{AcceptedAnswerJson()}} },
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{ServedDigest ?? Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{ServedSignature ?? Submission.Signature}}",
@@ -1741,6 +1765,14 @@ internal sealed class StubLog : IDisposable
                     : log.PostJson());
             }
 
+            if (path == "/v1/search" && log.SearchRefusesTheCursor)
+            {
+                // The Forum's own refusal, from the factory the Forum answers with, so the wording cannot drift from it.
+                var mismatch = Curia.Domain.Search.RetrievalCursor.QueryMismatch();
+                return (HttpStatusCode.BadRequest,
+                    $$"""{"type":{{JsonString(mismatch.Type)}},"title":{{JsonString(mismatch.Title)}},"detail":{{JsonString(mismatch.Detail ?? string.Empty)}}}""");
+            }
+
             if (path == "/v1/search") return (HttpStatusCode.OK, log.SearchJson());
 
             return (HttpStatusCode.NotFound,
@@ -1772,4 +1804,20 @@ internal sealed class StubLog : IDisposable
         return key.ExportSubjectPublicKeyInfo();
     }
 
+}
+
+/// <summary>R9.36: how <see cref="StubLog"/> serves <c>provenance.accepted_answer</c> on its question.</summary>
+internal enum StubAcceptedAnswer
+{
+    /// <summary>The member is not served (a Forum that predates it).</summary>
+    Absent,
+
+    /// <summary>The member is <c>null</c>: no acceptance stands.</summary>
+    None,
+
+    /// <summary>The member names the stub's answer by digest and post id.</summary>
+    Standing,
+
+    /// <summary>The member names the stub's answer by digest alone (a Forum that does not serve that answer).</summary>
+    StandingUnserved,
 }

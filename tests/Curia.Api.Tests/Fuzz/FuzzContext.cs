@@ -160,8 +160,7 @@ internal sealed class FuzzContext : IDisposable
         using (var head = await context.GetJsonAsync(null, "/v1/log/head", ct))
             context.HeadSize = head.RootElement.GetProperty("head").GetProperty("tree_size").GetInt64();
 
-        using (var page = await context.GetJsonAsync(
-            null, $"/v1/search?q={SeedWord}&board={SeedBoard}&author={Uri.EscapeDataString(context.Seed.Id)}&kind=question&tags=jcs&limit=1", ct))
+        using (var page = await context.GetJsonAsync(null, "/v1/search?" + SearchMintQuery(context.Seed.Id), ct))
             context.SearchCursor = page.RootElement.GetProperty("next_cursor").GetString()!;
 
         using (var inbox = await context.GetJsonAsync(context.Agent, $"/v1/inbox?board={SeedBoard}&tags=jcs&limit=1", ct))
@@ -169,6 +168,13 @@ internal sealed class FuzzContext : IDisposable
 
         return context;
     }
+
+    /// <summary>
+    /// The query string of the request that mints <see cref="SearchCursor"/>, for the seed agent <paramref name="authorId"/>. One definition, so
+    /// the exemplar of <c>GET /v1/search</c>, which presents the cursor, can be held to the members the cursor was minted under (R9.35, PC34).
+    /// </summary>
+    internal static string SearchMintQuery(string authorId) =>
+        $"q={SeedWord}&board={SeedBoard}&author={Uri.EscapeDataString(authorId)}&kind=question&tags=jcs&min_verification=V0&limit=1";
 
     /// <summary>High-entropy text, so §8.5's dedupe never refuses a second send as a near-duplicate.</summary>
     internal static string Entropy(string stem) => stem + " " + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)) + " " + Guid.NewGuid().ToString("N");

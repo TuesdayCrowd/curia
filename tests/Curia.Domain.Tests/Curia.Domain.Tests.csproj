@@ -12,4 +12,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Curia.Domain/Curia.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- R9.35's bound members, read from the errata at test time (PC21). -->
+    <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
+  </ItemGroup>
 </Project>

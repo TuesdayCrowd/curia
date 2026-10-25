@@ -243,6 +243,8 @@ As #120: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres
 
 > Not a plan to execute: decisions made while the reading was fresh, so they are not re-derived. Its own plan is written against `main` after 2b merges, from the tree then. Erratum G36, `curia-mcp` 0.8.1. Numbers (R9.35, R9.36, R10.81, R11.50) are computed against the G35 patch and unallocated.
 
+> [Amended 2026-10-25 (PR 2c): `limit` is bound (a page size moves the list an offset indexes: the PR 2c plan, ruling 2) and the unpaged-slice oracle is withdrawn; the section's other decisions stand.]
+
 ## Item 10: a cursor binds the query that produced it (also closes G31's continuation non-property)
 
 **Reproduced at c77d9f3e** (live, two questions, one page): the cursor `c4:1` (`RetrievalCursor.Encode`, base64 of `c{bound}:{offset}`) was accepted under `q=zzzunrelated`, under `board=nonexistent`, under `tags=nomatch`, and under `min_verification=V2` (served at V2: G31's stated non-property). Each answered 200 with a floor line and nothing saying the page was a continuation of another query.

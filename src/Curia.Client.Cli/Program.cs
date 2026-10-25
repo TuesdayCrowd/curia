@@ -799,6 +799,9 @@ internal static class Program
         return await SearchPageAsync(args, terms, limit, new ForumClient(http, forum), marking, profile, ct).ConfigureAwait(false);
     }
 
+    /// <summary>R9.35: the line beneath the offer of the next page. A cursor belongs to the query that made it; this is the one thing a reader must know to pass it back.</summary>
+    private const string MoreResultsNote = "  the cursor belongs to this query: pass it back with the same terms, flags and --limit, or it is refused";
+
     /// <summary>
     /// The search once its Forum is chosen: <c>search --titles --agent</c> compares the named identity's key set as
     /// <c>read</c>, <c>thread</c> and <c>board</c> do (R4.39), so it takes the profile and builds the watch here.
@@ -845,6 +848,7 @@ internal static class Program
             {
                 Output.Blank();
                 Output.Line($"more results: {Hints.More("curia search …", nextTitled)}");
+                Output.Line(MoreResultsNote);
             }
 
             return exit;
@@ -866,6 +870,7 @@ internal static class Program
         {
             Output.Blank();
             Output.Line($"more results: {Hints.More("curia search …", next)}");
+            Output.Line(MoreResultsNote);
         }
 
         return ExitCode.Ok;

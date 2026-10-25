@@ -107,7 +107,67 @@ public sealed record ProvenanceResponse(
     /// for a post a signed head covers, because the representation hashed is this one; before the first head every tag moves
     /// with the log, as the inclusion proof does.
     /// </summary>
-    [property: JsonPropertyName("superseded_by")] ImmutableArray<SupersededByResponse> SupersededBy);
+    [property: JsonPropertyName("superseded_by")] ImmutableArray<SupersededByResponse> SupersededBy,
+
+    /// <summary>
+    /// R9.36: on a question only, the answer the thread's standing acceptance names, or <see cref="AcceptedAnswerResponse.None"/>
+    /// (written as JSON <c>null</c>) where none stands. CLR <c>null</c> is a post that is not a question and is left out: the
+    /// member is a class so the serializer's ignore condition can tell "none" from "not a question" (a <c>null</c> the converter
+    /// writes is a present member, and only a CLR null is omitted).
+    /// </summary>
+    [property: JsonPropertyName("accepted_answer")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    AcceptedAnswerResponse? AcceptedAnswer = null);
+
+/// <summary>
+/// R9.36: the answer a question's standing acceptance names: its digest, and its id only where the Forum serves it (R10.36).
+/// <see cref="None"/> is the instance that stands for "no acceptance" and is written as JSON <c>null</c>.
+/// </summary>
+[JsonConverter(typeof(AcceptedAnswerResponseConverter))]
+public sealed record AcceptedAnswerResponse(string? Digest, string? PostId)
+{
+    /// <summary>No acceptance stands; written as <c>null</c>, present.</summary>
+    public static AcceptedAnswerResponse None { get; } = new(null, null);
+
+    /// <summary>True when no acceptance stands.</summary>
+    public bool IsNone => Digest is null;
+
+    /// <summary>The wire form of the index's answer.</summary>
+    public static AcceptedAnswerResponse From(AcceptedAnswerMember member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId);
+    }
+}
+
+/// <summary>Writes <see cref="AcceptedAnswerResponse.None"/> as JSON <c>null</c> and a standing acceptance as <c>{digest, post_id?}</c>.</summary>
+public sealed class AcceptedAnswerResponseConverter : JsonConverter<AcceptedAnswerResponse>
+{
+    /// <summary>The Forum writes this member and never reads one; a caller's JSON is read through the guarded reader (R11.34).</summary>
+    public override AcceptedAnswerResponse? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        throw new NotSupportedException("accepted_answer is written by the Forum and read by Curia.Client");
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, AcceptedAnswerResponse value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (value.IsNone)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        writer.WriteStartObject();
+        writer.WriteString("digest", value.Digest);
+        if (value.PostId is not null) writer.WriteString("post_id", value.PostId);
+        writer.WriteEndObject();
+    }
+
+    /// <summary>The converter must be asked for a present <c>null</c> too, because that is the "none" state.</summary>
+    public override bool HandleNull => true;
+}
 
 /// <summary>R9.32: one revision that supersedes a post: its digest, and its id only where the Forum serves it.</summary>
 public sealed record SupersededByResponse(
@@ -1213,7 +1273,7 @@ public static class ForumEndpoints
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
                 post, standings, marking, ReaderContractUrl(http),
-                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable, disputed), disputed,
+                AcceptedAnswerIndex.Fold(log, posts, servable), VerificationProjector.Fold(posts, standings, servable, disputed), disputed,
                 CorrectionIndex.Fold(posts, servable), ActaOf(log)),
             json.Value.SerializerOptions);
 
@@ -1291,7 +1351,7 @@ public static class ForumEndpoints
         var posts = PostProjector.Fold(log);
         var servable = Servable(log);
         var standings = AgentStandingProjector.Fold(log);
-        var accepted = AcceptanceProjector.Fold(log);
+        var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
@@ -1342,7 +1402,7 @@ public static class ForumEndpoints
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
-        var accepted = AcceptanceProjector.Fold(log);
+        var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
 
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
@@ -1365,8 +1425,8 @@ public static class ForumEndpoints
         var standings = AgentStandingProjector.Fold(log);
 
         var servable = Servable(log);
-        var accepted = AcceptanceProjector.Fold(log);
         var posts = PostProjector.Fold(log);
+        var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
         var disputed = DisputedPosts.Fold(log, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(posts, servable);
@@ -1594,6 +1654,14 @@ public static class ForumEndpoints
                 StatusCodes.Status403Forbidden,
                 Denial(d, $"{d.Reason} tier={tier.Tier}"));
 
+        // R8.69 (errata G36): an acceptance is stated on the question (R9.36), so a root that is not one would be stated on no post
+        // while the answer's own `accepted` read true. After the ownership check, so a caller who is not the asker is still told 403.
+        if (!string.Equals(root!.Kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal))
+            return Problem(StatusCodes.Status400BadRequest, new Error(
+                "curia/accept/root-not-a-question",
+                "Only an answer to a question may be accepted",
+                $"post={postId} root={root.PostId} kind={root.Kind}"));
+
         // The thread root is a post the log holds, whose id the Forum minted as a PostId; the type has
         // no other constructor, so it is rebuilt through Parse, and one that no longer parsed would be
         // the log's fault, answered as a record the log refused is (R11.34, errata G18).
@@ -1658,7 +1726,7 @@ public static class ForumEndpoints
         var disputed = DisputedPosts.Fold(log, views);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
-        var accepted = AcceptanceProjector.Fold(log);
+        var accepted = AcceptedAnswerIndex.Fold(log, views, servable);
         var acta = ActaOf(log);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
@@ -1782,6 +1850,11 @@ public static class ForumEndpoints
             (boardWire is not null && !BoardName.Parse(boardWire, "board").TryGetValue(out board, out _))
             | (authorWire is not null && !AgentId.Parse(authorWire, "author").TryGetValue(out author, out _));
 
+        // R9.35: a filter that matches nothing mints no cursor, so a cursor presented with one came from some other query. It is a
+        // mismatch by construction and not a first page, and it is refused before the query is built.
+        if (matchesNothing && cursor is not null)
+            return Problem(StatusCodes.Status400BadRequest, RetrievalCursor.QueryMismatch());
+
         var query = new SearchQuery(
             Text: Nullable(http.Query["q"].ToString()),
             Board: board,
@@ -1805,11 +1878,15 @@ public static class ForumEndpoints
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
-        var acceptedByThread = AcceptanceProjector.Fold(log);
+        var acceptedByThread = AcceptedAnswerIndex.Fold(log, views, servable);
 
         var searched = await search.SearchAsync(log, RetrievalSurface.RestSearch, query, verification, cancellationToken).ConfigureAwait(false);
         if (!searched.TryGetValue(out var page, out var searchError))
-            return Problem(StatusCodes.Status503ServiceUnavailable, searchError!);
+        {
+            // R9.35: a cursor that belongs to another query is the caller's request and not a search failure.
+            var mismatch = string.Equals(searchError!.Type, RetrievalCursor.QueryMismatch().Type, StringComparison.Ordinal);
+            return Problem(mismatch ? StatusCodes.Status400BadRequest : StatusCodes.Status503ServiceUnavailable, searchError);
+        }
 
         // R9.8: "when requested". Off by default because R8.36's purpose is auditing rather than
         // decoration, and a field on every response is one every client learns to ignore.
@@ -1985,7 +2062,7 @@ public static class ForumEndpoints
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
         var corrections = CorrectionIndex.Fold(views, servable);
         var acta = ActaOf(log);
-        var accepted = AcceptanceProjector.Fold(log);
+        var accepted = AcceptedAnswerIndex.Fold(log, views, servable);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
         var contract = ReaderContractUrl(http);
@@ -2190,7 +2267,7 @@ public static class ForumEndpoints
         ImmutableDictionary<string, AgentStanding> standings,
         MarkingMode marking,
         string readerContract,
-        ImmutableDictionary<string, string>? acceptedByThread,
+        AcceptedAnswerIndex accepted,
         VerificationFold verification,
         DisputedPosts disputed,
         CorrectionIndex corrections,
@@ -2260,7 +2337,13 @@ public static class ForumEndpoints
             DisputedByLogIndex: disputed.DisputedByLogIndex(p),
 
             // R9.32: the Forum's word on who has corrected this post, folded once per request and asked per post.
-            SupersededBy: [.. corrections.For(p).Select(s => new SupersededByResponse(s.Digest, s.PostId))]);
+            SupersededBy: [.. corrections.For(p).Select(s => new SupersededByResponse(s.Digest, s.PostId))],
+
+            // R9.36: a question always carries the Forum's word on its accepted answer (none is a present null); no other kind does.
+            // The one rule that sets the answer's `accepted` below also sets this, so the two cannot disagree.
+            AcceptedAnswer: string.Equals(p.Kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal)
+                ? AcceptedAnswerResponse.From(accepted.StandingOf(p))
+                : null);
 
         return new PostResponse(
             provenance,
@@ -2275,13 +2358,8 @@ public static class ForumEndpoints
             Datamarking.Render(p.Canonical, marking),
 
             // The acceptance is a fact about the thread, so the lookup is by root; a post is the
-            // accepted answer only of its own thread. Absent when the caller did not fold
-            // acceptances, which is honest: "not known to be accepted" and "known not to be" are the
-            // same answer to a reader, and inventing true is the only unsafe direction.
-            acceptedByThread is not null
-                && p.Parent is { } parent
-                && acceptedByThread.TryGetValue(parent, out var accepted)
-                && string.Equals(accepted, p.PostId, StringComparison.Ordinal),
+            // accepted answer only of its own thread (AcceptedAnswerIndex, the rule the question's member shares).
+            accepted.IsAccepted(p),
             logIndex,
             inclusion,
             p.PossibleDuplicateOf);

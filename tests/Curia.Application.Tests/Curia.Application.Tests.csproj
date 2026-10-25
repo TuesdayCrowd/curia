@@ -15,5 +15,6 @@
   <ItemGroup>
     <!-- R4.38 (add.): the test composition's gate, linked so each test assembly holds its own internal copy. -->
     <Compile Include="../Shared/PermissiveLifecycleAppendGate.cs" Link="Shared/PermissiveLifecycleAppendGate.cs" />
+    <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
   </ItemGroup>
 </Project>
