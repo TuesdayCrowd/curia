@@ -43,14 +43,15 @@ public sealed class RecheckDisputedTests
     {
         var successors = state == "superseded" ? "\"sha256:bbbb\"" : string.Empty;
         var body = $$"""{"items":[{{leadingItems}}{"digest":"{{Digest}}","state":"{{state}}","successors":[{{successors}}],"forked":false,"post":{{Post(status, disputedBy)}}}]}""";
+        var sent = Enumerable.Repeat("sha256:eeee", leadingItems.Length > 0 ? 1 : 0).Append(Digest).ToArray();
         using var handler = new Handler(body.ReplaceLineEndings(string.Empty));
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://forum.test") };
         var client = new ForumClient(http, new Uri("http://forum.test"));
 
-        var result = await client.BatchAsync([Digest], MarkingMode.None, TestContext.Current.CancellationToken);
+        var result = await client.BatchAsync(sent, MarkingMode.None, TestContext.Current.CancellationToken);
         Assert.True(result.TryGetValue(out var items, out var refusal), refusal?.Summary);
 
-        var (exit, stdout, _) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportRecheck(items)));
+        var (exit, stdout, _) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportRecheck(sent, items)));
         return (exit, stdout);
     }
 

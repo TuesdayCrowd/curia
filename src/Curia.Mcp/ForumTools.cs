@@ -273,6 +273,18 @@ internal sealed partial class ForumTools(
         };
     }
 
+    /// <summary>
+    /// R11.49's <c>curia_recheck</c>. <b>Seam, Task 0 of PR 2b:</b> it answers an empty text block and is registered nowhere, so
+    /// a probe that calls it fails by assertion and not by compile error; Task 2 replaces it.
+    /// </summary>
+    internal Task<CallToolResult> RecheckAsync(string[] digests, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(digests);
+        ArgumentNullException.ThrowIfNull(_forum);
+
+        return Task.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = string.Empty }] });
+    }
+
     /// <summary>The post as the Forum serves it now, for a subject this session has not read.</summary>
     private async Task<PostVerification> FetchedAsync(string postId, CancellationToken cancellationToken)
     {

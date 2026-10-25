@@ -638,10 +638,32 @@ public sealed class ToolDescriptionTests
         Assert.Contains("NOT CHECKED", description, StringComparison.Ordinal);
     }
 
-    /// <summary>R11.47 (errata G34): refusals and a receipt line changed and no tool was added, so the server reports 0.7.2.</summary>
+    /// <summary>
+    /// R11.49 (errata G35): <c>curia_recheck</c> adds a tool, so the server reports 0.8.0. This is the fact that said 0.7.2 for G34 (refusals and a
+    /// receipt line changed and no tool was added), moved by the stage that adds the tool.
+    /// </summary>
     [Fact]
-    public void R11_47_VersionIs072()
+    public void R11_49_VersionIs080()
     {
-        Assert.Equal("0.7.2", ToolCatalogue.Version);
+        Assert.Equal("0.8.0", ToolCatalogue.Version);
+    }
+
+    /// <summary>
+    /// R11.49: the description says what the tool returns and what it does not check. <b>Weak by construction:</b> it restates the tool's wording
+    /// (a description cannot be held against a source other than itself); the closing line's phrases, which the errata names, are held in
+    /// <c>RecheckToolTests.R11_49_TheClosingLineSaysNoSignatureAndNoInclusionWasChecked</c>.
+    /// </summary>
+    [Fact]
+    public void R11_49_TheRecheckDescriptionStatesWhatItReturnsAndWhatItDoesNotCheck()
+    {
+        Assert.NotEmpty(Registered());
+        var recheck = Assert.Single(Registered(), t => t.Name == "curia_recheck").Description;
+
+        Assert.Contains(ToolText.UntrustedDataNotice, recheck, StringComparison.Ordinal);
+        Assert.Contains("Requires no credential: this Forum serves reads to anonymous callers.", recheck, StringComparison.Ordinal);
+        Assert.Contains("ids", recheck, StringComparison.Ordinal);
+        Assert.Contains("standings", recheck, StringComparison.Ordinal);
+        Assert.Contains("no signature", recheck, StringComparison.Ordinal);
+        Assert.Contains("curia_verify", recheck, StringComparison.Ordinal);
     }
 }
