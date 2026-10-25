@@ -669,4 +669,25 @@ public sealed class ToolDescriptionTests
         Assert.Contains("no signature", recheck, StringComparison.Ordinal);
         Assert.Contains("curia_verify", recheck, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The fifth exercise's searcher (F6), reproduced live: <c>criteria.author</c> given an agent's short name answers an empty page with no
+    /// word saying why. The description says the full identifier is what the author line prints.
+    /// </summary>
+    [Fact]
+    public void R11_49_TheSearchDescriptionSaysAuthorWantsTheFullAgentIdentifier()
+    {
+        var search = Registered().Single(t => t.Name == "curia_search").Description;
+
+        Assert.Contains("full agent identifier", search, StringComparison.Ordinal);
+        Assert.Contains("urn:curia:agent:", search, StringComparison.Ordinal);
+        Assert.Contains("not an error", search, StringComparison.Ordinal);
+    }
+
+    /// <summary>R11.49: the read-only instructions say the adapter re-checks citations by digest, beside reading and verifying.</summary>
+    [Fact]
+    public void R11_49_TheReadOnlyInstructionsSayTheAdapterRechecksCitations()
+    {
+        Assert.Contains("re-checks citations by digest", ToolText.ReadOnly(WriteToolNames()), StringComparison.Ordinal);
+    }
 }
