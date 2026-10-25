@@ -235,6 +235,9 @@ internal sealed partial class ForumTools(
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
 
+        // R11.45: a pin that is present and blank is refused; absent is no pin.
+        if (ArgumentGuards.PresentValue(expectedDigest, nameof(expectedDigest)) is { } refusedPin) return refusedPin;
+
         // R11.29: the document this session's read put in the model's context, when there is one.
         var read = _served.TryGetValue(postId, out var remembered);
 
@@ -329,6 +332,11 @@ internal sealed partial class ForumTools(
         if (ArgumentGuards.Items(criteria.Kinds.IsDefault ? null : criteria.Kinds, "criteria.kinds") is { } refused) return refused;
         if (ArgumentGuards.Items(criteria.Tags.IsDefault ? null : criteria.Tags, "criteria.tags") is { } refusedTags) return refusedTags;
 
+        // R11.45: a criterion that is present and blank is refused by its dotted name; an empty `query` stays valid (R9.25).
+        if (ArgumentGuards.PresentValue(criteria.Board, "criteria.board") is { } refusedBoard) return refusedBoard;
+        if (ArgumentGuards.PresentValue(criteria.Author, "criteria.author") is { } refusedAuthor) return refusedAuthor;
+        if (ArgumentGuards.PresentValue(criteria.MinVerification, "criteria.min_verification") is { } refusedFloor) return refusedFloor;
+
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).
         if (!criteria.ToRequest().TryGetValue(out var request, out var invalid))
@@ -391,6 +399,19 @@ internal sealed partial class ForumTools(
         new(served is { } count ? count.ToString(CultureInfo.InvariantCulture) : "not stated");
 
     /// <summary>
+    /// R9.33: the request, the clamp and the published default, each as the Forum served it and <c>not stated</c> where it did
+    /// not. <c>clamped=false</c> is printed, so a request that was not raised and an older Forum read differently.
+    /// </summary>
+    private static OwnText ClampWords(RetrievalFloorDocument floor)
+    {
+        var stated = floor.ClampStated;
+        var requested = !stated ? "not stated" : floor.RequestedMinVerification is { } r ? DisplayLiteral.Of(r) : "none";
+        var clamped = floor.Clamped is { } c ? (c ? "true" : "false") : "not stated";
+        var published = floor.PublishedDefault is { } p ? DisplayLiteral.Of(p) : "not stated";
+        return new($"requested={requested} clamped={clamped} published_default={published}");
+    }
+
+    /// <summary>
     /// R9.24 (revised): the floor a search was answered at, the surface whose configuration supplied
     /// it, whether that was the published default, and the kinds it applied to. A floor a caller
     /// cannot read back is one it cannot distinguish from an empty corpus.
@@ -400,6 +421,7 @@ internal sealed partial class ForumTools(
         var frame = new FrameBuilder()
             .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
             .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
+            .Append($"{ClampWords(page.Floor)} ")
             .Append($"model={page.Model} results={page.Results.Length} ")
             .Append($"excluded_by_floor={Count(page.Floor.ExcludedByFloor)} excluded_disputed={Count(page.Floor.ExcludedDisputed)}");
 

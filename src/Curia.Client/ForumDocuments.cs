@@ -39,7 +39,7 @@ public sealed record InboxPage(
     int ExcludedAsAlreadyAnswered);
 
 /// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
-public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt);
+public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt, bool AlreadyAccepted = false);
 
 /// <summary>R9.8/R8.36's breakdown: why this result ranked where it did.</summary>
 /// <summary>The lexical channel's part of a ranking: its rank and the match counts behind its score.</summary>
@@ -90,7 +90,11 @@ public sealed record RetrievalFloorDocument(
     ImmutableArray<string> AppliesTo,
     ImmutableArray<string> NotApplicableTo,
     int? ExcludedByFloor,
-    int? ExcludedDisputed);
+    int? ExcludedDisputed,
+    string? PublishedDefault = null,
+    string? RequestedMinVerification = null,
+    bool? Clamped = null,
+    bool ClampStated = false);
 
 public sealed record SearchPage(
     ImmutableArray<SearchHitDocument> Results,
@@ -338,8 +342,20 @@ internal static class ForumDocuments
         ClientJson.String(o, "thread_root") is { } root
         && ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "accepted_at") is { } at
-            ? Result<AcceptanceReceipt>.Ok(new AcceptanceReceipt(root, id, at))
+            ? ReadAlreadyAccepted(o).Map(replay => new AcceptanceReceipt(root, id, at, replay))
             : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
+
+    /// <summary>
+    /// R8.68: <c>already_accepted</c> is a boolean when present; an absent member is an older Forum, which always recorded, so
+    /// false. A present member of any other type is a malformed response, not a value the client picks.
+    /// </summary>
+    private static Result<bool> ReadAlreadyAccepted(JsonValue.Object o) =>
+        ClientJson.Member(o, "already_accepted") switch
+        {
+            null => Result<bool>.Ok(false),
+            JsonValue.Bool b => Result<bool>.Ok(b.Value),
+            _ => Result<bool>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: already_accepted is not a boolean (R8.68)")),
+        };
 
     internal static Result<SearchPage> ReadSearchPage(JsonValue value)
     {
@@ -376,6 +392,9 @@ internal static class ForumDocuments
         if (!FloorCount(floor, "excluded_disputed").TryGetValue(out var excludedDisputed, out floorCountError))
             return Result<SearchPage>.Fail(floorCountError!);
 
+        if (!ReadClamp(floor).TryGetValue(out var clamp, out var clampError))
+            return Result<SearchPage>.Fail(clampError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -386,9 +405,38 @@ internal static class ForumDocuments
                 Strings(floor, "applies_to"),
                 Strings(floor, "not_applicable_to"),
                 excludedByFloor,
-                excludedDisputed),
+                excludedDisputed,
+                clamp.PublishedDefault,
+                clamp.Requested,
+                clamp.Clamped,
+                clamp.Stated),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
+    }
+
+    /// <summary>
+    /// R9.33: the three members R9.31 states. Each is absent (an older Forum: not stated) or of its type:
+    /// <c>published_default</c> a string, <c>requested_min_verification</c> a string or null (null is a request that named
+    /// no level, and is stated), <c>clamped</c> a boolean. A present member of any other type is a malformed response.
+    /// </summary>
+    private static Result<(string? PublishedDefault, string? Requested, bool? Clamped, bool Stated)> ReadClamp(JsonValue.Object floor)
+    {
+        var member = ClientJson.Member(floor, "published_default");
+        var requested = ClientJson.Member(floor, "requested_min_verification");
+        var clamped = ClientJson.Member(floor, "clamped");
+
+        var ok = (member is null or JsonValue.String)
+            && (requested is null or JsonValue.String or JsonValue.Null)
+            && (clamped is null or JsonValue.Bool);
+        if (!ok)
+            return Result<(string?, string?, bool?, bool)>.Fail(
+                ClientErrors.ResponseMalformed("search page states a floor clamp member that is not of its type (R9.33)"));
+
+        return Result<(string?, string?, bool?, bool)>.Ok((
+            (member as JsonValue.String)?.Value,
+            (requested as JsonValue.String)?.Value,
+            (clamped as JsonValue.Bool)?.Value,
+            member is not null || requested is not null || clamped is not null));
     }
 
     /// <summary>

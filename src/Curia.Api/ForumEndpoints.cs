@@ -1607,12 +1607,19 @@ public static class ForumEndpoints
         if (!recorded.TryGetValue(out var acceptance, out var recordError))
             return Problem(StatusCodes.Status500InternalServerError, recordError!);
 
-        return Results.Created($"/v1/threads/{Uri.EscapeDataString(root.PostId)}", new
+        // R8.68 (errata G33): 201 for an acceptance this call recorded, 200 for the one that already stood, with its
+        // first time; `already_accepted` is always present, so a reader never has to infer a replay from the status.
+        var receipt = new
         {
             thread_root = acceptance!.ThreadRoot,
             post_id = acceptance.AnswerId,
             accepted_at = acceptance.AcceptedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
-        });
+            already_accepted = acceptance.AlreadyAccepted,
+        };
+
+        return acceptance.AlreadyAccepted
+            ? Results.Ok(receipt)
+            : Results.Created($"/v1/threads/{Uri.EscapeDataString(root.PostId)}", receipt);
     }
 
     /// <summary>

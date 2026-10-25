@@ -536,4 +536,94 @@ public sealed class ToolDescriptionTests
         Assert.True(mentioned > 0, "no description or instruction names a tool, so nothing was compared; a defect in this fact");
         Assert.True(unregistered.Count == 0, string.Join("; ", unregistered.Distinct()) + $" ({string.Join(",", registered.Order(StringComparer.Ordinal))} are registered)");
     }
+
+    /// <summary>
+    /// R11.46 (errata G33): a refusal of a `kinds` value lists Table 9's kinds, and the list is the type's own: every spelling
+    /// <see cref="PostKinds.Wire"/> gives a <see cref="PostKind"/>, read from the enum and not from a copy.
+    /// </summary>
+    [Fact]
+    public void R11_46_TheKindsRefusalListsTable9FromPostKinds()
+    {
+        var refused = new SearchCriteria { Kinds = ["not-a-kind"] }.ToRequest();
+
+        Assert.False(refused.TryGetValue(out _, out var error), "an unknown kind was accepted");
+        var kinds = Enum.GetValues<PostKind>().Select(PostKinds.Wire).ToArray();
+        Assert.NotEmpty(kinds);
+        var missing = kinds.Where(kind => !(error!.Detail ?? string.Empty).Contains(kind, StringComparison.Ordinal)).ToArray();
+        Assert.True(missing.Length == 0, $"the refusal does not list [{string.Join(", ", missing)}]: {error!.Detail}");
+    }
+
+    /// <summary>
+    /// R11.46: `curia_search`'s description says what a board no post names answers, and explains every member of
+    /// <c>why_ranked</c> that the result prints. The printed names are derived from the renderer: the words
+    /// <see cref="SearchScore.WriteWhy"/> writes of its own (a served value is a quoted literal and a number is a number), not
+    /// from the description under test.
+    /// </summary>
+    [Fact]
+    public void R11_46_SearchDescriptionStatesAnUnnamedBoardAndEveryWhyRankedMember()
+    {
+        var why = new WhyRanked(
+            new LexicalWhy(1, 2, 3, 4, 5),
+            new VectorWhy(1, 5401, "hashed-ngram@1"),
+            60, 1, 1, 32787, "V0", 10000, 32787, DeferredByDiversification: true,
+            System.Collections.Immutable.ImmutableDictionary<string, string>.Empty.Add("staleness_penalty", "r"));
+        var frame = new FrameBuilder();
+        SearchScore.WriteWhy(frame, why);
+        var rendered = frame.ToString();
+        Assert.Contains("why_ranked", rendered, StringComparison.Ordinal);
+
+        var ownWords = System.Text.RegularExpressions.Regex.Replace(rendered, "\"[^\"]*\"", string.Empty, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(5));
+        var names = System.Text.RegularExpressions.Regex.Matches(ownWords, "[A-Za-z_]{3,}", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(5))
+            .Select(m => m.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(names.Length >= 10, $"the renderer's own words were not found: [{string.Join(", ", names)}]");
+
+        var description = Registered().Single(t => t.Name == "curia_search").Description;
+        var unexplained = names.Where(n => !description.Contains(n, StringComparison.OrdinalIgnoreCase)).ToArray();
+        Assert.True(unexplained.Length == 0, $"curia_search's description does not explain [{string.Join(", ", unexplained)}]");
+
+        Assert.Contains("answers like an empty one", description, StringComparison.Ordinal);
+        Assert.Contains("case-sensitive", description, StringComparison.Ordinal);
+        Assert.Contains("clamped", description, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// P14 over R11.46's new paragraphs (green first): every identifier a description writes in backticks as an argument is one its
+    /// schema defines, at the top level or in <c>criteria</c>, or a result term named here and asserted to be exactly that set.
+    /// </summary>
+    [Fact]
+    public void R11_46_NoDescriptionNamesAnArgumentItsSchemaLacks()
+    {
+        string[] resultTerms = ["next_cursor", "revision"];
+        var wrong = new List<string>();
+        var named = 0;
+        foreach (var tool in RegisteredTools())
+        {
+            var schema = tool.ProtocolTool.InputSchema;
+            var members = new HashSet<string>(schema.GetProperty("properties").EnumerateObject().Select(p => p.Name), StringComparer.Ordinal);
+            if (schema.GetProperty("properties").TryGetProperty("criteria", out var criteria))
+                foreach (var member in criteria.GetProperty("properties").EnumerateObject()) members.Add(member.Name);
+
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                tool.ProtocolTool.Description ?? string.Empty, "`([a-z][A-Za-z0-9_]*)`", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(5)))
+            {
+                named++;
+                var token = match.Groups[1].Value;
+                if (!members.Contains(token) && !resultTerms.Contains(token))
+                    wrong.Add($"{tool.ProtocolTool.Name} names `{token}`");
+            }
+        }
+
+        Assert.True(named > 0, "no description names an argument in backticks, so nothing was compared");
+        Assert.True(wrong.Count == 0, string.Join("; ", wrong.Distinct()));
+        Assert.Equal(["next_cursor", "revision"], resultTerms);
+    }
+
+    /// <summary>R11.46 ruling 10 (errata G33): output and refusals changed and no tool was added, so the server reports 0.7.1.</summary>
+    [Fact]
+    public void R11_46_TheServerReportsVersionZeroSevenOne()
+    {
+        Assert.Equal("0.7.1", ToolCatalogue.Version);
+    }
 }

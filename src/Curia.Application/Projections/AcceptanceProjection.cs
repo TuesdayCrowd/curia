@@ -37,6 +37,32 @@ public static class AcceptanceProjector
     public const string AcceptedByField = "accepted_by";
 
     /// <summary>
+    /// The acceptance that stands in one thread root's own stream (R8.68): the answer the fold ends on and the
+    /// <c>server_ts</c> of the event that named it, or null when nothing has been accepted. It is the same last-wins
+    /// reading as <see cref="Fold"/>, kept with its event so a replay can answer the first time.
+    /// </summary>
+    public static StandingAcceptance? Standing(IReadOnlyList<AppendedEvent> rootStreamInSeqOrder)
+    {
+        ArgumentNullException.ThrowIfNull(rootStreamInSeqOrder);
+
+        StandingAcceptance? standing = null;
+
+        foreach (var appended in rootStreamInSeqOrder)
+        {
+            if (appended.Event.Type.Value != AnswerAcceptedType) continue;
+            if (appended.Event.Payload is not JsonValue.Object payload) continue;
+
+            string? answer = null;
+            foreach (var member in payload.Members)
+                if (member.Key == AnswerIdField && member.Value is JsonValue.String s) answer = s.Value;
+
+            if (answer is not null) standing = new StandingAcceptance(answer, appended.ServerTimestamp.Value);
+        }
+
+        return standing;
+    }
+
+    /// <summary>
     /// Folds a seq-ordered event list into the accepted answer per thread root.
     ///
     /// <para>A thread nobody has resolved is absent rather than present-and-null, which is what the
@@ -80,3 +106,6 @@ public static class AcceptanceProjector
         return accepted.ToImmutableDictionary(StringComparer.Ordinal);
     }
 }
+
+/// <summary>The acceptance that stands in a thread: the answer and the instant the Forum recorded naming it.</summary>
+public sealed record StandingAcceptance(string AnswerId, DateTimeOffset AcceptedAt);

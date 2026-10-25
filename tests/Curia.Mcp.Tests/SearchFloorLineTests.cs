@@ -39,4 +39,34 @@ public sealed class SearchFloorLineTests : IDisposable
         Assert.Contains("results=1", first, StringComparison.Ordinal);
         Assert.Contains("excluded_by_floor=not stated excluded_disputed=0", first, StringComparison.Ordinal);
     }
+
+    private static async Task<string> FloorLineAsync(StubLog log, string home)
+    {
+        var tools = new ForumTools(log.Client(), MarkingMode.None, new HeadStore(home));
+        var result = await tools.SearchAsync(new SearchCriteria(), TestContext.Current.CancellationToken);
+        return Assert.IsType<TextContentBlock>(result.Content[0]).Text;
+    }
+
+    /// <summary>
+    /// R9.33 (errata G33, closing D71): the floor line states the request, the clamp and the published default, the levels as
+    /// display literals, and each as <c>not stated</c> where the Forum did not serve it; the counts' words do not move (R9.30).
+    /// </summary>
+    [Fact]
+    public async Task R9_33_CuriaSearchToolPrintsRequestedClampedAndPublishedDefault()
+    {
+        using var clamped = new StubLog { FloorClamped = true, FloorRequestedMinVerification = "V0" };
+        using var unclamped = new StubLog();
+        using var older = new StubLog { OmitClampMembers = true };
+
+        var clampedLine = await FloorLineAsync(clamped, _home);
+        var unclampedLine = await FloorLineAsync(unclamped, _home);
+        var olderLine = await FloorLineAsync(older, _home);
+
+        Assert.Contains("requested=\"V0\" clamped=true published_default=\"V0\"", clampedLine, StringComparison.Ordinal);
+        Assert.Contains("requested=none clamped=false published_default=\"V0\"", unclampedLine, StringComparison.Ordinal);
+        Assert.Contains("requested=not stated clamped=not stated published_default=not stated", olderLine, StringComparison.Ordinal);
+
+        foreach (var line in new[] { clampedLine, unclampedLine, olderLine })
+            Assert.Contains("excluded_by_floor=not stated excluded_disputed=0", line, StringComparison.Ordinal);
+    }
 }

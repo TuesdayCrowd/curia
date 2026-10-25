@@ -98,6 +98,7 @@ internal sealed partial class ForumTools
         CancellationToken cancellationToken = default)
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.Identifier(body, nameof(body)) is { } refusedBody) return refusedBody;
         if (ArgumentGuards.Items(tags, nameof(tags)) is { } refusedTags) return refusedTags;
         if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
@@ -163,6 +164,7 @@ internal sealed partial class ForumTools
         CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(parentPostId, nameof(parentPostId)) is { } refused) return refused;
+        if (ArgumentGuards.Identifier(body, nameof(body)) is { } refusedBody) return refusedBody;
         if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
 
@@ -205,16 +207,28 @@ internal sealed partial class ForumTools
         if (!accepted.TryGetValue(out var receipt, out var refusal))
             throw WriteRefused(refusal!, ResourceKind.Answer, ActionKind.Accept);
 
-        return Said(new FrameBuilder()
-            .Line("ACCEPTED")
-            .Line($"answer      {receipt!.PostId}")
-            .Line($"thread      {receipt.ThreadRoot}")
-            .Line($"accepted_at {receipt.AcceptedAt}")
-            .Blank()
-            .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
-            .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
-            .Append($"nothing removes an acceptance.")
-            .ToString());
+        // R8.68: a replay is worded as one and carries the first acceptance's time; nothing was recorded.
+        return Said(receipt!.AlreadyAccepted
+            ? new FrameBuilder()
+                .Line("ACCEPTED (already the accepted answer; nothing was recorded)")
+                .Line($"answer      {receipt.PostId}")
+                .Line($"thread      {receipt.ThreadRoot}")
+                .Line($"first accepted at {receipt.AcceptedAt}")
+                .Blank()
+                .Append($"This answer already stood as the thread's accepted one, so the Forum's log gained no event ")
+                .Append($"and the time above is the first acceptance's. A thread has one accepted answer: accepting ")
+                .Append($"another replaces this one, and nothing removes an acceptance.")
+                .ToString()
+            : new FrameBuilder()
+                .Line("ACCEPTED")
+                .Line($"answer      {receipt.PostId}")
+                .Line($"thread      {receipt.ThreadRoot}")
+                .Line($"accepted_at {receipt.AcceptedAt}")
+                .Blank()
+                .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
+                .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
+                .Append($"nothing removes an acceptance.")
+                .ToString());
     }
 
     /// <summary>
@@ -226,6 +240,7 @@ internal sealed partial class ForumTools
         string postId, string kind, string rationale, CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.Identifier(rationale, nameof(rationale)) is { } refusedRationale) return refusedRationale;
         var writer = Writer();
 
         var flagged = await writer.Session.FlagAsync(postId, kind, rationale, cancellationToken).ConfigureAwait(false);
@@ -297,6 +312,13 @@ internal sealed partial class ForumTools
 
         text.Line($"server_ts   {receipt.ServerTs}");
         text.Line($"author      {writer.Agent.Profile.AgentId}   (signed with kid {writer.Agent.Signer.Kid})");
+
+        // D61 item 14 (R11.40, errata G33): a revision signs the members the caller gave and inherits nothing, so the
+        // receipt says what this one carries. The title is the caller's own string: a display literal.
+        if (draft.Kind is PostKind.Revision)
+            text.Line(
+                $"carries    title {new OwnText(draft.Title is null ? "none" : DisplayLiteral.Of(draft.Title))}, {draft.Tags.Length} tag(s), " +
+                $"{draft.Refs.Length} reference(s); nothing is inherited from the post revised (R11.40)");
 
         if (!receipt.RiskFlags.IsDefaultOrEmpty)
         {
@@ -392,7 +414,7 @@ internal sealed partial class ForumTools
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Detail}). This agent's posting budget is ")
             .Append($"spent: Table 11 allows {TierPolicy.PostsPerDay(PrincipalTier.T0)} posts a day at T0, ")
             .Append($"{TierPolicy.PostsPerDay(PrincipalTier.T1)} at T1 and {TierPolicy.PostsPerDay(PrincipalTier.T2)} ")
-            .Append($"at T2. It resets; it is not a tier denial.")
+            .Append($"at T2, over a trailing 24 hours. It resets; it is not a tier denial.")
             .ToString()),
 
         // G28 (amendment, lead L3): accepting a post that is no answer is the Forum's 400 with a cause and no way
