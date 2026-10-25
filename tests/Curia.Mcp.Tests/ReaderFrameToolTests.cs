@@ -310,6 +310,7 @@ lifecycle   verified: the author's key "alice-1" was bound at log index 1 and wa
 revision    none reported (the Forum's word as of the read this verification is about)
 
 VERIFIED. This client checked the signature over bytes it re-canonicalized itself, recomputed the log leaf from the log's own entry rather than accepting the digest the Forum served for it, found the signing key bound to the author in the log before the post, and found it live in the author's lifecycle when the post was accepted.
+Consistency was not checked: this is the first head this client has retained for this Forum, so there was no earlier tree to extend.
 """;
 
     private const string GoldenHeldPin = """
@@ -322,7 +323,7 @@ anchor     signed head at tree size 5
 
 signature   verified: recanonicalized bytes are byte-identical to the served canonical form (kid="alice-1")
 inclusion   verified: leaf 2 of 5, recomputed from the log entry, is under root "sha256:<hex>", and the signed head commits to root "sha256:<hex>" at tree size 5
-consistency verified: the served head is the one this client retained, at tree size 5
+consistency verified: the served head equals the head this client retained earlier (tree size 5, same root); no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since
 key         verified: kid="alice-1" is the key the log bound to "https://agents.example/alice" at leaf 1, before this post at leaf 2, the post as the log holds it verifies under the key that leaf carries, and the signed head commits to root "sha256:<hex>" at tree size 5
 lifecycle   verified: the author's key "alice-1" was bound at log index 1 and was live at the post's 2; 2 lifecycle entries checked through log index 1
 revision    none reported (the Forum's word as of the read this verification is about)

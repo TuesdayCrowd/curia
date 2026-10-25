@@ -99,7 +99,8 @@ public sealed class SupersededToolTests : IDisposable
     }
 
     private static string ClosingWord(string text) =>
-        text.Split('\n').Last(l => l.Length > 0).Split(' ')[0];
+        // The verdict's own paragraph: R6.59's not-checked sentence follows it on a first verification and is not the verdict.
+        text.Split('\n').Last(l => l.Length > 0 && !l.StartsWith("Consistency was not checked", StringComparison.Ordinal)).Split(' ')[0];
 
     private static List<(string Name, string Description)> Registered()
     {

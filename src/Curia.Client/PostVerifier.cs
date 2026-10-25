@@ -133,7 +133,11 @@ public sealed record PostVerification(
                 "VERIFIED. This client checked the signature over bytes it re-canonicalized itself, "
                 + "recomputed the log leaf from the log's own entry rather than accepting the "
                 + "digest the Forum served for it, found the signing key bound to the author in "
-                + "the log before the post, and found it live in the author's lifecycle when the post was accepted.\n",
+                + "the log before the post, and found it live in the author's lifecycle when the post was accepted.\n"
+                // R6.59: a VERIFIED that stands with nothing to compare against says so, once.
+                + (Consistency.NothingToCompare
+                    ? "Consistency was not checked: this is the first head this client has retained for this Forum, so there was no earlier tree to extend.\n"
+                    : string.Empty),
             CheckOutcome.Failed =>
                 "FAILED. At least one check ran and did not hold. Read the failing line above: it "
                 + "names the predicate, and a failure here is a claim about the material, not about "
@@ -484,7 +488,7 @@ public sealed class PostVerifier
         if (logIndex >= head.TreeSize)
             return new(Check.CouldNotCheck(
                 Invariant($"leaf {logIndex} is not covered by the signed head at tree size {head.TreeSize}.")
-                + " The post is in the log and no published head commits to it yet. A later head will,"
+                + " The Forum served this post at that leaf and no published head commits to it yet. A later head will,"
                 + " once the operator signs one with 'curia-operator sign-head'; verify again then."));
 
         var proof = post.InclusionProof;
@@ -588,7 +592,7 @@ public sealed class PostVerifier
         {
             return string.Equals(retained.RootHash, head.RootHash, StringComparison.Ordinal)
                 ? Check.Verified(Invariant(
-                    $"the served head is the one this client retained, at tree size {head.TreeSize}"))
+                    $"the served head equals the head this client retained earlier (tree size {head.TreeSize}, same root); no earlier tree was extended, so this shows the Forum has not changed this head, not that the log has grown consistently since"))
                 : Check.Failed(Invariant(
                     $"two different roots at tree size {head.TreeSize}: this client retained {Check.Quote(retained.RootHash)} and the Forum now serves {Check.Quote(head.RootHash)}. The log has equivocated (R6.24). The retained head is kept."));
         }
