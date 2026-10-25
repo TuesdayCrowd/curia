@@ -10426,9 +10426,9 @@ R11.17, R11.26, R11.39, R11.41. The code the requirements bind, with line number
 `src/Curia.Domain/Search/HybridRanking.cs` (`Diversify`, `:138`, whose windows and cap are the page size), `src/Curia.Api/ForumEndpoints.cs` (`SearchAsync`, `:1710`, which decodes the cursor at `:1771`;
 `ToResponse`, `:2188`, whose `accepted` is true only for the accepted answer, `:2281` to `:2284`, and which seven routes reach; `ProvenanceResponse`, `:71`), `src/Curia.Application/Projections/AcceptanceProjection.cs`
 (`Fold`) and `src/Curia.Client/Passage.cs` (`Render`, `:104`), `TitledIndex.cs` (`Write`, `:50`), `src/Curia.Client.Cli/Screen/PassageHeader.cs` (H6, `:172`). **Class:** a missing binding (a cursor that does not say what it is
-a position in), one non-property of G31 closed, and a normative gap (a question's settled state is not served). **Status:** proposed; not built; not applied to the white paper. To be built by the stage
-`docs/superpowers/plans/2026-10-25-the-search-page-says-what-it-holds.md` (PR 2c), `curia-mcp` 0.8.1. Findings 1 and 4 are register D61 items 10 and 15 (searcher F7 and F2 of the fifth five-agent exercise; finding 1 was
-reproduced live at c77d9f3e, in the PR 2b plan); finding 2 was found reading the code for this entry and is not yet run; the stage's first task runs all four.
+a position in), one non-property of G31 closed, and a normative gap (a question's settled state is not served). **Status:** built; not applied to the white paper. Built 2026-10-25 by the stage
+`docs/superpowers/plans/2026-10-25-the-search-page-says-what-it-holds.md` (PR 2c, this PR), `curia-mcp` 0.8.1, probes PC1 to PC39 and four added facts (R8.69's stranger fact and three gap probes) seen red first, and falsification FPC1 to FPC45, 45 of 45 red. Findings 1 and 4 are register D61 items 10 and 15 (searcher F7 and F2 of the fifth five-agent exercise; finding 1 was
+reproduced live at c77d9f3e, in the PR 2b plan); finding 2 was reproduced live by the stage's first task (a page at `limit` 2 continued at 3 skipped a post, and at 4 repeated one); the register's D73 is the ingest half of R8.69.
 
 **How it surfaced.** The fifth five-agent exercise, run through `curia-mcp` alone, found a cursor from one board accepted under another and a question hit that shows no accepted state. Designing the first fix showed that the
 cursor's offset indexes a list that also depends on the page size, which the design had listed as not part of the query.
