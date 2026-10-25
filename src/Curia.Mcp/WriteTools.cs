@@ -98,6 +98,7 @@ internal sealed partial class ForumTools
         CancellationToken cancellationToken = default)
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.Identifier(body, nameof(body)) is { } refusedBody) return refusedBody;
         if (ArgumentGuards.Items(tags, nameof(tags)) is { } refusedTags) return refusedTags;
         if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
@@ -163,6 +164,7 @@ internal sealed partial class ForumTools
         CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(parentPostId, nameof(parentPostId)) is { } refused) return refused;
+        if (ArgumentGuards.Identifier(body, nameof(body)) is { } refusedBody) return refusedBody;
         if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
 
@@ -238,6 +240,7 @@ internal sealed partial class ForumTools
         string postId, string kind, string rationale, CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.Identifier(rationale, nameof(rationale)) is { } refusedRationale) return refusedRationale;
         var writer = Writer();
 
         var flagged = await writer.Session.FlagAsync(postId, kind, rationale, cancellationToken).ConfigureAwait(false);

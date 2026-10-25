@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using Curia.Client;
 using Curia.Domain.Serving;
 using Curia.Tests.Shared;
@@ -177,25 +178,46 @@ public sealed class BlankValueTests : IDisposable
     }
 
     /// <summary>
-    /// D61 item 8, seen over the stdio frame: <c>"\ud800"</c> (a lone surrogate, as JSON writes it) reaches the model as a
-    /// JSON-RPC error whose whole message is "An error occurred." on the unmodified tree (the Task 0 transcript). The answer
-    /// must name the argument, and the Forum recorder must be empty.
+    /// D61 item 8, ruled a non-property of this adapter (R11.45, ModelContextProtocol.Core 2.2.0): the SDK's argument binder fails
+    /// on a lone surrogate before any tool filter runs, so the model is handed only the generic JSON-RPC -32603 "An error occurred."
+    /// and nothing reaches the Forum. This pin exists so that an SDK change is noticed. A red here after a ModelContextProtocol.Core
+    /// bump means item 8 is to be re-ruled, never that the assertion is to be loosened. The member-name row is the same case in a
+    /// key, which the SDK also refuses while reading the request.
     /// </summary>
     [Theory]
-    [InlineData("curia_read", """{"postId":"\ud800"}""", "postId")]
-    [InlineData("curia_verify", """{"postId":"\ud800"}""", "postId")]
-    [InlineData("curia_search", """{"criteria":{"query":"\ud800"}}""", "query")]
-    public async Task R11_45_AnArgumentThatIsNotTextNeverReachesTheForum(string tool, string argumentsJson, string argument)
+    [InlineData("curia_read", """{"postId":"\ud800"}""")]
+    [InlineData("curia_verify", """{"postId":"\ud800"}""")]
+    [InlineData("curia_search", """{"criteria":{"query":"\ud800"}}""")]
+    [InlineData("curia_search", """{"criteria":{"tags":["ok","\ud800"]}}""")]
+    [InlineData("curia_search", """{"criteria":{"limit":"\ud800"}}""")]
+    [InlineData("curia_read", """{"po\ud800stId":"x"}""")]
+    public async Task R11_45_AnUnpairedSurrogateIsTheSdksBareErrorAndNothingIsSent(string tool, string argumentsJson)
     {
         var tools = new ForumTools(_log.Client(), MarkingMode.None, new HeadStore(_home));
         await using var session = await RawFrameSession.StartAsync(tools);
 
         var result = await session.CallAsync(tool, argumentsJson);
 
-        Assert.True(
-            result.Text.Contains(argument, StringComparison.Ordinal),
-            $"{tool}'s answer to a lone surrogate does not name {argument}:\n{result.Frame}");
+        using var frame = JsonDocument.Parse(result.Frame);
+        Assert.False(frame.RootElement.TryGetProperty("result", out _), result.Frame);
+        var error = frame.RootElement.GetProperty("error");
+        Assert.Equal(-32603, error.GetProperty("code").GetInt32());
+        Assert.Equal("An error occurred.", error.GetProperty("message").GetString());
         Assert.Empty(_log.Requests);
+    }
+
+    /// <summary>The control: a valid surrogate pair (U+1F600) in <c>criteria.query</c>, written as its escape pair, is text and the search runs.</summary>
+    [Fact]
+    public async Task R11_45_AValidSurrogatePairIsStillText()
+    {
+        var tools = new ForumTools(_log.Client(), MarkingMode.None, new HeadStore(_home));
+        await using var session = await RawFrameSession.StartAsync(tools);
+
+        var result = await session.CallAsync("curia_search", """{"criteria":{"query":"\ud83d\ude00"}}""");
+
+        Assert.False(result.IsError, result.Frame);
+        Assert.DoesNotContain(NotSent, result.Text, StringComparison.Ordinal);
+        Assert.Contains(_log.Requests, r => r.StartsWith("GET /v1/search", StringComparison.Ordinal));
     }
 
     /// <summary>

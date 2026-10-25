@@ -20,6 +20,16 @@ internal static class ArgumentGuards
         return string.IsNullOrWhiteSpace(value) ? Refusal($"{argument} is empty or blank") : null;
     }
 
+    /// <summary>
+    /// R11.45: an optional value that is present is not blank. Absent (null) is the argument not given and is no refusal; an
+    /// empty or whitespace string is a value the model meant and the tool cannot honour, so it is refused rather than read as
+    /// no filter or no pin (D68).
+    /// </summary>
+    internal static CallToolResult? PresentValue(string? value, string argument)
+    {
+        return value is not null && string.IsNullOrWhiteSpace(value) ? Refusal($"{argument} is empty or blank") : null;
+    }
+
     /// <summary>An item of an array argument is not null. <paramref name="blankToo"/> also refuses an empty or whitespace item.</summary>
     internal static CallToolResult? Items(IEnumerable<string?>? items, string argument, bool blankToo = false)
     {
