@@ -275,6 +275,67 @@ public sealed class CitationLinesTests : IDisposable
             Assert.True(said.Contains(sent.Length.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal) && said.Contains(items.Length.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal), $"the error names neither count: {said}");
     }
 
+    [Fact]
+    public async Task R9_34_ACurrentItemThatNamesNoPostIsNotCiteAsIs()
+    {
+        var digest = Sha(Canon("Question 40"));
+
+        var bare = Assert.Single((await ReportAsync([digest], StubLog.BatchItem(digest, "current"))).Lines);
+
+        Assert.DoesNotContain("cite as-is", bare.Text.Text, StringComparison.Ordinal);
+        Assert.Contains("no post", bare.Text.Text, StringComparison.Ordinal);
+
+        // Control: the same digest with a matching post is still cite as-is and names the post.
+        var canonical = Canon("Question 40");
+        var served = Assert.Single((await ReportAsync([digest], Current(digest, IdQuestion, canonical))).Lines).Text.Text;
+        Assert.Contains("cite as-is", served, StringComparison.Ordinal);
+        Assert.Contains(IdQuestion, served, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task R9_34_ASupersededItemThatNamesNoPostSaysNoPostWasServed()
+    {
+        var digest = Sha(Canon("Question 41"));
+        var successor = "sha256:" + new string('5', 64);
+
+        var line = Assert.Single((await ReportAsync([digest], StubLog.BatchItem(digest, "superseded", [successor]))).Lines).Text.Text;
+
+        Assert.DoesNotContain("cite as-is", line, StringComparison.Ordinal);
+        Assert.Contains("no post", line, StringComparison.Ordinal);
+        Assert.Contains(successor, line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task R9_34_ADigestThatCannotBeComputedFromTheServedFormIsFailedAndOffersNoPostId()
+    {
+        var asked = Sha(Canon("Question 42"));
+
+        var line = Assert.Single((await ReportAsync([asked], Current(asked, IdQuestion, "this is not json", digestServed: asked))).Lines);
+
+        Assert.True(line.Failed);
+        Assert.StartsWith("FAILED", line.Text.Text, StringComparison.Ordinal);
+        Assert.Contains("could not be computed", line.Text.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(IdQuestion, line.Text.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task R9_34_AWellFormedDigestAnsweredMalformedIsTheForumsWordAndNotAMalformedElement()
+    {
+        var wellFormed = "sha256:" + new string('a', 64);
+
+        var line = Assert.Single((await ReportAsync([wellFormed], StubLog.BatchItem(null, "malformed"))).Lines);
+
+        Assert.DoesNotContain("not a digest", line.Text.Text, StringComparison.Ordinal);
+        Assert.Contains("malformed", line.Text.Text, StringComparison.Ordinal);
+        Assert.False(line.Malformed);
+        Assert.True(line.Gone);
+
+        // Control: an element that is no digest keeps its line and its flag.
+        var control = Assert.Single((await ReportAsync(["nope"], StubLog.BatchItem(null, "malformed"))).Lines);
+        Assert.Contains("not a digest", control.Text.Text, StringComparison.Ordinal);
+        Assert.True(control.Malformed);
+    }
+
     /// <summary>
     /// Derived from the errata, not the code: the tokens R9.34's paragraph names (FAILED, FORKED, <c>not served</c>, <c>digests[&lt;n&gt;]</c> and <c>current</c>) each
     /// appear in what the readers print for the shapes that earn them.

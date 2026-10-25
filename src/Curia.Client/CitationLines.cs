@@ -84,6 +84,9 @@ public static class CitationLines
             case "superseded" when item.Post?.Provenance.DisputedByLogIndex is not null:
                 return new CitationLine("disputed", Of($"disputed    {asked}  (superseded -> {Revisions(item)}{Forked(item)}) the signature may hold, but the key was declared compromised from before this post (the Forum's word, R6.57): do not cite it as the author's; re-read the successor before citing it{PostOf(item.Post)}"), false, false, true, false);
 
+            case "current" when item.Post is null:
+                return new CitationLine("current", Of($"current     {asked}  the Forum named no post for this digest, so nothing was recomputed here; do not cite it on this word alone"), false, false, false, false);
+
             case "current":
                 return new CitationLine("current", Of($"current     {asked}  cite as-is{PostOf(item.Post)}"), false, false, false, false);
 
@@ -96,12 +99,28 @@ public static class CitationLines
             case "unknown":
                 return new CitationLine("unknown", Of($"unknown     {asked}  no post here bears this digest; check the encoding (sha256:<64 hex>), then drop it"), true, false, false, false);
 
+            case "malformed" when IsDigestShape(asked):
+                return new CitationLine("malformed", Of($"malformed   {asked}  the Forum answered malformed for a digest of the expected shape (the Forum's word); treat the citation as changed"), true, false, false, false);
+
             case "malformed":
                 return new CitationLine("malformed", Of($"malformed   {new OwnText($"digests[{position.ToString(CultureInfo.InvariantCulture)}]")}  not a digest; expected sha256:<64 lowercase hex>"), false, true, false, false);
 
             default:
                 return new CitationLine(item.State, Of($"{item.State}  {asked}  (a state this build does not know; treat the citation as changed)"), true, false, false, false);
         }
+    }
+
+    /// <summary>True when <paramref name="value"/> is <c>sha256:</c> and 64 lowercase hex digits, decided here and not by the Forum.</summary>
+    private static bool IsDigestShape(string value)
+    {
+        const string Prefix = "sha256:";
+        if (value.Length != Prefix.Length + 64 || !value.StartsWith(Prefix, StringComparison.Ordinal)) return false;
+        for (var i = Prefix.Length; i < value.Length; i++)
+        {
+            if (value[i] is not ((>= '0' and <= '9') or (>= 'a' and <= 'f'))) return false;
+        }
+
+        return true;
     }
 
     /// <summary>
