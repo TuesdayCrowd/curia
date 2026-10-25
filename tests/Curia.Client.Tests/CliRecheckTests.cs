@@ -95,4 +95,23 @@ public sealed class CliRecheckTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(stderr), "a response that answers other than what was sent was refused without a word on stderr");
         Assert.DoesNotContain(exit, ExitsOfAnswers);
     }
+
+    /// <summary>
+    /// A FAILED citation is a check that ran and did not hold (the served canonical form does not hash to the digest asked about), so it exits 6,
+    /// as a signature that does not verify does, and not 8, which is a check that could not be run. It outranks a withheld citation (5) and a disputed one (9).
+    /// </summary>
+    [Fact]
+    public async Task R9_34_AFailedCitationExitsSixAndOutranksTheOthers()
+    {
+        var asked = Sha(Canon(1));
+        var other = Sha(Canon(2));
+        string[] sent = [asked, other];
+        var failing = StubLog.BatchItem(asked, "current", postJson: _log.BatchPostJson(PostId, Canon(9), asked));
+        var withheld = StubLog.BatchItem(other, "withheld");
+
+        var (exit, stdout, _) = await RecheckAsync(sent, failing, withheld);
+
+        Assert.Contains("FAILED", stdout, StringComparison.Ordinal);
+        Assert.Equal(6, exit);
+    }
 }

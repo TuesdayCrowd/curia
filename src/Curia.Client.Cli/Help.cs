@@ -293,7 +293,8 @@ internal static class Help
                  that does not enable key rotation or retirement answers 403
                  curia/keys/lifecycle-not-enabled; rotate and retire then change nothing.
               5  not found (404); or a recheck found a citation withheld or unknown.
-              6  a check ran and did not hold -- a signature that does not verify, an inclusion
+              6  a check ran and did not hold -- a signature that does not verify, a recheck whose
+                 served canonical form does not hash to the digest asked about (R9.34), an inclusion
                  proof that does not carry the post to a signed root, or a key the author's
                  lifecycle shows retired before the post. The post exists; its standing
                  is not established. Also from read, thread, board --titles and search --titles
@@ -319,8 +320,7 @@ internal static class Help
                  head's lock not taken, which exits 8 even before any head is retained; R6.53), or
                  a missing curia-testis. Nothing was refuted: this is never 6, because "I could not
                  check" and "this is forged" are a network fault and an attack (R6.52). Also from
-                 recheck, when the Forum answered other than what was sent, or named a post whose
-                 canonical form does not hash to the digest asked about (R9.34).
+                 recheck, when the Forum answered other than what was sent (R9.34).
               9  disputed (R6.57): the signature holds, and the key that made it was declared
                  compromised by the operator from a log index at or below the post's, in a
                  declaration that follows the post. The post is served and marked; do not cite it
