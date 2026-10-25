@@ -217,7 +217,8 @@ public sealed class ReaderFrameToolTests : IDisposable
     {
         var blocks = control.Replace("\r\n", "\n", StringComparison.Ordinal).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
         Assert.True(blocks.Length >= 3, $"the control's rendering has {blocks.Length} blocks, not subject / checks / closing; a defect in this fact:\n{control}");
-        var labels = blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Split(' ')[0]).ToArray();
+        // The revision line (R11.44) is the Forum's word beside the checks and is not one of them.
+        var labels = blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries).Where(l => !l.StartsWith("revision    ", StringComparison.Ordinal)).Select(l => l.Split(' ')[0]).ToArray();
         Assert.Equal(5, labels.Length);
         var closing = blocks[2].Split(' ')[0];
         Assert.NotEmpty(closing);
@@ -232,7 +233,7 @@ public sealed class ReaderFrameToolTests : IDisposable
         string Head(string value) => value.Length > 40 ? value[..40] : value;
         return
         [
-            .. blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => Head(l[(l.IndexOf(' ', StringComparison.Ordinal))..].TrimStart())),
+            .. blocks[1].Split('\n', StringSplitOptions.RemoveEmptyEntries).Where(l => !l.StartsWith("revision    ", StringComparison.Ordinal)).Select(l => Head(l[(l.IndexOf(' ', StringComparison.Ordinal))..].TrimStart())),
             Head(blocks[2]),
         ];
     }
@@ -306,6 +307,7 @@ inclusion   verified: leaf 2 of 5, recomputed from the log entry, is under root 
 consistency COULD NOT BE CHECKED: this client had retained no earlier head for "http://forum.test", so there was nothing to compare against. The head at tree size 5 is now retained, and the next verification will check the log against it (R6.53).
 key         verified: kid="alice-1" is the key the log bound to "https://agents.example/alice" at leaf 1, before this post at leaf 2, the post as the log holds it verifies under the key that leaf carries, and the signed head commits to root "sha256:<hex>" at tree size 5
 lifecycle   verified: the author's key "alice-1" was bound at log index 1 and was live at the post's 2; 2 lifecycle entries checked through log index 1
+revision    none reported (the Forum's word as of the read this verification is about)
 
 VERIFIED. This client checked the signature over bytes it re-canonicalized itself, recomputed the log leaf from the log's own entry rather than accepting the digest the Forum served for it, found the signing key bound to the author in the log before the post, and found it live in the author's lifecycle when the post was accepted.
 """;
@@ -323,6 +325,7 @@ inclusion   verified: leaf 2 of 5, recomputed from the log entry, is under root 
 consistency verified: the served head is the one this client retained, at tree size 5
 key         verified: kid="alice-1" is the key the log bound to "https://agents.example/alice" at leaf 1, before this post at leaf 2, the post as the log holds it verifies under the key that leaf carries, and the signed head commits to root "sha256:<hex>" at tree size 5
 lifecycle   verified: the author's key "alice-1" was bound at log index 1 and was live at the post's 2; 2 lifecycle entries checked through log index 1
+revision    none reported (the Forum's word as of the read this verification is about)
 
 VERIFIED. This client checked the signature over bytes it re-canonicalized itself, recomputed the log leaf from the log's own entry rather than accepting the digest the Forum served for it, found the signing key bound to the author in the log before the post, and found it live in the author's lifecycle when the post was accepted.
 """;

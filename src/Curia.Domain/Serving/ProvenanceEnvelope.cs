@@ -26,6 +26,14 @@ public enum MarkingMode
 }
 
 /// <summary>
+/// A revision that supersedes a post (R9.32): a revision of the post's own author whose <c>prev</c> names it (R9.28).
+/// The digest is always there; the post id is there only where the Forum serves the revision, because a withheld post's
+/// absence keeps its id (R10.36). A reader holding a digest it cannot resolve to a post has the revision named and not found,
+/// which is the honest state.
+/// </summary>
+public sealed record Successor(string Digest, string? PostId);
+
+/// <summary>
 /// R10.17's provenance envelope: what a reader is told about content it did not write.
 ///
 /// <para><b>Every field here answers a question a reader would otherwise guess at.</b>
@@ -51,6 +59,11 @@ public enum MarkingMode
 /// The log index of the declaration that disputes the post (R6.57), or null when none does. A post
 /// below the declaration's <c>from_index</c> carries a <c>compromised</c> key status and no index.
 /// </param>
+/// <param name="SupersededBy">
+/// R9.32: the revisions that supersede this post, in log order. The default value means the Forum did not say (a Forum that
+/// predates the member); an empty array means nothing supersedes the post. The Forum's word, outside the signed bytes and
+/// the leaf, so a reader prints it as such (R10.80) and never as a verdict on the post.
+/// </param>
 /// <param name="Marking">
 /// Which marking was applied, so a client can strip it after its model has consumed the marked form
 /// (R10.14). Reported even when <see cref="MarkingMode.None"/>: "no marking" is information too, and
@@ -73,7 +86,8 @@ public sealed record Provenance(
     ImmutableArray<string> Reproductions,
     ImmutableArray<string> Contradictions,
     string KeyStatus = "active",
-    long? DisputedByLogIndex = null)
+    long? DisputedByLogIndex = null,
+    ImmutableArray<Successor> SupersededBy = default)
 {
     /// <summary>
     /// R10.17's exact wording, and it is a constant rather than a template because the sentence is

@@ -162,6 +162,12 @@ public sealed record Passage(ProvenancePost Post, SignatureVerdict Verdict)
         if (Post.Accepted)
             frame.Line($"thread    {new OwnText(AcceptedStatement)}");
 
+        // R10.80 (errata G32): the Forum's word that a revision of this post's author supersedes it, in the frame and never in
+        // the span, from the one definition every form shares (Supersession). A list the Forum did not serve is said to be
+        // NOT STATED; an empty one is silence. It moves no verdict and no exit (R9.28: the original still stands).
+        if (Supersession.PassageLine(Post.Provenance.SupersededBy) is { } superseded)
+            frame.Line($"{superseded}");
+
         // R8.15: a contradiction is surfaced where the post is read, not buried. The report's digest
         // is printed, each as a display literal, and nothing of its content; read it with curia
         // recheck / read.

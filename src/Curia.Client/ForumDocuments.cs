@@ -534,6 +534,45 @@ internal static class ForumDocuments
         return Result<ImmutableArray<FlagReceipt>>.Ok(flags.MoveToImmutable());
     }
 
+    /// <summary>
+    /// R9.32 / R10.80: <c>provenance.superseded_by</c> is absent (the default array: the Forum did not state it, which is not "none"),
+    /// or a list of objects each holding a <c>digest</c> of the published <c>sha256:&lt;64 lowercase hex&gt;</c> form and an optional string
+    /// <c>post_id</c>. Anything else that is present is a malformed response and is not coerced or skipped, as a floor count is not
+    /// (R9.30): a client that dropped an element it could not read would tell its agent a corrected post stands.
+    /// </summary>
+    private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object provenance)
+    {
+        var malformed = Result<ImmutableArray<Successor>>.Fail(
+            ClientErrors.ResponseMalformed("provenance.superseded_by is not a list of revisions (R9.32)"));
+
+        if (ClientJson.Member(provenance, "superseded_by") is not { } member)
+            return Result<ImmutableArray<Successor>>.Ok(default);
+
+        if (member is not JsonValue.Array array)
+            return malformed;
+
+        var revisions = ImmutableArray.CreateBuilder<Successor>(array.Items.Length);
+        foreach (var element in array.Items)
+        {
+            if (element is not JsonValue.Object revision
+                || ClientJson.String(revision, "digest") is not { } digest
+                || !EnvelopeDigest.IsPrefixedForm(digest))
+                return malformed;
+
+            string? postId = null;
+            if (ClientJson.Member(revision, "post_id") is { } id)
+            {
+                if (id is not JsonValue.String text)
+                    return malformed;
+                postId = text.Value;
+            }
+
+            revisions.Add(new Successor(digest, postId));
+        }
+
+        return Result<ImmutableArray<Successor>>.Ok(revisions.MoveToImmutable());
+    }
+
     internal static Result<ProvenancePost> ReadPost(JsonValue value)
     {
         if (value is not JsonValue.Object o)
@@ -565,6 +604,9 @@ internal static class ForumDocuments
             return Result<ProvenancePost>.Fail(
                 ClientErrors.ResponseMalformed("provenance.marking is not a marking mode"));
 
+        if (!ReadSupersededBy(p).TryGetValue(out var supersededBy, out var supersededError))
+            return Result<ProvenancePost>.Fail(supersededError!);
+
         var provenance = new Provenance(
             ClientJson.String(p, "content_type") ?? string.Empty,
             ClientJson.String(p, "warning") ?? string.Empty,
@@ -584,7 +626,8 @@ internal static class ForumDocuments
             // R6.57 / D49: the Forum's mark on a post a declaration covers. Parsed so that `recheck`, whose batch serves such
             // a post as `current`, can say so; absent from an older Forum, which reads as `active` and not disputed.
             ClientJson.String(p, "key_status") ?? "active",
-            ClientJson.WholeNumber(p, "disputed_by_log_index"));
+            ClientJson.WholeNumber(p, "disputed_by_log_index"),
+            supersededBy);
 
         if (ClientJson.String(o, "post_id") is not { } postId
             || ClientJson.String(o, "canonical") is not { } canonical

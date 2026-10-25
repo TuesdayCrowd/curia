@@ -37,7 +37,8 @@ public sealed record PostVerification(
     Check Lifecycle,
     string? Digest,
     long? LogIndex,
-    long? AnchorTreeSize)
+    long? AnchorTreeSize,
+    ImmutableArray<Successor> SupersededBy = default)
 {
     /// <summary>
     /// One word for the five, for a caller that wants a single answer.
@@ -122,6 +123,8 @@ public sealed record PostVerification(
         builder.Append(culture, $"consistency {Consistency.Describe}\n");
         builder.Append(culture, $"key         {KeyBinding.Describe}\n");
         builder.Append(culture, $"lifecycle   {Lifecycle.Describe}\n");
+        // R11.44: the Forum's word on a revision, as of the read this verification is about. Not a check, in no verdict.
+        builder.Append(culture, $"revision    {Supersession.VerificationLine(SupersededBy).Text}\n");
         builder.Append('\n');
 
         builder.Append(Overall switch
@@ -235,7 +238,8 @@ public sealed class PostVerifier
             lifecycle,
             digest,
             post.LogIndex,
-            head.Head?.TreeSize);
+            head.Head?.TreeSize,
+            post.Provenance.SupersededBy);
     }
 
     /// <summary>

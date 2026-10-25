@@ -21,7 +21,7 @@ internal readonly record struct ContinuedRange(int A, int B, int N);
 /// <item>H4: the verdict, <see cref="Passage.DescribeRead"/> itself, then what was not checked here.</item>
 /// <item>H4b: only when the span check failed (R10.71).</item>
 /// <item>H5: the key row, <see cref="KeyRow"/>.</item>
-/// <item>H6: the Forum's own word: its level, an acceptance, contradictions and reproductions, risk flags, a mark of dispute.</item>
+/// <item>H6: the Forum's own word: its level, an acceptance, a supersession (R10.80), contradictions and reproductions, risk flags, a mark of dispute.</item>
 /// </list>
 ///
 /// <para>A header takes two forms (spec 14.1). The compact form is the full one without H3's <c>digest ... kid</c> row and
@@ -171,6 +171,7 @@ internal static class PassageHeader
         // H6
         var h6 = Row($"forum says {provenance.VerificationLevel}");
         if (post.Accepted) h6 += Row($"; {new OwnText(Passage.AcceptedStatement)}");
+        if (Supersession.Row(provenance.SupersededBy) is { } superseded) h6 += Row($"; {superseded}");
         if (!provenance.Contradictions.IsDefaultOrEmpty) h6 += Row($"; {new OwnText("CONTRADICTED by")} {Literals(provenance.Contradictions)}");
         if (!provenance.Reproductions.IsDefaultOrEmpty) h6 += Row($"; {new OwnText("reproduced by")} {Literals(provenance.Reproductions)}");
         if (!provenance.RiskFlags.IsDefaultOrEmpty)

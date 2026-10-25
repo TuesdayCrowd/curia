@@ -59,6 +59,8 @@ public static class TitledIndex
         // frame does; a screen's list rows are the exception (IndexRow writes the first line only) and its header
         // states it (R10.74).
         if (post.Accepted) frame.Line($"   {new OwnText(Passage.AcceptedStatement)}");
+        // R10.80: and a supersession the Forum serves, or that it served none, from Supersession's words; an empty list is silence.
+        if (Supersession.Row(post.Provenance.SupersededBy) is { } superseded) frame.Line($"   {superseded}");
 
         if (score is not null)
         {

@@ -96,7 +96,7 @@ public static class CitationCheck
         // reporting. An original the log does not hold has no author to compare, so it has none.
         var successors = post is null
             ? ImmutableArray<string>.Empty
-            : [.. posts.Where(p => IsCorrectionOf(p, post, digest)).Select(p => p.Digest)];
+            : [.. posts.Where(p => CorrectionIndex.IsCorrection(p, post)).Select(p => p.Digest)];
 
         // A vote is never served to readers before its epoch is sealed (R8.55), and there is no
         // sealing yet, so its digest answers as no served post bears it. The voter holds its own
@@ -111,9 +111,4 @@ public static class CitationCheck
             ? new CitationState(digest, CitationStatus.Current, successors, post)
             : new CitationState(digest, CitationStatus.Superseded, successors, post);
     }
-
-    private static bool IsCorrectionOf(PostView candidate, PostView original, string digest) =>
-        string.Equals(candidate.Prev, digest, StringComparison.Ordinal)
-        && PostKinds.TryParse(candidate.Kind, out var kind) && kind is PostKind.Revision
-        && string.Equals(candidate.Author, original.Author, StringComparison.Ordinal);
 }

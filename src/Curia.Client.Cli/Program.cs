@@ -1220,6 +1220,7 @@ internal static class Program
         Output.Line($"consistency {new OwnText(acta.Consistency.Describe)}");
         Output.Line($"key         {new OwnText(acta.KeyBinding.Describe)}");
         Output.Line($"lifecycle   {new OwnText(acta.Lifecycle.Describe)}");
+        Output.Line($"revision    {Supersession.VerificationLine(acta.SupersededBy)}");
         if (acta.Overall is CheckOutcome.Disputed)
         {
             Output.Blank();

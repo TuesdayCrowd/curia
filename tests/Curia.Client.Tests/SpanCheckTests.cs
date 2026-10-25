@@ -175,7 +175,10 @@ public sealed class SpanCheckTests
                 },
                 Owner: null,
                 Reproductions: ImmutableArray<string>.Empty,
-                Contradictions: ImmutableArray<string>.Empty),
+                Contradictions: ImmutableArray<string>.Empty,
+                // R9.32: the Forum serves the member on every post, so an ordinary served post says "none"; a fixture that
+                // leaves it unstated would print R10.80's NOT STATED line, which SupersededLineTests holds on its own.
+                SupersededBy: []),
             "01TESTPOSTID0000000000000A",
             "b",
             "question",

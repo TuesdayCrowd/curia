@@ -96,7 +96,25 @@ public sealed record ProvenanceResponse(
     /// <summary>R6.57: the log index of the declaration that disputes the post; absent unless the post lies between the declaration's <c>from_index</c> and the declaration.</summary>
     [property: JsonPropertyName("disputed_by_log_index")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    long? DisputedByLogIndex);
+    long? DisputedByLogIndex,
+
+    /// <summary>
+    /// R9.32: the revisions by this post's own author that chain to it (R9.28), in log order, always present: <c>[]</c> says
+    /// nothing supersedes the post, and a reader that finds the member absent is talking to a Forum that does not say (R10.80).
+    /// A revision the serving path will not serve is listed by its digest alone, its <c>post_id</c> left out (R10.36). The
+    /// Forum's word, outside the signed bytes, the leaf and every digest; required and without a default, so a caller that
+    /// forgot to build it does not compile into "nothing supersedes this". The validator of the single read (R9.11) covers it
+    /// for a post a signed head covers, because the representation hashed is this one; before the first head every tag moves
+    /// with the log, as the inclusion proof does.
+    /// </summary>
+    [property: JsonPropertyName("superseded_by")] ImmutableArray<SupersededByResponse> SupersededBy);
+
+/// <summary>R9.32: one revision that supersedes a post: its digest, and its id only where the Forum serves it.</summary>
+public sealed record SupersededByResponse(
+    [property: JsonPropertyName("digest")] string Digest,
+    [property: JsonPropertyName("post_id")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? PostId);
 
 /// <summary>
 /// One post as served, wrapped in its provenance envelope (R10.17).
@@ -1195,7 +1213,8 @@ public static class ForumEndpoints
         var representation = JsonSerializer.SerializeToUtf8Bytes(
             ToResponse(
                 post, standings, marking, ReaderContractUrl(http),
-                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable, disputed), disputed, ActaOf(log)),
+                AcceptanceProjector.Fold(log), VerificationProjector.Fold(posts, standings, servable, disputed), disputed,
+                CorrectionIndex.Fold(posts, servable), ActaOf(log)),
             json.Value.SerializerOptions);
 
         var entityTag = EntityTags.For(representation);
@@ -1279,6 +1298,7 @@ public static class ForumEndpoints
 
         var disputed = DisputedPosts.Fold(log, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
+        var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
         var items = ImmutableArray.CreateBuilder<BatchItemResponse>(request.Digests.Count);
         foreach (var requested in request.Digests)
@@ -1289,7 +1309,7 @@ public static class ForumEndpoints
                 CitationStatuses.Wire(state.Status),
                 state.Successors,
                 state.Forked,
-                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification, disputed, acta)));
+                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification, disputed, corrections, acta)));
         }
 
         return Results.Ok(new BatchResponse(items.MoveToImmutable()));
@@ -1320,6 +1340,7 @@ public static class ForumEndpoints
         var standings = AgentStandingProjector.Fold(log);
         var disputed = DisputedPosts.Fold(log, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
+        var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
 
@@ -1329,7 +1350,7 @@ public static class ForumEndpoints
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
             : Results.Ok(thread
-                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, acta))
+                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, corrections, acta))
                 .ToArray());
     }
 
@@ -1348,6 +1369,7 @@ public static class ForumEndpoints
         var posts = PostProjector.Fold(log);
         var disputed = DisputedPosts.Fold(log, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
+        var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
 
         // Discussion only: a vote is never served (R8.55) and a verification report is read on its
@@ -1357,7 +1379,7 @@ public static class ForumEndpoints
 
         return Results.Ok(posts
             .Where(p => p.Board == board && servable(p.PostId) && Discussion(p))
-            .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, acta))
+            .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, corrections, acta))
             .ToArray());
     }
 
@@ -1628,6 +1650,7 @@ public static class ForumEndpoints
         var standings = AgentStandingProjector.Fold(log);
         var disputed = DisputedPosts.Fold(log, views);
         var verification = VerificationProjector.Fold(views, standings, servable, disputed);
+        var corrections = CorrectionIndex.Fold(views, servable);
         var accepted = AcceptanceProjector.Fold(log);
         var acta = ActaOf(log);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
@@ -1638,7 +1661,7 @@ public static class ForumEndpoints
             .Where(p => string.Equals(p.Parent, canonical.PostId, StringComparison.Ordinal)
                 && string.Equals(p.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal)
                 && servable(p.PostId))
-            .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, disputed, acta))
+            .Select(p => ToResponse(p, standings, marking, contract, accepted, verification, disputed, corrections, acta))
             .ToImmutableArray();
 
         var t = assessment.Thresholds;
@@ -1768,7 +1791,9 @@ public static class ForumEndpoints
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
         var disputed = DisputedPosts.Fold(log, views);
-        var verification = VerificationProjector.Fold(views, standings, Servable(log), disputed);
+        var servable = Servable(log);
+        var verification = VerificationProjector.Fold(views, standings, servable, disputed);
+        var corrections = CorrectionIndex.Fold(views, servable);
         var acta = ActaOf(log);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
             return Problem(StatusCodes.Status400BadRequest, markingError!);
@@ -1801,7 +1826,7 @@ public static class ForumEndpoints
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
 
             results.Add(new SearchHitResponse(
-                ToResponse(view, standings, marking, contract, acceptedByThread, verification, disputed, acta),
+                ToResponse(view, standings, marking, contract, acceptedByThread, verification, disputed, corrections, acta),
                 Micro(hit.Score),
                 wantsWhy ? WhyRanked(hit, page.Model.Id, page.K) : null));
         }
@@ -1949,7 +1974,9 @@ public static class ForumEndpoints
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
         var standings = AgentStandingProjector.Fold(log);
         var disputed = DisputedPosts.Fold(log, views);
-        var verification = VerificationProjector.Fold(views, standings, Servable(log), disputed);
+        var servable = Servable(log);
+        var verification = VerificationProjector.Fold(views, standings, servable, disputed);
+        var corrections = CorrectionIndex.Fold(views, servable);
         var acta = ActaOf(log);
         var accepted = AcceptanceProjector.Fold(log);
         if (!MarkingFrom(http).TryGetValue(out var marking, out var markingError))
@@ -1960,7 +1987,7 @@ public static class ForumEndpoints
         foreach (var hit in hits)
         {
             if (!posts.TryGetValue(hit.Post.PostId, out var view)) continue;
-            results.Add(ToResponse(view, standings, marking, contract, accepted, verification, disputed, acta));
+            results.Add(ToResponse(view, standings, marking, contract, accepted, verification, disputed, corrections, acta));
         }
 
         return Results.Ok(new InboxResponse(
@@ -2159,6 +2186,7 @@ public static class ForumEndpoints
         ImmutableDictionary<string, string>? acceptedByThread,
         VerificationFold verification,
         DisputedPosts disputed,
+        CorrectionIndex corrections,
         ActaLog? acta = null)
     {
         var standingKnown = standings.TryGetValue(p.Author, out var standing);
@@ -2222,7 +2250,10 @@ public static class ForumEndpoints
             // R6.57: the key's status and, for a post inside a declaration's window, the declaration's
             // log index. Disputed is a mark on a served post (R6.28), never a withholding.
             KeyStatus: disputed.KeyStatusOf(p),
-            DisputedByLogIndex: disputed.DisputedByLogIndex(p));
+            DisputedByLogIndex: disputed.DisputedByLogIndex(p),
+
+            // R9.32: the Forum's word on who has corrected this post, folded once per request and asked per post.
+            SupersededBy: [.. corrections.For(p).Select(s => new SupersededByResponse(s.Digest, s.PostId))]);
 
         return new PostResponse(
             provenance,

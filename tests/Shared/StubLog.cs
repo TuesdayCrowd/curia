@@ -456,7 +456,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{OtherPostSupersededByJson()}} },
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":null,
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{decoy.PrefixedDigest}}",
         "canonical":{{JsonString(canonical)}},"signature":"{{decoy.Signature}}",
@@ -718,7 +718,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"},
+        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"{{OtherPostSupersededByJson()}} },
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? canonical)}},"signature":"{{Answer.Signature}}",
@@ -859,6 +859,26 @@ internal sealed class StubLog : IDisposable
 
     private static string AcceptedJson(StubLog log, string postId) => log.AcceptedPostIds.Contains(postId) ? "true" : "false";
 
+    /// <summary>
+    /// R9.32 and R10.80 (errata G32): the Forum's word on the revisions that supersede <see cref="PostId"/>, served as <c>provenance.superseded_by</c> on the
+    /// post. Default (not set): served as <c>[]</c>, as the Forum serves it on every post it serves.
+    /// It describes <see cref="PostId"/> alone; the decoy and the answer serve <c>[]</c>. <see cref="OmitSupersededBy"/> is the control that asks for an old Forum.
+    /// </summary>
+    internal ImmutableArray<Successor> SupersededBy { get; set; }
+
+    /// <summary>R10.80: serve no <c>superseded_by</c> whatever <see cref="SupersededBy"/> holds, as a Forum that predates the member does.</summary>
+    internal bool OmitSupersededBy { get; set; }
+
+    private string SupersededByJson() =>
+        OmitSupersededBy
+            ? string.Empty
+            : ",\"superseded_by\":[" + string.Join(
+                ",",
+                (SupersededBy.IsDefault ? [] : SupersededBy).Select(s => "{\"digest\":" + JsonString(s.Digest) + (s.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(s.PostId)) + "}")) + "]";
+
+    /// <summary>R9.32: every post the Forum serves carries the member; the posts that are not <see cref="PostId"/> have no successor here.</summary>
+    private string OtherPostSupersededByJson() => OmitSupersededBy ? string.Empty : ",\"superseded_by\":[]";
+
     internal string PostJson()
     {
         // ActaEndpoints.ProofFor's own rule: against the latest signed head when it covers the
@@ -875,7 +895,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{ServedAs ?? Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"},
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{SupersededByJson()}} },
         "post_id":"{{PostId}}","board":"b","kind":"question","parent":{{(ServedParent is null ? "null" : JsonString(ServedParent))}},
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{ServedDigest ?? Submission.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? Canonical)}},"signature":"{{ServedSignature ?? Submission.Signature}}",
