@@ -168,6 +168,18 @@ public sealed class SearchFloorDocumentTests
         Assert.Equal("V0", page.Floor.PublishedDefault);
     }
 
+    [Fact]
+    public async Task R9_33_ANullRequestAloneIsStated()
+    {
+        var found = await SearchAsync(Page(""","requested_min_verification":null"""));
+
+        Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
+        Assert.True(page.Floor.ClampStated);
+        Assert.Null(page.Floor.RequestedMinVerification);
+        Assert.Null(page.Floor.Clamped);
+        Assert.Null(page.Floor.PublishedDefault);
+    }
+
     [Theory]
     [InlineData(""","published_default":"V0","requested_min_verification":null,"clamped":"no" """)]
     [InlineData(""","published_default":"V0","requested_min_verification":null,"clamped":1""")]

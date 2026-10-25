@@ -271,4 +271,26 @@ public sealed class AcceptAnswerTests(ForumFixture forum) : IClassFixture<ForumF
         Assert.Equal(HttpStatusCode.Forbidden, stranger.StatusCode);
         Assert.Equal(0, await forum.CountEventsAsync("answer.accepted", question, ct));
     }
+
+    /// <summary>
+    /// R8.68: the idempotence check does not answer before authorization. After the asker has accepted an answer, a stranger
+    /// accepting that same answer is refused as any stranger is, and the log still holds the one event.
+    /// </summary>
+    [Fact]
+    public async Task R8_68_AStrangersReplayOfTheStandingAnswerIsRefusedAndAppendsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var client = forum.Client;
+        var board = "board-" + Guid.NewGuid().ToString("N")[..8];
+
+        var (question, answer, _, askerDpop, _) = await ThreadAsync(client, board, ct);
+        var (_, strangerDpop, strangerToken) = await AuthenticatedAsync(client, "stranger", ct);
+
+        using var asker = await AcceptAsync(client, askerDpop, await FreshTokenAsync(client, askerDpop, ct), answer, ct);
+        using var stranger = await AcceptAsync(client, strangerDpop, strangerToken, answer, ct);
+
+        Assert.Equal(HttpStatusCode.Created, asker.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, stranger.StatusCode);
+        Assert.Equal(1, await forum.CountEventsAsync("answer.accepted", question, ct));
+    }
 }
