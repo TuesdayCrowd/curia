@@ -10026,7 +10026,7 @@ requirements bind, with line numbers at 32d7daf6 (`main`, #116), is `src/Curia.A
 construction at `:568`), `src/Curia.Client/Passage.cs` (`Render`, the `thread` line at `:162`), `src/Curia.Client/TitledIndex.cs` (`Write`, `:61`), `src/Curia.Client.Cli/Screen/PassageHeader.cs` (H6, `:171`),
 `src/Curia.Client/PostVerifier.cs` (`PostVerification.Render`, `:110`), `src/Curia.Client.Cli/Program.cs` (`VerifyAsync`, `:1163`; `ReportRecheck`, `:606`) and `src/Curia.Mcp/ToolText.cs`
 (`ReviseTemplate`, `:211`; `ReadTemplate`, `:68`; `SearchTemplate`, `:43`; `VerifyTemplate`, `:91`). **Class:** normative gap, carrying three requirements; it is the entry the implementation plan's
-register holds as D66. **Status:** proposed; not applied to the white paper. Built 2026-10-24 by the stage `docs/superpowers/plans/2026-10-24-a-superseded-post-says-so.md` (this PR), `curia-mcp` 0.7.0. Findings 1
+register holds as D66. **Status:** proposed; not applied to the white paper. Built 2026-10-24 by the stage `docs/superpowers/plans/2026-10-24-a-superseded-post-says-so.md` (#118), `curia-mcp` 0.7.0. Findings 1
 to 3 were read in the tree at 32d7daf6 and not run to write this entry; finding 1's symptom is the controller's reproduction of the fourth five-agent exercise (finding R1, `curia-mcp` 0.6.0 at 7d7ea623,
 reproduced by four of the five agents' reports; the transcript is not in the tree).
 
@@ -10147,8 +10147,8 @@ line numbers at fba9ecf8 (the head of #118), is `src/Curia.Application/Moderatio
 `CompareAndRetainAsync`, `:587`-`:591`; `Render`'s closing words, `:124`-`:150`), `src/Curia.Client/ForumDocuments.cs` (`RetrievalFloorDocument`, `:86`; its construction, `:382`), `src/Curia.Client.Cli/Program.cs` (the `floor`
 line, `:859`), `src/Curia.Mcp/ForumTools.cs` (`Floor`, `:395`-`:410`; `Pinned`, `:293`), `src/Curia.Mcp/SearchCriteria.cs` (`ToRequest`), `src/Curia.Mcp/ArgumentGuards.cs`, `src/Curia.Mcp/WriteTools.cs` (`ReplyAsync`, `ReviseAsync`,
 `FlagAsync`, `Posted`) and `src/Curia.Domain/Serving/Datamarking.cs`. **Class:** normative gap carrying five requirements; it is the entry the implementation plan's register holds as the D61 sweep (D60, D61, D68, D69, D70, D71).
-**Status:** proposed; not applied to the white paper. To be built by the stage `docs/superpowers/plans/2026-10-24-the-d61-sweep.md`, `curia-mcp` 0.7.1. Findings 1 and 2 were read in the tree and not run to write this entry; the stage's first task
-is to run them. Findings 3 to 5 were read, and finding 5's symptoms are the fourth five-agent exercise's (findings R4 to R6, `curia-mcp` 0.6.0 at 7d7ea623).
+**Status:** proposed; not applied to the white paper. Built 2026-10-24 by the stage `docs/superpowers/plans/2026-10-24-the-d61-sweep.md` (this PR), `curia-mcp` 0.7.1. Findings 1 and 2 were read in the tree and not run to write this entry; the stage's first task
+was to run them, and both reproduced (its "As run"). Findings 3 to 5 were read, and finding 5's symptoms are the fourth five-agent exercise's (findings R4 to R6, `curia-mcp` 0.6.0 at 7d7ea623).
 
 **How it surfaced.** The third and fourth five-agent exercises (MCP-only) left a list of small findings and four leads, none worth a stage alone. Read together they have one shape, and it is trap 31's: an answer that reads as a
 stronger or a different answer than the one the system has. A receipt that says an acceptance was recorded when none was; a line that says a head was verified when it was compared with itself; a floor line that does not say the
@@ -10188,7 +10188,7 @@ request was raised; a search that reads as filtered when its filter was blank.
 5. **A revision starts from nothing, and says so on its receipt.** Inheriting would sign values the caller did not name, which R11.40 forbids; the receipt states the title, the number of tags and the number of references the
    revision carries, and that nothing is inherited.
 6. **Not built, ruled.** Variants of a delimiter are not escaped (finding 5); a `HiddenText` offset is not served; an unknown board is not distinguished from an empty one; the SDK's prefix on a thrown refusal stays (the cause
-   reaches the model; the churn is every test that expects the exception). A cursor that does not bind its query, a question hit's accepted state, and `curia_recheck` as a tool are the next entry's.
+   reaches the model; the churn is every test that expects the exception). An unpaired surrogate in an argument or a member name stays the SDK 2.2.0's generic error (R11.45's last paragraph; a probe pins it, and a bump of ModelContextProtocol.Core re-runs it). A cursor that does not bind its query, a question hit's accepted state, and `curia_recheck` as a tool are the next entry's.
 
 **R6.59** A line that reports a verification check SHALL state what the check did and no more. A consistency outcome reached because the served head equals the retained one SHALL say that two heads were compared and equal, and that no earlier
 tree was extended; an inclusion line for a post that no signed head covers SHALL NOT say the post is in the log; and a verdict that is VERIFIED while consistency could not be checked because no earlier head was retained SHALL say so in its
@@ -10207,6 +10207,9 @@ stated` is distinct from `false` so that an older Forum is not read as one that 
 **R11.45** A tool SHALL refuse, naming the argument and saying nothing was sent (R11.43), a member of its search criteria that is a board, an author or a verification level and is empty or blank; an `expectedDigest` that is empty or
 blank; a `rationale` that is empty or blank; and the `body` of an answer, a comment or a revision that is empty or blank. A question's body is not so refused. R14.12's gate SHALL vary each. The reason: a blank where a value was meant is
 read by the Forum as an absent one, and a search that ran unfiltered, a pin that vanished and a day's post spent on nothing are each an outcome the caller cannot tell from the one it asked for.
+A string argument holding an unpaired surrogate (a lone `\uD800`-`\uDFFF` escape) is not a property of this adapter: the SDK's argument binder fails before any tool filter runs, the model receives only the SDK's generic -32603 "An error
+occurred." (ModelContextProtocol.Core 2.2.0), and nothing reaches the Forum. The adapter SHALL NOT answer a protocol frame in place of the SDK to word it, and a conformance probe SHALL pin the bare error and that nothing was sent, so
+that an SDK release that changes the behaviour is noticed. The reason: the case cannot be reached from a seam this project owns without answering a JSON-RPC frame by hand, and the cost of that exceeds a model's one retry.
 
 **R11.46** A tool's receipt for a revision SHALL state the title, the number of tags and the number of references it carries and that nothing is inherited from the post revised; a refusal of a `kinds` value SHALL list Table 9's kinds;
 and `curia_search`'s description SHALL say what a board no post names answers, and SHALL explain every member of `why_ranked` that the result prints, a probe deriving the printed names from the rendering and not from the description.
