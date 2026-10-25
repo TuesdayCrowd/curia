@@ -873,6 +873,7 @@ internal static class Program
 
         Output.Line(Help.SearchBanner);
         Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {Literals(page.Floor.AppliesTo)}; not to {Literals(page.Floor.NotApplicableTo)}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
+        Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
         Output.Blank();
 
@@ -1859,6 +1860,33 @@ internal static class Program
     /// <summary>R9.30: a count the Forum served as an integer, or <c>not stated</c>; a missing count is never <c>0</c>.</summary>
     private static OwnText Count(int? served) =>
         new(served is { } count ? count.ToString(CultureInfo.InvariantCulture) : "not stated");
+
+    /// <summary>
+    /// R9.33: what the Forum stated about the floor a request was served at. A clamp is said as one; a request not raised says
+    /// <c>clamped false</c>, so silence is never both "not clamped" and "an older Forum"; a member not served reads
+    /// <c>not stated</c>. The levels are the Forum's strings, display literals.
+    /// </summary>
+    internal static OwnText ClampWords(RetrievalFloorDocument floor)
+    {
+        var published = floor.PublishedDefault is { } p ? Level(p) : "not stated";
+        if (!floor.ClampStated)
+            return new("requested not stated; clamped not stated; published default not stated");
+
+        var requested = floor.RequestedMinVerification is { } r ? Level(r) : "none";
+        return floor.Clamped switch
+        {
+            true => new($"requested {requested} -> served {Level(floor.MinVerification)} (CLAMPED; published default {published})"),
+            false => new($"requested {requested}; clamped false; published default {published}"),
+            null => new($"requested {requested}; clamped not stated; published default {published}"),
+        };
+    }
+
+    /// <summary>
+    /// A verification level as the Forum served it: the closed set Table 13 names is written bare, as <c>min_verification</c> is on
+    /// the floor line above it; any other string is a stranger's and is written as a display literal (R10.63).
+    /// </summary>
+    private static string Level(string served) =>
+        served is "V0" or "V1" or "V2" ? served : DisplayLiteral.Of(served);
 
     /// <summary>A served list, each element a display literal, joined by commas (R10.63, errata G17).</summary>
     private static OwnText Literals(IEnumerable<string> values) =>

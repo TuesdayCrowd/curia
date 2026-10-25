@@ -392,6 +392,9 @@ internal static class ForumDocuments
         if (!FloorCount(floor, "excluded_disputed").TryGetValue(out var excludedDisputed, out floorCountError))
             return Result<SearchPage>.Fail(floorCountError!);
 
+        if (!ReadClamp(floor).TryGetValue(out var clamp, out var clampError))
+            return Result<SearchPage>.Fail(clampError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -402,9 +405,38 @@ internal static class ForumDocuments
                 Strings(floor, "applies_to"),
                 Strings(floor, "not_applicable_to"),
                 excludedByFloor,
-                excludedDisputed),
+                excludedDisputed,
+                clamp.PublishedDefault,
+                clamp.Requested,
+                clamp.Clamped,
+                clamp.Stated),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
+    }
+
+    /// <summary>
+    /// R9.33: the three members R9.31 states. Each is absent (an older Forum: not stated) or of its type:
+    /// <c>published_default</c> a string, <c>requested_min_verification</c> a string or null (null is a request that named
+    /// no level, and is stated), <c>clamped</c> a boolean. A present member of any other type is a malformed response.
+    /// </summary>
+    private static Result<(string? PublishedDefault, string? Requested, bool? Clamped, bool Stated)> ReadClamp(JsonValue.Object floor)
+    {
+        var member = ClientJson.Member(floor, "published_default");
+        var requested = ClientJson.Member(floor, "requested_min_verification");
+        var clamped = ClientJson.Member(floor, "clamped");
+
+        var ok = (member is null or JsonValue.String)
+            && (requested is null or JsonValue.String or JsonValue.Null)
+            && (clamped is null or JsonValue.Bool);
+        if (!ok)
+            return Result<(string?, string?, bool?, bool)>.Fail(
+                ClientErrors.ResponseMalformed("search page states a floor clamp member that is not of its type (R9.33)"));
+
+        return Result<(string?, string?, bool?, bool)>.Ok((
+            (member as JsonValue.String)?.Value,
+            (requested as JsonValue.String)?.Value,
+            (clamped as JsonValue.Bool)?.Value,
+            member is not null || requested is not null || clamped is not null));
     }
 
     /// <summary>
