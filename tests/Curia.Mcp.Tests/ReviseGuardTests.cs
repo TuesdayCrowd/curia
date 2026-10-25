@@ -167,9 +167,9 @@ public sealed class ReviseGuardTests : IDisposable
 
         Assert.NotEqual(true, result.IsError);
         Assert.Single(Envelopes(log));
-        Assert.Contains("supersession none reported", Text(result), StringComparison.Ordinal);
+        Assert.Contains("supersession none was reported", Text(result), StringComparison.Ordinal);
         var line = LineBeginning(Text(result), "supersession");
-        Assert.StartsWith("supersession none reported", line, StringComparison.Ordinal);
+        Assert.StartsWith("supersession none was reported", line, StringComparison.Ordinal);
         Assert.Contains("since is not seen", line, StringComparison.Ordinal);
         Assert.NotEqual(line, LineBeginning(Text(notChecked), "supersession"));
     }
@@ -284,8 +284,7 @@ public sealed class ReviseGuardTests : IDisposable
 
     /// <summary>
     /// PA21, the probe that carries information: the words the errata publishes for what the tool prints (<c>FORKED</c>, <c>not checked</c>,
-    /// <c>none was reported</c>, <c>refs[&lt;n&gt;]</c>) each appear in the output of the call that is meant to print them. Weak where the
-    /// receipt says <c>none reported</c> for the errata's <c>none was reported</c>: the content words are matched in order.
+    /// <c>none was reported</c>, <c>refs[&lt;n&gt;]</c>) each appear, spelled as the errata spells them, in the output of the call that is meant to print them.
     /// </summary>
     [Fact]
     public async Task R11_47_TheWordsTheErrataNamesAreTheWordsPrinted()
@@ -305,7 +304,7 @@ public sealed class ReviseGuardTests : IDisposable
         {
             ["FORKED"] = (Text(await ReviseAsync(AliceTools(forked))), new Regex("FORKED", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5))),
             ["not checked"] = (Text(await ReviseAsync(AliceTools(unstated))), new Regex("not\\s+checked", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5))),
-            ["none was reported"] = (Text(await ReviseAsync(AliceTools(empty))), new Regex("none\\s+(?:was\\s+)?reported", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5))),
+            ["none was reported"] = (Text(await ReviseAsync(AliceTools(empty))), new Regex("none\\s+was\\s+reported", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5))),
             ["refs[<n>]"] = (
                 Text(await AliceTools(refused).ReviseAsync(StubLog.PostId, "A corrected body.", null, null, ["ZQ7BAD"], Ct)),
                 new Regex(@"refs\[\d+\]", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5))),

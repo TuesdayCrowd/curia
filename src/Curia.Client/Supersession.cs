@@ -77,4 +77,34 @@ public static class Supersession
         if (list.IsEmpty) return null;
         return new OwnText($"revision  {Statement(list).Text}");
     }
+
+    /// <summary>
+    /// R11.47 (errata G34): the refusal <c>curia_revise</c> gives for a post the Forum serves as superseded, naming the post to revise
+    /// instead (its post id, or the digest and that it is not served), and saying the chain is already FORKED where there is more than one.
+    /// Null for a list that is not a statement (unstated or empty), which is the caller's cue to proceed. Every value is a display literal
+    /// (R10.63); the opening words are the caller's <c>NOT SENT</c> prefix and are written here so no form words them alone.
+    /// </summary>
+    public static OwnText? RevisionRefusal(ImmutableArray<Successor> list)
+    {
+        if (!IsSuperseded(list)) return null;
+        var named = string.Join(", ", list.Select(s => s.PostId is { } id
+            ? DisplayLiteral.Of(id)
+            : $"{DisplayLiteral.Of(s.Digest)} (not served: there is no post id to revise)"));
+        return list.Length == 1
+            ? new OwnText($"NOT SENT: the Forum reports this post superseded by {named}; revise that post instead (it is the current revision). Nothing was sent.")
+            : new OwnText($"NOT SENT: the Forum reports this post superseded by {list.Length} revisions: {named}; the chain is already FORKED, and the Forum does not pick one. Choose which post to revise, and revise that one. Nothing was sent.");
+    }
+
+    /// <summary>
+    /// R11.47: the line a revision's receipt carries beneath the label <c>supersession</c>, so a receipt is never silent on the question.
+    /// An unstated list says it was <b>NOT CHECKED</b>; an empty one says none was reported, as of the read (the read-to-write race is a
+    /// stated non-property). The two differ by their first words, so "checked and clear" and "not checked" are never one line. A populated
+    /// list is refused before a receipt exists, and reads here as the statement for completeness.
+    /// </summary>
+    public static OwnText ReceiptLine(ImmutableArray<Successor> list)
+    {
+        if (list.IsDefault) return new OwnText("NOT CHECKED (the Forum served no word on whether a revision supersedes this post, so this revision was not checked against one)");
+        if (list.IsEmpty) return new OwnText("none was reported (the Forum's word at the read; a revision that landed since is not seen)");
+        return Statement(list);
+    }
 }

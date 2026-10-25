@@ -133,6 +133,27 @@ internal sealed partial class ForumTools
                 ],
             };
 
+        // R11.47 (errata G34), after the verified read and before anything is signed. The author first: a non-author is not told to
+        // revise anything, and a spent budget (judged before ingest compares authors) must not hide that the post is not theirs. The
+        // served author is compared ordinally (an identity is a string no folding may touch); the Forum stays the decider (R11.16 (rev.)).
+        if (!string.Equals(post!.Provenance.Author, writer.Agent.Profile.AgentId, StringComparison.Ordinal))
+            return new CallToolResult
+            {
+                IsError = true,
+                Content =
+                [
+                    new TextContentBlock
+                    {
+                        Text = new FrameBuilder()
+                            .Append($"NOT SENT: this post was written by {post.Provenance.Author}, not by this agent ({writer.Agent.Profile.AgentId}); only a post's own author may revise it. Nothing was sent.")
+                            .ToString(),
+                    },
+                ],
+            };
+
+        if (Supersession.RevisionRefusal(post.Provenance.SupersededBy) is { } superseded)
+            return new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = new FrameBuilder().Append($"{superseded}").ToString() }] };
+
         var draft = new PostDraft
         {
             Kind = PostKind.Revision,
@@ -145,7 +166,8 @@ internal sealed partial class ForumTools
             Refs = references.ToImmutable(),
         };
 
-        return await SubmitAsync(writer, draft, ResourceKind.Revision, ActionKind.Create, cancellationToken).ConfigureAwait(false);
+        return await SubmitAsync(writer, draft, ResourceKind.Revision, ActionKind.Create, cancellationToken, Supersession.ReceiptLine(post.Provenance.SupersededBy))
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -268,7 +290,8 @@ internal sealed partial class ForumTools
     /// before a byte is sent.
     /// </summary>
     private async Task<CallToolResult> SubmitAsync(
-        ForumWriter writer, PostDraft draft, ResourceKind resource, ActionKind action, CancellationToken cancellationToken)
+        ForumWriter writer, PostDraft draft, ResourceKind resource, ActionKind action, CancellationToken cancellationToken,
+        OwnText? supersession = null)
     {
         if (!SubmissionBuilder.Build(writer.Agent, draft, writer.Now).TryGetValue(out var submission, out var buildError))
             return NotSentResult(buildError!);
@@ -277,7 +300,7 @@ internal sealed partial class ForumTools
         // answers, and the Forum is the party that marks them.
         var posted = await writer.Session.SubmitAsync(submission!.Wire, _marking, cancellationToken).ConfigureAwait(false);
 
-        if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!);
+        if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!, supersession);
 
         // R8.19: the refusal that answers the question. A success of its own shape, not an error: an
         // error gets retried, and retrying this one with the override the Forum names turns a found
@@ -293,7 +316,7 @@ internal sealed partial class ForumTools
     /// the Forum's post id, digest, instant and annotations, and the board, which an answer copies
     /// from the question it answers and so from whoever asked it.
     /// </summary>
-    private static CallToolResult Posted(ForumWriter writer, PostDraft draft, SignedSubmission submission, PostReceipt receipt)
+    private static CallToolResult Posted(ForumWriter writer, PostDraft draft, SignedSubmission submission, PostReceipt receipt, OwnText? supersession)
     {
         var text = new FrameBuilder();
 
@@ -319,6 +342,9 @@ internal sealed partial class ForumTools
             text.Line(
                 $"carries    title {new OwnText(draft.Title is null ? "none" : DisplayLiteral.Of(draft.Title))}, {draft.Tags.Length} tag(s), " +
                 $"{draft.Refs.Length} reference(s); nothing is inherited from the post revised (R11.40)");
+
+        // R11.47: a revision's receipt states what was checked about supersession, as of the read.
+        if (supersession is { } line) text.Line($"supersession {line}");
 
         if (!receipt.RiskFlags.IsDefaultOrEmpty)
         {

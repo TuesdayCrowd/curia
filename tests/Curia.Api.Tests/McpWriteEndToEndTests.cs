@@ -358,7 +358,10 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         var refused = await strangerSession.CallAsync("curia_revise", new() { ["postId"] = questionId, ["body"] = "A hostile rewrite." });
 
         Assert.True(refused.IsError, $"a stranger's revision was not refused:\n{refused.Text}");
-        Assert.Contains("table-10/own-resource-only", refused.Text, StringComparison.Ordinal);
+        // R11.47 (errata G34): the client names the cause from the author the verified read holds, before anything is signed, so
+        // the Forum's own-resource refusal is no longer reached from here (the budget-hiding case it exists for is in ReviseGuardEndToEndTests).
+        Assert.StartsWith("NOT SENT", refused.Text, StringComparison.Ordinal);
+        Assert.Contains("only a post's own author may revise it", refused.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("Requires trust tier", refused.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("this agent's trust tier", refused.Text, StringComparison.Ordinal);
         var unchanged = await BatchStateAsync(digest);
