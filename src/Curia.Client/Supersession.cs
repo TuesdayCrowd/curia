@@ -28,7 +28,7 @@ public static class Supersession
     public const string NotStatedLong = "revision  NOT STATED (the Forum served no word on whether a revision supersedes this post, so do not take it as the last word)";
 
     /// <summary>The fork's sentence: with more than one revision chaining to a post, the Forum does not pick one, and neither does a reader.</summary>
-    private const string Forked = " FORKED: more than one revision chains here and the Forum does not pick one";
+    internal const string ForkedSentence = " FORKED: more than one revision chains here and the Forum does not pick one";
 
     /// <summary>True when the Forum served a non-empty list.</summary>
     public static bool IsSuperseded(ImmutableArray<Successor> list) => !list.IsDefaultOrEmpty;
@@ -43,7 +43,7 @@ public static class Supersession
     /// The statement of a populated list: how many revisions, which, the basis, and the fork sentence when there is more than one.
     /// </summary>
     public static OwnText Statement(ImmutableArray<Successor> list) =>
-        new($"SUPERSEDED by {list.Length} revision(s) of this post's author: {Revisions(list).Text} -- {Basis}{(list.Length > 1 ? Forked : string.Empty)}");
+        new($"SUPERSEDED by {list.Length} revision(s) of this post's author: {Revisions(list).Text} -- {Basis}{(list.Length > 1 ? ForkedSentence : string.Empty)}");
 
     /// <summary>
     /// The one-row form (the titled index's row, the screen's H6), without a leading label: <c>superseded by ... basis</c>, or
@@ -53,7 +53,7 @@ public static class Supersession
     {
         if (list.IsDefault) return new OwnText(NotStatedShort);
         if (list.IsEmpty) return null;
-        return new OwnText($"superseded by {Revisions(list).Text} {Basis}{(list.Length > 1 ? Forked : string.Empty)}");
+        return new OwnText($"superseded by {Revisions(list).Text} {Basis}{(list.Length > 1 ? ForkedSentence : string.Empty)}");
     }
 
     /// <summary>What a verification adds to the statement: whose read it is about, and that a later read may differ (R11.44, ruling 9).</summary>

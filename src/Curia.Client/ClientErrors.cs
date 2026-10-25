@@ -68,6 +68,18 @@ public static class ClientErrors
             $"{named}: {FormsSentence}");
     }
 
+    /// <summary>R9.34 (errata G35): a batch answered a different number of elements than were sent. Both counts are the reader's own facts.</summary>
+    public static Error BatchCount(int sent, int answered) => new(
+        "curia/client/batch-count-mismatch",
+        "The Forum answered a different number of elements than were sent",
+        $"sent {sent.ToString(System.Globalization.CultureInfo.InvariantCulture)}, answered {answered.ToString(System.Globalization.CultureInfo.InvariantCulture)}; no standing is reported");
+
+    /// <summary>R9.34 (errata G35): a batch named at a position a digest other than the one sent there. The position is zero-based; the digest the Forum named is not echoed.</summary>
+    public static Error BatchPosition(int position) => new(
+        "curia/client/batch-digest-mismatch",
+        "The Forum answered for a different digest than the one sent at a position",
+        $"digests[{position.ToString(System.Globalization.CultureInfo.InvariantCulture)}]: the element answered names another digest; no standing is reported");
+
     /// <summary>
     /// D63: a single-post read was answered with a post whose <c>post_id</c> is not the one asked for.
     /// The requested id is the caller's own and is named; the served id is the Forum's text and is

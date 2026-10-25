@@ -601,7 +601,9 @@ internal static class Program
 
         foreach (var line in report.Lines) Output.Line($"{line.Text}");
 
-        return report.Lines.Any(l => l.Malformed) ? ExitCode.Usage
+        // A FAILED line is the Forum naming a post that does not bear the digest asked about: a fault on its side, ranked first.
+        return report.Failed ? ExitCode.ForumFault
+            : report.Lines.Any(l => l.Malformed) ? ExitCode.Usage
             : report.Lines.Any(l => l.Gone) ? ExitCode.NotFound
             : report.Lines.Any(l => l.Disputed) ? ExitCode.Disputed
             : ExitCode.Ok;
