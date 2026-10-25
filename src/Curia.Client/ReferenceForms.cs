@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 
@@ -35,6 +36,25 @@ public static class ReferenceForms
         }
 
         return Result<Reference>.Fail(ClientErrors.ReferenceForm());
+    }
+
+    /// <summary>
+    /// PR 2a Task 0 seam (R11.48), behaviour-preserving: <see cref="Parse"/> over a list, the first failure returned as it was.
+    /// Task 2 replaces the body with the walk that names every failing index.
+    /// </summary>
+    public static Result<ImmutableArray<Reference>> ParseAll(IEnumerable<string> given)
+    {
+        ArgumentNullException.ThrowIfNull(given);
+
+        var parsed = ImmutableArray.CreateBuilder<Reference>();
+        foreach (var value in given)
+        {
+            if (!Parse(value).TryGetValue(out var reference, out var error))
+                return Result<ImmutableArray<Reference>>.Fail(error!);
+            parsed.Add(reference!);
+        }
+
+        return Result<ImmutableArray<Reference>>.Ok(parsed.ToImmutable());
     }
 
     /// <summary>

@@ -50,4 +50,26 @@ public sealed class SearchClampPrintTests
         Assert.NotEqual(clampedOut, unclampedOut);
         Assert.NotEqual(clampedOut, olderOut);
     }
+
+    /// <summary>
+    /// R9.33 (errata G34, D61 item 18) at <c>curia search</c>: each member is stated or not on its own. A block with <c>clamped</c> and
+    /// <c>published_default</c> and no request reads <c>requested not stated</c>, in the unclamped form and the CLAMPED one; a block that
+    /// states none keeps the fallback line, which is green first and keeps that the fallback is a consequence and not a branch.
+    /// </summary>
+    [Fact]
+    public async Task R9_33_CuriaSearchSaysRequestedNotStatedForTheMemberNotServed()
+    {
+        using var unclamped = new StubLog { FloorClampOverride = "\"published_default\":\"V0\",\"clamped\":false" };
+        using var clamped = new StubLog { FloorClampOverride = "\"published_default\":\"V0\",\"clamped\":true" };
+        using var nothing = new StubLog { OmitClampMembers = true };
+
+        var unclampedOut = await SearchOutputAsync(unclamped);
+        var clampedOut = await SearchOutputAsync(clamped);
+        var nothingOut = await SearchOutputAsync(nothing);
+
+        Assert.Contains("requested not stated; clamped false; published default V0", unclampedOut, StringComparison.Ordinal);
+        Assert.Contains("requested not stated -> served", clampedOut, StringComparison.Ordinal);
+        Assert.Contains("CLAMPED", clampedOut, StringComparison.Ordinal);
+        Assert.Contains("requested not stated; clamped not stated; published default not stated", nothingOut, StringComparison.Ordinal);
+    }
 }

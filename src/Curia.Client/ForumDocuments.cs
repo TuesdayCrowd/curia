@@ -94,7 +94,8 @@ public sealed record RetrievalFloorDocument(
     string? PublishedDefault = null,
     string? RequestedMinVerification = null,
     bool? Clamped = null,
-    bool ClampStated = false);
+    bool ClampStated = false,
+    bool RequestedMinVerificationStated = false);
 
 public sealed record SearchPage(
     ImmutableArray<SearchHitDocument> Results,
@@ -409,6 +410,7 @@ internal static class ForumDocuments
                 clamp.PublishedDefault,
                 clamp.Requested,
                 clamp.Clamped,
+                clamp.Stated,
                 clamp.Stated),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));

@@ -69,4 +69,22 @@ public sealed class SearchFloorLineTests : IDisposable
         foreach (var line in new[] { clampedLine, unclampedLine, olderLine })
             Assert.Contains("excluded_by_floor=not stated excluded_disputed=0", line, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// R9.33 (errata G34, D61 item 18): a floor block that states some members states those, and the member it did not serve is
+    /// <c>not stated</c>, not <c>none</c>. The control is a request that named no level (<c>null</c>, which is stated): it still reads
+    /// <c>requested=none</c>. The block is written by this fact, so the oracle is what it served.
+    /// </summary>
+    [Fact]
+    public async Task R9_33_AClampStatedWithoutARequestSaysRequestedNotStated()
+    {
+        using var withoutRequest = new StubLog { FloorClampOverride = "\"published_default\":\"V0\",\"clamped\":true" };
+        using var nullRequest = new StubLog { FloorClampOverride = "\"published_default\":\"V0\",\"requested_min_verification\":null,\"clamped\":true" };
+
+        var absentLine = await FloorLineAsync(withoutRequest, _home);
+        var nullLine = await FloorLineAsync(nullRequest, _home);
+
+        Assert.Contains("requested=none clamped=true published_default=\"V0\"", nullLine, StringComparison.Ordinal);
+        Assert.Contains("requested=not stated clamped=true published_default=\"V0\"", absentLine, StringComparison.Ordinal);
+    }
 }

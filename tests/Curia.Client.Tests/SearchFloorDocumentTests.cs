@@ -194,6 +194,27 @@ public sealed class SearchFloorDocumentTests
         Assert.Contains("R9.33", refusal.Error.Detail ?? string.Empty, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// R9.33 (errata G34, D61 item 18): each of the three members is stated or not on its own. The tail omits the named member alone,
+    /// all of them, or serves the request as <c>null</c> alone (a present member, stated, with no level). Only the omitted member
+    /// flips; the others keep what the block served. Rows 2 and 3 are green first (those members were already per member).
+    /// </summary>
+    [Theory]
+    [InlineData(""","published_default":"V0","clamped":true""", false, "V0", true)]
+    [InlineData(""","requested_min_verification":"V1","clamped":true""", true, null, true)]
+    [InlineData(""","published_default":"V0","requested_min_verification":"V1" """, true, "V0", null)]
+    [InlineData("", false, null, null)]
+    [InlineData(""","requested_min_verification":null""", true, null, null)]
+    public async Task R9_33_EachMemberIsStatedOrNotOnItsOwn(string tail, bool requestStated, string? publishedDefault, bool? clamped)
+    {
+        var found = await SearchAsync(Page(tail));
+
+        Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
+        Assert.Equal(requestStated, page.Floor.RequestedMinVerificationStated);
+        Assert.Equal(publishedDefault, page.Floor.PublishedDefault);
+        Assert.Equal(clamped, page.Floor.Clamped);
+    }
+
     private sealed class Scripted(string body) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>

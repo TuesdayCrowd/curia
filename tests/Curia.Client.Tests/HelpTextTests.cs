@@ -627,7 +627,7 @@ public sealed class HelpTextTests
     /// <c>CURIA_CLIENT_HOME</c> at <paramref name="home"/> and <c>CURIA_FORUM</c> at a closed port.
     /// Killed, with its tree, after 60 s.
     /// </summary>
-    private static async Task<(int Exit, string Error)> RunCuriaAsync(IEnumerable<string> argv, string home, CancellationToken ct)
+    internal static async Task<(int Exit, string Error)> RunCuriaAsync(IEnumerable<string> argv, string home, CancellationToken ct)
     {
         var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } set
             ? set

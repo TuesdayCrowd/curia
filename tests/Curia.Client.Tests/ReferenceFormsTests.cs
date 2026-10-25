@@ -99,4 +99,27 @@ public sealed class ReferenceFormsTests
         if (admitted) Assert.Equal("url", reference!.Kind);
         else Assert.Contains("https://", error!.Detail, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// R11.48 (errata G34): <c>ParseAll</c> walks the whole list. All valid: every reference, in order. Otherwise the error's detail
+    /// begins with the zero-based index of every item refused, in order, and echoes no value. The oracle is the list this fact built.
+    /// </summary>
+    [Fact]
+    public void R11_48_ParseAllNamesTheIndicesAndReturnsEveryReferenceInOrderOtherwise()
+    {
+        string[] valid = [Digest, "pkg:nuget/CsCheck@4.8.0", "https://example.test/a"];
+        Assert.True(ReferenceForms.ParseAll(valid).TryGetValue(out var all, out var allError), allError?.Detail);
+        Assert.Equal(3, all.Length);
+        Assert.Equal(valid, all.Select(r => r.Target));
+        Assert.Equal(["post", "package", "url"], all.Select(r => r.Kind));
+
+        Assert.True(ReferenceForms.ParseAll([]).TryGetValue(out var none, out var noneError), noneError?.Detail);
+        Assert.Empty(none);
+
+        Assert.False(ReferenceForms.ParseAll([Digest, "ZQ7BAD", Digest, "ZQ8BAD"]).TryGetValue(out _, out var error));
+        Assert.StartsWith("refs[1], refs[3]", error!.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZQ7BAD", error.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZQ8BAD", error.Detail, StringComparison.Ordinal);
+        Assert.Contains("sha256:", error.Detail, StringComparison.Ordinal);
+    }
 }
