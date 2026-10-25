@@ -1859,10 +1859,7 @@ internal static class Program
     internal static OwnText ClampWords(RetrievalFloorDocument floor)
     {
         var published = floor.PublishedDefault is { } p ? Level(p) : "not stated";
-        if (!floor.ClampStated)
-            return new("requested not stated; clamped not stated; published default not stated");
-
-        var requested = floor.RequestedMinVerification is { } r ? Level(r) : "none";
+        var requested = !floor.RequestedMinVerificationStated ? "not stated" : floor.RequestedMinVerification is { } r ? Level(r) : "none";
         return floor.Clamped switch
         {
             true => new($"requested {requested} -> served {Level(floor.MinVerification)} (CLAMPED; published default {published})"),

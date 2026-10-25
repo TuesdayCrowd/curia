@@ -94,7 +94,6 @@ public sealed record RetrievalFloorDocument(
     string? PublishedDefault = null,
     string? RequestedMinVerification = null,
     bool? Clamped = null,
-    bool ClampStated = false,
     bool RequestedMinVerificationStated = false);
 
 public sealed record SearchPage(
@@ -410,8 +409,7 @@ internal static class ForumDocuments
                 clamp.PublishedDefault,
                 clamp.Requested,
                 clamp.Clamped,
-                clamp.Stated,
-                clamp.Stated),
+                clamp.RequestedStated),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
     }
@@ -420,8 +418,10 @@ internal static class ForumDocuments
     /// R9.33: the three members R9.31 states. Each is absent (an older Forum: not stated) or of its type:
     /// <c>published_default</c> a string, <c>requested_min_verification</c> a string or null (null is a request that named
     /// no level, and is stated), <c>clamped</c> a boolean. A present member of any other type is a malformed response.
+    /// Each member is stated or not on its own (errata G34, D61 item 18): <c>RequestedStated</c> is whether the request member is
+    /// present, null included, and no other member's presence speaks for it.
     /// </summary>
-    private static Result<(string? PublishedDefault, string? Requested, bool? Clamped, bool Stated)> ReadClamp(JsonValue.Object floor)
+    private static Result<(string? PublishedDefault, string? Requested, bool? Clamped, bool RequestedStated)> ReadClamp(JsonValue.Object floor)
     {
         var member = ClientJson.Member(floor, "published_default");
         var requested = ClientJson.Member(floor, "requested_min_verification");
@@ -438,7 +438,7 @@ internal static class ForumDocuments
             (member as JsonValue.String)?.Value,
             (requested as JsonValue.String)?.Value,
             (clamped as JsonValue.Bool)?.Value,
-            member is not null || requested is not null || clamped is not null));
+            requested is not null));
     }
 
     /// <summary>

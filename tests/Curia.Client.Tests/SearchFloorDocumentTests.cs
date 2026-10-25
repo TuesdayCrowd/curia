@@ -150,7 +150,7 @@ public sealed class SearchFloorDocumentTests
         var found = await SearchAsync(Page(""));
 
         Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
-        Assert.False(page.Floor.ClampStated);
+        Assert.False(page.Floor.RequestedMinVerificationStated);
         Assert.Null(page.Floor.Clamped);
         Assert.Null(page.Floor.PublishedDefault);
         Assert.Null(page.Floor.RequestedMinVerification);
@@ -162,7 +162,7 @@ public sealed class SearchFloorDocumentTests
         var found = await SearchAsync(Page(""","published_default":"V0","requested_min_verification":null,"clamped":false"""));
 
         Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
-        Assert.True(page.Floor.ClampStated);
+        Assert.True(page.Floor.RequestedMinVerificationStated);
         Assert.Null(page.Floor.RequestedMinVerification);
         Assert.False(page.Floor.Clamped);
         Assert.Equal("V0", page.Floor.PublishedDefault);
@@ -174,7 +174,7 @@ public sealed class SearchFloorDocumentTests
         var found = await SearchAsync(Page(""","requested_min_verification":null"""));
 
         Assert.True(found.TryGetValue(out var page, out var refusal), refusal?.Summary);
-        Assert.True(page.Floor.ClampStated);
+        Assert.True(page.Floor.RequestedMinVerificationStated);
         Assert.Null(page.Floor.RequestedMinVerification);
         Assert.Null(page.Floor.Clamped);
         Assert.Null(page.Floor.PublishedDefault);
