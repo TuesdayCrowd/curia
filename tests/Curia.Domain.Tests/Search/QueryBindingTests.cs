@@ -134,6 +134,10 @@ public sealed partial class QueryBindingTests
             // a value that moves between members.
             Base with { Board = "b", Author = null },
             Base with { Board = null, Author = "b" },
+            // a value that holds the next member's markers against the same characters split across two members: only the length
+            // prefix says where a field ends (without it both spell "+a+b--").
+            empty with { Text = "a+b", Board = null, Author = null },
+            empty with { Text = "a", Board = "b-", Author = null },
             // a number that moves between members.
             Base with { PageSize = 1, InForce = VerificationLevel.V0 },
             Base with { PageSize = 10, InForce = VerificationLevel.V0 },

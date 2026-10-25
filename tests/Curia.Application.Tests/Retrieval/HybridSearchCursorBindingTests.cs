@@ -165,6 +165,33 @@ public sealed class HybridSearchCursorBindingTests
         Assert.True(h.Embedder.Calls > 0 && h.Index.Nearest > 0, $"the control did not reach the channels (embed {h.Embedder.Calls}, nearest {h.Index.Nearest})");
     }
 
+    /// <summary>
+    /// The binding holds the page size the Forum applies and not the one the caller spelled: <c>limit=0</c> is served as one, so a cursor minted under
+    /// either continues under the other (the Forum re-sends the caller's own spelling; a binding of the requested size would refuse a request that
+    /// is the same query).
+    /// </summary>
+    [Fact]
+    public async Task R9_35_TheBindingHoldsTheClampedPageSizeSoTwoSpellingsOfOneSizeBindAlike()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var h = await FourQuestionsAsync(ct);
+
+        var spelledZero = Require(await RunAsync(h, h.Published, Query(limit: 0), ct));
+        var spelledOne = Require(await RunAsync(h, h.Published, Query(limit: 1), ct));
+
+        // Control: the fixture serves one result either way, so the two spellings are the same query and each has a second page.
+        Assert.Single(spelledZero.Results);
+        Assert.Single(spelledOne.Results);
+        Assert.NotNull(spelledZero.Next);
+        Assert.NotNull(spelledOne.Next);
+
+        Assert.Equal(spelledOne.Next!.Binding, spelledZero.Next!.Binding);
+        var continued = Require(await RunAsync(h, h.Published, Query(limit: 1, cursor: spelledZero.Next), ct));
+        Assert.Single(continued.Results);
+        var continuedBack = Require(await RunAsync(h, h.Published, Query(limit: 0, cursor: spelledOne.Next), ct));
+        Assert.Single(continuedBack.Results);
+    }
+
     /// <summary>One author with four posts and two others with one each, all matching one query.</summary>
     private static async Task<Harness> HeavyAuthorAsync(CancellationToken ct)
     {

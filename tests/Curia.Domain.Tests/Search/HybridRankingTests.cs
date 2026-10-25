@@ -200,6 +200,33 @@ public sealed class HybridRankingTests
         Assert.DoesNotContain(plain, error.Detail ?? string.Empty, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("c0007:1:0123456789abcdef")]       // leading zeros in the bound
+    [InlineData("c4:01:0123456789abcdef")]         // leading zeros in the offset
+    [InlineData("c00:1:0123456789abcdef")]         // a zero written as two
+    [InlineData("c+4:1:0123456789abcdef")]         // a sign on the bound
+    [InlineData("c4:+1:0123456789abcdef")]         // a sign on the offset
+    [InlineData("c 4:1:0123456789abcdef")]         // whitespace in the bound
+    [InlineData("c4: 1:0123456789abcdef")]         // whitespace in the offset
+    [InlineData("c4:1 :0123456789abcdef")]         // trailing whitespace in the offset
+    public void R9_35_ACursorIsReadOnlyInItsPublishedShapeAndNumeralsAreCanonical(string plain)
+    {
+        var result = RetrievalCursor.Decode(Convert.ToBase64String(Encoding.ASCII.GetBytes(plain)));
+
+        Assert.True(!result.TryGetValue(out var cursor, out var error), $"Decode read '{plain}' as a cursor (bound {cursor?.CorpusBound}, offset {cursor?.Offset}); expected cursor-malformed");
+        Assert.Equal("curia/search/cursor-malformed", error!.Type);
+    }
+
+    [Theory]
+    [InlineData("c0:0:0123456789abcdef", 0L, 0)]
+    [InlineData("c10:20:0123456789abcdef", 10L, 20)]
+    public void R9_35_ACanonicalNumeralIsRead(string plain, long bound, int offset)
+    {
+        var cursor = Require(RetrievalCursor.Decode(Convert.ToBase64String(Encoding.ASCII.GetBytes(plain))));
+
+        Assert.Equal((bound, offset), (cursor!.CorpusBound, cursor.Offset));
+    }
+
     /// <summary>Control for the rows above: the same cursor with a well-formed binding is read.</summary>
     [Fact]
     public void R9_35_ACursorWithAWellFormedBindingIsRead()
@@ -212,7 +239,7 @@ public sealed class HybridRankingTests
     [Fact]
     public void R9_7_TheCursorCarriesTheCorpusBoundAndRoundTrips()
     {
-        var cursor = new RetrievalCursor(184223, 50);
+        var cursor = new RetrievalCursor(184223, 50, "0123456789abcdef");
         Assert.Equal(cursor, Assert.IsType<RetrievalCursor>(Require(RetrievalCursor.Decode(cursor.Encode()))));
         Assert.Null(Require(RetrievalCursor.Decode(null)));
         Assert.Null(Require(RetrievalCursor.Decode("   ")));

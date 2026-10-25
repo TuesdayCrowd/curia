@@ -136,6 +136,27 @@ public sealed class SearchCursorBindingEndpointTests(ForumFixture forum, Configu
     }
 
     [Fact]
+    public async Task R9_35_AFilterThatMatchesNothingRefusesACursorThatTheBindingAloneWouldAccept()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seeded = await SeedAsync(forum, ct);
+
+        // A page one with no board at all: the board that names none (%00) is read as no board, so the binding of the query below equals this cursor's.
+        using var unfiltered = await GetJsonAsync(forum, $"q={seeded.Term}&limit=1", ct);
+        var cursor = unfiltered.RootElement.GetProperty("next_cursor").GetString();
+        Assert.False(string.IsNullOrEmpty(cursor), "the unfiltered first page minted no cursor, so the row below would test nothing");
+
+        // Control: the identical unfiltered query continues, so the binding accepts this cursor and only the matches-nothing refusal can turn it away.
+        using (var same = await GetJsonAsync(forum, $"q={seeded.Term}&limit=1&cursor={Uri.EscapeDataString(cursor!)}", ct))
+            Assert.Equal(unfiltered.RootElement.GetProperty("corpus_bound").GetInt64(), same.RootElement.GetProperty("corpus_bound").GetInt64());
+
+        var (status, body) = await GetAsync(forum, $"q={seeded.Term}&board=%00&limit=1&cursor={Uri.EscapeDataString(cursor!)}", ct);
+
+        Assert.True(status == HttpStatusCode.BadRequest, $"expected 400 for a cursor presented under a board that names none, got {(int)status}");
+        Assert.Contains(PublishedSearchPage.MismatchType(), body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task R9_35_AnOldTwoFieldCursorIsMalformed()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -93,7 +93,7 @@ internal static class Exemplars
             m.Query.Add(new("kind", "question"));
             m.Query.Add(new("tags", "jcs"));
             m.Query.Add(new("cursor", c.SearchCursor));
-            m.Query.Add(new("limit", "10"));
+            m.Query.Add(new("limit", "1"));   // the limit the cursor was minted under (R9.35): ten would leave no second page
             m.Query.Add(new("why", "true"));
             m.Query.Add(new("min_verification", "V0"));
             m.Query.Add(new("marking", "datamark"));

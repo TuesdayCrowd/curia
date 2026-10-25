@@ -174,7 +174,7 @@ internal sealed class FuzzContext : IDisposable
     /// the exemplar of <c>GET /v1/search</c>, which presents the cursor, can be held to the members the cursor was minted under (R9.35, PC34).
     /// </summary>
     internal static string SearchMintQuery(string authorId) =>
-        $"q={SeedWord}&board={SeedBoard}&author={Uri.EscapeDataString(authorId)}&kind=question&tags=jcs&limit=1";
+        $"q={SeedWord}&board={SeedBoard}&author={Uri.EscapeDataString(authorId)}&kind=question&tags=jcs&min_verification=V0&limit=1";
 
     /// <summary>High-entropy text, so §8.5's dedupe never refuses a second send as a near-duplicate.</summary>
     internal static string Entropy(string stem) => stem + " " + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)) + " " + Guid.NewGuid().ToString("N");

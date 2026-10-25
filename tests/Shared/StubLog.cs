@@ -914,7 +914,7 @@ internal sealed class StubLog : IDisposable
 
     /// <summary>
     /// R9.35 and R11.50: answer <c>GET /v1/search</c> with <c>curia/search/cursor-query-mismatch</c> (<c>400</c>) instead of a page, as the Forum
-    /// does for a cursor that does not belong to the request. <b>Present and honoured by nothing yet</b>: the stage that builds item 10 serves it.
+    /// does for a cursor that does not belong to the request. <b>The stub serves the refusal the Forum's factory builds.</b>
     /// </summary>
     internal bool SearchRefusesTheCursor { get; set; }
 
@@ -1763,6 +1763,14 @@ internal sealed class StubLog : IDisposable
                 return (HttpStatusCode.OK, log.ServesADecoyOnTheSecondRead && log._postReads > 1
                     ? log.DecoyJson()
                     : log.PostJson());
+            }
+
+            if (path == "/v1/search" && log.SearchRefusesTheCursor)
+            {
+                // The Forum's own refusal, from the factory the Forum answers with, so the wording cannot drift from it.
+                var mismatch = Curia.Domain.Search.RetrievalCursor.QueryMismatch();
+                return (HttpStatusCode.BadRequest,
+                    $$"""{"type":{{JsonString(mismatch.Type)}},"title":{{JsonString(mismatch.Title)}},"detail":{{JsonString(mismatch.Detail ?? string.Empty)}}}""");
             }
 
             if (path == "/v1/search") return (HttpStatusCode.OK, log.SearchJson());

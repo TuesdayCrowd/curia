@@ -96,6 +96,20 @@ public sealed class HybridSearch
         var offset = query.Cursor?.Offset ?? 0;
         var limit = Math.Clamp(query.Limit, 1, LexicalSearch.MaximumLimit);
 
+        var (surfaceFloor, source) = _floors.Resolve(surface);
+
+        // R10.54 (rev.), R9.31: a request may raise the surface's floor and never lower it. A request
+        // below it is served at the floor in force and the page says so; `source` names the request
+        // only where the request's level is the one applied.
+        var clamped = query.RequestedFloor is { } asked && asked < surfaceFloor;
+        var floor = query.RequestedFloor is { } requested && !clamped ? requested : surfaceFloor;
+
+        // R9.35: a cursor continues the query that minted it and no other. The floor in force is a member of the binding, so
+        // the check follows the floor and precedes both channels: a refused request embeds nothing and asks the index nothing.
+        var binding = QueryBinding.Of(query.Text, query.Board?.Value, query.Author?.Value, query.Kinds, query.Tags, query.RequestedFloor, floor, limit);
+        if (query.Cursor is { } presented && !string.Equals(presented.Binding, binding, StringComparison.Ordinal))
+            return Result<SearchPage>.Fail(RetrievalCursor.QueryMismatch());
+
         var corpus = SearchProjector.Fold(log).Where(p => p.Sequence <= bound).ToImmutableArray();
         var lexicalQuery = new LexicalQuery(query.Text, query.Board?.Value, query.Kinds, query.Tags, query.Author?.Value, Cursor: null, Limit: LexicalSearch.MaximumLimit);
         var lexical = LexicalSearch.Rank(corpus, lexicalQuery);
@@ -120,20 +134,13 @@ public sealed class HybridSearch
         // a disputed post below the floor exists. `read` by id still serves a disputed post.
         var disputed = DisputedPosts.Fold(log, PostProjector.Fold(log));
 
-        var (surfaceFloor, source) = _floors.Resolve(surface);
-
-        // R10.54 (rev.), R9.31: a request may raise the surface's floor and never lower it. A request
-        // below it is served at the floor in force and the page says so; `source` names the request
-        // only where the request's level is the one applied.
-        var clamped = query.RequestedFloor is { } asked && asked < surfaceFloor;
-        var floor = query.RequestedFloor is { } requested && !clamped ? requested : surfaceFloor;
         var admitted = HybridRanking.Admit(fused, floor);
         var excludedByFloor = fused.Length - admitted.Length;   // R9.30: the floor's removals alone, before dispute
         var diversified = HybridRanking.Diversify(admitted, limit);
 
         var window = diversified.Skip(offset).Take(limit);
         var page = window.Where(r => !disputed.IsDisputed(r.Post)).ToImmutableArray();
-        var next = offset + limit < diversified.Length ? new RetrievalCursor(bound, offset + limit) : null;
+        var next = offset + limit < diversified.Length ? new RetrievalCursor(bound, offset + limit, binding) : null;
         var excludedDisputed = diversified.Count(r => disputed.IsDisputed(r.Post));
 
         return Result<SearchPage>.Ok(new SearchPage(

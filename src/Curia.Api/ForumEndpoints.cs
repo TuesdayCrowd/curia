@@ -1850,6 +1850,11 @@ public static class ForumEndpoints
             (boardWire is not null && !BoardName.Parse(boardWire, "board").TryGetValue(out board, out _))
             | (authorWire is not null && !AgentId.Parse(authorWire, "author").TryGetValue(out author, out _));
 
+        // R9.35: a filter that matches nothing mints no cursor, so a cursor presented with one came from some other query. It is a
+        // mismatch by construction and not a first page, and it is refused before the query is built.
+        if (matchesNothing && cursor is not null)
+            return Problem(StatusCodes.Status400BadRequest, RetrievalCursor.QueryMismatch());
+
         var query = new SearchQuery(
             Text: Nullable(http.Query["q"].ToString()),
             Board: board,
@@ -1877,7 +1882,11 @@ public static class ForumEndpoints
 
         var searched = await search.SearchAsync(log, RetrievalSurface.RestSearch, query, verification, cancellationToken).ConfigureAwait(false);
         if (!searched.TryGetValue(out var page, out var searchError))
-            return Problem(StatusCodes.Status503ServiceUnavailable, searchError!);
+        {
+            // R9.35: a cursor that belongs to another query is the caller's request and not a search failure.
+            var mismatch = string.Equals(searchError!.Type, RetrievalCursor.QueryMismatch().Type, StringComparison.Ordinal);
+            return Problem(mismatch ? StatusCodes.Status400BadRequest : StatusCodes.Status503ServiceUnavailable, searchError);
+        }
 
         // R9.8: "when requested". Off by default because R8.36's purpose is auditing rather than
         // decoration, and a field on every response is one every client learns to ignore.
