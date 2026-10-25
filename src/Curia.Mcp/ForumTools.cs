@@ -404,8 +404,7 @@ internal sealed partial class ForumTools(
     /// </summary>
     private static OwnText ClampWords(RetrievalFloorDocument floor)
     {
-        var stated = floor.ClampStated;
-        var requested = !stated ? "not stated" : floor.RequestedMinVerification is { } r ? DisplayLiteral.Of(r) : "none";
+        var requested = !floor.RequestedMinVerificationStated ? "not stated" : floor.RequestedMinVerification is { } r ? DisplayLiteral.Of(r) : "none";
         var clamped = floor.Clamped is { } c ? (c ? "true" : "false") : "not stated";
         var published = floor.PublishedDefault is { } p ? DisplayLiteral.Of(p) : "not stated";
         return new($"requested={requested} clamped={clamped} published_default={published}");

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 
@@ -35,6 +36,30 @@ public static class ReferenceForms
         }
 
         return Result<Reference>.Fail(ClientErrors.ReferenceForm());
+    }
+
+    /// <summary>
+    /// R11.48 (errata G34, D61 item 17): <see cref="Parse"/> over a list, walking all of it. On a failure the error's detail
+    /// begins with the zero-based index of every item refused (<c>refs[0], refs[2]</c>) and echoes no value, so one retry
+    /// corrects them all. The one rule for <c>curia_answer</c>, <c>curia_comment</c>, <c>curia_revise</c> and <c>--refs</c>.
+    /// </summary>
+    public static Result<ImmutableArray<Reference>> ParseAll(IEnumerable<string> given)
+    {
+        ArgumentNullException.ThrowIfNull(given);
+
+        var parsed = ImmutableArray.CreateBuilder<Reference>();
+        var refused = new List<int>();
+        var index = 0;
+        foreach (var value in given)
+        {
+            if (Parse(value).TryGetValue(out var reference, out _)) parsed.Add(reference!);
+            else refused.Add(index);
+            index++;
+        }
+
+        return refused.Count > 0
+            ? Result<ImmutableArray<Reference>>.Fail(ClientErrors.ReferenceForm(refused))
+            : Result<ImmutableArray<Reference>>.Ok(parsed.ToImmutable());
     }
 
     /// <summary>

@@ -620,10 +620,28 @@ public sealed class ToolDescriptionTests
         Assert.Equal(["next_cursor", "revision"], resultTerms);
     }
 
-    /// <summary>R11.46 ruling 10 (errata G33): output and refusals changed and no tool was added, so the server reports 0.7.1.</summary>
+    /// <summary>
+    /// R11.47 (errata G34): a description that does not name the refusals teaches them only by being tripped. The words are the ones
+    /// the refusals print (the author refusal's <c>was written by</c>, the fork's <c>FORKED</c>, the receipt's <c>NOT CHECKED</c>), and
+    /// "reported superseded" stays (R11.44's fact reads it). Weak by construction: it restates the tool's own wording, and
+    /// <c>ReviseGuardTests</c>'s errata-derived fact is the one that carries information.
+    /// </summary>
     [Fact]
-    public void R11_46_TheServerReportsVersionZeroSevenOne()
+    public void R11_47_TheReviseDescriptionStatesBothRefusalsAndTheReceiptLine()
     {
-        Assert.Equal("0.7.1", ToolCatalogue.Version);
+        var description = Registered().Single(t => t.Name == "curia_revise").Description;
+        Assert.NotEmpty(description);
+
+        Assert.Contains("reported superseded", description, StringComparison.Ordinal);
+        Assert.Contains("FORKED", description, StringComparison.Ordinal);
+        Assert.Contains("was written by", description, StringComparison.Ordinal);
+        Assert.Contains("NOT CHECKED", description, StringComparison.Ordinal);
+    }
+
+    /// <summary>R11.47 (errata G34): refusals and a receipt line changed and no tool was added, so the server reports 0.7.2.</summary>
+    [Fact]
+    public void R11_47_VersionIs072()
+    {
+        Assert.Equal("0.7.2", ToolCatalogue.Version);
     }
 }

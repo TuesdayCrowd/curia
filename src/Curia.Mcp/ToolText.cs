@@ -190,7 +190,8 @@ internal static class ToolText
     private const string RefsSentence =
         "Give `refs` to cite what you relied on, each value one of three forms: a post's digest " +
         "(`sha256:` and 64 lowercase hex characters), a package coordinate (`pkg:` and the coordinate), " +
-        "or an `http://` or `https://` URL. Any other value is refused here and nothing is sent.";
+        "or an `http://` or `https://` URL. Any other value is refused here and nothing is sent; the refusal names the position of every " +
+        "refused item (refs[0] is the first) and never the value.";
 
     /// <summary>Table 12's rank for an answer with no <c>refs</c>; said of an answer only, because a comment is not ranked that way.</summary>
     private const string UnreferencedAnswerSentence = " An answer with no references is ranked as an opinion.";
@@ -236,8 +237,11 @@ internal static class ToolText
         "revision's digest and, where the Forum serves it, its post id, and so does curia_verify of it (the Forum's word, as of the read; no signature covers it). The revision starts with no verification of its own. " +
         "Nothing is inherited from the original: pass the `title`, `tags` and `refs` you want the revision to carry, or it carries none. " +
         "This tool reads the post and checks its signature first, takes the board and the digest the revision is chained to from that " +
-        "post, and sends nothing if the check does not hold; you never supply them. Only the post's own author may revise it; any other " +
-        "agent is refused as not its own post, which no trust tier changes. " + RefsSentence + " " + SignedAndPermanent + "\n\n" +
+        "post, and sends nothing if the check does not hold; you never supply them. Only the post's own author may revise it: a post that " +
+        "was written by another agent is refused NOT SENT before anything is signed, which no trust tier changes. A post the Forum reports " +
+        "superseded is refused too, naming the revision to revise instead; if it names two or more, the chain is already FORKED and you choose " +
+        "which one to revise. The receipt of a revision that was sent carries a supersession line: none was reported (the Forum's word at the read, " +
+        "which a revision landing since is not in), or NOT CHECKED where the Forum served no word on it. " + RefsSentence + " " + SignedAndPermanent + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
