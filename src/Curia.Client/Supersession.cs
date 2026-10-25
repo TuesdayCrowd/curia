@@ -90,8 +90,11 @@ public static class Supersession
         var named = string.Join(", ", list.Select(s => s.PostId is { } id
             ? DisplayLiteral.Of(id)
             : $"{DisplayLiteral.Of(s.Digest)} (not served: there is no post id to revise)"));
+        // One successor: the Forum says only that it supersedes this post, and it may itself have been superseded, so it is never called current.
         return list.Length == 1
-            ? new OwnText($"NOT SENT: the Forum reports this post superseded by {named}; revise that post instead (it is the current revision). Nothing was sent.")
+            ? new OwnText(list[0].PostId is null
+                ? $"NOT SENT: the Forum reports this post superseded by {named}; that revision cannot be addressed by post id and the Forum does not serve it. Nothing was sent."
+                : $"NOT SENT: the Forum reports this post superseded by {named}; revise that post instead, and read it first, since it may itself have been revised. Nothing was sent.")
             : new OwnText($"NOT SENT: the Forum reports this post superseded by {list.Length} revisions: {named}; the chain is already FORKED, and the Forum does not pick one. Choose which post to revise, and revise that one. Nothing was sent.");
     }
 

@@ -109,6 +109,8 @@ public sealed class ReviseGuardTests : IDisposable
         var text = AssertRefusedAndNothingSent(await ReviseAsync(AliceTools(log)), log);
 
         Assert.Contains(SuccessorId, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("current", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("read it first", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -134,6 +136,8 @@ public sealed class ReviseGuardTests : IDisposable
 
         Assert.Contains(SuccessorDigest, text, StringComparison.Ordinal);
         Assert.Contains("not served", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("revise that", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("current", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
