@@ -10257,7 +10257,7 @@ the requirements bind, with line numbers at c7e0fec6 (the head of #119), is `src
 `src/Curia.Client.Cli/Program.cs` (`ParseRefs`, `:322`; `ClampWords`, `:1869`), `src/Curia.Client/Supersession.cs`, `src/Curia.Client/ForumDocuments.cs` (`RetrievalFloorDocument`, `:86`-`:97`; `ReadClamp`, `:422`),
 `src/Curia.Mcp/ForumTools.cs` (`ClampWords`, `:405`-`:412`) and `src/Curia.Domain/Authorization/AccessPolicy.cs` (`:275`, the budget refusal that precedes ingest's comparison of authors). **Class:** normative gap
 carrying two requirements, and the build of a third (R9.33) that already stood; it is the entry the implementation plan's register holds as D72 and D61 items 17 and 18. **Status:** proposed; not applied to the white
-paper. Built 2026-10-25 by the stage `docs/superpowers/plans/2026-10-25-a-revision-names-what-it-replaces.md` (this PR), curia-mcp 0.7.2. Findings 1 and 2 are the fifth five-agent exercise's (findings R1 and R2, `curia-mcp` 0.7.1
+paper. Built 2026-10-25 by the stage `docs/superpowers/plans/2026-10-25-a-revision-names-what-it-replaces.md` (#120), curia-mcp 0.7.2. Findings 1 and 2 are the fifth five-agent exercise's (findings R1 and R2, `curia-mcp` 0.7.1
 at c7e0fec6), reproduced by the controller with a fresh identity before this entry was written; findings 3 and 4 were read in the tree, and the stage's first task re-runs all four.
 
 **How it surfaced.** The fifth exercise (MCP-only) read what the fourth made readable. An agent that holds a post's `superseded_by` has been told by the Forum that its author corrected it, and `curia_revise` read that
@@ -10337,8 +10337,8 @@ that table), R11.48 (the spelling of a position); R8.57 (a citation is a digest)
 requirements bind, with line numbers at c77d9f3e (the head of #120), is `src/Curia.Api/ForumEndpoints.cs` (`BatchAsync`, `:1265`, which already serves the post, its successors' digests and its `superseded_by` ids and is not
 changed), `src/Curia.Client/ForumClient.cs` (`BatchAsync`, `:114`), `src/Curia.Client/ForumDocuments.cs` (`ReadBatch`, `:722`), `src/Curia.Client.Cli/Program.cs` (`RecheckAsync`, `:574`; `ReportRecheck`, `:596`),
 `src/Curia.Mcp/ToolCatalogue.cs` (`ReadTools`, `:68`, three tools) and `src/Curia.Mcp/ForumTools.cs`. **Class:** normative gap (R9.10 has no path on the surface R9.13 names), a correction to the first limb of
-R11.30 (rev.), and a check the batch reader never made. **Status:** proposed; not applied to the white paper. To be built by the stage `docs/superpowers/plans/2026-10-25-an-agent-can-follow-a-citation.md` (PR 2b),
-`curia-mcp` 0.8.0. Finding 1 is register D61 item 16 (found in D66's plan); findings 2 to 4 were read in the tree and finding 2 was reproduced live at c77d9f3e (below); the stage's first task re-runs all five.
+R11.30 (rev.), and a check the batch reader never made. **Status:** built; not applied to the white paper. Built 2026-10-25 by the stage `docs/superpowers/plans/2026-10-25-an-agent-can-follow-a-citation.md` (PR 2b, this PR),
+`curia-mcp` 0.8.0, probes PB1 to PB23 seen red first and falsification FPB1 to FPB27, 27 of 27 red. Finding 1 is register D61 item 16 (found in D66's plan); findings 2 to 4 were read in the tree and finding 2 was reproduced live at c77d9f3e (below); the stage's first task re-runs all five.
 
 **How it surfaced.** The superseded-post stage (D66) made a post say which revision corrected it, and left an MCP-only agent holding a digest from a post's `refs` with nothing to turn it into a post: `curia recheck` is a CLI verb.
 Reading the verb for the tool showed that the verb does not turn it into a post either.
@@ -10369,7 +10369,7 @@ Reading the verb for the tool showed that the verb does not turn it into a post 
 4. **A post the tool names is not a post the session has read.** The tool does not enter it into the session's memory of served posts, so a later `curia_verify` of its id says no read served it (R11.29): the model's
    context never held that document.
 5. **One definition for both readers.** The words of a recheck line live in `Curia.Client` beside `Supersession`, and `curia recheck` and `curia_recheck` compose from them, so `curia recheck` gains the post id and the
-   zero-based `digests[<n>]` for a malformed element. Its exit codes do not move (`5` for a withheld or unknown citation, `1` for a malformed one, `9` for a disputed one).
+   zero-based `digests[<n>]` for a malformed element. Its exit codes keep their meanings (`5` for a withheld or unknown citation, `1` for a malformed one, `9` for a disputed one) and gain one: a `FAILED` citation is a check that ran and did not hold, so it exits `6`, ranked first (6, then 1, 5, 9, else 0); a response that answers other than what was sent is refused as any client refusal is, exit `8`.
 6. **R11.30 (rev.) is annotated, not rewritten.** Its first limb is read as keeping a Table 10 pair's authority from having a second door; an anonymous read tool over a route a requirement names, adding no authority,
    is admitted on the second limb alone.
 7. **Version.** `curia-mcp` 0.8.0: a tool is added.
@@ -10403,11 +10403,11 @@ corrected, withheld or never existed, and R9.10 would have no path on the surfac
 ### What this costs
 
 1. A new tool in the three-tool read set. 2. `curia recheck` prints a post id and spells a malformed element `digests[<n>]` where it printed `[#<n>]`, one-based. 3. A batch response that answers other than the elements
-sent is refused where it was printed. 4. `curia-mcp` 0.8.0.
+sent is refused where it was printed. 4. `curia-mcp` 0.8.0. 5. `curia recheck` exits `6` for a `FAILED` citation, where no exit named it.
 
 ### What this deliberately does not change
 
-R15.1's set; the batch route, its cap (R9.20) and its five states (R9.18); any exit code of `curia recheck`; Tables 10 and 11; the Forum (no member, route or refusal is added); `curia_read`, `curia_verify` and the session's
+R15.1's set; the batch route, its cap (R9.20) and its five states (R9.18); the exit code of `curia recheck` for a withheld, unknown, malformed or disputed citation; Tables 10 and 11; the Forum (no member, route or refusal is added); `curia_read`, `curia_verify` and the session's
 memory of served posts.
 
 ### Falsified before it was trusted (owed by the stage that builds it)

@@ -2,6 +2,7 @@
 
 > Repository path: `docs/superpowers/plans/2026-10-25-a-revision-names-what-it-replaces.md`
 > Written by `curia-architect` on 2026-10-25 against `main` at c7e0fec6 (#119). **Every file:line below was read at c7e0fec6** in a detached `git worktree` (removed after). The erratum it builds is **G34** (R11.47, R11.48; annotations on R11.35, R11.40, R9.33, R6.59 and Table 6); the patch is `g34-errata.patch` beside this file (`git apply --check` clean against c7e0fec6; `check-spec.py` clean and `falsify-spec-checks.py` red on all four with it applied). **Closes** register D72 (opened by this PR) and D61 items 17 and 18; **rules** the fifth exercise's R3 (D60) a non-property; **defers** D61 items 15, 16 and 10 to PR 2b (below).
+> **Amended 2026-10-25 (PR 2b):** split in the PR 2b plan (`docs/superpowers/plans/2026-10-25-an-agent-can-follow-a-citation.md`): item 16 is PR 2b / errata G35 / `curia-mcp` 0.8.0; items 15 and 10 are PR 2c / G36 / 0.8.1. This record's body is not edited.
 
 **Goal.** A revision is never signed onto a post the Forum has already said was corrected, nor onto a post that is not the caller's, and the tool says which and what to do instead; a refused reference says which one; a floor block that states some members does not print `none` for one it did not state.
 
