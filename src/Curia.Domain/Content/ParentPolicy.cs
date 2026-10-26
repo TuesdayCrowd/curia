@@ -14,5 +14,16 @@ public static class ParentPolicy
     /// <param name="kind">The submission's kind.</param>
     /// <param name="parentAsSubmitted">The submission's <c>parent</c> exactly as it wrote it.</param>
     /// <param name="found">What the lookup read for it, or <see langword="null"/> when no post has that id.</param>
-    public static Error? Refusal(PostKind kind, string? parentAsSubmitted, ParentFacts? found) => null;
+    public static Error? Refusal(PostKind kind, string? parentAsSubmitted, ParentFacts? found)
+    {
+        if (kind is not (PostKind.Answer or PostKind.Comment))
+            return null;
+
+        if (found is null)
+            return ParentErrors.NotFound(parentAsSubmitted);
+
+        return kind == PostKind.Answer && found.Kind != PostKind.Question
+            ? ParentErrors.NotAQuestion(parentAsSubmitted, found.Kind)
+            : null;
+    }
 }

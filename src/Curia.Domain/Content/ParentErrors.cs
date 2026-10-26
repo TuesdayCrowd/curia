@@ -1,4 +1,5 @@
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 
 namespace Curia.Domain.Content;
 
@@ -23,8 +24,12 @@ public static class ParentErrors
     public const string NotAPostId = "(not a post id)";
 
     /// <summary>R8.70: the parent is echoed only where it is shaped as a post id.</summary>
-    public static Error NotFound(string? parent) => new(NotFoundType, NotFoundTitle, string.Empty);
+    public static Error NotFound(string? parent) => new(NotFoundType, NotFoundTitle, "parent=" + Echo(parent));
 
     /// <summary>R8.70: names the parent and its stored kind.</summary>
-    public static Error NotAQuestion(string parent, PostKind kind) => new(NotAQuestionType, NotAQuestionTitle, string.Empty);
+    public static Error NotAQuestion(string? parent, PostKind kind) =>
+        new(NotAQuestionType, NotAQuestionTitle, $"parent={Echo(parent)} kind={PostKinds.Wire(kind)}");
+
+    private static string Echo(string? parent) =>
+        PostId.Parse(parent).TryGetValue(out var id, out _) ? id!.Value : NotAPostId;
 }
