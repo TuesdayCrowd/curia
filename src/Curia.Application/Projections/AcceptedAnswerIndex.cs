@@ -15,22 +15,26 @@ public sealed class AcceptedAnswerIndex
     private readonly ImmutableDictionary<string, string> _acceptedByThread;
     private readonly ImmutableDictionary<string, PostView> _postsById;
     private readonly Func<string, bool> _servable;
+    private readonly CorrectionIndex _corrections;
 
     private AcceptedAnswerIndex(
         ImmutableDictionary<string, string> acceptedByThread,
         ImmutableDictionary<string, PostView> postsById,
-        Func<string, bool> servable)
+        Func<string, bool> servable,
+        CorrectionIndex corrections)
     {
         _acceptedByThread = acceptedByThread;
         _postsById = postsById;
         _servable = servable;
+        _corrections = corrections;
     }
 
     /// <summary>An index that names nothing. For the falsification rows; a caller that builds a response must pass an index it folded.</summary>
     public static AcceptedAnswerIndex Empty { get; } = new(
         ImmutableDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal),
         ImmutableDictionary<string, PostView>.Empty.WithComparers(StringComparer.Ordinal),
-        static _ => false);
+        static _ => false,
+        CorrectionIndex.Empty);
 
     /// <summary>The index of a request's log.</summary>
     /// <param name="log">The event log, in seq order.</param>
@@ -44,13 +48,20 @@ public sealed class AcceptedAnswerIndex
         var byId = new Dictionary<string, PostView>(StringComparer.Ordinal);
         foreach (var post in posts.IsDefault ? [] : posts) byId[post.PostId] = post;
 
-        return new AcceptedAnswerIndex(AcceptanceProjector.Fold(log), byId.ToImmutableDictionary(StringComparer.Ordinal), servable);
+        // R9.41: the accepted answer's corrections come from the rule that sets the answer's own `superseded_by`, folded here from
+        // the posts and the filter already held, so no call site has to remember to pair two indices.
+        return new AcceptedAnswerIndex(
+            AcceptanceProjector.Fold(log),
+            byId.ToImmutableDictionary(StringComparer.Ordinal),
+            servable,
+            CorrectionIndex.Fold(posts, servable));
     }
 
     /// <summary>
     /// The standing acceptance of a question's thread: the answer's digest, and its post id only where the Forum serves it
     /// (R10.36, as <see cref="CorrectionIndex"/> does for a successor), or none when no acceptance stands or the model does not
-    /// hold the answer it names (a replay of a log this code did not write must not throw).
+    /// hold the answer it names (a replay of a log this code did not write must not throw). R9.41: the member lists the answer's
+    /// corrections as <see cref="CorrectionIndex"/> lists them for the answer's own envelope.
     /// </summary>
     public AcceptedAnswerMember StandingOf(PostView question)
     {
@@ -60,7 +71,7 @@ public sealed class AcceptedAnswerIndex
         if (!_postsById.TryGetValue(answerId, out var answer)) return AcceptedAnswerMember.None;
 
         var served = PostKinds.TryParse(answer.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(answer.PostId);
-        return new AcceptedAnswerMember(answer.Digest, served ? answer.PostId : null, ImmutableArray<Successor>.Empty);
+        return new AcceptedAnswerMember(answer.Digest, served ? answer.PostId : null, _corrections.For(answer));
     }
 
     /// <summary>Whether <paramref name="answer"/> is the answer its thread's standing acceptance names: the rule <see cref="StandingOf"/> shares.</summary>

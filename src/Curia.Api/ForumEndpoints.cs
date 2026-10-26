@@ -124,10 +124,10 @@ public sealed record ProvenanceResponse(
 /// <see cref="None"/> is the instance that stands for "no acceptance" and is written as JSON <c>null</c>.
 /// </summary>
 [JsonConverter(typeof(AcceptedAnswerResponseConverter))]
-public sealed record AcceptedAnswerResponse(string? Digest, string? PostId)
+public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, ImmutableArray<SupersededByResponse> SupersededBy)
 {
-    /// <summary>No acceptance stands; written as <c>null</c>, present.</summary>
-    public static AcceptedAnswerResponse None { get; } = new(null, null);
+    /// <summary>No acceptance stands; written as <c>null</c>, present, and carrying no list.</summary>
+    public static AcceptedAnswerResponse None { get; } = new(null, null, []);
 
     /// <summary>True when no acceptance stands.</summary>
     public bool IsNone => Digest is null;
@@ -136,11 +136,14 @@ public sealed record AcceptedAnswerResponse(string? Digest, string? PostId)
     public static AcceptedAnswerResponse From(AcceptedAnswerMember member)
     {
         ArgumentNullException.ThrowIfNull(member);
-        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId);
+        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId, [.. member.SupersededBy.Select(s => new SupersededByResponse(s.Digest, s.PostId))]);
     }
 }
 
-/// <summary>Writes <see cref="AcceptedAnswerResponse.None"/> as JSON <c>null</c> and a standing acceptance as <c>{digest, post_id?}</c>.</summary>
+/// <summary>
+/// Writes <see cref="AcceptedAnswerResponse.None"/> as JSON <c>null</c> and a standing acceptance as <c>{digest, post_id?, superseded_by}</c>
+/// (R9.41: the list is always present inside the object, <c>[]</c> where nothing supersedes the answer).
+/// </summary>
 public sealed class AcceptedAnswerResponseConverter : JsonConverter<AcceptedAnswerResponse>
 {
     /// <summary>The Forum writes this member and never reads one; a caller's JSON is read through the guarded reader (R11.34).</summary>
@@ -162,6 +165,16 @@ public sealed class AcceptedAnswerResponseConverter : JsonConverter<AcceptedAnsw
         writer.WriteStartObject();
         writer.WriteString("digest", value.Digest);
         if (value.PostId is not null) writer.WriteString("post_id", value.PostId);
+        writer.WriteStartArray("superseded_by");
+        foreach (var successor in value.SupersededBy.IsDefault ? [] : value.SupersededBy)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("digest", successor.Digest);
+            if (successor.PostId is not null) writer.WriteString("post_id", successor.PostId);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
         writer.WriteEndObject();
     }
 
