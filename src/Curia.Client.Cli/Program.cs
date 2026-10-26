@@ -292,7 +292,7 @@ internal static class Program
             string? prev = null;
             if (kind is PostKind.Revision)
             {
-                var (resolved, failure) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), ct).ConfigureAwait(false);
+                var (resolved, failure) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), agent.Profile.AgentId, ct).ConfigureAwait(false);
                 if (failure is { } code) return code;
                 prev = resolved;
             }
@@ -330,8 +330,10 @@ internal static class Program
     /// is refused here with the read verbs' own exit code (6, 8 or 9) and nothing is sent. An explicit <c>--prev</c> is
     /// checked against it, not used in its place: a digest that is not the parent's is a usage error (exit 1).</para>
     /// </summary>
-    private static async Task<(string? Prev, int? Failure)> RevisedDigestAsync(Args args, Uri forum, CancellationToken ct)
+    private static async Task<(string? Prev, int? Failure)> RevisedDigestAsync(Args args, Uri forum, string signingAgentId, CancellationToken ct)
     {
+        // Wave 2a Task 0 seam: the id is taken and not yet used (R11.51's guards arrive at Task 2).
+        _ = signingAgentId;
         var parent = args.Value("parent")!;
 
         using var http = HttpFor(forum);
@@ -443,7 +445,7 @@ internal static class Program
     }
 
     /// <summary>Builds, screens, signs and sends one draft, and prints the receipt. Shared by every writing verb.</summary>
-    private static async Task<int> SendDraftAsync(Args args, ProfileStore store, EnrolledAgent agent, PostDraft draft, CancellationToken ct)
+    private static async Task<int> SendDraftAsync(Args args, ProfileStore store, EnrolledAgent agent, PostDraft draft, CancellationToken ct, OwnText? supersession = null)
     {
         var kind = draft.Kind;
         var board = draft.Board;
@@ -487,6 +489,9 @@ internal static class Program
             // alone. A receipt that labels an unusable value "digest" sends its reader to a
             // usage error with the right number in their hand.
             Output.Line($"digest    {new OwnText(submission.PrefixedDigest)}   (computed here)");
+
+            // R11.51: a revision's receipt states supersession; nothing yet gives it a line.
+            if (supersession is { } statement) Output.Line($"supersession {statement}");
 
             // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
             // "sha256:" + hex and the local value is bare hex, so comparing them directly never came
@@ -587,6 +592,17 @@ internal static class Program
         if (!result.TryGetValue(out var items, out var refusal)) return Output.Fail(refusal);
 
         return ReportRecheck(args.Positional, items);
+    }
+
+    /// <summary>
+    /// Wave 2a Task 0 seam (R11.51): the refusal <c>curia revision</c> gives a post it must not revise, and the receipt line for one it may.
+    /// Behaviour-preserving for now: it refuses nothing and its receipt is empty; Task 2 gives it the guards.
+    /// </summary>
+    internal static (string? Refusal, OwnText Receipt) ReviseRefusal(ProvenancePost post, string signingAgentId)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+        _ = signingAgentId;
+        return (null, new OwnText(string.Empty));
     }
 
     /// <summary>
