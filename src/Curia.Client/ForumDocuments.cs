@@ -673,7 +673,8 @@ internal static class ForumDocuments
             revisions.Add(new Successor(digest, postId));
         }
 
-        return Result<ImmutableArray<Successor>>.Ok(revisions.MoveToImmutable());
+        // An empty list is the one empty array, so two members that both say "none" compare equal (an ImmutableArray compares by its array).
+        return Result<ImmutableArray<Successor>>.Ok(revisions.Count == 0 ? ImmutableArray<Successor>.Empty : revisions.MoveToImmutable());
     }
 
     /// <summary>

@@ -114,11 +114,24 @@ public sealed class ReaderFrameToolTests : IDisposable
 
         var text = await InvokeAsync(name);
 
+        // R11.52 (errata G40): a tool that reads before it signs answers a post the Forum serves none of in its own words, NOT SENT, and quotes
+        // nothing the Forum wrote; so the 404 row of those three tools holds that nothing of the refusal reaches the model at all.
+        if (status == 404 && ReadsBeforeSigning.Contains(name, StringComparer.Ordinal))
+        {
+            Assert.StartsWith("NOT SENT", text, StringComparison.Ordinal);
+            Assert.DoesNotContain(Forged, text, StringComparison.Ordinal);
+            AssertNoForgedLine(name, text);
+            return;
+        }
+
         Assert.True(
             text.Contains(Forged, StringComparison.Ordinal),
             $"{name} said none of the refusal's words, so its having no forged line proves nothing; a defect in this fact:\n{text}");
         AssertNoForgedLine(name, text);
     }
+
+    /// <summary>The tools that read a post before they sign, which R11.52 has answer a missing post in their own words.</summary>
+    private static readonly string[] ReadsBeforeSigning = ["curia_revise", "curia_answer", "curia_comment"];
 
     /// <summary>
     /// A 403 typed outside <c>curia/</c> is not the Forum's: the client reports it as Transport, and
@@ -185,19 +198,30 @@ public sealed class ReaderFrameToolTests : IDisposable
         AssertNoForgedLine("server instructions", text);
     }
 
-    /// <summary>R10.63: curia_verify echoes the digest its caller gave only as a literal.</summary>
+    /// <summary>
+    /// R10.63: curia_verify echoes the digest its caller gave only as a literal. Since R11.52 a pin that is not in the published form is refused
+    /// before it is compared and is never echoed, so a hostile pin (a line break and a forged sentence) reaches the model nowhere; a well-formed pin of
+    /// another document, the one form that is compared, is still shown only as a literal.
+    /// </summary>
     [Fact]
     public async Task R10_63_CuriaVerifyQuotesTheDigestItWasGiven()
     {
-        var expected = "sha256:x\n" + Forged;
         var (tools, agent) = Tools(_log);
         using var owned = agent;
 
-        var text = Flatten(await tools.VerifyAsync(StubLog.PostId, expected, TestContext.Current.CancellationToken));
+        var hostile = "sha256:x\n" + Forged;
+        var refused = Flatten(await tools.VerifyAsync(StubLog.PostId, hostile, TestContext.Current.CancellationToken));
 
-        Assert.True(text.Contains(Curia.Canon.Json.DisplayLiteral.Of(expected), StringComparison.Ordinal),
-            $"curia_verify did not echo the digest as a literal, so its having no forged line proves nothing; a defect in this fact:\n{text}");
-        AssertNoForgedLine("curia_verify with a hostile expectedDigest", text);
+        Assert.StartsWith("NOT SENT", refused, StringComparison.Ordinal);
+        Assert.DoesNotContain(Forged, refused, StringComparison.Ordinal);
+        AssertNoForgedLine("curia_verify with a hostile expectedDigest", refused);
+
+        var other = "sha256:" + new string('7', 64);
+        var text = Flatten(await tools.VerifyAsync(StubLog.PostId, other, TestContext.Current.CancellationToken));
+
+        Assert.True(text.Contains(Curia.Canon.Json.DisplayLiteral.Of(other), StringComparison.Ordinal),
+            $"curia_verify did not echo a well-formed pin as a literal, so its having no forged line proves nothing; a defect in this fact:\n{text}");
+        AssertNoForgedLine("curia_verify with a well-formed pin of another document", text);
     }
 
     // ---- R11.42 (errata G29): a failed pin carries no verdict ----------------------------------------------------------

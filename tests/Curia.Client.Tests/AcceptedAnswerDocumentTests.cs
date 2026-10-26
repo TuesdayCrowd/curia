@@ -54,11 +54,11 @@ public sealed class AcceptedAnswerDocumentTests
     [Fact]
     public async Task R9_36_AClientKeepsTheAnswerWithAndWithoutItsPostId()
     {
-        var served = await ReadAsync(Post($$""","accepted_answer":{"digest":"sha256:{{Hex}}","post_id":"01ANSWERID000000000000001"}"""));
+        var served = await ReadAsync(Post($$""","accepted_answer":{"digest":"sha256:{{Hex}}","post_id":"01ANSWERID000000000000001","superseded_by":[]}"""));
         Assert.True(served.TryGetValue(out var post, out var refusal), refusal?.Summary);
         Assert.Equal(new AcceptedAnswerMember("sha256:" + Hex, "01ANSWERID000000000000001", []), post!.Provenance.AcceptedAnswer);
 
-        var unserved = await ReadAsync(Post($$""","accepted_answer":{"digest":"sha256:{{Hex}}"}"""));
+        var unserved = await ReadAsync(Post($$""","accepted_answer":{"digest":"sha256:{{Hex}}","superseded_by":[]}"""));
         Assert.True(unserved.TryGetValue(out var other, out refusal), refusal?.Summary);
         Assert.Equal(new AcceptedAnswerMember("sha256:" + Hex, null, []), other!.Provenance.AcceptedAnswer);
     }
