@@ -13,6 +13,8 @@ internal static class Typed
 
     public static AgentId Agent(string value) => Require(AgentId.Parse(value));
 
+    public static ParentReference Parent(string value) => Require(ParentReference.Parse(value));
+
     public static DpopNonce Nonce(string value) => Require(DpopNonce.Parse(value));
 
     private static T Require<T>(Result<T> result) =>

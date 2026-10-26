@@ -90,6 +90,38 @@ public sealed class AcceptRootKindTests(ForumFixture forum) : IClassFixture<Foru
         Assert.Equal(0, await AcceptanceEventsNamingAsync(nested.PostId, ct));
     }
 
+    /// <summary>
+    /// R8.69 stays after R8.70 (errata G38): a log written before the rule can hold an answer under a comment or an answer, and the accept route is
+    /// the second line of defence for it. The nested answer is stored as such a log holds it (<c>AppendStoredPostAsync</c>, the shape of a post accepted
+    /// before a rule), because the submit route no longer takes it. The root's author is answered <c>400</c> <c>curia/accept/root-not-a-question</c>
+    /// after the ownership check, a stranger <c>403</c>, and no <c>answer.accepted</c> row names it.
+    /// </summary>
+    [Theory]
+    [InlineData("comment")]
+    [InlineData("answer")]
+    public async Task R8_69_AStoredAnswerUnderANonQuestionIsStillRefusedByTheAcceptRoute(string rootKind)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
+        var (rootPost, owner) = rootKind == "comment"
+            ? (scene.Comment, scene.Asker)
+            : (scene.Answer1, scene.Answerer);
+        var (nestedId, _) = await forum.AppendStoredPostAsync(
+            scene.Answerer.Agent.SignAnswer(scene.Board, $"Stored under a {rootKind}, {scene.Term}.", rootPost.PostId, forum.Now), ct);
+        var stranger = await AcceptedAnswerScene.EnrolAsync(forum, "stranger", ct);
+
+        using var forbidden = await AcceptAsync(stranger, nestedId, ct);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        using var response = await AcceptAsync(owner, nestedId, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("curia/accept/root-not-a-question", body, StringComparison.Ordinal);
+        Assert.Contains($"kind={rootKind}", body, StringComparison.Ordinal);
+        Assert.Equal(0, await AcceptanceEventsNamingAsync(nestedId, ct));
+    }
+
     /// <summary>Control: an answer under a question is still accepted, and the log holds the one acceptance.</summary>
     [Fact]
     public async Task R8_69_AnAnswerUnderAQuestionIsStillAccepted()

@@ -692,6 +692,34 @@ public sealed class ToolDescriptionTests
     }
 
     /// <summary>
+    /// R11.17, annotated by R8.70 (errata G38): <c>curia_answer</c>'s description says the parent is a question, that a comment's id is not one, and
+    /// that the Forum refuses a parent that is not. It adds no backticked token beyond the arguments the description already names
+    /// (<c>ToolDescriptionTests</c> and <c>ToolProtocolTests</c> pin the backticked result terms). <b>Weak by construction:</b> it restates the
+    /// wording; <c>McpWriteEndToEndTests.R8_70_CuriaAnswerWithACommentAsParentIsRefusedByCause</c> is the behavioural check.
+    /// </summary>
+    [Fact]
+    public void R11_17_CuriaAnswerSaysACommentIsNotAParent()
+    {
+        var description = Registered().Single(t => t.Name == "curia_answer").Description;
+        var outsideBackticks = System.Text.RegularExpressions.Regex.Replace(description, "`[^`]+`", string.Empty);
+
+        Assert.Contains(PublishedParentRule.AnswerParentKind(), outsideBackticks, StringComparison.Ordinal);
+        Assert.Contains("comment", outsideBackticks, StringComparison.Ordinal);
+        Assert.Contains("refused", outsideBackticks, StringComparison.Ordinal);
+
+        string[] arguments = ["parentPostId", "body", "refs", "sha256:", "pkg:", "http://", "https://"];
+        var tokens = System.Text.RegularExpressions.Regex.Matches(description, "`([^`]+)`").Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal);
+        Assert.Empty(tokens.Except(arguments, StringComparer.Ordinal));
+    }
+
+    /// <summary>R11.17 (annotated by R8.70): a refusal changes and no tool is added, so the server's version moves from 0.8.1 to 0.8.2.</summary>
+    [Fact]
+    public void R11_17_VersionIs082()
+    {
+        Assert.Equal("0.8.2", ToolCatalogue.Version);
+    }
+
+    /// <summary>
     /// R11.50: <c>curia_search</c>'s description says a cursor belongs to the query that produced it, names every member R9.35 binds (the set is parsed from
     /// the errata, never from this file or the description; <c>q</c> is the criterion <c>query</c>, spelled as the tool spells it) and says a mismatch is refused.
     /// </summary>

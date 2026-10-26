@@ -836,6 +836,24 @@ public static class ForumEndpoints
                 StatusCodes.Status403Forbidden,
                 Denial(d, $"{d.Reason} tier={tier.Tier}"));
 
+        // R8.70 (errata G38): an answer's parent is a question that exists and a comment's is a post that exists. After the
+        // authorization above, so a caller denied by tier is never told whether a post exists; before the signal refusal, the
+        // duplicate check, SCREEN and PERSIST, so nothing is screened or stored for a post that is refused. An unreadable log is
+        // the Forum's failure (503) and never a missing parent.
+        if (v.Envelope.Kind is PostKind.Answer or PostKind.Comment && v.Envelope.Parent is { } submittedParent)
+        {
+            // VERIFY has parsed this text already (a parent the log cannot store is its 422), so a failure here is the Forum's own.
+            if (!ParentReference.Parse(submittedParent).TryGetValue(out var parentReference, out var parentReferenceError))
+                return Problem(StatusCodes.Status500InternalServerError, parentReferenceError!);
+
+            var found = await ParentLookup.FindAsync(events, parentReference!, cancellationToken).ConfigureAwait(false);
+            if (!found.TryGetValue(out var parentFacts, out var parentReadError))
+                return Problem(StatusCodes.Status503ServiceUnavailable, parentReadError!);
+
+            if (ParentPolicy.Refusal(v.Envelope.Kind, submittedParent, parentFacts) is { } parentRefusal)
+                return Problem(StatusCodes.Status400BadRequest, parentRefusal);
+        }
+
         // R8.58 / R8.4 (errata G8): a vote or verification names a target, and the pair (submitter,
         // target) is decided in the domain before anything is written. Here rather than in VERIFY
         // because the rules need the log; here rather than after SCREEN because a refused signal

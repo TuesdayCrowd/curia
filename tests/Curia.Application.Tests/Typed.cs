@@ -14,6 +14,8 @@ internal static class Typed
 
     public static PostId Post(string value) => Require(PostId.Parse(value));
 
+    public static ParentReference Parent(string value) => Require(ParentReference.Parse(value));
+
     public static BoardName Board(string value) => Require(BoardName.Parse(value));
 
     public static Rationale Rationale(string value) => Require(Curia.Domain.Moderation.Rationale.Parse(value));

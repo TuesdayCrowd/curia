@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Curia.Tests.Shared;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
+using Npgsql;
 using Xunit;
 
 namespace Curia.Api.Tests;
@@ -268,6 +269,52 @@ public sealed class McpWriteEndToEndTests(ForumFixture forum) : IClassFixture<Fo
         var refs = (await CanonicalOfAsync(PostedId(receipt))).GetProperty("refs");
         Assert.Equal(2, refs.GetArrayLength());
         Assert.Equal([cited, "https://example.org/evidence"], refs.EnumerateArray().Select(r => r.GetProperty("target").GetString()));
+    }
+
+    /// <summary>
+    /// R8.70 (errata G38), the sixth exercise's R1 reproduced as a probe: <c>curia_answer</c> with a comment's id as <c>parentPostId</c> was answered
+    /// <c>POSTED</c> and stored an answer no question would ever show as accepted. The Forum now refuses it by cause, the refusal reaches the model
+    /// naming the type and the parent's kind, and the log gains no post. The control, the same agent answering the question, is <c>POSTED</c>.
+    /// </summary>
+    [Fact]
+    public async Task R8_70_CuriaAnswerWithACommentAsParentIsRefusedByCause()
+    {
+        var board = Board();
+        var questionId = await QuestionAsync(board, "Which call pins the entry?", "A question that gets a comment and then a mistaken answer.");
+        var commenter = await EnrolAsync("mcp-parent-commenter", signer: null);
+        var comment = Flatten(await RegisteredTools(commenter, "curia_comment").CommentAsync(questionId, "A comment on the question, which is not a question.", null, Ct));
+        Assert.StartsWith("POSTED", comment, StringComparison.Ordinal);
+        var commentId = PostedId(comment);
+        var answerer = await EnrolAsT1Async("mcp-parent-answerer", board);
+        var before = await PostCountAsync();
+
+        CallToolResult? answered = null;
+        McpException? refused = null;
+        try
+        {
+            answered = await RegisteredTools(answerer, "curia_answer").AnswerAsync(commentId, "An answer whose parent is the comment.", null, Ct);
+        }
+        catch (McpException e)
+        {
+            refused = e;
+        }
+
+        Assert.True(refused is not null, $"expected a refusal; the tool answered: {(answered is null ? "(nothing)" : Flatten(answered))}");
+        Assert.Contains(PublishedParentRule.Slugs()[1], refused.Message, StringComparison.Ordinal);
+        Assert.Contains("kind=comment", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(before, await PostCountAsync());
+
+        var control = Flatten(await RegisteredTools(answerer, "curia_answer").AnswerAsync(questionId, "An answer whose parent is the question.", null, Ct));
+        Assert.StartsWith("POSTED", control, StringComparison.Ordinal);
+        Assert.Equal(before + 1, await PostCountAsync());
+    }
+
+    private async Task<long> PostCountAsync()
+    {
+        await using var connection = new NpgsqlConnection(forum.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var count = new NpgsqlCommand("SELECT count(*) FROM events WHERE event_type = 'post.accepted'", connection);
+        return (long)(await count.ExecuteScalarAsync(Ct))!;
     }
 
     // ---- R11.40, R11.35, R11.30 (errata G28) against this Forum -------------------------------------------------------------
