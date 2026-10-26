@@ -248,15 +248,12 @@ public sealed partial class ReadersTellWhatChangedEndToEndTests(KestrelForumFixt
             var all = Lines(run.Stdout);
             var at = Array.FindIndex(all, l => l.Contains(DisplayLiteral.Of(thread.QuestionId), StringComparison.Ordinal));
             Assert.True(at >= 0, $"curia {form} never names the question {thread.QuestionId}:\n{run.Stdout}");
-            var lines = all.Skip(at).Where(l => AnswersLine().IsMatch(l)).Take(1).ToArray();
-            Assert.True(lines.Length > 0, $"curia {form} printed no answers line for the question:\n{run.Stdout}");
+            var line = all.Skip(at).FirstOrDefault(l => AnswersLine().IsMatch(l));
+            Assert.True(line is not null, $"curia {form} printed no answers line for the question:\n{run.Stdout}");
 
-            foreach (var line in lines)
-            {
-                Assert.Contains("SUPERSEDED", line, StringComparison.Ordinal);
-                Assert.Contains(DisplayLiteral.Of(revisionId), line, StringComparison.Ordinal);
-                Assert.DoesNotContain(strangerCommentId, line, StringComparison.Ordinal);
-            }
+            Assert.Contains("SUPERSEDED", line, StringComparison.Ordinal);
+            Assert.Contains(DisplayLiteral.Of(revisionId), line, StringComparison.Ordinal);
+            Assert.DoesNotContain(strangerCommentId, line, StringComparison.Ordinal);
         }
     }
 

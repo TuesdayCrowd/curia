@@ -109,7 +109,7 @@ internal sealed partial class ForumTools
 
         var original = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!original.TryGetValue(out var post, out var refusal))
-            return refusal!.Kind is RefusalKind.NotFound ? MissingPostResult(nameof(postId)) : throw Refused(refusal);
+            return IsMissingPost(refusal!) ? MissingPostResult(nameof(postId)) : throw Refused(refusal!);
 
         // The same rule `curia revision` applies (Program.RevisedDigestAsync), the span check included: a revision of a post that
         // does not verify is a signed claim chained to nothing the author saw.
@@ -191,7 +191,7 @@ internal sealed partial class ForumTools
 
         var parent = await _forum.GetPostAsync(parentPostId, _marking, cancellationToken).ConfigureAwait(false);
         if (!parent.TryGetValue(out var post, out var refusal))
-            return refusal!.Kind is RefusalKind.NotFound ? MissingPostResult(nameof(parentPostId)) : throw Refused(refusal);
+            return IsMissingPost(refusal!) ? MissingPostResult(nameof(parentPostId)) : throw Refused(refusal!);
 
         var draft = new PostDraft
         {
@@ -498,9 +498,19 @@ internal sealed partial class ForumTools
     private static CallToolResult NotSentResult(Error error) =>
         new() { IsError = true, Content = [new TextContentBlock { Text = NotSent(error) }] };
 
+    /// <summary>The problem type the Forum's single-post route serves for an id no post bears (<c>ForumEndpoints</c>).</summary>
+    private const string PostNotFoundType = "curia/posts/not-found";
+
     /// <summary>
-    /// R11.52 (errata G40): a read that found no post under the id, as the guards give a refusal: <c>isError</c>, beginning <c>NOT SENT</c>, naming
-    /// <paramref name="argument"/> and never its value. Wave 2b's Task 0 seam: nothing calls it yet; Task 5 does.
+    /// R11.52: whether a refused read is the Forum saying it serves no post under the id. A 404 alone is not: a proxy's, or a wrong address's,
+    /// says nothing about the id, so the problem document must be the Forum's own post-not-found type. Every other refusal is a failure of the Forum.
+    /// </summary>
+    private static bool IsMissingPost(Refusal refusal) =>
+        refusal.Kind is RefusalKind.NotFound && string.Equals(refusal.Error.Type, PostNotFoundType, StringComparison.Ordinal);
+
+    /// <summary>
+    /// R11.52 (errata G40): the result of a read the Forum answered with its post-not-found, as the guards give a refusal: <c>isError</c>,
+    /// beginning <c>NOT SENT</c>, naming <paramref name="argument"/> and never its value, saying nothing was signed.
     /// </summary>
     internal static CallToolResult MissingPostResult(string argument) =>
         new()

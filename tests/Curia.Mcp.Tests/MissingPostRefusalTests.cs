@@ -131,6 +131,29 @@ public sealed class MissingPostRefusalTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// R11.52: a 404 is the Forum's word that a post is missing only when its problem document is the Forum's own post-not-found type. A proxy's
+    /// <c>about:blank</c> and a <c>curia/</c> type that is not that one say nothing about the id, so they are thrown as a failure of the Forum.
+    /// </summary>
+    [Theory]
+    [InlineData("about:blank")]
+    [InlineData("curia/stub/other-not-found")]
+    public async Task R11_52_A404ThatIsNotTheForumsPostNotFoundIsStillAFailureOfTheForum(string type)
+    {
+        _log.PostReadNotFoundType = type;
+        await using var session = await StartAsync();
+
+        foreach (var tool in new[] { "curia_revise", "curia_answer", "curia_comment" })
+        {
+            var (_, arguments) = CallOf(tool, StubLog.PostId);
+            var result = await session.CallAsync(tool, arguments);
+
+            Assert.True(result.IsError, $"{tool} with a 404 of type {type} was not an error:\n{result.Text}");
+            Assert.False(result.Text.StartsWith("NOT SENT", StringComparison.Ordinal), $"{tool} with a 404 of type {type} was answered NOT SENT:\n{result.Text}");
+            Assert.DoesNotContain("serves no post", result.Text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     [Theory]
     [InlineData("curia_resolve")]
     [InlineData("curia_flag")]

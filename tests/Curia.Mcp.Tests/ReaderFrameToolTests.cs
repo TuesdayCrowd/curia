@@ -114,24 +114,11 @@ public sealed class ReaderFrameToolTests : IDisposable
 
         var text = await InvokeAsync(name);
 
-        // R11.52 (errata G40): a tool that reads before it signs answers a post the Forum serves none of in its own words, NOT SENT, and quotes
-        // nothing the Forum wrote; so the 404 row of those three tools holds that nothing of the refusal reaches the model at all.
-        if (status == 404 && ReadsBeforeSigning.Contains(name, StringComparer.Ordinal))
-        {
-            Assert.StartsWith("NOT SENT", text, StringComparison.Ordinal);
-            Assert.DoesNotContain(Forged, text, StringComparison.Ordinal);
-            AssertNoForgedLine(name, text);
-            return;
-        }
-
         Assert.True(
             text.Contains(Forged, StringComparison.Ordinal),
             $"{name} said none of the refusal's words, so its having no forged line proves nothing; a defect in this fact:\n{text}");
         AssertNoForgedLine(name, text);
     }
-
-    /// <summary>The tools that read a post before they sign, which R11.52 has answer a missing post in their own words.</summary>
-    private static readonly string[] ReadsBeforeSigning = ["curia_revise", "curia_answer", "curia_comment"];
 
     /// <summary>
     /// A 403 typed outside <c>curia/</c> is not the Forum's: the client reports it as Transport, and

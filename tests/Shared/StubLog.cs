@@ -290,6 +290,12 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal HttpStatusCode? PostReadFailsWith { get; set; }
 
+    /// <summary>
+    /// R11.52: answer <c>GET /v1/posts/{id}</c> with <c>404</c> and a problem document of this type (<c>about:blank</c>, a proxy's, or a
+    /// <c>curia/</c> type that is not the Forum's post-not-found one): a 404 that says nothing about the id.
+    /// </summary>
+    internal string? PostReadNotFoundType { get; set; }
+
     /// <summary>R11.52: fail <c>GET /v1/posts/{id}</c> at the transport, as an unreachable Forum does: the request throws and no response arrives.</summary>
     internal bool PostReadThrows { get; set; }
 
@@ -1804,6 +1810,9 @@ internal sealed class StubLog : IDisposable
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesOnlyTheAnswer)
                 return (HttpStatusCode.OK, "[" + log.AnswerJson() + "]");
 
+            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal) && log.PostReadNotFoundType is { } notFoundType)
+                return (HttpStatusCode.NotFound, $$"""{"type":{{JsonString(notFoundType)}},"title":"No such post"}""");
+
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal) && log.PostReadFailsWith is { } failure)
                 return (failure, """{"type":"curia/stub/unavailable","title":"The stub fails this read"}""");
 
@@ -1811,7 +1820,7 @@ internal sealed class StubLog : IDisposable
                 && log.OtherPostsAreRefused
                 && Uri.UnescapeDataString(path["/v1/posts/".Length..]) != PostId)
                 return (HttpStatusCode.NotFound,
-                    """{"type":"curia/stub/not-found","title":"No such post"}""");
+                    """{"type":"curia/posts/not-found","title":"No such post"}""");
 
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal))
             {
