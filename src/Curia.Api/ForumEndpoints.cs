@@ -1421,6 +1421,10 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
+        // R9.37: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (BoardListingQueryParameters.Check(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var standings = AgentStandingProjector.Fold(log);
 
@@ -2034,6 +2038,10 @@ public static class ForumEndpoints
 
         if (!d!.IsAllowed)
             return Problem(StatusCodes.Status403Forbidden, Denial(d, d.Reason));
+
+        // R9.37: an unknown name is told before any value is judged (R9.29's order).
+        if (InboxQueryParameters.Check(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
 
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
