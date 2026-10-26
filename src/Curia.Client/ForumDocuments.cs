@@ -60,7 +60,7 @@ public enum AcceptanceReplacedKind
     Named,
 }
 
-/// <summary>R8.71's three states, and the post id in the third. Wave 2b's Task 0 seam: <c>ReadAcceptance</c> always yields <see cref="AcceptanceReplacedKind.NotStated"/> until Task 2 reads the member.</summary>
+/// <summary>R8.71's three states, and the post id in the third.</summary>
 public readonly record struct AcceptanceReplaced(AcceptanceReplacedKind Kind, string? PostId = null)
 {
     /// <summary>The receipt had no member.</summary>
@@ -374,8 +374,21 @@ internal static class ForumDocuments
         ClientJson.String(o, "thread_root") is { } root
         && ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "accepted_at") is { } at
-            ? ReadAlreadyAccepted(o).Map(replay => new AcceptanceReceipt(root, id, at, replay))
+            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Map(replaced => new AcceptanceReceipt(root, id, at, replay, replaced)))
             : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
+
+    /// <summary>
+    /// R8.71: <c>replaced_answer</c> is absent (a Forum that said nothing: not stated), <c>null</c> (none) or a non-empty post id.
+    /// Anything else is a malformed response, not a value the client picks.
+    /// </summary>
+    private static Result<AcceptanceReplaced> ReadReplaced(JsonValue.Object o) =>
+        ClientJson.Member(o, "replaced_answer") switch
+        {
+            null => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.NotStated),
+            JsonValue.Null => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.None),
+            JsonValue.String { Value.Length: > 0 } id => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.Of(id.Value)),
+            _ => Result<AcceptanceReplaced>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: replaced_answer is neither null nor a post id (R8.71)")),
+        };
 
     /// <summary>
     /// R8.68: <c>already_accepted</c> is a boolean when present; an absent member is an older Forum, which always recorded, so

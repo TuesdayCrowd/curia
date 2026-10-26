@@ -231,17 +231,31 @@ internal sealed partial class ForumTools
                 .Append($"and the time above is the first acceptance's. A thread has one accepted answer: accepting ")
                 .Append($"another replaces this one, and nothing removes an acceptance.")
                 .ToString()
-            : new FrameBuilder()
-                .Line("ACCEPTED")
-                .Line($"answer      {receipt.PostId}")
-                .Line($"thread      {receipt.ThreadRoot}")
-                .Line($"accepted_at {receipt.AcceptedAt}")
+            : WithReplaced(
+                    new FrameBuilder()
+                        .Line("ACCEPTED")
+                        .Line($"answer      {receipt.PostId}")
+                        .Line($"thread      {receipt.ThreadRoot}")
+                        .Line($"accepted_at {receipt.AcceptedAt}"),
+                    receipt.Replaced)
                 .Blank()
                 .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
                 .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
                 .Append($"nothing removes an acceptance.")
                 .ToString());
     }
+
+    /// <summary>
+    /// R8.71 (errata G40): what a recording call replaced, in the Forum's word. A named answer is quoted (R10.63); a receipt with no member
+    /// is <c>NOT STATED</c>, which is not "none".
+    /// </summary>
+    private static FrameBuilder WithReplaced(FrameBuilder frame, AcceptanceReplaced replaced) => replaced.Kind switch
+    {
+        AcceptanceReplacedKind.Named => frame.Line($"replaced    post {replaced.PostId} (it no longer stands as the accepted answer)"),
+        AcceptanceReplacedKind.None => frame.Line("replaced    none (no earlier answer stood as accepted)"),
+        AcceptanceReplacedKind.NotStated => frame.Line("replaced    NOT STATED (the Forum's receipt did not say)"),
+        _ => throw new ArgumentOutOfRangeException(nameof(replaced), replaced.Kind, "R8.71 has three states."),
+    };
 
     /// <summary>
     /// R11.17's <c>curia_flag</c>: R10.35's typed flag. Attributed by the DPoP-bound token rather
