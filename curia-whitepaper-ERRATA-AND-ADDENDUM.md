@@ -10652,8 +10652,8 @@ submission, refused at admission by cause), R8.69 (the accept route's half of th
 plan commit; PR 3 edits the same file, so the stage re-reads them), is `src/Curia.Application/Ingest/IngestPipeline.cs` (`VerifyAsync` parses `parent` as a `ParentReference` at `:109` and checks nothing about the post it names; `PersistAsync` writes one aggregate per
 post, `AggregateId.Create(postId)`, whose event id is the post id), `src/Curia.Api/ForumEndpoints.cs` (`SubmitAttemptAsync`, `:781`, which reads the whole log at `:804`, discharges authorization at `:834` and refuses a signal's target at `:843`),
 `src/Curia.Application/Ports/IEventStore.cs` (`IEventReader.ReadByAggregateAsync`, `:48`), `src/Curia.Infrastructure/PostgresEventStore.cs` (`:256`, served by the index at `db/0001_create_events.sql:49`), `src/Curia.Domain/Content/PostKind.cs` (`RequiresParent`, `:148`)
-and `src/Curia.Mcp/ToolText.cs` (`AnswerTemplate`, `:245`). **Class:** a missing refusal (a rule R8.4 specifies and nothing builds) and a normative gap (a comment's parent has no rule). **Status:** proposed; not applied to the white paper. To be built by the stage
-`docs/superpowers/plans/2026-10-25-an-answer-has-a-question.md`. Found as register D73 by PR 2c's Task 0 reading the code; reproduced live by the sixth five-agent exercise (asker M1, hostile F1) and by the controller at a9f06528: `curia_answer` with `parentPostId` set to a comment's
+and `src/Curia.Mcp/ToolText.cs` (`AnswerTemplate`, `:245`). **Class:** a missing refusal (a rule R8.4 specifies and nothing builds) and a normative gap (a comment's parent has no rule). **Status:** built; not applied to the white paper. Built 2026-10-26 by the stage
+`docs/superpowers/plans/2026-10-25-an-answer-has-a-question.md` (the D73 PR, #124), `curia-mcp` 0.8.2, probes PE1 to PE21 and the fix round's facts (a disagreeing-kind row and a parent-created-later row, at the Application and Postgres levels) seen red first, and falsification FPE1 to FPE26, 26 of 26 red as rows (the plan's "As run" says which rows needed a fix round). Found as register D73 by PR 2c's Task 0 reading the code; reproduced live by the sixth five-agent exercise (asker M1, hostile F1) and by the controller at a9f06528: `curia_answer` with `parentPostId` set to a comment's
 post id answered `POSTED`, kind `answer`, parent the comment.
 
 **How it surfaced.** PR 2c made the accept route refuse an answer whose parent is not a question (R8.69), because an acceptance rooted at a comment was recorded and shown on no post. That closed the route that consumed the defect and left the one that produced it: the
@@ -10711,7 +10711,7 @@ only place a bad attachment can be stopped is before it is stored.
 
 R15.1's set; Tables 10 to 13; the accept route (R8.69); the order of the duplicate check and SCREEN for a post that has a parent; a revision's `parent` and `prev`; board equality; a withheld parent (decision 7); R8.58's refusal for a signal's target.
 
-### Falsified before it was trusted (owed by the stage that builds it)
+### Falsified before it was trusted (owed by the stage that builds it; recorded in the plan's "As run")
 
 - **R8.70.** Delete the check; refuse every answer; accept a comment as an answer's parent; require a comment's parent to be a question; treat a non-empty stream as a post (no `post.accepted` test); read an agent's stream for a parent that is no post id; answer an unreadable log as `400`
   `parent-not-found`, and as accepted; make the check before AUTHORIZE, before VERIFY's `unstorable-member`, after SCREEN and after PERSIST; echo the raw parent; answer `404`, `409` or `422`; apply the rule to a revision; refuse a withheld parent; take the kind from the envelope instead of the stored event.
