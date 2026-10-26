@@ -49,7 +49,7 @@ public sealed class CliRecheckTests : IDisposable
 
     [Theory]
     [InlineData("current", 0)]
-    [InlineData("malformed", 1)]
+    [InlineData("malformed", 3)]
     [InlineData("withheld", 5)]
     [InlineData("disputed", 9)]
     public async Task R9_34_CuriaRecheckPrintsThePostIdAndSpellsAPositionZeroBased(string kind, int exit)

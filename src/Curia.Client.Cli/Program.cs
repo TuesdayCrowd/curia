@@ -290,11 +290,13 @@ internal static class Program
         using (agent)
         {
             string? prev = null;
+            OwnText? supersession = null;
             if (kind is PostKind.Revision)
             {
-                var (resolved, failure) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), ct).ConfigureAwait(false);
+                var (resolved, failure, receipt) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), agent.Profile.AgentId, ct).ConfigureAwait(false);
                 if (failure is { } code) return code;
                 prev = resolved;
+                supersession = receipt;
             }
 
             var draft = new PostDraft
@@ -311,7 +313,7 @@ internal static class Program
                 DuplicateRationale = args.Value("not-duplicate"),
             };
 
-            return await SendDraftAsync(args, store, agent, draft, ct).ConfigureAwait(false);
+            return await SendDraftAsync(args, store, agent, draft, ct, supersession).ConfigureAwait(false);
         }
     }
 
@@ -329,8 +331,12 @@ internal static class Program
     /// the served <c>digest</c> member, so a Forum cannot steer a revision onto another post. A post that does not verify
     /// is refused here with the read verbs' own exit code (6, 8 or 9) and nothing is sent. An explicit <c>--prev</c> is
     /// checked against it, not used in its place: a digest that is not the parent's is a usage error (exit 1).</para>
+    ///
+    /// <para>R11.51 (errata G39): after the verified read and before the <c>--prev</c> comparison, a post that is not the signing agent's
+    /// and then a post the Forum serves as superseded are refused with exit 1 and nothing sent (<see cref="ReviseRefusal"/>); the receipt
+    /// line for a post that may be revised is returned beside the digest.</para>
     /// </summary>
-    private static async Task<(string? Prev, int? Failure)> RevisedDigestAsync(Args args, Uri forum, CancellationToken ct)
+    private static async Task<(string? Prev, int? Failure, OwnText? Receipt)> RevisedDigestAsync(Args args, Uri forum, string signingAgentId, CancellationToken ct)
     {
         var parent = args.Value("parent")!;
 
@@ -338,21 +344,24 @@ internal static class Program
         var client = new ForumClient(http, forum);
 
         var read = await client.GetPostAsync(parent, MarkingMode.None, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var post, out var refusal)) return (null, Output.Fail(refusal));
+        if (!read.TryGetValue(out var post, out var refusal)) return (null, Output.Fail(refusal), null);
 
         var (passages, outcomes) = await VerifyAllAsync(client, [post], ct).ConfigureAwait(false);
         var verdict = passages[0].Verdict;
         if (outcomes[0] is not CheckOutcome.Verified || verdict.PrefixedDigest is not { } digest)
             return (null, Output.Fail(
                 $"error: the post --parent names does not verify, so a revision is not chained to it: {new OwnText(verdict.DescribeRead)}\n       Nothing was sent.",
-                outcomes[0] is CheckOutcome.Verified ? ExitCode.Unverified : ExitCode.ForOutcomes(outcomes[0])));
+                outcomes[0] is CheckOutcome.Verified ? ExitCode.Unverified : ExitCode.ForOutcomes(outcomes[0])), null);
+
+        var (guard, receipt) = ReviseRefusal(post, signingAgentId);
+        if (guard is not null) return (null, Output.Fail($"error: {guard}", ExitCode.Usage), null);
 
         if (args.Value("prev") is { } given && !string.Equals(given, digest, StringComparison.Ordinal))
             return (null, Output.Fail(
                 $"error: --prev {new OwnText(DisplayLiteral.Of(given))} is not the digest of the post --parent names ({new OwnText(DisplayLiteral.Of(digest))}, computed here). Nothing was sent.",
-                ExitCode.Usage));
+                ExitCode.Usage), null);
 
-        return (digest, null);
+        return (digest, null, receipt);
     }
 
     /// <summary>
@@ -443,7 +452,7 @@ internal static class Program
     }
 
     /// <summary>Builds, screens, signs and sends one draft, and prints the receipt. Shared by every writing verb.</summary>
-    private static async Task<int> SendDraftAsync(Args args, ProfileStore store, EnrolledAgent agent, PostDraft draft, CancellationToken ct)
+    private static async Task<int> SendDraftAsync(Args args, ProfileStore store, EnrolledAgent agent, PostDraft draft, CancellationToken ct, OwnText? supersession = null)
     {
         var kind = draft.Kind;
         var board = draft.Board;
@@ -487,6 +496,9 @@ internal static class Program
             // alone. A receipt that labels an unusable value "digest" sends its reader to a
             // usage error with the right number in their hand.
             Output.Line($"digest    {new OwnText(submission.PrefixedDigest)}   (computed here)");
+
+            // R11.51: a revision's receipt states supersession; `curia revision` passes the line, other verbs pass none.
+            if (supersession is { } statement) Output.Line($"supersession {statement}");
 
             // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
             // "sha256:" + hex and the local value is bare hex, so comparing them directly never came
@@ -563,7 +575,8 @@ internal static class Program
     /// sessions and will act on the line rather than on the state name.</para>
     ///
     /// <para>Exit 5 when any citation is withheld or unknown -- both mean "change what you cite" --
-    /// and 1 when any element was not a digest, after every line has been printed. Superseded alone
+    /// and 3 when any element was not a digest (R9.40), after every line has been printed: the other digests were
+    /// answered, and the remedy for a malformed element is to correct its bytes. Superseded alone
     /// is not an error: the original still stands, and the line names what to read next.</para>
     ///
     /// <para>Exit 9 (D49, R6.57) when a post the Forum serves, <c>current</c> or the original of a <c>superseded</c> one,
@@ -590,6 +603,25 @@ internal static class Program
     }
 
     /// <summary>
+    /// R11.51 (errata G39): the refusal <c>curia revision</c> gives a post it must not revise, and the receipt line for one it may.
+    /// The served author is compared ordinally with the agent the verb signs as, first, so a stranger is not told the post has a
+    /// successor; then <see cref="Supersession.RevisionRefusal"/> judges the post's served revisions (R11.47). The refusal is null when
+    /// neither applies. Every value is a display literal (R10.63).
+    /// </summary>
+    internal static (string? Refusal, OwnText Receipt) ReviseRefusal(ProvenancePost post, string signingAgentId)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+        var receipt = Supersession.ReceiptLine(post.Provenance.SupersededBy);
+
+        if (!string.Equals(post.Provenance.Author, signingAgentId, StringComparison.Ordinal))
+            return (
+                $"NOT SENT: this post was written by {DisplayLiteral.Of(post.Provenance.Author ?? string.Empty)}, not by this agent ({DisplayLiteral.Of(signingAgentId)}); only a post's own author may revise it. Nothing was sent.",
+                receipt);
+
+        return (Supersession.RevisionRefusal(post.Provenance.SupersededBy)?.Text, receipt);
+    }
+
+    /// <summary>
     /// The lines and the exit of <c>curia recheck</c>, over the items the Forum answered. Separate from the HTTP call so a
     /// fact can drive it with a batch response of its own making.
     /// </summary>
@@ -604,7 +636,7 @@ internal static class Program
         // A FAILED line is a check that ran and did not hold (the served canonical form does not hash to the digest asked about): exit 6,
         // ranked first as it is for the other readers (a check that failed outranks 8, 9 and the citations to drop).
         return report.Failed ? ExitCode.Unverified
-            : report.Lines.Any(l => l.Malformed) ? ExitCode.Usage
+            : report.Lines.Any(l => l.Malformed) ? ExitCode.Rejected
             : report.Lines.Any(l => l.Gone) ? ExitCode.NotFound
             : report.Lines.Any(l => l.Disputed) ? ExitCode.Disputed
             : ExitCode.Ok;

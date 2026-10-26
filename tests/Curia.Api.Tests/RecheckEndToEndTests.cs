@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Curia.Api.Tests.Fuzz;
 using Curia.Client;
+using Curia.Domain.Content;
 using Curia.Domain.Serving;
 using Curia.Mcp;
 using Curia.Tests.Shared;
@@ -187,7 +188,7 @@ public sealed partial class RecheckEndToEndTests(KestrelForumFixture forum) : IC
         // The CLI stamps real time on what it signs and proves; the fixture's clock is fixed, and R6.32 refuses the future.
         forum.Clock.Advance(DateTimeOffset.UtcNow - forum.Now);
 
-        var (agent, slug) = await EnrolAsync("fork");
+        var (agent, _) = await EnrolAsync("fork");
         var board = "g35-" + Guid.NewGuid().ToString("N")[..8];
         var tools = ToolsFor(agent);
 
@@ -196,9 +197,13 @@ public sealed partial class RecheckEndToEndTests(KestrelForumFixture forum) : IC
         var postId = PostIdFrom(asked);
         Assert.StartsWith("POSTED", Flatten(await tools.ReviseAsync(postId, "First correction: which wren?", null, null, null, Ct)), StringComparison.Ordinal);
 
-        // curia_revise refuses a post already superseded (G34), so the second revision is the CLI's (the fork the Forum cannot prevent).
-        var second = await CuriaAsync("revision", "--agent", slug, "--board", board, "--parent", postId, "--body", "Second correction: which wren, then?");
-        Assert.True(second.Exit == 0, second.Stdout + second.Stderr);
+        // curia_revise refuses a post already superseded (G34), and so does `curia revision` (R11.51), so the second revision is signed in
+        // process through the client library: the fork the Forum cannot prevent and the reference client will not make.
+        var draft = new PostDraft { Kind = PostKind.Revision, Board = board, Body = "Second correction: which wren, then?", Parent = postId, Prev = question };
+        Assert.True(SubmissionBuilder.Build(agent, draft, DateTimeOffset.UtcNow).TryGetValue(out var submission, out var buildError), buildError?.Detail);
+        var forkSession = new ForumSession(new ForumClient(forum.Client, forum.Client.BaseAddress!), agent, new ProfileStore(_home), forum.Clock);
+        var posted = await forkSession.SubmitAsync(submission!.Wire, Ct);
+        Assert.True(posted.TryGetValue(out _, out var refusal), refusal?.Summary);
 
         var revisionIds = await RevisionIdsOfAsync(question);
         Assert.Equal(2, revisionIds.Length);

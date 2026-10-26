@@ -56,6 +56,7 @@
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />
+    <Compile Include="../Shared/PublishedCliRules.cs" Link="Shared/PublishedCliRules.cs" />
     <Compile Include="../Shared/McpProtocolSession.cs" Link="Shared/McpProtocolSession.cs" />
     <!-- GF9: the refusal documents a guarded Forum serves a lifecycle route; StubLog's guarded mode serves them, and Curia.Api.Tests holds them to the real Forum. -->
     <Compile Include="../Shared/LifecycleRefusals.cs" Link="Shared/LifecycleRefusals.cs" />

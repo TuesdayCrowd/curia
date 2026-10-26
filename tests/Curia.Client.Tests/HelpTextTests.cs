@@ -11,6 +11,7 @@ using Xunit;
 namespace Curia.Client.Tests;
 
 /// <summary>What <c>curia help</c> publishes, read from the text it prints.</summary>
+[Collection("console")]
 [SuppressMessage(
     "Naming",
     "CA1707:Identifiers should not contain underscores",
@@ -838,6 +839,83 @@ public sealed class HelpTextTests
         Assert.True(
             Help.Usage.Split('\n').First(l => l.Contains("curia revision", StringComparison.Ordinal)).Contains("--refs", StringComparison.Ordinal),
             "the usage line for 'curia revision' does not name --refs");
+    }
+
+    /// <summary>
+    /// R9.40 (errata G39): every exit a recheck produces is one its EXIT CODES entry can be true of, judged against what the run did and not against
+    /// the help's own text. Entry 1 says nothing was sent, so no run that sent a request (the stub's own list) and printed a line may exit 1; entry 3,
+    /// which a run with a malformed element exits, names recheck and says the other digests were answered above.
+    /// </summary>
+    [Fact]
+    public async Task R9_40_EveryExitARecheckProducesIsOneItsHelpEntryCanBeTrueOf()
+    {
+        // c current, x not a digest, w withheld, d disputed
+        string[] patterns = ["cc", "x", "cxc", "xx", "ccx", "cw", "cd", "xw", "xd", "wd", "cxw"];
+        var problems = new List<string>();
+        var seenExits = new HashSet<int>();
+        foreach (var pattern in patterns)
+        {
+            var (exit, lines, requests) = await RecheckRunAsync(pattern);
+            seenExits.Add(exit);
+
+            if (exit == 1 && (requests > 0 || lines > 0))
+                problems.Add($"{pattern}: exit 1 says nothing was sent, but {requests} request(s) were sent and {lines} line(s) printed");
+            if (exit == 3)
+            {
+                var entry = ExitCodeEntry(3);
+                if (!entry.Contains("recheck", StringComparison.Ordinal)) problems.Add($"{pattern}: exit 3, and entry 3 does not name recheck: {entry}");
+                if (!entry.Contains("answered", StringComparison.Ordinal)) problems.Add($"{pattern}: exit 3, and entry 3 does not say the other digests were answered: {entry}");
+            }
+        }
+
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+        Assert.Contains(0, seenExits);
+    }
+
+    /// <summary>One recheck over a stub batch built from a pattern: the exit, the lines printed and the batch requests the stub counted.</summary>
+    private static async Task<(int Exit, int Lines, int Requests)> RecheckRunAsync(string pattern)
+    {
+        using var log = new StubLog();
+        var sent = new List<string>();
+        var items = new List<string>();
+        for (var i = 0; i < pattern.Length; i++)
+        {
+            if (pattern[i] == 'x')
+            {
+                sent.Add("nope-" + i);
+                items.Add(StubLog.BatchItem(null, "malformed"));
+                continue;
+            }
+
+            var canonical = "{\"author\":\"urn:curia:agent:alice\",\"board\":\"b\",\"body\":\"A body.\",\"code_blocks\":[],\"content_type\":\"agent-authored/untrusted\","
+                + "\"created_at\":\"2026-01-01T00:00:00.0000000+00:00\",\"kind\":\"question\",\"nonce\":\"n0\",\"refs\":[],\"tags\":[],\"title\":\"Question " + i + "\",\"v\":1}";
+            var digest = "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical)));
+            sent.Add(digest);
+            items.Add(pattern[i] == 'w'
+                ? StubLog.BatchItem(digest, "withheld")
+                : StubLog.BatchItem(digest, "current", postJson: log.BatchPostJson($"01ZQPB17QUESTION0000000000{i:00}", canonical, digest, disputedBy: pattern[i] == 'd' ? 42 : null)));
+        }
+
+        log.BatchAnswer = _ => items;
+        var result = await log.Client().BatchAsync(sent, MarkingMode.None, TestContext.Current.CancellationToken);
+        Assert.True(result.TryGetValue(out var served, out var refusal), refusal?.Summary);
+        var (exit, stdout, _) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Program.ReportRecheck(sent, served)));
+        return (exit, stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length, log.BatchRequests.Count);
+    }
+
+    /// <summary>R11.51 (errata G39): <c>curia help revision</c> names both refusals, that nothing is sent (exit 1) and that the chain may be FORKED.</summary>
+    [Fact]
+    public void R11_51_TheRevisionHelpNamesTheTwoRefusalsAndTheirExit()
+    {
+        var help = Help.For("revision")!;
+
+        Assert.Contains("FORKED", help, StringComparison.Ordinal);
+        Assert.Contains("superseded", help, StringComparison.Ordinal);
+        Assert.Contains("author", help, StringComparison.Ordinal);
+        Assert.True(
+            help.Contains("exit 1", StringComparison.OrdinalIgnoreCase) || help.Contains("nothing is sent", StringComparison.OrdinalIgnoreCase),
+            "the revision help does not say the refusals exit 1 or that nothing is sent");
+        Assert.Contains("no flag", help, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
