@@ -38,10 +38,11 @@ public sealed class BlankValueTests : IDisposable
         return await McpProtocolSession.StartAsync(tools, writer.Agent.Profile.AgentId, agent);
     }
 
-    /// <summary>The R11.45 sites, written from the sentence: a board, an author and a verification level in the criteria; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
+    /// <summary>The R11.45 sites, written from the sentence, and R11.52's cursor: a board, an author and a verification level in the criteria, and a cursor; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
     private static readonly (string Tool, string Path)[] Sites =
     [
         ("curia_search", "criteria.board"), ("curia_search", "criteria.author"), ("curia_search", "criteria.min_verification"),
+        ("curia_search", "criteria.cursor"),
         ("curia_verify", "expectedDigest"), ("curia_flag", "rationale"),
         ("curia_answer", "body"), ("curia_comment", "body"), ("curia_revise", "body"),
     ];

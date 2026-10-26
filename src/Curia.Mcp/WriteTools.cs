@@ -108,7 +108,8 @@ internal sealed partial class ForumTools
             return NotSentResult(refsError!);
 
         var original = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
-        if (!original.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
+        if (!original.TryGetValue(out var post, out var refusal))
+            return refusal!.Kind is RefusalKind.NotFound ? MissingPostResult(nameof(postId)) : throw Refused(refusal);
 
         // The same rule `curia revision` applies (Program.RevisedDigestAsync), the span check included: a revision of a post that
         // does not verify is a signed claim chained to nothing the author saw.
@@ -189,7 +190,8 @@ internal sealed partial class ForumTools
             return NotSentResult(refsError!);
 
         var parent = await _forum.GetPostAsync(parentPostId, _marking, cancellationToken).ConfigureAwait(false);
-        if (!parent.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
+        if (!parent.TryGetValue(out var post, out var refusal))
+            return refusal!.Kind is RefusalKind.NotFound ? MissingPostResult(nameof(parentPostId)) : throw Refused(refusal);
 
         var draft = new PostDraft
         {

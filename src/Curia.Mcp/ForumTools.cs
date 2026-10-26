@@ -241,6 +241,9 @@ internal sealed partial class ForumTools(
         // R11.45: a pin that is present and blank is refused; absent is no pin.
         if (ArgumentGuards.PresentValue(expectedDigest, nameof(expectedDigest)) is { } refusedPin) return refusedPin;
 
+        // R11.52: and a pin that is present is in the published form; any other spelling is refused, never folded, and nothing is compared.
+        if (ArgumentGuards.DigestForm(expectedDigest, nameof(expectedDigest)) is { } refusedForm) return refusedForm;
+
         // R11.29: the document this session's read put in the model's context, when there is one.
         var read = _served.TryGetValue(postId, out var remembered);
 
@@ -385,6 +388,10 @@ internal sealed partial class ForumTools(
         if (ArgumentGuards.PresentValue(criteria.Board, "criteria.board") is { } refusedBoard) return refusedBoard;
         if (ArgumentGuards.PresentValue(criteria.Author, "criteria.author") is { } refusedAuthor) return refusedAuthor;
         if (ArgumentGuards.PresentValue(criteria.MinVerification, "criteria.min_verification") is { } refusedFloor) return refusedFloor;
+
+        // R11.52: the Forum reads a blank cursor as no cursor and answers page one, so a pager that carries its cursor in a variable would
+        // loop; the adapter refuses it by name. Absent (null) is no cursor.
+        if (ArgumentGuards.PresentValue(criteria.Cursor, "criteria.cursor") is { } refusedCursor) return refusedCursor;
 
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).
