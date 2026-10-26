@@ -130,9 +130,16 @@ public sealed record SearchCursor(int AfterScore, long AfterSequence)
         string.Create(CultureInfo.InvariantCulture, $"{AfterScore}:{AfterSequence}")));
 
     /// <summary>
-    /// Task 0's seam (R9.38, not yet built): the shape the strict decoder will return, carrying the old behaviour. Absent or
-    /// white space is <c>Ok(null)</c>, and so is every malformed value, read as "start from the beginning" by the parse
-    /// <c>int.TryParse</c> and <c>long.TryParse</c> accept.
+    /// R9.38: reads a cursor strictly. Absent or white space is <c>Ok(null)</c>, a first page; the one spelling
+    /// <see cref="Encode"/> writes is the cursor; anything else is <c>curia/inbox/cursor-malformed</c> and the refusal
+    /// echoes nothing of the value.
+    ///
+    /// <para>This used to read a malformed value as "start from the beginning", on the premise that a cursor an agent
+    /// could not have been given is not worth a refusal. The premise fails for a listing that is paged: a corrupted
+    /// cursor then sends an agent round page one while it believes it is advancing, which is what R9.25 asked search to
+    /// refuse and what <see cref="RetrievalCursor.Decode"/> does. A sign, a leading zero or white space in either
+    /// numeral, and a cursor of another route, are other spellings of a position and are refused: the value is accepted
+    /// only if encoding what it parsed to gives back the value, so no position has two cursors.</para>
     /// </summary>
     public static Result<SearchCursor?> Decode(string? encoded)
     {
@@ -142,19 +149,33 @@ public sealed record SearchCursor(int AfterScore, long AfterSequence)
         {
             var text = System.Text.Encoding.ASCII.GetString(Convert.FromBase64String(encoded));
             var separator = text.IndexOf(':', StringComparison.Ordinal);
-            if (separator <= 0) return Result<SearchCursor?>.Ok(null);
+            if (separator <= 0) return Malformed();
 
-            return Result<SearchCursor?>.Ok(
-                int.TryParse(text.AsSpan(..separator), CultureInfo.InvariantCulture, out var score)
-                && long.TryParse(text.AsSpan((separator + 1)..), CultureInfo.InvariantCulture, out var seq)
+            var cursor = IsCanonicalNumeral(text[..separator]) && IsCanonicalNumeral(text[(separator + 1)..])
+                && int.TryParse(text.AsSpan(..separator), NumberStyles.None, CultureInfo.InvariantCulture, out var score)
+                && long.TryParse(text.AsSpan((separator + 1)..), NumberStyles.None, CultureInfo.InvariantCulture, out var seq)
                     ? new SearchCursor(score, seq)
-                    : null);
+                    : null;
+
+            return cursor is not null && string.Equals(cursor.Encode(), encoded, StringComparison.Ordinal)
+                ? Result<SearchCursor?>.Ok(cursor)
+                : Malformed();
         }
         catch (FormatException)
         {
-            return Result<SearchCursor?>.Ok(null);
+            return Malformed();
         }
     }
+
+    /// <summary>The refusal of R9.38: it names no part of the value, which is a caller's string.</summary>
+    private static Result<SearchCursor?> Malformed() => Result<SearchCursor?>.Fail(new Error(
+        "curia/inbox/cursor-malformed",
+        "The `cursor` member is not one this route minted",
+        "Pass `next_cursor` back exactly as the previous page returned it, or omit `cursor` for the first page."));
+
+    /// <summary>Digits only, and no leading zero unless the numeral is a lone zero: the one spelling <see cref="Encode"/> writes.</summary>
+    private static bool IsCanonicalNumeral(string text) =>
+        text.Length > 0 && text.All(char.IsAsciiDigit) && (text.Length == 1 || text[0] != '0');
 
     /// <summary>
     /// Whether <paramref name="hit"/> sorts strictly after this cursor, in the one ordering

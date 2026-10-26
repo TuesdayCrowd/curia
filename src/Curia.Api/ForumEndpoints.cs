@@ -2046,13 +2046,17 @@ public static class ForumEndpoints
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
+        // R9.38: a cursor this route did not mint is refused, not read as a first page; judged before the corpus is selected.
+        if (!SearchCursor.Decode(http.Query["cursor"].ToString()).TryGetValue(out var cursor, out var cursorError))
+            return Problem(StatusCodes.Status400BadRequest, cursorError!);
+
         var inbox = InboxSelector.Select(log, reader!);
 
         var query = new LexicalQuery(
             Board: Nullable(http.Query["board"].ToString()),
             Tags: [.. http.Query["tags"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
-            Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()).Match(c => c, _ => null), // Task 0 seam: R9.38 turns the error into a 400
+            Cursor: cursor,
             Limit: limit);
 
         // The counts are scoped to the filters the agent actually asked for, which is the only
