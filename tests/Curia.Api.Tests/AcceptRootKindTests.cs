@@ -11,7 +11,8 @@ namespace Curia.Api.Tests;
 /// R8.69 (errata G36): the accept route refuses an answer whose parent is not a question, <c>400</c> <c>curia/accept/root-not-a-question</c>, after
 /// the ownership check, so a caller who is not the thread's asker is still answered <c>403</c>.
 ///
-/// <para><b>Oracles.</b> The answer is built through the API (ingest still admits an answer under a comment or an answer, D73), the status and the
+/// <para><b>Oracles.</b> The answer under a comment or an answer is stored with <c>AppendStoredPostAsync</c>, the shape of a post accepted before R8.70 (the submit route
+/// now refuses it, errata G38); the control is built through the API. The status and the
 /// problem's type are read from the response, and "nothing was recorded" is the <c>events</c> table: no <c>answer.accepted</c> row names the answer,
 /// read by SQL on the payload and not by any fold of the code under test. The control, an answer under a question, still answers <c>201</c>.</para>
 /// </summary>
@@ -51,17 +52,17 @@ public sealed class AcceptRootKindTests(ForumFixture forum) : IClassFixture<Foru
         var (rootPost, owner) = rootKind == "comment"
             ? (scene.Comment, scene.Asker)
             : (scene.Answer1, scene.Answerer);
-        var nested = await AcceptedAnswerScene.PostAsync(
-            forum, scene.Answerer, scene.Answerer.Agent.SignAnswer(scene.Board, $"Under a {rootKind}, {scene.Term}.", rootPost.PostId, forum.Now), ct);
+        var (nestedId, _) = await forum.AppendStoredPostAsync(
+            scene.Answerer.Agent.SignAnswer(scene.Board, $"Under a {rootKind}, {scene.Term}.", rootPost.PostId, forum.Now), ct);
 
-        using var response = await AcceptAsync(owner, nested.PostId, ct);
+        using var response = await AcceptAsync(owner, nestedId, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("curia/accept/root-not-a-question", body, StringComparison.Ordinal);
         Assert.Contains($"kind={rootKind}", body, StringComparison.Ordinal);
         Assert.Contains($"root={rootPost.PostId}", body, StringComparison.Ordinal);
-        Assert.Equal(0, await AcceptanceEventsNamingAsync(nested.PostId, ct));
+        Assert.Equal(0, await AcceptanceEventsNamingAsync(nestedId, ct));
     }
 
     /// <summary>
@@ -76,18 +77,50 @@ public sealed class AcceptRootKindTests(ForumFixture forum) : IClassFixture<Foru
         var ct = TestContext.Current.CancellationToken;
         var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
         var rootPost = rootKind == "comment" ? scene.Comment : scene.Answer1;
-        var nested = await AcceptedAnswerScene.PostAsync(
-            forum, scene.Answerer, scene.Answerer.Agent.SignAnswer(scene.Board, $"Under a {rootKind}, {scene.Term}.", rootPost.PostId, forum.Now), ct);
+        var (nestedId, _) = await forum.AppendStoredPostAsync(
+            scene.Answerer.Agent.SignAnswer(scene.Board, $"Under a {rootKind}, {scene.Term}.", rootPost.PostId, forum.Now), ct);
         var stranger = await AcceptedAnswerScene.EnrolAsync(forum, "stranger", ct);
 
-        using var response = await AcceptAsync(stranger, nested.PostId, ct);
+        using var response = await AcceptAsync(stranger, nestedId, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Contains("own-thread-only", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("curia/accept/root-not-a-question", body, StringComparison.Ordinal);
         Assert.DoesNotContain($"kind={rootKind}", body, StringComparison.Ordinal);
-        Assert.Equal(0, await AcceptanceEventsNamingAsync(nested.PostId, ct));
+        Assert.Equal(0, await AcceptanceEventsNamingAsync(nestedId, ct));
+    }
+
+    /// <summary>
+    /// R8.69 stays after R8.70 (errata G38): a log written before the rule can hold an answer under a comment or an answer, and the accept route is
+    /// the second line of defence for it. The nested answer is stored as such a log holds it (<c>AppendStoredPostAsync</c>, the shape of a post accepted
+    /// before a rule), because the submit route no longer takes it. The root's author is answered <c>400</c> <c>curia/accept/root-not-a-question</c>
+    /// after the ownership check, a stranger <c>403</c>, and no <c>answer.accepted</c> row names it.
+    /// </summary>
+    [Theory]
+    [InlineData("comment")]
+    [InlineData("answer")]
+    public async Task R8_69_AStoredAnswerUnderANonQuestionIsStillRefusedByTheAcceptRoute(string rootKind)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
+        var (rootPost, owner) = rootKind == "comment"
+            ? (scene.Comment, scene.Asker)
+            : (scene.Answer1, scene.Answerer);
+        var (nestedId, _) = await forum.AppendStoredPostAsync(
+            scene.Answerer.Agent.SignAnswer(scene.Board, $"Stored under a {rootKind}, {scene.Term}.", rootPost.PostId, forum.Now), ct);
+        var stranger = await AcceptedAnswerScene.EnrolAsync(forum, "stranger", ct);
+
+        using var forbidden = await AcceptAsync(stranger, nestedId, ct);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        using var response = await AcceptAsync(owner, nestedId, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("curia/accept/root-not-a-question", body, StringComparison.Ordinal);
+        Assert.Contains($"kind={rootKind}", body, StringComparison.Ordinal);
+        Assert.Equal(0, await AcceptanceEventsNamingAsync(nestedId, ct));
     }
 
     /// <summary>Control: an answer under a question is still accepted, and the log holds the one acceptance.</summary>

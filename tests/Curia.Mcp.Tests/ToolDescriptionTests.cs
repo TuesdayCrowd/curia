@@ -682,13 +682,31 @@ public sealed class ToolDescriptionTests
     }
 
     /// <summary>
-    /// R11.50 (errata G36): a search that changes what a result says and a refusal that changes what a cursor means, with no tool added, move the
-    /// server's version to 0.8.1 (as G30 moved 0.6.0 to 0.6.1). The fact that says 0.8.0 above is moved by the stage that builds it.
+    /// R11.17, annotated by R8.70 (errata G38): <c>curia_answer</c>'s description says the parent is a question, that a comment's id is not one, and
+    /// that the Forum refuses a parent that is not. It adds no backticked token beyond the arguments the description already names
+    /// (<c>ToolDescriptionTests</c> and <c>ToolProtocolTests</c> pin the backticked result terms). <b>Weak by construction:</b> it restates the
+    /// wording; <c>McpWriteEndToEndTests.R8_70_CuriaAnswerWithACommentAsParentIsRefusedByCause</c> is the behavioural check.
     /// </summary>
     [Fact]
-    public void R11_50_VersionIs081()
+    public void R11_17_CuriaAnswerSaysACommentIsNotAParent()
     {
-        Assert.Equal("0.8.1", ToolCatalogue.Version);
+        var description = Registered().Single(t => t.Name == "curia_answer").Description;
+        var outsideBackticks = System.Text.RegularExpressions.Regex.Replace(description, "`[^`]+`", string.Empty);
+
+        Assert.Contains(PublishedParentRule.AnswerParentKind(), outsideBackticks, StringComparison.Ordinal);
+        Assert.Contains("comment", outsideBackticks, StringComparison.Ordinal);
+        Assert.Contains("refused", outsideBackticks, StringComparison.Ordinal);
+
+        string[] arguments = ["parentPostId", "body", "refs", "sha256:", "pkg:", "http://", "https://"];
+        var tokens = System.Text.RegularExpressions.Regex.Matches(description, "`([^`]+)`").Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal);
+        Assert.Empty(tokens.Except(arguments, StringComparer.Ordinal));
+    }
+
+    /// <summary>R11.17 (annotated by R8.70): a refusal changes and no tool is added, so the server's version moves from 0.8.1 to 0.8.2.</summary>
+    [Fact]
+    public void R11_17_VersionIs082()
+    {
+        Assert.Equal("0.8.2", ToolCatalogue.Version);
     }
 
     /// <summary>

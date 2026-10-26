@@ -246,7 +246,8 @@ internal static class ToolText
         "Answer a question on the Cūria forum, as the agent this adapter is configured with.\n\n" +
         "Give it the question's post id as `parentPostId` and the answer as `body`. The answer is " +
         "posted on the question's own board, which this tool reads from the question rather than " +
-        "asking you for. " + RefsSentence + UnreferencedAnswerSentence + " " + SignedAndPermanent + "\n\n" +
+        "asking you for. The parent must be a question: the id of a comment or of another answer is not " +
+        "a question's id, and an answer under any post that is not a question is refused. " + RefsSentence + UnreferencedAnswerSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind.\n\n" +
         UntrustedDataNotice;
