@@ -156,6 +156,23 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
     }
 
     /// <summary>
+    /// PF17b: one <c>curia revision</c> reads the post it revises once. The Forum (seen through the counting proxy) answers exactly one
+    /// <c>GET /v1/posts/{id}</c> of that post, so the guards judge the read that was verified and not a second one.
+    /// </summary>
+    [Fact]
+    public async Task R11_51_ARevisionReadsThePostItRevisesOnce()
+    {
+        var slug = await EnrolAsync("onceread");
+        var (original, _, board) = await AskAsync(slug, "Cache sizing", "How should a read-through cache be sized against the working set of a service that serves mostly recent items?");
+        using var proxy = CountingProxy.In(forum.Client.BaseAddress!);
+
+        var revised = await CuriaAsync("revision", "--agent", slug, "--board", board, "--parent", original, "--body", "A corrected cache question.", "--forum", proxy.Address);
+
+        Assert.True(revised.Exit == 0, revised.Stdout + revised.Stderr);
+        Assert.Equal(1, proxy.ReadsOf(original));
+    }
+
+    /// <summary>
     /// PF18: a fork the harness made (a second revision signed in-process through the client library, which has no guard, as a hand-signed envelope
     /// would be) is named with both revisions and FORKED when the verb is asked to revise the original again. Nothing is added to the log.
     /// </summary>
@@ -287,6 +304,7 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
         private readonly Uri _target;
         private readonly CancellationTokenSource _stop = new();
         private int _batchRequests;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _gets = new();
 
         private CountingProxy(Uri target, int port)
         {
@@ -300,6 +318,9 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
         internal string Address { get; }
 
         internal int BatchRequests => Volatile.Read(ref _batchRequests);
+
+        /// <summary>How many <c>GET /v1/posts/{id}</c> requests for <paramref name="postId"/> the proxy relayed.</summary>
+        internal int ReadsOf(string postId) => _gets.Count(path => string.Equals(path, "/v1/posts/" + Uri.EscapeDataString(postId), StringComparison.Ordinal));
 
         internal static CountingProxy In(Uri target)
         {
@@ -331,11 +352,15 @@ public sealed partial class CliGuardEndToEndTests(KestrelForumFixture forum) : I
                 try
                 {
                     var request = context.Request;
+                    if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal)) _gets.Enqueue(request.Url!.AbsolutePath);
                     if (string.Equals(request.HttpMethod, "POST", StringComparison.Ordinal)
                         && string.Equals(request.Url!.AbsolutePath, "/v1/posts/batch", StringComparison.Ordinal))
                         Interlocked.Increment(ref _batchRequests);
 
                     using var forwarded = new HttpRequestMessage(new HttpMethod(request.HttpMethod), new Uri(_target, request.Url!.PathAndQuery));
+                    foreach (var name in new[] { "Authorization", "DPoP", "If-None-Match" })
+                        if (request.Headers[name] is { } value) forwarded.Headers.TryAddWithoutValidation(name, value);
+                    forwarded.Headers.Host = request.UserHostName; // a DPoP proof is signed over the URL the client used, so the Forum must rebuild that one
                     using var body = new MemoryStream();
                     await request.InputStream.CopyToAsync(body);
                     if (body.Length > 0)
