@@ -359,21 +359,19 @@ public sealed class LexicalSearchTests
         var cursor = new SearchCursor(42, 7);
         var decoded = SearchCursor.Decode(cursor.Encode());
 
-        Assert.Equal(cursor, decoded);
+        Assert.Equal(cursor, decoded.Match(c => c, e => throw new InvalidOperationException(e.Type)));
     }
 
     /// <summary>
-    /// A mangled cursor reads as "start from the beginning" rather than throwing. A client that
-    /// corrupted its cursor gets the first page, which is recoverable; an exception on a read path
-    /// is not, and R9.7's concern is silent skipping, which starting over avoids.
+    /// An absent or blank cursor is a first page. A malformed one is not (R9.38): <c>SearchCursorDecodeTests</c> holds the
+    /// refusals.
     /// </summary>
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("not-base64!!")]
-    [InlineData("bm90LWEtY3Vyc29y")]
-    public void AMalformedCursorReadsAsTheFirstPage(string encoded) =>
-        Assert.Null(SearchCursor.Decode(encoded));
+    public void AnAbsentOrBlankCursorReadsAsTheFirstPage(string? encoded) =>
+        Assert.Null(SearchCursor.Decode(encoded).Match(c => c, e => throw new InvalidOperationException(e.Type)));
 
     // ---- limits -------------------------------------------------------------------------
 

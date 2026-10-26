@@ -2044,7 +2044,7 @@ public static class ForumEndpoints
             Board: Nullable(http.Query["board"].ToString()),
             Tags: [.. http.Query["tags"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
-            Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()),
+            Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()).Match(c => c, _ => null), // Task 0 seam: R9.38 turns the error into a 400
             Limit: limit);
 
         // The counts are scoped to the filters the agent actually asked for, which is the only

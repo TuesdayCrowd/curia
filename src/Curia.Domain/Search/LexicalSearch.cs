@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives;
 
 namespace Curia.Domain.Search;
 
@@ -128,27 +129,30 @@ public sealed record SearchCursor(int AfterScore, long AfterSequence)
     public string Encode() => Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes(
         string.Create(CultureInfo.InvariantCulture, $"{AfterScore}:{AfterSequence}")));
 
-    public static SearchCursor? Decode(string? encoded)
+    /// <summary>
+    /// Task 0's seam (R9.38, not yet built): the shape the strict decoder will return, carrying the old behaviour. Absent or
+    /// white space is <c>Ok(null)</c>, and so is every malformed value, read as "start from the beginning" by the parse
+    /// <c>int.TryParse</c> and <c>long.TryParse</c> accept.
+    /// </summary>
+    public static Result<SearchCursor?> Decode(string? encoded)
     {
-        if (string.IsNullOrWhiteSpace(encoded)) return null;
+        if (string.IsNullOrWhiteSpace(encoded)) return Result<SearchCursor?>.Ok(null);
 
         try
         {
             var text = System.Text.Encoding.ASCII.GetString(Convert.FromBase64String(encoded));
             var separator = text.IndexOf(':', StringComparison.Ordinal);
-            if (separator <= 0) return null;
+            if (separator <= 0) return Result<SearchCursor?>.Ok(null);
 
-            return int.TryParse(text.AsSpan(..separator), CultureInfo.InvariantCulture, out var score)
+            return Result<SearchCursor?>.Ok(
+                int.TryParse(text.AsSpan(..separator), CultureInfo.InvariantCulture, out var score)
                 && long.TryParse(text.AsSpan((separator + 1)..), CultureInfo.InvariantCulture, out var seq)
                     ? new SearchCursor(score, seq)
-                    : null;
+                    : null);
         }
         catch (FormatException)
         {
-            // A malformed cursor reads as "start from the beginning" rather than throwing. A client
-            // that mangled its cursor gets the first page, which is recoverable; an exception on a
-            // read path is not, and R9.7's concern is silent skipping, which starting over avoids.
-            return null;
+            return Result<SearchCursor?>.Ok(null);
         }
     }
 
