@@ -98,4 +98,20 @@ public sealed class FirstBlockSupersededTests : IDisposable
         Assert.Contains(DisplayLiteral.Of(SecondRevisionDigest), line, StringComparison.Ordinal);
         Assert.Contains("not served", line, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// R10.82: where the Forum served the accepted answer without its list, the line says <c>revision NOT STATED</c> in the words the question's
+    /// <c>answers</c> line uses, so silence is never read as "not revised".
+    /// </summary>
+    [Fact]
+    public async Task R10_82_AnAbsentListOfTheAcceptedAnswerIsNotStatedInTheLine()
+    {
+        _log.OmitSupersededBy = true;
+        var notStated = PublishedReadersWords.R1082Tokens()[1];
+
+        var line = await AcceptedLineAsync();
+
+        Assert.Contains("revision " + notStated, line, StringComparison.Ordinal);
+        Assert.DoesNotContain("SUPERSEDED", line, StringComparison.Ordinal);
+    }
 }
