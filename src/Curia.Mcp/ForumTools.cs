@@ -184,7 +184,19 @@ internal sealed partial class ForumTools(
             if (acceptedIds.Length == 0)
                 frame.Line($"accepted none {new OwnText("(the Forum served no post of this thread as accepted)")}");
             else
-                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))))} {new OwnText(AnswerStanding.Basis)}");
+            {
+                // R10.82: where the accepted answer's own served list says it was revised, the line says so, from that list (the thread's
+                // members are in hand, so the Forum's word on the answer is one of them) and not from the question's member.
+                // An answer served without the list is NOT STATED, in the words the question's answers line uses: silence reads as "not revised".
+                var revisions = members
+                    .Where(m => m.Accepted && (m.Provenance.SupersededBy.IsDefault || Supersession.IsSuperseded(m.Provenance.SupersededBy)))
+                    .Select(m => m.Provenance.SupersededBy.IsDefault
+                        ? $"{Supersession.NotStatedShort} (the Forum served answer={DisplayLiteral.Of(m.PostId)} without a word on whether it has been revised, so do not take it as unrevised)"
+                        : AnswerStanding.RevisionStatement("answer=" + DisplayLiteral.Of(m.PostId), m.Provenance.SupersededBy).Text)
+                    .ToArray();
+                var statement = revisions.Length == 0 ? string.Empty : " " + string.Join(" ", revisions);
+                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))) + statement)} {new OwnText(AnswerStanding.Basis)}");
+            }
         }
 
         if (unreadableParent is not null)
@@ -231,6 +243,9 @@ internal sealed partial class ForumTools(
 
         // R11.45: a pin that is present and blank is refused; absent is no pin.
         if (ArgumentGuards.PresentValue(expectedDigest, nameof(expectedDigest)) is { } refusedPin) return refusedPin;
+
+        // R11.52: and a pin that is present is in the published form; any other spelling is refused, never folded, and nothing is compared.
+        if (ArgumentGuards.DigestForm(expectedDigest, nameof(expectedDigest)) is { } refusedForm) return refusedForm;
 
         // R11.29: the document this session's read put in the model's context, when there is one.
         var read = _served.TryGetValue(postId, out var remembered);
@@ -376,6 +391,10 @@ internal sealed partial class ForumTools(
         if (ArgumentGuards.PresentValue(criteria.Board, "criteria.board") is { } refusedBoard) return refusedBoard;
         if (ArgumentGuards.PresentValue(criteria.Author, "criteria.author") is { } refusedAuthor) return refusedAuthor;
         if (ArgumentGuards.PresentValue(criteria.MinVerification, "criteria.min_verification") is { } refusedFloor) return refusedFloor;
+
+        // R11.52: the Forum reads a blank cursor as no cursor and answers page one, so a pager that carries its cursor in a variable would
+        // loop; the adapter refuses it by name. Absent (null) is no cursor.
+        if (ArgumentGuards.PresentValue(criteria.Cursor, "criteria.cursor") is { } refusedCursor) return refusedCursor;
 
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).

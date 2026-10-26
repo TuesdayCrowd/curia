@@ -39,10 +39,10 @@ public sealed record Successor(string Digest, string? PostId);
 /// <see cref="PostId"/> only where the Forum serves that answer (R10.36). A <see cref="Provenance"/> that carries no
 /// <see cref="AcceptedAnswerMember"/> at all is a Forum that did not say, which is a third state and not "none".
 /// </summary>
-public sealed record AcceptedAnswerMember(string? Digest, string? PostId)
+public sealed record AcceptedAnswerMember(string? Digest, string? PostId, ImmutableArray<Successor> SupersededBy)
 {
     /// <summary>No acceptance stands.</summary>
-    public static AcceptedAnswerMember None { get; } = new(null, null);
+    public static AcceptedAnswerMember None { get; } = new(null, null, ImmutableArray<Successor>.Empty);
 
     /// <summary>True when no acceptance stands.</summary>
     public bool IsNone => Digest is null;

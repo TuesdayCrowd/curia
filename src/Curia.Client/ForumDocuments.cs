@@ -40,7 +40,38 @@ public sealed record InboxPage(
     int ExcludedAsAlreadyAnswered);
 
 /// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
-public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt, bool AlreadyAccepted = false);
+public sealed record AcceptanceReceipt(
+    string ThreadRoot,
+    string PostId,
+    string AcceptedAt,
+    bool AlreadyAccepted = false,
+    AcceptanceReplaced Replaced = default);
+
+/// <summary>What <c>replaced_answer</c> told a reader (R8.71, errata G40).</summary>
+public enum AcceptanceReplacedKind
+{
+    /// <summary>The Forum's receipt had no member (an older Forum). Not "none". The default, so a receipt built without one says so.</summary>
+    NotStated = 0,
+
+    /// <summary>The member was <c>null</c>: no acceptance stood, or the answer named already stood.</summary>
+    None,
+
+    /// <summary>The member named the answer the call replaced.</summary>
+    Named,
+}
+
+/// <summary>R8.71's three states, and the post id in the third.</summary>
+public readonly record struct AcceptanceReplaced(AcceptanceReplacedKind Kind, string? PostId = null)
+{
+    /// <summary>The receipt had no member.</summary>
+    public static AcceptanceReplaced NotStated => default;
+
+    /// <summary>The member was <c>null</c>.</summary>
+    public static AcceptanceReplaced None => new(AcceptanceReplacedKind.None);
+
+    /// <summary>The member named <paramref name="postId"/>.</summary>
+    public static AcceptanceReplaced Of(string postId) => new(AcceptanceReplacedKind.Named, postId);
+}
 
 /// <summary>R9.8/R8.36's breakdown: why this result ranked where it did.</summary>
 /// <summary>The lexical channel's part of a ranking: its rank and the match counts behind its score.</summary>
@@ -343,8 +374,21 @@ internal static class ForumDocuments
         ClientJson.String(o, "thread_root") is { } root
         && ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "accepted_at") is { } at
-            ? ReadAlreadyAccepted(o).Map(replay => new AcceptanceReceipt(root, id, at, replay))
+            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Map(replaced => new AcceptanceReceipt(root, id, at, replay, replaced)))
             : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
+
+    /// <summary>
+    /// R8.71: <c>replaced_answer</c> is absent (a Forum that said nothing: not stated), <c>null</c> (none) or a non-empty post id.
+    /// Anything else is a malformed response, not a value the client picks.
+    /// </summary>
+    private static Result<AcceptanceReplaced> ReadReplaced(JsonValue.Object o) =>
+        ClientJson.Member(o, "replaced_answer") switch
+        {
+            null => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.NotStated),
+            JsonValue.Null => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.None),
+            JsonValue.String { Value.Length: > 0 } id => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.Of(id.Value)),
+            _ => Result<AcceptanceReplaced>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: replaced_answer is neither null nor a post id (R8.71)")),
+        };
 
     /// <summary>
     /// R8.68: <c>already_accepted</c> is a boolean when present; an absent member is an older Forum, which always recorded, so
@@ -591,12 +635,20 @@ internal static class ForumDocuments
     /// <c>post_id</c>. Anything else that is present is a malformed response and is not coerced or skipped, as a floor count is not
     /// (R9.30): a client that dropped an element it could not read would tell its agent a corrected post stands.
     /// </summary>
-    private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object provenance)
+    private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object provenance) =>
+        ReadSupersededBy(provenance, "provenance.superseded_by", "R9.32");
+
+    /// <summary>
+    /// The list of revisions in <paramref name="holder"/>'s <c>superseded_by</c>: absent is <c>default</c> (not stated), <c>[]</c> is
+    /// empty, a populated list is kept, and anything else is a malformed response. Shared by the post's own list (R9.32) and the accepted
+    /// answer's (R9.41), so the two are read with one strictness.
+    /// </summary>
+    private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object holder, string name, string requirement)
     {
         var malformed = Result<ImmutableArray<Successor>>.Fail(
-            ClientErrors.ResponseMalformed("provenance.superseded_by is not a list of revisions (R9.32)"));
+            ClientErrors.ResponseMalformed($"{name} is not a list of revisions ({requirement})"));
 
-        if (ClientJson.Member(provenance, "superseded_by") is not { } member)
+        if (ClientJson.Member(holder, "superseded_by") is not { } member)
             return Result<ImmutableArray<Successor>>.Ok(default);
 
         if (member is not JsonValue.Array array)
@@ -621,7 +673,8 @@ internal static class ForumDocuments
             revisions.Add(new Successor(digest, postId));
         }
 
-        return Result<ImmutableArray<Successor>>.Ok(revisions.MoveToImmutable());
+        // An empty list is the one empty array, so two members that both say "none" compare equal (an ImmutableArray compares by its array).
+        return Result<ImmutableArray<Successor>>.Ok(revisions.Count == 0 ? ImmutableArray<Successor>.Empty : revisions.MoveToImmutable());
     }
 
     /// <summary>
@@ -657,7 +710,9 @@ internal static class ForumDocuments
             postId = text.Value;
         }
 
-        return Result<AcceptedAnswerMember?>.Ok(new AcceptedAnswerMember(digest, postId));
+        // R9.41: the answer's revisions, read as strictly as the answer's own list. Absent is not stated, which is not empty.
+        return ReadSupersededBy(answer, "provenance.accepted_answer.superseded_by", "R9.41")
+            .Map(revisions => (AcceptedAnswerMember?)new AcceptedAnswerMember(digest, postId, revisions));
     }
 
     internal static Result<ProvenancePost> ReadPost(JsonValue value)

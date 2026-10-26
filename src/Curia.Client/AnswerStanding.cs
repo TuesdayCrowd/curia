@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Curia.Canon.Json;
 using Curia.Domain.Content;
 using Curia.Domain.Serving;
@@ -41,8 +42,26 @@ public static class AnswerStanding
         if (member is null) return new OwnText(NotStated);
         if (member.IsNone) return new OwnText(NoneAccepted);
 
-        return member.PostId is { } id
-            ? new OwnText($"accepted: post {DisplayLiteral.Of(id)}, chosen by the thread's asker {Basis}")
-            : new OwnText($"accepted: the answer with digest {DisplayLiteral.Of(member.Digest!)} (not served), chosen by the thread's asker {Basis}");
+        // R10.82: the answer the acceptance names, as this line calls it. A literal for every value the Forum supplied (R10.63).
+        var named = member.PostId is { } id
+            ? $"post {DisplayLiteral.Of(id)}"
+            : $"the answer with digest {DisplayLiteral.Of(member.Digest!)} (not served)";
+
+        // An empty list changes nothing, byte for byte (the G36 literal); an absent one is said, since silence reads as "not revised".
+        if (member.SupersededBy.IsDefault)
+            return new OwnText($"accepted: {named}, chosen by the thread's asker {Basis}; {Supersession.NotStatedShort} (the Forum served the member without a word on whether the answer has been revised, so do not take it as unrevised)");
+
+        if (member.SupersededBy.IsEmpty)
+            return new OwnText($"accepted: {named}, chosen by the thread's asker {Basis}");
+
+        return new OwnText($"accepted: {named}, which its author has since revised: {RevisionStatement(named, member.SupersededBy).Text} {Basis}");
     }
+
+    /// <summary>
+    /// R10.82's statement of a populated list: that the accepted answer has been superseded, by which revisions (FORKED where more than one),
+    /// and that the acceptance names <paramref name="named"/> and not its revision. The caller supplies the answer as it names it (already a
+    /// display literal); the revisions are written as <see cref="Supersession.Revisions"/> writes them. The Forum's word, with no verdict in it.
+    /// </summary>
+    public static OwnText RevisionStatement(string named, ImmutableArray<Successor> list) =>
+        new($"SUPERSEDED by {Supersession.Revisions(list).Text}{(list.Length > 1 ? Supersession.ForkedSentence : string.Empty)} -- the acceptance names {named}, not its revision; read the revision before relying on it");
 }

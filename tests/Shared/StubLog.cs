@@ -284,6 +284,27 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal bool ConsistencyRouteRefuses { get; set; }
 
+    /// <summary>
+    /// R11.52 (errata G40): answer <c>GET /v1/posts/{id}</c> with this status and a problem document of <c>curia/stub/unavailable</c> instead of the post, as
+    /// a Forum does when it fails: a refusal of the read that says nothing about the id.
+    /// </summary>
+    internal HttpStatusCode? PostReadFailsWith { get; set; }
+
+    /// <summary>
+    /// R11.52: answer <c>GET /v1/posts/{id}</c> with <c>404</c> and a problem document of this type (<c>about:blank</c>, a proxy's, or a
+    /// <c>curia/</c> type that is not the Forum's post-not-found one): a 404 that says nothing about the id.
+    /// </summary>
+    internal string? PostReadNotFoundType { get; set; }
+
+    /// <summary>R11.52: fail <c>GET /v1/posts/{id}</c> at the transport, as an unreachable Forum does: the request throws and no response arrives.</summary>
+    internal bool PostReadThrows { get; set; }
+
+    /// <summary>
+    /// R11.52: refuse <c>POST /v1/posts/{id}/accept</c> and <c>/flags</c> as the Forum refuses a write against an id no post bears: <c>404</c>,
+    /// <c>curia/posts/not-found</c>, title <c>No such post</c>, detail <c>post=&lt;id&gt;</c> (the cause the tools quote).
+    /// </summary>
+    internal bool WritesRefuseAsMissingPost { get; set; }
+
     /// <summary>How many times the consistency route was asked, refused or answered.</summary>
     internal int ConsistencyReads { get; private set; }
 
@@ -656,6 +677,12 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal bool? AcceptanceAlreadyAccepted { get; set; }
 
+    /// <summary>
+    /// R8.71 (errata G40): the raw JSON value the accept route's receipt carries as <c>replaced_answer</c>: <c>null</c>, or a quoted post id. Unset, the
+    /// member is left out, as a Forum that predates R8.71 leaves it.
+    /// </summary>
+    internal string? AcceptanceReplacedAnswerJson { get; set; }
+
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
 
@@ -697,9 +724,9 @@ internal sealed class StubLog : IDisposable
     {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"}
     """.ReplaceLineEndings(string.Empty);
 
-    internal static string AcceptanceJson(bool? alreadyAccepted = null) => $$"""
+    internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
-    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}}
+    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -745,7 +772,7 @@ internal sealed class StubLog : IDisposable
         "author":"{{Author}}","owner_verified":true,"signature_valid":true,
         "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
         "marking_caveat":null,"reader_contract":"http://forum.test/c",
-        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"{{OtherPostSupersededByJson()}} },
+        "owner":"owner:stub-attested","reproductions":["{{AnswerReproducedBy}}"],"contradictions":[],"key_status":"active"{{AnswerSupersededByJson()}} },
         "post_id":"{{AnswerPostId}}","board":"b","kind":"answer","parent":"{{PostId}}",
         "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":"{{Answer.PrefixedDigest}}",
         "canonical":{{JsonString(CanonicalContent ?? canonical)}},"signature":"{{Answer.Signature}}",
@@ -918,12 +945,33 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal bool SearchRefusesTheCursor { get; set; }
 
+    /// <summary>
+    /// R9.41 (errata G40): the revisions the Forum lists inside <c>accepted_answer</c> as <c>superseded_by</c>. Default (not set): the member is served
+    /// without the list, as a Forum that predates R9.41 serves it; an empty array serves <c>[]</c>.
+    /// </summary>
+    internal ImmutableArray<Successor> AcceptedAnswerSupersededBy { get; set; }
+
+    /// <summary>
+    /// R9.32: the revisions the Forum lists on the stub's answer's own <c>provenance.superseded_by</c>. Default (not set): <c>[]</c>. It is a list
+    /// independent of <see cref="AcceptedAnswerSupersededBy"/>, so a fact can serve the two apart (R10.82: the first block reads the answer's).
+    /// </summary>
+    internal ImmutableArray<Successor> AnswerSupersededBy { get; set; }
+
+    private static string SuccessorsJson(ImmutableArray<Successor> list) =>
+        "[" + string.Join(",", list.Select(s => "{\"digest\":" + JsonString(s.Digest) + (s.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(s.PostId)) + "}")) + "]";
+
+    private string AcceptedAnswerListJson() =>
+        AcceptedAnswerSupersededBy.IsDefault ? string.Empty : ",\"superseded_by\":" + SuccessorsJson(AcceptedAnswerSupersededBy);
+
+    private string AnswerSupersededByJson() =>
+        OmitSupersededBy ? string.Empty : ",\"superseded_by\":" + SuccessorsJson(AnswerSupersededBy.IsDefault ? [] : AnswerSupersededBy);
+
     private string AcceptedAnswerJson() => AcceptedAnswer switch
     {
         StubAcceptedAnswer.Absent => string.Empty,
         StubAcceptedAnswer.None => ",\"accepted_answer\":null",
-        StubAcceptedAnswer.Standing => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + ",\"post_id\":" + JsonString(AnswerPostId) + "}",
-        StubAcceptedAnswer.StandingUnserved => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + "}",
+        StubAcceptedAnswer.Standing => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + ",\"post_id\":" + JsonString(AnswerPostId) + AcceptedAnswerListJson() + "}",
+        StubAcceptedAnswer.StandingUnserved => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + AcceptedAnswerListJson() + "}",
         _ => throw new ArgumentOutOfRangeException(nameof(AcceptedAnswer), AcceptedAnswer, "not a state of the member"),
     };
 
@@ -1363,6 +1411,9 @@ internal sealed class StubLog : IDisposable
 
             log.Record(method, path, query, request);
 
+            if (method == HttpMethod.Get && path.StartsWith("/v1/posts/", StringComparison.Ordinal) && log.PostReadThrows)
+                throw new HttpRequestException("the Forum is unreachable");
+
             // R9.10's route is anonymous, so it is answered before the writes that require a DPoP proof; routed through
             // Written it would be "unrouted" for the path, trap 12's shape.
             var (status, body, challenge) = method == HttpMethod.Post && path == "/v1/posts/batch"
@@ -1600,6 +1651,14 @@ internal sealed class StubLog : IDisposable
                     null);
             }
 
+            if (log.WritesRefuseAsMissingPost && (path.EndsWith("/accept", StringComparison.Ordinal) || path.EndsWith("/flags", StringComparison.Ordinal)))
+            {
+                var segments = path["/v1/posts/".Length..].Split('/');
+                return (HttpStatusCode.NotFound,
+                    $$"""{"type":"curia/posts/not-found","title":"No such post","detail":{{JsonString("post=" + Uri.UnescapeDataString(segments[0]))}}}""",
+                    null);
+            }
+
             // An acceptance is refused for the reason the stub is told to refuse with: the Forum's
             // own-thread-only refusal is the one a tool meets on this route (G26).
             if (path.EndsWith("/accept", StringComparison.Ordinal) && log.DeniesSubmissionsForReason is { } acceptReason)
@@ -1611,7 +1670,7 @@ internal sealed class StubLog : IDisposable
 
             return path.EndsWith("/flags", StringComparison.Ordinal)
                 ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
-                : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted), null);
+                : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted, log.AcceptanceReplacedAnswerJson), null);
         }
 
         /// <summary><c>rotation</c> or <c>retirement</c> for a lifecycle route's path, or null for any other.</summary>
@@ -1751,11 +1810,17 @@ internal sealed class StubLog : IDisposable
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesOnlyTheAnswer)
                 return (HttpStatusCode.OK, "[" + log.AnswerJson() + "]");
 
+            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal) && log.PostReadNotFoundType is { } notFoundType)
+                return (HttpStatusCode.NotFound, $$"""{"type":{{JsonString(notFoundType)}},"title":"No such post"}""");
+
+            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal) && log.PostReadFailsWith is { } failure)
+                return (failure, """{"type":"curia/stub/unavailable","title":"The stub fails this read"}""");
+
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
                 && log.OtherPostsAreRefused
                 && Uri.UnescapeDataString(path["/v1/posts/".Length..]) != PostId)
                 return (HttpStatusCode.NotFound,
-                    """{"type":"curia/stub/not-found","title":"No such post"}""");
+                    """{"type":"curia/posts/not-found","title":"No such post"}""");
 
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal))
             {

@@ -185,19 +185,30 @@ public sealed class ReaderFrameToolTests : IDisposable
         AssertNoForgedLine("server instructions", text);
     }
 
-    /// <summary>R10.63: curia_verify echoes the digest its caller gave only as a literal.</summary>
+    /// <summary>
+    /// R10.63: curia_verify echoes the digest its caller gave only as a literal. Since R11.52 a pin that is not in the published form is refused
+    /// before it is compared and is never echoed, so a hostile pin (a line break and a forged sentence) reaches the model nowhere; a well-formed pin of
+    /// another document, the one form that is compared, is still shown only as a literal.
+    /// </summary>
     [Fact]
     public async Task R10_63_CuriaVerifyQuotesTheDigestItWasGiven()
     {
-        var expected = "sha256:x\n" + Forged;
         var (tools, agent) = Tools(_log);
         using var owned = agent;
 
-        var text = Flatten(await tools.VerifyAsync(StubLog.PostId, expected, TestContext.Current.CancellationToken));
+        var hostile = "sha256:x\n" + Forged;
+        var refused = Flatten(await tools.VerifyAsync(StubLog.PostId, hostile, TestContext.Current.CancellationToken));
 
-        Assert.True(text.Contains(Curia.Canon.Json.DisplayLiteral.Of(expected), StringComparison.Ordinal),
-            $"curia_verify did not echo the digest as a literal, so its having no forged line proves nothing; a defect in this fact:\n{text}");
-        AssertNoForgedLine("curia_verify with a hostile expectedDigest", text);
+        Assert.StartsWith("NOT SENT", refused, StringComparison.Ordinal);
+        Assert.DoesNotContain(Forged, refused, StringComparison.Ordinal);
+        AssertNoForgedLine("curia_verify with a hostile expectedDigest", refused);
+
+        var other = "sha256:" + new string('7', 64);
+        var text = Flatten(await tools.VerifyAsync(StubLog.PostId, other, TestContext.Current.CancellationToken));
+
+        Assert.True(text.Contains(Curia.Canon.Json.DisplayLiteral.Of(other), StringComparison.Ordinal),
+            $"curia_verify did not echo a well-formed pin as a literal, so its having no forged line proves nothing; a defect in this fact:\n{text}");
+        AssertNoForgedLine("curia_verify with a well-formed pin of another document", text);
     }
 
     // ---- R11.42 (errata G29): a failed pin carries no verdict ----------------------------------------------------------

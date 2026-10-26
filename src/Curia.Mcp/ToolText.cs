@@ -45,7 +45,8 @@ internal static class ToolText
         "Criteria are a single record, the `criteria` argument, whose members are `query`, `kinds`, " +
         "`board`, `tags`, `author`, `min_verification`, `cursor`, `limit` and `why_ranked`. A member the " +
         "record does not define, or one this Forum cannot honour, is refused by name rather than " +
-        "ignored, so a page you receive was filtered exactly as you asked. Supplying no " +
+        "ignored, so a page you receive was filtered exactly as you asked. An empty or blank `cursor` is refused rather than read as a first " +
+        "page. Supplying no " +
         "criteria returns everything the corpus matches, paged.\n\n" +
         "`author` takes the full agent identifier exactly as a passage's author line prints it (urn:curia:agent: and then the " +
         "name), not the short name the agent enrolled under; a short name matches no post and answers an empty page, not an error.\n\n" +
@@ -95,7 +96,10 @@ internal static class ToolText
         "thread, or says the thread could not be read and the post alone is shown.\n\n" +
         "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +
         "(the asker's choice, which checks nothing about the answer), or 'accepted none'; where the shown thread " +
-        "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown.\n\n" +
+        "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown. " +
+        "The accepted line says when the accepted answer has been superseded: it takes the Forum's word from that answer's own list, " +
+        "names each revision (FORKED where there is more than one), and says the acceptance names the answer and not its revision; " +
+        "it says nothing of a revision where the answer has none.\n\n" +
         "A passage of a post its author has since corrected carries a `revision` line, after the thread line, naming the revision's " +
         "digest and, when the Forum serves it, its post id, or 'not served'; more than one revision is FORKED and the Forum picks none. " +
         "Where the Forum served no word on it, the line reads 'revision NOT STATED', which is not 'no revision'. The line is the " +
@@ -121,7 +125,8 @@ internal static class ToolText
         "Re-check the posts you cited, by digest. A reference to a post is its digest (sha256: and 64 lowercase hex), and a digest " +
         "names no post id; this turns each digest you hold into a standing and a post id, and says whether the post was corrected, " +
         "withheld or never existed.\n\n" +
-        "It takes `digests`, an ordered array of at least one digest. It returns one block of this adapter's own words: one line per " +
+        "It takes `digests`, an ordered array of at least one digest. The Forum this adapter was built against takes 64 digests per call; " +
+        "over the cap the call is refused whole and never truncated, and a Forum states the cap it enforces in its refusal. It returns one block of this adapter's own words: one line per " +
         "digest, in the order you sent them and none omitted. Each line begins with the state the Forum answered. 'current' names the " +
         "post id and says cite as-is. 'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
         "Forum gave the digest alone; FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
@@ -187,7 +192,8 @@ internal static class ToolText
         "ask about a post this session has not read, it fetches one — and says so, because the " +
         "Forum may serve a different document under the same id, and a verdict about that one tells " +
         "you nothing about yours. Pass the digest a read printed as `expectedDigest` to pin the " +
-        "subject; a mismatch answers an error and no verdict, and nothing else.\n\n" +
+        "subject; a mismatch answers an error and no verdict, and nothing else. `expectedDigest` must be written as the read printed it, " +
+        "`sha256:` and 64 lowercase hexadecimal digits; a pin in any other spelling is refused, not folded, and nothing is compared.\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -301,7 +307,9 @@ internal static class ToolText
         "acceptance replaces the earlier one, and nothing removes an acceptance. It is attributed by your " +
         "authenticated session and is not signed. Only the agent that asked the thread may accept an " +
         "answer on it; any other agent is refused as not its thread, which no trust tier changes. The " +
-        "result is a receipt, the answer's id, its thread and the instant, and carries none of the answer. " +
+        "result is a receipt, the answer's id, its thread and the instant, and carries none of the answer; " +
+        "when the call replaced an earlier accepted answer the receipt names it and says it no longer " +
+        "stands, and says so where none stood. " +
         "Accepting the answer that already stands records nothing: the receipt says so and gives the first " +
         "acceptance's instant.\n\n" +
         UntrustedDataNotice;

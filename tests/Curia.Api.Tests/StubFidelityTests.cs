@@ -114,6 +114,9 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         string StubMember(StubAcceptedAnswer state)
         {
             _stub.AcceptedAnswer = state;
+
+            // R9.41: this Forum serves the list inside the object, always; the stub serves it only when told to, so a fact can serve an older Forum.
+            _stub.AcceptedAnswerSupersededBy = [];
             var provenance = JsonNode.Parse(_stub.PostJson())!["provenance"]!.AsObject();
             return provenance.ContainsKey("accepted_answer") ? Describe(provenance["accepted_answer"]) : "absent";
         }
@@ -122,9 +125,10 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         // comparison below holds both documents to the requirement and not only to each other.
         var names = PublishedSearchPage.AcceptedAnswerNames();
         Assert.Equal(["accepted_answer", "digest", "post_id"], names);
+        var listed = PublishedReadersWords.R941Member();
         const string Null = "null";
-        const string Served = "object{digest:String,post_id:String}";
-        const string Unserved = "object{digest:String}";
+        var servedShape = $"object{{digest:String,post_id:String,{listed}:Array}}";
+        var unservedShape = $"object{{digest:String,{listed}:Array}}";
 
         var mismatches = new List<string>();
 
@@ -140,11 +144,18 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
 
         // An acceptance stands and the answer is served.
         await scene.AcceptAsync(forum, scene.Answer1, ct);
-        Hold("standing", StubAcceptedAnswer.Standing, await RealMemberAsync(), Served);
+        Hold("standing", StubAcceptedAnswer.Standing, await RealMemberAsync(), servedShape);
 
         // An acceptance stands and the answer is withheld.
         await forum.WithholdAsync(scene.Answer1.PostId, ct);
-        Hold("unserved", StubAcceptedAnswer.StandingUnserved, await RealMemberAsync(), Unserved);
+        Hold("unserved", StubAcceptedAnswer.StandingUnserved, await RealMemberAsync(), unservedShape);
+
+        // The knob's other state: with no list set, the stub serves the member as a Forum that predates R9.41 did (the list absent), which is
+        // what lets a fact serve the reader a member without the list.
+        _stub.AcceptedAnswer = StubAcceptedAnswer.Standing;
+        _stub.AcceptedAnswerSupersededBy = default;
+        var older = Describe(JsonNode.Parse(_stub.PostJson())!["provenance"]!["accepted_answer"]);
+        if (older != "object{digest:String,post_id:String}") mismatches.Add($"an unset list: the stub serves {older}, an older Forum served the object without {listed}");
 
         Assert.True(mismatches.Count == 0, "the stub serves the member differently from the Forum: " + string.Join("; ", mismatches));
     }

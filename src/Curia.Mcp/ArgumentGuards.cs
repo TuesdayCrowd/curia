@@ -1,3 +1,4 @@
+using Curia.Domain.Primitives;
 using ModelContextProtocol.Protocol;
 
 namespace Curia.Mcp;
@@ -28,6 +29,18 @@ internal static class ArgumentGuards
     internal static CallToolResult? PresentValue(string? value, string argument)
     {
         return value is not null && string.IsNullOrWhiteSpace(value) ? Refusal($"{argument} is empty or blank") : null;
+    }
+
+    /// <summary>
+    /// R11.52 (errata G40): a pin that is present is in the published form, <c>sha256:</c> and 64 lowercase hex (<see cref="EnvelopeDigest.IsPrefixedForm"/>).
+    /// Absent (null) is no pin. A pin is a statement about a document and a digest has one spelling, so any other form is refused by name and is
+    /// not folded; the refusal states the form and never echoes the value (R10.63).
+    /// </summary>
+    internal static CallToolResult? DigestForm(string? value, string argument)
+    {
+        return value is not null && !EnvelopeDigest.IsPrefixedForm(value)
+            ? Refusal($"{argument} is not a digest in the published form (sha256: and 64 lowercase hexadecimal digits)")
+            : null;
     }
 
     /// <summary>R11.49: an array argument that must hold at least one item is not empty. An absent array (null) is left to the contract check.</summary>

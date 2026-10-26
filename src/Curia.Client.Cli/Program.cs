@@ -770,7 +770,8 @@ internal static class Program
 
     /// <summary>
     /// The receipt of <c>curia resolve</c>, as lines. A fact drives it directly. R8.68: a replay says the answer was already the
-    /// accepted one, that nothing was recorded, and that the time is the first acceptance's.
+    /// accepted one, that nothing was recorded, and that the time is the first acceptance's. R8.71: a recording call
+    /// says which answer it replaced, that none stood, or <c>NOT STATED</c> for a Forum that did not say.
     /// </summary>
     internal static int WriteAcceptance(AcceptanceReceipt receipt)
     {
@@ -783,6 +784,21 @@ internal static class Program
 
         Output.Line($"accepted  {receipt.PostId}");
         Output.Line($"thread    {receipt.ThreadRoot}   at {receipt.AcceptedAt}");
+
+        // R8.71 (errata G40): a call that recorded says what it replaced. A replay, above, says nothing of replacement.
+        switch (receipt.Replaced.Kind)
+        {
+            case AcceptanceReplacedKind.Named:
+                Output.Line($"replaced   post {receipt.Replaced.PostId}   (it no longer stands as the accepted answer)");
+                break;
+            case AcceptanceReplacedKind.None:
+                Output.Line("replaced   none   (no earlier answer stood as accepted)");
+                break;
+            default:
+                Output.Line("replaced   NOT STATED   (the Forum's receipt did not say)");
+                break;
+        }
+
         return ExitCode.Ok;
     }
 

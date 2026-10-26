@@ -38,10 +38,11 @@ public sealed class BlankValueTests : IDisposable
         return await McpProtocolSession.StartAsync(tools, writer.Agent.Profile.AgentId, agent);
     }
 
-    /// <summary>The R11.45 sites, written from the sentence: a board, an author and a verification level in the criteria; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
+    /// <summary>The R11.45 sites, written from the sentence, and R11.52's cursor: a board, an author and a verification level in the criteria, and a cursor; a pin; a rationale; a body of an answer, a comment and a revision.</summary>
     private static readonly (string Tool, string Path)[] Sites =
     [
         ("curia_search", "criteria.board"), ("curia_search", "criteria.author"), ("curia_search", "criteria.min_verification"),
+        ("curia_search", "criteria.cursor"),
         ("curia_verify", "expectedDigest"), ("curia_flag", "rationale"),
         ("curia_answer", "body"), ("curia_comment", "body"), ("curia_revise", "body"),
     ];
@@ -218,6 +219,41 @@ public sealed class BlankValueTests : IDisposable
         Assert.False(result.IsError, result.Frame);
         Assert.DoesNotContain(NotSent, result.Text, StringComparison.Ordinal);
         Assert.Contains(_log.Requests, r => r.StartsWith("GET /v1/search", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// R14.12's gate for R11.52 (errata G40, moved fact): the gate's list of sites holds every argument R11.52 names (parsed from the errata: the pin
+    /// and the dotted cursor), and the gate varies the cursor with a blank and the pin with each spelling that is not the published form, each refused
+    /// by name with nothing sent.
+    /// </summary>
+    [Fact]
+    public async Task R14_12_TheBoundaryGateVariesTheCursorAndThePinForm()
+    {
+        var named = PublishedReadersWords.R1152Arguments();
+        var missing = named.Where(a => !Sites.Any(s => s.Path == a)).ToArray();
+        Assert.True(missing.Length == 0, $"Expected the gate's sites to hold every argument R11.52 names ({string.Join(", ", named)}); the gate's list lacks {string.Join(", ", missing)}");
+
+        await using var session = await StartAsync(_log, _home);
+        var real = _log.Submission.PrefixedDigest;
+        var rows = new List<(string Tool, string Path, string Value)>
+        {
+            ("curia_search", "criteria.cursor", ""),
+            ("curia_search", "criteria.cursor", "  "),
+            ("curia_verify", "expectedDigest", real.ToUpperInvariant()),
+            ("curia_verify", "expectedDigest", real["sha256:".Length..]),
+            ("curia_verify", "expectedDigest", real + " "),
+        };
+
+        foreach (var (tool, path, value) in rows)
+        {
+            _log.Requests.Clear();
+            var result = await session.CallAsync(tool, With(tool, path, value));
+
+            Assert.True(
+                result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal) && result.Text.Contains(path, StringComparison.Ordinal),
+                $"{tool} with {path} = '{value}' was not refused by name:\n{result.Text}");
+            Assert.Empty(_log.Requests);
+        }
     }
 
     /// <summary>

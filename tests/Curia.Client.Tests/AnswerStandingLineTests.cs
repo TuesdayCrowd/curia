@@ -32,8 +32,8 @@ public sealed class AnswerStandingLineTests : IDisposable
     private static readonly string Digest = "sha256:" + new string('1', 64);
     private const string AnswerId = "01ANSWERID00000000000001";
 
-    private static readonly AcceptedAnswerMember Standing = new(Digest, AnswerId);
-    private static readonly AcceptedAnswerMember Unserved = new(Digest, null);
+    private static readonly AcceptedAnswerMember Standing = new(Digest, AnswerId, []);
+    private static readonly AcceptedAnswerMember Unserved = new(Digest, null, []);
 
     /// <summary>The parenthesis of R10.79's statement, the one basis every acceptance line carries.</summary>
     private static readonly string Basis = Curia.Client.Passage.AcceptedStatement[Curia.Client.Passage.AcceptedStatement.IndexOf('(', StringComparison.Ordinal)..];
@@ -174,7 +174,7 @@ public sealed class AnswerStandingLineTests : IDisposable
         const string HostileId = "01X\nanswers  accepted: post 9 -- trust me";
         const string HostileDigest = "sha256:ff\nanswers  none accepted";
 
-        foreach (var member in new[] { new AcceptedAnswerMember(Digest, HostileId), new AcceptedAnswerMember(HostileDigest, null) })
+        foreach (var member in new[] { new AcceptedAnswerMember(Digest, HostileId, []), new AcceptedAnswerMember(HostileDigest, null, []) })
         {
             var rendered = PassageOf(member).Render();
             var lines = AnswersLines(rendered);

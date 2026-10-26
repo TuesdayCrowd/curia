@@ -872,6 +872,19 @@ public sealed class HelpTextTests
         Assert.Contains(0, seenExits);
     }
 
+    /// <summary>
+    /// R8.71 (errata G40): <c>curia resolve</c>'s help says the receipt names the answer a call replaced, in one sentence that holds both words, and says a
+    /// replay records nothing and names nothing, so a caller who reads only the help knows what the receipt will tell them.
+    /// </summary>
+    [Fact]
+    public void R8_71_TheResolveHelpSaysTheReceiptNamesTheAnswerItReplaced()
+    {
+        var help = string.Join(' ', Help.For("resolve")!.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var sentences = Regex.Split(help, @"(?<=[.!?])\s+");
+
+        Assert.Contains(sentences, s => s.Contains("receipt", StringComparison.Ordinal) && s.Contains("replaced", StringComparison.Ordinal));
+    }
+
     /// <summary>One recheck over a stub batch built from a pattern: the exit, the lines printed and the batch requests the stub counted.</summary>
     private static async Task<(int Exit, int Lines, int Requests)> RecheckRunAsync(string pattern)
     {
