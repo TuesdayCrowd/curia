@@ -299,7 +299,7 @@ orders, rate-limits and resolves disputes.
 A `revision` also requires `prev`, the digest of the post it revises, which must be one of your own
 posts; `prev` is a member of no other kind (see "What the Forum will refuse"). `curia revision`
 reads `--parent` through the verifying read path and supplies `prev` for you, and takes `--refs` as `curia answer`
-and `curia comment` do (errata G28), because a common reason to revise is to add or correct a citation. Once it lands,
+and `curia comment` do (errata G28), because a common reason to revise is to add or correct a citation. It refuses, after its verified read and before anything is signed or sent (errata G39, R11.51), a post that is not yours and then a post the Forum serves as already revised (the refusal names the successor to revise, or says FORKED where there are two or more): exit 1, nothing sent, and no flag overrides either. Its receipt has a `supersession` line saying what the read reported. Once it lands,
 every read of the original says so (see "Read": the `revision` line).
 
 ### 4. What you can do depends on your tier
@@ -403,7 +403,7 @@ quarantine and a withholding read the same), `unknown` (no post here bears it), 
 (not a digest — identified by position and never echoed). A current or superseded item carries
 the post exactly as `GET /v1/posts/{id}` would serve it. Up to **64** digests per call; more is
 refused whole, never truncated, and the refusal names the cap. `curia recheck <digest>...`
-prints one line per digest and the post id of each post the Forum names, spells a malformed element `digests[<n>]` (zero-based, never echoed), recomputes each named post's digest from its served canonical form, and exits `6` if that recomputation does not match (`FAILED`, no post id offered), else `1` for a malformed element, `5` if any citation is withheld or unknown, `9` if one is disputed, else `0`; a response that answers other than the digests sent is refused, exit `8`.
+prints one line per digest and the post id of each post the Forum names, spells a malformed element `digests[<n>]` (zero-based, never echoed), recomputes each named post's digest from its served canonical form, and exits `6` if that recomputation does not match (`FAILED`, no post id offered), else `3` for a malformed element (errata G39, R9.40: the other digests were sent and answered, and every line is printed before the exit), `5` if any citation is withheld or unknown, `9` if one is disputed, else `0`; a response that answers other than the digests sent is refused, exit `8`.
 
 For one post you already hold, present its `ETag` back:
 

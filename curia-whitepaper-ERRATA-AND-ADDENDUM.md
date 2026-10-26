@@ -10724,7 +10724,7 @@ client says what its verified read holds and the Forum remains the decider), R11
 with line numbers at the head of #124, is `src/Curia.Client.Cli/Program.cs` (`ReportRecheck`, `:596`, whose last expression maps a malformed line to `ExitCode.Usage`; `RevisedDigestAsync`, `:333`, which reads and verifies the post `--parent` names and
 looks at neither its author nor its `superseded_by`; `SendDraftAsync`, `:446`, which prints every writing verb's receipt), `src/Curia.Client.Cli/Help.cs` (the `EXIT CODES` entries 1 and 3, `:284` and `:286`) and `src/Curia.Client/Supersession.cs`
 (`RevisionRefusal` and `ReceiptLine`, which R11.47 built for the tool and the verb does not use). **Class:** an exit-code entry that is false of one path that produces the code, and a missing guard in the reference client's own verb.
-**Status:** proposed; not applied to the white paper. To be built by the stage `docs/superpowers/plans/2026-10-26-the-cli-says-what-it-did.md`. Found as register D61 item 19 (PR 2b's live runs) and as D72's CLI lead (PR 2a's Task 0 reproduced
+**Status:** built; not applied to the white paper. Built 2026-10-26 by the stage `docs/superpowers/plans/2026-10-26-the-cli-says-what-it-did.md` (wave 2a, #125), probes PF1 to PF22 and PF17b seen red first, falsification FPF1 to FPF28 (27 of 28 rows red on a named fact; FPF25 green for the stated reason). Found as register D61 item 19 (PR 2b's live runs) and as D72's CLI lead (PR 2a's Task 0 reproduced
 it and ruled it out of that PR for want of an exit code).
 
 **How it surfaced.** PR 2b's Task 0 ran `curia recheck` with a malformed element among valid ones and found the verb sending the whole batch, printing every line and exiting 1 under the entry that reads "usage error -- bad or missing
