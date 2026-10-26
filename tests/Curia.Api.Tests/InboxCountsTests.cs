@@ -46,6 +46,14 @@ internal sealed class InboxProbe(ForumFixture forum)
         return new Member(agent, dpop);
     }
 
+    /// <summary>Enrols an agent under an id the test chooses.</summary>
+    internal async Task<Member> EnrolAsAsync(string agentId, string kid, CancellationToken ct)
+    {
+        var agent = ForumAgent.Create(agentId, kid);
+        var (dpop, _) = await agent.AuthenticateAsync(forum.Client, TokenEndpoint, forum.Now, ct);
+        return new Member(agent, dpop);
+    }
+
     internal async Task<(HttpStatusCode Status, string Body)> PostAsync(Member member, byte[] wire, CancellationToken ct)
     {
         var client = forum.Client;
@@ -227,6 +235,26 @@ public sealed class InboxCountsTests(ForumFixture forum) : IClassFixture<ForumFi
         await probe.AnswerAsync(reader, q2, ct);
         await probe.AnswerAsync(reader, c1, ct);
         return new Scene(probe, reader, b, c, red);
+    }
+
+    /// <summary>
+    /// PD21 (row e): a reader and a twin whose ids differ only by case are two agents; the twin's question is open to the
+    /// reader and is not counted as the reader's own (the route's count is ordinal, like the selector's).
+    /// </summary>
+    [Fact]
+    public async Task R9_39_AnAgentWhoseIdDiffersOnlyByCaseIsNotTheReader()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var probe = new InboxProbe(forum);
+        var stem = "case-" + InboxProbe.Suffix();
+        var reader = await probe.EnrolAsAsync($"https://agents.example/{stem}", stem + "-r", ct);
+        var twin = await probe.EnrolAsAsync($"https://agents.example/{stem.ToUpperInvariant()}", stem + "-t", ct);
+        var board = "board-case-" + InboxProbe.Suffix();
+        await probe.AskAsync(twin, board, "Twin " + InboxProbe.Suffix(), ct);
+
+        var page = await probe.InboxPageAsync(reader, $"?board={board}", ct);
+
+        Assert.Equal(Numbers(1, 0, 0), Numbers(page));
     }
 
     private static string Numbers(int open, int own, int answered) =>

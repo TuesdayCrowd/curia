@@ -243,6 +243,64 @@ public sealed class InboxSelectorTests
         Assert.Equal(1, inbox.ExcludedAsAlreadyAnswered);
     }
 
+    /// <summary>
+    /// Selector fact for R9.39 (PD21 row c): a question the reader asked and also answered is counted once, as its own,
+    /// never in both counts. Asked wins.
+    /// </summary>
+    [Fact]
+    public async Task R9_39_AQuestionTheReaderAskedAndAnsweredIsCountedOnceAsItsOwn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
+
+        await PostAsync(store, "q1", PostKind.Question, Me, ct);
+        await PostAsync(store, "a1", PostKind.Answer, Me, ct, parent: "q1");
+
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
+
+        Assert.Equal((1, 0, 0), (inbox.ExcludedAsOwn, inbox.ExcludedAsAlreadyAnswered, inbox.Answered.Length));
+    }
+
+    /// <summary>
+    /// Selector fact for R9.39 (PD21 row d): another agent's answer to an open question is not the reader's answer, so the
+    /// question stays open for the reader and is not counted as answered.
+    /// </summary>
+    [Fact]
+    public async Task R9_39_AnotherAgentsAnswerDoesNotCountAsTheReadersAnswered()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
+
+        await PostAsync(store, "q1", PostKind.Question, Other, ct);
+        await PostAsync(store, "a1", PostKind.Answer, Other, ct, parent: "q1");
+
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
+
+        Assert.Equal(("q1", 0, 0), (Assert.Single(inbox.Open).PostId, inbox.ExcludedAsAlreadyAnswered, inbox.Answered.Length));
+    }
+
+    /// <summary>
+    /// Selector fact for R9.39 (PD21 row e): two agent ids that differ only by case are two agents. Neither the twin's
+    /// question is the reader's own nor the twin's answer the reader's answered.
+    /// </summary>
+    [Fact]
+    public async Task R9_39_AgentIdsThatDifferOnlyByCaseAreDifferentAgents()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
+        var twin = Me.ToUpperInvariant();
+
+        await PostAsync(store, "q1", PostKind.Question, twin, ct);
+        await PostAsync(store, "q2", PostKind.Question, Other, ct);
+        await PostAsync(store, "a2", PostKind.Answer, twin, ct, parent: "q2");
+
+        var inbox = InboxSelector.Select(await LogAsync(store, ct), Typed.Agent(Me));
+
+        Assert.Equal(
+            ("q1,q2", 0, 0),
+            (string.Join(',', inbox.Open.Select(p => p.PostId)), inbox.ExcludedAsOwn, inbox.ExcludedAsAlreadyAnswered));
+    }
+
     /// <summary>Oldest first: the neglected question is the one the corpus most needs answered.</summary>
     [Fact]
     public async Task OpenQuestionsArriveOldestFirst()
