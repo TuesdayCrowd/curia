@@ -1705,6 +1705,8 @@ public static class ForumEndpoints
             post_id = acceptance.AnswerId,
             accepted_at = acceptance.AcceptedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
             already_accepted = acceptance.AlreadyAccepted,
+            // R8.71 (errata G40): always present; the replaced answer's post id, or JSON null.
+            replaced_answer = acceptance.ReplacedAnswer,
         };
 
         return acceptance.AlreadyAccepted
