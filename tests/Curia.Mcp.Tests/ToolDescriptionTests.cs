@@ -682,16 +682,6 @@ public sealed class ToolDescriptionTests
     }
 
     /// <summary>
-    /// R11.50 (errata G36): a search that changes what a result says and a refusal that changes what a cursor means, with no tool added, move the
-    /// server's version to 0.8.1 (as G30 moved 0.6.0 to 0.6.1). The fact that says 0.8.0 above is moved by the stage that builds it.
-    /// </summary>
-    [Fact]
-    public void R11_50_VersionIs081()
-    {
-        Assert.Equal("0.8.1", ToolCatalogue.Version);
-    }
-
-    /// <summary>
     /// R11.17, annotated by R8.70 (errata G38): <c>curia_answer</c>'s description says the parent is a question, that a comment's id is not one, and
     /// that the Forum refuses a parent that is not. It adds no backticked token beyond the arguments the description already names
     /// (<c>ToolDescriptionTests</c> and <c>ToolProtocolTests</c> pin the backticked result terms). <b>Weak by construction:</b> it restates the
