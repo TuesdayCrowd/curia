@@ -10552,9 +10552,9 @@ routes to the register's D65. The code the requirements bind, with line numbers 
 `MarkingFrom`, `:1437`, and no other name; `InboxAsync`, `:1990` to `:2083`, which reads `board`, `tags`, `cursor`, `limit` and `marking` and decodes the cursor at `:2047`; `TryReadLimit`, `:2093`; the search route's
 check, `:1805`), `src/Curia.Api/SearchQueryParameters.cs` (the set and the refusal R9.29 built) and `src/Curia.Domain/Search/LexicalSearch.cs` (`SearchCursor.Decode`, `:131` to `:152`, whose doc comment argues for the
 reading R9.25 reversed for search) and, for finding 5, `src/Curia.Application/Projections/InboxSelection.cs` (`InboxCorpus`, which carries the two exclusion counts and whose consumer ignores the second one) with the
-count's computation at `ForumEndpoints.cs:2077` to `:2082`. **Class:** a normative gap (R9.29's rule has no referent on two routes) and a missing refusal (a cursor the route did not mint). **Status:** proposed; not applied to the white
-paper. To be built by the stage `docs/superpowers/plans/2026-10-25-a-route-refuses-a-name-it-does-not-read.md` (PR 3). Finding 1 was run by PR 2b's examination of D65 at c77d9f3e; findings 2 and 3 were read in the
-tree and not run to write this entry (the inbox is authenticated), and the stage's first task runs them. Finding 5 was found by the sixth five-agent exercise (hostile F2), reproduced by the controller at a9f06528 with a fresh T0 identity, and read in the code by the architect.
+count's computation at `ForumEndpoints.cs:2077` to `:2082`. **Class:** a normative gap (R9.29's rule has no referent on two routes) and a missing refusal (a cursor the route did not mint). **Status:** built; not applied to the white
+paper. Built 2026-10-25 by the stage `docs/superpowers/plans/2026-10-25-a-route-refuses-a-name-it-does-not-read.md` (PR 3, #123), `curia-mcp` still 0.8.1, probes PD1 to PD25 and the fix round's rows (PD21's rows c, d and e) seen red first, and falsification FPD1 to FPD42 (40 red on a named fact, FPD21 green by its stated reason, FPD17 counted red on its variant FPD17b; the plan's "As run" says which). Finding 1 was run by PR 2b's examination of D65 at c77d9f3e; findings 2 and 3 were read in the
+tree and not run to write this entry (the inbox is authenticated), and the stage's first task ran them on the unmodified tree. Finding 5 was found by the sixth five-agent exercise (hostile F2), reproduced by the controller at a9f06528 with a fresh T0 identity, and read in the code by the architect.
 
 **How it surfaced.** (Findings 1 to 4.) The search-floor stage (G30) refused a name `/v1/search` does not read and opened D65 for the routes it had not examined. PR 2b sent each query-reading route a name it does not read.
 
@@ -10619,7 +10619,7 @@ the three SHALL be computed as what remains after the page returned. The reason:
 | where | change |
 |---|---|
 | R9.25 | Cross-referenced to R9.38. The inbox's cursor is refused when malformed, as search's is. |
-| R9.39 | Cross-referenced from the doc comment of `InboxPage` (`ForumDocuments.cs:32`): its "eleven means you are done" is R9.39's. |
+| R9.39 | Not cross-referenced in code: the doc comment of `InboxPage` (`ForumDocuments.cs:31` to `:33`, unchanged) already reads `excluded_as_already_answered` as the whole count ("eleven means you are done"), which R9.39 makes true on every page. |
 | R9.29 | Cross-referenced to R9.37, which gives the board listing and the inbox the rule R9.29 gives search; R9.29's own text is unchanged. |
 | G30 decision 9 | Closed for the board listing and the inbox (R9.37). The single-resource and Acta routes are a stated non-property (finding 4). |
 | G36, "What this deliberately does not change" | The inbox's cursor is R9.38's; the board listing has none. |
