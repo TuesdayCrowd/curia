@@ -25,11 +25,17 @@ namespace Curia.Application.Projections;
 /// </param>
 /// <param name="ExcludedAsOwn">How many of <paramref name="Matching"/> the agent asked itself.</param>
 /// <param name="ExcludedAsAlreadyAnswered">How many it has already answered.</param>
+/// <param name="Answered">
+/// The questions behind <paramref name="ExcludedAsAlreadyAnswered"/> as posts, so a request's <c>board</c> and <c>tags</c>
+/// can scope that count with the same <c>LexicalSearch.Matches</c> that scopes the others (R9.39). A question the agent
+/// asked is in <see cref="Matching"/> as its own and is not here, whatever else the agent did to it.
+/// </param>
 public sealed record InboxCorpus(
     ImmutableArray<SearchablePost> Open,
     ImmutableArray<SearchablePost> Matching,
     int ExcludedAsOwn,
-    int ExcludedAsAlreadyAnswered);
+    int ExcludedAsAlreadyAnswered,
+    ImmutableArray<SearchablePost> Answered);
 
 /// <summary>
 /// Selects the questions an agent could usefully answer, from the log.
@@ -80,8 +86,8 @@ public static class InboxSelector
 
         var matching = ImmutableArray.CreateBuilder<SearchablePost>();
         var open = ImmutableArray.CreateBuilder<SearchablePost>();
+        var answeredPosts = ImmutableArray.CreateBuilder<SearchablePost>();
         var own = 0;
-        var answered = 0;
 
         // Ascending seq, which SearchProjector already guarantees, so "oldest first" needs no sort.
         foreach (var post in corpus)
@@ -102,13 +108,13 @@ public static class InboxSelector
 
             if (answeredByAgent.Contains(post.PostId))
             {
-                answered++;
+                answeredPosts.Add(post);
                 continue;
             }
 
             open.Add(post);
         }
 
-        return new InboxCorpus(open.ToImmutable(), matching.ToImmutable(), own, answered);
+        return new InboxCorpus(open.ToImmutable(), matching.ToImmutable(), own, answeredPosts.Count, answeredPosts.ToImmutable());
     }
 }

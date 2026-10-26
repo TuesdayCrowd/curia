@@ -257,6 +257,21 @@ public sealed class HelpTextTests
     }
 
     /// <summary>
+    /// R9.38 (errata G37), PD20: the inbox's help says a cursor is passed back unaltered and that one the Forum did not mint is
+    /// refused. <b>Weak by construction</b>: it restates a help line. The end-to-end fact on <c>curia inbox --cursor garbage</c>
+    /// (PD18) is the check that carries information.
+    /// </summary>
+    [Fact]
+    public void R9_38_TheInboxHelpSaysTheCursorIsPassedBackUnaltered()
+    {
+        var inbox = Help.For("inbox");
+
+        Assert.NotNull(inbox);
+        Assert.Contains("unaltered", inbox, StringComparison.Ordinal);
+        Assert.Contains("refused", inbox, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// D37: <c>search</c> fuses a lexical and a vector channel (the banner it prints says so), and its
     /// usage line said "Lexical only" while <c>SearchBanner</c>'s comment said the vector half did not exist.
     /// </summary>

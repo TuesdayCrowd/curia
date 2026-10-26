@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text;
 using Curia.Domain.Primitives;
 
 namespace Curia.Api;
@@ -20,9 +18,7 @@ public static class SearchQueryParameters
     /// <summary>The problem type of an unknown name; R9.26's refusable names keep <c>unsupported-filter</c>.</summary>
     public const string UnknownParameterType = "curia/search/unknown-parameter";
 
-    private const int MaxNamed = 8;
-    private const int MaxEchoedLength = 64;
-    private const string NotEchoed = "(a name that is not echoed)";
+    internal const string RefusalTitle = "That parameter is not read by this route and is refused rather than ignored";
 
     /// <summary>The honoured names, compared without regard to case (R9.29).</summary>
     public static IReadOnlySet<string> Honoured { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -30,64 +26,7 @@ public static class SearchQueryParameters
         "q", "board", "author", "kind", "tags", "min_verification", "cursor", "limit", "why", "marking",
     };
 
-    private static readonly string HonouredList = string.Join(", ", Honoured.Order(StringComparer.Ordinal));
-
     /// <summary>Null when every name in the query is honoured; otherwise the refusal naming those that are not.</summary>
-    public static Error? Check(IEnumerable<string> names)
-    {
-        ArgumentNullException.ThrowIfNull(names);
-        var unknown = names.Where(n => !Honoured.Contains(n)).Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal).ToArray();
-        if (unknown.Length == 0) return null;
-
-        var detail = new StringBuilder();
-        foreach (var name in unknown.Take(MaxNamed))
-        {
-            if (!IsPlainName(name))
-            {
-                detail.Append(NotEchoed).Append("; ");
-                continue;
-            }
-
-            detail.Append(CultureInfo.InvariantCulture, $"parameter={name}");
-            var hint = NearMiss(name);
-            if (hint is not null) detail.Append(CultureInfo.InvariantCulture, $" (did you mean {hint})");
-            detail.Append("; ");
-        }
-
-        if (unknown.Length > MaxNamed)
-            detail.Append(CultureInfo.InvariantCulture, $"and {unknown.Length - MaxNamed} more; ");
-        detail.Append("this route reads exactly these: ").Append(HonouredList);
-
-        return new Error(
-            UnknownParameterType,
-            "That parameter is not read by this route and is refused rather than ignored",
-            detail.ToString());
-    }
-
-    private static bool IsPlainName(string name)
-    {
-        if (name.Length is 0 or > MaxEchoedLength) return false;
-        foreach (var c in name)
-        {
-            var plain = c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '.' or '-';
-            if (!plain) return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>The honoured spelling a name is a near-miss of, compared as one case without <c>_</c>, <c>-</c> or one trailing <c>s</c>.</summary>
-    private static string? NearMiss(string name)
-    {
-        var shape = Shape(name);
-        return Honoured.Order(StringComparer.Ordinal).FirstOrDefault(h => Shape(h) == shape);
-    }
-
-    private static string Shape(string name)
-    {
-        var s = name.ToUpperInvariant().Replace("_", string.Empty, StringComparison.Ordinal)
-            .Replace("-", string.Empty, StringComparison.Ordinal);
-        return s.EndsWith('S') ? s[..^1] : s;
-    }
+    public static Error? Check(IEnumerable<string> names) =>
+        QueryParameterRefusal.Check(names, Honoured, UnknownParameterType, RefusalTitle, string.Empty);
 }

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives;
 
 namespace Curia.Domain.Search;
 
@@ -128,29 +129,53 @@ public sealed record SearchCursor(int AfterScore, long AfterSequence)
     public string Encode() => Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes(
         string.Create(CultureInfo.InvariantCulture, $"{AfterScore}:{AfterSequence}")));
 
-    public static SearchCursor? Decode(string? encoded)
+    /// <summary>
+    /// R9.38: reads a cursor strictly. Absent or white space is <c>Ok(null)</c>, a first page; the one spelling
+    /// <see cref="Encode"/> writes is the cursor; anything else is <c>curia/inbox/cursor-malformed</c> and the refusal
+    /// echoes nothing of the value.
+    ///
+    /// <para>This used to read a malformed value as "start from the beginning", on the premise that a cursor an agent
+    /// could not have been given is not worth a refusal. The premise fails for a listing that is paged: a corrupted
+    /// cursor then sends an agent round page one while it believes it is advancing, which is what R9.25 asked search to
+    /// refuse and what <see cref="RetrievalCursor.Decode"/> does. A sign, a leading zero or white space in either
+    /// numeral, and a cursor of another route, are other spellings of a position and are refused: the value is accepted
+    /// only if encoding what it parsed to gives back the value, so no position has two cursors.</para>
+    /// </summary>
+    public static Result<SearchCursor?> Decode(string? encoded)
     {
-        if (string.IsNullOrWhiteSpace(encoded)) return null;
+        if (string.IsNullOrWhiteSpace(encoded)) return Result<SearchCursor?>.Ok(null);
 
         try
         {
             var text = System.Text.Encoding.ASCII.GetString(Convert.FromBase64String(encoded));
             var separator = text.IndexOf(':', StringComparison.Ordinal);
-            if (separator <= 0) return null;
+            if (separator <= 0) return Malformed();
 
-            return int.TryParse(text.AsSpan(..separator), CultureInfo.InvariantCulture, out var score)
-                && long.TryParse(text.AsSpan((separator + 1)..), CultureInfo.InvariantCulture, out var seq)
+            var cursor = IsCanonicalNumeral(text[..separator]) && IsCanonicalNumeral(text[(separator + 1)..])
+                && int.TryParse(text.AsSpan(..separator), NumberStyles.None, CultureInfo.InvariantCulture, out var score)
+                && long.TryParse(text.AsSpan((separator + 1)..), NumberStyles.None, CultureInfo.InvariantCulture, out var seq)
                     ? new SearchCursor(score, seq)
                     : null;
+
+            return cursor is not null && string.Equals(cursor.Encode(), encoded, StringComparison.Ordinal)
+                ? Result<SearchCursor?>.Ok(cursor)
+                : Malformed();
         }
         catch (FormatException)
         {
-            // A malformed cursor reads as "start from the beginning" rather than throwing. A client
-            // that mangled its cursor gets the first page, which is recoverable; an exception on a
-            // read path is not, and R9.7's concern is silent skipping, which starting over avoids.
-            return null;
+            return Malformed();
         }
     }
+
+    /// <summary>The refusal of R9.38: it names no part of the value, which is a caller's string.</summary>
+    private static Result<SearchCursor?> Malformed() => Result<SearchCursor?>.Fail(new Error(
+        "curia/inbox/cursor-malformed",
+        "The `cursor` member is not one this route minted",
+        "Pass `next_cursor` back exactly as the previous page returned it, or omit `cursor` for the first page."));
+
+    /// <summary>Digits only, and no leading zero unless the numeral is a lone zero: the one spelling <see cref="Encode"/> writes.</summary>
+    private static bool IsCanonicalNumeral(string text) =>
+        text.Length > 0 && text.All(char.IsAsciiDigit) && (text.Length == 1 || text[0] != '0');
 
     /// <summary>
     /// Whether <paramref name="hit"/> sorts strictly after this cursor, in the one ordering

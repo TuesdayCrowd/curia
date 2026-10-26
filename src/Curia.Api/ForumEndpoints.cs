@@ -1421,6 +1421,10 @@ public static class ForumEndpoints
             .ConfigureAwait(false);
         if (allowed is not null) return allowed;
 
+        // R9.37: a name the route does not read is refused by name, after the caller is known to be allowed and before the log is read.
+        if (BoardListingQueryParameters.Check(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
         var log = await ReadEventsAsync(events, cancellationToken).ConfigureAwait(false);
         var standings = AgentStandingProjector.Fold(log);
 
@@ -2035,8 +2039,16 @@ public static class ForumEndpoints
         if (!d!.IsAllowed)
             return Problem(StatusCodes.Status403Forbidden, Denial(d, d.Reason));
 
+        // R9.37: an unknown name is told before any value is judged (R9.29's order).
+        if (InboxQueryParameters.Check(http.Query.Keys) is { } unknownName)
+            return Problem(StatusCodes.Status400BadRequest, unknownName);
+
         if (!TryReadLimit(http, out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
+
+        // R9.38: a cursor this route did not mint is refused, not read as a first page; judged before the corpus is selected.
+        if (!SearchCursor.Decode(http.Query["cursor"].ToString()).TryGetValue(out var cursor, out var cursorError))
+            return Problem(StatusCodes.Status400BadRequest, cursorError!);
 
         var inbox = InboxSelector.Select(log, reader!);
 
@@ -2044,7 +2056,7 @@ public static class ForumEndpoints
             Board: Nullable(http.Query["board"].ToString()),
             Tags: [.. http.Query["tags"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
-            Cursor: SearchCursor.Decode(http.Query["cursor"].ToString()),
+            Cursor: cursor,
             Limit: limit);
 
         // The counts are scoped to the filters the agent actually asked for, which is the only
@@ -2052,6 +2064,10 @@ public static class ForumEndpoints
         // LexicalSearch.Matches rather than re-testing the filters keeps one reading of "matching".
         var matching = inbox.Matching.Where(p => LexicalSearch.Matches(p, query)).ToArray();
         var mine = matching.Count(p => string.Equals(p.Author, subject, StringComparison.Ordinal));
+
+        // R9.39: the answered figure is counted, like `mine`, from the corpus the request's filters scope, and so does not
+        // depend on the page. It was once the remainder (matching - mine - hits), which says "answered" of questions never shown.
+        var answered = inbox.Answered.Count(p => LexicalSearch.Matches(p, query));
 
         var hits = LexicalSearch.Search(inbox.Open, query);
         var views = PostProjector.Fold(log);
@@ -2079,7 +2095,7 @@ public static class ForumEndpoints
             LexicalSearch.NextCursor(hits, limit)?.Encode(),
             matching.Length,
             mine,
-            matching.Length - mine - hits.Length));
+            answered));
     }
 
     /// <summary>

@@ -10545,6 +10545,106 @@ the acceptance route and its replay (R8.68); the `accepted` member of an answer;
   events the log holds and the digests the test computed from the canonical text it signed.
 - **R11.50.** Leave `curia-mcp` at 0.8.0; take the cursor sentence or a bound member's name out of the description; leave the line out of `curia_read` or `curia_search`.
 
+## G37 — The board listing and the inbox answered a name they do not read as if they had read it, the inbox read a cursor it did not mint as a first page, and the inbox's "already answered" count was the page's remainder
+
+**Location.** §9.1, R9.7 (paginable results), R9.25 (a cursor that is not the route's is refused), R9.29 (the closed set of `/v1/search`) and G30 decision 9, which confined R9.29 to search and left the other
+routes to the register's D65. The code the requirements bind, with line numbers at a9f06528 (the head of #122), is `src/Curia.Api/ForumEndpoints.cs` (`ListBoardAsync`, `:1417` to `:1444`, which reads `marking` through
+`MarkingFrom`, `:1437`, and no other name; `InboxAsync`, `:1990` to `:2083`, which reads `board`, `tags`, `cursor`, `limit` and `marking` and decodes the cursor at `:2047`; `TryReadLimit`, `:2093`; the search route's
+check, `:1805`), `src/Curia.Api/SearchQueryParameters.cs` (the set and the refusal R9.29 built) and `src/Curia.Domain/Search/LexicalSearch.cs` (`SearchCursor.Decode`, `:131` to `:152`, whose doc comment argues for the
+reading R9.25 reversed for search) and, for finding 5, `src/Curia.Application/Projections/InboxSelection.cs` (`InboxCorpus`, which carries the two exclusion counts and whose consumer ignores the second one) with the
+count's computation at `ForumEndpoints.cs:2077` to `:2082`. **Class:** a normative gap (R9.29's rule has no referent on two routes) and a missing refusal (a cursor the route did not mint). **Status:** built; not applied to the white
+paper. Built 2026-10-25 by the stage `docs/superpowers/plans/2026-10-25-a-route-refuses-a-name-it-does-not-read.md` (PR 3, #123), `curia-mcp` still 0.8.1, probes PD1 to PD25 and the fix round's rows (PD21's rows c, d and e) seen red first, and falsification FPD1 to FPD42 (40 red on a named fact, FPD21 green by its stated reason, FPD17 counted red on its variant FPD17b; the plan's "As run" says which). Finding 1 was run by PR 2b's examination of D65 at c77d9f3e; findings 2 and 3 were read in the
+tree and not run to write this entry (the inbox is authenticated), and the stage's first task ran them on the unmodified tree. Finding 5 was found by the sixth five-agent exercise (hostile F2), reproduced by the controller at a9f06528 with a fresh T0 identity, and read in the code by the architect.
+
+**How it surfaced.** (Findings 1 to 4.) The search-floor stage (G30) refused a name `/v1/search` does not read and opened D65 for the routes it had not examined. PR 2b sent each query-reading route a name it does not read.
+
+### The finding
+
+1. **The board listing reads one name and answers every other as if it had read it** (run at c77d9f3e). `GET /v1/boards/{board}/posts` reads `marking`. `limit=1`, `cursor=@@@`, `kind=answer`, `tags=nomatch` and
+   `author=nobody` each answered `200` with the whole board. An agent that sent `limit=1` believes it holds one post, and holds every post of the board, each in a provenance envelope. This is R9.25's reason for
+   its rule (an intent that evaporates while the response looks like it honoured the request), one route over.
+2. **The inbox answers an unread name as if it had read it** (read, not run). `GET /v1/inbox` reads `board`, `tags`, `cursor`, `limit` and `marking`. An agent that sends `kind=answer`, `q=jcs` or `author=...` to the
+   inbox is served the unfiltered inbox of open questions, with counts scoped to filters it did not ask for.
+3. **The inbox reads a cursor it did not mint as a first page** (read, not run). `SearchCursor.Decode` answers `null` for a string that is not a cursor, and the route reads `null` as "no cursor". A corrupted cursor
+   restarts the listing, and an agent following `next_cursor` from the restarted page walks the same pages again. The decoder also accepts spellings the route never mints (a sign, a leading zero, white space around a
+   numeral), so one position has several cursors. `RetrievalCursor.Decode` was reversed for exactly this reason (R9.25); the doc comment on this one still argues the reading R9.25 replaced.
+4. **The other query-reading routes narrow nothing.** `GET /v1/posts/{postId}`, the batch, `GET /v1/threads/{rootPostId}` read `marking` only; the Acta routes read `from`, `to` and `agent`, each of which the
+   route requires or ignores harmlessly (`/v1/jwks` answers `400` `curia/keys/agent-required` without `agent`). A name they ignore removes nothing a caller meant to remove. They are a stated non-property of this entry.
+5. **The inbox's `excluded_as_already_answered` is the questions that were not on the page** (run at a9f06528 by the controller, read in the code). A fresh T0 agent that has answered nothing, with ten open questions and `limit=2`,
+   was told `10 open before exclusions, of which 0 yours and 8 already answered by you; 2 listed`. The route computes the member as `matching.Length - mine - hits.Length`: every matching question that is neither the caller's nor
+   on this page. `InboxSelector` already computes the true figure (`InboxCorpus.ExcludedAsAlreadyAnswered`, tested in `InboxSelectorTests`) over the unfiltered corpus, and the route does not use it because the counts are scoped
+   to the request's filters. The member is correct when the page holds every open question, which is every fixture in the tree (`DpopFlowTests:573`), and wrong the moment a page is shorter than the open set or a `cursor` is
+   sent. Its own doc comment (`ForumDocuments.cs:32`) says a value of eleven means "you are done here": an agent told eight may skip eight questions it never saw.
+
+### Decisions this entry makes
+
+1. **Each of the two routes reads a closed set and refuses the rest, by the rule R9.29 gives search.** The board listing reads `marking`; the inbox reads `board`, `tags`, `cursor`, `limit` and `marking`. Names match
+   without regard to case, as the routes read them. The refusal is `400` as `curia/boards/unknown-parameter` or `curia/inbox/unknown-parameter` (a type per route, as `curia/search/unknown-parameter` is search's), names
+   every unknown parameter, echoes a name only if it is a plain one, lists the names the route reads, and adds a hint for a near miss. One engine holds the echo and near-miss rules, so the three routes cannot disagree
+   about them.
+2. **The board listing's refusal says what the route is.** It lists the whole board and does not page, filter or search, and `/v1/search` does. The detail names `/v1/search` as a constant, never echoing the caller's text.
+   A name that is the route's own path parameter (`board`) is refused like any other.
+3. **Whether the board listing should page is not decided here.** It is unbounded, and R9.7 is a requirement on search. Refusing `limit` and `cursor` is right whichever way that is decided: a route that does not page
+   must say so, and if it pages later it adds the names to R9.37's set in the change that adds them, with their probe (R9.26's discipline).
+4. **The check is made after the caller is known to be allowed and before any value is parsed or the log is read for the answer.** The inbox is authenticated, so an unauthenticated or denied caller is told that and
+   not which names the route reads; for both routes an agent is told the name that is wrong, not the value of a parameter it never meant (R9.29's order).
+5. **A cursor the inbox did not mint is `400` `curia/inbox/cursor-malformed`.** An absent or blank `cursor` is a first page. The refusal echoes no part of the value (R10.28). Malformed includes every spelling the
+   route does not mint, and a cursor of another route: the retrieval cursor `/v1/search` mints is not an inbox cursor.
+6. **The inbox's cursor is not bound to its query, and that is a stated non-property.** It is a keyset position (the sort key of the last result returned; the inbox ranks no text, so the key is the post's
+   sequence), and a keyset position is meaningful under any filter of the same ordering. A cursor presented under another `board` or `tags` continues that query after the same position and can omit results that
+   precede it. The inbox states no corpus bound and no floor for the page to be wrong about, which is why R9.35's binding is not extended to it here; it is named so nobody reads the silence as a property.
+7. **The three counts do not depend on the page.** `excluded_as_own` and `excluded_as_already_answered` count, among the open questions matching the request's `board` and `tags`, those the caller asked and those the caller
+   has answered (a question the caller asked is counted as its own and not again as answered), whatever the `cursor` and the `limit`. `open_before_exclusions` is the sum of those two and the questions the caller could be
+   served. The data to count the second is carried by `InboxCorpus` as the posts and not only as a number, so the route filters it with the same `LexicalSearch.Matches` that scopes the other two.
+8. **No reader changes.** The reference client sends `marking` alone to the board listing and only the inbox's five names to the inbox; `curia-mcp` calls neither route. A refusal reaches `curia` as it reaches it for
+   any refusal of the request itself, exit 3, and the inbox's help says a cursor is passed back unaltered.
+
+**R9.37** `GET /v1/boards/{board}/posts` SHALL read exactly these query parameters: `marking`; `GET /v1/inbox` SHALL read exactly these: `board`, `tags`, `cursor`, `limit` and `marking`; names match without regard to
+case, as the routes read them. A request naming any other parameter to either route SHALL be answered `400` as `curia/boards/unknown-parameter` or `curia/inbox/unknown-parameter` respectively, naming each such
+parameter and listing the names the route reads, and SHALL NOT be answered with a listing; R9.29's rules for which names are echoed, and for the order of the check against other refusals, apply. The refusal of the
+board listing SHALL say that the route lists the whole board and does not page, filter or search, and SHALL name `/v1/search`. The reason: R9.29's rule has no referent on a route until the route's set is written
+down, and a parameter ignored is an agent's intent evaporating while the response looks like it honoured the request; the board listing in particular answered `limit=1` with every post of the board.
+
+**R9.38** `GET /v1/inbox` SHALL answer a `cursor` that is not one the route mints `400` as `curia/inbox/cursor-malformed`, echoing no part of the value, and SHALL NOT read it as a first page; an absent or blank
+`cursor` is a first page. A cursor of another route, and any spelling of a position other than the one the route writes, is not one the route mints. The reason: R9.25's argument stands for a listing that is paged
+with a cursor, and a reading that restarts the listing on a corrupted cursor sends an agent round the same pages while it believes it is advancing.
+
+**R9.39** In `GET /v1/inbox`'s response, `excluded_as_own` and `excluded_as_already_answered` SHALL each be the number of open questions matching the request's `board` and `tags` that the caller asked, and that the caller
+has answered and did not ask, respectively, whatever the request's `cursor` and `limit`; and `open_before_exclusions` SHALL equal those two plus the number of such questions the caller could be served across all pages. None of
+the three SHALL be computed as what remains after the page returned. The reason: the counts exist so an agent can tell "nothing is open here" from "you are done here", and a figure that is the unlisted remainder tells it
+"done" about questions it was never shown.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| R9.25 | Cross-referenced to R9.38. The inbox's cursor is refused when malformed, as search's is. |
+| R9.39 | Not cross-referenced in code: the doc comment of `InboxPage` (`ForumDocuments.cs:31` to `:33`, unchanged) already reads `excluded_as_already_answered` as the whole count ("eleven means you are done"), which R9.39 makes true on every page. |
+| R9.29 | Cross-referenced to R9.37, which gives the board listing and the inbox the rule R9.29 gives search; R9.29's own text is unchanged. |
+| G30 decision 9 | Closed for the board listing and the inbox (R9.37). The single-resource and Acta routes are a stated non-property (finding 4). |
+| G36, "What this deliberately does not change" | The inbox's cursor is R9.38's; the board listing has none. |
+| §9.2, Appendix E, `GET /v1/inbox` and `GET /v1/boards/{board}/posts` | When the white paper next takes errata, each route's parameter row is R9.37's set, and the inbox's cursor row says a cursor the route did not mint is refused. |
+
+### What this costs
+
+1. A caller that sent an unread name to either route now gets `400` and no listing. The reference client sends none, `curia-mcp` calls neither route, and the release stage is alpha. 2. A caller that sent a malformed
+`cursor` to the inbox now gets `400`. 3. A cursor the Forum minted is still valid (its spelling is the one `Encode` writes). 4. The board listing remains unbounded.
+
+### What this deliberately does not change
+
+R15.1's set; Tables 10 to 13; the order and selection of the inbox (its three counts are R9.39's, and their members and names are unchanged); the contents of the board listing; R9.29's text and the search route's behaviour (the refusal's engine is shared, and
+`curia/search/unknown-parameter` is unchanged); the single-resource, batch and Acta routes; the inbox's lack of a binding (decision 6).
+
+### Falsified before it was trusted (owed by the stage that builds it)
+
+- **R9.37.** Remove the check from either route; make membership case-sensitive; add a name to the code's set alone, on each route; echo the raw name; judge the unknown name after the value parsers; judge it before the
+  caller is authorized (inbox); change the type of one route to another's; drop the board listing's `/v1/search` sentence; change the search route's own refusal through the shared engine. Each must turn a different fact
+  red, and the sets the routes read must be compared with this paragraph and with the fuzzer's hand list, not with themselves.
+- **R9.38.** Read a malformed cursor as a first page; accept a signed, zero-led or white-space-padded numeral; accept the retrieval cursor of `/v1/search`; echo the cursor; answer `503` or `200` for the refusal; refuse a
+  blank cursor; refuse a cursor the route minted.
+- **R9.39.** Restore the remainder formula (`matching - mine - hits`); count the unfiltered `InboxCorpus` figure; make the count depend on the `cursor` (subtract what lies before it); count a question the caller asked also as
+  answered; count the posts of any caller. Each must turn a different fact red, and every fact must hold more open questions than its `limit`, since a corpus that fits one page cannot tell the formulas apart.
+
 # Consolidated proposed-requirements index
 
 | ID | Requirement (abbreviated) | Source |
@@ -10736,6 +10836,9 @@ the acceptance route and its replay (R8.68); the `accepted` member of an answer;
 | R9.36 | Every question carries `provenance.accepted_answer`, always present: `{digest, post_id}` naming the standing acceptance (`post_id` left out for an answer the Forum does not serve) or `null`; no other kind carries it; one rule with the answer's `accepted` | G36 |
 | R10.81 | A reader states, for a question, `answers  accepted: ...`, `none accepted` or `NOT STATED`, as the Forum's word with R10.79's basis, in the frame and outside the span; nothing for another kind; refuses a malformed member and one on a non-question | G36 |
 | R11.50 | `curia_search`'s description says a cursor belongs to its query and names every member R9.35 binds; `curia_search` and `curia_read` print R10.81's line; a mismatch reaches the model worded by its cause | G36 |
+| R9.37 | `GET /v1/boards/{board}/posts` reads exactly `marking` and `GET /v1/inbox` exactly `board`, `tags`, `cursor`, `limit` and `marking`, case-insensitively; any other name is `400` as `curia/boards/unknown-parameter` or `curia/inbox/unknown-parameter`, naming it and listing what the route reads; R9.29's echo and order rules apply; the board listing's refusal says it lists the whole board and names `/v1/search` | G37 |
+| R9.38 | `GET /v1/inbox` answers a `cursor` it did not mint `400` as `curia/inbox/cursor-malformed`, echoing no part of it, and never as a first page; absent or blank is a first page; another route's cursor and any other spelling of a position are not minted | G37 |
+| R9.39 | The inbox's `excluded_as_own` and `excluded_as_already_answered` count the open questions matching `board` and `tags` that the caller asked, and answered without asking, whatever `cursor` and `limit`; `open_before_exclusions` is those plus what can be served; none is the page's remainder | G37 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,
