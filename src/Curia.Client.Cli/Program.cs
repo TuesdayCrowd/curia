@@ -568,7 +568,8 @@ internal static class Program
     /// sessions and will act on the line rather than on the state name.</para>
     ///
     /// <para>Exit 5 when any citation is withheld or unknown -- both mean "change what you cite" --
-    /// and 1 when any element was not a digest, after every line has been printed. Superseded alone
+    /// and 3 when any element was not a digest (R9.40), after every line has been printed: the other digests were
+    /// answered, and the remedy for a malformed element is to correct its bytes. Superseded alone
     /// is not an error: the original still stands, and the line names what to read next.</para>
     ///
     /// <para>Exit 9 (D49, R6.57) when a post the Forum serves, <c>current</c> or the original of a <c>superseded</c> one,
@@ -620,7 +621,7 @@ internal static class Program
         // A FAILED line is a check that ran and did not hold (the served canonical form does not hash to the digest asked about): exit 6,
         // ranked first as it is for the other readers (a check that failed outranks 8, 9 and the citations to drop).
         return report.Failed ? ExitCode.Unverified
-            : report.Lines.Any(l => l.Malformed) ? ExitCode.Usage
+            : report.Lines.Any(l => l.Malformed) ? ExitCode.Rejected
             : report.Lines.Any(l => l.Gone) ? ExitCode.NotFound
             : report.Lines.Any(l => l.Disputed) ? ExitCode.Disputed
             : ExitCode.Ok;
