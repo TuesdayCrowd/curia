@@ -2065,6 +2065,10 @@ public static class ForumEndpoints
         var matching = inbox.Matching.Where(p => LexicalSearch.Matches(p, query)).ToArray();
         var mine = matching.Count(p => string.Equals(p.Author, subject, StringComparison.Ordinal));
 
+        // R9.39: the answered figure is counted, like `mine`, from the corpus the request's filters scope, and so does not
+        // depend on the page. It was once the remainder (matching - mine - hits), which says "answered" of questions never shown.
+        var answered = inbox.Answered.Count(p => LexicalSearch.Matches(p, query));
+
         var hits = LexicalSearch.Search(inbox.Open, query);
         var views = PostProjector.Fold(log);
         var posts = views.ToDictionary(p => p.PostId, StringComparer.Ordinal);
@@ -2091,7 +2095,7 @@ public static class ForumEndpoints
             LexicalSearch.NextCursor(hits, limit)?.Encode(),
             matching.Length,
             mine,
-            matching.Length - mine - hits.Length));
+            answered));
     }
 
     /// <summary>
