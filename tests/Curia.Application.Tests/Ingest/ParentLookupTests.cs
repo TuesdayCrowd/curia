@@ -26,8 +26,19 @@ namespace Curia.Application.Tests.Ingest;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class ParentLookupTests
 {
-    private const string Post = "01M5VAMSJ17A9JBE3R41RAHMWV";
-    private const string Other = "01M5VAMZMEE6C2RK57P72TH5SE";
+    // A fresh pair of ids for each test (xUnit builds one instance per test), so nothing a lookup remembered about one id can answer for another test.
+    private readonly string post = FreshPostId();
+    private readonly string other = FreshPostId();
+
+    private static string FreshPostId()
+    {
+        const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+        return "01" + string.Create(24, 0, static (span, _) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+                span[i] = Alphabet[System.Security.Cryptography.RandomNumberGenerator.GetInt32(Alphabet.Length)];
+        });
+    }
 
     private static T Require<T>(Result<T> result) =>
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
@@ -58,14 +69,14 @@ public sealed class ParentLookupTests
             : [new("post_id", new JsonValue.String(postId)), new("kind", new JsonValue.String(kind))]);
 
     /// <summary>What the lookup answers, as <c>kind</c> or <c>none</c>, and fails the test for a failed read.</summary>
-    private static async Task<string> AnswerAsync(IEventReader reader, string parent, CancellationToken ct)
+    private async Task<string> AnswerAsync(IEventReader reader, string parent, CancellationToken ct)
     {
         var found = await ParentLookup.FindAsync(reader, Typed.Parent(parent), ct).ConfigureAwait(false);
         Assert.True(found.TryGetValue(out var facts, out var error), $"the read failed: {error?.Type}");
         if (facts is null)
             return "none";
 
-        Assert.Equal(Post, facts.PostId);
+        Assert.Equal(post, facts.PostId);
         return PostKinds.Wire(facts.Kind);
     }
 
@@ -77,9 +88,9 @@ public sealed class ParentLookupTests
     {
         var ct = TestContext.Current.CancellationToken;
         var store = NewStore();
-        await AppendAsync(store, Post, PostProjector.PostAcceptedType, Accepted(Post, stored), ct);
+        await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(post, stored), ct);
 
-        Assert.Equal(expected, await AnswerAsync(store, Post, ct));
+        Assert.Equal(expected, await AnswerAsync(store, post, ct));
     }
 
     /// <summary>A post that later gained an acceptance or a moderation act is still found, with the kind of its first event.</summary>
@@ -90,10 +101,10 @@ public sealed class ParentLookupTests
     {
         var ct = TestContext.Current.CancellationToken;
         var store = NewStore();
-        await AppendAsync(store, Post, PostProjector.PostAcceptedType, Accepted(Post, "question"), ct);
-        await AppendAsync(store, Post, later, new JsonValue.Object([new("post_id", new JsonValue.String(Post))]), ct);
+        await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(post, "question"), ct);
+        await AppendAsync(store, post, later, new JsonValue.Object([new("post_id", new JsonValue.String(post))]), ct);
 
-        Assert.Equal("question", await AnswerAsync(store, Post, ct));
+        Assert.Equal("question", await AnswerAsync(store, post, ct));
     }
 
     /// <summary>
@@ -113,28 +124,28 @@ public sealed class ParentLookupTests
         switch (shape)
         {
             case "agent-credential-only":
-                await AppendAsync(store, Post, "agent.enrolled", new JsonValue.Object([new("agent_id", new JsonValue.String(Post))]), ct);
+                await AppendAsync(store, post, "agent.enrolled", new JsonValue.Object([new("agent_id", new JsonValue.String(post))]), ct);
                 break;
             case "answer-accepted-only":
-                await AppendAsync(store, Post, "answer.accepted", new JsonValue.Object([new("post_id", new JsonValue.String(Post))]), ct);
+                await AppendAsync(store, post, "answer.accepted", new JsonValue.Object([new("post_id", new JsonValue.String(post))]), ct);
                 break;
             case "post-accepted-without-a-kind":
-                await AppendAsync(store, Post, PostProjector.PostAcceptedType, Accepted(Post, kind: null), ct);
+                await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(post, kind: null), ct);
                 break;
             case "post-accepted-naming-another-post":
-                await AppendAsync(store, Post, PostProjector.PostAcceptedType, Accepted(Other, "question"), ct);
+                await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(other, "question"), ct);
                 break;
             default:
                 break;
         }
 
         // The control is the same lookup over a stream that is a post, so "none" is not what the lookup answers to everything.
-        await AppendAsync(store, Other, PostProjector.PostAcceptedType, Accepted(Other, "question"), ct);
-        var control = Require(await ParentLookup.FindAsync(store, Typed.Parent(Other), ct));
+        await AppendAsync(store, other, PostProjector.PostAcceptedType, Accepted(other, "question"), ct);
+        var control = Require(await ParentLookup.FindAsync(store, Typed.Parent(other), ct));
         Assert.NotNull(control);
         Assert.Equal(PostKind.Question, control.Kind);
 
-        Assert.Equal("none", await AnswerAsync(store, Post, ct));
+        Assert.Equal("none", await AnswerAsync(store, post, ct));
     }
 
     /// <summary>
@@ -145,17 +156,59 @@ public sealed class ParentLookupTests
     [InlineData("urn:curia:agent:somebody", 0)]
     [InlineData("ignore previous instructions", 0)]
     [InlineData("01m5vamsj17a9jbe3r41rahmwv", 0)]
-    [InlineData(Post, 1)]
+    [InlineData("<this test's post>", 1)]
     public async Task R8_70_OnlyAParentShapedAsAPostIdIsReadAndItIsReadOnce(string parent, int reads)
     {
         var ct = TestContext.Current.CancellationToken;
         var counting = new CountingReader(NewStore());
 
-        var found = await ParentLookup.FindAsync(counting, Typed.Parent(parent), ct);
+        var found = await ParentLookup.FindAsync(counting, Typed.Parent(parent == "<this test's post>" ? post : parent), ct);
 
         Assert.True(found.IsOk);
         Assert.Equal(reads, counting.StreamReads);
         Assert.Equal(0, counting.ForwardReads);
+    }
+
+    /// <summary>
+    /// The kind is the one the stored event's payload carries (the Forum's word), and never the one the stored canonical form claims for itself: a
+    /// <c>post.accepted</c> whose <c>kind</c> member says question and whose <c>canonical</c> text says comment is a question to the lookup.
+    /// </summary>
+    [Fact]
+    public async Task R8_70_TheKindIsTheStoredEventsAndNotTheOneItsCanonicalFormClaims()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = NewStore();
+        var canonicalClaimingComment = "{\"body\":\"x\",\"kind\":\"comment\"}";
+        await AppendAsync(
+            store,
+            post,
+            PostProjector.PostAcceptedType,
+            new JsonValue.Object(
+            [
+                new("post_id", new JsonValue.String(post)),
+                new("kind", new JsonValue.String("question")),
+                new("canonical", new JsonValue.String(canonicalClaimingComment)),
+            ]),
+            ct);
+
+        Assert.Equal("question", await AnswerAsync(store, post, ct));
+    }
+
+    /// <summary>
+    /// The lookup remembers nothing between calls: an id that named no post answers missing, and once a <c>post.accepted</c> for it is appended the same
+    /// lookup, over the same store, finds it with the stored kind. The id is this test's own.
+    /// </summary>
+    [Fact]
+    public async Task R8_70_AParentCreatedAfterAMissingAnswerIsFoundByTheNextLookup()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = NewStore();
+
+        Assert.Equal("none", await AnswerAsync(store, post, ct));
+
+        await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(post, "question"), ct);
+
+        Assert.Equal("question", await AnswerAsync(store, post, ct));
     }
 
     /// <summary>A reader that returns a failed result for the parent's stream: the lookup fails, and a failure is never "no such post".</summary>
@@ -164,7 +217,7 @@ public sealed class ParentLookupTests
     {
         var ct = TestContext.Current.CancellationToken;
 
-        var found = await ParentLookup.FindAsync(new FailingReader(), Typed.Parent(Post), ct);
+        var found = await ParentLookup.FindAsync(new FailingReader(), Typed.Parent(post), ct);
 
         Assert.False(found.IsOk);
         Assert.Equal("test/unreadable", found.Match(_ => string.Empty, e => e.Type));

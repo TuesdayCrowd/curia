@@ -20,8 +20,19 @@ namespace Curia.Infrastructure.Tests;
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class ParentLookupPostgresTests(PostgresDatabaseFixture fixture)
 {
-    private const string Post = "01M5VAMSJ17A9JBE3R41RAHMWV";
-    private const string Other = "01M5VAMZMEE6C2RK57P72TH5SE";
+    // A fresh pair of ids for each test (xUnit builds one instance per test), so nothing a lookup remembered about one id can answer for another test.
+    private readonly string post = FreshPostId();
+    private readonly string other = FreshPostId();
+
+    private static string FreshPostId()
+    {
+        const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+        return "01" + string.Create(24, 0, static (span, _) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+                span[i] = Alphabet[System.Security.Cryptography.RandomNumberGenerator.GetInt32(Alphabet.Length)];
+        });
+    }
 
     private static T Require<T>(Result<T> result) =>
         result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title}"));
@@ -58,9 +69,9 @@ public sealed class ParentLookupPostgresTests(PostgresDatabaseFixture fixture)
         var ct = TestContext.Current.CancellationToken;
         await fixture.ResetEventsTableAsync(ct);
         var store = NewStore();
-        await AppendAsync(store, Post, PostProjector.PostAcceptedType, Accepted(Post, kind), ct);
+        await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(post, kind), ct);
 
-        Assert.Equal($"{Post} {kind}", await AnswerAsync(store, Post, ct));
+        Assert.Equal($"{post} {kind}", await AnswerAsync(store, post, ct));
     }
 
     /// <summary>
@@ -77,24 +88,62 @@ public sealed class ParentLookupPostgresTests(PostgresDatabaseFixture fixture)
         var ct = TestContext.Current.CancellationToken;
         await fixture.ResetEventsTableAsync(ct);
         var store = NewStore();
-        await AppendAsync(store, Other, PostProjector.PostAcceptedType, Accepted(Other, "question"), ct);
+        await AppendAsync(store, other, PostProjector.PostAcceptedType, Accepted(other, "question"), ct);
         switch (shape)
         {
             case "agent-under-a-ulid-shaped-id":
-                await AppendAsync(store, Post, "agent.enrolled", new JsonValue.Object([new("agent_id", new JsonValue.String(Post))]), ct);
+                await AppendAsync(store, post, "agent.enrolled", new JsonValue.Object([new("agent_id", new JsonValue.String(post))]), ct);
                 break;
             case "answer-accepted-only":
-                await AppendAsync(store, Post, "answer.accepted", new JsonValue.Object([new("post_id", new JsonValue.String(Post))]), ct);
+                await AppendAsync(store, post, "answer.accepted", new JsonValue.Object([new("post_id", new JsonValue.String(post))]), ct);
                 break;
             case "post-accepted-naming-another-post":
-                await AppendAsync(store, Post, PostProjector.PostAcceptedType, Accepted(Other, "question"), ct);
+                await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(other, "question"), ct);
                 break;
             default:
                 break;
         }
 
-        Assert.Equal($"{Other} question", await AnswerAsync(store, Other, ct));
-        Assert.Equal("none", await AnswerAsync(store, Post, ct));
+        Assert.Equal($"{other} question", await AnswerAsync(store, other, ct));
+        Assert.Equal("none", await AnswerAsync(store, post, ct));
+    }
+
+    /// <summary>The kind is the stored event's, never the one its canonical form claims (the in-memory row, on the real store).</summary>
+    [Fact]
+    public async Task R11_4_TheKindIsTheStoredEventsAndNotTheOneItsCanonicalFormClaimsOnTheRealStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await fixture.ResetEventsTableAsync(ct);
+        var store = NewStore();
+        var canonicalClaimingComment = "{\"body\":\"x\",\"kind\":\"comment\"}";
+        await AppendAsync(
+            store,
+            post,
+            PostProjector.PostAcceptedType,
+            new JsonValue.Object(
+            [
+                new("post_id", new JsonValue.String(post)),
+                new("kind", new JsonValue.String("question")),
+                new("canonical", new JsonValue.String(canonicalClaimingComment)),
+            ]),
+            ct);
+
+        Assert.Equal($"{post} question", await AnswerAsync(store, post, ct));
+    }
+
+    /// <summary>The lookup remembers nothing between calls: missing, then appended, then found, over one store and one lookup.</summary>
+    [Fact]
+    public async Task R11_4_AParentCreatedAfterAMissingAnswerIsFoundByTheNextLookupOnTheRealStore()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await fixture.ResetEventsTableAsync(ct);
+        var store = NewStore();
+
+        Assert.Equal("none", await AnswerAsync(store, post, ct));
+
+        await AppendAsync(store, post, PostProjector.PostAcceptedType, Accepted(post, "question"), ct);
+
+        Assert.Equal($"{post} question", await AnswerAsync(store, post, ct));
     }
 
     /// <summary>A parent that is no post id is dismissed without a read, so an agent's stream under a URI is never consulted.</summary>
