@@ -290,11 +290,13 @@ internal static class Program
         using (agent)
         {
             string? prev = null;
+            OwnText? supersession = null;
             if (kind is PostKind.Revision)
             {
-                var (resolved, failure) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), agent.Profile.AgentId, ct).ConfigureAwait(false);
+                var (resolved, failure, receipt) = await RevisedDigestAsync(args, ForumUri(args, agent.Profile), agent.Profile.AgentId, ct).ConfigureAwait(false);
                 if (failure is { } code) return code;
                 prev = resolved;
+                supersession = receipt;
             }
 
             var draft = new PostDraft
@@ -311,7 +313,7 @@ internal static class Program
                 DuplicateRationale = args.Value("not-duplicate"),
             };
 
-            return await SendDraftAsync(args, store, agent, draft, ct).ConfigureAwait(false);
+            return await SendDraftAsync(args, store, agent, draft, ct, supersession).ConfigureAwait(false);
         }
     }
 
@@ -329,32 +331,37 @@ internal static class Program
     /// the served <c>digest</c> member, so a Forum cannot steer a revision onto another post. A post that does not verify
     /// is refused here with the read verbs' own exit code (6, 8 or 9) and nothing is sent. An explicit <c>--prev</c> is
     /// checked against it, not used in its place: a digest that is not the parent's is a usage error (exit 1).</para>
+    ///
+    /// <para>R11.51 (errata G39): after the verified read and before the <c>--prev</c> comparison, a post that is not the signing agent's
+    /// and then a post the Forum serves as superseded are refused with exit 1 and nothing sent (<see cref="ReviseRefusal"/>); the receipt
+    /// line for a post that may be revised is returned beside the digest.</para>
     /// </summary>
-    private static async Task<(string? Prev, int? Failure)> RevisedDigestAsync(Args args, Uri forum, string signingAgentId, CancellationToken ct)
+    private static async Task<(string? Prev, int? Failure, OwnText? Receipt)> RevisedDigestAsync(Args args, Uri forum, string signingAgentId, CancellationToken ct)
     {
-        // Wave 2a Task 0 seam: the id is taken and not yet used (R11.51's guards arrive at Task 2).
-        _ = signingAgentId;
         var parent = args.Value("parent")!;
 
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
 
         var read = await client.GetPostAsync(parent, MarkingMode.None, ct).ConfigureAwait(false);
-        if (!read.TryGetValue(out var post, out var refusal)) return (null, Output.Fail(refusal));
+        if (!read.TryGetValue(out var post, out var refusal)) return (null, Output.Fail(refusal), null);
 
         var (passages, outcomes) = await VerifyAllAsync(client, [post], ct).ConfigureAwait(false);
         var verdict = passages[0].Verdict;
         if (outcomes[0] is not CheckOutcome.Verified || verdict.PrefixedDigest is not { } digest)
             return (null, Output.Fail(
                 $"error: the post --parent names does not verify, so a revision is not chained to it: {new OwnText(verdict.DescribeRead)}\n       Nothing was sent.",
-                outcomes[0] is CheckOutcome.Verified ? ExitCode.Unverified : ExitCode.ForOutcomes(outcomes[0])));
+                outcomes[0] is CheckOutcome.Verified ? ExitCode.Unverified : ExitCode.ForOutcomes(outcomes[0])), null);
+
+        var (guard, receipt) = ReviseRefusal(post, signingAgentId);
+        if (guard is not null) return (null, Output.Fail($"error: {guard}", ExitCode.Usage), null);
 
         if (args.Value("prev") is { } given && !string.Equals(given, digest, StringComparison.Ordinal))
             return (null, Output.Fail(
                 $"error: --prev {new OwnText(DisplayLiteral.Of(given))} is not the digest of the post --parent names ({new OwnText(DisplayLiteral.Of(digest))}, computed here). Nothing was sent.",
-                ExitCode.Usage));
+                ExitCode.Usage), null);
 
-        return (digest, null);
+        return (digest, null, receipt);
     }
 
     /// <summary>
@@ -490,7 +497,7 @@ internal static class Program
             // usage error with the right number in their hand.
             Output.Line($"digest    {new OwnText(submission.PrefixedDigest)}   (computed here)");
 
-            // R11.51: a revision's receipt states supersession; nothing yet gives it a line.
+            // R11.51: a revision's receipt states supersession; `curia revision` passes the line, other verbs pass none.
             if (supersession is { } statement) Output.Line($"supersession {statement}");
 
             // Compared in the wire's own spelling. The receipt carries EnvelopeDigest.ToPrefixed's
@@ -596,14 +603,22 @@ internal static class Program
     }
 
     /// <summary>
-    /// Wave 2a Task 0 seam (R11.51): the refusal <c>curia revision</c> gives a post it must not revise, and the receipt line for one it may.
-    /// Behaviour-preserving for now: it refuses nothing and its receipt is empty; Task 2 gives it the guards.
+    /// R11.51 (errata G39): the refusal <c>curia revision</c> gives a post it must not revise, and the receipt line for one it may.
+    /// The served author is compared ordinally with the agent the verb signs as, first, so a stranger is not told the post has a
+    /// successor; then <see cref="Supersession.RevisionRefusal"/> judges the post's served revisions (R11.47). The refusal is null when
+    /// neither applies. Every value is a display literal (R10.63).
     /// </summary>
     internal static (string? Refusal, OwnText Receipt) ReviseRefusal(ProvenancePost post, string signingAgentId)
     {
         ArgumentNullException.ThrowIfNull(post);
-        _ = signingAgentId;
-        return (null, new OwnText(string.Empty));
+        var receipt = Supersession.ReceiptLine(post.Provenance.SupersededBy);
+
+        if (!string.Equals(post.Provenance.Author, signingAgentId, StringComparison.Ordinal))
+            return (
+                $"NOT SENT: this post was written by {DisplayLiteral.Of(post.Provenance.Author ?? string.Empty)}, not by this agent ({DisplayLiteral.Of(signingAgentId)}); only a post's own author may revise it. Nothing was sent.",
+                receipt);
+
+        return (Supersession.RevisionRefusal(post.Provenance.SupersededBy)?.Text, receipt);
     }
 
     /// <summary>
