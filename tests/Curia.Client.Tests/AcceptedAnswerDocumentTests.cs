@@ -56,11 +56,11 @@ public sealed class AcceptedAnswerDocumentTests
     {
         var served = await ReadAsync(Post($$""","accepted_answer":{"digest":"sha256:{{Hex}}","post_id":"01ANSWERID000000000000001"}"""));
         Assert.True(served.TryGetValue(out var post, out var refusal), refusal?.Summary);
-        Assert.Equal(new AcceptedAnswerMember("sha256:" + Hex, "01ANSWERID000000000000001"), post!.Provenance.AcceptedAnswer);
+        Assert.Equal(new AcceptedAnswerMember("sha256:" + Hex, "01ANSWERID000000000000001", []), post!.Provenance.AcceptedAnswer);
 
         var unserved = await ReadAsync(Post($$""","accepted_answer":{"digest":"sha256:{{Hex}}"}"""));
         Assert.True(unserved.TryGetValue(out var other, out refusal), refusal?.Summary);
-        Assert.Equal(new AcceptedAnswerMember("sha256:" + Hex, null), other!.Provenance.AcceptedAnswer);
+        Assert.Equal(new AcceptedAnswerMember("sha256:" + Hex, null, []), other!.Provenance.AcceptedAnswer);
     }
 
     [Theory]

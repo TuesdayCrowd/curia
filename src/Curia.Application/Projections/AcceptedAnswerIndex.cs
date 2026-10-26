@@ -60,7 +60,7 @@ public sealed class AcceptedAnswerIndex
         if (!_postsById.TryGetValue(answerId, out var answer)) return AcceptedAnswerMember.None;
 
         var served = PostKinds.TryParse(answer.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(answer.PostId);
-        return new AcceptedAnswerMember(answer.Digest, served ? answer.PostId : null);
+        return new AcceptedAnswerMember(answer.Digest, served ? answer.PostId : null, ImmutableArray<Successor>.Empty);
     }
 
     /// <summary>Whether <paramref name="answer"/> is the answer its thread's standing acceptance names: the rule <see cref="StandingOf"/> shares.</summary>

@@ -702,11 +702,52 @@ public sealed class ToolDescriptionTests
         Assert.Empty(tokens.Except(arguments, StringComparer.Ordinal));
     }
 
-    /// <summary>R11.17 (annotated by R8.70): a refusal changes and no tool is added, so the server's version moves from 0.8.1 to 0.8.2.</summary>
+    /// <summary>R11.53 (errata G40, moved fact): five descriptions and four arguments' words change and no tool is added, so the server's version moves from 0.8.2 to 0.8.3.</summary>
     [Fact]
-    public void R11_17_VersionIs082()
+    public void R11_53_TheVersionIs083()
     {
-        Assert.Equal("0.8.2", ToolCatalogue.Version);
+        Assert.Equal("0.8.3", ToolCatalogue.Version);
+    }
+
+    private static string Sentence(string description, params string[] words)
+    {
+        var sentences = System.Text.RegularExpressions.Regex.Split(description, @"(?<=[.!?])\s+|\n+");
+        return sentences.FirstOrDefault(s => words.All(w => s.Contains(w, StringComparison.OrdinalIgnoreCase))) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// R11.53 (errata G40): the five descriptions state what the erratum requires of each. <b>Weak by construction</b>: it restates descriptions, so it
+    /// reads words the errata names and nothing a call does. The information is carried by the end-to-end facts (the cap by
+    /// <c>RecheckCapEndToEndTests</c>, the pin, the cursor, the receipt and the missing post by their own), and a description that satisfies this
+    /// fact and a behaviour that does not is the failure those facts exist to catch. The five tools are parsed from the errata.
+    /// </summary>
+    [Fact]
+    public void R11_53_TheFiveDescriptionsStateWhatTheErratumRequires()
+    {
+        var obligations = PublishedReadersWords.R1153Obligations();
+        Assert.Equal(
+            ["curia_read", "curia_recheck", "curia_resolve", "curia_search", "curia_verify"],
+            obligations.Keys.Order(StringComparer.Ordinal).ToArray());
+
+        var registered = Registered();
+        string Of(string tool) => registered.Single(t => t.Name == tool).Description;
+
+        // curia_recheck: the cap, and that a Forum states the cap it enforces in its refusal.
+        var recheck = Of("curia_recheck");
+        Assert.Matches(@"\b\d+ digests per call\b", recheck);
+        Assert.NotEmpty(Sentence(recheck, "cap", "refusal"));
+
+        // curia_verify: the form of expectedDigest.
+        Assert.NotEmpty(Sentence(Of("curia_verify"), "expectedDigest", "sha256:", "lowercase"));
+
+        // curia_search: that an empty cursor is refused.
+        Assert.NotEmpty(Sentence(Of("curia_search"), "empty", "cursor", "refused"));
+
+        // curia_resolve: that the receipt names the answer a call replaced.
+        Assert.NotEmpty(Sentence(Of("curia_resolve"), "receipt", "replaced"));
+
+        // curia_read: that the accepted line says when the accepted answer has been superseded.
+        Assert.NotEmpty(Sentence(Of("curia_read"), "accepted line", "superseded"));
     }
 
     /// <summary>

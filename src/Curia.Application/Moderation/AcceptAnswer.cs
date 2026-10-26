@@ -12,7 +12,8 @@ namespace Curia.Application.Moderation;
 /// <param name="AnswerId">The answer that now stands.</param>
 /// <param name="AcceptedAt">The store's <c>server_ts</c> — R6.5's Forum observation.</param>
 /// <param name="AlreadyAccepted">R8.68: the answer was already the accepted one, nothing was appended, and <paramref name="AcceptedAt"/> is the first acceptance's time.</param>
-public sealed record Acceptance(string ThreadRoot, string AnswerId, DateTimeOffset AcceptedAt, bool AlreadyAccepted = false);
+/// <param name="ReplacedAnswer">R8.71 (errata G40): the answer whose standing acceptance this call replaced; <c>null</c> for a first acceptance and for a replay. Wave 2b's Task 0 seam: always <c>null</c> until Task 1 computes it.</param>
+public sealed record Acceptance(string ThreadRoot, string AnswerId, DateTimeOffset AcceptedAt, bool AlreadyAccepted = false, string? ReplacedAnswer = null);
 
 /// <summary>
 /// Table 10's <c>answer</c>/<c>accept</c>, as a use case.

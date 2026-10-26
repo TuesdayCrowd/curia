@@ -221,6 +221,41 @@ public sealed class BlankValueTests : IDisposable
     }
 
     /// <summary>
+    /// R14.12's gate for R11.52 (errata G40, moved fact): the gate's list of sites holds every argument R11.52 names (parsed from the errata: the pin
+    /// and the dotted cursor), and the gate varies the cursor with a blank and the pin with each spelling that is not the published form, each refused
+    /// by name with nothing sent.
+    /// </summary>
+    [Fact]
+    public async Task R14_12_TheBoundaryGateVariesTheCursorAndThePinForm()
+    {
+        var named = PublishedReadersWords.R1152Arguments();
+        var missing = named.Where(a => !Sites.Any(s => s.Path == a)).ToArray();
+        Assert.True(missing.Length == 0, $"Expected the gate's sites to hold every argument R11.52 names ({string.Join(", ", named)}); the gate's list lacks {string.Join(", ", missing)}");
+
+        await using var session = await StartAsync(_log, _home);
+        var real = _log.Submission.PrefixedDigest;
+        var rows = new List<(string Tool, string Path, string Value)>
+        {
+            ("curia_search", "criteria.cursor", ""),
+            ("curia_search", "criteria.cursor", "  "),
+            ("curia_verify", "expectedDigest", real.ToUpperInvariant()),
+            ("curia_verify", "expectedDigest", real["sha256:".Length..]),
+            ("curia_verify", "expectedDigest", real + " "),
+        };
+
+        foreach (var (tool, path, value) in rows)
+        {
+            _log.Requests.Clear();
+            var result = await session.CallAsync(tool, With(tool, path, value));
+
+            Assert.True(
+                result.IsError && result.Text.StartsWith(NotSent, StringComparison.Ordinal) && result.Text.Contains(path, StringComparison.Ordinal),
+                $"{tool} with {path} = '{value}' was not refused by name:\n{result.Text}");
+            Assert.Empty(_log.Requests);
+        }
+    }
+
+    /// <summary>
     /// R14.12's gate: the schema <c>tools/list</c> serves names every site R11.45 does, and a blank at each is refused by name.
     /// The sites are written from the sentence (eight tool-and-argument pairs: three criteria, a pin, a rationale, three bodies).
     /// </summary>

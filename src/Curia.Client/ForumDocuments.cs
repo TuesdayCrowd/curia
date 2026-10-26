@@ -40,7 +40,38 @@ public sealed record InboxPage(
     int ExcludedAsAlreadyAnswered);
 
 /// <summary>What the Forum recorded when an answer was accepted (Table 10's <c>answer</c>/<c>accept</c>).</summary>
-public sealed record AcceptanceReceipt(string ThreadRoot, string PostId, string AcceptedAt, bool AlreadyAccepted = false);
+public sealed record AcceptanceReceipt(
+    string ThreadRoot,
+    string PostId,
+    string AcceptedAt,
+    bool AlreadyAccepted = false,
+    AcceptanceReplaced Replaced = default);
+
+/// <summary>What <c>replaced_answer</c> told a reader (R8.71, errata G40).</summary>
+public enum AcceptanceReplacedKind
+{
+    /// <summary>The Forum's receipt had no member (an older Forum). Not "none". The default, so a receipt built without one says so.</summary>
+    NotStated = 0,
+
+    /// <summary>The member was <c>null</c>: no acceptance stood, or the answer named already stood.</summary>
+    None,
+
+    /// <summary>The member named the answer the call replaced.</summary>
+    Named,
+}
+
+/// <summary>R8.71's three states, and the post id in the third. Wave 2b's Task 0 seam: <c>ReadAcceptance</c> always yields <see cref="AcceptanceReplacedKind.NotStated"/> until Task 2 reads the member.</summary>
+public readonly record struct AcceptanceReplaced(AcceptanceReplacedKind Kind, string? PostId = null)
+{
+    /// <summary>The receipt had no member.</summary>
+    public static AcceptanceReplaced NotStated => default;
+
+    /// <summary>The member was <c>null</c>.</summary>
+    public static AcceptanceReplaced None => new(AcceptanceReplacedKind.None);
+
+    /// <summary>The member named <paramref name="postId"/>.</summary>
+    public static AcceptanceReplaced Of(string postId) => new(AcceptanceReplacedKind.Named, postId);
+}
 
 /// <summary>R9.8/R8.36's breakdown: why this result ranked where it did.</summary>
 /// <summary>The lexical channel's part of a ranking: its rank and the match counts behind its score.</summary>
@@ -657,7 +688,7 @@ internal static class ForumDocuments
             postId = text.Value;
         }
 
-        return Result<AcceptedAnswerMember?>.Ok(new AcceptedAnswerMember(digest, postId));
+        return Result<AcceptedAnswerMember?>.Ok(new AcceptedAnswerMember(digest, postId, ImmutableArray<Successor>.Empty));
     }
 
     internal static Result<ProvenancePost> ReadPost(JsonValue value)

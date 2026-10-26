@@ -482,6 +482,17 @@ internal sealed partial class ForumTools
     private static CallToolResult NotSentResult(Error error) =>
         new() { IsError = true, Content = [new TextContentBlock { Text = NotSent(error) }] };
 
+    /// <summary>
+    /// R11.52 (errata G40): a read that found no post under the id, as the guards give a refusal: <c>isError</c>, beginning <c>NOT SENT</c>, naming
+    /// <paramref name="argument"/> and never its value. Wave 2b's Task 0 seam: nothing calls it yet; Task 5 does.
+    /// </summary>
+    internal static CallToolResult MissingPostResult(string argument) =>
+        new()
+        {
+            IsError = true,
+            Content = [new TextContentBlock { Text = $"NOT SENT: the Forum serves no post under {argument}. Nothing was signed." }],
+        };
+
     private static CallToolResult Said(string text) => new() { Content = [new TextContentBlock { Text = text }] };
 
     /// <summary>

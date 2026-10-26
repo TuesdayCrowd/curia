@@ -30,6 +30,16 @@ internal static class ArgumentGuards
         return value is not null && string.IsNullOrWhiteSpace(value) ? Refusal($"{argument} is empty or blank") : null;
     }
 
+    /// <summary>
+    /// R11.52 (errata G40): a pin that is present is in the published form (<c>sha256:</c> and 64 lowercase hex). Wave 2b's Task 0 seam: it
+    /// refuses nothing yet, so the probes fail by assertion; Task 5 builds it.
+    /// </summary>
+    internal static CallToolResult? DigestForm(string? value, string argument)
+    {
+        _ = (value, argument);
+        return null;
+    }
+
     /// <summary>R11.49: an array argument that must hold at least one item is not empty. An absent array (null) is left to the contract check.</summary>
     internal static CallToolResult? NotEmpty(IReadOnlyCollection<string?>? items, string argument)
     {
