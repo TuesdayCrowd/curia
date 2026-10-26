@@ -95,7 +95,10 @@ internal static class ToolText
         "thread, or says the thread could not be read and the post alone is shown.\n\n" +
         "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +
         "(the asker's choice, which checks nothing about the answer), or 'accepted none'; where the shown thread " +
-        "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown.\n\n" +
+        "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown. " +
+        "The accepted line says when the accepted answer has been superseded: it takes the Forum's word from that answer's own list, " +
+        "names each revision (FORKED where there is more than one), and says the acceptance names the answer and not its revision; " +
+        "it says nothing of a revision where the answer has none.\n\n" +
         "A passage of a post its author has since corrected carries a `revision` line, after the thread line, naming the revision's " +
         "digest and, when the Forum serves it, its post id, or 'not served'; more than one revision is FORKED and the Forum picks none. " +
         "Where the Forum served no word on it, the line reads 'revision NOT STATED', which is not 'no revision'. The line is the " +

@@ -635,12 +635,20 @@ internal static class ForumDocuments
     /// <c>post_id</c>. Anything else that is present is a malformed response and is not coerced or skipped, as a floor count is not
     /// (R9.30): a client that dropped an element it could not read would tell its agent a corrected post stands.
     /// </summary>
-    private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object provenance)
+    private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object provenance) =>
+        ReadSupersededBy(provenance, "provenance.superseded_by", "R9.32");
+
+    /// <summary>
+    /// The list of revisions in <paramref name="holder"/>'s <c>superseded_by</c>: absent is <c>default</c> (not stated), <c>[]</c> is
+    /// empty, a populated list is kept, and anything else is a malformed response. Shared by the post's own list (R9.32) and the accepted
+    /// answer's (R9.41), so the two are read with one strictness.
+    /// </summary>
+    private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object holder, string name, string requirement)
     {
         var malformed = Result<ImmutableArray<Successor>>.Fail(
-            ClientErrors.ResponseMalformed("provenance.superseded_by is not a list of revisions (R9.32)"));
+            ClientErrors.ResponseMalformed($"{name} is not a list of revisions ({requirement})"));
 
-        if (ClientJson.Member(provenance, "superseded_by") is not { } member)
+        if (ClientJson.Member(holder, "superseded_by") is not { } member)
             return Result<ImmutableArray<Successor>>.Ok(default);
 
         if (member is not JsonValue.Array array)
@@ -701,7 +709,9 @@ internal static class ForumDocuments
             postId = text.Value;
         }
 
-        return Result<AcceptedAnswerMember?>.Ok(new AcceptedAnswerMember(digest, postId, ImmutableArray<Successor>.Empty));
+        // R9.41: the answer's revisions, read as strictly as the answer's own list. Absent is not stated, which is not empty.
+        return ReadSupersededBy(answer, "provenance.accepted_answer.superseded_by", "R9.41")
+            .Map(revisions => (AcceptedAnswerMember?)new AcceptedAnswerMember(digest, postId, revisions));
     }
 
     internal static Result<ProvenancePost> ReadPost(JsonValue value)

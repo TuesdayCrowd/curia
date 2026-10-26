@@ -184,7 +184,16 @@ internal sealed partial class ForumTools(
             if (acceptedIds.Length == 0)
                 frame.Line($"accepted none {new OwnText("(the Forum served no post of this thread as accepted)")}");
             else
-                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))))} {new OwnText(AnswerStanding.Basis)}");
+            {
+                // R10.82: where the accepted answer's own served list says it was revised, the line says so, from that list (the thread's
+                // members are in hand, so the Forum's word on the answer is one of them) and not from the question's member.
+                var revisions = members
+                    .Where(m => m.Accepted && Supersession.IsSuperseded(m.Provenance.SupersededBy))
+                    .Select(m => AnswerStanding.RevisionStatement("answer=" + DisplayLiteral.Of(m.PostId), m.Provenance.SupersededBy).Text)
+                    .ToArray();
+                var statement = revisions.Length == 0 ? string.Empty : " " + string.Join(" ", revisions);
+                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))) + statement)} {new OwnText(AnswerStanding.Basis)}");
+            }
         }
 
         if (unreadableParent is not null)
