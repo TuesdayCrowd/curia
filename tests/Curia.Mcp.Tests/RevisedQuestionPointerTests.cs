@@ -241,6 +241,10 @@ public sealed class RevisedQuestionPointerTests : IDisposable
     }
 
     [Fact]
+    public void R11_55_TheWalkBoundInTheCodeIsTheBoundTheErrataPublishes() =>
+        Assert.Equal(ForumTools.WalkBound, PublishedForkWords.WalkBound());
+
+    [Fact]
     public async Task R11_55_NineHopsNameNothingAndTheWalkStopsAtTheBound()
     {
         var bound = PublishedForkWords.WalkBound();

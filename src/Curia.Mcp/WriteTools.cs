@@ -265,7 +265,7 @@ internal sealed partial class ForumTools
     }
 
     /// <summary>R11.55's bound on the walk, in posts read.</summary>
-    private const int WalkBound = 8;
+    internal const int WalkBound = 8;
 
     /// <summary>
     /// R11.30 (rev.)'s <c>curia_resolve</c>: accept the answer a thread was given. Attributed by the
