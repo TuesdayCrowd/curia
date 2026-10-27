@@ -322,4 +322,29 @@ public sealed class ToolIdentifierTests : IDisposable
         Assert.Contains("malformed", answer.Text, StringComparison.Ordinal);
         Assert.Single(_log.BatchRequests);
     }
+
+    // ---- PJ45 -----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A U+0000 in a post <c>body</c> or a flag <c>rationale</c> is not an identifier and R11.57 does not refuse it: it is sent, because the stored-NUL
+    /// question is an open lead (D61 item 28). Held by FPJ28, which gives <c>Identifier</c> a NUL clause so that these would be refused <c>NOT SENT</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("curia_comment", "body")]
+    [InlineData("curia_answer", "body")]
+    [InlineData("curia_flag", "rationale")]
+    public async Task R11_57_ANulInABodyOrARationaleIsNotAnIdentifierAndIsSent(string tool, string member)
+    {
+        await using var session = await StartAsync();
+        var control = await session.CallAsync(tool, Valid(tool));
+        Assert.False(control.IsError, control.Text);
+
+        _log.Requests.Clear();
+        var arguments = Valid(tool);
+        arguments[member] = Nul;
+        var result = await session.CallAsync(tool, arguments);
+
+        Assert.DoesNotContain(NotSent, result.Text, StringComparison.Ordinal);
+        Assert.Contains(_log.Requests, r => r.StartsWith("POST ", StringComparison.Ordinal) && !r.Contains("/oauth/", StringComparison.Ordinal));
+    }
 }
