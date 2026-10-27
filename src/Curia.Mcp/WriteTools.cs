@@ -215,48 +215,53 @@ internal sealed partial class ForumTools
     }
 
     /// <summary>
-    /// R11.55's pointer: the question <paramref name="revision"/> revises, as the Forum's own <c>superseded_by</c> confirms it, or
-    /// <see langword="null"/> where none is named. A revision's <c>parent</c> is its author's word (R8.70 does not read it), so nothing is
-    /// inferred from it: each step reads the post the signed <c>parent</c> names, requires that read to verify, and requires its
-    /// <c>superseded_by</c> to list the digest recomputed here from the revision's served canonical form. The step repeats through
-    /// revisions to a post of kind question, within <see cref="WalkBound"/> posts and never revisiting one. Any failure names nothing,
-    /// and the Forum's refusal stands. The reads are not reads of the session (R11.49: a post named is not a post read), and the result
-    /// holds a post id and fixed words, nothing an author wrote.
+    /// R11.55's pointer: the question <paramref name="revision"/> revises, as the Forum's own <c>superseded_by</c> confirms it. A revision's
+    /// <c>parent</c> is its author's word (R8.70 does not read it), so nothing is inferred from it: each step reads the post the signed
+    /// <c>parent</c> names, requires that read to verify, and requires its <c>superseded_by</c> to list the digest recomputed here from the
+    /// revision's served canonical form. The step repeats through revisions to a post of kind question, within <see cref="WalkBound"/> posts
+    /// and never revisiting one. Where a step fails the result says the post is a revision and why no question is named, in fixed words,
+    /// and names no post. The reads are not reads of the session (R11.49: a post named is not a post read), and nothing an author wrote is
+    /// in the result. Each post is verified once: the passage that vouched for a parent is the one the next step starts from.
     /// </summary>
-    private async Task<OwnText?> RevisedQuestionPointerAsync(ProvenancePost revision, CancellationToken cancellationToken)
+    private async Task<OwnText> RevisedQuestionPointerAsync(ProvenancePost revision, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(revision);
 
+        static OwnText None(string cause) => new($"The post you named is a revision; no question is named because {cause}.");
+
         var visited = new HashSet<string>(StringComparer.Ordinal) { revision.PostId };
-        var current = revision;
+        var passage = (await PassagesAsync([revision], cancellationToken, remember: false).ConfigureAwait(false))[0];
         for (var read = 0; read < WalkBound; read++)
         {
-            var passage = (await PassagesAsync([current], cancellationToken, remember: false).ConfigureAwait(false))[0];
-            if (passage.Outcome is not CheckOutcome.Verified
-                || passage.Verdict.PrefixedDigest is not { } digest
-                || passage.Envelope is not { Kind: PostKind.Revision, Parent: { Length: > 0 } parentId }
-                || !visited.Add(parentId))
-                return null;
+            if (passage.Outcome is not CheckOutcome.Verified || passage.Verdict.PrefixedDigest is not { } digest)
+                return None("the revision's own read did not verify");
+
+            if (passage.Envelope is not { Kind: PostKind.Revision, Parent: { Length: > 0 } parentId })
+                return None("its signed form names no parent");
+
+            if (!visited.Add(parentId))
+                return None("the parents named lead back to a post already read");
 
             var fetched = await _forum.GetPostAsync(parentId, _marking, cancellationToken).ConfigureAwait(false);
-            if (!fetched.TryGetValue(out var parent, out _)
-                || !string.Equals(parent!.PostId, parentId, StringComparison.Ordinal)
-                || parent.Provenance.SupersededBy.IsDefaultOrEmpty
-                || !parent.Provenance.SupersededBy.Any(s => string.Equals(s.Digest, digest, StringComparison.Ordinal)))
-                return null;
+            if (!fetched.TryGetValue(out var parent, out _) || !string.Equals(parent!.PostId, parentId, StringComparison.Ordinal))
+                return None("the post it names as its parent could not be read");
 
-            var parentPassage = (await PassagesAsync([parent], cancellationToken, remember: false).ConfigureAwait(false))[0];
-            if (parentPassage.Outcome is not CheckOutcome.Verified || parentPassage.Envelope is not { } parentEnvelope)
-                return null;
+            if (parent.Provenance.SupersededBy.IsDefaultOrEmpty
+                || !parent.Provenance.SupersededBy.Any(s => string.Equals(s.Digest, digest, StringComparison.Ordinal)))
+                return None("the Forum's superseded_by of the post it names as its parent does not list this revision");
+
+            passage = (await PassagesAsync([parent], cancellationToken, remember: false).ConfigureAwait(false))[0];
+            if (passage.Outcome is not CheckOutcome.Verified || passage.Envelope is not { } parentEnvelope)
+                return None("the post it names as its parent did not verify");
 
             if (parentEnvelope.Kind is PostKind.Question)
                 return new OwnText($"The post you named is a revision. The Forum's superseded_by confirms it revises the question {DisplayLiteral.Of(parent.PostId)} (as of this read, the Forum's word; read it first, it may itself have been revised): answer that question instead.");
 
-            if (parentEnvelope.Kind is not PostKind.Revision) return null;
-            current = parent;
+            if (parentEnvelope.Kind is not PostKind.Revision)
+                return None("the chain ends at a post that is not a question");
         }
 
-        return null;
+        return None($"the walk reached its bound of {WalkBound} posts");
     }
 
     /// <summary>R11.55's bound on the walk, in posts read.</summary>

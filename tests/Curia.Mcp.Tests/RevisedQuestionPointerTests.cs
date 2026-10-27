@@ -364,4 +364,75 @@ public sealed class RevisedQuestionPointerTests : IDisposable
         Assert.Contains($"parent={CommentId} kind=comment", answered.Text, StringComparison.Ordinal);
         Assert.Equal(before + 1, ReadsOfPosts());
     }
+
+    /// <summary>
+    /// R11.55: where a step fails the refusal says the post is a revision and why no question is named, and names none. The causes are fixed
+    /// words, one per failing step, and the Forum's refusal stays in the result.
+    /// </summary>
+    [Theory]
+    [InlineData("does-not-list", "does not list")]
+    [InlineData("does-not-verify", "did not verify")]
+    [InlineData("unreadable", "could not be read")]
+    [InlineData("bound", "bound of")]
+    [InlineData("cycle", "already read")]
+    [InlineData("not-a-question", "not a question")]
+    public async Task R11_55_AFailedStepSaysWhyNoQuestionIsNamed(string step, string cause)
+    {
+        string unnamed;
+        switch (step)
+        {
+            case "does-not-list":
+                Revised([]);
+                unnamed = QuestionId;
+                break;
+            case "does-not-verify":
+                Revised(questionCanonical: Encoding.UTF8.GetString(_log.SignDraft(Question("tampered")).Canonical.Span));
+                unnamed = QuestionId;
+                break;
+            case "unreadable":
+                Revised(serveQuestion: false);
+                _log.RefusedPosts[QuestionId] = (System.Net.HttpStatusCode.NotFound, PublishedWithheldWords.PostNotFoundType());
+                unnamed = QuestionId;
+                break;
+            case "bound":
+                unnamed = Chain(PublishedForkWords.WalkBound() + 1)[0];
+                break;
+            case "cycle":
+            {
+                const string IdA = "01PICYCLEA00000000000002";
+                const string IdB = "01PICYCLEB00000000000002";
+                var draftA = RevisionOf(IdB, "sha256:" + new string('1', 64), "A.");
+                var draftB = RevisionOf(IdA, "sha256:" + new string('2', 64), "B.");
+                var signedA = _log.SignDraft(draftA);
+                var signedB = _log.SignDraft(draftB);
+                _log.ServePost(IdA, draftA, signedA, [new Successor(signedB.PrefixedDigest, IdB)]);
+                _log.ServePost(IdB, draftB, signedB, [new Successor(signedA.PrefixedDigest, IdA)]);
+                _log.RefusesAsParentNotAQuestion = (IdA, "revision");
+                unnamed = IdB;
+                break;
+            }
+            default:
+            {
+                var root = new PostDraft { Kind = PostKind.Answer, Board = "b", Parent = QuestionId, Body = "A root that is no question." };
+                var signedRoot = _log.SignDraft(root);
+                var draft = RevisionOf("01PIROOT0000000000000002", signedRoot.PrefixedDigest);
+                var signedRevision = _log.SignDraft(draft);
+                _log.ServePost("01PIROOT0000000000000002", root, signedRoot, [new Successor(signedRevision.PrefixedDigest, RevisionId)]);
+                _log.ServePost(RevisionId, draft, signedRevision, supersededBy: []);
+                _log.RefusesAsParentNotAQuestion = (RevisionId, "revision");
+                unnamed = "01PIROOT0000000000000002";
+                break;
+            }
+        }
+
+        var parent = step switch { "cycle" => "01PICYCLEA00000000000002", "bound" => $"01PICHAIN{PublishedForkWords.WalkBound() + 1:D2}00000000000{PublishedForkWords.WalkBound() + 1:D2}", _ => RevisionId };
+        var answer = await AnswerAsync(parent);
+
+        Assert.True(answer.IsError, answer.Text);
+        Assert.Contains(RefusalType, answer.Text, StringComparison.Ordinal);
+        Assert.Contains("is a revision; no question is named because", answer.Text, StringComparison.Ordinal);
+        Assert.Contains(cause, answer.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(unnamed, answer.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(QuestionId, answer.Text, StringComparison.Ordinal);
+    }
 }
