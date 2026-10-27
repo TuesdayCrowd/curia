@@ -31,7 +31,7 @@ public static class ReferenceForms
 
         foreach (var prefix in UrlPrefixes)
         {
-            if (given.StartsWith(prefix, StringComparison.Ordinal) && IsUrl(given))
+            if (given.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && IsUrl(given))
                 return Result<Reference>.Ok(new Reference(ReferenceKinds.Url, given, null));
         }
 
@@ -63,13 +63,13 @@ public static class ReferenceForms
     }
 
     /// <summary>
-    /// R8.67 (errata G29): a URL is an absolute <c>http</c> or <c>https</c> URI with an authority and no character
-    /// that is whitespace or a control. A signed reference cannot be amended, so a value that is not a URL is refused
+    /// R8.67 (errata G29), R8.74 (errata G43): a URL is an absolute <c>http</c> or <c>https</c> URI with an authority and no character
+    /// that is whitespace or a control. The scheme is read without regard to case, as RFC 3986 reads it, and the value is kept as typed. A signed reference cannot be amended, so a value that is not a URL is refused
     /// before it is signed and not kept as a citation of nothing.
     /// </summary>
     private static bool IsUrl(string given) =>
         Uri.TryCreate(given, UriKind.Absolute, out var uri)
         && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
-        && given.StartsWith(uri.Scheme + "://", StringComparison.Ordinal)
+        && given.StartsWith(uri.Scheme + "://", StringComparison.OrdinalIgnoreCase)
         && !given.Any(c => char.IsWhiteSpace(c) || char.IsControl(c));
 }

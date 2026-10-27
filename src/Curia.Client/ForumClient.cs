@@ -6,6 +6,7 @@ using System.Text;
 using Curia.Canon.Json;
 using Curia.Domain.Content;
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Serving;
 
 namespace Curia.Client;
@@ -71,6 +72,8 @@ public sealed class ForumClient
     public async Task<ForumResult<ProvenancePost>> GetPostAsync(
         string postId, MarkingMode marking, CancellationToken ct)
     {
+        if (RefuseUnstorable<ProvenancePost>(postId, nameof(postId)) is { } unstorable) return unstorable;
+
         using var request = new HttpRequestMessage(
             HttpMethod.Get, $"/v1/posts/{Uri.EscapeDataString(postId)}{MarkingQuery(marking)}");
 
@@ -93,6 +96,7 @@ public sealed class ForumClient
         string postId, string knownEntityTag, MarkingMode marking, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(knownEntityTag);
+        if (RefuseUnstorable<PostCheck>(postId, nameof(postId)) is { } unstorable) return unstorable;
 
         using var request = new HttpRequestMessage(
             HttpMethod.Get, $"/v1/posts/{Uri.EscapeDataString(postId)}{MarkingQuery(marking)}");
@@ -127,13 +131,17 @@ public sealed class ForumClient
 
     public Task<ForumResult<ImmutableArray<ProvenancePost>>> GetThreadAsync(
         string rootPostId, MarkingMode marking, CancellationToken ct) =>
-        GetAsync($"/v1/threads/{Uri.EscapeDataString(rootPostId)}{MarkingQuery(marking)}",
-            ForumDocuments.ReadPosts, ct);
+        RefuseUnstorable<ImmutableArray<ProvenancePost>>(rootPostId, nameof(rootPostId)) is { } unstorable
+            ? Task.FromResult(unstorable)
+            : GetAsync($"/v1/threads/{Uri.EscapeDataString(rootPostId)}{MarkingQuery(marking)}",
+                ForumDocuments.ReadPosts, ct);
 
     public Task<ForumResult<ImmutableArray<ProvenancePost>>> GetBoardAsync(
         string board, MarkingMode marking, CancellationToken ct) =>
-        GetAsync($"/v1/boards/{Uri.EscapeDataString(board)}/posts{MarkingQuery(marking)}",
-            ForumDocuments.ReadPosts, ct);
+        RefuseUnstorable<ImmutableArray<ProvenancePost>>(board, nameof(board)) is { } unstorable
+            ? Task.FromResult(unstorable)
+            : GetAsync($"/v1/boards/{Uri.EscapeDataString(board)}/posts{MarkingQuery(marking)}",
+                ForumDocuments.ReadPosts, ct);
 
     /// <summary>
     /// R9.4's lexical half: <c>GET /v1/search</c>.
@@ -149,6 +157,9 @@ public sealed class ForumClient
 
         if (UnfilterableTag(request.Tags) is { } unfilterable)
             return Task.FromResult(ForumResult<SearchPage>.Local(ClientErrors.TagNotFilterable(unfilterable)));
+
+        if (RefuseUnstorable<SearchPage>(request.Board, "board") is { } badBoard) return Task.FromResult(badBoard);
+        if (RefuseUnstorable<SearchPage>(request.Author, "author") is { } badAuthor) return Task.FromResult(badAuthor);
 
         var parameters = new List<string>();
 
@@ -200,18 +211,25 @@ public sealed class ForumClient
 
     /// <summary>
     /// R11.57 (errata G43): a refusal for an identifier or a search criterion that holds U+0000 or an unpaired surrogate, or null.
-    /// A seam of Task 0: it accepts everything until the rule is built and is called by no method yet, so every probe of the rule
-    /// fails by assertion and not by compile error.
+    /// Applied where an id enters a path or a query, so nothing is sent.
     /// </summary>
     internal static Error? UnstorableIdentifier(string? value, string argument)
     {
-        _ = value;
-        _ = argument;
-        return null;
+        // R11.34's one rule, its NUL and unpaired-surrogate clauses only: a malformed id that holds neither is still sent (D61 item 2).
+        if (value is null || StorableText.Check(value, argument, int.MaxValue, names: false).TryGetValue(out _, out var refusal))
+            return null;
+
+        return ClientErrors.IdentifierUnstorable(argument, refusal!.Type);
     }
 
+    /// <summary>R11.57: the local refusal of an identifier no request can carry, as a result of the method's type; null when it can be carried.</summary>
+    internal static ForumResult<T>? RefuseUnstorable<T>(string? value, string argument) =>
+        UnstorableIdentifier(value, argument) is { } error ? ForumResult<T>.Local(error) : null;
+
     public Task<ForumResult<ImmutableArray<ForumJwk>>> GetJwksAsync(string agentId, CancellationToken ct) =>
-        GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadJwks, ct);
+        RefuseUnstorable<ImmutableArray<ForumJwk>>(agentId, nameof(agentId)) is { } unstorable
+            ? Task.FromResult(unstorable)
+            : GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadJwks, ct);
 
     /// <summary>
     /// The same key set with the lifecycle it publishes beside the keys (errata G21): each key's status, every
@@ -219,7 +237,9 @@ public sealed class ForumClient
     /// reads, so reading it leaks nothing about the caller.
     /// </summary>
     public Task<ForumResult<KeySetDocument>> GetKeySetAsync(string agentId, CancellationToken ct) =>
-        GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadKeySet, ct);
+        RefuseUnstorable<KeySetDocument>(agentId, nameof(agentId)) is { } unstorable
+            ? Task.FromResult(unstorable)
+            : GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadKeySet, ct);
 
     public Task<ForumResult<ReaderContractDocument>> GetReaderContractAsync(CancellationToken ct) =>
         GetAsync(ReaderContract.WellKnownPath, ForumDocuments.ReadContract, ct);
@@ -298,6 +318,8 @@ public sealed class ForumClient
     public async Task<ForumResult<ReadOnlyMemory<byte>>> GetJwksBytesAsync(
         string agentId, CancellationToken ct)
     {
+        if (RefuseUnstorable<ReadOnlyMemory<byte>>(agentId, nameof(agentId)) is { } unstorable) return unstorable;
+
         using var request = new HttpRequestMessage(
             HttpMethod.Get, $"/v1/jwks?agent={Uri.EscapeDataString(agentId)}");
 

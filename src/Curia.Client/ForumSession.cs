@@ -145,6 +145,7 @@ public sealed class ForumSession
         string postId, string kind, string rationale, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(postId);
+        if (ForumClient.RefuseUnstorable<FlagReceipt>(postId, nameof(postId)) is { } unstorable) return Task.FromResult(unstorable);
 
         if (!FlagKinds.Parse(kind).TryGetValue(out var parsed, out var kindError))
             return Task.FromResult(ForumResult<FlagReceipt>.Refused(
@@ -173,6 +174,7 @@ public sealed class ForumSession
     public Task<ForumResult<AcceptanceReceipt>> AcceptAsync(string answerId, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(answerId);
+        if (ForumClient.RefuseUnstorable<AcceptanceReceipt>(answerId, nameof(answerId)) is { } unstorable) return Task.FromResult(unstorable);
 
         return WriteAsync(
             $"/v1/posts/{Uri.EscapeDataString(answerId)}/accept",
@@ -192,6 +194,7 @@ public sealed class ForumSession
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(request);
+        if (ForumClient.RefuseUnstorable<KeyActReceipt>(agentId, nameof(agentId)) is { } unstorable) return Task.FromResult(unstorable);
 
         var path = KeyActUrls.RotatePath(agentId);
         return WriteAsync(
@@ -212,6 +215,8 @@ public sealed class ForumSession
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(kid);
         ArgumentNullException.ThrowIfNull(request);
+        if (ForumClient.RefuseUnstorable<KeyActReceipt>(agentId, nameof(agentId)) is { } badAgent) return Task.FromResult(badAgent);
+        if (ForumClient.RefuseUnstorable<KeyActReceipt>(kid, nameof(kid)) is { } badKid) return Task.FromResult(badKid);
 
         var path = KeyActUrls.RetirePath(agentId, kid);
         return WriteAsync(
@@ -242,6 +247,8 @@ public sealed class ForumSession
         // here rather than sent (R9.26, R10.66).
         if (ForumClient.UnfilterableTag(request.Tags) is { } unfilterable)
             return ForumResult<InboxPage>.Local(ClientErrors.TagNotFilterable(unfilterable));
+
+        if (ForumClient.RefuseUnstorable<InboxPage>(request.Board, "board") is { } unstorable) return unstorable;
 
         return await WithRemintAsync(() => InboxOnceAsync(request, marking, ct)).ConfigureAwait(false);
     }
@@ -295,7 +302,9 @@ public sealed class ForumSession
     /// </summary>
     public Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsAsync(
         string? postId, CancellationToken ct) =>
-        WithRemintAsync(() => FlagsOnceAsync(postId, ct));
+        ForumClient.RefuseUnstorable<ImmutableArray<FlagReceipt>>(postId, nameof(postId)) is { } unstorable
+            ? Task.FromResult(unstorable)
+            : WithRemintAsync(() => FlagsOnceAsync(postId, ct));
 
     private async Task<ForumResult<ImmutableArray<FlagReceipt>>> FlagsOnceAsync(
         string? postId, CancellationToken ct)

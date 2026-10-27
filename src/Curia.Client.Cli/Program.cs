@@ -532,6 +532,10 @@ internal static class Program
                 "error: usage: curia read <post-id> [--marking datamark|delimiters|none] [--if-none-match <etag>]",
                 ExitCode.Usage);
 
+        // R11.58: a required id that is empty or blank is refused by name before a profile is loaded or a request built.
+        if (string.IsNullOrWhiteSpace(args.Positional[0]))
+            return Output.Fail("error: <post-id> is empty or blank; nothing was sent.", ExitCode.Usage);
+
         var (forum, marking, profile) = ReadContext(args);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
@@ -659,6 +663,11 @@ internal static class Program
         if (args.Unknown(["agent", "board", "tags", "limit", "cursor", "marking", "forum"]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
+        // R11.58: a --cursor that was typed and is empty or blank (or bare) is refused, before a profile is loaded or a request built.
+        // An absent --cursor is the first page.
+        if (args.Has("cursor") && string.IsNullOrWhiteSpace(args.Value("cursor")))
+            return Output.Fail("error: --cursor is empty or blank; nothing was sent. Omit --cursor for the first page.", ExitCode.Usage);
+
         int? limit = null;
         if (args.Value("limit") is { Length: > 0 } rawLimit)
         {
@@ -745,6 +754,10 @@ internal static class Program
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia resolve <answer-id>", ExitCode.Usage);
 
+        // R11.58: a required id that is empty or blank is refused by name before a profile is loaded or a request built.
+        if (string.IsNullOrWhiteSpace(args.Positional[0]))
+            return Output.Fail("error: <answer-id> is empty or blank; nothing was sent.", ExitCode.Usage);
+
         var store = ProfileStore.Default();
         var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
         if (slug is null)
@@ -817,6 +830,11 @@ internal static class Program
                 "board", "kind", "author", "tags", "limit", "cursor", "why", "marking", "forum", "titles", "min-verification", "agent",
             ]) is { } bad)
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
+
+        // R11.58: a --cursor that was typed and is empty or blank (or bare) is refused, before a profile is loaded or a request built.
+        // An absent --cursor is the first page.
+        if (args.Has("cursor") && string.IsNullOrWhiteSpace(args.Value("cursor")))
+            return Output.Fail("error: --cursor is empty or blank; nothing was sent. Omit --cursor for the first page.", ExitCode.Usage);
 
         var terms = string.Join(" ", args.Positional);
         var hasFilter = args.Value("board") is not null
@@ -931,6 +949,10 @@ internal static class Program
 
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia thread <root-post-id> [--marking …]", ExitCode.Usage);
+
+        // R11.58: a required id that is empty or blank is refused by name before a profile is loaded or a request built.
+        if (string.IsNullOrWhiteSpace(args.Positional[0]))
+            return Output.Fail("error: <root-id> is empty or blank; nothing was sent.", ExitCode.Usage);
 
         var (forum, marking, profile) = ReadContext(args);
         using var http = HttpFor(forum);
@@ -1190,6 +1212,10 @@ internal static class Program
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia verify <post-id>", ExitCode.Usage);
 
+        // R11.58: a required id that is empty or blank is refused by name before a profile is loaded or a request built.
+        if (string.IsNullOrWhiteSpace(args.Positional[0]))
+            return Output.Fail("error: <post-id> is empty or blank; nothing was sent.", ExitCode.Usage);
+
         var forum = ForumUri(args, null);
         using var http = HttpFor(forum);
         var client = new ForumClient(http, forum);
@@ -1273,6 +1299,10 @@ internal static class Program
 
         if (args.Positional.Length != 1)
             return Output.Fail("error: usage: curia flag <post-id> --kind <type> --rationale <why>", ExitCode.Usage);
+
+        // R11.58: a required id that is empty or blank is refused by name before a profile is loaded or a request built.
+        if (string.IsNullOrWhiteSpace(args.Positional[0]))
+            return Output.Fail("error: <post-id> is empty or blank; nothing was sent.", ExitCode.Usage);
 
         var postId = args.Positional[0];
 
