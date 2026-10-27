@@ -79,6 +79,23 @@ public sealed class WithheldPostReadTests(ForumFixture forum) : IClassFixture<Fo
     }
 
     /// <summary>
+    /// PH2b. R9.42, R10.36: an automated detector's quarantine record, built here and appended to the store (R10.59's writer writes only human records),
+    /// is answered as the human one is: <c>curia/posts/withheld</c>. The control is the sibling post, served.
+    /// </summary>
+    [Fact]
+    public async Task R9_42_AnAutomatedQuarantineIsAnsweredAsAHumanOneIs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
+        await forum.QuarantineAsAutomatedAsync(scene.Answer1.PostId, scene.Answer1.Digest, ct);
+
+        await AssertWithheldAsync(scene.Answer1.PostId, ct);
+
+        var (control, controlBody, _) = await GetAsync(scene.Answer2.PostId, ct);
+        Assert.True(control == HttpStatusCode.OK, controlBody);
+    }
+
+    /// <summary>
     /// PH3. R9.42: the state is read from the log on the request. Withhold: not served; restore: <c>200</c> and the post; withhold again: not served
     /// again. The type of the refusal is PH1's; this fact is about the state being live, so it asserts the status and the id.
     /// </summary>

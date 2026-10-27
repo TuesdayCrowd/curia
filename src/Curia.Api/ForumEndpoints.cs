@@ -1278,18 +1278,20 @@ public static class ForumEndpoints
         var posts = PostProjector.Fold(log);
         var post = posts.FirstOrDefault(p => p.PostId == postId && servable(p.PostId) && ServedToReaders(p));
 
-        // A withheld post reports "no such post" rather than "withheld". R10.37 records the action
-        // in the log where a moderator and an appeal (R10.38) can see it; this path does not
-        // advertise it. That is a convention rather than a control: the board listing serves every
-        // servable post's id anonymously, so the withheld set is the difference of two listings, and
-        // R10.40 already commits the Forum to publishing affected digests on a confirmed campaign.
-        // The batch route (R9.10) says "withheld" outright, for the reasons errata G7 records: the
-        // requirement names moderation as one of the three things it exists to report, a withholding
-        // is an adjudicated outcome and G3 permits disclosing outcomes, and the batch adds convenience
-        // rather than capability. No ETag on a 404, either: a withheld post has changed in the one
-        // way a post can, and a validator on the refusal would say otherwise.
+        // R9.42 (errata G41): a post that exists and is not served is answered "withheld", and an id no post bears
+        // "not-found". The concealment this replaced bought nothing: the batch route (R9.10), the thread, a flag
+        // and a reply each disclosed what it hid, and it cost an honest reader the difference between a typo and a
+        // decision. Existence is the log's (the fold already run), servability is moderation's (the same fold's
+        // `servable`), so there is no second read; a signal kind is no post a reader is served and keeps
+        // not-found, so the new type cannot say that a vote exists. The body holds the id and fixed words, never
+        // anything an author wrote. No ETag on either 404: a withheld post has changed in the one way a post can.
         if (post is null)
-            return Results.NotFound(new Problem(ParentErrors.PostNotFoundType, "No such post", postId));
+        {
+            var exists = posts.Any(p => p.PostId == postId && ServedToReaders(p));
+            return exists
+                ? Results.NotFound(new Problem(ParentErrors.PostWithheldType, "This post is not being served", postId))
+                : Results.NotFound(new Problem(ParentErrors.PostNotFoundType, "No such post", postId));
+        }
 
         // R9.11 (rev., errata G6): the validator is a hash of the bytes served, not the content
         // digest. The envelope's owner_verified, verification_level and accepted members change

@@ -139,6 +139,42 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>Restores a post that was withheld or quarantined in the spam category, through the same writer.</summary>
     internal Task RestoreAsync(string postId, CancellationToken ct) => ModerateAsync(postId, ModerationEffect.Restore, ct);
 
+    /// <summary>
+    /// Appends an automated detector's quarantine record for a post straight to the event store (R10.60: it names no flag). R10.59's writer writes
+    /// only human records, so this is the one way to put R10.36's automated quarantine in the log; the Forum must treat it as it treats a human one.
+    /// </summary>
+    internal async Task QuarantineAsAutomatedAsync(string postId, string digest, CancellationToken ct)
+    {
+        static T Require<T>(Result<T> result) =>
+            result.Match(v => v, e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+
+        var store = Services.GetRequiredService<IEventStore>();
+        var aggregate = Require(AggregateId.Create(postId));
+        var existing = Require(await store.ReadAllAsync(ct)).Count(e => e.AggregateId == aggregate);
+        var actor = Require(ActorId.Create("automated:detector"));
+        var payload = new JsonValue.Object(
+        [
+            new(FlagProjector.PostIdField, new JsonValue.String(postId)),
+            new(FlagProjector.DigestField, new JsonValue.String(digest)),
+            new(FlagProjector.ModeratorField, new JsonValue.String(ModeratorKinds.Wire(ModeratorKind.Automated))),
+            new(FlagProjector.ActorIdField, new JsonValue.String(actor.Value)),
+            new(FlagProjector.EffectField, new JsonValue.String(ModerationEffects.Wire(ModerationEffect.Quarantine))),
+            new(FlagProjector.CategoryField, new JsonValue.String(FlagKinds.Wire(FlagKind.Injection))),
+            new(FlagProjector.RationaleField, new JsonValue.String("Detector score above threshold.")),
+            new(FlagProjector.AdjudicatesField, new JsonValue.Array([])),
+        ]);
+
+        Require(await store.AppendAsync(
+            aggregate,
+            Require(AggregateVersion.From(existing)),
+            [new DomainEvent(
+                Require(EventId.Create(Require(new UlidGenerator(Clock).Next()).ToString())),
+                Require(EventType.Create(FlagProjector.ModerationAppliedType)),
+                actor,
+                payload)],
+            ct));
+    }
+
     private async Task ModerateAsync(string postId, ModerationEffect effect, CancellationToken ct)
     {
         using var scope = Services.CreateScope();
