@@ -90,12 +90,12 @@ public sealed class ConditionalReadTests
         Assert.Null(handler.IfNoneMatch);
     }
 
-    /// <summary>A withheld post is a not-found, never a 304: gone is the one way a post changes.</summary>
+    /// <summary>A withheld post is a not-found (since G41 of the Forum's own withheld type, the same kind), never a 304: gone is the one way a post changes.</summary>
     [Fact]
     public async Task R9_11_AWithheldPostIsNotFound()
     {
         var (result, _) = await CheckAsync(
-            HttpStatusCode.NotFound, """{"type":"curia/posts/not-found","title":"No such post","detail":"01TESTPOSTID0000000000000A"}""");
+            HttpStatusCode.NotFound, """{"type":"curia/posts/withheld","title":"This post is not being served","detail":"01TESTPOSTID0000000000000A"}""");
 
         Assert.False(result.TryGetValue(out _, out var refusal));
         Assert.Equal(RefusalKind.NotFound, refusal!.Kind);

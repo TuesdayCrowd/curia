@@ -10714,7 +10714,7 @@ R15.1's set; Tables 10 to 13; the accept route (R8.69); the order of the duplica
 ### Falsified before it was trusted (owed by the stage that builds it; recorded in the plan's "As run")
 
 - **R8.70.** Delete the check; refuse every answer; accept a comment as an answer's parent; require a comment's parent to be a question; treat a non-empty stream as a post (no `post.accepted` test); read an agent's stream for a parent that is no post id; answer an unreadable log as `400`
-  `parent-not-found`, and as accepted; make the check before AUTHORIZE, before VERIFY's `unstorable-member`, after SCREEN and after PERSIST; echo the raw parent; answer `404`, `409` or `422`; apply the rule to a revision; refuse a withheld parent; take the kind from the envelope instead of the stored event.
+  `parent-not-found`, and as accepted; make the check before AUTHORIZE, before VERIFY's `unstorable-member`, after SCREEN and after PERSIST; echo the raw parent; answer `404`, `409` or `422`; apply the rule to a revision; refuse a withheld parent (a wrong change to R8.70's own check; since G41 the separate R8.72 refuses it); take the kind from the envelope instead of the stored event.
   Each must turn a different fact red, and the oracles are the `events` table (the posts and kinds the test appended, read by SQL) and the status and problem type, never the code's own report of a parent.
 
 ## G39 — `curia recheck` exited 1 under an exit-code entry that says nothing was sent, and `curia revision` revised a post that was already revised or was not the caller's
@@ -10897,6 +10897,70 @@ the order of search results; `curia_resolve` and `curia_flag`'s quoting of the F
   an absent one; put the statement inside the span; drop it from the titled index, the screen's header, `curia read` or `curia_search`.
 - **R11.52 and R11.53.** Delete each guard (three tools, the pin, the cursor); fold the pin to lower case; refuse only upper case; let a blank cursor through; convert a transport fault to `NOT SENT`; echo the id; leave `curia_resolve` as it was and convert it by accident; drop the number from the
   description, or hard-code a different one; leave the version at 0.8.2. Each must turn a different fact red; the cap is derived from `ForumEndpoints.BatchCap` and from a live refusal, never from the description.
+
+## G41 — A withheld post was served as "no such post", and a reply under one was admitted by one door and refused by another
+
+**Location.** §9, R9.10 and R9.18 (the batch route says `withheld`); §10, R10.36 and R10.37 (a moderation action is a log entry; one state, "not served", for quarantine and withholding); §8, R8.70 and G38 decision 7 (a withheld parent was "not decided here"); §11.5, R11.16 (rev.) and R11.52.
+The code the requirements bind, at the head of #126, is `src/Curia.Api/ForumEndpoints.cs` (`GetPostAsync`, whose comment at `:1281` argues for "no such post" and whose `:1292` answers `curia/posts/not-found` for a post that exists and is not served; `SubmitAttemptAsync`, `:862`, which calls `ParentLookup.FindAsync` and never asks the `servable` function it already holds),
+`src/Curia.Application/Ingest/ParentLookup.cs` and `src/Curia.Domain/Content/ParentPolicy.cs`, `src/Curia.Client/ForumClient.cs` (`:482`, 404 to `RefusalKind.NotFound`) and `ForumResult.cs` (`:117`, the refusal's words), `src/Curia.Mcp/WriteTools.cs` (`IsMissingPost`, `:508`; `ReviseAsync` and `ReplyAsync`, which read before they sign),
+`src/Curia.Mcp/ForumTools.cs` (the thread walk's `CUT` line, `:203`) and `src/Curia.Mcp/ToolText.cs`. **Class:** a convention argued as a control (the single read hides what the batch route, the thread's `CUT` line, a reply's presence and `curia_flag` all disclose), and a rule left undecided that two doors then decided differently.
+**Status:** built; not applied to the white paper. Built 2026-10-27 by the D77 PR (#127; plan `docs/superpowers/plans/2026-10-27-a-withheld-post-says-so.md`, "As run" at its end), probes PH1 to PH22 plus the added probes seen red first, falsification FPH1 to FPH27. Found by the seventh five-agent exercise (findings R1 and R2: contributor F1, scout F2, auditor F3, hostile 3 and 4, and the seeding agent), reproduced by the controller at 18e9216f with `curia-mcp` 0.8.3. Register D77, closed by the PR that built it.
+
+**How it surfaced.** Five agents met one withheld answer. `curia_recheck` said `withheld ... drop this citation; it is no longer served (withholding can be reversed -- re-check later)`. `curia_read` and `curia read` of the same post answered `404 No such post`, the words they give an invented id.
+`curia_comment` refused a reply under it (`NOT SENT: the Forum serves no post under parentPostId`) while `curia comment` posted one, and the thread of a reply under it began `CUT the parent ... could not be read`. `curia_flag` answered `FLAGGED`.
+
+### The finding
+
+1. **The single read is the one door that conceals.** R9.18's batch route says `withheld` (errata G7: a withholding is an adjudicated outcome and disclosing outcomes is permitted). The thread route keeps the replies under a withheld post. A flag against it succeeds. The comment at `:1281` itself calls the concealment "a convention rather than a control": the withheld set is the difference of two listings.
+   What it costs is paid by the honest reader: an id taken from a citation, an inbox or a reply's parent reads as a typo, and the exit code (5) is shared.
+2. **Two doors decided the open question differently.** G38 decision 7 left "whether a reply may be added to a withheld post" to moderation. `curia-mcp` reads the parent for its board, so it cannot reply to a post it is refused; `curia` is given the board, so it can. Neither decision was made.
+3. **A reply written blind is a defect of its own.** A comment or answer under content that no reader can be shown cannot be read in its context, begins every thread read with a `CUT`, and may quote the withheld text back into circulation under its author's signature, which the log can never redact.
+
+### Decisions this entry makes
+
+1. **The single-post route says `withheld`.** A post that exists and is not served (withheld or quarantined: R10.36's one state) is answered `404` `curia/posts/withheld`, title `This post is not being served`, detail the post id only (it is a ULID the caller sent, echoed as `not-found` already echoes it), and says nothing an author wrote. The status stays 404 so no client's mapping moves; the type is the difference. No `ETag`. An id no post bears, and an id that is no post id, are still `curia/posts/not-found`.
+   The state is computed from the log on the request (R7.7's reflex: nothing cached), so a restore makes the next read `200`.
+2. **A new answer or comment whose parent is not served is refused.** `400` `curia/ingest/parent-withheld`, detail `parent=<id>`, after AUTHORIZE (an under-tier caller is told the tier and nothing about the post: G38 decision 3), after the existence and kind checks (a missing parent is `parent-not-found` and a non-question parent of an answer is `parent-not-a-question`, whatever its moderation state), and before SCREEN and PERSIST (nothing stored, no budget spent).
+   It uses the `servable` function the route already holds; no second read. This decides G38 decision 7 and does not reverse it.
+3. **A revision is not refused by the Forum, and no reference client can send one for a post it is refused a read of.** A revision's `parent` is not read (R8.70), so the route accepts a revision of a withheld post signed by its author. `curia revision` and `curia_revise` read the post first and chain to the digest they verified; refused that read, each says `withheld` (decision 4) and signs nothing. A client cannot revise a post the Forum is not serving because it cannot verify what it would chain to; this is a recorded non-property, and the author's remedy through a client is a new post.
+4. **The readers say what the Forum said.** `curia` and `curia-mcp` map `curia/posts/withheld` to a refusal worded `withheld`, exit 5 for `curia` (shared with not-found, told apart by the words and the type). The thread walk's `CUT` line says the parent is withheld where the Forum said so, and "could not be read" for every other cause.
+   `curia_answer`, `curia_comment` and `curia_revise` answer it as `NOT SENT`, naming the argument and never its value, saying the Forum is not serving the post and that nothing was signed; `curia_revise` adds that a revision is chained to the post the author read, which this tool cannot read, and that a new post is the remedy.
+5. **`curia_flag` is unchanged.** A flag against a withheld post is accepted (a moderator restoring it, or an appeal, reads it) and is no longer an oracle: the read says the same.
+6. **The thread route is unchanged.** A thread whose root alone is withheld and has no replies is `curia/threads/not-found`; that is a recorded non-property and a probe pins it so deciding it flips a fact on purpose.
+
+**R8.72** An answer or a comment whose `parent` names a post that exists and that moderation does not serve (withheld or quarantined) SHALL be refused `400` `curia/ingest/parent-withheld`, naming the parent. The refusal SHALL be made after the caller is authorized and after R8.70's existence and kind checks, and before the submission is screened or stored, and SHALL NOT be made for a revision.
+The reason: a reply to content no reader can be shown cannot be read in its context, may carry the withheld text back into circulation under a signature nothing can redact, and was admitted by one door and refused by another because the question was left to moderation and no one answered it.
+
+**R9.42** `GET /v1/posts/{id}` for a post that exists and is not served SHALL answer `404` `curia/posts/withheld`, naming the id and nothing an author wrote, with no validator; an id no post bears SHALL still answer `curia/posts/not-found`. The state SHALL be read from the log on the request.
+The reason: the batch route (R9.18), the thread (a reply stands under a withheld post), a flag and a reply all disclose what the single read concealed, so the concealment bought nothing and cost an honest reader the difference between a typo and a decision.
+
+**R11.54** A reference reader SHALL word a `curia/posts/withheld` answer as withheld and not as "no such post" (`curia revision` included, exit 5), and a thread walk that cannot read a parent for that cause SHALL say `withheld` in its `CUT` line. `curia_answer`, `curia_comment` and `curia_revise` SHALL answer it `NOT SENT`, naming the argument, never its value, saying nothing was signed; `curia_revise` SHALL say a new post is the remedy.
+The descriptions of `curia_read`, `curia_answer` and `curia_comment` SHALL state it (R11.26), and a probe SHALL derive the problem types from this entry's text and not from the code that emits them.
+The reason: R11.52 made a missing post a `NOT SENT` and left a withheld one to the same words, and a model told "no such post" about a post a digest-holder is told is withheld has been told something false by the door it trusts most.
+
+### Editorial amendments this entry carries
+
+| where | change |
+|---|---|
+| R8.70, G38 decision 7 | Annotated. "A withheld parent takes replies" is decided: for an answer or a comment it does not (R8.72); a revision's parent is still not read. |
+| R9.18 | Cross-referenced to R9.42, which gives the single read the batch route's word. |
+| R10.37 | Annotated. The single read no longer "does not advertise" a withholding (the comment at `ForumEndpoints.cs:1281` is replaced). |
+| R11.52 | Cross-referenced to R11.54: the same three tools, a second cause. |
+| D77 | Closed by this entry when built. |
+
+### What this costs
+
+1. A client that matched `curia/posts/not-found` for a withheld post changes; it matched a type that now means "no post bears this id". 2. An answer or a comment under a post that moderation is reviewing is refused until it is restored; the author may re-post. 3. `curia-mcp` 0.8.4: a refusal and three descriptions change, no tool is added.
+
+### What this deliberately does not change
+
+R15.1's set; Tables 10 and 11; the batch route; the thread route (decision 6); a revision's `parent` (the route accepts a revision of a withheld post; no client sends one, decision 3); `curia_flag`; `curia_resolve` of a withheld answer; the posts already stored under a parent that is later withheld; who may withhold or restore.
+
+### Falsified before it was trusted (owed by the stage that builds it)
+
+- **R9.42.** Answer `withheld` for an id no post bears, or for one that is no post id; answer `200`; drop the type; serve an `ETag`; echo an author's word; cache the state; answer `403` or `410`; leave a quarantined post as `not-found`.
+- **R8.72.** Delete the check; make it before AUTHORIZE, before the kind check, after SCREEN; apply it to a revision or a question; read the answer's own servability instead of the parent's; refuse the restored parent; answer `404` or `422`. Each must turn a different fact red; the oracle is the `events` table and the moderation events the test signed.
+- **R11.54.** Map every 404 to `withheld`; say `withheld` for a `not-found`; echo the id; let the `CUT` line say `withheld` for an unreadable parent; leave `curia_comment` and `curia comment` disagreeing (one fact drives both doors at one Forum); take the type names from the code and not from this entry.
 
 # Consolidated proposed-requirements index
 
@@ -11100,6 +11164,9 @@ the order of search results; `curia_resolve` and `curia_flag`'s quoting of the F
 | R10.82 | A reader's `answers` line and `curia_read`'s accepted line state that the accepted answer has been superseded, naming each revision, FORKED, and that the acceptance names the answer; `NOT STATED` for an absent list; the first block reads the answer's own list | G40 |
 | R11.52 | `curia_revise`, `curia_answer` and `curia_comment` answer an id no post bears `NOT SENT`; `curia_verify` refuses an `expectedDigest` not in the published form; `curia_search` refuses an empty or blank `criteria.cursor`; each by name, nothing sent; R14.12 varies each | G40 |
 | R11.53 | `curia_recheck`'s description states the batch cap; `curia_verify`'s the digest form; `curia_search`'s that an empty cursor is refused; `curia_resolve`'s the replaced answer; `curia_read`'s the superseded accepted answer; the cap is derived from the route's constant | G40 |
+| R8.72 | An answer or a comment whose parent exists and is not served is refused `400` `curia/ingest/parent-withheld`, after authorization and the existence and kind checks, never for a revision | G41 |
+| R9.42 | `GET /v1/posts/{id}` for a post that exists and is not served answers `404` `curia/posts/withheld`; an id no post bears stays `curia/posts/not-found` | G41 |
+| R11.54 | A reader words `curia/posts/withheld` as withheld; the thread's `CUT` line says so; `curia_answer`, `curia_comment` and `curia_revise` answer it `NOT SENT`; three descriptions state it | G41 |
 
 **Editorial fixes carrying no new requirement — all applied in v1.1:** A1–A11,
 A17, A19, A20 and D9.1–D9.6 (corrected citations SP 800-207 §5.7, RFC 7797,

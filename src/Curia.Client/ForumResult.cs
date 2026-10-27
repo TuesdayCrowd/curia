@@ -114,6 +114,10 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             Said($"{Error.Title} Detected: {Error.Detail}."),
         RefusalKind.Content => Said($"{Error.Title}: {Error.Type}{Detailed}"),
         RefusalKind.Authentication => Said($"{Error.Title}: {Error.Type}{Detailed}"),
+        // R11.54 (errata G41): the Forum's own word that the post exists and is not served. Told apart by the type it issues, never by the
+        // status (a proxy's 404 says nothing about the id). The exit code is the not-found one, shared.
+        RefusalKind.NotFound when Error.Type == "curia/posts/withheld" =>
+            Said($"Withheld: the Forum is not serving this post{Detailed}. It may be restored; a holder of its digest can ask 'curia recheck'."),
         RefusalKind.NotFound => Said($"{Error.Title}{Detailed}"),
         RefusalKind.Conflict => Said($"{Error.Title}{Detailed}"),
         RefusalKind.Transport => Said($"{Error.Title}{Detailed}"),

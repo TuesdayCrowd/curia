@@ -131,6 +131,7 @@ internal sealed partial class ForumTools(
         // id, so the walk is this adapter's. Ancestors are kept for their Parent alone; nothing is rendered from them.
         var top = post!;
         string? unreadableParent = null;
+        var parentWithheld = false;
         var repeats = false;
         var visited = new HashSet<string>(StringComparer.Ordinal) { top.PostId };
         var steps = 0;
@@ -138,9 +139,12 @@ internal sealed partial class ForumTools(
         {
             steps++;
             var up = await _forum.GetPostAsync(parent, _marking, cancellationToken).ConfigureAwait(false);
-            if (!up.TryGetValue(out var ancestor, out _))
+            if (!up.TryGetValue(out var ancestor, out var upRefusal))
             {
                 unreadableParent = parent;
+
+                // R11.54: only the Forum's own curia/posts/withheld makes the line say withheld; every other cause stays "could not be read".
+                parentWithheld = IsWithheldPost(upRefusal!);
                 break;
             }
 
@@ -200,7 +204,7 @@ internal sealed partial class ForumTools(
         }
 
         if (unreadableParent is not null)
-            frame.Line($"CUT the parent {unreadableParent} of post {top.PostId} could not be read, so the thread shown begins at {top.PostId} and is not the whole thread");
+            frame.Line($"CUT the parent {unreadableParent} of post {top.PostId} {(parentWithheld ? "is withheld" : "could not be read")}, so the thread shown begins at {top.PostId} and is not the whole thread");
         else if (repeats)
             frame.Line($"CUT the parent chain repeats at a post already read, so it has no root; the thread shown begins at {top.PostId} and is not the whole thread");
         else if (cutAt is not null)

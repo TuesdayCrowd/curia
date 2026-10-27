@@ -109,7 +109,9 @@ internal sealed partial class ForumTools
 
         var original = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!original.TryGetValue(out var post, out var refusal))
-            return IsMissingPost(refusal!) ? MissingPostResult(nameof(postId)) : throw Refused(refusal!);
+            return IsMissingPost(refusal!) ? MissingPostResult(nameof(postId))
+                : IsWithheldPost(refusal!) ? WithheldPostResult(nameof(postId), revising: true)
+                : throw Refused(refusal!);
 
         // The same rule `curia revision` applies (Program.RevisedDigestAsync), the span check included: a revision of a post that
         // does not verify is a signed claim chained to nothing the author saw.
@@ -191,7 +193,9 @@ internal sealed partial class ForumTools
 
         var parent = await _forum.GetPostAsync(parentPostId, _marking, cancellationToken).ConfigureAwait(false);
         if (!parent.TryGetValue(out var post, out var refusal))
-            return IsMissingPost(refusal!) ? MissingPostResult(nameof(parentPostId)) : throw Refused(refusal!);
+            return IsMissingPost(refusal!) ? MissingPostResult(nameof(parentPostId))
+                : IsWithheldPost(refusal!) ? WithheldPostResult(nameof(parentPostId), revising: false)
+                : throw Refused(refusal!);
 
         var draft = new PostDraft
         {
@@ -498,15 +502,12 @@ internal sealed partial class ForumTools
     private static CallToolResult NotSentResult(Error error) =>
         new() { IsError = true, Content = [new TextContentBlock { Text = NotSent(error) }] };
 
-    /// <summary>The problem type the Forum's single-post route serves for an id no post bears (<c>ForumEndpoints</c>).</summary>
-    private const string PostNotFoundType = "curia/posts/not-found";
-
     /// <summary>
     /// R11.52: whether a refused read is the Forum saying it serves no post under the id. A 404 alone is not: a proxy's, or a wrong address's,
     /// says nothing about the id, so the problem document must be the Forum's own post-not-found type. Every other refusal is a failure of the Forum.
     /// </summary>
     private static bool IsMissingPost(Refusal refusal) =>
-        refusal.Kind is RefusalKind.NotFound && string.Equals(refusal.Error.Type, PostNotFoundType, StringComparison.Ordinal);
+        refusal.Kind is RefusalKind.NotFound && string.Equals(refusal.Error.Type, ParentErrors.PostNotFoundType, StringComparison.Ordinal);
 
     /// <summary>
     /// R11.52 (errata G40): the result of a read the Forum answered with its post-not-found, as the guards give a refusal: <c>isError</c>,
@@ -517,6 +518,34 @@ internal sealed partial class ForumTools
         {
             IsError = true,
             Content = [new TextContentBlock { Text = $"NOT SENT: the Forum serves no post under {argument}. Nothing was signed." }],
+        };
+
+    /// <summary>
+    /// R11.54 (errata G41): whether a refused read is the Forum saying the post exists and is not being served, in its own problem type.
+    /// A 404 alone is not: a proxy's, or a wrong address's, says nothing about the id, as R11.52 holds.
+    /// </summary>
+    internal static bool IsWithheldPost(Refusal refusal) =>
+        refusal.Kind is RefusalKind.NotFound && string.Equals(refusal.Error.Type, ParentErrors.PostWithheldType, StringComparison.Ordinal);
+
+    /// <summary>
+    /// R11.54: the result of a read the Forum answered <c>curia/posts/withheld</c>: <c>isError</c>, beginning <c>NOT SENT</c>, naming
+    /// <paramref name="argument"/> and never its value, saying the Forum is not serving the post and that nothing was signed. A revision adds
+    /// that it is chained to a post the author read, which this tool is refused, and that a new post is the remedy.
+    /// </summary>
+    internal static CallToolResult WithheldPostResult(string argument, bool revising) =>
+        new()
+        {
+            IsError = true,
+            Content =
+            [
+                new TextContentBlock
+                {
+                    Text = $"NOT SENT: the post under {argument} is withheld, so the Forum is not serving it. Nothing was signed."
+                        + (revising
+                            ? " A revision is chained to the post its author read and verified, which this tool is refused; a new post is the remedy."
+                            : string.Empty),
+                },
+            ],
         };
 
     private static CallToolResult Said(string text) => new() { Content = [new TextContentBlock { Text = text }] };
