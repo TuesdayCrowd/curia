@@ -113,7 +113,7 @@ public sealed partial class WithheldDoorsAgreeEndToEndTests(KestrelForumFixture 
 
     /// <summary>
     /// PH19. Every door that names the withheld post by id says withheld, and the command exits 5: <c>curia read</c>, <c>curia_read</c>,
-    /// <c>curia_verify</c> and <c>curia_revise</c>. The control, <c>curia read</c> of the served question, exits 0.
+    /// <c>curia_verify</c>, <c>curia_revise</c> and <c>curia revision</c> (which signs nothing). The control, <c>curia read</c> of the served question, exits 0.
     /// </summary>
     [Fact]
     public async Task G41_AllIdBasedDoorsSayWithheld()
@@ -125,6 +125,16 @@ public sealed partial class WithheldDoorsAgreeEndToEndTests(KestrelForumFixture 
         var read = await CuriaAsync("read", scene.Withheld, "--forum", Address);
         Assert.Equal(5, read.Exit);
         Assert.Contains("ithheld", read.Stdout + read.Stderr, StringComparison.Ordinal);
+
+        // curia revision reads and verifies the post it would chain to, so it is refused that read: withheld, exit 5, nothing signed (ruling 1).
+        var before = await LogLengthAsync();
+        var revision = await CuriaAsync(
+            "revision", "--agent", scene.Author, "--board", scene.Board, "--parent", scene.Withheld, "--title", "A corrected question", "--body", "A corrected body.", "--forum", Address);
+        Assert.Equal(5, revision.Exit);
+
+        // The second line of a refusal spells the problem type, which holds "withheld" whatever the words say; the words are the first line.
+        Assert.Contains("ithheld", revision.Stderr.Split('\n')[0], StringComparison.Ordinal);
+        Assert.Equal(before, await LogLengthAsync());
 
         await using var mcp = await SessionAsync(scene.Author);
         foreach (var (tool, arguments) in new (string, Dictionary<string, object?>)[]

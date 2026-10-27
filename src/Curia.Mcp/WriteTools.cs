@@ -522,9 +522,10 @@ internal sealed partial class ForumTools
 
     /// <summary>
     /// R11.54 (errata G41): whether a refused read is the Forum saying the post exists and is not being served, in its own problem type.
-    /// Seam: always false until the Forum answers it (a stub or a proxy's 404 says nothing about the id, as R11.52 holds).
+    /// A 404 alone is not: a proxy's, or a wrong address's, says nothing about the id, as R11.52 holds.
     /// </summary>
-    private static bool IsWithheldPost(Refusal refusal) => false;
+    internal static bool IsWithheldPost(Refusal refusal) =>
+        refusal.Kind is RefusalKind.NotFound && string.Equals(refusal.Error.Type, ParentErrors.PostWithheldType, StringComparison.Ordinal);
 
     /// <summary>
     /// R11.54: the result of a read the Forum answered <c>curia/posts/withheld</c>: <c>isError</c>, beginning <c>NOT SENT</c>, naming

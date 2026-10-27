@@ -93,7 +93,9 @@ internal static class ToolText
         "thread the post belongs to, not the post alone.\n\n" +
         "The first block is the adapter's own, not a passage: it names the thread's root, or, when an " +
         "ancestor could not be read, says where the shown thread begins and that it is not the whole " +
-        "thread, or says the thread could not be read and the post alone is shown.\n\n" +
+        "thread, or says the thread could not be read and the post alone is shown. " +
+        "A post the Forum says is withheld exists and the Forum is not serving it (it may be restored), which is not the same as a post that does not exist: " +
+        "the refusal says which, and a cut line says the parent is withheld only where the Forum said so.\n\n" +
         "When it names the root, the line after it says which post of the thread the Forum serves as accepted " +
         "(the asker's choice, which checks nothing about the answer), or 'accepted none'; where the shown thread " +
         "is cut or was not read it says nothing of this, because the accepted answer may be above what is shown. " +
@@ -243,6 +245,10 @@ internal static class ToolText
     /// <summary>Table 12's rank for an answer with no <c>refs</c>; said of an answer only, because a comment is not ranked that way.</summary>
     private const string UnreferencedAnswerSentence = " An answer with no references is ranked as an opinion.";
 
+    /// <summary>R11.54 (errata G41): a parent the Forum is not serving is a refusal the tool reports before it signs anything.</summary>
+    private const string WithheldParentSentence =
+        "A parent the Forum says is withheld is NOT SENT: the Forum is not serving it, nothing is signed, and the post may be restored, after which the same call can be made.";
+
     /// <summary>
     /// R11.17's <c>curia_answer</c>. The board is taken from the question rather than asked for:
     /// a model copying a board name from one result into another call is a model that can misplace
@@ -255,7 +261,8 @@ internal static class ToolText
         "asking you for. The parent must be a question: the id of a comment or of another answer is not " +
         "a question's id, and an answer under any post that is not a question is refused. " + RefsSentence + UnreferencedAnswerSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
-        "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind.\n\n" +
+        "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
+        WithheldParentSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
@@ -269,7 +276,8 @@ internal static class ToolText
         "parent's own board, which this tool reads from the parent rather than asking you for. A comment " +
         "is not an answer: it has no title and no code, and it can never be accepted as one. " +
         RefsSentence + " " + SignedAndPermanent + "\n\n" +
-        "If the Forum refuses, the refusal names its cause, and retrying will not change it.\n\n" +
+        "If the Forum refuses, the refusal names its cause, and retrying will not change it. " +
+        WithheldParentSentence + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>
