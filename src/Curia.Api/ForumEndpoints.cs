@@ -260,8 +260,8 @@ public sealed record BatchItemResponse(
     [property: JsonPropertyName("post")] PostResponse? Post,
 
     /// <summary>
-    /// SEAM (PR 2, Task 0): R9.43's <c>fork</c>, the other successors of the original this item's post revises. Present on an item that
-    /// carries a post, and left out of one that carries none (a CLR null is omitted). Until Task 1 it is always <c>[]</c>.
+    /// R9.43's <c>fork</c>: the other successors of the original this item's post revises, <c>[]</c> where the post is not a fork branch.
+    /// Present on an item that carries a post, and left out of one that carries none (a CLR null is omitted).
     /// </summary>
     [property: JsonPropertyName("fork")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
