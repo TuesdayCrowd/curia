@@ -194,6 +194,15 @@ public static class ClientErrors
         tag);
 
     /// <summary>
+    /// R11.57 (errata G43): an identifier or a search criterion that holds U+0000 or an unpaired surrogate, which no URL path can
+    /// carry. The detail names the argument and the reason (<paramref name="why"/> is the boundary rule's type, <c>curia/input/nul</c> or <c>curia/input/unpaired-surrogate</c>), never the value. A seam of Task 0: nothing calls it until the rule is built.
+    /// </summary>
+    public static Error IdentifierUnstorable(string argument, string why) => new(
+        "curia/client/identifier-unstorable",
+        "An identifier holds a character no identifier can carry; nothing was sent",
+        $"{argument}: {why}");
+
+    /// <summary>
     /// R6.53 (add.): the retained head's lock was not taken -- held elsewhere past the wait, file
     /// locking switched off, or the lock file unusable. Nothing was compared and nothing written.
     /// </summary>

@@ -22,6 +22,17 @@ internal static class ArgumentGuards
     }
 
     /// <summary>
+    /// R11.57 (errata G43): an identifier, or a search criterion, that reaches a path or a query holds neither U+0000 nor an unpaired
+    /// surrogate. A seam of Task 0: it refuses nothing until the rule is built, so every probe of the rule fails by assertion.
+    /// </summary>
+    internal static CallToolResult? StorableIdentifier(string? value, string argument)
+    {
+        _ = value;
+        _ = argument;
+        return null;
+    }
+
+    /// <summary>
     /// R11.45: an optional value that is present is not blank. Absent (null) is the argument not given and is no refusal; an
     /// empty or whitespace string is a value the model meant and the tool cannot honour, so it is refused rather than read as
     /// no filter or no pin (D68).

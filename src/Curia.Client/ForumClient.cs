@@ -200,6 +200,18 @@ public sealed class ForumClient
                 || tag.Contains(',', StringComparison.Ordinal)
                 || !string.Equals(tag, tag.Trim(), StringComparison.Ordinal));
 
+    /// <summary>
+    /// R11.57 (errata G43): a refusal for an identifier or a search criterion that holds U+0000 or an unpaired surrogate, or null.
+    /// A seam of Task 0: it accepts everything until the rule is built and is called by no method yet, so every probe of the rule
+    /// fails by assertion and not by compile error.
+    /// </summary>
+    internal static Error? UnstorableIdentifier(string? value, string argument)
+    {
+        _ = value;
+        _ = argument;
+        return null;
+    }
+
     public Task<ForumResult<ImmutableArray<ForumJwk>>> GetJwksAsync(string agentId, CancellationToken ct) =>
         GetAsync($"/v1/jwks?agent={Uri.EscapeDataString(agentId)}", ForumDocuments.ReadJwks, ct);
 

@@ -18,6 +18,33 @@ namespace Curia.Client.Tests;
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
 public sealed class HelpTextTests
 {
+    /// <summary>
+    /// PJ32, R11.59 (errata G43): the help of <c>ask</c>, <c>answer</c>, <c>comment</c> and <c>revision</c> states what a tag is: not empty, no
+    /// comma, no edge white space, no U+0000, compared without regard to case and in NFC by search while storage does not fold case. The
+    /// phrases are parsed from the errata at test time (<see cref="PublishedSmallWords.TagPhrases"/>), not written here.
+    /// </summary>
+    [Theory]
+    [InlineData("ask")]
+    [InlineData("answer")]
+    [InlineData("comment")]
+    [InlineData("revision")]
+    public void R11_59_TheHelpOfAVerbThatTakesTagsStatesWhatATagIs(string verb)
+    {
+        ArgumentNullException.ThrowIfNull(verb);
+        var entry = Help.For(verb);
+        Assert.NotNull(entry);
+
+        foreach (var phrase in PublishedSmallWords.TagPhrases())
+            Assert.Contains(phrase, entry, StringComparison.Ordinal);
+    }
+
+    /// <summary>PJ37, R11.59: the entry for exit 4 names the act that only the owner of the resource may do, which a higher tier does not change.</summary>
+    [Fact]
+    public void R11_59_ExitFourNamesTheOwnerOnlyAct()
+    {
+        Assert.Contains(PublishedSmallWords.ExitFourPhrase(), ExitCodeEntry(ExitCode.Denied), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void R10_71_ExitCodeSixNamesTheSpanCheck()
     {

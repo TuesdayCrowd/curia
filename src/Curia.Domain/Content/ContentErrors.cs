@@ -33,6 +33,20 @@ public static class ContentErrors
         "Only a revision carries prev",
         PostKinds.Wire(kind));
 
+    /// <summary>
+    /// R8.73 (errata G43): a submission's <c>tags</c> holds a tag the <c>tags</c> filter cannot name (empty, a comma, edge white
+    /// space or U+0000). The detail names the zero-based index of every such tag, <c>tags[1]</c> or <c>tags[0], tags[2]</c>, and
+    /// never a value (R6.40). A seam of Task 0: nothing calls it until the rule is built.
+    /// </summary>
+    public static Error TagUnfilterable(IReadOnlyList<int> indices)
+    {
+        ArgumentNullException.ThrowIfNull(indices);
+        return new(
+            "curia/content/tag-unfilterable",
+            "A tag must be one the tags filter can name: not empty, no comma, no edge white space, no U+0000",
+            string.Join(", ", indices.Select(i => $"tags[{i.ToString(CultureInfo.InvariantCulture)}]")));
+    }
+
     public static Error UnsupportedVersion(int v) => new(
         "curia/content/unsupported-version",
         $"Only envelope schema version {PostEnvelope.CurrentVersion} is supported",
