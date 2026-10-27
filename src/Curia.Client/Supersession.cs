@@ -77,10 +77,17 @@ public static class Supersession
     }
 
     /// <summary>
-    /// SEAM (PR 2, Task 0): R11.55's <c>question</c> line of an accepted answer's receipt, from the question's <c>superseded_by</c> at the read.
-    /// Unused until Task 3; it says nothing.
+    /// R11.55's <c>question</c> line of an accepted answer's receipt, from the question's <c>superseded_by</c> at the read this tool already
+    /// made: superseded (each revision named, FORKED for two or more), <c>none was reported</c>, or <c>NOT STATED</c>. A note and never a
+    /// refusal: answering the original can be right.
     /// </summary>
-    public static OwnText QuestionStanding(ImmutableArray<Successor> list) => new(string.Empty);
+    public static OwnText QuestionStanding(ImmutableArray<Successor> list)
+    {
+        if (list.IsDefault) return new OwnText("NOT STATED (the Forum served no word on whether a revision supersedes the question, as of the read of it before this answer)");
+        if (list.IsEmpty) return new OwnText("none was reported (the Forum's word on the question at the read before this answer; a revision that landed since is not seen)");
+        return new OwnText(
+            $"SUPERSEDED by {list.Length} revision(s) of the question: {Revisions(list).Text} (the Forum's word as of the read before this answer; this answer went to the question as named, which can be right){(list.Length > 1 ? ForkedSentence : string.Empty)}");
+    }
 
     /// <summary>What a verification adds to the statement: whose read it is about, and that a later read may differ (R11.44, ruling 9).</summary>
     private const string AsOfTheRead = " (the Forum's word as of the read this verification is about; read the post again for now)";
