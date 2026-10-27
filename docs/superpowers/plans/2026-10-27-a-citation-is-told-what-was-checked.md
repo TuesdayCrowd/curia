@@ -231,4 +231,69 @@ PR 3 of the seventh exercise's order (RULINGS.md): the small ones (D61 items 24 
 
 ## As run
 
-(Written at Task 8 from the records of Tasks 0 to 7.) Not yet run. The PR is #___, on `main` at ________.
+(Written at Task 8 from the records of Tasks 0 to 7.) The PR is #128, on `main` at 87e48c53 (#127). Errata G42 is built; its Status line says so.
+
+### Task 0: the live part, then the probes
+
+- **The live part ran early**, while #127 was in CI, in a detached worktree at 3ee625ce (#127's head, the unmodified tree for this stage) on the seventh exercise's restored database (99 events at start). Setup needed two restore attempts: the first, with `--no-owner` only, failed on a grant to a role that was absent, and the second, with `--no-privileges`, restored everything; the app role's grants were then applied by hand from `db/0001` to `0005`. The dump was restored, not seeded by hand. The worktree, database and role were removed and the Postgres server was not touched.
+- **Item 1, the lines: predicted equals seen.** The CLI and the MCP block printed identical lines for ten digests: `current ... cite as-is` for the plain post, for SB1 (acceptance switched away), for both fork branches and for the end of a chain, and nothing said an acceptance was lost or that two posts were branches of a fork. SQ3 carried FORKED on its own line alone; RQ1 named its first revision only.
+- **Item 2, the wire: predicted equals seen.** The batch item's keys were exactly `digest, state, successors, forked, post`, with no `fork`. After a withhold the original still listed the withheld branch's digest in `successors` (R9.19) and the CLI printed it `(not served)`.
+- **Item 3, the refusal, three doors: predicted with one deviation.** `curia_answer` to a revision, to a revision of a revision and to a comment were refused (events 101 to 101, 102 to 102), `curia_answer` to the superseded forked question posted with no `question` line, `curia_comment` to a revision posted, and `curia answer --parent <revision>` exited 3 with the Forum's words. The deviation, carried into the probes: **the MCP refusal is a thrown tool error** (`An error occurred invoking 'curia_answer': ...`, `isError`), **not a `REFUSED:` line**, so PI25 and after match the Forum's problem type and `parent=<id> kind=revision`.
+- **Item 4, what a real revision's `parent` holds.** Across all 16 revisions in the log, `parent` was the post id of the immediate predecessor and `prev` that predecessor's digest, and **a chain of depth three (SX1, r1, r2, r3) was produced by the reference tools alone**, so PI29 is an input the system produces and not only a defensive bound. `curia_revise` of r1 after r2 existed was refused `NOT SENT` as R11.47 says.
+- **Item 5, the verified read on the refusal path.** `PassagesAsync` does a JWKS GET per distinct author, a local signature verify, a local span check, and `Remember` unconditionally; the retained head is used only by `PostVerifier`. A verified read measured exactly 2 Forum requests (about 3 ms each), so a walk of up to eight posts is at most 16. It can be made without `Remember` (one line in the shared loop), so decision 7 held and nothing stopped. The reason the skip must be real and have a probe: eight verified reads would otherwise add eight entries and could evict reads the model made (the 256 cap).
+- **Item 6, where `cite as-is` is spelled.** Code: `CitationLines.cs` and `ToolText.cs` (`Help.cs` and `Program.cs` carry the disputed words, which stay). Tests: five `Contains` assertions to move and the `DoesNotContain` ones to keep as controls. History hits only in the register, the errata and an earlier plan; the runbook's line about `disputed` stays true.
+- **Items 7 and 8, the seams and PI1 to PI39** (one commit). A withheld batch item's `post` is null (the key is present), so the rule is `fork` present on an item whose post is an object and absent where it is null. Behaviour-preserving seams (`ForkOf`, `BatchItemResponse.Fork`, `CitationDocument.Fork`, three `Supersession` entries, the pointer method returning null, `PublishedForkWords`), then probes: **23 test cases red on the seams (Api 10, Client 8, Mcp 5), the rest green first and held by named falsification rows**. Changes from the plan are recorded in the report: one-element checks are `Assert.Single` (xUnit2013); the in-process fixture for PI1 to PI13; PI14 asserts the four fragments the erratum names and not a full sentence; and **"says why no post is named" was not asserted**, because the erratum fixes no phrase. That last choice is the one the review corrected, below.
+- **Two Debug test hosts hung during Task 0's fuzz attempt** (`RequestFuzzClosedTests`, about 23 minutes at 0% CPU, and the same on an untouched tree in Debug); **the controller killed them**. The fuzzer was run in Release only from then on, with a ten-minute 0% CPU kill rule.
+
+### Tasks 1 to 5
+
+Task 1 (R9.43) made `ForkOf` go through `For` and `IsCorrection`, so there is no second filter; Task 2 (R10.83, R11.56) wrote `CurrentStanding` and `ForkBranch` in `Supersession` so both readers compose from one definition, with `ReadRevisionList` shared by `superseded_by` and `fork`; Task 3 (R11.55, R11.56) wrote the pointer walk (bound eight, a visited set, verified reads, `remember: false`), the `question` receipt line, the descriptions and `curia-mcp` 0.8.5; Task 4 changed no file (PI38 and PI39 went green on the Task 1 to 3 code); Task 5 moved the existing facts: each `cite as-is` `Contains` became a `Contains` on `no later revision` plus a `DoesNotContain` on `cite as-is`, the 0.8.4 version fact was replaced by the 0.8.5 one, and the stub in `StubLog` serves `fork: []` with a held post, which fixed `StubFidelityTests`. No probe or assertion was loosened. In the Task 5 run the `browse` SIGHUP fact failed (exit 2, not 129) while other suites ran concurrently, passed alone in Debug and Release and passed in the gates: a load flake.
+
+**The review failed spec on one Important finding, and the fault was the controller's.** R11.55's "SHALL say ... why no post is named" was missing: when any step failed, the result was the Forum's refusal alone. Task 0 had skipped the assertion, and **the controller's own ruling during Task 0 had wrongly made the sentence optional ("a nicety")**; the erratum text is a SHALL. Fix round 1 wrote the probe first (`R11_55_AFailedStepSaysWhyNoQuestionIsNamed`, six rows: does not list, does not verify, unreadable, bound, cycle, not a question), **all six seen red** (`Not found: "is a revision; no question is named because"`), then made `RevisedQuestionPointerAsync` always return text, the pointer or "The post you named is a revision; no question is named because <fixed cause>.", with no post id and nothing an author wrote, the Forum's refusal first. The same round made each post verified once (the parent's passage seeds the next step), which closed the review's Minor 2.
+
+The review's other rulings and parked items:
+- A `superseded` line stays silent on `fork NOT STATED`, because R10.83's "the line" is the `current` line; the register's D80 entry says so.
+- Parked minor: `ForkWords` in `CitationLines.cs` partly duplicates `ForkBranch`; its empty branch in `ForkBranch` is reachable only from tests. Not changed.
+- Parked minor: PI25's "answer that one" check is weak (the word also appears in the Forum's own text); it still goes red with the pointer removed.
+
+### Gates
+
+At 87f27b6d, 06:31 to 07:00 CDT on 2026-10-27:
+- Release, 0 warnings. Api 943/943, Client 941, Domain 799, Mcp 570+1, Application 516, Canon 329, Infrastructure 160, AuthN 140, Domain.Primitives 64, Architecture 59 in Release and in Debug, Canon.Sodium 32.
+- The locked restore, `cargo fmt --check`, clippy and `cargo test --locked` pass.
+- Differential: 0 divergence classes.
+- Spec checks clean; the falsifier 4 of 4 red.
+- Conformance clean; the tree unchanged by shasum.
+
+### Falsification: FPI1 to FPI39, 39 of 39 red in the end
+
+Each row was built `--no-incremental` in Release, run on the named classes with `--no-build`, and restored by a plain copy and a touch; a shasum over 782 files (src, tests, errata) was empty before and after, and `git status --porcelain` was empty. Four rows were adapted to the code as built, and the report records how:
+- **FPI4**: the first half (list non-revisions) went red on PI5 only, because PI4's fixture has no non-revision naming a digest; the adapted row gives a post with no `prev` a fork, and PI4 is red.
+- **FPI22**: confirming against any non-empty `superseded_by` is red on PI26; comparing with the Forum-stated digest instead of the recomputed one is not separable in PI26's fixture and is red on PI29's rows and the new why-no-question fact.
+- **FPI25**: with the cycle guard removed the bound still ends a cycle, so PI29's cycle row stayed green and the cycle row of the why-no-question fact went red; a larger bound is red on PI29's nine-hop row.
+- **FPI30**: the answer-under-a-comment variant stayed green (the walk's first step reads nothing for a comment); the adapted row runs the walk for a comment on a revision, and PI34 is red.
+
+Other forced changes of patch text: FPI21 (an unreachable-code analyzer refused `if (false)`) and FPI29 (a redundant-condition analyzer refused the first placement). Tests were never edited.
+- **FPI39 (the controller's)** drops the "no question is named because" sentence and goes red on all six rows of `R11_55_AFailedStepSaysWhyNoQuestionIsNamed`.
+- **FPI38 stayed green on the first run**: the errata's bound changed from eight to nine and nothing compared the code's bound with the published one, because the tests build chains of the errata's bound plus one, which the code's smaller bound still refuses; FPI37 was red on PI29's nine-hop row only. That was a gap, so a fix round added `R11_55_TheWalkBoundInTheCodeIsTheBoundTheErrataPublishes`, which reads the bound from R11.55 and compares it with the code's constant (`WalkBound` became `internal`): **red under FPI38 (Expected 8, Actual 9) and under FPI37 (Expected 9, Actual 8)**, green unpatched. The Mcp suite was then 571 passed, 1 skipped.
+
+### Live: Task 7, the fixed build, 13 of 13 held
+
+Run on a restored copy of the seventh exercise's database (99 events at start), against the Release build, with each item compared to Task 0's record of the unmodified tree:
+- A plain `current` post, SB1, the end of a chain and the revised answer now say `the Forum reports no later revision of this document, which is its standing in the log; no signature and no acceptance was checked here (a standing is not soundness)`; the CLI and MCP lines are identical.
+- Both fork branches say `one of 2 revisions of the same post ... FORKED ... the Forum picks none` and name the other; with one branch withheld, the other names its sibling by digest alone (`not served`), and the withheld branch's own line is `withheld ... drop this citation`.
+- RQ1 names its first revision only, and the CLI help says a hop is one call.
+- The batch items gain `fork` (`[]` for plain posts and the forked original, the sibling for each branch, none on a withheld item).
+- `curia_answer` to a revision and to a revision of a revision were refused with the Forum's words plus the question named (events unchanged).
+- **A live failing pointer step**, made with a hand-signed revision whose `parent` lies, was refused with `no question is named because the Forum's superseded_by of the post it names as its parent does not list this revision` (events unchanged).
+- `curia_answer` to the forked question posted with a `question` line, `SUPERSEDED by 2 revision(s) ... FORKED`; `curia_comment` to a revision posted with no extra line; `curia answer --parent <revision>` exited 3 with the Forum's words and no pointer; `curia verify` of a fork branch exited 0.
+- **The request fuzzer's ledger was empty, 20 of 20 in Release.** The Forum, database and role were removed afterwards.
+
+### Lead
+
+`RequestFuzzClosedTests` hangs at 0% CPU in Debug on the controller's machine, including on an untouched tree; it passes in Release, which CI runs. Recorded under the register's open leads.
+
+### Final
+
+- **Final whole-Api run:** on the finished tree (7baee15b), 943 of 943, 07:59 to 08:26 CDT 2026-10-27.
+- **Final review:** ready to merge; no critical or important findings (`fork` from the one rule; the pointer names only a post whose own `superseded_by` lists the recomputed digest, as a display literal; the walk is bounded, cycle-guarded and remembers nothing; docs match). Minor, parked: "eight posts" counts reads; a thrown (not returned) exception in the walk would replace the Forum's refusal, unlikely as the client returns Results; one extra key-set fetch on the refusal path; `PublishedForkWords` reads the errata by design.
