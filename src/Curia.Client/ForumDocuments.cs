@@ -210,8 +210,7 @@ public sealed record PostCheck(string EntityTag, ProvenancePost? Post)
 /// <param name="Forked">More than one successor: the chain has no unique head, and the Forum did not pick one.</param>
 /// <param name="Post">The post as the single read serves it, for a current or superseded item.</param>
 /// <param name="Fork">
-/// SEAM (PR 2, Task 0): R9.43's <c>fork</c>, the other revisions of the same post. The default array is "not stated", <c>[]</c> is "not a
-/// fork branch". Until Task 2 the reader does not read it, so it is always the default.
+/// R9.43's <c>fork</c>, the other revisions of the same post. The default array is "not stated", <c>[]</c> is "not a fork branch".
 /// </param>
 public sealed record CitationDocument(
     string? Digest,
@@ -649,11 +648,19 @@ internal static class ForumDocuments
     /// answer's (R9.41), so the two are read with one strictness.
     /// </summary>
     private static Result<ImmutableArray<Successor>> ReadSupersededBy(JsonValue.Object holder, string name, string requirement)
+        => ReadRevisionList(holder, "superseded_by", name, requirement);
+
+    /// <summary>
+    /// A list of revisions held under <paramref name="memberName"/> of <paramref name="holder"/>, read with one strictness for
+    /// <c>superseded_by</c> (R9.32, R9.41) and <c>fork</c> (R9.43): absent is <c>default</c>, <c>[]</c> is empty, anything else that is present
+    /// and not a list of <c>{digest, post_id?}</c> is a malformed response.
+    /// </summary>
+    private static Result<ImmutableArray<Successor>> ReadRevisionList(JsonValue.Object holder, string memberName, string name, string requirement)
     {
         var malformed = Result<ImmutableArray<Successor>>.Fail(
             ClientErrors.ResponseMalformed($"{name} is not a list of revisions ({requirement})"));
 
-        if (ClientJson.Member(holder, "superseded_by") is not { } member)
+        if (ClientJson.Member(holder, memberName) is not { } member)
             return Result<ImmutableArray<Successor>>.Ok(default);
 
         if (member is not JsonValue.Array array)
@@ -842,8 +849,11 @@ internal static class ForumDocuments
                 post = parsed;
             }
 
+            if (!ReadRevisionList(item, "fork", "fork", "R9.43").TryGetValue(out var fork, out var forkError))
+                return Result<ImmutableArray<CitationDocument>>.Fail(forkError!);
+
             items.Add(new CitationDocument(
-                ClientJson.String(item, "digest"), state, Strings(item, "successors"), Bool(item, "forked"), post));
+                ClientJson.String(item, "digest"), state, Strings(item, "successors"), Bool(item, "forked"), post, fork));
         }
 
         return Result<ImmutableArray<CitationDocument>>.Ok(items.MoveToImmutable());
