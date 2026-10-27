@@ -73,6 +73,16 @@ public sealed class CorrectionIndex
             .Select(p => new Successor(p.Digest, IsServed(p) ? p.PostId : null))];
     }
 
+    /// <summary>
+    /// SEAM (PR 2, Task 0): R9.43's <c>fork</c>. Behaviour-preserving until Task 1: it answers "not a fork branch" for every post, so a
+    /// probe of the real rule fails by assertion and not by compile error.
+    /// </summary>
+    public ImmutableArray<Successor> ForkOf(PostView post)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+        return [.. _revisionsByPrev[string.Empty].Take(0).Select(p => new Successor(p.Digest, null))];
+    }
+
     private bool IsServed(PostView post) =>
         PostKinds.TryParse(post.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(post.PostId);
 }

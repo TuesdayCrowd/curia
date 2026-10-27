@@ -56,6 +56,24 @@ public static class Supersession
         return new OwnText($"superseded by {Revisions(list).Text} {Basis}{(list.Length > 1 ? ForkedSentence : string.Empty)}");
     }
 
+    /// <summary>
+    /// SEAM (PR 2, Task 0): R10.83's words for a <c>current</c> line, which Task 2 composes from here for <c>curia</c> and <c>curia-mcp</c> alike.
+    /// Unused until then; it says nothing, so no reader's output moves.
+    /// </summary>
+    public static OwnText CurrentStanding() => new(string.Empty);
+
+    /// <summary>
+    /// SEAM (PR 2, Task 0): R10.83's fork-branch words for the other revisions <paramref name="fork"/> lists (N is its length plus one).
+    /// Unused until Task 2; it says nothing.
+    /// </summary>
+    public static OwnText ForkBranch(ImmutableArray<Successor> fork) => new(string.Empty);
+
+    /// <summary>
+    /// SEAM (PR 2, Task 0): R11.55's <c>question</c> line of an accepted answer's receipt, from the question's <c>superseded_by</c> at the read.
+    /// Unused until Task 3; it says nothing.
+    /// </summary>
+    public static OwnText QuestionStanding(ImmutableArray<Successor> list) => new(string.Empty);
+
     /// <summary>What a verification adds to the statement: whose read it is about, and that a later read may differ (R11.44, ruling 9).</summary>
     private const string AsOfTheRead = " (the Forum's word as of the read this verification is about; read the post again for now)";
 

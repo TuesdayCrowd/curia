@@ -209,12 +209,17 @@ public sealed record PostCheck(string EntityTag, ProvenancePost? Post)
 /// <param name="Successors">Digests of the revisions chaining to this one (R6.7), in log order.</param>
 /// <param name="Forked">More than one successor: the chain has no unique head, and the Forum did not pick one.</param>
 /// <param name="Post">The post as the single read serves it, for a current or superseded item.</param>
+/// <param name="Fork">
+/// SEAM (PR 2, Task 0): R9.43's <c>fork</c>, the other revisions of the same post. The default array is "not stated", <c>[]</c> is "not a
+/// fork branch". Until Task 2 the reader does not read it, so it is always the default.
+/// </param>
 public sealed record CitationDocument(
     string? Digest,
     string State,
     ImmutableArray<string> Successors,
     bool Forked,
-    ProvenancePost? Post);
+    ProvenancePost? Post,
+    ImmutableArray<Successor> Fork = default);
 
 public sealed record ProvenancePost(
     Provenance Provenance,

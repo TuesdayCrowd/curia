@@ -956,4 +956,24 @@ public sealed class HelpTextTests
 
         return string.Join(' ', entry);
     }
+
+    /// <summary>
+    /// R11.56 (errata G42): the help of <c>recheck</c> states R10.83's meaning of <c>current</c>, states <c>fork</c> (the member's name is the
+    /// erratum's), states that <c>superseded</c> names the direct revisions only, and does not say what the erratum forbids.
+    /// </summary>
+    [Fact]
+    public void R11_56_TheRecheckHelpStatesWhatTheErratumRequires()
+    {
+        var help = Help.For("recheck")!;
+
+        Assert.Contains(PublishedForkWords.MemberName(), help, StringComparison.Ordinal);
+        Assert.DoesNotContain(PublishedForkWords.ForbiddenWords(), help, StringComparison.Ordinal);
+        Assert.Contains("no later revision", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("standing", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("direct revisions only", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("one call", help, StringComparison.OrdinalIgnoreCase);
+
+        // Control: the entry is the recheck entry (it still states the exit it always did).
+        Assert.Contains("digests[<n>]", help, StringComparison.Ordinal);
+    }
 }

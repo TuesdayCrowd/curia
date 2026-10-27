@@ -257,7 +257,15 @@ public sealed record BatchItemResponse(
     [property: JsonPropertyName("forked")] bool Forked,
 
     /// <summary>The post exactly as <c>GET /v1/posts/{id}</c> serves it, for a current or superseded item; otherwise <see langword="null"/>.</summary>
-    [property: JsonPropertyName("post")] PostResponse? Post);
+    [property: JsonPropertyName("post")] PostResponse? Post,
+
+    /// <summary>
+    /// SEAM (PR 2, Task 0): R9.43's <c>fork</c>, the other successors of the original this item's post revises. Present on an item that
+    /// carries a post, and left out of one that carries none (a CLR null is omitted). Until Task 1 it is always <c>[]</c>.
+    /// </summary>
+    [property: JsonPropertyName("fork")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ImmutableArray<SupersededByResponse>? Fork = null);
 
 /// <summary>R9.10's response. An object rather than a bare array, so the shape can carry more than items without breaking a reader.</summary>
 public sealed record BatchResponse([property: JsonPropertyName("items")] ImmutableArray<BatchItemResponse> Items);
@@ -1409,7 +1417,8 @@ public static class ForumEndpoints
                 CitationStatuses.Wire(state.Status),
                 state.Successors,
                 state.Forked,
-                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification, disputed, corrections, acta)));
+                state.Post is null ? null : ToResponse(state.Post, standings, marking, contract, accepted, verification, disputed, corrections, acta),
+                state.Post is null ? null : ImmutableArray.CreateRange(corrections.ForkOf(state.Post).Select(s => new SupersededByResponse(s.Digest, s.PostId)))));
         }
 
         return Results.Ok(new BatchResponse(items.MoveToImmutable()));

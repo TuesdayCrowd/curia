@@ -709,6 +709,41 @@ public sealed class ToolDescriptionTests
         Assert.Equal("0.8.4", ToolCatalogue.Version);
     }
 
+    /// <summary>R11.56 (errata G42, moved fact; R11.54's R11_54_TheVersionIs084 is replaced by this one): two descriptions and a receipt change and no tool is added, so the server's version moves from 0.8.4 to 0.8.5.</summary>
+    [Fact]
+    public void R11_56_TheVersionIs085()
+    {
+        Assert.Equal("0.8.5", ToolCatalogue.Version);
+    }
+
+    /// <summary>
+    /// R11.56 (errata G42): the description of <c>curia_recheck</c> states R10.83's meaning of <c>current</c>, states <c>fork</c> and that
+    /// <c>superseded</c> names the direct revisions only, and does not say what the erratum forbids; the description of <c>curia_answer</c> states
+    /// R11.55's pointer and receipt line. <b>Weak by construction</b>: it restates descriptions, so it reads words the errata names and nothing a
+    /// call does. The information is carried by the facts that print the lines and call the tools (<c>RecheckStandingWordsTests</c>,
+    /// <c>RevisedQuestionPointerTests</c>, <c>QuestionStandingReceiptTests</c> and the two end-to-end doors), and a description that satisfies this
+    /// fact and a behaviour that does not is the failure those facts exist to catch. The member name and the forbidden words are parsed from the errata.
+    /// </summary>
+    [Fact]
+    public void R11_56_TheDescriptionsStateWhatTheErratumRequires()
+    {
+        var registered = Registered();
+        string Of(string tool) => registered.Single(t => t.Name == tool).Description;
+
+        var recheck = Of("curia_recheck");
+        Assert.NotEmpty(recheck);
+        Assert.DoesNotContain(PublishedForkWords.ForbiddenWords(), recheck, StringComparison.Ordinal);
+        Assert.Contains(PublishedForkWords.MemberName(), recheck, StringComparison.Ordinal);
+        Assert.NotEmpty(Sentence(recheck, "current", "no later revision"));
+        Assert.NotEmpty(Sentence(recheck, "superseded", "direct revisions only"));
+        Assert.Contains("one call", recheck, StringComparison.OrdinalIgnoreCase);
+
+        var answer = Of("curia_answer");
+        Assert.NotEmpty(answer);
+        Assert.NotEmpty(Sentence(answer, "revises", "superseded_by"));
+        Assert.NotEmpty(Sentence(answer, "receipt", "question", "NOT STATED"));
+    }
+
     /// <summary>
     /// R11.54 (errata G41): the descriptions of <c>curia_read</c>, <c>curia_answer</c> and <c>curia_comment</c> state what the erratum requires of the
     /// tool (R11.26). <b>Weak by construction</b>: it restates descriptions, so it reads words the errata names and nothing a call does. The

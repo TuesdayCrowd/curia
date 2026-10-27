@@ -210,6 +210,16 @@ internal sealed partial class ForumTools
     }
 
     /// <summary>
+    /// SEAM (PR 2, Task 0): R11.55's pointer, the question a revision parent revises as the Forum's own <c>superseded_by</c> confirms it,
+    /// or <see langword="null"/> where none is named. Until Task 3 it names none, so a refusal reaches the caller as the Forum worded it.
+    /// </summary>
+    private Task<OwnText?> RevisedQuestionPointerAsync(ProvenancePost revision, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        return _forum is null ? throw new InvalidOperationException("no Forum") : Task.FromResult<OwnText?>(null);
+    }
+
+    /// <summary>
     /// R11.30 (rev.)'s <c>curia_resolve</c>: accept the answer a thread was given. Attributed by the
     /// DPoP-bound token and not signed, as <c>ForumSession.AcceptAsync</c> records; the Forum decides
     /// whether this agent asked the thread (Table 10's "own thread"), and its refusal is worded by its
