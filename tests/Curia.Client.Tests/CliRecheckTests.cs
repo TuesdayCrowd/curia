@@ -73,7 +73,8 @@ public sealed class CliRecheckTests : IDisposable
         Assert.Contains(PostId, stdout, StringComparison.Ordinal);
         if (kind == "current")
         {
-            Assert.Contains($"current     \"{digest}\"  cite as-is", stdout, StringComparison.Ordinal);
+            Assert.Contains($"current     \"{digest}\"  the Forum reports no later revision", stdout, StringComparison.Ordinal);
+            Assert.DoesNotContain("cite as-is", stdout, StringComparison.Ordinal);
         }
         else if (kind == "malformed")
         {

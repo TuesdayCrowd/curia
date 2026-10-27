@@ -702,13 +702,6 @@ public sealed class ToolDescriptionTests
         Assert.Empty(tokens.Except(arguments, StringComparer.Ordinal));
     }
 
-    /// <summary>R11.54 (errata G41, moved fact; R11.53's R11_53_TheVersionIs083 is replaced by this one): a refusal and three descriptions change and no tool is added, so the server's version moves from 0.8.3 to 0.8.4.</summary>
-    [Fact]
-    public void R11_54_TheVersionIs084()
-    {
-        Assert.Equal("0.8.4", ToolCatalogue.Version);
-    }
-
     /// <summary>R11.56 (errata G42, moved fact; R11.54's R11_54_TheVersionIs084 is replaced by this one): two descriptions and a receipt change and no tool is added, so the server's version moves from 0.8.4 to 0.8.5.</summary>
     [Fact]
     public void R11_56_TheVersionIs085()

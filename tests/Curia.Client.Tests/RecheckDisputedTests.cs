@@ -81,12 +81,13 @@ public sealed class RecheckDisputedTests
     }
 
     [Fact]
-    public async Task D49_ACurrentPostUnderAnActiveKeyStillPrintsCiteAsIsAndExitsZero()
+    public async Task D49_ACurrentPostUnderAnActiveKeyStillPrintsItsStandingAndExitsZero()
     {
         var (exit, stdout) = await RecheckAsync("current", "active", null);
 
         Assert.Equal(0, exit);
-        Assert.Contains($"current     \"{Digest}\"  cite as-is", stdout, StringComparison.Ordinal);
+        Assert.Contains($"current     \"{Digest}\"  the Forum reports no later revision", stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("cite as-is", stdout, StringComparison.Ordinal);
     }
 
     /// <summary>A post below a declaration's from_index carries a compromised status and no index: it is not disputed (R6.57).</summary>
@@ -96,7 +97,8 @@ public sealed class RecheckDisputedTests
         var (exit, stdout) = await RecheckAsync("current", "compromised", null);
 
         Assert.Equal(0, exit);
-        Assert.Contains("cite as-is", stdout, StringComparison.Ordinal);
+        Assert.Contains("no later revision", stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("disputed", stdout, StringComparison.Ordinal);
     }
 
     /// <summary>Withheld outranks disputed: a citation to drop (exit 5) is not softened by another that is only disputed.</summary>

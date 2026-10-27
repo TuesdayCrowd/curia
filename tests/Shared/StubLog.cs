@@ -1079,7 +1079,7 @@ internal sealed class StubLog : IDisposable
         if (!string.Equals(requested, Submission.PrefixedDigest, StringComparison.Ordinal)) return BatchItem(requested, "unknown");
 
         var successors = SupersededBy.IsDefault ? [] : SupersededBy.Select(s => s.Digest).ToArray();
-        return BatchItem(requested, successors.Length > 0 ? "superseded" : "current", successors, successors.Length > 1, PostJson());
+        return BatchItem(requested, successors.Length > 0 ? "superseded" : "current", successors, successors.Length > 1, PostJson(), ForkJson());
     }
 
     private (HttpStatusCode Status, string Body) Batched(string body)
