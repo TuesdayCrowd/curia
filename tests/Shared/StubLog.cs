@@ -987,6 +987,46 @@ internal sealed class StubLog : IDisposable
     /// <summary>R9.32: every post the Forum serves carries the member; the posts that are not <see cref="PostId"/> have no successor here.</summary>
     private string OtherPostSupersededByJson() => OmitSupersededBy ? string.Empty : ",\"superseded_by\":[]";
 
+    /// <summary>
+    /// PR 2 (errata G42): more posts the stub serves by id, as <c>GET /v1/posts/{id}</c> answers them: the JSON of each, keyed by post id, built by
+    /// <see cref="ServePost"/>. A path in this table is answered before any other post knob, so a fact can serve a question, its revisions and a
+    /// chain of them at once; every other id is the stub's one post as before.
+    /// </summary>
+    internal Dictionary<string, string> ServedPosts { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>PR 2: ids the stub refuses a read of, with the status and problem type it answers (a withheld, a missing or a failing post).</summary>
+    internal Dictionary<string, (HttpStatusCode Status, string Type)> RefusedPosts { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// PR 2: refuse every <c>POST /v1/posts</c> as the Forum refuses an answer under a post that is no question (R8.70): 400
+    /// <c>curia/ingest/parent-not-a-question</c>, detail <c>parent=&lt;id&gt; kind=&lt;kind&gt;</c>, and nothing recorded.
+    /// </summary>
+    internal (string ParentId, string Kind)? RefusesAsParentNotAQuestion { get; set; }
+
+    /// <summary>PR 2: signs <paramref name="draft"/> with the stub's agent, as a client would, without serving it.</summary>
+    internal SignedSubmission SignDraft(PostDraft draft) =>
+        SubmissionBuilder.Build(_agent, draft, DateTimeOffset.UnixEpoch).TryGetValue(out var signed, out var error)
+            ? signed!
+            : throw new InvalidOperationException("the stub could not sign the draft: " + error?.Detail);
+
+    /// <summary>
+    /// PR 2: serves <paramref name="signed"/> as post <paramref name="postId"/> of kind <paramref name="draft"/>'s, with the Forum's
+    /// <c>superseded_by</c> beside it (R9.32; unset leaves the member out, <c>[]</c> states none). <paramref name="servedDigest"/> is the digest
+    /// served beside the canonical form, so a fact can serve a post whose digest is not its form's, and <paramref name="servedCanonical"/> a canonical form the signature does not cover.
+    /// </summary>
+    internal void ServePost(string postId, PostDraft draft, SignedSubmission signed, ImmutableArray<Successor> supersededBy = default, string? servedDigest = null, string? servedCanonical = null) =>
+        ServedPosts[postId] = $$"""
+        {"provenance":{"content_type":"{{PostEnvelope.RequiredContentType}}","warning":{{JsonString(Provenance.StandardWarning)}},
+        "author":{{JsonString(Author)}},"owner_verified":true,"signature_valid":true,
+        "verification_level":"V0","risk_flags":[],"marking":"None","marking_token":null,
+        "marking_caveat":null,"reader_contract":"http://forum.test/c",
+        "owner":null,"reproductions":[],"contradictions":[],"key_status":"active"{{(supersededBy.IsDefault ? string.Empty : ",\"superseded_by\":" + SuccessorsJson(supersededBy))}} },
+        "post_id":{{JsonString(postId)}},"board":"b","kind":{{JsonString(PostKinds.Wire(draft.Kind))}},"parent":{{(draft.Parent is null ? "null" : JsonString(draft.Parent))}},
+        "server_ts":"1970-01-01T00:00:00.0000000+00:00","digest":{{JsonString(servedDigest ?? signed.PrefixedDigest)}},
+        "canonical":{{JsonString(servedCanonical ?? Encoding.UTF8.GetString(signed.Canonical.Span))}},"signature":{{JsonString(signed.Signature)}},
+        "rendered":{{JsonString(Datamarking.Render(servedCanonical ?? Encoding.UTF8.GetString(signed.Canonical.Span), MarkingMode.None))}},"accepted":false}
+        """.ReplaceLineEndings(string.Empty);
+
     /// <summary>R9.10: the digest list of every <c>POST /v1/posts/batch</c> the stub answered, in order; a non-string element is recorded as null.</summary>
     internal List<string?[]> BatchRequests { get; } = [];
 
@@ -1001,13 +1041,18 @@ internal sealed class StubLog : IDisposable
 
     private static readonly System.Text.RegularExpressions.Regex DigestShape = new("^sha256:[0-9a-f]{64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    /// <summary>One item of R9.10's batch as the Forum serves it: <c>digest</c> (null for a malformed element), <c>state</c>, <c>successors</c>, <c>forked</c> and <c>post</c> (raw JSON, or null).</summary>
-    internal static string BatchItem(string? digest, string state, IEnumerable<string>? successors = null, bool forked = false, string? postJson = null) =>
+    /// <summary>One item of R9.10's batch as the Forum serves it: <c>digest</c> (null for a malformed element), <c>state</c>, <c>successors</c>, <c>forked</c> and <c>post</c> (raw JSON, or null), and R9.43's <c>fork</c> (raw JSON; left out when null, as an older Forum leaves it).</summary>
+    internal static string BatchItem(string? digest, string state, IEnumerable<string>? successors = null, bool forked = false, string? postJson = null, string? forkJson = null) =>
         "{\"digest\":" + (digest is null ? "null" : JsonString(digest))
         + ",\"state\":" + JsonString(state)
         + ",\"successors\":[" + string.Join(",", (successors ?? []).Select(JsonString)) + "]"
         + ",\"forked\":" + (forked ? "true" : "false")
-        + ",\"post\":" + (postJson ?? "null") + "}";
+        + ",\"post\":" + (postJson ?? "null")
+        + (forkJson is null ? string.Empty : ",\"fork\":" + forkJson) + "}";
+
+    /// <summary>R9.43's <c>fork</c> member as the Forum writes it: one <c>{digest, post_id?}</c> per other successor, a null post id left out.</summary>
+    internal static string ForkJson(params (string Digest, string? PostId)[] others) =>
+        "[" + string.Join(",", others.Select(o => "{\"digest\":" + JsonString(o.Digest) + (o.PostId is null ? string.Empty : ",\"post_id\":" + JsonString(o.PostId)) + "}")) + "]";
 
     /// <summary>
     /// A post as <c>GET /v1/posts/{id}</c> serves it, with the members a batch item's reader needs and the ones a test chooses (the signature is this stub's own, whose header parses; the digest check here is keyless and reads nothing else of it):
@@ -1034,7 +1079,7 @@ internal sealed class StubLog : IDisposable
         if (!string.Equals(requested, Submission.PrefixedDigest, StringComparison.Ordinal)) return BatchItem(requested, "unknown");
 
         var successors = SupersededBy.IsDefault ? [] : SupersededBy.Select(s => s.Digest).ToArray();
-        return BatchItem(requested, successors.Length > 0 ? "superseded" : "current", successors, successors.Length > 1, PostJson());
+        return BatchItem(requested, successors.Length > 0 ? "superseded" : "current", successors, successors.Length > 1, PostJson(), ForkJson());
     }
 
     private (HttpStatusCode Status, string Body) Batched(string body)
@@ -1639,6 +1684,13 @@ internal sealed class StubLog : IDisposable
 
                 if (log.RefusesAsDuplicate) return (HttpStatusCode.Conflict, log.DuplicateRefusalJson(), null);
 
+                if (log.RefusesAsParentNotAQuestion is { } notAQuestion)
+                {
+                    return (HttpStatusCode.BadRequest,
+                        $$"""{"type":"curia/ingest/parent-not-a-question","title":"An answer's parent must be a question","detail":{{JsonString($"parent={notAQuestion.ParentId} kind={notAQuestion.Kind}")}}}""",
+                        null);
+                }
+
                 // The Forum verifies against the token's subject, not the envelope's claim about
                 // itself (ForumEndpoints.SubmitAsync, VERIFY). Modelled so a client that signed as one
                 // agent while holding another's token is refused here as it would be there.
@@ -1818,6 +1870,16 @@ internal sealed class StubLog : IDisposable
 
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesOnlyTheAnswer)
                 return (HttpStatusCode.OK, "[" + log.AnswerJson() + "]");
+
+            if (path.StartsWith("/v1/posts/", StringComparison.Ordinal))
+            {
+                var servedId = Uri.UnescapeDataString(path["/v1/posts/".Length..]);
+                if (log.RefusedPosts.TryGetValue(servedId, out var refusedRead))
+                    return (refusedRead.Status, $$"""{"type":{{JsonString(refusedRead.Type)}},"title":"The stub refuses this read"}""");
+
+                if (log.ServedPosts.TryGetValue(servedId, out var servedJson))
+                    return (HttpStatusCode.OK, servedJson);
+            }
 
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal) && log.PostReadNotFoundType is { } notFoundType)
                 return (HttpStatusCode.NotFound, $$"""{"type":{{JsonString(notFoundType)}},"title":"No such post"}""");

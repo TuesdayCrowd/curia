@@ -176,7 +176,8 @@ public sealed class CitationLinesTests : IDisposable
         // Control: the same post under an active key is not disputed and is citable.
         var plain = Assert.Single((await ReportAsync([digest], Current(digest, IdQuestion, canonical))).Lines);
         Assert.False(plain.Disputed);
-        Assert.Contains("cite as-is", plain.Text.Text, StringComparison.Ordinal);
+        Assert.Contains("no later revision", plain.Text.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("cite as-is", plain.Text.Text, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -285,10 +286,11 @@ public sealed class CitationLinesTests : IDisposable
         Assert.DoesNotContain("cite as-is", bare.Text.Text, StringComparison.Ordinal);
         Assert.Contains("no post", bare.Text.Text, StringComparison.Ordinal);
 
-        // Control: the same digest with a matching post is still cite as-is and names the post.
+        // Control: the same digest with a matching post states the standing (G42: it was "cite as-is", D49) and names the post.
         var canonical = Canon("Question 40");
         var served = Assert.Single((await ReportAsync([digest], Current(digest, IdQuestion, canonical))).Lines).Text.Text;
-        Assert.Contains("cite as-is", served, StringComparison.Ordinal);
+        Assert.Contains("no later revision", served, StringComparison.Ordinal);
+        Assert.DoesNotContain("cite as-is", served, StringComparison.Ordinal);
         Assert.Contains(IdQuestion, served, StringComparison.Ordinal);
     }
 

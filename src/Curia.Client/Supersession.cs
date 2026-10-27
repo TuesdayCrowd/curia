@@ -56,6 +56,39 @@ public static class Supersession
         return new OwnText($"superseded by {Revisions(list).Text} {Basis}{(list.Length > 1 ? ForkedSentence : string.Empty)}");
     }
 
+    /// <summary>
+    /// R10.83: what a <c>current</c> line says it established, which <c>curia</c> and <c>curia-mcp</c> compose from here. The Forum reports no
+    /// later revision of the document and this is its standing in the log; it is no instruction to cite, and no signature and no acceptance was
+    /// checked there. Fixed words only: a Forum value is never in it.
+    /// </summary>
+    public static OwnText CurrentStanding() =>
+        new("the Forum reports no later revision of this document, which is its standing in the log; no signature and no acceptance was checked here (a standing is not soundness)");
+
+    /// <summary>
+    /// R10.83's words for a <c>fork</c> list: for a populated list (the other revisions; N is its length plus one) that the post is one of N
+    /// revisions of the same post, FORKED, each other revision as <see cref="Revisions"/> gives it, and that the Forum picks none; for the
+    /// default array (the member not served) <c>fork NOT STATED</c>; for an empty list nothing, since a post that is not a branch has nothing to say.
+    /// </summary>
+    public static OwnText ForkBranch(ImmutableArray<Successor> fork)
+    {
+        if (fork.IsDefault) return new OwnText("fork NOT STATED (the Forum served no word on whether this post is one branch of a fork)");
+        if (fork.IsEmpty) return new OwnText(string.Empty);
+        return new OwnText($"this post is one of {fork.Length + 1} revisions of the same post and the chain is FORKED; the other(s): {Revisions(fork).Text}; the Forum picks none");
+    }
+
+    /// <summary>
+    /// R11.55's <c>question</c> line of an accepted answer's receipt, from the question's <c>superseded_by</c> at the read this tool already
+    /// made: superseded (each revision named, FORKED for two or more), <c>none was reported</c>, or <c>NOT STATED</c>. A note and never a
+    /// refusal: answering the original can be right.
+    /// </summary>
+    public static OwnText QuestionStanding(ImmutableArray<Successor> list)
+    {
+        if (list.IsDefault) return new OwnText("NOT STATED (the Forum served no word on whether a revision supersedes the question, as of the read of it before this answer)");
+        if (list.IsEmpty) return new OwnText("none was reported (the Forum's word on the question at the read before this answer; a revision that landed since is not seen)");
+        return new OwnText(
+            $"SUPERSEDED by {list.Length} revision(s) of the question: {Revisions(list).Text} (the Forum's word as of the read before this answer; this answer went to the question as named, which can be right){(list.Length > 1 ? ForkedSentence : string.Empty)}");
+    }
+
     /// <summary>What a verification adds to the statement: whose read it is about, and that a later read may differ (R11.44, ruling 9).</summary>
     private const string AsOfTheRead = " (the Forum's word as of the read this verification is about; read the post again for now)";
 

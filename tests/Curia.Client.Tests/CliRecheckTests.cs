@@ -73,7 +73,8 @@ public sealed class CliRecheckTests : IDisposable
         Assert.Contains(PostId, stdout, StringComparison.Ordinal);
         if (kind == "current")
         {
-            Assert.Contains($"current     \"{digest}\"  cite as-is", stdout, StringComparison.Ordinal);
+            Assert.Contains($"current     \"{digest}\"  the Forum reports no later revision", stdout, StringComparison.Ordinal);
+            Assert.DoesNotContain("cite as-is", stdout, StringComparison.Ordinal);
         }
         else if (kind == "malformed")
         {
@@ -113,5 +114,33 @@ public sealed class CliRecheckTests : IDisposable
 
         Assert.Contains("FAILED", stdout, StringComparison.Ordinal);
         Assert.Equal(6, exit);
+    }
+
+    /// <summary>
+    /// R10.83 (errata G42): a fork branch, and a FORKED original, are information about which wording to cite and not a failure of the
+    /// citation, so the verb's exit is the one it gave before (decision 3): 0 for both.
+    /// </summary>
+    [Fact]
+    public async Task R10_83_AForkBranchDoesNotMoveTheExitCode()
+    {
+        var branch = Canon(1);
+        var branchDigest = Sha(branch);
+        var original = Canon(2);
+        var originalDigest = Sha(original);
+        var siblings = new[] { "sha256:" + new string('b', 64), "sha256:" + new string('c', 64) };
+
+        var (branchExit, branchOut, _) = await RecheckAsync(
+            [branchDigest],
+            StubLog.BatchItem(branchDigest, "current", postJson: _log.BatchPostJson(PostId, branch, branchDigest), forkJson: StubLog.ForkJson((siblings[0], "01ZQPB19SIBLING0000000000001"))));
+        var (forkedExit, forkedOut, _) = await RecheckAsync(
+            [originalDigest],
+            StubLog.BatchItem(originalDigest, "superseded", siblings, true, _log.BatchPostJson(PostId, original, originalDigest, [new Successor(siblings[0], null), new Successor(siblings[1], null)]), StubLog.ForkJson()));
+
+        Assert.Equal(0, branchExit);
+        Assert.Equal(0, forkedExit);
+
+        // Controls: both lines were printed, and the original's is the FORKED one.
+        Assert.Contains("current", branchOut, StringComparison.Ordinal);
+        Assert.Contains("FORKED", forkedOut, StringComparison.Ordinal);
     }
 }

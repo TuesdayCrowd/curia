@@ -130,8 +130,10 @@ internal static class ToolText
         "It takes `digests`, an ordered array of at least one digest. The Forum this adapter was built against takes 64 digests per call; " +
         "over the cap the call is refused whole and never truncated, and a Forum states the cap it enforces in its refusal. It returns one block of this adapter's own words: one line per " +
         "digest, in the order you sent them and none omitted. Each line begins with the state the Forum answered. 'current' names the " +
-        "post id and says cite as-is. 'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
-        "Forum gave the digest alone; FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
+        "post id and says the Forum reports no later revision of that document, which is its standing in the log: it is not soundness, and no signature and no acceptance was checked. " +
+        "A 'current' line for a post that is one branch of a fork says it is one of N revisions of the same post, FORKED, names the other branches and says the Forum picks none, from the fork member of the Forum's answer; fork NOT STATED means the Forum did not say. " +
+        "'superseded' names each revision that chains to it with its post id, or 'not served' where the " +
+        "Forum gave the digest alone; it names the direct revisions only, and a revision's own standing is one call: put its digest in a call of its own. FORKED means more than one revision chains to it and the Forum picks none, so read before you " +
         "choose. 'withheld' and 'unknown' say to drop the citation. 'disputed' is the Forum's word that the key was declared " +
         "compromised from before the post: do not cite it as the author's. An element that was not a digest is named by its " +
         "zero-based position as digests[<n>] and is never echoed.\n\n" +
@@ -250,6 +252,17 @@ internal static class ToolText
         "A parent the Forum says is withheld is NOT SENT: the Forum is not serving it, nothing is signed, and the post may be restored, after which the same call can be made.";
 
     /// <summary>
+    /// R11.55: when the post named is a revision, the Forum's refusal stands and this tool adds the question that post revises, where and only
+    /// where the Forum's own <c>superseded_by</c> confirms it. States what the pointer is built from so that its absence is not read as "no question".
+    /// </summary>
+    private const string RevisedQuestionSentence =
+        "If the post you named is a revision of a question, the Forum refuses, and this tool adds the question it revises when the Forum's own superseded_by confirms it (the revision's digest is recomputed here, and the question must verify); answer that question instead. No question is named where the Forum does not confirm one, and the pointer is the Forum's word as of the read.";
+
+    /// <summary>R11.55's receipt line (R11.26): the question's standing at the read this tool already makes; a note, never a refusal.</summary>
+    private const string QuestionReceiptSentence =
+        "An accepted answer's receipt carries a question line stating whether the Forum served the question as superseded (naming each revision, FORKED where there are two or more), none was reported, or NOT STATED; answering the original can be right.";
+
+    /// <summary>
     /// R11.17's <c>curia_answer</c>. The board is taken from the question rather than asked for:
     /// a model copying a board name from one result into another call is a model that can misplace
     /// an answer, and the question already says where it lives.
@@ -262,6 +275,7 @@ internal static class ToolText
         "a question's id, and an answer under any post that is not a question is refused. " + RefsSentence + UnreferencedAnswerSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
+        RevisedQuestionSentence + " " + QuestionReceiptSentence + " " +
         WithheldParentSentence + "\n\n" +
         UntrustedDataNotice;
 

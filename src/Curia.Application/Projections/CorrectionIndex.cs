@@ -18,11 +18,16 @@ namespace Curia.Application.Projections;
 public sealed class CorrectionIndex
 {
     private readonly ILookup<string, PostView> _revisionsByPrev;
+    private readonly IReadOnlyDictionary<string, PostView> _byDigest;
     private readonly Func<string, bool> _servable;
 
-    private CorrectionIndex(ILookup<string, PostView> revisionsByPrev, Func<string, bool> servable)
+    private CorrectionIndex(
+        ILookup<string, PostView> revisionsByPrev,
+        IReadOnlyDictionary<string, PostView> byDigest,
+        Func<string, bool> servable)
     {
         _revisionsByPrev = revisionsByPrev;
+        _byDigest = byDigest;
         _servable = servable;
     }
 
@@ -32,6 +37,7 @@ public sealed class CorrectionIndex
     /// </summary>
     public static CorrectionIndex Empty { get; } = new(
         Enumerable.Empty<PostView>().ToLookup(p => p.PostId, StringComparer.Ordinal),
+        new Dictionary<string, PostView>(StringComparer.Ordinal),
         static _ => false);
 
     /// <summary>R9.28's rule: <paramref name="candidate"/> corrects <paramref name="original"/>.</summary>
@@ -56,7 +62,13 @@ public sealed class CorrectionIndex
         var byPrev = (posts.IsDefault ? [] : posts)
             .Where(p => p.Prev is not null)
             .ToLookup(p => p.Prev!, StringComparer.Ordinal);
-        return new CorrectionIndex(byPrev, servable);
+        var byDigest = new Dictionary<string, PostView>(StringComparer.Ordinal);
+        foreach (var post in posts.IsDefault ? [] : posts)
+        {
+            byDigest.TryAdd(post.Digest, post);
+        }
+
+        return new CorrectionIndex(byPrev, byDigest, servable);
     }
 
     /// <summary>
@@ -71,6 +83,29 @@ public sealed class CorrectionIndex
         return [.. _revisionsByPrev[original.Digest]
             .Where(p => IsCorrection(p, original))
             .Select(p => new Successor(p.Digest, IsServed(p) ? p.PostId : null))];
+    }
+
+    /// <summary>
+    /// R9.43's <c>fork</c>: where <paramref name="post"/> is a correction (<see cref="IsCorrection"/>) of the post its
+    /// <c>prev</c> names and that post has more than one successor, the other successors, in log order, the post's own excluded;
+    /// otherwise empty. It is computed through <see cref="For"/> and <see cref="IsCorrection"/>, not a second filter, so
+    /// <c>superseded_by</c>, <c>successors</c> and <c>fork</c> cannot answer differently.
+    /// </summary>
+    public ImmutableArray<Successor> ForkOf(PostView post)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+
+        if (post.Prev is null
+            || !_byDigest.TryGetValue(post.Prev, out var original)
+            || !IsCorrection(post, original))
+        {
+            return [];
+        }
+
+        var successors = For(original);
+        return successors.Length < 2
+            ? []
+            : [.. successors.Where(s => !string.Equals(s.Digest, post.Digest, StringComparison.Ordinal))];
     }
 
     private bool IsServed(PostView post) =>

@@ -206,8 +206,66 @@ internal sealed partial class ForumTools
             Refs = references,
         };
 
-        return await SubmitAsync(writer, draft, resource, ActionKind.Create, cancellationToken).ConfigureAwait(false);
+        // R11.55: an answer's receipt states the question's standing at this read; a refusal under a revision may be given a pointer.
+        return await SubmitAsync(
+                writer, draft, resource, ActionKind.Create, cancellationToken,
+                question: kind is PostKind.Answer ? Supersession.QuestionStanding(post.Provenance.SupersededBy) : null,
+                revisionParent: kind is PostKind.Answer && PostKinds.TryParse(post.Kind, out var parentKind) && parentKind is PostKind.Revision ? post : null)
+            .ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// R11.55's pointer: the question <paramref name="revision"/> revises, as the Forum's own <c>superseded_by</c> confirms it. A revision's
+    /// <c>parent</c> is its author's word (R8.70 does not read it), so nothing is inferred from it: each step reads the post the signed
+    /// <c>parent</c> names, requires that read to verify, and requires its <c>superseded_by</c> to list the digest recomputed here from the
+    /// revision's served canonical form. The step repeats through revisions to a post of kind question, within <see cref="WalkBound"/> posts
+    /// and never revisiting one. Where a step fails the result says the post is a revision and why no question is named, in fixed words,
+    /// and names no post. The reads are not reads of the session (R11.49: a post named is not a post read), and nothing an author wrote is
+    /// in the result. Each post is verified once: the passage that vouched for a parent is the one the next step starts from.
+    /// </summary>
+    private async Task<OwnText> RevisedQuestionPointerAsync(ProvenancePost revision, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+
+        static OwnText None(string cause) => new($"The post you named is a revision; no question is named because {cause}.");
+
+        var visited = new HashSet<string>(StringComparer.Ordinal) { revision.PostId };
+        var passage = (await PassagesAsync([revision], cancellationToken, remember: false).ConfigureAwait(false))[0];
+        for (var read = 0; read < WalkBound; read++)
+        {
+            if (passage.Outcome is not CheckOutcome.Verified || passage.Verdict.PrefixedDigest is not { } digest)
+                return None("the revision's own read did not verify");
+
+            if (passage.Envelope is not { Kind: PostKind.Revision, Parent: { Length: > 0 } parentId })
+                return None("its signed form names no parent");
+
+            if (!visited.Add(parentId))
+                return None("the parents named lead back to a post already read");
+
+            var fetched = await _forum.GetPostAsync(parentId, _marking, cancellationToken).ConfigureAwait(false);
+            if (!fetched.TryGetValue(out var parent, out _) || !string.Equals(parent!.PostId, parentId, StringComparison.Ordinal))
+                return None("the post it names as its parent could not be read");
+
+            if (parent.Provenance.SupersededBy.IsDefaultOrEmpty
+                || !parent.Provenance.SupersededBy.Any(s => string.Equals(s.Digest, digest, StringComparison.Ordinal)))
+                return None("the Forum's superseded_by of the post it names as its parent does not list this revision");
+
+            passage = (await PassagesAsync([parent], cancellationToken, remember: false).ConfigureAwait(false))[0];
+            if (passage.Outcome is not CheckOutcome.Verified || passage.Envelope is not { } parentEnvelope)
+                return None("the post it names as its parent did not verify");
+
+            if (parentEnvelope.Kind is PostKind.Question)
+                return new OwnText($"The post you named is a revision. The Forum's superseded_by confirms it revises the question {DisplayLiteral.Of(parent.PostId)} (as of this read, the Forum's word; read it first, it may itself have been revised): answer that question instead.");
+
+            if (parentEnvelope.Kind is not PostKind.Revision)
+                return None("the chain ends at a post that is not a question");
+        }
+
+        return None($"the walk reached its bound of {WalkBound} posts");
+    }
+
+    /// <summary>R11.55's bound on the walk, in posts read.</summary>
+    internal const int WalkBound = 8;
 
     /// <summary>
     /// R11.30 (rev.)'s <c>curia_resolve</c>: accept the answer a thread was given. Attributed by the
@@ -301,7 +359,7 @@ internal sealed partial class ForumTools
     /// </summary>
     private async Task<CallToolResult> SubmitAsync(
         ForumWriter writer, PostDraft draft, ResourceKind resource, ActionKind action, CancellationToken cancellationToken,
-        OwnText? supersession = null)
+        OwnText? supersession = null, OwnText? question = null, ProvenancePost? revisionParent = null)
     {
         if (!SubmissionBuilder.Build(writer.Agent, draft, writer.Now).TryGetValue(out var submission, out var buildError))
             return NotSentResult(buildError!);
@@ -310,7 +368,7 @@ internal sealed partial class ForumTools
         // answers, and the Forum is the party that marks them.
         var posted = await writer.Session.SubmitAsync(submission!.Wire, _marking, cancellationToken).ConfigureAwait(false);
 
-        if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!, supersession);
+        if (posted.TryGetValue(out var receipt, out var refusal)) return Posted(writer, draft, submission, receipt!, supersession, question);
 
         // R8.19: the refusal that answers the question. A success of its own shape, not an error: an
         // error gets retried, and retrying this one with the override the Forum names turns a found
@@ -318,7 +376,13 @@ internal sealed partial class ForumTools
         if (draft.Kind is PostKind.Question && refusal!.AsDuplicate is { } duplicate)
             return await DuplicateAsync(duplicate, cancellationToken).ConfigureAwait(false);
 
-        throw WriteRefused(refusal!, resource, action);
+        var refused = WriteRefused(refusal!, resource, action);
+        if (revisionParent is not null
+            && string.Equals(refusal!.Error.Type, ParentErrors.NotAQuestionType, StringComparison.Ordinal)
+            && await RevisedQuestionPointerAsync(revisionParent, cancellationToken).ConfigureAwait(false) is { } pointer)
+            throw new McpException($"{refused.Message} {pointer.Text}");
+
+        throw refused;
     }
 
     /// <summary>
@@ -326,7 +390,7 @@ internal sealed partial class ForumTools
     /// the Forum's post id, digest, instant and annotations, and the board, which an answer copies
     /// from the question it answers and so from whoever asked it.
     /// </summary>
-    private static CallToolResult Posted(ForumWriter writer, PostDraft draft, SignedSubmission submission, PostReceipt receipt, OwnText? supersession)
+    private static CallToolResult Posted(ForumWriter writer, PostDraft draft, SignedSubmission submission, PostReceipt receipt, OwnText? supersession, OwnText? question = null)
     {
         var text = new FrameBuilder();
 
@@ -355,6 +419,9 @@ internal sealed partial class ForumTools
 
         // R11.47: a revision's receipt states what was checked about supersession, as of the read.
         if (supersession is { } line) text.Line($"supersession {line}");
+
+        // R11.55: an accepted answer states the question's standing at the read before it; a note, not a refusal.
+        if (question is { } standing) text.Line($"question    {standing}");
 
         if (!receipt.RiskFlags.IsDefaultOrEmpty)
         {

@@ -88,10 +88,10 @@ public static class CitationLines
                 return new CitationLine("current", Of($"current     {asked}  the Forum named no post for this digest, so nothing was recomputed here; do not cite it on this word alone"), false, false, false, false);
 
             case "current":
-                return new CitationLine("current", Of($"current     {asked}  cite as-is{PostOf(item.Post)}"), false, false, false, false);
+                return new CitationLine("current", Of($"current     {asked}  {Supersession.CurrentStanding()}{ForkWords(item.Fork, stated: true)}{PostOf(item.Post)}"), false, false, false, false);
 
             case "superseded":
-                return new CitationLine("superseded", Of($"superseded  {asked}  -> {Revisions(item)}{Forked(item)}  re-read before citing; the original still stands{PostOf(item.Post)}"), false, false, false, false);
+                return new CitationLine("superseded", Of($"superseded  {asked}  -> {Revisions(item)}{Forked(item)}  re-read before citing; the original still stands{ForkWords(item.Fork, stated: false)}{PostOf(item.Post)}"), false, false, false, false);
 
             case "withheld":
                 return new CitationLine("withheld", Of($"withheld    {asked}  drop this citation; it is no longer served (withholding can be reversed -- re-check later)"), true, false, false, false);
@@ -152,6 +152,13 @@ public static class CitationLines
             new Successor(digest, served.IsDefaultOrEmpty ? null : served.FirstOrDefault(s => string.Equals(s.Digest, digest, StringComparison.Ordinal))?.PostId));
         return Supersession.Revisions([.. successors]);
     }
+
+    /// <summary>
+    /// R10.83's fork words after a clause, with the joining <c>; </c>: nothing for an empty list; <c>NOT STATED</c> for the default array only where
+    /// <paramref name="stated"/> (a <c>current</c> line, where the member decides whether the post is a branch).
+    /// </summary>
+    private static OwnText ForkWords(ImmutableArray<Successor> fork, bool stated) =>
+        (!fork.IsDefault && fork.IsEmpty) || (fork.IsDefault && !stated) ? new OwnText(string.Empty) : new OwnText($"; {Supersession.ForkBranch(fork).Text}");
 
     private static OwnText Forked(CitationDocument item) => item.Forked ? new OwnText(Supersession.ForkedSentence) : new OwnText(string.Empty);
 

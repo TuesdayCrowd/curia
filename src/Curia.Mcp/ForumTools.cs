@@ -83,7 +83,7 @@ internal sealed partial class ForumTools(
     /// and a great many posts, and the alternative dials the Forum once per post.
     /// </summary>
     private async Task<ImmutableArray<Passage>> PassagesAsync(
-        IReadOnlyList<ProvenancePost> posts, CancellationToken cancellationToken)
+        IReadOnlyList<ProvenancePost> posts, CancellationToken cancellationToken, bool remember = true)
     {
         var keysByAuthor = new Dictionary<string, ImmutableArray<ForumJwk>>(StringComparer.Ordinal);
         var passages = ImmutableArray.CreateBuilder<Passage>(posts.Count);
@@ -104,7 +104,7 @@ internal sealed partial class ForumTools(
                 else refusalByAuthor[author] = refusal!;
             }
 
-            Remember(post);
+            if (remember) Remember(post);
 
             passages.Add(new Passage(
                 post,
