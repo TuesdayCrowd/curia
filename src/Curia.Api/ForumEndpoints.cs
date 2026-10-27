@@ -2185,8 +2185,24 @@ public static class ForumEndpoints
     /// </summary>
     private static ImmutableArray<string> TagFilter(string raw) =>
         [.. raw.Split(',')
-            .Select(element => element.Normalize(System.Text.NormalizationForm.FormC).Trim())
+            .Select(element => NormalizedC(element).Trim())
             .Where(element => element.Length > 0)];
+
+    /// <summary>
+    /// NFC, or the element as it came when it is not normalizable: <c>string.Normalize</c> throws on a noncharacter such as U+FFFE, and a
+    /// query is never a server fault (R11.33). Such an element names no stored tag, since a stored tag was normalized when it was signed.
+    /// </summary>
+    private static string NormalizedC(string element)
+    {
+        try
+        {
+            return element.Normalize(System.Text.NormalizationForm.FormC);
+        }
+        catch (ArgumentException)
+        {
+            return element;
+        }
+    }
 
     private static string? Nullable(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
