@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using Curia.Canon.Json;
+using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Domain.Serving;
 
@@ -195,10 +196,7 @@ public sealed class ForumClient
     internal static string? UnfilterableTag(ImmutableArray<string> tags) =>
         tags.IsDefaultOrEmpty
             ? null
-            : tags.FirstOrDefault(tag =>
-                tag.Length == 0
-                || tag.Contains(',', StringComparison.Ordinal)
-                || !string.Equals(tag, tag.Trim(), StringComparison.Ordinal));
+            : tags.FirstOrDefault(TagRules.IsUnfilterable);
 
     /// <summary>
     /// R11.57 (errata G43): a refusal for an identifier or a search criterion that holds U+0000 or an unpaired surrogate, or null.

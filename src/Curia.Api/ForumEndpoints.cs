@@ -1861,7 +1861,7 @@ public static class ForumEndpoints
         if (unknownError is not null)
             return Problem(StatusCodes.Status400BadRequest, unknownError);
 
-        if (!TryReadLimit(http, out var limit, out var limitError))
+        if (!TryReadLimit(http, "curia/search/invalid-limit", out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
         // R9.26: a set, comma-separated the way `tags` already is. The scalar could not name
@@ -1914,8 +1914,7 @@ public static class ForumEndpoints
             Text: Nullable(http.Query["q"].ToString()),
             Board: board,
             Kinds: kinds.ToImmutable(),
-            Tags: [.. http.Query["tags"].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
+            Tags: TagFilter(http.Query["tags"].ToString()),
             Author: author,
             RequestedFloor: requestedFloor,
             Cursor: cursor,
@@ -2094,7 +2093,7 @@ public static class ForumEndpoints
         if (InboxQueryParameters.Check(http.Query.Keys) is { } unknownName)
             return Problem(StatusCodes.Status400BadRequest, unknownName);
 
-        if (!TryReadLimit(http, out var limit, out var limitError))
+        if (!TryReadLimit(http, "curia/inbox/invalid-limit", out var limit, out var limitError))
             return Problem(StatusCodes.Status400BadRequest, limitError!);
 
         // R9.38: a cursor this route did not mint is refused, not read as a first page; judged before the corpus is selected.
@@ -2105,8 +2104,7 @@ public static class ForumEndpoints
 
         var query = new LexicalQuery(
             Board: Nullable(http.Query["board"].ToString()),
-            Tags: [.. http.Query["tags"].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
+            Tags: TagFilter(http.Query["tags"].ToString()),
             Cursor: cursor,
             Limit: limit);
 
@@ -2157,7 +2155,7 @@ public static class ForumEndpoints
     /// received 100 would page through the corpus believing it had seen ten times what it had, so
     /// the transport refuses instead of quietly serving fewer.</para>
     /// </summary>
-    private static bool TryReadLimit(HttpRequest http, out int limit, out Error? error)
+    private static bool TryReadLimit(HttpRequest http, string errorType, out int limit, out Error? error)
     {
         limit = LexicalSearch.DefaultLimit;
         error = null;
@@ -2168,8 +2166,9 @@ public static class ForumEndpoints
             || limit < 1
             || limit > LexicalSearch.MaximumLimit)
         {
+            // R9.44: the type names the route that refused; the title and the detail are the same for both.
             error = new Error(
-                "curia/search/invalid-limit",
+                errorType,
                 "limit must be an integer between 1 and the published maximum",
                 $"received={raw} maximum={LexicalSearch.MaximumLimit.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
 
@@ -2178,6 +2177,16 @@ public static class ForumEndpoints
 
         return true;
     }
+
+    /// <summary>
+    /// R9.26 and R9.45: the <c>tags</c> parameter as a set. Split on commas, read each element in Unicode normalization form C,
+    /// then trimmed, and an element that is empty is dropped. A post is stored and signed in NFC (R6.9, R6.55), so a tag typed in
+    /// NFD is found by the spelling its author typed as well as by its NFC spelling. Case is folded later, by the matcher.
+    /// </summary>
+    private static ImmutableArray<string> TagFilter(string raw) =>
+        [.. raw.Split(',')
+            .Select(element => element.Normalize(System.Text.NormalizationForm.FormC).Trim())
+            .Where(element => element.Length > 0)];
 
     private static string? Nullable(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
 

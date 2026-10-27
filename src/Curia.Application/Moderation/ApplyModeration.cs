@@ -118,7 +118,7 @@ public sealed class ApplyModeration
         // An id that is no post id names no post the Forum minted; answered as the lookup below answers
         // a post the log does not hold (R11.34, errata G18).
         if (!postId.TryGetValue(out var target, out _))
-            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NoSuchPost(RaiseFlag.NoPostId));
+            return Result<ModerationRecorded>.Fail(ModerationRecordErrors.NotAPostId());
 
         if (!AggregateId.Create(target!.Value).TryGetValue(out var aggregate, out var aggregateError))
             return Result<ModerationRecorded>.Fail(aggregateError!);
@@ -258,6 +258,12 @@ public static class ModerationRecordErrors
         "curia/moderation/blank-operator-name",
         "The operator's name is blank; a record names who acted (R10.59)",
         "the actor must be named operator:<name>, with a <name> that is not blank");
+
+    /// <summary>R10.84 (errata G43): the value is no post id; said in words, none of it echoed.</summary>
+    public static Error NotAPostId() => new(
+        "curia/moderation/no-such-post",
+        "No such post",
+        "the value given is not a post id");
 
     public static Error NoSuchPost(string postId) => new(
         "curia/moderation/no-such-post",

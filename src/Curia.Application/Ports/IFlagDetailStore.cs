@@ -76,6 +76,14 @@ public static class FlagDetailRules
         "curia/flag/detail-unstorable",
         "A flag detail member is empty or contains U+0000, which the store cannot hold");
 
+    /// <summary>
+    /// R10.84 (errata G43): a rationale that holds U+0000 or an unpaired surrogate, named as the rationale under the type the store's
+    /// refusal has. The caller sent a rationale; "a flag detail member" is the store's word. Nothing of the value is echoed.
+    /// </summary>
+    public static Error UnstorableRationale() => new(
+        "curia/flag/detail-unstorable",
+        "The flag's rationale contains U+0000 or an unpaired surrogate, which the store cannot hold");
+
     /// <summary>The store failed for a reason of its own; the detail carries its state code and nothing else.</summary>
     public static Error Unavailable(string detail) => new(
         "curia/flag/detail-store-unavailable",

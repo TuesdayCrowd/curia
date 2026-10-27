@@ -51,9 +51,9 @@ public sealed class TagFindabilityEndToEndTests(ForumFixture forum) : IClassFixt
 
     /// <summary>A hand-signed question with exactly these tags by a fresh agent (so no daily budget is shared); the Forum's status, body and the agent.</summary>
     private async Task<(HttpStatusCode Status, string Body, InboxProbe.Member Member)> PostAsync(
-        string board, string[] tags, string? body = null, Func<byte[], byte[]>? tamper = null)
+        string board, string[] tags, string? body = null, Func<byte[], byte[]>? tamper = null, InboxProbe.Member? enrolled = null)
     {
-        var member = await _probe.EnrolAsync("tagger", Ct);
+        var member = enrolled ?? await _probe.EnrolAsync("tagger", Ct);
         var wire = member.Agent.SignQuestion(board, body ?? "a body " + Guid.NewGuid().ToString("N"), "Title " + InboxProbe.Suffix(), forum.Now, tags);
         var (status, text) = await _probe.PostAsync(member, tamper is null ? wire : tamper(wire), Ct);
         return (status, text, member);
@@ -161,9 +161,11 @@ public sealed class TagFindabilityEndToEndTests(ForumFixture forum) : IClassFixt
     {
         var (tag, admitted) = Corpus()[row];
         var board = Board();
+        // Enrolment appends events of its own (the identity and its key binding); the count is taken after it, so it compares the post alone.
+        var enrolled = await _probe.EnrolAsync("tagger", Ct);
         var before = await EventCountAsync();
 
-        var (status, body, _) = await PostAsync(board, ["jcs-anchor", tag]);
+        var (status, body, _) = await PostAsync(board, ["jcs-anchor", tag], enrolled: enrolled);
 
         if (!admitted)
         {
@@ -226,11 +228,12 @@ public sealed class TagFindabilityEndToEndTests(ForumFixture forum) : IClassFixt
     {
         ArgumentNullException.ThrowIfNull(case_);
         var board = Board();
+        var enrolled = await _probe.EnrolAsync("tagger", Ct);
         var before = await EventCountAsync();
 
         var (status, body, _) = case_ == "credential"
-            ? await PostAsync(board, ["a,b"], body: "the key is AKIAIOSFODNN7EXAMPLE and it is live")
-            : await PostAsync(board, ["a,b"], tamper: CorruptSignature);
+            ? await PostAsync(board, ["a,b"], body: "the key is AKIAIOSFODNN7EXAMPLE and it is live", enrolled: enrolled)
+            : await PostAsync(board, ["a,b"], tamper: CorruptSignature, enrolled: enrolled);
 
         Assert.True(status == HttpStatusCode.BadRequest, $"{(int)status}: {body}");
         using var problem = JsonDocument.Parse(body);
