@@ -305,21 +305,27 @@ public sealed class ParentAtIngestEndpointTests(ForumFixture forum) : IClassFixt
     }
 
     /// <summary>
-    /// Ruling 7: existence is the log's, and servability is not asked. With the question withheld, a comment and an answer under it are each <c>201</c>;
-    /// whether a withheld thread should take replies is a moderation question, left open and pinned here.
+    /// Moved by errata G41 (R8.72, deciding G38 decision 7, which pinned "a withheld parent takes replies" as open). Existence is still the log's and the
+    /// parent still exists, so neither is <c>parent-not-found</c>; servability is now asked, after the existence and kind checks. With the question
+    /// withheld, a comment and an answer under it are each refused <c>400</c> <c>parent-withheld</c> and nothing is stored. The row was
+    /// <c>R8_70_AWithheldParentStillExistsAndTakesAReply</c>; it flips on purpose and is kept, not removed.
     /// </summary>
     [Fact]
-    public async Task R8_70_AWithheldParentStillExistsAndTakesAReply()
+    public async Task R8_72_AWithheldParentStillExistsButTakesNoReply()
     {
         var ct = TestContext.Current.CancellationToken;
         var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
         await forum.WithholdAsync(scene.Question.PostId, ct);
+        var posts = await PostsAsync(ct);
 
         var (commentStatus, commentBody) = await SubmitAsync(scene.Answerer, CommentOf(scene, scene.Answerer, scene.Question.PostId, "A comment under a withheld question"), ct);
         var (answerStatus, answerBody) = await SubmitAsync(scene.Answerer, AnswerOf(scene, scene.Answerer, scene.Question.PostId, "An answer under a withheld question"), ct);
 
-        Assert.True(commentStatus == HttpStatusCode.Created, $"a comment under a withheld question answered {(int)commentStatus}: {commentBody}");
-        Assert.True(answerStatus == HttpStatusCode.Created, $"an answer under a withheld question answered {(int)answerStatus}: {answerBody}");
+        Assert.True(commentStatus == HttpStatusCode.BadRequest, $"a comment under a withheld question answered {(int)commentStatus}: {commentBody}");
+        Assert.True(answerStatus == HttpStatusCode.BadRequest, $"an answer under a withheld question answered {(int)answerStatus}: {answerBody}");
+        Assert.Contains(PublishedWithheldWords.ParentWithheldType(), commentBody, StringComparison.Ordinal);
+        Assert.Contains(PublishedWithheldWords.ParentWithheldType(), answerBody, StringComparison.Ordinal);
+        Assert.Equal(posts, await PostsAsync(ct));
     }
 
     /// <summary>Refuses the read of one stream, the parent's, while <c>refusing</c> says so; every other read goes to the real store.</summary>
