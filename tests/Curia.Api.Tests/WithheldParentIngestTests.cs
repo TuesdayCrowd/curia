@@ -135,6 +135,21 @@ public sealed class WithheldParentIngestTests(ForumFixture forum) : IClassFixtur
         Assert.True(controlStatus == HttpStatusCode.Created, controlBody);
     }
 
+    /// <summary>PH7b. R8.72, R10.36: a comment under a post an automated detector quarantined is refused <c>parent-withheld</c>, as under a human record; nothing is stored.</summary>
+    [Fact]
+    public async Task R8_72_ACommentUnderAnAutomatedQuarantineIsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var scene = await AcceptedAnswerScene.BuildAsync(forum, ct);
+        await forum.QuarantineAsAutomatedAsync(scene.Answer1.PostId, scene.Answer1.Digest, ct);
+        var all = await PostsAsync(ct);
+
+        var (status, body) = await SubmitAsync(scene.Answerer, CommentOf(scene, scene.Answerer, scene.Answer1.PostId, "Under an automated quarantine"), ct);
+
+        AssertRefusedAsWithheld(status, body, scene.Answer1.PostId, "a comment under an automated quarantine");
+        Assert.Equal(all, await PostsAsync(ct));
+    }
+
     /// <summary>
     /// PH8. R8.72, decision 4: the check follows AUTHORIZE, so a caller denied is told why and never whether a post exists. A T0 agent answering under a
     /// withheld question is <c>403</c> <c>table-10/denied</c> with the body it gets under a served one; a T0 agent whose day's budget is spent and who

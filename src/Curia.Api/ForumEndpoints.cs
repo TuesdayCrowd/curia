@@ -865,6 +865,13 @@ public static class ForumEndpoints
 
             if (ParentPolicy.Refusal(v.Envelope.Kind, submittedParent, parentFacts) is { } parentRefusal)
                 return Problem(StatusCodes.Status400BadRequest, parentRefusal);
+
+            // R8.72 (errata G41): the parent exists and is the kind this one needs, and moderation does not serve it. Last of the
+            // parent checks (a withheld comment as an answer's parent is `parent-not-a-question`, the stored kind), after AUTHORIZE
+            // (an under-tier caller is told the tier and never the post's state), before SCREEN and PERSIST (nothing stored, no
+            // budget spent). `servable` is built from the log read above, so there is no second read and no caching (R7.4).
+            if (parentFacts is not null && !Servable(log)(parentFacts.PostId))
+                return Problem(StatusCodes.Status400BadRequest, ParentErrors.Withheld(submittedParent));
         }
 
         // R8.58 / R8.4 (errata G8): a vote or verification names a target, and the pair (submitter,
