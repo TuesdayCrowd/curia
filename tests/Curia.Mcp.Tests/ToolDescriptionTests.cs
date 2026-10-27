@@ -722,18 +722,11 @@ public sealed class ToolDescriptionTests
             Assert.Contains(phrase, description, StringComparison.Ordinal);
     }
 
-    /// <summary>PJ38, R11.59 (moved fact in Task 5: the version fact below becomes this one): four descriptions and a guard change and no tool is added, so the version moves from 0.8.5 to 0.8.6.</summary>
+    /// <summary>PJ38, R11.59 (moved fact; R11.56's R11_56_TheVersionIs085 is replaced by this one): four descriptions and a guard change and no tool is added, so the version moves from 0.8.5 to 0.8.6.</summary>
     [Fact]
     public void R11_59_TheVersionIs086()
     {
         Assert.Equal("0.8.6", ToolCatalogue.Version);
-    }
-
-    /// <summary>R11.56 (errata G42, moved fact; R11.54's R11_54_TheVersionIs084 is replaced by this one): two descriptions and a receipt change and no tool is added, so the server's version moves from 0.8.4 to 0.8.5.</summary>
-    [Fact]
-    public void R11_56_TheVersionIs085()
-    {
-        Assert.Equal("0.8.5", ToolCatalogue.Version);
     }
 
     /// <summary>

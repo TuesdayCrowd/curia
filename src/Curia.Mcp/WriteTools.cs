@@ -100,6 +100,7 @@ internal sealed partial class ForumTools
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
         if (ArgumentGuards.Identifier(body, nameof(body)) is { } refusedBody) return refusedBody;
         if (ArgumentGuards.Items(tags, nameof(tags)) is { } refusedTags) return refusedTags;
+        if (ArgumentGuards.StorableIdentifier(postId, nameof(postId)) is { } unstorable) return unstorable;
         if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
 
@@ -184,6 +185,7 @@ internal sealed partial class ForumTools
         CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(parentPostId, nameof(parentPostId)) is { } refused) return refused;
+        if (ArgumentGuards.StorableIdentifier(parentPostId, nameof(parentPostId)) is { } unstorable) return unstorable;
         if (ArgumentGuards.Identifier(body, nameof(body)) is { } refusedBody) return refusedBody;
         if (ArgumentGuards.Items(refs, nameof(refs), blankToo: true) is { } refusedRefs) return refusedRefs;
         var writer = Writer();
@@ -277,6 +279,7 @@ internal sealed partial class ForumTools
     internal async Task<CallToolResult> ResolveAsync(string answerPostId, CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(answerPostId, nameof(answerPostId)) is { } refused) return refused;
+        if (ArgumentGuards.StorableIdentifier(answerPostId, nameof(answerPostId)) is { } unstorable) return unstorable;
         var writer = Writer();
 
         var accepted = await writer.Session.AcceptAsync(answerPostId, cancellationToken).ConfigureAwait(false);
@@ -330,6 +333,7 @@ internal sealed partial class ForumTools
         string postId, string kind, string rationale, CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.StorableIdentifier(postId, nameof(postId)) is { } unstorable) return unstorable;
         if (ArgumentGuards.Identifier(rationale, nameof(rationale)) is { } refusedRationale) return refusedRationale;
         var writer = Writer();
 
