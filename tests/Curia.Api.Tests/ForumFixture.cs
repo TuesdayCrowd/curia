@@ -131,7 +131,15 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// tool runs — never by hand-building the event. A fixture written by the people who wrote the
     /// fold agrees with the fold (trap 16); this one has to agree with the writer.
     /// </summary>
-    internal async Task WithholdAsync(string postId, CancellationToken ct)
+    internal Task WithholdAsync(string postId, CancellationToken ct) => ModerateAsync(postId, ModerationEffect.Withhold, ct);
+
+    /// <summary>Quarantines a post pending review through the same writer. A human record: <see cref="ApplyModeration"/> writes no other kind, and the fold treats the two states alike (R10.36).</summary>
+    internal Task QuarantineAsync(string postId, CancellationToken ct) => ModerateAsync(postId, ModerationEffect.Quarantine, ct);
+
+    /// <summary>Restores a post that was withheld or quarantined in the spam category, through the same writer.</summary>
+    internal Task RestoreAsync(string postId, CancellationToken ct) => ModerateAsync(postId, ModerationEffect.Restore, ct);
+
+    private async Task ModerateAsync(string postId, ModerationEffect effect, CancellationToken ct)
     {
         using var scope = Services.CreateScope();
         var moderate = scope.ServiceProvider.GetRequiredService<ApplyModeration>();
@@ -141,9 +149,9 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
         Require(await moderate.RecordAsync(
             PostId.Parse(postId),
-            ModerationEffect.Withhold,
+            effect,
             FlagKind.Spam,
-            Rationale.Parse("withheld by the test fixture"),
+            Rationale.Parse("moderated by the test fixture"),
             Require(ActorId.Create("operator:fixture")),
             ct));
     }

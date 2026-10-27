@@ -1289,7 +1289,7 @@ public static class ForumEndpoints
         // rather than capability. No ETag on a 404, either: a withheld post has changed in the one
         // way a post can, and a validator on the refusal would say otherwise.
         if (post is null)
-            return Results.NotFound(new Problem("curia/posts/not-found", "No such post", postId));
+            return Results.NotFound(new Problem(ParentErrors.PostNotFoundType, "No such post", postId));
 
         // R9.11 (rev., errata G6): the validator is a hash of the bytes served, not the content
         // digest. The envelope's owner_verified, verification_level and accepted members change

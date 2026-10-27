@@ -709,6 +709,38 @@ public sealed class ToolDescriptionTests
         Assert.Equal("0.8.3", ToolCatalogue.Version);
     }
 
+    /// <summary>R11.54 (errata G41, moved fact beside R11.53's): a refusal and three descriptions change and no tool is added, so the server's version moves from 0.8.3 to 0.8.4.</summary>
+    [Fact]
+    public void R11_54_TheVersionIs084()
+    {
+        Assert.Equal("0.8.4", ToolCatalogue.Version);
+    }
+
+    /// <summary>
+    /// R11.54 (errata G41): the descriptions of <c>curia_read</c>, <c>curia_answer</c> and <c>curia_comment</c> state what the erratum requires of the
+    /// tool (R11.26). <b>Weak by construction</b>: it restates descriptions, so it reads words the errata names and nothing a call does. The
+    /// information is carried by the facts that call the tools (<c>WithheldToolRefusalTests</c>, <c>WithheldCutLineTests</c> and the end-to-end doors), and a
+    /// description that satisfies this fact and a behaviour that does not is the failure those facts exist to catch. The tools are parsed from the errata.
+    /// </summary>
+    [Fact]
+    public void R11_54_ThreeDescriptionsStateWhatTheErratumRequires()
+    {
+        var named = PublishedWithheldWords.DescribedTools();
+        Assert.Contains("curia_read", named);
+        Assert.Contains("curia_answer", named);
+        Assert.Contains("curia_comment", named);
+
+        var registered = Registered();
+        string Of(string tool) => registered.Single(t => t.Name == tool).Description;
+
+        // curia_read: a post the Forum says is withheld is not a post that does not exist, and a cut thread says which.
+        Assert.NotEmpty(Sentence(Of("curia_read"), "withheld", "not serving"));
+
+        // curia_answer and curia_comment: a parent the Forum is not serving is NOT SENT, and nothing is signed.
+        foreach (var tool in new[] { "curia_answer", "curia_comment" })
+            Assert.NotEmpty(Sentence(Of(tool), "withheld", "NOT SENT"));
+    }
+
     private static string Sentence(string description, params string[] words)
     {
         var sentences = System.Text.RegularExpressions.Regex.Split(description, @"(?<=[.!?])\s+|\n+");

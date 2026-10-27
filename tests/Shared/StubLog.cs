@@ -880,6 +880,15 @@ internal sealed class StubLog : IDisposable
     /// <summary>With <see cref="ServedParent"/> set, a read of any id but <see cref="PostId"/> is refused, as the Forum refuses a withheld post.</summary>
     internal bool OtherPostsAreRefused { get; set; }
 
+    /// <summary>
+    /// R11.54 (errata G41): with <see cref="OtherPostsAreRefused"/>, the problem type the refusal carries (null: <c>curia/posts/not-found</c>, as the
+    /// Forum answers an id no post bears; <c>curia/posts/withheld</c>, as it answers a post it is not serving).
+    /// </summary>
+    internal string? OtherPostsRefusalType { get; set; }
+
+    /// <summary>R11.54: with <see cref="OtherPostsAreRefused"/>, answer the refused reads with this status and <c>curia/stub/unavailable</c> instead: a failure that says nothing about the id.</summary>
+    internal HttpStatusCode? OtherPostsFailWith { get; set; }
+
     /// <summary>The thread route serves only the answer, a thread that does not include <see cref="PostId"/>.</summary>
     internal bool ThreadRouteServesOnlyTheAnswer { get; set; }
 
@@ -1819,8 +1828,13 @@ internal sealed class StubLog : IDisposable
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal)
                 && log.OtherPostsAreRefused
                 && Uri.UnescapeDataString(path["/v1/posts/".Length..]) != PostId)
+            {
+                if (log.OtherPostsFailWith is { } otherFailure)
+                    return (otherFailure, """{"type":"curia/stub/unavailable","title":"The stub fails this read"}""");
+
                 return (HttpStatusCode.NotFound,
-                    """{"type":"curia/posts/not-found","title":"No such post"}""");
+                    $$"""{"type":{{JsonString(log.OtherPostsRefusalType ?? "curia/posts/not-found")}},"title":"No such post"}""");
+            }
 
             if (path.StartsWith("/v1/posts/", StringComparison.Ordinal))
             {

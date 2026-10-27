@@ -56,6 +56,7 @@
     <Compile Include="../Shared/StubLog.cs" Link="Shared/StubLog.cs" />
     <Compile Include="../Shared/PublishedSearchPage.cs" Link="Shared/PublishedSearchPage.cs" />
     <Compile Include="../Shared/PublishedParentRule.cs" Link="Shared/PublishedParentRule.cs" />
+    <Compile Include="../Shared/PublishedWithheldWords.cs" Link="Shared/PublishedWithheldWords.cs" />
     <Compile Include="../Shared/PublishedCliRules.cs" Link="Shared/PublishedCliRules.cs" />
     <Compile Include="../Shared/PublishedReadersWords.cs" Link="Shared/PublishedReadersWords.cs" />
     <Compile Include="../Shared/McpProtocolSession.cs" Link="Shared/McpProtocolSession.cs" />

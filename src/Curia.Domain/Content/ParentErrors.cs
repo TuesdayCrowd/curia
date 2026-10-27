@@ -20,6 +20,17 @@ public static class ParentErrors
 
     public const string NotAQuestionTitle = "An answer's parent must be a question";
 
+    /// <summary>R8.72 (errata G41): the parent exists and moderation does not serve it (withheld or quarantined).</summary>
+    public const string WithheldType = "curia/ingest/parent-withheld";
+
+    public const string WithheldTitle = "The parent is not being served";
+
+    /// <summary>R9.42 (errata G41): <c>GET /v1/posts/{id}</c> for a post that exists and is not served.</summary>
+    public const string PostWithheldType = "curia/posts/withheld";
+
+    /// <summary>R9.42: <c>GET /v1/posts/{id}</c> for an id no post bears (and for a signal kind, which is no post a reader is served).</summary>
+    public const string PostNotFoundType = "curia/posts/not-found";
+
     /// <summary>The detail's stand-in for a parent that is not shaped as a post id, so no text a caller wrote reaches a response.</summary>
     public const string NotAPostId = "(not a post id)";
 
@@ -29,6 +40,9 @@ public static class ParentErrors
     /// <summary>R8.70: names the parent and its stored kind.</summary>
     public static Error NotAQuestion(string? parent, PostKind kind) =>
         new(NotAQuestionType, NotAQuestionTitle, $"parent={Echo(parent)} kind={PostKinds.Wire(kind)}");
+
+    /// <summary>R8.72: names the parent, echoed under the same rule as the other two.</summary>
+    public static Error Withheld(string? parent) => new(WithheldType, WithheldTitle, "parent=" + Echo(parent));
 
     private static string Echo(string? parent) =>
         PostId.Parse(parent).TryGetValue(out var id, out _) ? id!.Value : NotAPostId;
