@@ -10,7 +10,18 @@ set; SP scores recorded even if not yet weighted.*
 
 ---
 
-> ## Current work — where it stands (2026-10-27, at the `a-citation-is-told-what-was-checked` branch, on `main` at 87e48c53, #127)
+> ## Current work — where it stands (2026-10-27, paused at the `the-small-ones` branch, on `main` at 26807787, #128)
+>
+> **Paused for a machine restart, 2026-10-27 (the owner's instruction: finish the task in flight, bring the docs to the current
+> state, push the branch, do not merge).** The seventh five-agent exercise's four PRs, in the architect's order: **#127** (D77,
+> errata G41, a withheld post says so) and **#128** (D79 and D80, errata G42, recheck says what it checked and an answer to a
+> revised question is pointed at the question) are merged. **PR 3, "The Small Ones"** (D61 items 24 to 29 and D81, errata G43,
+> `curia-mcp` 0.8.6; plan `docs/superpowers/plans/2026-10-27-the-small-ones.md`) is on branch `the-small-ones`, pushed with no
+> PR: Tasks 0 to 7 are done (probes PJ1 to PJ45 seen red and green; gates green at baf5abe9, Api 1000/1000; falsification
+> FPJ1 to FPJ46 all red after two fix rounds; the live run 13 of 13). **Still to do on PR 3:** Task 8 (register and docs: close
+> D61 items 24 to 27 and D81, open items 28 and 29, "As run", README and CLAUDE.md), the final whole-Api run, the final
+> review, and the PR (predicted #129). **Then PR 4, "Accept the Text You Checked"** (D78, errata G44 provisional), planned by
+> the architect and not yet committed. Then the eighth five-agent exercise.
 >
 > **Errata G21 ("keys that end") is built and merged under a lifecycle guard, and TUI PR B is merged.** D35 (`hidden-beyond-bmp`) is
 > merged. **The refusals stage (errata G24) is merged as #104**. **#106 is the MCP refusals stage (`mcp-refusals-name-their-cause`, closed D51)**:
