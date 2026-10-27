@@ -19,6 +19,7 @@ namespace Curia.Client.Tests;
     "Naming",
     "CA1707:Identifiers should not contain underscores",
     Justification = "Test names carry the requirement IDs they enforce verbatim.")]
+[Collection("console")]
 public sealed class WithheldRefusalWordsTests
 {
     private const string Id = "01TESTPOSTID0000000000000A";
@@ -45,6 +46,38 @@ public sealed class WithheldRefusalWordsTests
         Assert.Contains("ithheld", refusal.Summary, StringComparison.Ordinal);
         Assert.DoesNotContain("No such post", refusal.Summary, StringComparison.Ordinal);
         Assert.Equal(5, ExitCode.For(refusal));
+    }
+
+    /// <summary>
+    /// PH13 (revision row). <c>curia revision</c> reads and verifies the post it would chain to and reports a refused read with <c>Output.Fail(refusal)</c>
+    /// (<c>RevisedDigestAsync</c>): a withheld post is worded withheld on stderr, exits 5, and says nothing was sent. The control is the not-found refusal,
+    /// which prints "No such post" and no claim of withholding, through the same call.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task R11_54_ARevisionOfAWithheldPostIsWordedWithheldExitFive(bool withheld)
+    {
+        var refusal = withheld
+            ? await ReadRefusedAsync(PublishedWithheldWords.PostWithheldType(), "This post is not being served")
+            : await ReadRefusedAsync(PublishedWithheldWords.PostNotFoundType(), "No such post");
+
+        var (exit, _, printed) = await ConsoleCapture.CaptureAsync(() => Task.FromResult(Output.Fail(refusal)));
+
+        // The second line carries the problem type, which spells "withheld" whatever the words say; the words are the first line.
+        var stderr = printed.Split('\n')[0];
+
+        Assert.Equal(5, exit);
+        if (withheld)
+        {
+            Assert.Contains("ithheld", stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("No such post", stderr, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("No such post", stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("ithheld", stderr, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>PH13. The control: an id no post bears is still "No such post", is not called withheld, and exits 5.</summary>
