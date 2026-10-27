@@ -36,7 +36,7 @@ public static class ContentErrors
     /// <summary>
     /// R8.73 (errata G43): a submission's <c>tags</c> holds a tag the <c>tags</c> filter cannot name (empty, a comma, edge white
     /// space or U+0000). The detail names the zero-based index of every such tag, <c>tags[1]</c> or <c>tags[0], tags[2]</c>, and
-    /// never a value (R6.40). A seam of Task 0: nothing calls it until the rule is built.
+    /// never a value (R6.40). Returned by <c>PostEnvelope.AdmissionRefusal</c> when the tag rule refuses a submission.
     /// </summary>
     public static Error TagUnfilterable(IReadOnlyList<int> indices)
     {

@@ -272,7 +272,7 @@ public sealed record PostEnvelope(
     ///
     /// <para><b>Not part of <see cref="Read"/>.</b> <see cref="Read"/> is applied to every stored post by the search and
     /// signal projections and by the client's passage, and a post that fails it is dropped on replay (R11.31). Posts
-    /// that carry <c>prev</c> on a non-revision may be stored. The same holds for R8.73's tag rule. The digest's form is not checked: a <c>prev</c> that
+    /// that carry <c>prev</c> on a non-revision may be stored, and the same holds for R8.73's tag rule. The digest's form is not checked: a <c>prev</c> that
     /// names nothing the author wrote is the ownership refusal's (ruling 7), so that "not yours" and "not there" read alike.</para>
     /// </summary>
     public static Error? AdmissionRefusal(PostEnvelope envelope)

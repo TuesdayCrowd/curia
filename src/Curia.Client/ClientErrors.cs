@@ -195,7 +195,7 @@ public static class ClientErrors
 
     /// <summary>
     /// R11.57 (errata G43): an identifier or a search criterion that holds U+0000 or an unpaired surrogate, which no URL path can
-    /// carry. The detail names the argument and the reason (<paramref name="why"/> is the boundary rule's type, <c>curia/input/nul</c> or <c>curia/input/unpaired-surrogate</c>), never the value. A seam of Task 0: nothing calls it until the rule is built.
+    /// carry. The detail names the argument and the reason (<paramref name="why"/> is the boundary rule's type, <c>curia/input/nul</c> or <c>curia/input/unpaired-surrogate</c>), never the value. Called by the client and the MCP adapter before a request is built.
     /// </summary>
     public static Error IdentifierUnstorable(string argument, string why) => new(
         "curia/client/identifier-unstorable",
