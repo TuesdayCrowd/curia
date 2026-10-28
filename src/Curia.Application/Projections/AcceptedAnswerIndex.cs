@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Curia.Domain;
 using Curia.Domain.Content;
+using Curia.Domain.Primitives.Boundary;
 using Curia.Domain.Serving;
 
 namespace Curia.Application.Projections;
@@ -88,12 +89,12 @@ public sealed class AcceptedAnswerIndex
     /// R9.46: <see cref="IsAccepted"/>, and only where <paramref name="threadRoot"/> is the post's own thread, so a revision a thread route lists
     /// beneath another question (by its author-written <c>parent</c>) does not read accepted there.
     /// </summary>
-    public bool IsAcceptedIn(PostView post, string threadRoot)
+    public bool IsAcceptedIn(PostView post, PostId threadRoot)
     {
         ArgumentNullException.ThrowIfNull(threadRoot);
 
         return ThreadOf(post) is { } thread
-            && string.Equals(thread, threadRoot, StringComparison.Ordinal)
+            && string.Equals(thread, threadRoot.Value, StringComparison.Ordinal)
             && NamesPost(thread, post);
     }
 

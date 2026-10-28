@@ -493,7 +493,9 @@ public sealed class WriteToolTests : IDisposable
 
         var refused = await Assert.ThrowsAsync<McpException>(() => Tools().ResolveAsync(StubLog.PostId, Ct));
 
-        Assert.Contains($"of kind {DisplayLiteral.Of("question")}, and only a post of kind answer can be accepted", refused.Message, StringComparison.Ordinal);
+        // errata G44 (R11.60): worded from the detail's kind, which is neither an answer nor a revision of one; the retired sentence is never said.
+        Assert.Contains($"of kind {DisplayLiteral.Of("question")}, which is neither an answer nor a revision of one", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("only a post of kind answer can be accepted", refused.Message, StringComparison.Ordinal);
         Assert.Contains("reading the question's thread with curia_read", refused.Message, StringComparison.Ordinal);
         Assert.Contains("Nothing was recorded", refused.Message, StringComparison.Ordinal);
     }

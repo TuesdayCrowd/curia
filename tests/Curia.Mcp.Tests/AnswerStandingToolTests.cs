@@ -94,8 +94,24 @@ public sealed class AnswerStandingToolTests : IDisposable
         foreach (var answer in Passages(read).Where(p => p.StartsWith($"post      \"{StubLog.AnswerPostId}\"", StringComparison.Ordinal)))
             Assert.Empty(AnswersLines(answer));
 
-        // Control: R11.41's first block is unchanged (no stub state accepts any post of the thread through AcceptedPostIds).
-        Assert.Contains("accepted none (the Forum served no post of this thread as accepted)", Text(read), StringComparison.Ordinal);
+        // errata G44 (R11.60): the first block's accepted line is the question's own word, the same state the question's answers line prints (no stub state
+        // flags any member through AcceptedPostIds, so the members' flags, which the line no longer reads, say nothing in either direction).
+        var firstBlock = Text(read);
+        switch (state)
+        {
+            case StubAcceptedAnswer.Standing:
+                Assert.Contains($"accepted post={DisplayLiteral.Of(StubLog.AnswerPostId)}", firstBlock, StringComparison.Ordinal);
+                break;
+            case StubAcceptedAnswer.StandingUnserved:
+                Assert.Contains($"accepted the post with digest {DisplayLiteral.Of(_log.Answer.PrefixedDigest)} (not served)", firstBlock, StringComparison.Ordinal);
+                break;
+            case StubAcceptedAnswer.None:
+                Assert.Contains("accepted none (the Forum served no post of this thread as accepted)", firstBlock, StringComparison.Ordinal);
+                break;
+            default:
+                Assert.Contains("accepted NOT STATED", firstBlock, StringComparison.Ordinal);
+                break;
+        }
     }
 
     [Fact]

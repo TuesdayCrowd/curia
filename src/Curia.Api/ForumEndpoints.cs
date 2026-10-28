@@ -1460,7 +1460,7 @@ public static class ForumEndpoints
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
             : Results.Ok(thread
-                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, corrections, acta, threadRoot: root!.Value))
+                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, corrections, acta, threadRoot: root))
                 .ToArray());
     }
 
@@ -2393,7 +2393,7 @@ public static class ForumEndpoints
         DisputedPosts disputed,
         CorrectionIndex corrections,
         ActaLog? acta = null,
-        string? threadRoot = null)
+        PostId? threadRoot = null)
     {
         var standingKnown = standings.TryGetValue(p.Author, out var standing);
         var state = verification.StateOf(p.Digest);

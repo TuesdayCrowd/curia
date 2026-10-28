@@ -282,7 +282,7 @@ public sealed class AcceptTheTextProbeTests
         var index = await FoldedAsync(store, ct);
         var rl = (await PostsAsync(store, ct)).Single(p => p.PostId == RL);
 
-        Assert.True(index.IsAcceptedIn(rl, Q), "RL is the post Q's acceptance names");
-        Assert.False(index.IsAcceptedIn(rl, QS), "RL listed beneath QS must not read accepted there");
+        Assert.True(index.IsAcceptedIn(rl, Typed.Post(Q)), "RL is the post Q's acceptance names");
+        Assert.False(index.IsAcceptedIn(rl, Typed.Post(QS)), "RL listed beneath QS must not read accepted there");
     }
 }

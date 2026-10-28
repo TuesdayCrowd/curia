@@ -117,6 +117,9 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
 
             // R9.41: this Forum serves the list inside the object, always; the stub serves it only when told to, so a fact can serve an older Forum.
             _stub.AcceptedAnswerSupersededBy = [];
+
+            // R9.46 (errata G44): and the kind of the post the acceptance names, always, so the stub serves the Forum's shape.
+            _stub.AcceptedAnswerKind = "answer";
             var provenance = JsonNode.Parse(_stub.PostJson())!["provenance"]!.AsObject();
             return provenance.ContainsKey("accepted_answer") ? Describe(provenance["accepted_answer"]) : "absent";
         }
@@ -127,8 +130,8 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         Assert.Equal(["accepted_answer", "digest", "post_id"], names);
         var listed = PublishedReadersWords.R941Member();
         const string Null = "null";
-        var servedShape = $"object{{digest:String,post_id:String,{listed}:Array}}";
-        var unservedShape = $"object{{digest:String,{listed}:Array}}";
+        var servedShape = $"object{{digest:String,kind:String,post_id:String,{listed}:Array}}";
+        var unservedShape = $"object{{digest:String,kind:String,{listed}:Array}}";
 
         var mismatches = new List<string>();
 
@@ -154,6 +157,7 @@ public sealed class StubFidelityTests(ForumFixture forum) : IClassFixture<ForumF
         // what lets a fact serve the reader a member without the list.
         _stub.AcceptedAnswer = StubAcceptedAnswer.Standing;
         _stub.AcceptedAnswerSupersededBy = default;
+        _stub.AcceptedAnswerKind = null;
         var older = Describe(JsonNode.Parse(_stub.PostJson())!["provenance"]!["accepted_answer"]);
         if (older != "object{digest:String,post_id:String}") mismatches.Add($"an unset list: the stub serves {older}, an older Forum served the object without {listed}");
 
