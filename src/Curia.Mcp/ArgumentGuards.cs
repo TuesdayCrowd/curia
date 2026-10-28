@@ -1,4 +1,5 @@
 using Curia.Domain.Primitives;
+using Curia.Domain.Primitives.Boundary;
 using ModelContextProtocol.Protocol;
 
 namespace Curia.Mcp;
@@ -19,6 +20,34 @@ internal static class ArgumentGuards
     internal static CallToolResult? Identifier(string? value, string argument)
     {
         return string.IsNullOrWhiteSpace(value) ? Refusal($"{argument} is empty or blank") : null;
+    }
+
+    /// <summary>
+    /// R11.57 (errata G43): an identifier, or a search criterion, that reaches a path or a query holds neither U+0000 nor an unpaired
+    /// surrogate (R11.34's two clauses, <see cref="StorableText"/>). Refused <c>NOT SENT</c>, naming the argument and never the value.
+    /// Null is no value and is no refusal here; a malformed identifier that holds neither is still sent (D61 item 2).
+    /// </summary>
+    internal static CallToolResult? StorableIdentifier(string? value, string argument)
+    {
+        if (value is null || StorableText.Check(value, argument, int.MaxValue, names: false).IsOk)
+            return null;
+
+        return Refusal($"{argument} holds U+0000 or an unpaired surrogate, which no identifier can carry");
+    }
+
+    /// <summary>R11.57: each item of a list of search criteria is storable; the refusal names the item by its zero-based index.</summary>
+    internal static CallToolResult? StorableItems(IEnumerable<string?>? items, string argument)
+    {
+        if (items is null) return null;
+
+        var index = 0;
+        foreach (var item in items)
+        {
+            if (StorableIdentifier(item, $"{argument}[{index}]") is { } refused) return refused;
+            index++;
+        }
+
+        return null;
     }
 
     /// <summary>

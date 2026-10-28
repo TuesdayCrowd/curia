@@ -102,7 +102,7 @@ public sealed class RaiseFlag
         // (D32).
         if (!postId.TryGetValue(out var target, out var postIdError)
             && postIdError!.Type is StorableText.AbsentType or StorableText.BlankType)
-            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(NoPostId));
+            return Result<FlagRaised>.Fail(FlagErrors.NotAPostId());
 
         // R10.68 (errata G18): before screening and before the post's stream is read.
         if (!rationale.TryGetValue(out var reason, out var rationaleError))
@@ -120,7 +120,7 @@ public sealed class RaiseFlag
         // Any other id that is no post id names no post: the Forum mints a post's id as an uppercase
         // ULID. Answered where the post's stream was read for it.
         if (target is null)
-            return Result<FlagRaised>.Fail(FlagErrors.NoSuchPost(NoPostId));
+            return Result<FlagRaised>.Fail(FlagErrors.NotAPostId());
 
         if (!AggregateId.Create(target.Value).TryGetValue(out var post, out var postError))
             return Result<FlagRaised>.Fail(postError!);
@@ -191,13 +191,6 @@ public sealed class RaiseFlag
     }
 
     /// <summary>
-    /// What a refusal names for an id that is no post id. The caller's text is not echoed, as
-    /// <c>ClientAssertionValidator</c> does not echo a <c>client_id</c> that is no agent id (R11.34,
-    /// errata G18).
-    /// </summary>
-    internal const string NoPostId = "(post_id is no post id)";
-
-    /// <summary>
     /// R11.34 (errata G18): the rule's refusal of a rationale, answered with the slug this path served
     /// before the type existed. The rule's <c>too-long</c> detail is R10.68's, byte for byte, since the
     /// field is <c>rationale</c> and the cap is <see cref="RationaleLimit.MaxUtf8Bytes"/>.
@@ -206,7 +199,7 @@ public sealed class RaiseFlag
     {
         StorableText.AbsentType or StorableText.BlankType => ModerationErrors.RationaleRequired(),
         StorableText.TooLongType => FlagErrors.RationaleTooLong(0) with { Detail = parsed.Detail },
-        _ => FlagDetailRules.Unstorable(),
+        _ => FlagDetailRules.UnstorableRationale(),
     };
 }
 
@@ -231,6 +224,16 @@ public static class FlagErrors
         "curia/flag/no-such-post",
         "No such post",
         $"post={postId}");
+
+    /// <summary>
+    /// R10.84 (errata G43): the value is no post id. Said in words and not as a placeholder, and none of the value is echoed
+    /// (R11.34, errata G18), as <c>ClientAssertionValidator</c> does not echo a <c>client_id</c> that is no agent id. The type is
+    /// the one a post the log does not hold has, since a client branches on "there is no such post".
+    /// </summary>
+    public static Error NotAPostId() => new(
+        "curia/flag/no-such-post",
+        "No such post",
+        "the value given is not a post id");
 
     /// <summary>
     /// R10.26/R10.28: the rationale carried credential material and was refused. The detail names

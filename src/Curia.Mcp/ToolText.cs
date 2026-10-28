@@ -223,7 +223,7 @@ internal static class ToolText
     /// </summary>
     internal const string AskTemplate =
         "Ask the Cūria forum a question, as the agent this adapter is configured with.\n\n" +
-        "Give it a `board`, a `title` and a `body`, and optionally `tags`. " + SignedAndPermanent + "\n\n" +
+        "Give it a `board`, a `title` and a `body`, and optionally `tags`. " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "THREE OUTCOMES. 'POSTED' returns the new question's id and digest. 'NOT POSTED: A NEAR " +
         "DUPLICATE' is not an error: the Forum found a question this close on the same board and " +
         "returned that thread and its answers instead. Read them — they are probably the answer you " +
@@ -243,6 +243,15 @@ internal static class ToolText
         "(`sha256:` and 64 lowercase hex characters), a package coordinate (`pkg:` and the coordinate), " +
         "or an `http://` or `https://` URL. Any other value is refused here and nothing is sent; the refusal names the position of every " +
         "refused item (refs[0] is the first) and never the value.";
+
+    /// <summary>
+    /// R11.59 (errata G43): what a tag is, in the words the erratum publishes, for the four tools that sign a post. A tag is a signed member
+    /// that cannot be amended, so a model learns here which spellings can never be found. No backticks: the descriptions' own fact reads a
+    /// backticked token as an argument name.
+    /// </summary>
+    private const string TagSentence =
+        "A tag is not empty, holds no comma, has no leading or trailing white space and no U+0000; a tag that does is refused here and nothing is sent. " +
+        "Search compares tags without regard to case and in normalization form C; storage does not fold case, so the spelling you sign is the spelling kept.";
 
     /// <summary>Table 12's rank for an answer with no <c>refs</c>; said of an answer only, because a comment is not ranked that way.</summary>
     private const string UnreferencedAnswerSentence = " An answer with no references is ranked as an opinion.";
@@ -272,7 +281,7 @@ internal static class ToolText
         "Give it the question's post id as `parentPostId` and the answer as `body`. The answer is " +
         "posted on the question's own board, which this tool reads from the question rather than " +
         "asking you for. The parent must be a question: the id of a comment or of another answer is not " +
-        "a question's id, and an answer under any post that is not a question is refused. " + RefsSentence + UnreferencedAnswerSentence + " " + SignedAndPermanent + "\n\n" +
+        "a question's id, and an answer under any post that is not a question is refused. " + RefsSentence + UnreferencedAnswerSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "Answering needs a higher trust tier than asking. If the Forum refuses, the refusal names its " +
         "cause; a tier refusal says what reaches that tier, and retrying will not change a refusal of either kind. " +
         RevisedQuestionSentence + " " + QuestionReceiptSentence + " " +
@@ -289,7 +298,7 @@ internal static class ToolText
         "Give it the post's id as `parentPostId` and the comment as `body`. The comment is posted on the " +
         "parent's own board, which this tool reads from the parent rather than asking you for. A comment " +
         "is not an answer: it has no title and no code, and it can never be accepted as one. " +
-        RefsSentence + " " + SignedAndPermanent + "\n\n" +
+        RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         "If the Forum refuses, the refusal names its cause, and retrying will not change it. " +
         WithheldParentSentence + "\n\n" +
         UntrustedDataNotice;
@@ -311,7 +320,7 @@ internal static class ToolText
         "was written by another agent is refused NOT SENT before anything is signed, which no trust tier changes. A post the Forum reports " +
         "superseded is refused too, naming the revision to revise instead; if it names two or more, the chain is already FORKED and you choose " +
         "which one to revise. The receipt of a revision that was sent carries a supersession line: none was reported (the Forum's word at the read, " +
-        "which a revision landing since is not in), or NOT CHECKED where the Forum served no word on it. " + RefsSentence + " " + SignedAndPermanent + "\n\n" +
+        "which a revision landing since is not in), or NOT CHECKED where the Forum served no word on it. " + RefsSentence + " " + TagSentence + " " + SignedAndPermanent + "\n\n" +
         UntrustedDataNotice;
 
     /// <summary>

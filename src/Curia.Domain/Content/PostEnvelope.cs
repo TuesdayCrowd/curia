@@ -272,7 +272,7 @@ public sealed record PostEnvelope(
     ///
     /// <para><b>Not part of <see cref="Read"/>.</b> <see cref="Read"/> is applied to every stored post by the search and
     /// signal projections and by the client's passage, and a post that fails it is dropped on replay (R11.31). Posts
-    /// that carry <c>prev</c> on a non-revision may be stored. The digest's form is not checked: a <c>prev</c> that
+    /// that carry <c>prev</c> on a non-revision may be stored, and the same holds for R8.73's tag rule. The digest's form is not checked: a <c>prev</c> that
     /// names nothing the author wrote is the ownership refusal's (ruling 7), so that "not yours" and "not there" read alike.</para>
     /// </summary>
     public static Error? AdmissionRefusal(PostEnvelope envelope)
@@ -280,9 +280,21 @@ public sealed record PostEnvelope(
         ArgumentNullException.ThrowIfNull(envelope);
 
         if (PostKinds.RequiresPrev(envelope.Kind))
-            return string.IsNullOrWhiteSpace(envelope.Prev) ? ContentErrors.PrevRequired(envelope.Kind) : null;
+        {
+            if (string.IsNullOrWhiteSpace(envelope.Prev)) return ContentErrors.PrevRequired(envelope.Kind);
+        }
+        else if (envelope.Prev is not null)
+        {
+            return ContentErrors.PrevNotAllowed(envelope.Kind);
+        }
 
-        return envelope.Prev is not null ? ContentErrors.PrevNotAllowed(envelope.Kind) : null;
+        // R8.73: a tag the filter cannot name, by index and never by value. The envelope is read from the canonical form
+        // (R6.55), so a tag typed in NFD is already NFC here; the route reads its filter in NFC (R9.45).
+        var unfilterable = new List<int>();
+        for (var i = 0; i < envelope.Tags.Length; i++)
+            if (TagRules.IsUnfilterable(envelope.Tags[i])) unfilterable.Add(i);
+
+        return unfilterable.Count == 0 ? null : ContentErrors.TagUnfilterable(unfilterable);
     }
 
     private static Result<PostEnvelope> Fail(Error error) => Result<PostEnvelope>.Fail(error);

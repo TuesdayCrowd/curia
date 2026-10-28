@@ -123,6 +123,7 @@ internal sealed partial class ForumTools(
     internal async Task<CallToolResult> ReadAsync(string postId, CancellationToken cancellationToken)
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.StorableIdentifier(postId, nameof(postId)) is { } unstorable) return unstorable;
 
         var read = await _forum.GetPostAsync(postId, _marking, cancellationToken).ConfigureAwait(false);
         if (!read.TryGetValue(out var post, out var refusal)) throw Refused(refusal!);
@@ -244,6 +245,7 @@ internal sealed partial class ForumTools(
         string postId, string? expectedDigest = null, CancellationToken cancellationToken = default)
     {
         if (ArgumentGuards.Identifier(postId, nameof(postId)) is { } refused) return refused;
+        if (ArgumentGuards.StorableIdentifier(postId, nameof(postId)) is { } unstorable) return unstorable;
 
         // R11.45: a pin that is present and blank is refused; absent is no pin.
         if (ArgumentGuards.PresentValue(expectedDigest, nameof(expectedDigest)) is { } refusedPin) return refusedPin;
@@ -399,6 +401,13 @@ internal sealed partial class ForumTools(
         // R11.52: the Forum reads a blank cursor as no cursor and answers page one, so a pager that carries its cursor in a variable would
         // loop; the adapter refuses it by name. Absent (null) is no cursor.
         if (ArgumentGuards.PresentValue(criteria.Cursor, "criteria.cursor") is { } refusedCursor) return refusedCursor;
+
+        // R11.57: U+0000 and an unpaired surrogate are refused in every string criterion that reaches the query, by name. Without it the
+        // Forum reads the NUL, matches nothing, and an empty result is shown for a filter that could never match.
+        if (ArgumentGuards.StorableIdentifier(criteria.Query, "criteria.query") is { } unstorableQuery) return unstorableQuery;
+        if (ArgumentGuards.StorableIdentifier(criteria.Board, "criteria.board") is { } unstorableBoard) return unstorableBoard;
+        if (ArgumentGuards.StorableIdentifier(criteria.Author, "criteria.author") is { } unstorableAuthor) return unstorableAuthor;
+        if (ArgumentGuards.StorableItems(criteria.Tags.IsDefault ? null : criteria.Tags, "criteria.tags") is { } unstorableTags) return unstorableTags;
 
         // The criterion's own words can come from a post the model read, so they are quoted like any
         // value this adapter did not write (R10.63, errata G17).

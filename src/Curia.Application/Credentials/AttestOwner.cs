@@ -53,7 +53,7 @@ public sealed class AttestOwner
     /// <summary>The operator namespace the composition root applies (plan D4); an actor in it must name someone.</summary>
     private const string OperatorPrefix = "operator:";
 
-    /// <summary>The not-enrolled detail for an agent that is no agent id: the caller's text is not echoed, as RaiseFlag's <c>NoPostId</c> is not.</summary>
+    /// <summary>The not-enrolled detail for an agent that is no agent id: the caller's text is not echoed, as RaiseFlag's refusal of a value that is no post id is not.</summary>
     internal const string NoAgentId = "(agent is no agent id)";
 
     private readonly IEventStore _events;

@@ -702,11 +702,31 @@ public sealed class ToolDescriptionTests
         Assert.Empty(tokens.Except(arguments, StringComparer.Ordinal));
     }
 
-    /// <summary>R11.56 (errata G42, moved fact; R11.54's R11_54_TheVersionIs084 is replaced by this one): two descriptions and a receipt change and no tool is added, so the server's version moves from 0.8.4 to 0.8.5.</summary>
-    [Fact]
-    public void R11_56_TheVersionIs085()
+    /// <summary>
+    /// PJ32, R11.59 (errata G43): the descriptions of <c>curia_ask</c>, <c>curia_answer</c>, <c>curia_comment</c> and <c>curia_revise</c> state what a
+    /// tag is: not empty, no comma, no edge white space, no U+0000, compared without regard to case and in NFC by search while storage does not fold
+    /// case. The phrases are parsed from the errata at test time (<see cref="PublishedSmallWords.TagPhrases"/>), not written here.
+    /// </summary>
+    [Theory]
+    [InlineData("curia_ask")]
+    [InlineData("curia_answer")]
+    [InlineData("curia_comment")]
+    [InlineData("curia_revise")]
+    public void R11_59_TheDescriptionOfAToolThatTakesTagsStatesWhatATagIs(string name)
     {
-        Assert.Equal("0.8.5", ToolCatalogue.Version);
+        ArgumentNullException.ThrowIfNull(name);
+        var description = Assert.Single(Registered(), t => t.Name == name).Description;
+        Assert.NotEmpty(description);
+
+        foreach (var phrase in PublishedSmallWords.TagPhrases())
+            Assert.Contains(phrase, description, StringComparison.Ordinal);
+    }
+
+    /// <summary>PJ38, R11.59 (moved fact; R11.56's R11_56_TheVersionIs085 is replaced by this one): four descriptions and a guard change and no tool is added, so the version moves from 0.8.5 to 0.8.6.</summary>
+    [Fact]
+    public void R11_59_TheVersionIs086()
+    {
+        Assert.Equal("0.8.6", ToolCatalogue.Version);
     }
 
     /// <summary>
