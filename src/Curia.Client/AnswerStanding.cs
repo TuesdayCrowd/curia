@@ -24,7 +24,8 @@ public static class AnswerStanding
     /// </summary>
     public static readonly string Basis = Passage.AcceptedStatement[Passage.AcceptedStatement.IndexOf('(', StringComparison.Ordinal)..];
 
-    private const string NotStated = "NOT STATED (the Forum served no word on which answer, if any, this thread has accepted, so do not take it as none)";
+    /// <summary>The words of the <c>NOT STATED</c> state (the Forum served no <c>accepted_answer</c> on a question), for the readers that state it in another form.</summary>
+    public const string NotStatedWords = "NOT STATED (the Forum served no word on which answer, if any, this thread has accepted, so do not take it as none)";
 
     private const string NoneAccepted = "none accepted (the Forum's word as of this read; it says nothing of whether answers exist)";
 
@@ -39,7 +40,7 @@ public static class AnswerStanding
     private static OwnText? Statement(string kind, AcceptedAnswerMember? member)
     {
         if (!string.Equals(kind, PostKinds.Wire(PostKind.Question), StringComparison.Ordinal)) return null;
-        if (member is null) return new OwnText(NotStated);
+        if (member is null) return new OwnText(NotStatedWords);
         if (member.IsNone) return new OwnText(NoneAccepted);
 
         // R10.82, R10.85: the post the acceptance names, as this line calls it. A literal for every value the Forum supplied (R10.63). The kind

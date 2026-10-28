@@ -181,27 +181,10 @@ internal sealed partial class ForumTools(
         {
             frame.Line($"thread root={top.PostId} posts={members.Length}");
 
-            // R11.41: the line after the root line says how the thread stands. The Forum's word, from the members it
-            // served, never a conclusion drawn from their content; the ids are the Forum's, so display literals. Written
-            // only here: where the shown thread is cut or unread, the accepted answer may be above what is shown and
-            // "none" would be a guess. More than one is a Forum fault (the fold keeps one per thread); each is listed.
-            var acceptedIds = members.Where(m => m.Accepted).Select(m => m.PostId).ToArray();
-            if (acceptedIds.Length == 0)
-                frame.Line($"accepted none {new OwnText("(the Forum served no post of this thread as accepted)")}");
-            else
-            {
-                // R10.82: where the accepted answer's own served list says it was revised, the line says so, from that list (the thread's
-                // members are in hand, so the Forum's word on the answer is one of them) and not from the question's member.
-                // An answer served without the list is NOT STATED, in the words the question's answers line uses: silence reads as "not revised".
-                var revisions = members
-                    .Where(m => m.Accepted && (m.Provenance.SupersededBy.IsDefault || Supersession.IsSuperseded(m.Provenance.SupersededBy)))
-                    .Select(m => m.Provenance.SupersededBy.IsDefault
-                        ? $"{Supersession.NotStatedShort} (the Forum served answer={DisplayLiteral.Of(m.PostId)} without a word on whether it has been revised, so do not take it as unrevised)"
-                        : AnswerStanding.RevisionStatement("answer=" + DisplayLiteral.Of(m.PostId), m.Provenance.SupersededBy).Text)
-                    .ToArray();
-                var statement = revisions.Length == 0 ? string.Empty : " " + string.Join(" ", revisions);
-                frame.Line($"accepted {new OwnText(string.Join(", ", acceptedIds.Select(id => "answer=" + DisplayLiteral.Of(id))) + statement)} {new OwnText(AnswerStanding.Basis)}");
-            }
+            // R11.41, R11.60: the line after the root line says how the thread stands, from the thread root's own word (not the members'
+            // flags); the ids are the Forum's, so display literals. Written only here: where the shown thread is cut or unread, the accepted
+            // answer may be above what is shown and "none" would be a guess.
+            AcceptedLine(frame, top);
         }
 
         if (unreadableParent is not null)
@@ -216,6 +199,50 @@ internal sealed partial class ForumTools(
         var posts = threadRead ? members : [post];
 
         return Rendered(await PassagesAsync(posts, cancellationToken).ConfigureAwait(false), preamble);
+    }
+
+    /// <summary>
+    /// R11.41, R11.60 (errata G44): the first block's <c>accepted</c> line, stated from the thread root's own word and never from the members' flags
+    /// (a post is accepted relative to its own thread, and a thread listing may hold a post another thread's asker accepted). A question's
+    /// <c>accepted_answer</c> is present (the post by kind and id, or by kind and digest where the Forum does not serve it), <c>null</c> (none), or absent
+    /// (<c>NOT STATED</c>); a root that is not a question has no member by design and says none. R10.82: where the member lists revisions the line says so
+    /// from that list, and an absent list is <c>NOT STATED</c>, never silence. The ids and digests are the Forum's, so display literals.
+    /// </summary>
+    private static void AcceptedLine(FrameBuilder frame, ProvenancePost root)
+    {
+        const string NoneWords = "(the Forum served no post of this thread as accepted)";
+        if (!string.Equals(root.Kind, "question", StringComparison.Ordinal))
+        {
+            frame.Line($"accepted none {new OwnText(NoneWords)}");
+            return;
+        }
+
+        var member = root.Provenance.AcceptedAnswer;
+        if (member is null)
+        {
+            frame.Line($"accepted {new OwnText(AnswerStanding.NotStatedWords)}");
+            return;
+        }
+
+        if (member.IsNone)
+        {
+            frame.Line($"accepted none {new OwnText(NoneWords)}");
+            return;
+        }
+
+        var noun = member.Kind ?? "post";
+        var named = member.PostId is { } id
+            ? $"{noun}={DisplayLiteral.Of(id)}"
+            : $"the {noun} with digest {DisplayLiteral.Of(member.Digest!)} (not served)";
+        var kindNote = member.Kind is null
+            ? " (kind NOT STATED: the Forum served the accepted post without saying whether it is an answer or a revision)"
+            : string.Empty;
+        var statement = member.SupersededBy.IsDefault
+            ? $" {Supersession.NotStatedShort} (the Forum served {named} without a word on whether it has been revised, so do not take it as unrevised)"
+            : Supersession.IsSuperseded(member.SupersededBy)
+                ? " " + AnswerStanding.RevisionStatement(named, member.SupersededBy, "curia_resolve").Text
+                : string.Empty;
+        frame.Line($"accepted {new OwnText(named + kindNote + statement)} {new OwnText(AnswerStanding.Basis)}");
     }
 
     /// <summary>
