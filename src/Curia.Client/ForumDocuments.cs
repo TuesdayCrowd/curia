@@ -45,7 +45,27 @@ public sealed record AcceptanceReceipt(
     string PostId,
     string AcceptedAt,
     bool AlreadyAccepted = false,
-    AcceptanceReplaced Replaced = default);
+    AcceptanceReplaced Replaced = default,
+    AcceptanceRelation ReplacedRelation = default);
+
+/// <summary>
+/// What <c>replaced_relation</c> told a reader (R8.76, errata G44). <b>Behaviour-preserving seam of PR 4's Task 0:</b> the receipt's reader does not
+/// read the member yet, so a receipt always says <see cref="NotStated"/>.
+/// </summary>
+public enum AcceptanceRelation
+{
+    /// <summary>The receipt had no member, or the client does not read it. The default.</summary>
+    NotStated = 0,
+
+    /// <summary>The member was <c>null</c>: nothing was replaced.</summary>
+    None,
+
+    /// <summary>The call moved the acceptance between texts of one answer.</summary>
+    SameChain,
+
+    /// <summary>The call replaced a different answer.</summary>
+    OtherAnswer,
+}
 
 /// <summary>What <c>replaced_answer</c> told a reader (R8.71, errata G40).</summary>
 public enum AcceptanceReplacedKind

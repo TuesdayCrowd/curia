@@ -108,6 +108,19 @@ public sealed class CorrectionIndex
             : [.. successors.Where(s => !string.Equals(s.Digest, post.Digest, StringComparison.Ordinal))];
     }
 
+    /// <summary>
+    /// R8.75 (errata G44): the chain root of <paramref name="post"/>, the post its correction chain ends at. <b>Behaviour-preserving seam of
+    /// PR 4's Task 0:</b> the walk is not built, so a post is its own root. The probes PK4 to PK7, PK14 and PK34 are red against this body.
+    /// </summary>
+#pragma warning disable CA1822 // The seam holds no walk yet; the real body reads the digest index, and this member is instance-bound by design.
+    public PostView ChainRootOf(PostView post)
+#pragma warning restore CA1822
+    {
+        ArgumentNullException.ThrowIfNull(post);
+
+        return post;
+    }
+
     private bool IsServed(PostView post) =>
         PostKinds.TryParse(post.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(post.PostId);
 }

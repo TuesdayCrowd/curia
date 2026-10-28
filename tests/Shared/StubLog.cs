@@ -683,6 +683,12 @@ internal sealed class StubLog : IDisposable
     /// </summary>
     internal string? AcceptanceReplacedAnswerJson { get; set; }
 
+    /// <summary>
+    /// PR 4 (errata G44, R8.76): <c>replaced_relation</c> as the accept route serves it: null omits the member (an older Forum), otherwise the raw JSON
+    /// value (<c>null</c>, <c>"same-chain"</c>, <c>"other-answer"</c>, or a word a fact serves to be refused).
+    /// </summary>
+    internal string? AcceptanceReplacedRelationJson { get; set; }
+
     /// <summary>Every request the stub answered, in order, as "METHOD path".</summary>
     internal List<string> Requests { get; } = [];
 
@@ -724,9 +730,9 @@ internal sealed class StubLog : IDisposable
     {"post_id":"{{PostId}}","kind":"incorrect","raised_at":"1970-01-01T00:00:00.0000000+00:00"}
     """.ReplaceLineEndings(string.Empty);
 
-    internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null) => $$"""
+    internal static string AcceptanceJson(bool? alreadyAccepted = null, string? replacedAnswerJson = null, string? replacedRelationJson = null) => $$"""
     {"thread_root":"{{PostId}}","post_id":"{{AcceptedPostId}}",
-    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}}
+    "accepted_at":"1970-01-01T00:00:00.0000000+00:00"{{(alreadyAccepted is { } replay ? ",\"already_accepted\":" + (replay ? "true" : "false") : string.Empty)}}{{(replacedAnswerJson is null ? string.Empty : ",\"replaced_answer\":" + replacedAnswerJson)}}{{(replacedRelationJson is null ? string.Empty : ",\"replaced_relation\":" + replacedRelationJson)}}}
     """.ReplaceLineEndings(string.Empty);
 
     /// <summary>
@@ -975,12 +981,34 @@ internal sealed class StubLog : IDisposable
     private string AnswerSupersededByJson() =>
         OmitSupersededBy ? string.Empty : ",\"superseded_by\":" + SuccessorsJson(AnswerSupersededBy.IsDefault ? [] : AnswerSupersededBy);
 
+    /// <summary>
+    /// PR 4 (errata G44, R9.46): the <c>kind</c> the Forum serves inside <c>accepted_answer</c> (<c>answer</c> or <c>revision</c>, or any other word a fact
+    /// serves to be refused). Null (the default) serves the member without one, as a Forum that predates R9.46 does.
+    /// </summary>
+    internal string? AcceptedAnswerKind { get; set; }
+
+    /// <summary>
+    /// PR 4: the post the question's <c>accepted_answer</c> names, in place of the stub's answer: its digest and its post id (null for a post the Forum
+    /// does not serve). Null (the default) names the stub's answer. It lets a fact serve an accepted post that is no member of the thread the stub serves.
+    /// </summary>
+    internal (string Digest, string? PostId)? AcceptedAnswerNames { get; set; }
+
+    /// <summary>
+    /// PR 4: threads the stub serves by root, as <c>GET /v1/threads/{root}</c> answers them: the raw JSON array of each, keyed by the root's post id. A root in
+    /// this table is answered before any other thread knob, so a fact can serve a thread whose members are none of the stub's own posts.
+    /// </summary>
+    internal Dictionary<string, string> ServedThreads { get; } = new(StringComparer.Ordinal);
+
+    private string AcceptedAnswerKindJson() => AcceptedAnswerKind is null ? string.Empty : ",\"kind\":" + JsonString(AcceptedAnswerKind);
+
     private string AcceptedAnswerJson() => AcceptedAnswer switch
     {
         StubAcceptedAnswer.Absent => string.Empty,
         StubAcceptedAnswer.None => ",\"accepted_answer\":null",
-        StubAcceptedAnswer.Standing => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + ",\"post_id\":" + JsonString(AnswerPostId) + AcceptedAnswerListJson() + "}",
-        StubAcceptedAnswer.StandingUnserved => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + AcceptedAnswerListJson() + "}",
+        StubAcceptedAnswer.Standing => ",\"accepted_answer\":{\"digest\":" + JsonString(AcceptedAnswerNames?.Digest ?? Answer.PrefixedDigest)
+            + (AcceptedAnswerNames is { PostId: null } ? string.Empty : ",\"post_id\":" + JsonString(AcceptedAnswerNames?.PostId ?? AnswerPostId))
+            + AcceptedAnswerKindJson() + AcceptedAnswerListJson() + "}",
+        StubAcceptedAnswer.StandingUnserved => ",\"accepted_answer\":{\"digest\":" + JsonString(Answer.PrefixedDigest) + AcceptedAnswerKindJson() + AcceptedAnswerListJson() + "}",
         _ => throw new ArgumentOutOfRangeException(nameof(AcceptedAnswer), AcceptedAnswer, "not a state of the member"),
     };
 
@@ -1731,7 +1759,7 @@ internal sealed class StubLog : IDisposable
 
             return path.EndsWith("/flags", StringComparison.Ordinal)
                 ? (HttpStatusCode.Created, StubLog.FlagReceiptJson(), null)
-                : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted, log.AcceptanceReplacedAnswerJson), null);
+                : (HttpStatusCode.OK, StubLog.AcceptanceJson(log.AcceptanceAlreadyAccepted, log.AcceptanceReplacedAnswerJson, log.AcceptanceReplacedRelationJson), null);
         }
 
         /// <summary><c>rotation</c> or <c>retirement</c> for a lifecycle route's path, or null for any other.</summary>
@@ -1859,6 +1887,10 @@ internal sealed class StubLog : IDisposable
                     int.Parse(Value(query, "from"), CultureInfo.InvariantCulture),
                     int.Parse(Value(query, "to"), CultureInfo.InvariantCulture)));
             }
+
+            if (path.StartsWith("/v1/threads/", StringComparison.Ordinal)
+                && log.ServedThreads.TryGetValue(Uri.UnescapeDataString(path["/v1/threads/".Length..]), out var servedThread))
+                return (HttpStatusCode.OK, servedThread);
 
             if (path.StartsWith("/v1/threads/", StringComparison.Ordinal) && log.ThreadRouteServesTheThread)
             {

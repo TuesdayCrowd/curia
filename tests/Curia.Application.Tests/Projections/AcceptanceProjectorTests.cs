@@ -181,4 +181,73 @@ public sealed class AcceptanceProjectorTests
 
         Assert.NotEqual(AcceptanceProjector.Fold(log), AcceptanceProjector.Fold(await LogAsync(store, ct)));
     }
+
+    private static int AcceptedAnswersOf(IReadOnlyList<AppendedEvent> log, string agent) =>
+        Require(AgentStandingProjector.PostureOf(AgentStandingProjector.Fold(log), Typed.Agent(agent))).AcceptedAnswers;
+
+    /// <summary>
+    /// PK15 (errata G44, R7.25): the count is per thread, once. The author's answers A1 to A4 are accepted in four threads, and a fifth thread's acceptance
+    /// names a revision R5 of A5 (the author's own); the count is five. Moving the fifth thread's acceptance from A5 to R5 leaves it five, not six.
+    /// <b>A control on the unmodified tree</b> (Task 0 item 5, S1 and S2): the projection already credits the author of whatever post the per-thread fold
+    /// names, a revision included. Its red form is FPK23 to FPK25; the end-to-end red form is PK1 (the route refuses the revision).
+    /// </summary>
+    [Fact]
+    public async Task R7_25_PK15_TheCountIsPerThreadOnceWhetherTheAcceptanceNamesAnAnswerOrItsRevision()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
+        for (var i = 1; i <= 5; i++)
+        {
+            await AcceptedPostAsync(store, $"q{i}", Asker, "question", null, ct);
+            await AcceptedPostAsync(store, $"a{i}", Answerer, "answer", $"q{i}", ct);
+        }
+
+        await AcceptedPostAsync(store, "r5", Answerer, "revision", "a5", ct);
+        for (var i = 1; i <= 4; i++) await AcceptAsync(store, $"q{i}", $"a{i}", Asker, ct);
+
+        await AcceptAsync(store, "q5", "a5", Asker, ct);
+        Assert.Equal(5, AcceptedAnswersOf(await LogAsync(store, ct), Answerer));
+
+        await AcceptAsync(store, "q5", "r5", Asker, ct);
+        Assert.Equal(5, AcceptedAnswersOf(await LogAsync(store, ct), Answerer));
+    }
+
+    /// <summary>PK16 (R7.25): the credit moves. An answer by X is accepted, then the asker accepts Y's answer in the same thread: X loses the credit and Y gains it. A control (green now).</summary>
+    [Fact]
+    public async Task R7_25_PK16_TheCreditMovesWithTheAcceptance()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
+        await AcceptedPostAsync(store, "q1", Asker, "question", null, ct);
+        await AcceptedPostAsync(store, "ax", Answerer, "answer", "q1", ct);
+        await AcceptedPostAsync(store, "ay", Other, "answer", "q1", ct);
+
+        await AcceptAsync(store, "q1", "ax", Asker, ct);
+        var before = (AcceptedAnswersOf(await LogAsync(store, ct), Answerer), AcceptedAnswersOf(await LogAsync(store, ct), Other));
+        await AcceptAsync(store, "q1", "ay", Asker, ct);
+        var after = (AcceptedAnswersOf(await LogAsync(store, ct), Answerer), AcceptedAnswersOf(await LogAsync(store, ct), Other));
+
+        Assert.Equal((1, 0), before);
+        Assert.Equal((0, 1), after);
+    }
+
+    /// <summary>
+    /// PK17 (R7.25): an acceptance that names a revision credits the revision's author (the answer's author), not the asker who accepted it.
+    /// <b>A control on the unmodified tree</b> (Task 0 item 5, S2); red under FPK24 (credit the asker).
+    /// </summary>
+    [Fact]
+    public async Task R7_25_PK17_AnAcceptanceOfARevisionCreditsTheRevisionsAuthorAndNotTheAsker()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryEventStore(new ManualTimeProvider(Start), new PermissiveLifecycleAppendGate());
+        await AcceptedPostAsync(store, "q1", Asker, "question", null, ct);
+        await AcceptedPostAsync(store, "a1", Answerer, "answer", "q1", ct);
+        await AcceptedPostAsync(store, "r1", Answerer, "revision", "a1", ct);
+
+        await AcceptAsync(store, "q1", "r1", Asker, ct);
+
+        var log = await LogAsync(store, ct);
+        Assert.Equal(1, AcceptedAnswersOf(log, Answerer));
+        Assert.Equal(0, AcceptedAnswersOf(log, Asker));
+    }
 }

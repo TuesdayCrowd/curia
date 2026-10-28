@@ -243,6 +243,22 @@ public class ForumFixture : WebApplicationFactory<Program>, IAsyncLifetime
     }
 
     /// <summary>
+    /// PR 4 (errata G44): an acceptance appended through the host's own use case (<see cref="AcceptAnswer"/>, the object the accept route calls), with none
+    /// of the route's checks. It lets a probe read the state an acceptance of a revision leaves (or the one a crafted log holds, a thread root that is not the
+    /// chain root's) apart from the route that would record it, so each is red for its own reason.
+    /// </summary>
+    internal async Task AppendStoredAcceptanceAsync(string threadRoot, string answerId, string acceptedBy, CancellationToken ct)
+    {
+        using var scope = Services.CreateScope();
+        var accept = scope.ServiceProvider.GetRequiredService<AcceptAnswer>();
+
+        var recorded = await accept.RecordAsync(Typed.Post(threadRoot), Typed.Post(answerId), Typed.Agent(acceptedBy), ct);
+        _ = recorded.Match(
+            v => v,
+            e => throw new InvalidOperationException($"{e.Type}: {e.Title} ({e.Detail})"));
+    }
+
+    /// <summary>
     /// R4.30's attestation, through the host's own use case -- the same object the operator tool
     /// calls, so a bug in it fails this suite instead of hiding behind a fixture that builds the
     /// event correctly by hand. There is no HTTP route for this on purpose (errata G5).

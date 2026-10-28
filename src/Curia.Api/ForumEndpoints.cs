@@ -124,7 +124,7 @@ public sealed record ProvenanceResponse(
 /// <see cref="None"/> is the instance that stands for "no acceptance" and is written as JSON <c>null</c>.
 /// </summary>
 [JsonConverter(typeof(AcceptedAnswerResponseConverter))]
-public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, ImmutableArray<SupersededByResponse> SupersededBy)
+public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, ImmutableArray<SupersededByResponse> SupersededBy, string? Kind = null)
 {
     /// <summary>No acceptance stands; written as <c>null</c>, present, and carrying no list.</summary>
     public static AcceptedAnswerResponse None { get; } = new(null, null, []);
@@ -136,7 +136,7 @@ public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, Immu
     public static AcceptedAnswerResponse From(AcceptedAnswerMember member)
     {
         ArgumentNullException.ThrowIfNull(member);
-        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId, [.. member.SupersededBy.Select(s => new SupersededByResponse(s.Digest, s.PostId))]);
+        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId, [.. member.SupersededBy.Select(s => new SupersededByResponse(s.Digest, s.PostId))], member.Kind);
     }
 }
 
@@ -165,6 +165,7 @@ public sealed class AcceptedAnswerResponseConverter : JsonConverter<AcceptedAnsw
         writer.WriteStartObject();
         writer.WriteString("digest", value.Digest);
         if (value.PostId is not null) writer.WriteString("post_id", value.PostId);
+        if (value.Kind is not null) writer.WriteString("kind", value.Kind);
         writer.WriteStartArray("superseded_by");
         foreach (var successor in value.SupersededBy.IsDefault ? [] : value.SupersededBy)
         {

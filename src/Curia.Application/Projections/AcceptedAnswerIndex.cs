@@ -83,4 +83,15 @@ public sealed class AcceptedAnswerIndex
             && _acceptedByThread.TryGetValue(parent, out var accepted)
             && string.Equals(accepted, answer.PostId, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// R9.46 (errata G44): whether <paramref name="post"/> is the post the standing acceptance of the thread <paramref name="threadRoot"/> names.
+    /// <b>Behaviour-preserving seam of PR 4's Task 0:</b> it answers as <see cref="IsAccepted"/> does today and reads <paramref name="threadRoot"/> not at all.
+    /// </summary>
+    public bool IsAcceptedIn(PostView post, string threadRoot)
+    {
+        ArgumentNullException.ThrowIfNull(threadRoot);
+
+        return IsAccepted(post);
+    }
 }

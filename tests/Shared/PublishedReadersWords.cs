@@ -87,6 +87,39 @@ internal static partial class PublishedReadersWords
         return byTool;
     }
 
+    /// <summary>R9.46's two words for <c>kind</c>: <c>"answer"</c> and <c>"revision"</c>, read from the quoted code spans of its paragraph (errata G44). Two are asserted.</summary>
+    internal static string[] R946KindWords()
+    {
+        var words = Spans(Paragraph("**R9.46**")).Where(t => t is "\"answer\"" or "\"revision\"").Select(t => t.Trim('"')).Distinct(StringComparer.Ordinal).ToArray();
+        return Counted(words, 2, "R9.46's kind words");
+    }
+
+    /// <summary>R8.76's member: the one snake_case code span of its paragraph that is not <c>replaced_answer</c> (<c>replaced_relation</c>). Count one is asserted.</summary>
+    internal static string R876Member()
+    {
+        var names = Spans(Paragraph("**R8.76**")).Where(t => SnakeCase().IsMatch(t) && t is not ("replaced_answer" or "null")).Distinct(StringComparer.Ordinal).ToArray();
+        return One(names, "R8.76's member name");
+    }
+
+    /// <summary>R8.76's two non-null values, <c>same-chain</c> and <c>other-answer</c>, from its quoted code spans. Two are asserted.</summary>
+    internal static string[] R876Values()
+    {
+        var values = Spans(Paragraph("**R8.76**")).Where(t => t is "\"same-chain\"" or "\"other-answer\"").Select(t => t.Trim('"')).Distinct(StringComparer.Ordinal).ToArray();
+        return Counted(values, 2, "R8.76's values");
+    }
+
+    /// <summary>
+    /// What R10.85 and G44's tenth decision say a reader tells: how the asker accepts a revision (<c>curia resolve</c>), that a replaced acceptance moved
+    /// between texts of one answer or to another answer, and <c>NOT STATED</c>. Each is kept only if its source paragraph holds it; four are asserted.
+    /// </summary>
+    internal static string[] R1085Phrases()
+    {
+        var kept = Kept(Paragraph("**R10.85**"), ["curia resolve", "NOT STATED"], 2, "R10.85")
+            .Concat(Kept(Paragraph("10. **The readers say what was accepted.**"), ["between texts of one answer", "to another answer"], 2, "G44's tenth decision"))
+            .ToArray();
+        return Counted(kept, 4, "R10.85's reader phrases");
+    }
+
     private static string[] Kept(string paragraph, string[] candidates, int expected, string requirement)
     {
         var kept = candidates.Where(c => paragraph.Contains(c, StringComparison.Ordinal)).ToArray();
