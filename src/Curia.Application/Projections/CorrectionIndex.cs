@@ -109,16 +109,27 @@ public sealed class CorrectionIndex
     }
 
     /// <summary>
-    /// R8.75 (errata G44): the chain root of <paramref name="post"/>, the post its correction chain ends at. <b>Behaviour-preserving seam of
-    /// PR 4's Task 0:</b> the walk is not built, so a post is its own root. The probes PK4 to PK7, PK14 and PK34 are red against this body.
+    /// R8.75 (errata G44): the chain root of <paramref name="post"/>, the post its correction chain ends at. The walk goes from a post to the post its
+    /// <c>prev</c> names while <see cref="IsCorrection"/> says the first corrects the second (so there is no second copy of R9.28's rule), and ends
+    /// at the first post that is not a correction of its predecessor: that post is the root, and a post that corrects nothing is its own root. It reads
+    /// the log's posts, not the serving filter, so a withheld hop is still a hop. A <c>prev</c> cycle in a log this code did not write ends the walk
+    /// at the first post seen twice.
     /// </summary>
-#pragma warning disable CA1822 // The seam holds no walk yet; the real body reads the digest index, and this member is instance-bound by design.
     public PostView ChainRootOf(PostView post)
-#pragma warning restore CA1822
     {
         ArgumentNullException.ThrowIfNull(post);
 
-        return post;
+        var seen = new HashSet<string>(StringComparer.Ordinal) { post.PostId };
+        var current = post;
+        while (current.Prev is { } prev
+            && _byDigest.TryGetValue(prev, out var original)
+            && IsCorrection(current, original)
+            && seen.Add(original.PostId))
+        {
+            current = original;
+        }
+
+        return current;
     }
 
     private bool IsServed(PostView post) =>

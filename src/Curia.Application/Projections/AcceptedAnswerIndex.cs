@@ -71,27 +71,42 @@ public sealed class AcceptedAnswerIndex
         if (!_postsById.TryGetValue(answerId, out var answer)) return AcceptedAnswerMember.None;
 
         var served = PostKinds.TryParse(answer.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(answer.PostId);
-        return new AcceptedAnswerMember(answer.Digest, served ? answer.PostId : null, _corrections.For(answer));
-    }
-
-    /// <summary>Whether <paramref name="answer"/> is the answer its thread's standing acceptance names: the rule <see cref="StandingOf"/> shares.</summary>
-    public bool IsAccepted(PostView answer)
-    {
-        ArgumentNullException.ThrowIfNull(answer);
-
-        return answer.Parent is { } parent
-            && _acceptedByThread.TryGetValue(parent, out var accepted)
-            && string.Equals(accepted, answer.PostId, StringComparison.Ordinal);
+        // R9.46: the kind is the Forum's metadata beside the digest, so it is stated also where the post id is left out.
+        var kindWord = PostKinds.TryParse(answer.Kind, out var acceptedKind) && acceptedKind is PostKind.Answer or PostKind.Revision ? answer.Kind : null;
+        return new AcceptedAnswerMember(answer.Digest, served ? answer.PostId : null, _corrections.For(answer), kindWord);
     }
 
     /// <summary>
-    /// R9.46 (errata G44): whether <paramref name="post"/> is the post the standing acceptance of the thread <paramref name="threadRoot"/> names.
-    /// <b>Behaviour-preserving seam of PR 4's Task 0:</b> it answers as <see cref="IsAccepted"/> does today and reads <paramref name="threadRoot"/> not at all.
+    /// R9.46 (errata G44): whether <paramref name="post"/> is the post the standing acceptance of its own thread names. A post's thread is its chain
+    /// root's (<see cref="CorrectionIndex.ChainRootOf"/>): the post's own <c>parent</c> for an answer, the chain root's <c>parent</c> for a revision
+    /// (a revision's own <c>parent</c> is written by its author and is read by nobody), and a chain that does not end at an answer has none.
+    /// The rule <see cref="StandingOf"/> shares.
+    /// </summary>
+    public bool IsAccepted(PostView post) => ThreadOf(post) is { } thread && NamesPost(thread, post);
+
+    /// <summary>
+    /// R9.46: <see cref="IsAccepted"/>, and only where <paramref name="threadRoot"/> is the post's own thread, so a revision a thread route lists
+    /// beneath another question (by its author-written <c>parent</c>) does not read accepted there.
     /// </summary>
     public bool IsAcceptedIn(PostView post, string threadRoot)
     {
         ArgumentNullException.ThrowIfNull(threadRoot);
 
-        return IsAccepted(post);
+        return ThreadOf(post) is { } thread
+            && string.Equals(thread, threadRoot, StringComparison.Ordinal)
+            && NamesPost(thread, post);
+    }
+
+    private bool NamesPost(string thread, PostView post) =>
+        _acceptedByThread.TryGetValue(thread, out var accepted) && string.Equals(accepted, post.PostId, StringComparison.Ordinal);
+
+    private string? ThreadOf(PostView post)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+
+        var root = _corrections.ChainRootOf(post);
+        return PostKinds.TryParse(root.Kind, out var kind) && kind is PostKind.Answer
+            ? root.Parent
+            : null;
     }
 }
