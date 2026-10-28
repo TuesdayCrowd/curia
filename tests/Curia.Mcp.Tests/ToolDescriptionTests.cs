@@ -722,13 +722,6 @@ public sealed class ToolDescriptionTests
             Assert.Contains(phrase, description, StringComparison.Ordinal);
     }
 
-    /// <summary>PJ38, R11.59 (moved fact; R11.56's R11_56_TheVersionIs085 is replaced by this one): four descriptions and a guard change and no tool is added, so the version moves from 0.8.5 to 0.8.6.</summary>
-    [Fact]
-    public void R11_59_TheVersionIs086()
-    {
-        Assert.Equal("0.8.6", ToolCatalogue.Version);
-    }
-
     /// <summary>
     /// R11.56 (errata G42): the description of <c>curia_recheck</c> states R10.83's meaning of <c>current</c>, states <c>fork</c> and that
     /// <c>superseded</c> names the direct revisions only, and does not say what the erratum forbids; the description of <c>curia_answer</c> states

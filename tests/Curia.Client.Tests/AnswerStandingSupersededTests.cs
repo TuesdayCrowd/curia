@@ -135,8 +135,9 @@ public sealed class AnswerStandingSupersededLineTests
     [Fact]
     public void R10_82_AnEmptyListChangesNothingAndAnAbsentOneSaysNotStated()
     {
-        var empty = PassageLine(new AcceptedAnswerMember(Digest, AnswerId, []));
-        var absent = PassageLine(new AcceptedAnswerMember(Digest, AnswerId, default));
+        // errata G44 (R10.85): the G36 literal is an answer's line; a member the Forum served with no kind says NOT STATED beside it (PK24).
+        var empty = PassageLine(new AcceptedAnswerMember(Digest, AnswerId, [], "answer"));
+        var absent = PassageLine(new AcceptedAnswerMember(Digest, AnswerId, default, "answer"));
 
         // The G36 literal, byte for byte: an empty list adds no word.
         Assert.Equal($"answers  accepted: post {DisplayLiteral.Of(AnswerId)}, chosen by the thread's asker {Basis}", empty);

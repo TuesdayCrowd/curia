@@ -10,9 +10,10 @@ using Xunit;
 namespace Curia.Mcp.Tests;
 
 /// <summary>
-/// R10.82 (errata G40) at <c>curia_read</c>'s first block: the accepted line states, from the accepted answer's own served list (R9.32), that the answer
-/// has been superseded, naming each revision and FORKED for two, and that the acceptance names the answer. The question's member and the answer's list
-/// are served apart by the stub, so which of the two the line reads is the fact's own observation; an unrevised answer's line is R11.41's, byte for byte.
+/// R10.82 (errata G40, replaced by G44's R11.60) at <c>curia_read</c>'s first block: the accepted line states, from the question's <c>accepted_answer.superseded_by</c>
+/// (R9.41, which <c>CorrectionIndex</c> fills by the rule that fills the answer's own), that the accepted post has been superseded, naming each revision and
+/// FORKED for two, and that the acceptance names the post. The question's member and the answer's list are served apart by the stub, so which of the two the
+/// line reads is the fact's own observation; an unrevised answer's line is R11.41's, byte for byte.
 /// </summary>
 [SuppressMessage(
     "Naming",
@@ -32,6 +33,7 @@ public sealed class FirstBlockSupersededTests : IDisposable
         // The Forum serves the stub's answer as the accepted one: the first block's accepted line is written.
         _log.AcceptedPostIds.Add(StubLog.AnswerPostId);
         _log.AcceptedAnswer = StubAcceptedAnswer.Standing;
+        _log.AcceptedAnswerKind = "answer";
     }
 
     public void Dispose()
@@ -52,25 +54,25 @@ public sealed class FirstBlockSupersededTests : IDisposable
     }
 
     [Fact]
-    public async Task R10_82_TheFirstBlockReadsTheAnswersOwnList()
+    public async Task R10_82_TheFirstBlockReadsTheQuestionsMemberList()
     {
-        // The Forum's word on the answer says it was revised; its word on the question says nothing was.
+        // The Forum's word on the question's member says the accepted post was revised; its word on the answer's own envelope says nothing was.
+        _log.AnswerSupersededBy = [];
+        _log.AcceptedAnswerSupersededBy = [new Successor(RevisionDigest, RevisionId)];
+        var membersList = await AcceptedLineAsync();
+
+        Assert.Contains("SUPERSEDED", membersList, StringComparison.Ordinal);
+        Assert.Contains(DisplayLiteral.Of(RevisionId), membersList, StringComparison.Ordinal);
+        Assert.Contains("the acceptance names", membersList, StringComparison.Ordinal);
+        Assert.Contains(AnswerStanding.Basis, membersList, StringComparison.Ordinal);
+
+        // And the reverse: the answer's own envelope lists a revision the question's member does not, so the line says nothing of one (R11.60).
         _log.AnswerSupersededBy = [new Successor(RevisionDigest, RevisionId)];
         _log.AcceptedAnswerSupersededBy = [];
         var answersList = await AcceptedLineAsync();
 
-        Assert.Contains("SUPERSEDED", answersList, StringComparison.Ordinal);
-        Assert.Contains(DisplayLiteral.Of(RevisionId), answersList, StringComparison.Ordinal);
-        Assert.Contains("the acceptance names", answersList, StringComparison.Ordinal);
-        Assert.Contains(AnswerStanding.Basis, answersList, StringComparison.Ordinal);
-
-        // And the reverse: the question's member lists a revision the answer's own envelope does not, so the line says nothing of one.
-        _log.AnswerSupersededBy = [];
-        _log.AcceptedAnswerSupersededBy = [new Successor(RevisionDigest, RevisionId)];
-        var questionsList = await AcceptedLineAsync();
-
-        Assert.DoesNotContain("SUPERSEDED", questionsList, StringComparison.Ordinal);
-        Assert.DoesNotContain(RevisionId, questionsList, StringComparison.Ordinal);
+        Assert.DoesNotContain("SUPERSEDED", answersList, StringComparison.Ordinal);
+        Assert.DoesNotContain(RevisionId, answersList, StringComparison.Ordinal);
     }
 
     /// <summary>The control: an unrevised accepted answer's line is R11.41's, byte for byte, whatever the question's member holds.</summary>
@@ -88,7 +90,7 @@ public sealed class FirstBlockSupersededTests : IDisposable
     [Fact]
     public async Task R10_82_TwoRevisionsOfTheAcceptedAnswerAreForkedInTheLine()
     {
-        _log.AnswerSupersededBy = [new Successor(RevisionDigest, RevisionId), new Successor(SecondRevisionDigest, null)];
+        _log.AcceptedAnswerSupersededBy = [new Successor(RevisionDigest, RevisionId), new Successor(SecondRevisionDigest, null)];
         var forked = PublishedReadersWords.R1082Tokens()[0];
 
         var line = await AcceptedLineAsync();
@@ -100,13 +102,13 @@ public sealed class FirstBlockSupersededTests : IDisposable
     }
 
     /// <summary>
-    /// R10.82: where the Forum served the accepted answer without its list, the line says <c>revision NOT STATED</c> in the words the question's
-    /// <c>answers</c> line uses, so silence is never read as "not revised".
+    /// R10.82: where the Forum served the question's <c>accepted_answer</c> without its list, the line says <c>revision NOT STATED</c> in the words the
+    /// question's <c>answers</c> line uses, so silence is never read as "not revised".
     /// </summary>
     [Fact]
     public async Task R10_82_AnAbsentListOfTheAcceptedAnswerIsNotStatedInTheLine()
     {
-        _log.OmitSupersededBy = true;
+        _log.AcceptedAnswerSupersededBy = default;
         var notStated = PublishedReadersWords.R1082Tokens()[1];
 
         var line = await AcceptedLineAsync();

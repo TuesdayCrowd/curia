@@ -304,7 +304,7 @@ internal sealed partial class ForumTools
                         .Line($"answer      {receipt.PostId}")
                         .Line($"thread      {receipt.ThreadRoot}")
                         .Line($"accepted_at {receipt.AcceptedAt}"),
-                    receipt.Replaced)
+                    receipt.Replaced, receipt.ReplacedRelation)
                 .Blank()
                 .Append($"Recorded in the Forum's log, attributed to this agent's authenticated session and not ")
                 .Append($"signed. A thread has one accepted answer: accepting another replaces this one, and ")
@@ -316,9 +316,19 @@ internal sealed partial class ForumTools
     /// R8.71 (errata G40): what a recording call replaced, in the Forum's word. A named answer is quoted (R10.63); a receipt with no member
     /// is <c>NOT STATED</c>, which is not "none".
     /// </summary>
-    private static FrameBuilder WithReplaced(FrameBuilder frame, AcceptanceReplaced replaced) => replaced.Kind switch
+    private static FrameBuilder WithRelation(FrameBuilder frame, AcceptanceRelation relation) => relation switch
     {
-        AcceptanceReplacedKind.Named => frame.Line($"replaced    post {replaced.PostId} (it no longer stands as the accepted answer)"),
+        AcceptanceRelation.SameChain => frame.Line("relation    moved between texts of one answer (the replaced post and this one are texts of the same answer)"),
+        AcceptanceRelation.OtherAnswer => frame.Line("relation    moved to another answer (the replaced post is not a text of the answer you named)"),
+        AcceptanceRelation.NotStated or AcceptanceRelation.None
+            => frame.Line("relation    NOT STATED (the Forum's receipt did not say whether the replaced post is a text of the same answer)"),
+        _ => throw new ArgumentOutOfRangeException(nameof(relation), relation, "R8.76 has these states."),
+    };
+
+    private static FrameBuilder WithReplaced(FrameBuilder frame, AcceptanceReplaced replaced, AcceptanceRelation relation) => replaced.Kind switch
+    {
+        // R8.76, R10.85: whether the call moved the acceptance between texts of one answer or to another answer; NOT STATED where the member is absent.
+        AcceptanceReplacedKind.Named => WithRelation(frame.Line($"replaced    post {replaced.PostId} (it no longer stands as the accepted answer)"), relation),
         AcceptanceReplacedKind.None => frame.Line("replaced    none (no earlier answer stood as accepted)"),
         AcceptanceReplacedKind.NotStated => frame.Line("replaced    NOT STATED (the Forum's receipt did not say)"),
         _ => throw new ArgumentOutOfRangeException(nameof(replaced), replaced.Kind, "R8.71 has three states."),
@@ -530,7 +540,7 @@ internal sealed partial class ForumTools
         RefusalKind.Content when refusal.Error.Type == "curia/accept/not-an-answer" => new McpException(new FrameBuilder()
             .Append($"REFUSED: {refusal.Error.Title} ({refusal.Error.Type}). {new OwnText(NotAnAnswerSentence(refusal.Error.Detail))} ")
             .Append($"Nothing was recorded. The answer's id is found by reading the question's thread with curia_read; ")
-            .Append($"pass the post id of an answer to curia_resolve.")
+            .Append($"pass {AcceptWording.Target} to curia_resolve.")
             .ToString()),
 
         // Every other kind is reported as the reference client words it. Named, not discarded, so a
@@ -544,15 +554,22 @@ internal sealed partial class ForumTools
     };
 
     /// <summary>
-    /// The first sentence of the not-an-answer refusal: the post is not an answer, and its kind when the Forum's detail
-    /// (<c>post=&lt;id&gt; kind=&lt;kind&gt;</c>) states one. The kind is the Forum's word, so it is quoted as a display literal.
+    /// The first sentence of the not-an-answer refusal, worded from the Forum's detail (R11.60): <c>chain=&lt;kind&gt;</c> where a revision's chain
+    /// ends at a post that is no answer, otherwise <c>kind=&lt;kind&gt;</c> of the post named (the detail is <c>post=&lt;id&gt; [chain=&lt;kind&gt; ]kind=&lt;kind&gt;</c>).
+    /// The kinds are the Forum's word, so they are quoted as display literals; the rest is this adapter's.
     /// </summary>
     private static string NotAnAnswerSentence(string? detail)
     {
-        var kind = detail?.Split(' ').LastOrDefault(token => token.StartsWith("kind=", StringComparison.Ordinal))?["kind=".Length..];
+        string? Member(string name) => detail?.Split(' ').LastOrDefault(token => token.StartsWith(name + "=", StringComparison.Ordinal))?[(name.Length + 1)..];
+
+        var chain = Member("chain");
+        var kind = Member("kind");
+        if (chain is { Length: > 0 })
+            return $"The post you named is a revision whose correction chain ends at a post of kind {DisplayLiteral.Of(chain)}, not at an answer, so there is no answer to accept.";
+
         return kind is { Length: > 0 }
-            ? $"The post you named is of kind {DisplayLiteral.Of(kind)}, and only a post of kind answer can be accepted."
-            : "The post you named is not an answer, and only an answer can be accepted.";
+            ? $"The post you named is of kind {DisplayLiteral.Of(kind)}, which is neither an answer nor a revision of one."
+            : "The post you named is neither an answer nor a revision of one.";
     }
 
     /// <summary>A local refusal: nothing was sent, and for credential material that is the point.</summary>

@@ -45,7 +45,26 @@ public sealed record AcceptanceReceipt(
     string PostId,
     string AcceptedAt,
     bool AlreadyAccepted = false,
-    AcceptanceReplaced Replaced = default);
+    AcceptanceReplaced Replaced = default,
+    AcceptanceRelation ReplacedRelation = default);
+
+/// <summary>
+/// What <c>replaced_relation</c> told a reader (R8.76, errata G44).
+/// </summary>
+public enum AcceptanceRelation
+{
+    /// <summary>The receipt had no member, or the client does not read it. The default.</summary>
+    NotStated = 0,
+
+    /// <summary>The member was <c>null</c>: nothing was replaced.</summary>
+    None,
+
+    /// <summary>The call moved the acceptance between texts of one answer.</summary>
+    SameChain,
+
+    /// <summary>The call replaced a different answer.</summary>
+    OtherAnswer,
+}
 
 /// <summary>What <c>replaced_answer</c> told a reader (R8.71, errata G40).</summary>
 public enum AcceptanceReplacedKind
@@ -378,7 +397,7 @@ internal static class ForumDocuments
         ClientJson.String(o, "thread_root") is { } root
         && ClientJson.String(o, "post_id") is { } id
         && ClientJson.String(o, "accepted_at") is { } at
-            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Map(replaced => new AcceptanceReceipt(root, id, at, replay, replaced)))
+            ? ReadAlreadyAccepted(o).Bind(replay => ReadReplaced(o).Bind(replaced => ReadRelation(o).Map(relation => new AcceptanceReceipt(root, id, at, replay, replaced, relation))))
             : Result<AcceptanceReceipt>.Fail(ClientErrors.ResponseMalformed("acceptance receipt"));
 
     /// <summary>
@@ -392,6 +411,20 @@ internal static class ForumDocuments
             JsonValue.Null => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.None),
             JsonValue.String { Value.Length: > 0 } id => Result<AcceptanceReplaced>.Ok(AcceptanceReplaced.Of(id.Value)),
             _ => Result<AcceptanceReplaced>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: replaced_answer is neither null nor a post id (R8.71)")),
+        };
+
+    /// <summary>
+    /// R8.76: <c>replaced_relation</c> is absent (a Forum that said nothing: not stated), <c>null</c> (none), <c>same-chain</c> or <c>other-answer</c>.
+    /// Anything else is a malformed response, not a value the client picks.
+    /// </summary>
+    private static Result<AcceptanceRelation> ReadRelation(JsonValue.Object o) =>
+        ClientJson.Member(o, "replaced_relation") switch
+        {
+            null => Result<AcceptanceRelation>.Ok(AcceptanceRelation.NotStated),
+            JsonValue.Null => Result<AcceptanceRelation>.Ok(AcceptanceRelation.None),
+            JsonValue.String { Value: "same-chain" } => Result<AcceptanceRelation>.Ok(AcceptanceRelation.SameChain),
+            JsonValue.String { Value: "other-answer" } => Result<AcceptanceRelation>.Ok(AcceptanceRelation.OtherAnswer),
+            _ => Result<AcceptanceRelation>.Fail(ClientErrors.ResponseMalformed("acceptance receipt: replaced_relation is neither null, \"same-chain\" nor \"other-answer\" (R8.76)")),
         };
 
     /// <summary>
@@ -722,9 +755,23 @@ internal static class ForumDocuments
             postId = text.Value;
         }
 
+        // R9.46: the kind of the post the acceptance names is one of two words when the Forum states it; absent is an older Forum (not stated),
+        // and any other value is a malformed response, never coerced to either word.
+        string? acceptedKind = null;
+        if (ClientJson.Member(answer, "kind") is { } kindMember)
+        {
+            if (kindMember is not JsonValue.String { Value: "answer" or "revision" } word)
+            {
+                return Result<AcceptedAnswerMember?>.Fail(
+                    ClientErrors.ResponseMalformed("provenance.accepted_answer.kind is neither \"answer\" nor \"revision\" (R9.46)"));
+            }
+
+            acceptedKind = word.Value;
+        }
+
         // R9.41: the answer's revisions, read as strictly as the answer's own list. Absent is not stated, which is not empty.
         return ReadSupersededBy(answer, "provenance.accepted_answer.superseded_by", "R9.41")
-            .Map(revisions => (AcceptedAnswerMember?)new AcceptedAnswerMember(digest, postId, revisions));
+            .Map(revisions => (AcceptedAnswerMember?)new AcceptedAnswerMember(digest, postId, revisions, acceptedKind));
     }
 
     internal static Result<ProvenancePost> ReadPost(JsonValue value)

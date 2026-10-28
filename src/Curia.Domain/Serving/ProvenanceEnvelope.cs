@@ -38,8 +38,9 @@ public sealed record Successor(string Digest, string? PostId);
 /// member was <c>null</c>: no acceptance stands) or a standing acceptance, naming the answer by <see cref="Digest"/> and by
 /// <see cref="PostId"/> only where the Forum serves that answer (R10.36). A <see cref="Provenance"/> that carries no
 /// <see cref="AcceptedAnswerMember"/> at all is a Forum that did not say, which is a third state and not "none".
+/// <paramref name="Kind"/> is R9.46's (errata G44): <c>answer</c> or <c>revision</c>, the kind of the post the acceptance names; null is a Forum that did not say.
 /// </summary>
-public sealed record AcceptedAnswerMember(string? Digest, string? PostId, ImmutableArray<Successor> SupersededBy)
+public sealed record AcceptedAnswerMember(string? Digest, string? PostId, ImmutableArray<Successor> SupersededBy, string? Kind = null)
 {
     /// <summary>No acceptance stands.</summary>
     public static AcceptedAnswerMember None { get; } = new(null, null, ImmutableArray<Successor>.Empty);

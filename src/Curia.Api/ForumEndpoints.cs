@@ -124,7 +124,7 @@ public sealed record ProvenanceResponse(
 /// <see cref="None"/> is the instance that stands for "no acceptance" and is written as JSON <c>null</c>.
 /// </summary>
 [JsonConverter(typeof(AcceptedAnswerResponseConverter))]
-public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, ImmutableArray<SupersededByResponse> SupersededBy)
+public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, ImmutableArray<SupersededByResponse> SupersededBy, string? Kind = null)
 {
     /// <summary>No acceptance stands; written as <c>null</c>, present, and carrying no list.</summary>
     public static AcceptedAnswerResponse None { get; } = new(null, null, []);
@@ -136,7 +136,7 @@ public sealed record AcceptedAnswerResponse(string? Digest, string? PostId, Immu
     public static AcceptedAnswerResponse From(AcceptedAnswerMember member)
     {
         ArgumentNullException.ThrowIfNull(member);
-        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId, [.. member.SupersededBy.Select(s => new SupersededByResponse(s.Digest, s.PostId))]);
+        return member.IsNone ? None : new AcceptedAnswerResponse(member.Digest, member.PostId, [.. member.SupersededBy.Select(s => new SupersededByResponse(s.Digest, s.PostId))], member.Kind);
     }
 }
 
@@ -165,6 +165,7 @@ public sealed class AcceptedAnswerResponseConverter : JsonConverter<AcceptedAnsw
         writer.WriteStartObject();
         writer.WriteString("digest", value.Digest);
         if (value.PostId is not null) writer.WriteString("post_id", value.PostId);
+        if (value.Kind is not null) writer.WriteString("kind", value.Kind);
         writer.WriteStartArray("superseded_by");
         foreach (var successor in value.SupersededBy.IsDefault ? [] : value.SupersededBy)
         {
@@ -1459,7 +1460,7 @@ public static class ForumEndpoints
         return thread.IsEmpty
             ? Results.NotFound(new Problem("curia/threads/not-found", "No such thread", rootPostId))
             : Results.Ok(thread
-                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, corrections, acta))
+                .Select(p => ToResponse(p, standings, marking, ReaderContractUrl(http), accepted, verification, disputed, corrections, acta, threadRoot: root))
                 .ToArray());
     }
 
@@ -1687,16 +1688,29 @@ public static class ForumEndpoints
             return Problem(StatusCodes.Status404NotFound, new Error(
                 "curia/accept/no-such-post", "No such post", $"post={postId}"));
 
-        if (!string.Equals(answer.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal))
+        // R8.75 (errata G44): an answer, or a revision whose correction chain ends at an answer. The walk is CorrectionIndex's (R9.28's rule,
+        // hop by hop) over the log's posts, not the serving filter: a withheld hop is still a hop. `kind=` stays last in the detail.
+        var corrections = CorrectionIndex.Fold(posts, static _ => true);
+        var chainRoot = corrections.ChainRootOf(answer);
+        var isAnswer = string.Equals(answer.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal);
+        var isRevision = string.Equals(answer.Kind, PostKinds.Wire(PostKind.Revision), StringComparison.Ordinal);
+
+        if (!isAnswer && !isRevision)
             return Problem(StatusCodes.Status400BadRequest, new Error(
                 "curia/accept/not-an-answer",
                 "Only an answer may be accepted",
                 $"post={postId} kind={answer.Kind}"));
 
+        if (isRevision && !string.Equals(chainRoot.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal))
+            return Problem(StatusCodes.Status400BadRequest, new Error(
+                "curia/accept/not-an-answer",
+                "Only an answer may be accepted",
+                $"post={postId} chain={chainRoot.Kind} kind={answer.Kind}"));
+
         // Table 10's "(own thread)": the thread this answer replies to must be one the caller
-        // started. An answer's parent is its thread root, which is what makes this resolvable
-        // without walking a chain.
-        var root = answer.Parent is { } parent
+        // started. R8.75: the thread is the chain root's, an answer's parent being its thread root (R8.70); a revision's own `parent` is
+        // written by its author and is read by nobody here.
+        var root = chainRoot.Parent is { } parent
             ? posts.FirstOrDefault(p => string.Equals(p.PostId, parent, StringComparison.Ordinal))
             : null;
 
@@ -1738,11 +1752,26 @@ public static class ForumEndpoints
             already_accepted = acceptance.AlreadyAccepted,
             // R8.71 (errata G40): always present; the replaced answer's post id, or JSON null.
             replaced_answer = acceptance.ReplacedAnswer,
+            // R8.76 (errata G44): always present; null exactly when replaced_answer is, else whether the two texts share a chain root.
+            replaced_relation = ReplacedRelation(acceptance.ReplacedAnswer, posts, corrections, acceptance.AnswerId),
         };
 
         return acceptance.AlreadyAccepted
             ? Results.Ok(receipt)
             : Results.Created($"/v1/threads/{Uri.EscapeDataString(root.PostId)}", receipt);
+    }
+
+    /// <summary>R8.76: <c>same-chain</c> where the replaced post and the named post end at one chain root, <c>other-answer</c> otherwise, <c>null</c> with no replacement.</summary>
+    private static string? ReplacedRelation(string? replacedId, ImmutableArray<PostView> posts, CorrectionIndex corrections, string namedId)
+    {
+        if (replacedId is null) return null;
+
+        var replaced = posts.FirstOrDefault(p => string.Equals(p.PostId, replacedId, StringComparison.Ordinal));
+        var named = posts.FirstOrDefault(p => string.Equals(p.PostId, namedId, StringComparison.Ordinal));
+        return replaced is not null && named is not null
+            && string.Equals(corrections.ChainRootOf(replaced).PostId, corrections.ChainRootOf(named).PostId, StringComparison.Ordinal)
+                ? "same-chain"
+                : "other-answer";
     }
 
     /// <summary>
@@ -2363,7 +2392,8 @@ public static class ForumEndpoints
         VerificationFold verification,
         DisputedPosts disputed,
         CorrectionIndex corrections,
-        ActaLog? acta = null)
+        ActaLog? acta = null,
+        PostId? threadRoot = null)
     {
         var standingKnown = standings.TryGetValue(p.Author, out var standing);
         var state = verification.StateOf(p.Digest);
@@ -2451,7 +2481,8 @@ public static class ForumEndpoints
 
             // The acceptance is a fact about the thread, so the lookup is by root; a post is the
             // accepted answer only of its own thread (AcceptedAnswerIndex, the rule the question's member shares).
-            accepted.IsAccepted(p),
+            // R9.46: a thread listing marks a post accepted only in the thread that is the post's own.
+            threadRoot is null ? accepted.IsAccepted(p) : accepted.IsAcceptedIn(p, threadRoot),
             logIndex,
             inclusion,
             p.PossibleDuplicateOf);

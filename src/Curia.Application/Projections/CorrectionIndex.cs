@@ -108,6 +108,30 @@ public sealed class CorrectionIndex
             : [.. successors.Where(s => !string.Equals(s.Digest, post.Digest, StringComparison.Ordinal))];
     }
 
+    /// <summary>
+    /// R8.75 (errata G44): the chain root of <paramref name="post"/>, the post its correction chain ends at. The walk goes from a post to the post its
+    /// <c>prev</c> names while <see cref="IsCorrection"/> says the first corrects the second (so there is no second copy of R9.28's rule), and ends
+    /// at the first post that is not a correction of its predecessor: that post is the root, and a post that corrects nothing is its own root. It reads
+    /// the log's posts, not the serving filter, so a withheld hop is still a hop. A <c>prev</c> cycle in a log this code did not write ends the walk
+    /// at the first post seen twice.
+    /// </summary>
+    public PostView ChainRootOf(PostView post)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal) { post.PostId };
+        var current = post;
+        while (current.Prev is { } prev
+            && _byDigest.TryGetValue(prev, out var original)
+            && IsCorrection(current, original)
+            && seen.Add(original.PostId))
+        {
+            current = original;
+        }
+
+        return current;
+    }
+
     private bool IsServed(PostView post) =>
         PostKinds.TryParse(post.Kind, out var kind) && PostKinds.IsServedToReaders(kind) && _servable(post.PostId);
 }

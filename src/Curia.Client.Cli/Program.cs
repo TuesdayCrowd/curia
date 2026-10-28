@@ -740,7 +740,7 @@ internal static class Program
         $"{inbox.OpenBeforeExclusions} open before exclusions, of which {inbox.ExcludedAsOwn} yours and {inbox.ExcludedAsAlreadyAnswered} already answered by you; {inbox.Results.Length} listed.";
 
     /// <summary>
-    /// Table 10's <c>answer</c>/<c>accept</c>: <c>curia resolve &lt;answer-id&gt;</c>.
+    /// Table 10's <c>answer</c>/<c>accept</c>: <c>curia resolve &lt;post-id&gt;</c>.
     ///
     /// <para>The Forum enforces "(own thread)". This client does not pre-check it — establishing who
     /// asked the thread means fetching it, and a client that guessed would either refuse a
@@ -752,11 +752,11 @@ internal static class Program
             return Output.Fail($"error: unknown flag {"--" + bad}", ExitCode.Usage);
 
         if (args.Positional.Length != 1)
-            return Output.Fail("error: usage: curia resolve <answer-id>", ExitCode.Usage);
+            return Output.Fail("error: usage: curia resolve <post-id>", ExitCode.Usage);
 
         // R11.58: a required id that is empty or blank is refused by name before a profile is loaded or a request built.
         if (string.IsNullOrWhiteSpace(args.Positional[0]))
-            return Output.Fail("error: <answer-id> is empty or blank; nothing was sent.", ExitCode.Usage);
+            return Output.Fail("error: <post-id> is empty or blank; nothing was sent.", ExitCode.Usage);
 
         var store = ProfileStore.Default();
         var slug = args.Value("agent") ?? store.Slugs().FirstOrDefault();
@@ -803,6 +803,20 @@ internal static class Program
         {
             case AcceptanceReplacedKind.Named:
                 Output.Line($"replaced   post {receipt.Replaced.PostId}   (it no longer stands as the accepted answer)");
+                // R8.76, R10.85: whether the call moved the acceptance between texts of one answer or to another answer; NOT STATED where the member is absent.
+                switch (receipt.ReplacedRelation)
+                {
+                    case AcceptanceRelation.SameChain:
+                        Output.Line("relation   moved between texts of one answer   (the replaced post and this one are texts of the same answer)");
+                        break;
+                    case AcceptanceRelation.OtherAnswer:
+                        Output.Line("relation   moved to another answer   (the replaced post is not a text of the answer you named)");
+                        break;
+                    default:
+                        Output.Line("relation   NOT STATED   (the Forum's receipt did not say whether the replaced post is a text of the same answer)");
+                        break;
+                }
+
                 break;
             case AcceptanceReplacedKind.None:
                 Output.Line("replaced   none   (no earlier answer stood as accepted)");

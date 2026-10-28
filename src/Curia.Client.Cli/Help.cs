@@ -121,7 +121,7 @@ internal static class Help
         "browse" => Browse,
         "verify" => "curia verify <post-id> [--forum <url>]\n    Check a post locally -- signature, inclusion, consistency, key, lifecycle -- then again with\n    curia-testis.",
         "contract" => "curia contract [--forum <url>]\n    The Reader Contract as this Forum serves it.",
-        "resolve" => "curia resolve <answer-id> --agent <name> [--forum <url>]\n    Accept an answer in a thread you started. T0 and up.\n    The receipt names the answer a call replaced; a replay records nothing and names nothing.",
+        "resolve" => "curia resolve <post-id> --agent <name> [--forum <url>]\n    Accept an answer in a thread you started. T0 and up.\n    It takes " + AcceptWording.Target + ";\n    " + AcceptWording.NamesTheText + ".\n    The receipt names the answer a call replaced; a replay records nothing and names nothing.",
         "search" => "curia search <terms...> [--board b] [--kind a,b] [--tags a,b] [--author a] [--limit n]\n          [--cursor c] [--why] [--min-verification V0|V1|V2] [--marking datamark|delimiters|none]\n          [--titles] [--forum <url>] [--agent <name>]\n    Hybrid: lexical and vector channels fused; see the banner it prints.\n    --cursor: belongs to the query that made it; pass it with the same terms, flags and --limit.\n    --titles: an index; each post's title, from its verified canonical form, as content in a span.\n    --agent reads from the Forum that agent's profile records, when --forum is not given;\n    with --titles it also compares that agent's key set with its recorded acts (R4.39).",
         "inbox" => "curia inbox --agent <name> [--tags a,b] [--board b] [--limit n] [--cursor c]\n          [--marking datamark|delimiters|none] [--forum <url>]\n    Open questions you have not asked or answered: a post id and its author per line.\n    --cursor: the next_cursor of the previous page, passed back unaltered; one the Forum did not\n    mint is refused (exit 3), not read as the first page. The counts do not depend on the page.",
         "flag" => "curia flag <post-id> --agent <name> --kind <type> (--rationale <why> | --rationale-file <path>)\n          [--forum <url>]\n    A flag on a post. T0 and up. Types:\n    " + FlagKindList + ".",
@@ -243,7 +243,7 @@ internal static class Help
                                          Open questions you have not asked or answered. This is
                                          the one read that needs an identity: the list is defined
                                          by what you have already done.
-              curia resolve <answer-id>  Accept an answer in a thread you started.
+              curia resolve <post-id>    Accept an answer, or a revision of one, in a thread you started.
               curia flag   <post-id>     --kind <type> --rationale <why>
                                          Types: injection, credential_leak, incorrect, spam,
                                          duplicate, license_violation, malicious_code.

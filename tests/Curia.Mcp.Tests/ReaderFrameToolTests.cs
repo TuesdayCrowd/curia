@@ -419,19 +419,24 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
     private static string Quoted(string id) => Curia.Canon.Json.DisplayLiteral.Of(id);
 
     /// <summary>
-    /// R11.41: the line after the root line names the post the Forum serves as accepted, as a display literal, or that it serves none; with
-    /// two served (a Forum fault) each is listed. The stub serves the thread (a question and its answer) and says which is accepted;
-    /// the Forum's word is the stub's <c>AcceptedPostIds</c>, never derived from a post.
+    /// R11.41, R11.60 (errata G44): the line after the root line names the post the thread root's own <c>accepted_answer</c> serves, as a display literal,
+    /// or that it serves none. It is the root's word and no longer the members' flags (a post is accepted relative to its own thread), so the rows serve
+    /// the question's member: the answer, none, and the answer while two members are flagged accepted, which the line does not read. The Forum's word is
+    /// the stub's, never derived from a post.
     /// </summary>
     [Theory]
-    [InlineData("the answer is accepted", new[] { StubLog.AnswerPostId })]
-    [InlineData("none is accepted", new string[0])]
-    [InlineData("two are served accepted", new[] { StubLog.PostId, StubLog.AnswerPostId })]
-    public async Task R11_41_ThePreambleStatesWhichPostIsAcceptedOrThatNoneIs(string row, string[] accepted)
+    [InlineData("the answer is accepted", new[] { StubLog.AnswerPostId }, new[] { StubLog.AnswerPostId })]
+    [InlineData("none is accepted", new string[0], new string[0])]
+    [InlineData("two members are flagged and the root names the answer", new[] { StubLog.PostId, StubLog.AnswerPostId }, new[] { StubLog.AnswerPostId })]
+    public async Task R11_41_ThePreambleStatesWhichPostIsAcceptedOrThatNoneIs(string row, string[] flagged, string[] accepted)
     {
+        ArgumentNullException.ThrowIfNull(flagged);
         ArgumentNullException.ThrowIfNull(accepted);
         using var log = new StubLog { ThreadRouteServesTheThread = true };
-        foreach (var id in accepted) log.AcceptedPostIds.Add(id);
+        foreach (var id in flagged) log.AcceptedPostIds.Add(id);
+        log.AcceptedAnswer = accepted.Length == 0 ? StubAcceptedAnswer.None : StubAcceptedAnswer.Standing;
+        log.AcceptedAnswerKind = "answer";
+        log.AcceptedAnswerSupersededBy = [];
 
         var (first, _) = await ReadBlocksAsync(log);
         var lines = first.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
@@ -477,8 +482,12 @@ VERIFIED. This client checked the signature over bytes it re-canonicalized itsel
     [Fact]
     public async Task R11_41_AServedIdOnTheResolutionLineIsAnInertLiteral()
     {
-        using var log = new StubLog { ThreadRouteServesTheThread = true, HostileAnswerIdSuffix = "\n" + Forged };
-        log.AcceptedPostIds.Add(StubLog.AnswerPostId);
+        // errata G44 (R11.60): the line is the question's own word, so the hostile id is the one its accepted_answer serves.
+        using var log = new StubLog { ThreadRouteServesTheThread = true };
+        log.AcceptedAnswer = StubAcceptedAnswer.Standing;
+        log.AcceptedAnswerKind = "answer";
+        log.AcceptedAnswerSupersededBy = [];
+        log.AcceptedAnswerNames = ("sha256:" + new string('a', 64), StubLog.AnswerPostId + "\n" + Forged);
 
         var (first, whole) = await ReadBlocksAsync(log);
         var lines = first.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
