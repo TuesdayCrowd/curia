@@ -226,3 +226,25 @@ As #128: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres
 7. **The old probes pinned the retired sentence.** Task 5 changes them to the new wording; a reviewer should see the diff on `McpWriteEndToEndTests` as a change of an assertion's *object*, not a weakening (the kind and the cause are still asserted from the Forum's detail).
 8. **Identifiers are provisional** (see the top): G44, R7.25, R8.75, R8.76, R9.46, R10.85, R11.60, 0.8.7, trap 47, prefix PK. The patch is a diff against `dea178c9`.
 9. **Not read by this plan**, per the header: `PostProjection.cs`, the thread route, Table 10's row, `Passage.cs` and H6. Task 0 reads each before Task 1; an assumption that fails there amends the plan.
+
+## As run
+
+(Written at Task 8 from the ledger and the records of Tasks 0 to 7. Identifiers G44, R7.25, R8.75, R8.76, R9.46, R10.85, R11.60, trap 47 and `curia-mcp` 0.8.7 were taken as planned: all were re-grepped free against `main` at 94f53356 (#129) before the plan commit. D61 items 30 to 32 were taken at Task 8, 29 having been the last.)
+
+**Commits on `accept-the-text-you-checked`** (on 94f53356): `7a2ada9d` the plan and erratum; `6f9d1512` the amendment (rulings 11 to 14, after Task 0's live record); `23777c44` Task 0 (the seams and probes PK1 to PK41, seen red); `ad6a4181` Task 1 (the Forum: `ChainRootOf`, the accept route, `kind`, `replaced_relation`, `IsAccepted` by the chain root's thread); `c954f176` Task 2 (the reference client and the CLI); `735337c7` Task 3 (the MCP adapter, 0.8.7, `curia_read`'s accepted line from the thread root's member); Task 4 changed no file (the end-to-end probes PK27, PK28, PK32 and PK35 went green with Tasks 1 to 3); `c00d9a65` Task 5 (existing facts follow the new rule and wording; `IsAcceptedIn` takes a `PostId`, which the R11.34 port-string fence required). Task 8 is the docs commit after it.
+
+**Probes.** PK1 to PK41, 69 red cases by assertion on the unmodified tree before any code; the controls (PK15 and PK17 on the Application tree, and the others the report names) were green first by design. Task 0's live record changed the rulings (11 to 14: the seam reaches the readers; `curia_read`'s accepted line is the question's word; reach decides the form of a probe; the T0 budget on `resolve` is not this stage's), and PK3b, PK4, PK7, PK9, PK10, PK15, PK17 and PK18 were amended in place, PK3b's second half removed, PK33 to PK41 and FPK35 to FPK41 added.
+
+**Falsification.** FPK1 to FPK41: 41 of 41 red (FPK40 as three plants, 40a, 40b and 40c). FPK3 and FPK40c's patch was widened to also change the R8.69 detail to the revision's parent, because a check-only change left PK10 green and went red on PK1 only (honest revision, `parent` the answer); FPK11 went red through PK4, PK6 and PK7, not PK8 (PK8's chain is valid, so the row's named probe was wrong); FPK13 and FPK35 first failed to build under analyzers CA1822, CA1841 and CA1062 and were rerun with the patch text changed. Every restore was a plain copy plus `touch`, checked against the recorded hash (`fpk-before.sha`), and the unpatched tree was green after.
+
+**Gates** (from `task-1to5-report.md`, at `c00d9a65`): Release build 0 warnings, Debug build 0 warnings; Domain.Primitives 64, Domain 840, Application 541, Canon 329, Canon.Sodium 32, AuthN 140, Client 1112, Infrastructure 160, Mcp 628 and 1 skipped (pre-existing), Architecture 59 in Release and in Debug; Api 1036 passed and 1 failed (`StubFidelityTests.R9_36`, fixed by teaching the stub `kind` and rerun green); the request fuzzer's ledger empty; `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red. Task 7's cleanup dropped two `curia_e2e_*` databases that belonged to the controller's live whole run, so that run was invalid and the Api suite was rerun alone.
+
+**Live run (Task 7)**, the fixed build against a fresh database: 14 of 14 held (`curia resolve` and `curia_resolve` of a revision accepted with a `replaced_relation`; the readers print `a revision` and how to accept one; the five hand-signed seeds stored and refused as before; a lying-`parent` revision accepted by the true asker makes the true question's `accepted_answer` name it while the stranger's thread says none accepted in all of `curia read`, `thread` and `curia_read`; revisions of a comment and of a question refused `chain=comment` and `chain=question`; the tier count once per thread, 5 threads for 5; a withheld revision accepted and told by kind; concurrent accepts recorded in sequence; both relations named; a replay records nothing; a stranger refused `own-thread-only`; `curia verify` of the accepted revisions verified, offline, after a signed head).
+
+**A defect found on the way.** None in the Forum. Three leads are filed as D61 items 30 to 32.
+
+**Left open by this PR:** D61 item 30 (the thread route lists a revision beneath its author-written `parent`), item 31 (an acceptance draws on a T0 asker's daily post budget) and item 32 (the review's minors). D82 stays an evidence-gated lead. The eighth five-agent exercise is next (seeds in "Next stage").
+
+The PR is #130, on `main` at ________.
+
+Final whole run: FINAL_RUN
