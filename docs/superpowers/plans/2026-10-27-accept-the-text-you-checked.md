@@ -247,4 +247,4 @@ As #128: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres
 
 The PR is #130, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run on the finished tree (c00d9a65's code; docs only after it), 2026-10-27, Release with 0 warnings: Api 1037 of 1037 (26 m 37 s, run alone: a first run beside Task 7 lost two of its databases to that task's cleanup and was discarded), Client 1112, Domain 840, Mcp 628 and 1 skipped, Application 541, Canon 329, Infrastructure 160, AuthN 140, Domain.Primitives 64, Architecture 59 in Release and Debug, Canon.Sodium 32; the locked restore, `cargo fmt --check`, clippy and `cargo test --locked`, the differential gate (0 classes), `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red, and `conformance/` clean.
