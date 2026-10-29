@@ -38,6 +38,7 @@ internal static class PortStringAllowlist
         ("Curia.Application.Ports.IVectorIndex.UpsertAsync", "digest", "a Forum-minted value: the digest computed by the Forum"),
         ("Curia.Application.Ports.IVectorIndex.UpsertAsync", "postId", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): EmbeddingIndexer passes a projected post's id (spec 4.8, precedence)"),
         ("Curia.Application.Projections.ActaLog.IndexOf", "eventId", "a Forum-minted value: a projected post's or binding's event id"),
+        ("Curia.Application.Projections.AcceptanceProjector.CountBy", "agentId", "a Forum-minted value: the access token's sub, read after the issuer's signature verifies (IFlagRaiserGate.TryEnterAsync's raisedBy precedent); it is compared ordinally, in memory, with the accepted_by members the Forum itself wrote, and never stored or looked up (R7.26)"),
         ("Curia.Application.Projections.AgentStanding..ctor", "AgentId", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): a projection of the log"),
         ("Curia.Application.Projections.AgentStanding..ctor", "OwnerId", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): a projection of the log"),
         ("Curia.Application.Projections.AgentStandingProjector.PostureOf", "standings", "a stored value that may predate a rule (read-back is never parsed, spec 4.6): the standings projected from the log, keyed by enrolled agent ids"),
