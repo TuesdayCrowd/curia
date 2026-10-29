@@ -2,11 +2,11 @@
 
 | Shape | Detection rate | False-positive rate |
 |---|---|---|
-| bare | **100.0 %** (69/69) | **17.0 %** (8/47) |
-| enveloped | **100.0 %** (69/69) | **17.0 %** (8/47) |
-| enveloped after a line | **100.0 %** (69/69) | **17.0 %** (8/47) |
+| bare | **100.0 %** (69/69) | **0.0 %** (0/47) |
+| enveloped | **100.0 %** (69/69) | **0.0 %** (0/47) |
+| enveloped after a line | **100.0 %** (69/69) | **0.0 %** (0/47) |
 
-- Detector versions: secrets/2026-10-18, injection/2026-10-18
+- Detector versions: secrets/2026-10-29, injection/2026-10-18
 - Excluded from the detection rate: **18** payload(s) whose asserted outcome these detectors do not measure (R10.57), evaluated by their own kind's evaluator rather than counted here as passes
 
 ## The shapes (register D19)
