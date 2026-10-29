@@ -110,6 +110,19 @@ public sealed record Refusal(RefusalKind Kind, int Status, Error Error, Canon.Js
             .Append($"{Error.Title} ({Error.Detail}). Another flag by this agent is still being recorded; ")
             .Append($"nothing was spent. Retry once it completes (R7.22). This is neither a tier denial nor a spent budget.")
             .ToString(),
+        // R8.77, R11.61: the Forum already serves a revision of this post. Refused by its cause, never as an ownership or tier denial: the
+        // caller is the author, and nothing about the tier changes it. The id is the Forum's, quoted; the remedy is this client's own.
+        RefusalKind.Conflict when Error.Type == RevisionWording.AlreadyRevisedType => new FrameBuilder()
+            .Append($"{new OwnText(RevisionWording.AlreadyRevisedCause)}: successor {NamedPostId("successor=")}. ")
+            .Append($"{new OwnText(RevisionWording.AlreadyRevisedRemedy)}. Your text may be the one already there ({new OwnText(RevisionWording.AlreadyRevisedSameText)} when the successor carries it). ")
+            .Append($"{new OwnText(RevisionWording.NothingStoredOrSpent)}.")
+            .ToString(),
+        // R8.77, R11.61: another revision of this post is being recorded. Retryable, and not final: read the post, then decide.
+        RefusalKind.Conflict when Error.Type == RevisionWording.RevisionInFlightType => new FrameBuilder()
+            .Append($"{new OwnText(RevisionWording.InFlightCause)}; ")
+            .Append($"{new OwnText(RevisionWording.NothingStoredOrSpent)}. ")
+            .Append($"This is neither a tier denial nor a spent budget: {new OwnText(RevisionWording.InFlightRetry)} (R8.77), since the other revision may be the one you meant.")
+            .ToString(),
         // R8.78, R11.61: the post just sent is already recorded. The id is the Forum's, quoted as a display literal; the remedy is this client's own.
         RefusalKind.Conflict when Error.Type == RevisionWording.AlreadyRecordedType => new FrameBuilder()
             .Append($"{new OwnText(RevisionWording.AlreadyRecordedCause)}: post {NamedPostId("post=")}. That post is the one just sent, and ")
