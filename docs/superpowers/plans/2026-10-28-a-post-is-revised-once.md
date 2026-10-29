@@ -283,9 +283,9 @@ As #130: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres
 
 **Deviations from the plan, recorded.**
 1. **Indexing runs under the hold** (the review's minor 2, accepted): the hold lasts from the gate to the append's commit, and the indexing the submission does sits inside it, so a hold is one submission's length, which is why the operator note in `IMPLEMENTATION_PLAN.md` names `idle_in_transaction_session_timeout` (the review's minor 4). Measured server-side about 20 ms at 2 KiB and about 90 ms at the largest legal body; the pool of 25 is not material by that measure.
-2. **A stub knob in Task 10**, so the digest-keyed readers' tolerance is exercised against a log the route no longer makes.
+2. **The stub knob's body landed in Task 10, not Task 4.** `StubLog.RefusesSubmissionsAs` (the stub log answering a submission with a named refusal) got its body in the Task 10 commit because RVO51's stub-fidelity fact needed it there; Task 4 changed only the descriptions and the version.
 3. **A new `503` slug, `curia/ingest/revision-check-unavailable`,** for the case where the post a revision names cannot be read under the hold; the plan said only "`503`". The errata's Status line records it.
-4. **An allowlist row** for the new seam, a wildcard (the review's minor 5; the precedent was noted).
+4. **An `IngestErrors.*` row in R11.34's port-string allowlist**, because the route now calls `IngestErrors.AlreadyRecorded(postId)`. Its reason mirrors the `EnrollmentErrors.*` row: the only string parameters are post ids the Forum read from its own log, placed in a `detail` and nowhere else. Being a wildcard, it also covers the earlier `UnstorableMember(string member)` and would admit a future factory taking a caller's string without a reason of its own (the review's minor 5).
 5. **The probe shape change**, every refusal being `application/json` (above).
 
 **Gates.** From `task-build-report.md`, Release unless noted, on the tree at the end of Task 5: Canon 329, Domain 840, Application 546, Infrastructure 167, Client 1116, Mcp 636 and 1 skipped, Architecture 65 (Release and Debug), AuthN 140, Sodium 32, Primitives 64, Api 1079 (the request fuzzer included, its ledger empty), solution build 0 warnings, `check-spec.py` clean, `falsify-spec-checks.py` 4 of 4. Cargo and the differential gate were not run: no Rust and no frozen format was touched. The fix round re-ran Application (547), Infrastructure (168) and the Api `RevisionOnce*` and stub-fidelity classes (34), all green. FINAL_RUN is the controller's whole-suite run on the PR's head, below.
@@ -298,4 +298,4 @@ As #130: every .NET assembly in Release (`ScreeningCostTests` excluded; Postgres
 
 The PR is #131, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run on the finished code (f6db0db1's code; docs only after it), 2026-10-28, Release with 0 warnings: Api 1081 of 1081 (29 m 39 s, the request fuzzer included, its ledger empty), Client 1116, Domain 840, Mcp 636 and 1 skipped, Application 547, Canon 329, Infrastructure 168, AuthN 140, Domain.Primitives 64, Architecture 65 in Release and Debug, Canon.Sodium 32; the locked restore, `cargo fmt --check`, clippy and `cargo test --locked`, the differential gate (0 classes), `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red, and `conformance/` clean.
