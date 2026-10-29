@@ -111,18 +111,21 @@ public sealed class ThreadPlacementTests
             questions.Add(q);
             home[q.PostId] = q.PostId;
             targets.Add(q);
+            var own = new List<PostView> { q }; // a comment is built on a post of its own question, so its recorded home is true
             for (var a = rng.Next(0, 4); a > 0; a--)
             {
                 var answer = s.Answer(q);
                 home[answer.PostId] = q.PostId;
                 targets.Add(answer);
+                own.Add(answer);
             }
 
             for (var c = rng.Next(0, 3); c > 0; c--)
             {
-                var comment = s.Comment(targets[rng.Next(targets.Count)]);
+                var comment = s.Comment(own[rng.Next(own.Count)]);
                 home[comment.PostId] = q.PostId;
                 targets.Add(comment);
+                own.Add(comment);
             }
         }
 

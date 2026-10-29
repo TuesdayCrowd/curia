@@ -28,7 +28,7 @@ namespace Curia.Api.Tests;
 /// is read raw, since a deserializer collapses an absent member and a null one. The fold used by the replay drill (PK20) is applied to the events table's rows,
 /// not to anything the route returned. A negative case has a control: PK13, PK16, PK17, PK38 and PK39 are green on the unmodified tree by design.</para>
 ///
-/// <para><b>Reach (plan ruling 13, Task 0 item 4).</b> A revision with a lying <c>parent</c> is stored by the route; a stranger's revision, a dangling
+/// <para><b>Reach (plan ruling 13, Task 0 item 4).</b> A revision with a lying <c>parent</c> is stored by the route (and, since PR 3, listed in its chain root's thread, never in the one its <c>parent</c> names, R9.48); a stranger's revision, a dangling
 /// <c>prev</c> and an answer under a non-question are refused at ingest, so PK4, PK7 and PK10 are seeded with <c>AppendStoredPostAsync</c> (a post the log
 /// holds although the route would not take it, the shape of a log this code did not write), and PK2, PK3, PK19, PK20 and PK34 seed the <b>acceptance</b> with
 /// <c>AppendStoredAcceptanceAsync</c> (the host's own use case, none of the route's checks) so each reads the state apart from the route that records it.
@@ -654,7 +654,7 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
 
     /// <summary>
     /// The seam (Task 0 item 4): a stranger asked QS; the answerer's revision RL of the answer under the asker's question has, as <c>parent</c>, QS. The route
-    /// stores it, and it lists in QS's thread.
+    /// stores it, and the thread route lists it with its chain (R9.48), not in QS's thread.
     /// </summary>
     private async Task<Lying> LyingAsync()
     {
@@ -688,12 +688,13 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
     }
 
     /// <summary>
-    /// PK34 (R9.46, G38's recorded non-property), the state seeded apart from the route: the true question's acceptance names RL. The thread route still lists RL
-    /// beneath the stranger's question (it follows <c>parent</c>) with <c>accepted</c> false; the true thread does not list RL, its answer reads not accepted,
-    /// and the question's member names RL with its kind.
+    /// PK34 (R9.46, R9.48), the state seeded apart from the route: the true question's acceptance names RL. The thread route no longer lists RL beneath the
+    /// stranger's question (it places a revision by its chain root and never by <c>parent</c>); the true thread lists RL and says it is accepted, the answer it
+    /// revises reads not accepted, and the question's member names RL with its kind. (PR 3 changed this fact's object, not its strength: before, the stranger's
+    /// thread listed RL with <c>accepted</c> false and the true thread did not list it.)
     /// </summary>
     [Fact]
-    public async Task R9_46_PK34_AStrangersThreadNeverSaysItsAskerAcceptedTheRevision()
+    public async Task R9_46_PK34_AStrangersThreadNeverHoldsTheRevisionItsAskerNeverSaw()
     {
         var lying = await LyingAsync();
         var scene = lying.Scene;
@@ -702,9 +703,9 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
         var strangersThread = await ThreadAsync(lying.Qs.PostId);
         var trueThread = await ThreadAsync(scene.Question.PostId);
 
-        Assert.True(strangersThread.ContainsKey(lying.Rl.PostId), "the thread route no longer lists a revision beneath its author-written parent");
-        Assert.False(strangersThread[lying.Rl.PostId].GetProperty("accepted").GetBoolean(), "the stranger's thread says its asker accepted a text they never saw");
-        Assert.False(trueThread.ContainsKey(lying.Rl.PostId));
+        Assert.False(strangersThread.ContainsKey(lying.Rl.PostId), "the thread route lists a revision beneath its author-written parent, a stranger's question");
+        Assert.True(trueThread.ContainsKey(lying.Rl.PostId), "the thread route does not list a revision in the thread of its chain root");
+        Assert.True(trueThread[lying.Rl.PostId].GetProperty("accepted").GetBoolean(), "the true thread does not say its asker accepted the revision");
         Assert.False(trueThread[scene.Answer1.PostId].GetProperty("accepted").GetBoolean());
         var member = AcceptedAnswerMember(trueThread[scene.Question.PostId]);
         Assert.Equal(lying.Rl.PostId, member.GetProperty("post_id").GetString());
@@ -713,7 +714,9 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
 
     /// <summary>
     /// PK34b (R9.46, plan S5): a crafted acceptance recorded under the stranger's question naming RL (by that question's asker; the route would never record it
-    /// there). RL's chain root is the answer under the true question, so RL reads accepted in no thread: not in the stranger's listing and not on its own read.
+    /// there). RL's chain root is the answer under the true question, so RL reads accepted in no thread: it is not in the stranger's listing, it is in the true
+    /// thread's and the answer's listing with <c>accepted</c> false, and its own read says false. (PR 3 changed this fact's object, not its strength: it read RL
+    /// through the stranger's listing, which no longer holds it.)
     /// </summary>
     [Fact]
     public async Task R9_46_PK34b_AnAcceptanceRecordedUnderTheStrangersQuestionMarksNothing()
@@ -722,8 +725,12 @@ public sealed class AcceptRevisionEndpointTests(ForumFixture forum) : IClassFixt
         await forum.AppendStoredAcceptanceAsync(lying.Qs.PostId, lying.Rl.PostId, lying.Stranger.Agent.AgentId, Ct);
 
         var strangersThread = await ThreadAsync(lying.Qs.PostId);
+        var trueThread = await ThreadAsync(lying.Scene.Question.PostId);
+        var answersThread = await ThreadAsync(lying.Scene.Answer1.PostId);
 
-        Assert.False(strangersThread[lying.Rl.PostId].GetProperty("accepted").GetBoolean(), "RL is listed accepted beneath a thread its chain root does not belong to");
+        Assert.False(strangersThread.ContainsKey(lying.Rl.PostId), "RL is listed beneath a thread its chain root does not belong to");
+        Assert.False(trueThread[lying.Rl.PostId].GetProperty("accepted").GetBoolean(), "RL is listed accepted in its true thread by an acceptance recorded elsewhere");
+        Assert.False(answersThread[lying.Rl.PostId].GetProperty("accepted").GetBoolean(), "RL is listed accepted in the listing asked for at its answer");
         Assert.False((await PostJsonAsync(lying.Rl.PostId)).GetProperty("accepted").GetBoolean(), "RL reads accepted by its own parent");
     }
 

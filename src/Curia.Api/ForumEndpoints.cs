@@ -1521,15 +1521,17 @@ public static class ForumEndpoints
         // thread is. An id of white space alone once reached PostProjector.Thread, which threw, and an
         // anonymous GET /v1/threads/%0A answered 500 (register D25's sweep; R11.33, errata G17). Since
         // R11.34 (errata G18) Thread takes a PostId, parsed here at its first use.
+        // R9.48: a revision is placed by its correction chain's root, so the index is folded above the call, from all the log's posts and before
+        // the serving filter below (a withheld hop does not detach what is placed by it).
         var posts = PostProjector.Fold(log);
+        var corrections = CorrectionIndex.Fold(posts, servable);
         var thread = PostId.Parse(rootPostId, "root_post_id").TryGetValue(out var root, out _)
             ? ImmutableArray.CreateRange(
-                PostProjector.Thread(posts, root!).Where(p => servable(p.PostId) && Discussion(p)))
+                PostProjector.Thread(posts, root!, corrections).Where(p => servable(p.PostId) && Discussion(p)))
             : [];
         var standings = AgentStandingProjector.Fold(log);
         var disputed = DisputedPosts.Fold(log, posts);
         var verification = VerificationProjector.Fold(posts, standings, servable, disputed);
-        var corrections = CorrectionIndex.Fold(posts, servable);
         var acta = ActaOf(log);
         var accepted = AcceptedAnswerIndex.Fold(log, posts, servable);
 

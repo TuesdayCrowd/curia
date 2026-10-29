@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Curia.Canon.Json;
 using Curia.Domain;
+using Curia.Domain.Content;
 using Curia.Domain.Primitives;
 using Curia.Domain.Primitives.Boundary;
 
@@ -106,20 +107,33 @@ public static class PostProjector
         return posts.ToImmutable();
     }
 
-    /// <summary>Threads: a root post and everything descended from it, in seq order.</summary>
-    public static ImmutableArray<PostView> Thread(ImmutableArray<PostView> posts, PostId rootPostId)
+    /// <summary>
+    /// Threads (errata G47, R9.48): a root post and everything placed under it, in seq order. A post of kind <c>revision</c> is placed by the root of its
+    /// correction chain (<see cref="CorrectionIndex.ChainRootOf"/>, R8.75's one rule) and never by its own <c>parent</c>, which is its author's word and is
+    /// read by nothing that decides: it is a member exactly when that root is a member (the thread rooted at the revision itself excepted, the requested
+    /// root being always listed), and a revision whose chain root is itself is therefore in no thread but the one it roots. Every other post is placed by
+    /// its <c>parent</c>, a revision counting as a member of the threads this rule gives it. Membership is decided on all the log's posts; the serving
+    /// filter is the caller's and comes after.
+    /// </summary>
+    public static ImmutableArray<PostView> Thread(ImmutableArray<PostView> posts, PostId rootPostId, CorrectionIndex corrections)
     {
         ArgumentNullException.ThrowIfNull(rootPostId);
+        ArgumentNullException.ThrowIfNull(corrections);
 
         var inThread = new HashSet<string>(StringComparer.Ordinal) { rootPostId.Value };
         var thread = ImmutableArray.CreateBuilder<PostView>();
 
-        // One forward pass suffices because a post's parent is always older than it -- the parent
-        // must have been accepted before it could be cited -- and the input is in seq order. A
-        // reply whose parent is not in the thread is simply not in the thread.
+        // One forward pass suffices because a post's parent, and a revision's chain root (whose digest is in the revision's signed prev), is always
+        // older than it -- it must have been accepted before it could be cited -- and the input is in seq order. A post placed under something that
+        // is not in the thread is simply not in the thread.
         foreach (var post in posts)
         {
-            if (post.PostId == rootPostId.Value || (post.Parent is { } p && inThread.Contains(p)))
+            var isRoot = post.PostId == rootPostId.Value;
+            var placedBy = PostKinds.TryParse(post.Kind, out var kind) && kind is PostKind.Revision
+                ? corrections.ChainRootOf(post).PostId
+                : post.Parent;
+
+            if (isRoot || (placedBy is { } p && p != post.PostId && inThread.Contains(p)))
             {
                 inThread.Add(post.PostId);
                 thread.Add(post);
@@ -127,17 +141,6 @@ public static class PostProjector
         }
 
         return thread.ToImmutable();
-    }
-
-    /// <summary>
-    /// PR 3's seam (errata G47, R9.48), inert until Task 1: the thread of <paramref name="rootPostId"/> given the correction index the route folds.
-    /// It places exactly as <see cref="Thread(ImmutableArray{PostView}, PostId)"/> does, by <c>parent</c>, and ignores <paramref name="corrections"/>, so
-    /// the probes can name the final signature and fail by assertion. Task 1 makes it the one <c>Thread</c>.
-    /// </summary>
-    public static ImmutableArray<PostView> Thread(ImmutableArray<PostView> posts, PostId rootPostId, CorrectionIndex corrections)
-    {
-        ArgumentNullException.ThrowIfNull(corrections);
-        return Thread(posts, rootPostId);
     }
 
     /// <summary>
