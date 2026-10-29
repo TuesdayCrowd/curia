@@ -1739,38 +1739,64 @@ public static class ForumEndpoints
         var now = clock.GetUtcNow();
         var tier = TierPolicy.Evaluate(facts!, now);
 
-        var decision = await pdp.EvaluateAsync(
-            new AuthorizationRequest(
-                tier,
-                facts!.CredentialState,
-                ResourceKind.Answer,
-                ActionKind.Accept,
-                PostsToday: PostsInBudgetWindow(log, subject, now)),
-            cancellationToken).ConfigureAwait(false);
-
-        if (!decision.TryGetValue(out var d, out var decisionError))
-            return Problem(StatusCodes.Status403Forbidden, decisionError!);
-
-        // The resource has to be resolved before the qualifier can be discharged, and the answer
-        // has to exist before "whose thread is it" is even a question -- so the shape of the target
-        // is settled first, and reported with its own slugs rather than as a bare authorization
-        // refusal. A caller that mistyped an id should not be told it lacks permission.
-        // R11.34 (errata G18): the id is parsed at its first use, this lookup; one that is no post id
-        // names no post, and is answered as an id no post has.
+        // The target is resolved here as pure computation, before the policy is asked, so that the policy can be told whether this call records
+        // nothing (R7.26: the answer named is the one already standing for its thread, R8.68). No response moves: every refusal about the target
+        // is still made after the decision, so an asker at the budget is told the budget whether the post exists or not, and an under-tier
+        // caller is never told whether it does. R11.34 (errata G18): the id is parsed at its first use; one that is no post id names no post.
         var posts = PostProjector.Fold(log);
         var answerId = PostId.Parse(postId, "post_id").TryGetValue(out var parsed, out _) ? parsed : null;
         var answer = answerId is null
             ? null
             : posts.FirstOrDefault(p => string.Equals(p.PostId, answerId.Value, StringComparison.Ordinal));
 
+        // R8.75 (errata G44): an answer, or a revision whose correction chain ends at an answer. The walk is CorrectionIndex's (R9.28's rule,
+        // hop by hop) over the log's posts, not the serving filter: a withheld hop is still a hop. `kind=` stays last in the detail.
+        var corrections = CorrectionIndex.Fold(posts, static _ => true);
+        var chainRoot = answer is null ? null : corrections.ChainRootOf(answer);
+
+        // Table 10's "(own thread)": the thread this answer replies to must be one the caller
+        // started. R8.75: the thread is the chain root's, an answer's parent being its thread root (R8.70); a revision's own `parent` is
+        // written by its author and is read by nobody here.
+        var root = chainRoot?.Parent is { } parent
+            ? posts.FirstOrDefault(p => string.Equals(p.PostId, parent, StringComparison.Ordinal))
+            : null;
+
+        // R7.26: the answer named exists, its thread root exists, and the log's last acceptance for that thread is this answer. Computed from the
+        // same fold the serving path reads; RecordAsync decides again under its own read, so a race can make this wrong in either direction and the
+        // consequence is bounded (the budget is overshot by at most the number in flight, register D88).
+        var acceptRecordsNothing = answer is not null
+            && root is not null
+            && AcceptanceProjector.Fold(log).TryGetValue(root.PostId, out var standingAnswer)
+            && string.Equals(standingAnswer, answer.PostId, StringComparison.Ordinal);
+
+        var decision = await pdp.EvaluateAsync(
+            new AuthorizationRequest(
+                tier,
+                facts!.CredentialState,
+                ResourceKind.Answer,
+                ActionKind.Accept,
+                AcceptsToday: AcceptsInBudgetWindow(log, subject, now),
+                AcceptRecordsNothing: acceptRecordsNothing),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!decision.TryGetValue(out var d, out var decisionError))
+            return Problem(StatusCodes.Status403Forbidden, decisionError!);
+
+        // R7.26: a denial of the cell itself (the tier, the quarantine, the acceptance budget) is final and is told before the target is looked up, so a
+        // caller who may not accept, or has spent its budget, learns nothing of whether the id names a post. Only a qualifier (ownership) waits for the target.
+        if (!d!.IsPermitted)
+            return Problem(
+                StatusCodes.Status403Forbidden,
+                Denial(d, $"{d.Reason} tier={tier.Tier}"));
+
+        // The resource has to be resolved before the qualifier can be discharged, and the answer
+        // has to exist before "whose thread is it" is even a question -- so the shape of the target
+        // is settled first, and reported with its own slugs rather than as a bare authorization
+        // refusal. A caller that mistyped an id should not be told it lacks permission.
         if (answer is null)
             return Problem(StatusCodes.Status404NotFound, new Error(
                 "curia/accept/no-such-post", "No such post", $"post={postId}"));
 
-        // R8.75 (errata G44): an answer, or a revision whose correction chain ends at an answer. The walk is CorrectionIndex's (R9.28's rule,
-        // hop by hop) over the log's posts, not the serving filter: a withheld hop is still a hop. `kind=` stays last in the detail.
-        var corrections = CorrectionIndex.Fold(posts, static _ => true);
-        var chainRoot = corrections.ChainRootOf(answer);
         var isAnswer = string.Equals(answer.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal);
         var isRevision = string.Equals(answer.Kind, PostKinds.Wire(PostKind.Revision), StringComparison.Ordinal);
 
@@ -1780,20 +1806,13 @@ public static class ForumEndpoints
                 "Only an answer may be accepted",
                 $"post={postId} kind={answer.Kind}"));
 
-        if (isRevision && !string.Equals(chainRoot.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal))
+        if (isRevision && !string.Equals(chainRoot!.Kind, PostKinds.Wire(PostKind.Answer), StringComparison.Ordinal))
             return Problem(StatusCodes.Status400BadRequest, new Error(
                 "curia/accept/not-an-answer",
                 "Only an answer may be accepted",
                 $"post={postId} chain={chainRoot.Kind} kind={answer.Kind}"));
 
-        // Table 10's "(own thread)": the thread this answer replies to must be one the caller
-        // started. R8.75: the thread is the chain root's, an answer's parent being its thread root (R8.70); a revision's own `parent` is
-        // written by its author and is read by nobody here.
-        var root = chainRoot.Parent is { } parent
-            ? posts.FirstOrDefault(p => string.Equals(p.PostId, parent, StringComparison.Ordinal))
-            : null;
-
-        d = d!.Discharge(root is not null && string.Equals(root.Author, subject, StringComparison.Ordinal));
+        d = d.Discharge(root is not null && string.Equals(root.Author, subject, StringComparison.Ordinal));
 
         if (!d.IsAllowed)
             return Problem(
@@ -2654,6 +2673,9 @@ public static class ForumEndpoints
         }
     }
 
+    /// <summary>The trailing window every Table 11 budget (posts, flags, acceptances) is counted over: 24 hours, not a calendar day.</summary>
+    private static readonly TimeSpan BudgetWindow = TimeSpan.FromDays(1);
+
     /// <summary>
     /// R7.15's "recent post rate", counted from the log the request already read.
     ///
@@ -2671,12 +2693,20 @@ public static class ForumEndpoints
     private static int PostsInBudgetWindow(
         IReadOnlyList<AppendedEvent> log, string agentId, DateTimeOffset now)
     {
-        var since = now - TimeSpan.FromDays(1);
+        var since = now - BudgetWindow;
 
         return PostProjector.Fold(log).Count(p =>
             string.Equals(p.Author, agentId, StringComparison.Ordinal)
             && p.ServerTimestamp.Value > since);
     }
+
+    /// <summary>
+    /// R7.26's acceptance count (errata G46): the acceptances the agent recorded in the posting budget's trailing 24 hours, from the
+    /// <c>answer.accepted</c> events' <c>accepted_by</c>. The one helper an eventual gate (register D88) would call.
+    /// </summary>
+    private static int AcceptsInBudgetWindow(
+        IReadOnlyList<AppendedEvent> log, string agentId, DateTimeOffset now) =>
+        AcceptanceProjector.CountBy(log, agentId, now - BudgetWindow);
 
     /// <summary>
     /// R7.22's flag count (errata G18): the flags the agent raised in the posting budget's trailing
@@ -2689,7 +2719,7 @@ public static class ForumEndpoints
     private static int FlagsInBudgetWindow(
         ImmutableArray<RaisedFlag> flags, string agentId, DateTimeOffset now)
     {
-        var since = now - TimeSpan.FromDays(1);
+        var since = now - BudgetWindow;
 
         return flags.Count(f =>
             string.Equals(f.RaisedBy, agentId, StringComparison.Ordinal)
