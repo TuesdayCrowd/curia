@@ -423,4 +423,4 @@ Written at Task 12 from the ledger and the records of Tasks 0 to 11; the branch 
 
 The PR is #133, on `main` at ________.
 
-Final whole run: FINAL_RUN
+Final whole run on the finished code (the T10 fix's code; docs only after it), 2026-10-29, Release with 0 warnings, built first and run `--no-build`: Api 1112 of 1112 (30 m 24 s, the request fuzzer included, its ledger empty), Client 1170, Domain 872, Mcp 682 and 1 skipped, Application 570, Canon 329, Infrastructure 168, AuthN 140, Domain.Primitives 64, Architecture 66 in Release and Debug, Canon.Sodium 32; the locked restore, `cargo fmt --check`, clippy and `cargo test --locked`, the differential gate (0 classes), `check-spec.py` clean and `falsify-spec-checks.py` 4 of 4 red, and `conformance/` clean.
