@@ -47,7 +47,7 @@ public sealed class FloorKindsTests : IDisposable
     private static string[] KindsOfResults(CallToolResult result) =>
         [.. result.Content.OfType<EmbeddedResourceBlock>()
             .Select(b => ((TextResourceContents)b.Resource).Text)
-            .Select(t => Regex.Match(t, @"^kind\s+(\S+)", RegexOptions.Multiline | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5)).Groups[1].Value)];
+            .Select(t => Regex.Match(t, "^kind\\s+\"([^\"]*)\"", RegexOptions.Multiline | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5)).Groups[1].Value)];
 
     /// <summary>The elements of the list that follows <paramref name="member"/>= in the block, as literals, or the words <c>not stated</c>; null where the member is not in the block.</summary>
     private static string[]? ListOf(string block, string member)

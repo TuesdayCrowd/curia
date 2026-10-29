@@ -132,7 +132,8 @@ public sealed record SearchHitDocument(ProvenancePost Post, long ScoreMicro, Why
 /// <summary>
 /// R10.2 as stated on the response: the floor in force, where it came from, and the kinds it applied to.
 /// <c>ExcludedByFloor</c> and <c>ExcludedDisputed</c> (R9.30) are the counts the Forum states; null means the
-/// Forum did not state one (an older Forum), which is not the same as zero.
+/// Forum did not state one (an older Forum), which is not the same as zero. The same holds of the two kind lists
+/// (R11.63): the default array is a list the Forum did not serve (<see cref="FloorKinds.NotStated"/>), and an empty array is one it served empty.
 /// </summary>
 public sealed record RetrievalFloorDocument(
     string Surface,
@@ -499,6 +500,13 @@ internal static class ForumDocuments
         if (!ReadClamp(floor).TryGetValue(out var clamp, out var clampError))
             return Result<SearchPage>.Fail(clampError!);
 
+        // R11.63 (errata G47): each kind list is read in three states. Absent is not stated (the default array), an array of strings is its value, and
+        // anything else (a string, an object, null, an array holding a non-string) is a malformed search page and not an empty list, which Strings would
+        // make of it: "nothing is excluded" said of a floor this reader could not read.
+        if (!KindList(floor, "applies_to").TryGetValue(out var appliesTo, out var listError)
+            || !KindList(floor, "not_applicable_to").TryGetValue(out var notApplicableTo, out listError))
+            return Result<SearchPage>.Fail(listError!);
+
         return Result<SearchPage>.Ok(new SearchPage(
             hits.ToImmutable(),
             ClientJson.String(o, "next_cursor"),
@@ -506,8 +514,8 @@ internal static class ForumDocuments
                 ClientJson.String(floor, "surface") ?? string.Empty,
                 ClientJson.String(floor, "min_verification") ?? string.Empty,
                 ClientJson.String(floor, "source") ?? string.Empty,
-                Strings(floor, "applies_to"),
-                Strings(floor, "not_applicable_to"),
+                appliesTo,
+                notApplicableTo,
                 excludedByFloor,
                 excludedDisputed,
                 clamp.PublishedDefault,
@@ -516,6 +524,17 @@ internal static class ForumDocuments
                 clamp.RequestedStated),
             ClientJson.String(o, "model") ?? string.Empty,
             (long)(ClientJson.Number(o, "corpus_bound") ?? 0)));
+    }
+
+    private static Result<ImmutableArray<string>> KindList(JsonValue.Object floor, string name)
+    {
+        var member = ClientJson.Member(floor, name);
+        if (member is null) return Result<ImmutableArray<string>>.Ok(default);
+
+        if (member is JsonValue.Array array && array.Items.All(item => item is JsonValue.String))
+            return Result<ImmutableArray<string>>.Ok([.. array.Items.Cast<JsonValue.String>().Select(item => item.Value)]);
+
+        return Result<ImmutableArray<string>>.Fail(ClientErrors.ResponseMalformed($"search page's floor {name} is not an array of strings"));
     }
 
     /// <summary>

@@ -76,6 +76,6 @@ public sealed class FloorListsClientTests
     {
         var (exit, stdout, _) = await SearchAsync(lists);
 
-        Assert.True(exit != 0, $"Expected: a failure Actual: exit 0 and a floor line: {FloorLine(stdout)}");
+        Assert.True(exit != 0, exit == 0 ? $"Expected: a failure Actual: exit 0 and a floor line: {FloorLine(stdout)}" : string.Empty);
     }
 }

@@ -530,7 +530,7 @@ internal sealed partial class ForumTools(
     {
         var frame = new FrameBuilder()
             .Append($"surface={page.Floor.Surface} min_verification={page.Floor.MinVerification} ")
-            .Append($"source={page.Floor.Source} applies_to={new OwnText(string.Join(",", page.Floor.AppliesTo.Select(DisplayLiteral.Of)))} ")
+            .Append($"source={page.Floor.Source} applies_to={FloorKinds.Render(page.Floor.AppliesTo, ",")} not_applicable_to={FloorKinds.Render(page.Floor.NotApplicableTo, ",")} ")
             .Append($"{ClampWords(page.Floor)} ")
             .Append($"model={page.Model} results={page.Results.Length} ")
             .Append($"excluded_by_floor={Count(page.Floor.ExcludedByFloor)} excluded_disputed={Count(page.Floor.ExcludedDisputed)}");

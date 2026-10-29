@@ -108,9 +108,9 @@ public sealed class AcceptBudgetToolTests : IDisposable
         Assert.True(problems.Length == 0, $"{string.Join("; ", problems)}. Expected: \"spends the acceptance budget, not the posting budget\"");
     }
 
-    /// <summary>TRW26. <c>curia-mcp</c> is 0.8.9: the descriptions and a refusal's wording change; no tool is added.</summary>
+    /// <summary>TRW26. <c>curia-mcp</c> was 0.8.9 here and is 0.8.10 since errata G47 (the pin follows the version; the name keeps its id): the descriptions and a refusal's wording change; no tool is added.</summary>
     [Fact]
-    public void R7_26_TRW26_CuriaMcpIs089() => Assert.Equal("0.8.9", ToolCatalogue.Version);
+    public void R7_26_TRW26_CuriaMcpIs089() => Assert.Equal("0.8.10", ToolCatalogue.Version);
 
     /// <summary>
     /// TRW53. <c>WriteRefused</c> for a lost race at <c>answer</c>/<c>accept</c> says the same as the CLI, in the adapter's frame: nothing was recorded, the

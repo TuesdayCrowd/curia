@@ -907,7 +907,7 @@ internal static class Program
         if (!found.TryGetValue(out var page, out var refusal)) return Output.Fail(refusal);
 
         Output.Line(Help.SearchBanner);
-        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {Literals(page.Floor.AppliesTo)}; not to {Literals(page.Floor.NotApplicableTo)}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
+        Output.Line($"floor     min_verification {page!.Floor.MinVerification} ({page.Floor.Source}, {page.Floor.Surface}); applies to {FloorKinds.Render(page.Floor.AppliesTo, ", ")}; not to {FloorKinds.Render(page.Floor.NotApplicableTo, ", ")}; removed by floor {Count(page.Floor.ExcludedByFloor)}; disputed {Count(page.Floor.ExcludedDisputed)}");
         Output.Line($"clamp     {ClampWords(page.Floor)}");
         Output.Line($"model     {page.Model}   corpus_bound {page.CorpusBound}");
         Output.Blank();
