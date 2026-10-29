@@ -40,7 +40,7 @@ public sealed class PwdScreeningEndpointTests(ForumFixture forum) : IClassFixtur
 
         Assert.True(
             log.Status == HttpStatusCode.Created,
-            $"Expected: 201 Actual: {(int)log.Status} {(log.Raw.StartsWith('{') ? JsonDocument.Parse(log.Raw).RootElement.GetProperty("detail").GetString() : log.Raw)}");
+            $"Expected: 201 Actual: {(int)log.Status} {log.Raw}");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, credential.Status);
         Assert.Matches(@"ConnectionStringPassword@\d+", credential.Raw);
         Assert.DoesNotContain("EXAMPLE-NOT-A-REAL-SECRET", credential.Raw, StringComparison.Ordinal);
