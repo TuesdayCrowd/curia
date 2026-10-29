@@ -65,6 +65,9 @@ public sealed class CachingPolicyDecisionPoint : IPolicyDecisionPoint
     ///
     /// <para><b><see cref="AuthorizationRequest.FlagsToday"/> is absent for the same reason</b> (R7.22,
     /// errata G18): only <c>flag</c>/<c>raise</c> consults it, and that is a write, never cached.</para>
+    ///
+    /// <para><b><see cref="AuthorizationRequest.AcceptsToday"/> and <see cref="AuthorizationRequest.AcceptRecordsNothing"/> are absent for the same
+    /// reason</b> (R7.26, errata G46): only <c>answer</c>/<c>accept</c> consults them, and that is a write, never cached.</para>
     /// </summary>
     internal readonly record struct CacheKey(
         PrincipalTier Tier,

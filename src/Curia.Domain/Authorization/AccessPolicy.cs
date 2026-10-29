@@ -120,10 +120,10 @@ public sealed record AuthorizationDecision(DecisionEffect Effect, string Reason,
 /// </param>
 /// <param name="AcceptsToday">
 /// R7.26 (errata G46): how many acceptances the principal has recorded in the same trailing window. Required for
-/// <c>answer</c>/<c>accept</c> once the budget is built; declared ahead of it so the probes compile.
+/// <c>answer</c>/<c>accept</c>; null there is a failure, never zero.
 /// </param>
 /// <param name="AcceptRecordsNothing">
-/// R7.26: the acceptance records nothing because the answer named is the one already standing (R8.68). Declared ahead of the budget.
+/// R7.26: the acceptance records nothing because the answer named is the one already standing (R8.68). It skips the budget comparison and nothing else: it never turns a tier, ownership or quarantine denial into an allow.
 /// </param>
 public sealed record AuthorizationRequest(
     EvaluatedTier Tier,
@@ -132,8 +132,8 @@ public sealed record AuthorizationRequest(
     ActionKind Action,
     int PostsToday = 0,
     int? FlagsToday = null,   // R7.22: required for flag/raise; null there is a failure, never zero
-    int? AcceptsToday = null,   // R7.26: required for answer/accept; null there is a failure, never zero (declared; not yet read)
-    bool AcceptRecordsNothing = false);   // R7.26: the call records nothing because the answer named already stands (declared; not yet read)
+    int? AcceptsToday = null,   // R7.26: required for answer/accept; null there is a failure, never zero
+    bool AcceptRecordsNothing = false);   // R7.26: the call records nothing because the answer named already stands
 
 /// <summary>
 /// §7's decision, composed: Table 6's credential state first, then Table 10's cell. Pure, total
@@ -178,14 +178,19 @@ public static class AccessPolicy
     /// budget it should not -- which an author notices and reports.</para>
     ///
     /// <para><b>One exception, and it is not made here:</b> <c>flag</c>/<c>raise</c> is a write that
-    /// spends a budget of its own (R7.22, errata G18), never the posting budget.
-    /// <see cref="Evaluate"/> excludes it by <see cref="IsFlagRaise"/> beside this test.</para>
+    /// spends a budget of its own (R7.22, errata G18), never the posting budget, and so does
+    /// <c>answer</c>/<c>accept</c> (R7.26, errata G46). <see cref="Evaluate"/> excludes them by <see cref="IsFlagRaise"/> and
+    /// <see cref="IsAccept"/> beside this test.</para>
     /// </summary>
     private static bool IsWrite(ActionKind action) =>
         !ActionKinds.IsRead(action) && action is not ActionKind.Enroll;
 
     private static bool IsFlagRaise(AuthorizationRequest r) =>
         r.Resource is ResourceKind.Flag && r.Action is ActionKind.Raise;
+
+    /// <summary>R7.26 (errata G46): <c>answer</c>/<c>accept</c> spends a budget of its own and never the posting budget.</summary>
+    private static bool IsAccept(AuthorizationRequest r) =>
+        r.Resource is ResourceKind.Answer && r.Action is ActionKind.Accept;
 
     /// <summary>
     /// R7.23: <c>key</c>/<c>rotate</c> and <c>key</c>/<c>retire</c> spend no posting budget. Rotation has a
@@ -216,6 +221,7 @@ public static class AccessPolicy
             ["table-10/delegated-grant-required"] = "Not permitted without a delegated grant",
             ["table-11/rate-budget-exhausted"] = "Not permitted: today's posting budget is spent",
             ["table-11/flag-budget-exhausted"] = "Not permitted: today's flag budget is spent",
+            ["table-11/accept-budget-exhausted"] = "Not permitted: today's acceptance budget is spent",
             ["table-11/quarantined-read-only"] = "Not permitted: this credential is quarantined and may only read and retire its key",
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
@@ -278,6 +284,7 @@ public static class AccessPolicy
         if (tierDecision.IsPermitted
             && IsWrite(request.Action)
             && !IsFlagRaise(request)
+            && !IsAccept(request)
             && !IsKeyAct(request)
             && request.PostsToday >= TierPolicy.PostsPerDay(request.Tier.Tier))
             return Result<AuthorizationDecision>.Ok(new AuthorizationDecision(
@@ -296,6 +303,11 @@ public static class AccessPolicy
                     DecisionEffect.Deny, "table-11/flag-budget-exhausted", GrantQualifier.None));
         }
 
+        // R7.26 (errata G46): an acceptance spends a budget of its own and never the posting budget. A missing count is a failure,
+        // never an allow, in every credential state; the comparison itself waits for the quarantine intersection below.
+        if (tierDecision.IsPermitted && IsAccept(request) && request.AcceptsToday is null)
+            return Result<AuthorizationDecision>.Fail(AuthorizationErrors.AcceptCountMissing());
+
         // Appendix F.1: "Quarantine dominates everything." Applied as an intersection with the
         // tier's own answer, never as a grant in its own right: a quarantined principal gets the
         // reads its tier already had, and nothing else. Written as a restriction rather than as a
@@ -309,6 +321,15 @@ public static class AccessPolicy
                     ? tierDecision with { Reason = "table-11/quarantined-read-only" }
                     : new AuthorizationDecision(
                         DecisionEffect.Deny, "table-11/quarantined-read-only", GrantQualifier.None));
+
+        // R7.26: after the intersection, so a quarantined credential is told the quarantine and not a budget that waiting would reset. A
+        // call that records nothing (the answer named already stands, R8.68) is never refused for the budget and gains nothing from it.
+        if (tierDecision.IsPermitted
+            && IsAccept(request)
+            && !request.AcceptRecordsNothing
+            && request.AcceptsToday >= TierPolicy.AcceptsPerDay(request.Tier.Tier))
+            return Result<AuthorizationDecision>.Ok(new AuthorizationDecision(
+                DecisionEffect.Deny, "table-11/accept-budget-exhausted", GrantQualifier.None));
 
         return Result<AuthorizationDecision>.Ok(tierDecision);
     }
