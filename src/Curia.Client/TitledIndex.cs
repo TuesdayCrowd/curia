@@ -58,7 +58,7 @@ public static class TitledIndex
         // R10.79: directly beneath the first line, the row states an acceptance the Forum serves, as the line form's
         // frame does; a screen's list rows are the exception (IndexRow writes the first line only) and its header
         // states it (R10.74).
-        if (post.Accepted) frame.Line($"   {new OwnText(Passage.AcceptedStatement)}");
+        if (post.Accepted) frame.Line($"   {new OwnText(Passage.AcceptedStatementFor(post.Kind))}");
         // R10.80: and a supersession the Forum serves, or that it served none, from Supersession's words; an empty list is silence.
         if (Supersession.Row(post.Provenance.SupersededBy) is { } superseded) frame.Line($"   {superseded}");
         // R10.81: and which answer settles a question, from AnswerStanding's words.

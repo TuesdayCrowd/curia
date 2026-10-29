@@ -178,7 +178,7 @@ public sealed partial class ChainEndToEndTests(KestrelForumFixture forum) : ICla
         AssertStatesTheRevision("curia read", read.Stdout, scene.Q6);
         AssertStatesTheRevision("curia thread", ChunkOf(thread.Stdout, FramePost(), lp1), scene.Q6);
         AssertStatesTheRevision("curia search --titles", ChunkOf(titled.Stdout, IndexRow(), lp1), scene.Q6);
-        var hit = hits.Content.OfType<EmbeddedResourceBlock>().Select(b => ((TextResourceContents)b.Resource).Text).SingleOrDefault(t => t.Contains($"\"{lp1}\"", StringComparison.Ordinal));
+        var hit = hits.Content.OfType<EmbeddedResourceBlock>().Select(b => ((TextResourceContents)b.Resource).Text).SingleOrDefault(t => FramePost().Match(t) is { Success: true } m && m.Groups["id"].Value == lp1);
         Assert.True(hit is not null, "curia_search did not return LP1");
         AssertStatesTheRevision("curia_search", hit!, scene.Q6);
     }

@@ -170,7 +170,7 @@ internal static class PassageHeader
 
         // H6
         var h6 = Row($"forum says {provenance.VerificationLevel}");
-        if (post.Accepted) h6 += Row($"; {new OwnText(Passage.AcceptedStatement)}");
+        if (post.Accepted) h6 += Row($"; {new OwnText(Passage.AcceptedStatementFor(post.Kind))}");
         if (Supersession.Row(provenance.SupersededBy) is { } superseded) h6 += Row($"; {superseded}");
         if (AnswerStanding.Row(post.Kind, provenance.AcceptedAnswer) is { } answers) h6 += Row($"; {answers}");
         if (!provenance.Contradictions.IsDefaultOrEmpty) h6 += Row($"; {new OwnText("CONTRADICTED by")} {Literals(provenance.Contradictions)}");
