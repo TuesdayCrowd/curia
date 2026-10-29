@@ -21,8 +21,8 @@ set; SP scores recorded even if not yet weighted.*
 > an existing id from an invented one), the clients and the descriptions word it as the acceptance budget that resets, `pwd` is a password keyword only after a `;`, an opening quotation mark or a line start and not
 > when its value begins with `/`, `~`, `$` or `%` (detector `secrets/2026-10-29`, one pattern, the pinned 15 unchanged), and a lost race between acceptances of
 > one thread is decided again up to eight passes and then a retryable `503` `curia/accept/contended` with nothing recorded, never a `500`. Probes TRW1 to TRW56
-> (TRW54 to TRW56 added by the falsification's fix round), falsification FTRW1 to FTRW73 (67 red on the first form; the six others are recorded in the
-> plan's "As run"), the live run 17 of 17 (D89: 0 of 320 `500`s; D88: 16 simultaneous accepts by a T0 asker with a limit of 10 recorded all 16, overshoot 6).
+> (TRW54 to TRW56 added by the falsification's fix round), falsification FTRW1 to FTRW73 (69 red on the first form; the four others, three gaps closed by
+> TRW54 to TRW56 and one harmless, are recorded in the plan's "As run"), the live run 17 of 17 (D89: 0 of 320 `500`s; D88: 16 simultaneous accepts by a T0 asker with a limit of 10 recorded all 16, overshoot 6).
 > **PR 3** (D85, D86, D61 items 33 to 36; errata G47, whose provisional section 9 requirement R9.47 G45 took, so it re-greps and takes the next free number there)
 > follows, then **the ninth five-agent exercise**, seeded with parallel MCP tool calls, the T0 asker who revised before accepting (now: the acceptance is
 > recorded, and an eleventh in a day is refused with the new words) and a build-log answer carrying `$PWD` (now: stored). D88 (neither the posting budget
